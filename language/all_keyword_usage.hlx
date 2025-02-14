@@ -9,7 +9,7 @@ class Foo {
     let a: u8;
     let b: u8;
 
-    fn _string!()  -> string {
+    op as fn (self) -> *string {
         return "Foo";
     }
 
@@ -289,13 +289,6 @@ module idk_something_else {
 
     try { errorable_fn_returns_result() } catch (err:Err) { };
 }
-
-
-
-
-
-
-
 
 //                             ffi "py" import os; ffi "py" import time; ffi "py" import
 //                         math; fn main() { let A: float = 0.0; let B:
