@@ -3,6 +3,7 @@ slowly start rewriting the following in helix itself:
   - [ ] Custom error types
   - [ ] Error propagation
   - [ ] Error logging
+  - [ ] color error carrots (yellow for warn, red for error, blue for info)
   - [ ] Compile/runtime error distinction
 
 - [ ] **AST Generation**
