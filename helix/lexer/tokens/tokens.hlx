@@ -1,0 +1,338 @@
+/* keywords
+const
+unsafe
+op
+try
+catch
+if
+else
+has
+derives
+as
+pub
+priv
+prot
+static
+inline
+eval
+async
+finally
+with
+unless
+while
+for
+panic
+yield
+return
+break
+continue
+case
+default
+match
+let
+ffi
+requires
+fn
+class
+enum
+type
+module
+struct
+interface
+extend
+test
+macro
+import
+*/
+enum TokenType {
+    Keyword_const,
+    Keyword_unsafe,
+    Keyword_op,
+    Keyword_try,
+    Keyword_catch,
+    Keyword_if,
+    Keyword_else,
+    Keyword_has,
+    Keyword_derives,
+    Keyword_as,
+    Keyword_pub,
+    Keyword_priv,
+    Keyword_prot,
+    Keyword_static,
+    Keyword_inline,
+    Keyword_eval,
+    Keyword_async,
+    Keyword_finally,
+    Keyword_with,
+    Keyword_unless,
+    Keyword_while,
+    Keyword_for,
+    Keyword_panic,
+    Keyword_yield,
+    Keyword_return,
+    Keyword_break,
+    Keyword_continue,
+    Keyword_case,
+    Keyword_default,
+    Keyword_match,
+    Keyword_let,
+    Keyword_ffi,
+    Keyword_requires,
+    Keyword_fn,
+    Keyword_class,
+    Keyword_enum,
+    Keyword_type,
+    Keyword_module,
+    Keyword_struct,
+    Keyword_interface,
+    Keyword_extend,
+    Keyword_test,
+    Keyword_macro,
+    Keyword_import,
+    Keyword_assert
+
+}
+
+fn str_to_token_kind(const str: *string) -> TokenType? {
+    if (*str) == "fn" {
+        return TokenType::Keyword_fn;
+    } else if (*str) == "const" {
+        return TokenType::Keyword_const;
+    } else if (*str) == "unsafe" {
+        return TokenType::Keyword_unsafe;
+    } else if (*str) == "op" {
+        return TokenType::Keyword_op;
+    } else if (*str) == "try" {
+        return TokenType::Keyword_try;
+    } else if (*str) == "catch" {
+        return TokenType::Keyword_catch;
+    } else if (*str) == "if" {
+        return TokenType::Keyword_if;
+    } else if (*str) == "else" {
+        return TokenType::Keyword_else;
+    } else if (*str) == "has" {
+        return TokenType::Keyword_has;
+    } else if (*str) == "derives" {
+        return TokenType::Keyword_derives;
+    } else if (*str) == "as" {
+        return TokenType::Keyword_as;
+    } else if (*str) == "pub" {
+        return TokenType::Keyword_pub;
+    } else if (*str) == "priv" {
+        return TokenType::Keyword_priv;
+    } else if (*str) == "prot" {
+        return TokenType::Keyword_prot;
+    } else if (*str) == "static" {
+        return TokenType::Keyword_static;
+    } else if (*str) == "inline" {
+        return TokenType::Keyword_inline;
+    } else if (*str) == "eval" {
+        return TokenType::Keyword_eval;
+    } else if (*str) == "async" {
+        return TokenType::Keyword_async;
+    } else if (*str) == "finally" {
+        return TokenType::Keyword_finally;
+    } else if (*str) == "with" {
+        return TokenType::Keyword_with;
+    } else if (*str) == "unless" {
+        return TokenType::Keyword_unless;
+    } else if (*str) == "while" {
+        return TokenType::Keyword_while;
+    } else if (*str) == "for" {
+        return TokenType::Keyword_for;
+    } else if (*str) == "panic" {
+        return TokenType::Keyword_panic;
+    } else if (*str) == "yield" {
+        return TokenType::Keyword_yield;
+    } else if (*str) == "return" {
+        return TokenType::Keyword_return;
+    } else if (*str) == "break" {
+        return TokenType::Keyword_break;
+    } else if (*str) == "continue" {
+        return TokenType::Keyword_continue;
+    } else if (*str) == "case" {
+        return TokenType::Keyword_case;
+    } else if (*str) == "default" {
+        return TokenType::Keyword_default;
+    } else if (*str) == "match" {
+        return TokenType::Keyword_match;
+    } else if (*str) == "let" {
+        return TokenType::Keyword_let;
+    } else if (*str) == "ffi" {
+        return TokenType::Keyword_ffi;
+    } else if (*str) == "requires" {
+        return TokenType::Keyword_requires;
+    } else if (*str) == "fn" {
+        return TokenType::Keyword_fn;
+    } else if (*str) == "class" {
+        return TokenType::Keyword_class;
+    } else if (*str) == "enum" {
+        return TokenType::Keyword_enum;
+    } else if (*str) == "type" {
+        return TokenType::Keyword_type;
+    } else if (*str) == "module" {
+        return TokenType::Keyword_module;
+    } else if (*str) == "struct" {
+        return TokenType::Keyword_struct;
+    } else if (*str) == "interface" {
+        return TokenType::Keyword_interface;
+    } else if (*str) == "extend" {
+        return TokenType::Keyword_extend;
+    } else if (*str) == "test" {
+        return TokenType::Keyword_test;
+    } else if (*str) == "macro" {
+        return TokenType::Keyword_macro;
+    } else if (*str) == "import" {
+        return TokenType::Keyword_import;
+    } else if (*str) == "assert" {
+        return TokenType::Keyword_assert;
+    }
+
+    return null;
+}
+
+
+fn token_kind_to_str(token: TokenType) -> string? {
+    switch token {
+        case TokenType::Keyword_fn {
+            return "fn";
+        }
+        case TokenType::Keyword_const {
+            return "const";
+        }
+        case TokenType::Keyword_unsafe {
+            return "unsafe";
+        }
+        case TokenType::Keyword_op {
+            return "op";
+        }
+        case TokenType::Keyword_try {
+            return "try";
+        }
+        case TokenType::Keyword_catch {
+            return "catch";
+        }
+        case TokenType::Keyword_if {
+            return "if";
+        }
+        case TokenType::Keyword_else {
+            return "else";
+        }
+        case TokenType::Keyword_has {
+            return "has";
+        }
+        case TokenType::Keyword_derives {
+            return "derives";
+        }
+        case TokenType::Keyword_as {
+            return "as";
+        }
+        case TokenType::Keyword_pub {
+            return "pub";
+        }
+        case TokenType::Keyword_priv {
+            return "priv";
+        }
+        case TokenType::Keyword_prot {
+            return "prot";
+        }
+        case TokenType::Keyword_static {
+            return "static";
+        }
+        case TokenType::Keyword_inline {
+            return "inline";
+        }
+        case TokenType::Keyword_eval {
+            return "eval";
+        }
+        case TokenType::Keyword_async {
+            return "async";
+        }
+        case TokenType::Keyword_finally {
+            return "finally";
+        }
+        case TokenType::Keyword_with {
+            return "with";
+        }
+
+        case TokenType::Keyword_unless {
+            return "unless";
+        }
+        case TokenType::Keyword_while {
+            return "while";
+        }
+        case TokenType::Keyword_for {
+            return "for";
+        }
+        case TokenType::Keyword_panic {
+            return "panic";
+        }
+        case TokenType::Keyword_yield {
+            return "yield";
+        }
+        case TokenType::Keyword_return {
+            return "return";
+        }
+        case TokenType::Keyword_break {
+            return "break";
+        }
+        case TokenType::Keyword_continue {
+            return "continue";
+        }
+        case TokenType::Keyword_case {
+            return "case";
+        }
+        case TokenType::Keyword_default {
+            return "default";
+        }
+        case TokenType::Keyword_match {
+            return "match";
+        }
+        case TokenType::Keyword_let {
+            return "let";
+        }
+        case TokenType::Keyword_ffi {
+            return "ffi";
+        }
+        case TokenType::Keyword_requires {
+            return "requires";
+        }
+        case TokenType::Keyword_class {
+            return "class";
+        }
+        case TokenType::Keyword_enum {
+            return "enum";
+        }
+        case TokenType::Keyword_type {
+            return "type";
+        }
+        case TokenType::Keyword_module {
+            return "module";
+        }
+        case TokenType::Keyword_struct {
+            return "struct";
+        }
+        case TokenType::Keyword_interface {
+            return "interface";
+        }
+        case TokenType::Keyword_extend {
+            return "extend";
+        }
+        case TokenType::Keyword_test {
+            return "test";
+        }
+        case TokenType::Keyword_macro {
+            return "macro";
+        }
+        case TokenType::Keyword_import {
+            return "import";
+        }
+        case TokenType::Keyword_assert {
+            return "assert";
+        }
+
+    };
+
+    return null;
+}
+
