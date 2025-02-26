@@ -1,0 +1,9 @@
+import tokens::tokens as tokens;
+
+// receive a string view
+// map string view to memory
+// go through each character until reaching a space or newline or /r/n for windows
+// determine the keyword or identifier by using bitshifts and bitwise operations
+// if the file contains more than 1000 lines then do it using a multi-core approach
+// return the token type
+

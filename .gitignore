@@ -1,0 +1,18 @@
+# Xmake cache
+.xmake/
+build/
+
+# MacOS Cache
+.DS_Store
+
+# Clanged Cache
+.clangd/
+.cache/
+target/
+vsxmake2022/
+
+compile_commands.json
+index.html
+
+# Temp folder
+temp/
