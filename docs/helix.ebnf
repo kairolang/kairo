@@ -28,6 +28,7 @@ NamedArgument       ::= Identifier ':' Expression; // x: 1
 ArgumentSeq         ::= (NamedArgument | Expression) (',' (NamedArgument | Expression))*; // (x: 1, y: 2) | (1, 2) | ()
 ExplicitArgumentSeq ::= ('.'? NamedArgument) (',' ('.'? NamedArgument))*; // if a dot is found all the following named args must have a .
 
+AssertExpression          ::= "assert" Expression "," StringLiteral;
 TryCatchExpression        ::= "try" ':' Expression ("catch" CatchArguments? ':' Expression)+;  // let x: i32 = try: foo() catch e: 1 catch: 2
 ObjectInitializer         ::= Type '{' ExplicitArgumentSeq? '}';      // T {  x: 1,  y: 2 }
 ImplicitObjectInitializer ::= '{' ExplicitArgumentSeq? '}';  //   { .x: 1, .y: 2 }
@@ -54,7 +55,7 @@ InitializerExpression      ::= ArrayInitializerExpression
                            |   SetInitializerExpression;
 
 PrimaryExpression ::= Literal    | ParenthesizedExpression | ImplicitObjectInitializer
-                  |   Identifier | InitializerExpression   | SelfLiteral;
+                  |   Identifier | InitializerExpression   | SelfLiteral | AssertExpression;
 
 QualExpression ::= ExpressionQuals?       ( UnaryExpression       | BinaryExpression
                |   FunctionCallExpression | ArrayAccessExpression | ObjectInitializer
@@ -84,6 +85,7 @@ UnsafeModifier ::= "unsafe";
 /* Control Flow */
 // finally can also be used as a bare statement
 
+AssertStatement     ::= "assert" Expression "," StringLiteral;
 CatchArguments      ::= ('(' (ExplicitParamPack | Type) ')') | (ExplicitParamPack | Type);
 CatchBlock          ::= "catch" CatchArguments? ScopeBlock;
 FinallyBlock        ::= "finally" ScopeBlock;
@@ -124,7 +126,7 @@ MatchStatement  ::= "match"  Expression '{' CasePattern+ '}';
 Statement ::= ((ForStatement    | Expression     | ScopeBlock          | FinallyBlock
           |     TryCatchBlock   | IfStatement    | WhileStatement      | StatementDeclarations
           |     ReturnStatement | BreakStatement | ContinueStatement   | GotoLabelStatement
-          |     GotoStatement   | YieldStatement | PanicStatement      | MatchStatement
+          |     GotoStatement   | YieldStatement | PanicStatement      | MatchStatement | AssertStatement
           |     SwitchStatement | WithBlock      | WhileRangeStatement | ('{' Statement+ '}')) ';');
 
 /* Declarations */
@@ -154,7 +156,7 @@ StructuredVar   ::= (ExplicitParam | ImplicitParam) ('=' Expression)?;
 
 // ffi variables allow for ffi mangling as defined by the abi rule se | "eval";
 VariableDeclaration ::= VisibilityMod?
-                        (VariableSpec | "let") // let | const | static | eval | async
+                        (VariableSpec | "let" | "const" | "static")
                         StorageQual? // const | static | inline | const eval | unsafe | async
                         ((DestructuredVar | StructuredVar) (',' (DestructuredVar | StructuredVar))*);
 
@@ -357,40 +359,37 @@ Operator              ::= AssignmentOperators  | BinaryOperators       | UnaryOp
 BuiltInMacros ::= "sizeof" | "alignof" | "typeof" | "assert" | "file" | "line" | "column" | "function" | "module";
 
 /* keywords
-const
-unsafe
-op
-try
-catch
-if
-else
-has
-derives
+sub-statements:
+requires
+ffi
+case
+default
+
+expressions:
 as
-pub
-priv
-prot
-static
-inline
-eval
-async
-finally
-with
-unless
-while
-for
+derives
+has
+
+statements:
 panic
-yield
 return
 break
 continue
-case
-default
 match
+finally
+with
+unless
+if
+else
+while
+for
+try
+catch
+assert
+
+declarations:
 let
-ffi
-requires
-derives
+op
 fn
 class
 enum
@@ -402,6 +401,17 @@ extend
 test
 macro
 import
+
+specifiers:
+async
+eval
+pub
+priv
+prot
+static
+inline
+const
+unsafe
 
 primitive types:
 void
@@ -428,6 +438,7 @@ i256
 unary:
 await
 delete
-
+yield
+async (also in specifiers)
 
 */
