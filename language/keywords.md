@@ -1,64 +1,145 @@
-| **N** | **Control Flow** | **Function and Method** | **Class and Struct** |
-|-------|------------------|-------------------------|----------------------|
-|   1   | break            |                         | class                |
-|   2   | case             | ~~define~~              | enum                 |
-|   3   | continue         | fn                      | struct               |
-|   4   | default          | inline                  | type                 |
-|   5   | else             | macro                   | union                |
-|   6   | for              | op                      |                      |
-|   7   | if               | return                  |                      |
-|   8   | match            | yield                   |                      |
-|   9   | switch           |                         |                      |
-|   10  | unless           |                         |                      |
-|   11  | while            |                         |                      |
+| **N** | **Control Flow** | **Primitives**    | **Types** | **Decls** | **UDTs**   | **Modifiers** | **Specifiers** | **Visibility** |
+|-------|------------------|-------------------|-----------|-----------|------------|---------------|----------------|----------------|
+|   1   | `match`          | `u8`     `i8`     | `string`  | `var`     | `interface`| `unsafe`      | `async`        | `pub`          |
+|   2   | `case`           | `u16`    `i16`    | `map`     | `fn`      | `class`    | `override`    | `const`        | `priv`         |
+|   3   | `default`        | `u32`    `i32`    | `vec`     | `op`      | `struct`   | `final`       | `inline`       | `prot`         |
+|   4   | `return`         | `u64`    `i64`    | `list`    | `ffi`     | `extend`   |               | `static`       |                |
+|   5   | `if`             | `u128`   `i128`   | `array`   | `module`  | `enum`     |               | `thread`       |                |
+|   6   | `unless`         | `u256`   `i256`   | `set`     | `test`    | `type`     |               | `eval`         |                |
+|   7   | `else`           | `usize`  `isize`  | `tuple`   | `macro`   | `derives`  |               |                |                |
+|   8   | `while`          | `f32`             | `decimal` | `import`  | `impl`     |               |                |                |
+|   9   | `for`            | `f64`             | `number`  | `const`   | `const`    |               |                |                |
+|   10  | `try`            | `f80`             |           | `requires`| `union`    |               |                |                |
+|   11  | `catch`          | `f128`            | `bitset`  |           |            |               |                |                |
+|   12  | `finally`        | `void`            | `erased`  |           |            |               |                |                |
+|   13  | `break`          | `bool`            | `question`|           |            |               |                |                |
+|   14  | `continue`       | `char`            |           |           |            |               |                |                |
+|   15  | `assert`         |                   |           |           |            |               |                |                |
 
-| **N** | **Inheritance and Polymorphism** | **Error Handling** | **Variable Declaration** |
-|-------|----------------------------------|--------------------|--------------------------|
-|   1   | ~~abstract~~                     | catch              | const                    |
-|   2   | derives                          | finally            | let                      |
-|   3   | interface                        | panic              | static                   |
-|   4   | requires                         | try                | eval                     |
-|   5   |                                  | test               |                          |
+| **N** | **Prefix**  | **Postfix** | **Unary** | **Logical** | **Bitwise** | **Assignment** | **Arithmetic** | **Binary**  |
+|-------|-------------|-------------|-----------|-------------|-------------|----------------|----------------|-------------|
+| 1     | `l`? `+`    | `r`? `++`   | `..`      | `!`         | `~`         | `=`            | `+`            | `as`        |
+| 2     | `l`? `-`    | `r`? `--`   | `..=`     | `&&`        | `&`         | `+=`           | `-`            | `in`        |
+| 3     | `l`? `~`    | `r`? `?`    |           | `\|\|`      | `\|`        | `-=`           | `*`            | `derives`   |
+| 4     | `l`? `!`    | `r`? `...`  |           | `==`        | `^`         | `*=`           | `/`            | `impl`      |
+| 5     | `l`? `++`   | `r`? `?.`   |           | `===`       | `<<`        | `/=`           | `%`            | `::`        |
+| 6     | `l`? `--`   |             |           | `!=`        | `>>`        | `%=`           | `,`            | `.`         |
+| 7     | `l`? `&`    |             |           | `>`         |             | `&=`           | `@`            | `.*`        |
+| 8     | `l`? `*`    |             |           | `<`         |             | `\|=`          | `**`           | `->`  ???   |
+| 9     | `delete`    |             |           | `>=`        |             | `^=`           |                | `->*`       | (FIXME: add this to the ebnf)
+| 10    | `await`     |             |           | `<=`        |             | `<<=`          |                |             |
+| 11    | `async`     |             |           |             |             | `>>=`          |                |             |
+| 12    | `panic`     |             |           |             |             | `**=`          |                |             |
+| 13    | `yield`     |             |           |             |             | `@=`           |                |             |
+| 14    | `thread`    |             |           |             |             |                |                |             |
+| 15    | `sizeof`    |             |           |             |             |                |                |             |
+| 16    | `alignof`   |             |           |             |             |                |                |             |
+| 17    | `typeof`    |             |           |             |             |                |                |             |
+| 18    | `const`     |             |           |             |             |                |                |             |
+| 19    | `unsafe`    |             |           |             |             |                |                |             |
+ 
 
-| **N** | **Access Specifiers** | **Module Importing** | **Concurrency** | **Other**   |
-|-------|-----------------------|----------------------|-----------------|-------------|
-|   1   | module                |                      | atomic          | is - maybe? |
-|   2   | priv                  | ffi                  | await           | unsafe      |
-|   3   | pub                   | import               | spawn           | void        |
-|   4   | prot                  |                      | thread          |             |
-|   5   |                       |                      | async           |             |
+| **Feature**     | **Struct** | **Class** | **Enum**  | **Union** | **Interface** |
+|-----------------|------------|-----------|-----------|-----------|---------------|
+| Fields          | ✅ Yes     | ✅ Yes     | ❌ No     | ✅ Yes    | ✅ Yes        |
+| Methods         | ❌ No      | ✅ Yes     | ❌ No     | ✅ Yes    | ✅ Yes        |
+| Type Safety     | ✅ Strong  | ✅ Strong  | ✅ Weak   | ✅ Weak   | ✅ Strong     |
+| Mutability      | ✅ Yes     | ✅ Yes     | ❌ No     | ✅ Yes    | ❌ No         |
+| Matchable       | ✅ Yes     | ✅ Yes     | ✅ Yes    | ✅ Yes    | ❌ No         |
+| Inheritance     | ❌ No      | ✅ Yes     | ❌ No     | ❌ No     | ✅ Yes        |
+| Operators       | ✅ Yes     | ✅ Yes     | ❌ No     | ❌ No     | ✅ Yes        |
+| Default Values  | ✅ Yes     | ✅ Yes     | ✅ Yes    | ✅ Yes    | ❌ No         |
+| Overhead        | ❌ No      | ✅ Yes     | ❌ No     | ✅ Yes    | ❌ No         |
 
-| **N** | **Complex Types** | **Signed Types** | **Unsigned Types** | **Data Types** | **Float Types** |
-|-------|-------------------|------------------|--------------------|----------------|-----------------|
-|   1   | string            | i128             | u128               | int            | f32             |
-|   2   | char              | i16              | u16                | float          | f64             |
-|   3   | bool              | i32              | u32                | decimal        |                 |
-|   4   | list              | i64              | u64                | null           |                 |
-|   5   | map               | i8               | u8                 | nullptr        |                 |
-|   6   | set               | isize            | usize              |                |                 |
-|   7   | tuple             |                  |                    |                |                 |
+### **Control Flow**
+- `if`
+- `else`
+- `for`
+- `while`
+- `unless`
+- `break`
+- `continue`
+- `switch`
+- `case`
+- `default`
+- `match`
+- `return`
 
-| **N** | **Operators** |     |      |       |     |     |
-|-------|---------------|-----|------|-------|-----|-----|
-|   1   | +             | /=  | ^=   | \|\|  | >>  | ::  |
-|   2   | ++            | %   | ^^   | \|\|= | >>= | ->  |
-|   3   | +=            | %=  | ^^=  | !     | ==  | =   |
-|   4   | +-            | &   | ~    | !=    | === | **  |
-|   5   | -             | &=  | ~&   | !&    | >   | **= |
-|   6   | --            | &&  | ~&=  | !&=   | >=  | as  |
-|   7   | -=            | &&= | ~\|  | !\|   | <   | in  |
-|   8   | *             | @   | ~\|= | !\|=  | <=  |     |
-|   9   | *=            | @=  | \|   | <<    | ..  |     |
-|   10  | /             | ^   | \|=  | <<=   | ..= |     |
+### **Exception Handling**
+- `try`
+- `catch`
+- `finally`
+- `panic`
+- `assert`
 
-|           **Feature**           |                     **Class**                    |            **Enum**           |             **Struct**                          |     **Union**    | **Interface** | **Abstract** |
-|---------------------------------|--------------------------------------------------|-------------------------------|-------------------------------------------------|------------------|---------------|--------------|
-| Default Visibility              | (pub \| priv) by default                         | pub by default                | Inverse of class default visibility             | pub by default   | Only pub visibility | (pub \| priv) by default |
-| Methods Allowed                 | Methods allowed                                  | No Methods                    | Methods allowed                                 | No methods       | Methods cannot contain implementations | Methods can contain implementations or have defaults |
-| `self` \| `super` Param Allowed | `self` \| `super` params allowed                 | No `self` \| `super` params   | `self` param allowed, `super` disallowed        | Not applicable   | `self` \| `super` params allowed | `self` \| `super` params allowed |
-| Static Members Allowed          | Static members allowed                           | Static members allowed        | Static members allowed                          | Not applicable   | Not applicable | Not applicable |
-| Overhead                        | Larger overhead and vtable lookups (for derived) | Zero overhead                 | Minimal overhead                                | Minimal overhead | No vtable lookup | Large overhead (during compile) |
-| Discriminants Allowed           | Not applicable                                   | Custom discriminants allowed  | Not applicable                                  | Tags allowed     | Not applicable | Not applicable |
-| Inheritance                     | Not mentioned                                    | Not mentioned                 | No inheritance                                  | Not mentioned    | Any inherited object must implement all methods | Only methods without an implementation must be implemented; default implementations raise warnings if not implemented |
-| Compile-Time Removal            | Not applicable                                   | Not applicable                | Not applicable                                  | Not applicable   | Removed after compile | Removed after compile |
+### **Data Types**
+- `bool`
+- `void`
+- `null`
+- `true`
+- `false`
+- `u8`, `u16`, `u32`, `u64`, `u128`, `u256`
+- `i8`, `i16`, `i32`, `i64`, `i128`, `i256`
+- `usize`
+- `isize`
+- `f32`, `f64`, `f80`, `f128`
+- `type`
 
+### **Object-Oriented Programming**
+- `class`
+- `interface`
+- `struct`
+- `enum`
+- `self`
+- `extends`
+- `impl`
+- `derives`
+- `override`
+- `final`
+- `delete`
+
+### **Access Modifiers**
+- `pub`
+- `priv`
+- `prot`
+- `intl`
+
+### **Function-Related**
+- `op`
+- `fn`
+- `async`
+- `await`
+- `yield`
+- `noreturn`
+- `inline`
+- `static`
+- `thread`
+
+### **Memory and Low-Level**
+- `sizeof`
+- `alignof`
+- `typeof`
+- `unsafe`
+- `ffi`
+
+### **Variables and Scope**
+- `var`
+- `const`
+
+### **Modules and Imports**
+- `module`
+- `import`
+
+### **Operators and Keywords**
+- `as`
+- `in`
+- `is`
+- `where`
+
+### **Error and Debugging**
+- `test`
+- `requires`
+
+### **Miscellaneous**
+- `macro`
+- `eval`

@@ -86,7 +86,7 @@ Please include the following information in your report, if possible:
 
 #### Appeals
 
-If you believe that the enforcement action taken is unfair or inappropriate, you may appeal the decision. Appeals should be directed to the Helix Project Leads at [appeals@helix-lang.org](mailto:appeals@helix-lang.org). Please provide any relevant information or context to support your appeal.
+If you believe that the enforcement action taken is unfair or inappropriate, you may appeal the decision. Appeals should be directed to the Helix Project Leads at [appeals@helix-lang.com](mailto:appeals@helix-lang.com). Please provide any relevant information or context to support your appeal.
 
 #### Special Cases
 

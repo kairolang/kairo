@@ -165,7 +165,7 @@ class Location {
 #### Token
 ```rs
 class Token {
-    let value: string;
+    let value: (char*, char*);
     let kind: TokenKind;
     let location: Location?;
 

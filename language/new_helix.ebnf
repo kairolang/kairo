@@ -7,12 +7,12 @@
 
 // NOTE: make sure the generated nodes are a CST and not an AST this allows for exact position tracking
 
-// allows for things like: 'fn_that_takes_const_ptr(const &x)'
+// allows for things like: 'fn_that_takes_const_ptr(const & x) | fn_that_takes_const_ptr(& const x)'
 // ffi allows the maintainers to know that the function is a foreign function and does not grantee safety
 
 // all base quantifiers would contain an enum to match against to figure out the underlying ast node
 // quantifiers: Expression, Statement, Declaration, Type, Literal, Operator
-ExpressionQuals ::= "const" | "unsafe" | "await" | FFIBase;
+ExpressionQuals ::= FFIBase;
 
 GenericAccess ::= '<' (Type | Expression) (',' (Type | Expression))* '>'; // <T, T> | <T> | <1, 2>
 
@@ -21,13 +21,14 @@ GenericAccess ::= '<' (Type | Expression) (',' (Type | Expression))* '>'; // <T,
 // the info of if its referring to the global scope is passed to the scoped path node directly and should not be stored in a path expr
 
 PathMembers ::= "*"* (Identifier | "op" Operator) GenericAccess?; // x | op+ | self | x<T> | *x
-MemberPath  ::= Expression '.' PathMembers;               // x.y | x<T>.y   | x::V.y | x::V[T].*y.z
-ScopedPath  ::= ("::")? PathMembers ("::" PathMembers)*;  // ::V | V | V[T] | V[T]::R
+MemberPath  ::= Expression '.' PathMembers;                       // x.y | x<T>.y   | x::V.y | x::V[T].*y.z
+ScopedPath  ::= ("::")? PathMembers ("::" PathMembers)*;          // ::V | V | V[T] | V[T]::R
 
 NamedArgument       ::= Identifier ':' Expression; // x: 1
 ArgumentSeq         ::= (NamedArgument | Expression) (',' (NamedArgument | Expression))*; // (x: 1, y: 2) | (1, 2) | ()
 ExplicitArgumentSeq ::= ('.'? NamedArgument) (',' ('.'? NamedArgument))*; // if a dot is found all the following named args must have a .
 
+AssertExpression          ::= "assert" Expression "," StringLiteral;
 TryCatchExpression        ::= "try" ':' Expression ("catch" CatchArguments? ':' Expression)+;  // let x: i32 = try: foo() catch e: 1 catch: 2
 ObjectInitializer         ::= Type '{' ExplicitArgumentSeq? '}';      // T {  x: 1,  y: 2 }
 ImplicitObjectInitializer ::= '{' ExplicitArgumentSeq? '}';  //   { .x: 1, .y: 2 }
@@ -35,12 +36,12 @@ TernaryExpression         ::= "if" Expression ':' Expression "else" ':' Expressi
 BinaryExpression          ::= Expression (AssignmentOperators | BinaryOperators) Expression; // x + y | x = y
 UnaryExpression           ::= (UnaryPrefix Expression) | (Expression UnaryPostfix);    // ++x | x++
 FunctionCallExpression    ::= Expression '(' ArgumentSeq? ')';          // x(1, 2, 3) | x::V(1, b: 2) | x()
-ArrayAccessExpression     ::= Expression '[' Expression ']'; // x[1] | x::V[1] | x::V<T>.y[1]
+SubScriptExpression       ::= Expression '[' Expression ']'; // x[1] | x::V[1] | x::V<T>.y[1]
 ParenthesizedExpression   ::= '(' Expression ')';               // (1 + 2)
 
 MembershipExpression      ::= (Expression | Type) "has" (Expression | Type); // [1, 2, 3] has 1 | T has Interfaces::CharType
 InheritanceCheck          ::= Type "derives" Type; // T derives U
-TypeCapability            ::= InheritanceCheck | InterfaceComplianceCheck;
+TypeCapability            ::= InheritanceCheck | MembershipExpression;
 
 CastExpression            ::= Expression "as" Type; // x as i32
 
@@ -54,24 +55,18 @@ InitializerExpression      ::= ArrayInitializerExpression
                            |   SetInitializerExpression;
 
 PrimaryExpression ::= Literal    | ParenthesizedExpression | ImplicitObjectInitializer
-                  |   Identifier | InitializerExpression   | SelfLiteral;
+                  |   Identifier | InitializerExpression   | SelfLiteral | AssertExpression;
 
-QualExpression ::= ExpressionQuals?       ( UnaryExpression       | BinaryExpression
-               |   FunctionCallExpression | ArrayAccessExpression | ObjectInitializer
-               |   OperatorFunctionCall   | MemberPath            | ScopedPath );
-
-Expression  ::= PrimaryExpression    | CastExpression     | TypeCapability | MembershipExpression
-            |   TernaryExpression    | TryCatchExpression | QualExpression ;
+Expression  ::= PrimaryExpression    | CastExpression     | TypeCapability
+            |   TernaryExpression    | TryCatchExpression | ScopedPath | MemberPath
+            |   UnaryExpression      | BinaryExpression   | FunctionCallExpression
+            |   SubScriptExpression  | ObjectInitializer  | OperatorFunctionCall ;
 
 /* Statements */
 // statements are the building blocks of code, they are the smallest unit of code that can be executed
 
-// foo(mutable f: const i32)
-// foo(const f: i32)
-// foo(const f: mutable i32)
-
-ExplicitParam ::= ("const" | "mutable")? "..."? Identifier ':' Type;  // add a bool for disallowing const here
-ImplicitParam ::= ("const" | "mutable")? "..."? "*"? Identifier "?"?; // must specify if the type inference is a pointer or questionable
+ExplicitParam ::= ("const")? "..."? Identifier ':' Type;  // add a bool for disallowing const here
+ImplicitParam ::= ("const")? "..."? "*"? Identifier "?"?; // must specify if the type inference is a pointer or questionable
 
 ImplicitDefaultParamPack ::= ImplicitParam ('=' Expression)? (',' ImplicitParam ('=' Expression)?)*;
 ExplicitDefaultParamPack ::= ExplicitParam ('=' Expression)? (',' ExplicitParam ('=' Expression)?)*;
@@ -88,6 +83,7 @@ UnsafeModifier ::= "unsafe";
 /* Control Flow */
 // finally can also be used as a bare statement
 
+AssertStatement     ::= "assert" Expression "," StringLiteral;
 CatchArguments      ::= ('(' (ExplicitParamPack | Type) ')') | (ExplicitParamPack | Type);
 CatchBlock          ::= "catch" CatchArguments? ScopeBlock;
 FinallyBlock        ::= "finally" ScopeBlock;
@@ -102,15 +98,12 @@ IfStatement         ::= "eval"? ( "if" | "unless") Expression ScopeBlock
 // adding eval to a for loop, will make the compiler attempt to unroll the loop at compile time if possible
 
 WhileStatement      ::= "while" Expression? ScopeBlock;
-
-PythonForStatement  ::= "for" (ImplicitParamPack | ExplicitParamPack) "in" Expression ScopeBlock;
-CStyleForStatement  ::= "for" (('(' Statement? ';' Expression? ';' Expression? ')') | Statement? ';' Expression? ';' Expression?) ScopeBlock;
-ForStatement        ::= "eval"? (PythonForStatement | CStyleForStatement);
+WhileRangeStatement ::= "while" Expression "has" (ImplicitParamPack | ExplicitParamPack) ScopeBlock;
+ForStatement        ::= "eval"? "for" (('(' Statement? ';' Expression? ';' Expression? ')') | Statement? ';' Expression? ';' Expression?) ScopeBlock;
 
 /* Jump Statements */
 
 PanicStatement      ::= "panic"  Expression;
-YieldStatement      ::= "yield"  Expression?;
 ReturnStatement     ::= "return" Expression?;
 BreakStatement      ::= "break";
 ContinueStatement   ::= "continue";
@@ -120,20 +113,18 @@ GotoStatement       ::= "goto!"  '(' Identifier ')';
 
 /* Match Statements */
 // 3 kinds of body, fall through, return and scoped
-// : = fall through, -> = return, {} = scoped
+// : = fall through, : { ... } = implicit break, -> ({ ... })? = return
 
-CaseBody        ::= (':'  (Statement | ('{' Statement* '}')))
-                |   ("->" (Statement | ('{' Statement* '}')))
-                |   ('{'   Statement*   '}');
+CaseBody        ::= (':'  (Statement* | ('{' Statement* '}')))
+                |   ("->" (Expression | ('{' Statement* Expression '}')))
 CasePattern     ::= (("case" Expression) | "default") CaseBody;
 MatchStatement  ::= "match"  Expression '{' CasePattern+ '}';
-// SwitchStatement ::= "switch" Expression '{' CasePattern+ '}';
 
-Statement ::= ((ForStatement    | Expression     | ScopeBlock         | FinallyBlock
-          |     TryCatchBlock   | IfStatement    | WhileStatement     | StatementDeclarations
-          |     ReturnStatement | BreakStatement | ContinueStatement  | GotoLabelStatement
-          |     GotoStatement   | YieldStatement | PanicStatement     | MatchStatement
-          |     SwitchStatement | WithBlock      | ('{' Statement+ '}')) ';');
+Statement ::= ((ForStatement    | Expression     | ScopeBlock          | FinallyBlock
+          |     TryCatchBlock   | IfStatement    | WhileStatement      | StatementDeclarations
+          |     ReturnStatement | BreakStatement | ContinueStatement   | GotoLabelStatement
+          |     GotoStatement   | PanicStatement | MatchStatement      | AssertStatement
+          |     SwitchStatement | WithBlock      | WhileRangeStatement | ('{' Statement+ '}')) ';');
 
 /* Declarations */
 BuiltInDirectives ::= '@' "volatile"     '(' ')' // makes the compiler not optimize the variable or dereference it in any way
@@ -162,7 +153,7 @@ StructuredVar   ::= (ExplicitParam | ImplicitParam) ('=' Expression)?;
 
 // ffi variables allow for ffi mangling as defined by the abi rule se | "eval";
 VariableDeclaration ::= VisibilityMod?
-                        (VariableSpec | "let") // let | const | static | eval | async
+                        (VariableSpec | "let" | "const" | "static")
                         StorageQual? // const | static | inline | const eval | unsafe | async
                         ((DestructuredVar | StructuredVar) (',' (DestructuredVar | StructuredVar))*);
 
@@ -177,7 +168,7 @@ RequiresConstraint  ::= ( "if" | "unless") Expression
                         ("else" ("if" | "unless") Expression ScopeBlock)*
                         ( "else" ScopeBlock)?;
 
-WithDeclaration    ::= "with" Type (',' Type)*;
+HasDeclaration     ::= "has" Type (',' Type)*;
 DerivesDeclaration ::= "derives" (UnsafeModifier? VisibilityMod?) Type (',' (UnsafeModifier? VisibilityMod?) Type)*;
 
 /* Function Declarations */
@@ -185,18 +176,18 @@ FunctionBase ::= FFIBase? VisibilityMod?; // NO-ORDER
 
 // impl of ops are fn ...::op...() -> ...; - this implicitly implements the alias as well (or vice versa)
 FunctionDeclaration ::= FunctionBase "fn" ScopedPath '(' ExplicitDefaultParamPack? ')' StorageQual? ArrowReturn? RequiresDeclaration? (ScopeBlock | ';');
-OperatorDeclaration ::= FunctionBase "op" Operator ("fn" ScopedPath)? '(' ExplicitDefaultParamPack? ')' StorageQual? ArrowReturn? RequiresDeclaration? (ScopeBlock | ';');
-
+OperatorDeclaration ::= FunctionBase "fn" ("op" Operator) '(' ExplicitDefaultParamPack? ')' ('[' ScopedPath ']')? StorageQual? ArrowReturn? RequiresDeclaration? (ScopeBlock | ';');
+//                                        ^^^^^^^^^^^^^^^  this is also a scoped path so there may be ambiguity in parsing
 /* Class Declarations */
 UDTBase ::= FFIBase? VisibilityMod? "const"?; // NO-ORDER (const is only for class structs and interfaces)
 
-ClassDeclaration     ::= UDTBase  "class" Identifier (DerivesDeclaration? WithDeclaration? RequiresDeclaration?) ScopeBlock;
+ClassDeclaration     ::= UDTBase  "class" Identifier (DerivesDeclaration? HasDeclaration? RequiresDeclaration?) ScopeBlock;
 EnumDeclaration      ::= UDTBase "enum"  Identifier ("derives" Type)? (('{' (',' Identifier ('=' Expression)?)* '}') | ';');
 TypeDeclaration      ::= VisibilityMod? "type" Identifier RequiresDeclaration? '=' Type;
 ModuleDeclaration    ::= VisibilityMod? "inline"? "module" ScopedPath? ScopeBlock;
-StructDeclaration    ::= UDTBase  "struct"    Identifier (WithDeclaration? RequiresDeclaration?) ScopeBlock;
-InterfaceDeclaration ::= UDTBase  "interface" Identifier (WithDeclaration? RequiresDeclaration?) ScopeBlock;
-ExtendsDeclaration   ::= "extend" ScopedPath (WithDeclaration? RequiresDeclaration?) ScopeBlock;
+StructDeclaration    ::= UDTBase  "struct"    Identifier (HasDeclaration? RequiresDeclaration?) ScopeBlock;
+InterfaceDeclaration ::= UDTBase  "interface" Identifier (HasDeclaration? RequiresDeclaration?) ScopeBlock;
+ExtendsDeclaration   ::= "extend" ScopedPath (HasDeclaration? RequiresDeclaration?) ScopeBlock;
 
 /* Test Declarations */
 // tests run when the following is passed to the helix compiler: --test
@@ -212,7 +203,7 @@ StatementDeclarations ::= ClassDeclaration  | EnumDeclaration     | TypeDeclarat
 
 /* Macros */
 MacroDeclaration     ::= "macro" Identifier '!' ('(' ImplicitDefaultParamPack? ')')? (('{' ... '}') | (':' ...)) ';';
-ProcMacroDeclaration ::= "macro" '@' Identifier ('(' ExplicitDefaultParamPack?        ')')? (('{' ... '}') | (':' ...)) ';';
+ProcMacroDeclaration ::= "macro" '@' Identifier ('(' ExplicitDefaultParamPack? ')')? (('{' ... '}') | (':' ...)) ';';
 
 /* Imports */
 // the scoped path here allows any a-zA-Z0-9_ token so keywords are allowed to be used as identifiers here
@@ -296,7 +287,7 @@ ElaboratedType  ::= ( "interface"    // interface T (interfaces arn't types)
                 |     "type" ) Type; // type   T
 
 /* Contacted */
-ArrowReturn ::= '->' (Type | '!');
+ArrowReturn ::= '->' (Type | '!'); // -> ! == exits
 
 /* Base Elements */
 Delimiter   ::= "\t" | "\n" | "EOF" | ' '  | ','  | ';' ;
@@ -354,7 +345,7 @@ SpecialOperators ::= "has" | "derives";
 
 UnaryOperators        ::=  ".." | "..="; // omnidirectional unary operators
 UnaryPostfixOperators ::=  'r'? ("++" | "--" | ".*" | '?' | "...");
-UnaryPrefixOperators  ::= ('l'? ('+'  | '-'  | '~'  | '!' | "++" | "--" | '&' | '*')) | "delete";
+UnaryPrefixOperators  ::= ('l'? ('+'  | '-'  | '~'  | '!' | "++" | "--" | '&' | '*')) | "delete" | "yield" | "thread" | "await" | "async";
 UnaryPrefix           ::= UnaryOperators | UnaryPrefixOperators;
 UnaryPostfix          ::= UnaryOperators | UnaryPostfixOperators;
 Operator              ::= AssignmentOperators  | BinaryOperators       | UnaryOperators
@@ -362,4 +353,4 @@ Operator              ::= AssignmentOperators  | BinaryOperators       | UnaryOp
 
 /* Built-In Macros */
 
-BuiltInMacros ::= "sizeof" | "alignof" | "typeof" | "assert" | "file" | "line" | "column" | "function" | "module";
+BuiltInMacros ::= "__file__" | "__line__" | "__column__" | "__function__" | "__module__";
