@@ -11,7 +11,7 @@ fn return_null() -> i32? {
 }
 
 fn cause_panic() -> i32? {
-    panic std::errors::RuntimeError("Intentional panic");
+    panic std::Error::RuntimeError("Intentional panic");
 }
 
 fn random_behavior() -> i32? {
@@ -52,7 +52,7 @@ fn run_test_case(label: string, test_func: fn() -> i32?) {
 
         if result == null {
             state = "null";
-        } else if result == std::errors::RuntimeError() {
+        } else if result == std::Error::RuntimeError() {
             state = "panic";
         } else if (result as i32) == 1 {
             state = "success";
@@ -77,6 +77,8 @@ fn main() -> i32 {
     run_test_case("return_null",     &return_null);
     run_test_case("cause_panic",     &cause_panic);
     run_test_case("random_behavior", &random_behavior);
+
+    *cause_panic();
 
     for label, durations in times {
         for duration in durations {

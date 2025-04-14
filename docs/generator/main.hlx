@@ -1,9 +1,0 @@
-/// this is the helix code that generates docs from other helix code, it uses starlight internally
-/// as the documentation provider, this uses the helix compiler toolchain to tokenize the code and
-/// find the comments along with stuff like function signatures and other metadata (using the ast)
-/// it then generates a markdown file with the documentation, the comments are written in markdown
-/// and the code is written in helix, this is a self-hosted documentation generator.
-
-fn main(argc: usize, argv: libc::array<string>) {
-
-}
