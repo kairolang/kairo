@@ -108,7 +108,8 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     compile_cmd = "cmd.exe /c \"call \"" + msvc_tools_path.string() + "\" >nul 2>&1 && cl ";
 
     // get the path to the core lib
-    auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "include" / "core.h";
+    auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "include" / "core.hh";
+    auto core_lib_dir = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib";
 
     if (!std::filesystem::exists(core)) {
         helix::log<LogLevel::Error>("core lib not found, verify the installation");
@@ -120,9 +121,19 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         flag::types::Compiler::MSVC,
 
         "/FI\"" + core.generic_string() + "\" ",
+
+        // cxx::flags::linkPathFlag,
+        // core_lib_dir.generic_string(),
+
+        // cxx::flags::linkFlag,
+        // "helix",
+
         ((action.flags.contains(flag::types::CompileFlags::Debug))
              ? cxx::flags::debugModeFlag
              : cxx::flags::optimizationLevel3),
+
+        cxx::flags::includeFlag,
+        core.parent_path().parent_path().generic_string(),
 
         cxx::flags::cxxStandardFlag,
         cxx::flags::stdCXX23Flag,
