@@ -49,7 +49,7 @@ read_core_includes(const std::filesystem::path &core_dir =
     // #line 1 "file.h"
     // ... file.h content ...
     for (const auto &entry : std::filesystem::directory_iterator(core_dir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".h") {
+        if (entry.is_regular_file() && (entry.path().extension() == ".h" || entry.path().extension() == ".hh")) {
             std::ifstream file(entry.path());
             std::string   line;
             std::string   include;

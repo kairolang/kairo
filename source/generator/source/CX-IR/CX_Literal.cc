@@ -69,6 +69,7 @@ CX_VISIT_IMPL(LiteralExpr) {
         /// numerics should be size checked and casted to the correct type
         /// bools, nulls, and compiler directives have no special handling
         bool inference = false;
+        bool string_or_char = false;
         bool heap_int  = false;
         switch (tok.token_kind()) {
             case token::LITERAL_STRING:
@@ -77,11 +78,13 @@ CX_VISIT_IMPL(LiteralExpr) {
                 }
 
                 inference = true;
+                string_or_char = true;
                 ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "string", tok);
                 ADD_TOKEN(CXX_LPAREN);
                 break;
             case token::LITERAL_CHAR:
                 inference = true;
+                string_or_char = true;
                 ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "char", tok);
                 ADD_TOKEN(CXX_LPAREN);
                 break;
@@ -158,6 +161,8 @@ CX_VISIT_IMPL(LiteralExpr) {
 
         if (tok.value().starts_with("r")) {
             ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, tok.value().substr(1), tok);
+        } else if (string_or_char) {
+            ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_LITERAL, "L" + tok.value(), tok);
         } else {
             ADD_TOKEN_AS_TOKEN(CXX_CORE_LITERAL, tok);
         }
