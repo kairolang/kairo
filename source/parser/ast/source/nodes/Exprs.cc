@@ -98,7 +98,7 @@
 ///          supported. a better example would be:                                               ///
 ///                                                                                              ///
 ///       @code                                                                                  ///
-///       const eval let PI: T = T(3.1415926535) requires <T>;                                   ///
+///       fn PI() static const eval -> T requires <T> = T(3.1415926535);                       ///
 ///       let x: int = PI<int>;                                                                  ///
 ///       @endcode                                                                               ///
 ///                                                                                              ///
