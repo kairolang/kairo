@@ -1,4 +1,4 @@
 CompileFlags:
-  Add: [-std=c++23,-D__cpp_concepts=202002L,/std:c++latest]  # , -j=15, --malloc-trim, --background-index, --pch-storage=memory /std:c++latest, needed for msvc
+  Add: [-std=c++2b,-D__cpp_concepts=202002L,/std:c++latest]  # , -j=15, --malloc-trim, --background-index, --pch-storage=memory /std:c++latest, needed for msvc
 Diagnostics:
   Suppress: ['pp_file_not_found_typo_not_fatal']

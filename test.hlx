@@ -14,7 +14,7 @@ fn cause_panic() -> i32? {
     panic std::Error::RuntimeError("Intentional panic");
 }
 
-fn random_behavior() -> i32? {
+fn random_behavior() -> (i32?, i32) {
     /// Randomly execute one of the above functions
     let rd   = libcxx::random_device();
     // let x: unsafe *i32 = _NEW(i32);
@@ -22,19 +22,25 @@ fn random_behavior() -> i32? {
     let gen  = libcxx::mt19937(rd());
     let dist = libcxx::uniform_int_distribution::<i32>(0, 2);
 
+    let result: i32? = null;
+
+    let start = libcxx::chrono::high_resolution_clock::now();
     switch dist(gen) {
         case 0 {
-            return return_success();
+            result = return_success();
         }
         case 1 {
-            return return_null();
+            result = return_null();
         }
         case 2 {
-            return cause_panic();
+            result = cause_panic();
         }
     }
+    
+    let end = libcxx::chrono::high_resolution_clock::now();
 
-    return null;
+    let duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
+    return (result, duration as i32);
 }
 
 // stores: {label: [duration, ...]} - map is c++ std::map
@@ -76,9 +82,51 @@ fn main() -> i32 {
     run_test_case("return_success",  &return_success);
     run_test_case("return_null",     &return_null);
     run_test_case("cause_panic",     &cause_panic);
-    run_test_case("random_behavior", &random_behavior);
 
-    *cause_panic();
+    // test random as well:
+    for _ in 0..5 {
+        let rd   = libcxx::random_device();
+        // let x: unsafe *i32 = _NEW(i32);
+        // *x = 19; // *x = 19 == *(x = 19) ! (*x) = 19
+        let gen  = libcxx::mt19937(rd());
+        let dist = libcxx::uniform_int_distribution::<i32>(0, 2);
+
+        let result: i32? = null;
+
+        let start = libcxx::chrono::high_resolution_clock::now();
+        switch dist(gen) {
+            case 0 {
+                result = return_success();
+            }
+            case 1 {
+                result = return_null();
+            }
+            case 2 {
+                result = cause_panic();
+            }
+        }
+        let end = libcxx::chrono::high_resolution_clock::now();
+
+        let duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
+
+        let state: string;
+        if result == null {
+            state = "null";
+        } else if result == std::Error::RuntimeError() {
+            state = "panic";
+        } else if (result as i32) == 1 {
+            state = "success";
+        } else {
+            state = "unknown";
+        }
+
+        if times.contains("random") {
+            times["random"].emplace_back(state, duration as i32);
+        } else {
+            times["random"] = vec::<tuple::<string, i32>>();
+            times["random"].emplace_back(state, duration as i32);
+        }
+    }
 
     for label, durations in times {
         for duration in durations {

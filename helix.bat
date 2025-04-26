@@ -35,9 +35,6 @@ for /f %%b in ('powershell -command "$input = '%RAW_PATH%'; $cleanPath = $input 
 rem Convert to an absolute path using for loop to append to current directory
 for %%i in ("%cd%\%PATH_TO_BINARY%") do set "ABS_PATH=%%~fi"
 
-rem Debug output (optional)
-echo Running %ABS_PATH% with arguments: %ARGS%
-
 rem Run the binary with the remaining arguments
 %ABS_PATH% %ARGS%
 

@@ -180,8 +180,12 @@ local function helix_src_setup()
 	add_headerfiles("source/**.def")
 	add_headerfiles("source/**.inc")
     
-    add_headerfiles("lib-helix/core/include/**.h") -- add all headers in the lib-helix/core/include directory
     add_includedirs("lib-helix/core/include") -- add all headers in the lib-helix/core/include directory
+    add_includedirs("lib-helix/core") -- add all headers in the lib-helix/core/include directory
+    
+    add_headerfiles("lib-helix/core/include/**.h") -- add all headers in the lib-helix/core/include directory
+    add_headerfiles("lib-helix/core/include/**.hh") -- add all headers in the lib-helix/core/include directory
+    add_headerfiles("lib-helix/core/include/**.tpp") -- add all headers in the lib-helix/core/include directory
 
     -- libs
     add_includedirs("libs") -- add all files in the neo-json directory
@@ -345,9 +349,9 @@ target("tests")
 target_end()
 
 target("helix") -- target config defined in the config seciton
-    before_build(function (target)
-        print_all_info(target)
-    end)
+    -- before_build(function (target)
+        -- print_all_info(target)
+    -- end)
 
     set_kind("binary")
     set_languages(cxx_standard)
