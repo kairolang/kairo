@@ -85,7 +85,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
 
     // get the path to the core lib
     auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "include" / "core.hh";
-    auto core_lib_dir = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib";
+    //auto core_lib_dir = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib";
 
     if (!std::filesystem::exists(core)) {
         helix::log<LogLevel::Error>("core lib not found, verify the installation");

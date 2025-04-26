@@ -131,7 +131,7 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
     process_paths(parsed_args.library_dirs,
                   link_dirs,
                   in_file_path,
-                  {__CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib"});
+                  {__CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "libs"});
 
     process_paths(parsed_args.include_dirs,
                   import_dirs,

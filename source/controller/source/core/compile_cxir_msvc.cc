@@ -109,7 +109,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
 
     // get the path to the core lib
     auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "include" / "core.hh";
-    auto core_lib_dir = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib";
+    // auto core_lib_dir = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib";
 
     if (!std::filesystem::exists(core)) {
         helix::log<LogLevel::Error>("core lib not found, verify the installation");
@@ -136,11 +136,13 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         core.parent_path().parent_path().generic_string(),
 
         cxx::flags::cxxStandardFlag,
-        cxx::flags::stdCXX23Flag,
         cxx::flags::enableExceptionsFlag,
 
         "/nologo",
         "/Zc:__cplusplus",
+        "-D__cpp_concepts=202002L",
+        "/std:c++latest",
+
         ((action.flags.contains(flag::types::CompileFlags::Debug)) ? "/RTC1" : ""),
         cxx::flags::fullFilePathFlag,
         cxx::flags::noErrorReportingFlag,
