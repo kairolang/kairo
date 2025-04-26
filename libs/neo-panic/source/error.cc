@@ -297,12 +297,14 @@ size_t set_level(string &level, const double &err_code) {
             level_len =
                 level.size() -
                 string(string(colors::bold) + string(colors::fg8::cyan) + _ret_color).size();
+            err_color = string(colors::effects::bold) + string(colors::fg8::cyan);
             break;
         case WARN:
             level = string(colors::bold) + string(colors::fg8::yellow) + "warn" + _ret_color;
             level_len =
                 level.size() -
                 string(string(colors::bold) + string(colors::fg8::yellow) + _ret_color).size();
+            err_color = string(colors::effects::bold) + string(colors::fg8::yellow);
             break;
         case ERR:
             level =
@@ -310,6 +312,7 @@ size_t set_level(string &level, const double &err_code) {
             level_len = level.size() - string(string(colors::bold) + _ret_color +
                                               string(colors::fg8::red) + _ret_color)
                                            .size();
+            err_color = string(colors::effects::bold) + string(colors::fg8::red);
             break;
         case FATAL:
             level = string(colors::bold) + _ret_color + string(colors::fg8::red) + "fatal" +
@@ -317,8 +320,8 @@ size_t set_level(string &level, const double &err_code) {
             level_len = level.size() - string(string(colors::bold) + _ret_color +
                                               string(colors::fg8::red) + _ret_color)
                                            .size();
+            err_color = string(colors::effects::bold) + string(colors::fg8::red);
             break;
-
         case NONE:
             break;
     }
@@ -336,12 +339,14 @@ size_t set_level(string &level, const Level &err_level) {
             level_len =
                 level.size() -
                 string(string(colors::bold) + string(colors::fg8::cyan) + __ret_color).size();
+            err_color = string(colors::effects::bold) + string(colors::fg8::cyan);
             break;
         case WARN:
             level = string(colors::bold) + string(colors::fg8::yellow) + "warn" + __ret_color;
             level_len =
                 level.size() -
                 string(string(colors::bold) + string(colors::fg8::yellow) + __ret_color).size();
+            err_color = string(colors::effects::bold) + string(colors::fg8::yellow);
             break;
         case ERR:
             level = string(colors::bold) + __ret_color + string(colors::fg8::red) + "error" +
@@ -349,6 +354,7 @@ size_t set_level(string &level, const Level &err_level) {
             level_len = level.size() - string(string(colors::bold) + __ret_color +
                                               string(colors::fg8::red) + __ret_color)
                                            .size();
+            err_color = string(colors::effects::bold) + string(colors::fg8::red);
             break;
         case FATAL:
             level = string(colors::bold) + __ret_color + string(colors::fg8::red) + "fatal" +
@@ -356,6 +362,7 @@ size_t set_level(string &level, const Level &err_level) {
             level_len = level.size() - string(string(colors::bold) + __ret_color +
                                               string(colors::fg8::red) + __ret_color)
                                            .size();
+            err_color = string(colors::effects::bold) + string(colors::fg8::red);
             break;
         default:
             break;
@@ -385,7 +392,9 @@ Panic::Panic(const CodeError &err)
         throw std::runtime_error("err code \'" + std::to_string(err.err_code) + "\' not found");
     }
 
-    HAS_ERRORED = HAS_ERRORED ? true : ((err.level != NONE and err.level >= ERR) or (err.level == NONE and err_map_at->level >= ERR));
+    HAS_ERRORED = HAS_ERRORED ? true
+                              : ((err.level != NONE and err.level >= ERR) or
+                                 (err.level == NONE and err_map_at->level >= ERR));
 
     final_err.color_mode = "16bit";
     final_err.error_type = "code";
@@ -484,7 +493,7 @@ void Panic::process_full_line() {
 
     if (!full_line.has_value()) {
         final_err.full_line = "$ out of bounds $";
-        final_err.line       = 1;
+        final_err.line      = 1;
         return;
     }
 
@@ -515,15 +524,15 @@ void Panic::show_error(bool internal_core_lib_err) {
         formatted_error += final_err.level + ": " + final_err.msg + string(colors::reset);
 
         if (!final_err.fix.empty()) {
-            formatted_error += "\n" + string(colors::bold) + string(colors::fg8::green) + "fix" + ": " +
-                               std::string(colors::reset) + final_err.fix;
+            formatted_error += "\n" + string(colors::bold) + string(colors::fg8::green) + "fix" +
+                               ": " + std::string(colors::reset) + final_err.fix;
         }
 
         formatted_error += string(colors::reset);
 
         print_err(formatted_error);
         std::exit(1);
-        
+
         return;
     }
 
@@ -531,11 +540,11 @@ void Panic::show_error(bool internal_core_lib_err) {
     if (final_err.full_line != "$ out of bounds $") {
         lines = get_surrounding_lines(final_err.file, final_err.line);
     }
-     
-    string    markings;
-    string    formatted_error;
-    string    whitespace = string(level_len, ' ');
-    string    A_W;  // additional_whitespace
+
+    string markings;
+    string formatted_error;
+    string whitespace = string(level_len, ' ');
+    string A_W;  // additional_whitespace
 
     auto generate_left_side = [&](string align) -> string {
         std::strip(align);
