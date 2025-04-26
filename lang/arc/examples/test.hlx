@@ -5,13 +5,13 @@ ffi "c++" import "test.hpp";
 #[NO_CODE_GEN]
 ffi "c++" {
     module cxx_file_test_includes {
-        // #include <concepts>
-        // #include <coroutine>
-        // #include <iostream>
-        // #include <optional>
-        // #include <ranges>
-        // #include <string>
-        // #include <vector>
+        // @cpp::include("concepts")
+        // @cpp::include("coroutine")
+        // @cpp::include("iostream")
+        // @cpp::include("optional")
+        // @cpp::include("ranges")
+        // @cpp::include("string")
+        // @cpp::include("vector")
         // the includes expand into the same format as after. (use the clang ast gen)
     }
 
