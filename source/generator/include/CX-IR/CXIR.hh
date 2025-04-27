@@ -16,7 +16,10 @@
 #ifndef __CXIR_H__
 #define __CXIR_H__
 
+#include <clang/Basic/LangOptions.h>
+#include <clang/Basic/TokenKinds.h>
 #include <clang/Format/Format.h>
+#include <clang/Lex/Lexer.h>
 #include <llvm/ADT/StringRef.h>
 
 #include <filesystem>
@@ -140,6 +143,58 @@ UseTab:          Never
 GENERATE_CXIR_TOKENS_ENUM_AND_MAPPING;
 
 __CXIR_CODEGEN_BEGIN {
+    /// \brief Tiny syntax highlighter for CX-IR
+    /// \param cxir The CX-IR code to highlight
+    inline std::string token_color(const clang::Token &Tok) {
+        if (Tok.isAnnotation() || Tok.isRegularKeywordAttribute()) {
+            return "\033[38;5;140m";
+        }
+
+        if (Tok.isAnyIdentifier()) {
+            return "\033[38;5;180m";
+        }
+
+        if (Tok.isLiteral()) {
+            if (Tok.is(clang::tok::string_literal) || Tok.is(clang::tok::wide_string_literal) ||
+                Tok.is(clang::tok::utf8_string_literal)  ||
+                Tok.is(clang::tok::utf16_string_literal) ||
+                Tok.is(clang::tok::utf32_string_literal)) {
+                return "\033[38;5;114m";
+            }
+
+            return "\033[38;5;110m";
+        }
+
+        return "\033[0m";
+    }
+
+    inline std::string highlight(const std::string &sourceCode) {
+        clang::LangOptions    langOpts;
+        clang::SourceLocation fakeLoc;
+        clang::Lexer          lexer(clang::SourceLocation(),
+                           langOpts,
+                           sourceCode.c_str(),
+                           sourceCode.c_str(),
+                           sourceCode.c_str() + sourceCode.size());
+
+        std::string output;
+
+        clang::Token token;
+
+        // print each token for debugging
+        while (lexer.Lex(token)) {
+            if (token.is(clang::tok::eof)) {
+                break;
+            }
+
+            std::string color = token_color(token);
+            output += color + std::string(token.getLiteralData(), token.getLength()) + "\033[0m";
+            output += " ";
+        }
+
+        return output;
+    }
+
     class CX_Token {
       private:
         u64         line{};
@@ -280,9 +335,19 @@ __CXIR_CODEGEN_BEGIN {
 
         [[nodiscard]] std::string to_readable_CXIR() const {
             std::string cxir = get_imports<true>() + "\n";
+            std::string file_name;
 
             // Build the CXIR string from tokens
             for (const auto &token : tokens) {
+                if (token->get_line() != 0 && token->get_file_name() != file_name) {
+                    file_name = token->get_file_name();
+                    string fn = "// File: \'" + file_name + "\' //\n";
+                    cxir += "\n\n"
+                            "//" + string(fn.length() - 1, '=') + "//\n"
+                            + fn +
+                            "//" + string(fn.length() - 1, '=') + "//\n\n";
+                }
+
                 cxir += token->to_clean_CXIR();
             }
 
@@ -300,9 +365,8 @@ __CXIR_CODEGEN_BEGIN {
             // Get the configuration as a string
             std::string config = get_neo_clang_format_config();
 
-            // Use a basic clang format style to simplify testing
-            clang::format::FormatStyle style =
-                clang::format::getGoogleStyle(clang::format::FormatStyle::LanguageKind::LK_Cpp);
+            // Use the style from the configuration string
+            clang::format::FormatStyle style = clang::format::getClangFormatStyle();
 
             // Parse the configuration string into the FormatStyle object
             auto error = clang::format::parseConfiguration(config, &style);

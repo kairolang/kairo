@@ -38,7 +38,7 @@ CX_VISIT_IMPL(StructDecl) {
                             "struct declaration cannot have a node of type: '" +
                                 child->getNodeName() +
                                 "', struct can only contain: enums, types, structs, unnamed ops, "
-                                "and let/const declarations.");
+                                "and var/const declarations.");
                         continue;
                 }
 

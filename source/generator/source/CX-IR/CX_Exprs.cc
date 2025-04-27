@@ -167,6 +167,13 @@ CX_VISIT_IMPL(IdentExpr) {
         reserved_transformations[node.name.value()](this, node.name);
         return;
     }
+
+    // if its a "_" then add a /* unused */ comment
+    if (node.name.value() == "_") {
+        ADD_TOKEN_AS_TOKEN(CXX_CORE_IDENTIFIER, node.name);
+        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_ANNOTATION, "/* unused */", node.name);
+        return;
+    }
     
     ADD_TOKEN_AS_TOKEN(CXX_CORE_IDENTIFIER, node.name);
 }
