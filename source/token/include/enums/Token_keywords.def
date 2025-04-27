@@ -16,7 +16,7 @@
 #ifndef __KEYWORDS_DEF__
 #define __KEYWORDS_DEF__
 
-#define KEYWORD_TOKENS_COUNT 51
+#define KEYWORD_TOKENS_COUNT 55
 
 /// Key: Val
 /// M  : Modifier
@@ -61,12 +61,15 @@
     /* S */ GENERATE(KEYWORD_PANIC, "panic")           \
     /* S */ GENERATE(KEYWORD_CATCH, "catch")           \
     /* S */ GENERATE(KEYWORD_FINALLY, "finally")       \
-    /* D */ GENERATE(KEYWORD_LET, "let")               \
+    /* D */ GENERATE(KEYWORD_LET, "var")               \
     /* M */ GENERATE(KEYWORD_PRIVATE, "priv")          \
     /* M */ GENERATE(KEYWORD_PUBLIC, "pub")            \
     /* M */ GENERATE(KEYWORD_PROTECTED, "prot")        \
     /* M */ GENERATE(KEYWORD_INTERNAL, "intl")         \
     /* M */ GENERATE(KEYWORD_CONST, "const")           \
+    /* M */ GENERATE(KEYWORD_OVERRIDE, "override")     \
+    /* M */ GENERATE(KEYWORD_VIRTUAL, "virtual")       \
+    /* M */ GENERATE(KEYWORD_NOPANIC, "no_panic")      \
     /* D */ GENERATE(KEYWORD_FFI, "ffi")               \
     /* S */ GENERATE(KEYWORD_IMPORT, "import")         \
     /* S */ GENERATE(KEYWORD_YIELD, "yield")           \
@@ -77,7 +80,7 @@
     /* D */ GENERATE(KEYWORD_MODULE, "module")         \
     /* H */ GENERATE(KEYWORD_REQUIRES, "requires")     \
     /* H */ GENERATE(KEYWORD_EXTEND, "extend")         \
-    /* H */ GENERATE(KEYWORD_WITH, "with")         \
+    /* H */ GENERATE(KEYWORD_WITH, "with")             \
     /*---- M ----*/ GENERATE(KEYWORD_UNSAFE, "unsafe")
 
 // NOTE: IF THIS GENERATION IS CHANGED DO NOT FORGET TO UPDATE COUNT

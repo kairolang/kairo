@@ -1072,7 +1072,7 @@ AST_NODE_IMPL(Declaration, LetDecl, const std::shared_ptr<__TOKEN_N::TokenList> 
             if (!(node->vis.find_add(tok.current().get()) ||
                   node->modifiers.find_add(tok.current().get()))) {
                 return std::unexpected(
-                    PARSE_ERROR(tok.current().get(), "invalid modifier for let"));
+                    PARSE_ERROR(tok.current().get(), "invalid modifier for var"));
             }
         }
     } else {
@@ -1096,7 +1096,7 @@ AST_NODE_IMPL(Declaration, LetDecl, const std::shared_ptr<__TOKEN_N::TokenList> 
             // if no value is provided type is required
             if ((var.value()->value == nullptr) && (var.value()->var->type == nullptr)) {
                 return std::unexpected(
-                    PARSE_ERROR(var.value()->var->path->name, "expected a type or value for let"));
+                    PARSE_ERROR(var.value()->var->path->name, "expected a type or value for var"));
             }
 
             node->vars.emplace_back(var.value());

@@ -233,18 +233,25 @@ __AST_BEGIN {
 
     struct FunctionSpecifier {  // the part before the function signature
         enum class Specifier : char {
-            Inline,  ///< 'inline'
-            Async,   ///< 'async'
-            Static,  ///< 'static'
-            Const,   ///< 'const' - in functions this is 'const' but for classes its 'final'
-            Eval,    ///< 'eval' - eval in the case of functions default to 'constinit' for
-                     ///           'constexpr' or 'consteval' use 'const eval'
+            Inline,   ///< 'inline'
+            Async,    ///< 'async'
+            Static,   ///< 'static'
+            Const,    ///< 'const' - in functions this is 'const' but for classes its 'final'
+            Eval,     ///< 'eval' - eval in the case of functions default to 'constinit' for
+                      ///           'constexpr' or 'consteval' use 'const eval'
+            Override, ///< 'override'
+            Virtual,  ///< 'virtual'
+            Delete,  ///< 'discard'
+            NoPanic,  ///< 'no_panic'
+            Default,  ///< 'default'
         };
 
         static bool is_function_specifier(const __TOKEN_N::Token &tok) {
-            return tok == __TOKEN_N::KEYWORD_INLINE || tok == __TOKEN_N::KEYWORD_ASYNC ||
-                   tok == __TOKEN_N::KEYWORD_STATIC || tok == __TOKEN_N::KEYWORD_CONST ||
-                   tok == __TOKEN_N::KEYWORD_EVAL;
+            return tok == __TOKEN_N::KEYWORD_INLINE  || tok == __TOKEN_N::KEYWORD_ASYNC    ||
+                   tok == __TOKEN_N::KEYWORD_STATIC  || tok == __TOKEN_N::KEYWORD_CONST    ||
+                   tok == __TOKEN_N::KEYWORD_EVAL    || tok == __TOKEN_N::KEYWORD_VIRTUAL  ||
+                   tok == __TOKEN_N::KEYWORD_OVERRIDE|| tok == __TOKEN_N::KEYWORD_DEFAULT  ||
+                   tok == __TOKEN_N::KEYWORD_NOPANIC || tok == __TOKEN_N::KEYWORD_DELETE;
         }
 
         explicit FunctionSpecifier(__TOKEN_N::Token marker)
@@ -264,6 +271,21 @@ __AST_BEGIN {
                     break;
                 case __TOKEN_N::KEYWORD_EVAL:
                     type = Specifier::Eval;
+                    break;
+                case __TOKEN_N::KEYWORD_OVERRIDE:
+                    type = Specifier::Override;
+                    break;
+                case __TOKEN_N::KEYWORD_VIRTUAL:
+                    type = Specifier::Virtual;
+                    break;
+                case __TOKEN_N::KEYWORD_DELETE:
+                    type = Specifier::Delete;
+                    break;
+                case __TOKEN_N::KEYWORD_NOPANIC:
+                    type = Specifier::NoPanic;
+                    break;
+                case __TOKEN_N::KEYWORD_DEFAULT:
+                    type = Specifier::Default;
                     break;
                 default:
                     throw std::runtime_error("Invalid function specifier");
@@ -408,6 +430,11 @@ __AST_BEGIN {
               __TOKEN_N::KEYWORD_ASYNC,
               __TOKEN_N::KEYWORD_STATIC,
               __TOKEN_N::KEYWORD_CONST,
+              __TOKEN_N::KEYWORD_VIRTUAL,
+            __TOKEN_N::KEYWORD_OVERRIDE,
+            __TOKEN_N::KEYWORD_DEFAULT,
+            __TOKEN_N::KEYWORD_NOPANIC,
+            __TOKEN_N::KEYWORD_DELETE,
               __TOKEN_N::KEYWORD_EVAL}},
             {ExpectedModifier::FuncQual,
              {__TOKEN_N::KEYWORD_DEFAULT,
