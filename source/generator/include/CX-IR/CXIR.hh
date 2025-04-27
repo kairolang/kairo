@@ -170,7 +170,7 @@ __CXIR_CODEGEN_BEGIN {
 
     inline std::string highlight(const std::string &sourceCode) {
         clang::LangOptions    langOpts;
-        clang::SourceLocation fakeLoc;
+        // clang::SourceLocation fakeLoc;
         clang::Lexer          lexer(clang::SourceLocation(),
                            langOpts,
                            sourceCode.c_str(),
