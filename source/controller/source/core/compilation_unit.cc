@@ -227,7 +227,7 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
     
     ast = parse_ast(tokens, in_file_path);
     
-    helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsed");
+    helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsed: " + in_file_path.generic_string());
 
     if (!ast) {
         return {{}, 1};
@@ -355,8 +355,7 @@ void CompilationUnit::emit_cxir /* */ (const generator::CXIR::CXIR &emitter, boo
     if (verbose) {
         helix::log<LogLevel::Debug>("\n", colors::fg16::yellow, emitter.to_CXIR(), colors::reset);
     } else {
-        helix::log<LogLevel::Info>(
-            "\n", colors::fg16::yellow, emitter.to_readable_CXIR(), colors::reset);
+        helix::log<LogLevel::Info>("\n", emitter.to_readable_CXIR(), colors::reset);
     }
 }
 
