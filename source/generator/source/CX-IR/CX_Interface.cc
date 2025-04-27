@@ -393,7 +393,7 @@ CX_VISIT_IMPL(InterDecl) {
                     CXX_CORE_IDENTIFIER, "Meta", func_decl->get_name_t().back());
                 ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                 ADD_TOKEN_AS_VALUE_AT_LOC(
-                    CXX_CORE_IDENTIFIER, "same_as", func_decl->get_name_t().back());
+                    CXX_CORE_IDENTIFIER, "is_same_as", func_decl->get_name_t().back());
 
                 ADD_TOKEN(CXX_LESS_THAN);
 
@@ -474,7 +474,7 @@ CX_VISIT_IMPL(InterDecl) {
                         CXX_CORE_IDENTIFIER, "Meta", op_decl->func->get_name_t().back());
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "convertible_to", op_decl->func->get_name_t().back());
+                        CXX_CORE_IDENTIFIER, "is_convertible_to", op_decl->func->get_name_t().back());
                     ADD_TOKEN(CXX_LESS_THAN);
 
                     if (op_decl->func->returns) {
@@ -625,7 +625,7 @@ CX_VISIT_IMPL(InterDecl) {
                         CXX_CORE_IDENTIFIER, "Meta", op_decl->func->get_name_t().back());
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "convertible_to", op_decl->func->get_name_t().back());
+                        CXX_CORE_IDENTIFIER, "is_convertible_to", op_decl->func->get_name_t().back());
                     ADD_TOKEN(CXX_LESS_THAN);
 
                     if (op_decl->func->returns) {
@@ -670,7 +670,7 @@ CX_VISIT_IMPL(InterDecl) {
                     ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "Meta", var->var->path->name);
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "convertible_to", var->var->path->name);
+                        CXX_CORE_IDENTIFIER, "is_convertible_to", var->var->path->name);
                     ADD_TOKEN(CXX_LESS_THAN);
 
                     if (var->var->type) {
@@ -737,7 +737,7 @@ CX_VISIT_IMPL(InterDecl) {
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "Meta", var->var->path->name);
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
-                    ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "same_as", var->var->path->name);
+                    ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "is_same_as", var->var->path->name);
                     ADD_TOKEN(CXX_LESS_THAN);
 
                     if (var->var->type) {
