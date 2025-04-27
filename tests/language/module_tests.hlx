@@ -5,7 +5,7 @@ module math {
 }
 
 fn main() -> i32 {
-    let result = math::add(10, 20);
+    var result = math::add(10, 20);
     print(result);
     return 0;
 }

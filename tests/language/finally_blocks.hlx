@@ -1,5 +1,5 @@
 fn main() -> i32 {
-    let a = true; // imagine simulating something that needs to be cleaned up
+    var a = true; // imagine simulating something that needs to be cleaned up
     finally {
         print("Cleaning up");
     }

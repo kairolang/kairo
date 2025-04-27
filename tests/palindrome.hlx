@@ -6,7 +6,7 @@ fn is_palindrome(str: string) -> bool {
         return false;
     }
 
-    let count: usize = 2;
+    var count: usize = 2;
 
     for i in range::<usize>(((str.length()/2)+1), (str.length())) {
         if str[i] != str[(i - count)] {

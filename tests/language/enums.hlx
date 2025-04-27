@@ -8,9 +8,9 @@ struct S {
 }
 
 fn main() -> i32 {
-    let s = S::A;
-    let t = S::B;
-    let u = S::C;
+    var s = S::A;
+    var t = S::B;
+    var u = S::C;
 
     print(f"{s}, {t}, {u}");
 }

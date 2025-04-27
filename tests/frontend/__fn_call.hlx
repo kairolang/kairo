@@ -56,7 +56,7 @@
 fn balance(str: string) {
     // str = "([]{}())" or something
 
-    let stack: list::<char> = [];
+    var stack: list::<char> = [];
 
     // so this: "([)]" would be unbalanced
 

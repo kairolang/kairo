@@ -1,5 +1,5 @@
 fn main() -> i32 {
-    let x = 10;
+    var x = 10;
 
     if x > 5 {
         print("x is greater than 5");

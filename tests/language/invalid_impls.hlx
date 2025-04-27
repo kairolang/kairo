@@ -11,12 +11,12 @@ class InvalidC with Haggler::<string> {
 }
 
 // Invalid class missing required method
-class MissingMethodC with Haggler::<int> {
-    // Missing `fn tia(self) -> int`
+class MissingMethodC with Haggler::<i32> {
+    // Missing `fn tia(self) -> i32`
 }
 
-fn tia() requires <T> if T has Haggler::<int> { // function must be defined so the check is done
-    let instance: T;
+fn tia() requires <T> if T has Haggler::<i32> { // function must be defined so the check is done
+    var instance: T;
     print(instance.tia());
 }
 

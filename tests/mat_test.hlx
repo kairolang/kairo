@@ -22,7 +22,7 @@ fn range(start: T, end: T, step: T = 1) -> yield T
 fn range(end: T) -> yield T
   requires <T> if Incrementable in T {
 
-    let start = T();
+    var start = T();
 
     while start < end {
         yield start;
@@ -32,15 +32,15 @@ fn range(end: T) -> yield T
 /* ---------------------------------------------------------------------------------------------- */
 
 struct Point {
-    let x: i32;
-    let y: i32;
+    var x: i32;
+    var y: i32;
 };
 
 #[assignable] // this denotes if a class can be reassigned (like primitive arrays in c/c++)
 class Matrix
   requires <T> /* if Arithmetic in T || T derives Point */ {
-    priv let rows: i32, cols: i32, data: libc::array::<T>;
-    pub let count = 9;
+    priv var rows: i32, cols: i32, data: libc::array::<T>;
+    pub var count = 9;
 
     /// constructor
     fn Matrix(self, r: i32, c: i32) {
@@ -92,9 +92,9 @@ class Matrix
 
     /// mat addition
     op + fn add(self, other: &Matrix::<T>) -> Matrix::<T> {
-        let result = Matrix::<T>(self.rows, self.cols);
+        var result = Matrix::<T>(self.rows, self.cols);
 
-        for (let i: i32 = 0; i < self.rows * self.cols; ++i) {
+        for (var i: i32 = 0; i < self.rows * self.cols; ++i) {
             result.data[i] = self.data[i] + other.data[i];
         }
 
@@ -103,7 +103,7 @@ class Matrix
 
     /// mat scalar multiplication
     op * fn mul(self, scalar: T) -> Matrix::<T> {
-        let result = Matrix::<T>(self.rows, self.cols);
+        var result = Matrix::<T>(self.rows, self.cols);
         
         for i in range(rows * cols) {
             result.data[i] = self.data[i] * scalar;
@@ -125,7 +125,7 @@ class Matrix
 extend Matrix for Point {
     /// mat addition
     op + fn add(const other: &Matrix::<Point>) -> Matrix::<Point> {
-        let result = Matrix::<Point>(rows, cols);
+        var result = Matrix::<Point>(rows, cols);
 
         for i in range(rows * cols) {
             result.data[i] = Point {
@@ -141,7 +141,7 @@ extend Matrix for Point {
     fn print() {
         for i in range(rows):
             for j in range(cols) {
-                let p = self(i, j);
+                var p = self(i, j);
                 print(f"({p.x}, {p.y}) ");
             }
     }
@@ -149,7 +149,7 @@ extend Matrix for Point {
 
 fn main() -> i32 {
     /// mat of i32s (aka. int in c/c++)
-    let intMatrix = Matrix::<i32>(2, 2);
+    var intMatrix = Matrix::<i32>(2, 2);
     // if Matrix is not mutable, then the following will not compile
     // intMatrix = Matrix::<i32>(3, 3);
     // since the above line will try to reassign the value of intMatrix which is not allowed
@@ -165,18 +165,18 @@ fn main() -> i32 {
     intMatrix.print();
 
     /// Adding two int matrices
-    let intMatrix2 = Matrix::<i32>(2, 2);
+    var intMatrix2 = Matrix::<i32>(2, 2);
     intMatrix2(0, 0) = 2;
     intMatrix2(0, 1) = 3;
     intMatrix2(1, 0) = 4;
     intMatrix2(1, 1) = 5;
 
-    let intMatrixSum = intMatrix + intMatrix2;
+    var intMatrixSum = intMatrix + intMatrix2;
     print("\nSum of Int Matrices:\n");
     intMatrixSum.print();
 
     // Matrix of Points
-    let pointMatrix = Matrix::<Point>(2, 2);
+    var pointMatrix = Matrix::<Point>(2, 2);
     pointMatrix(0, 0) = Point{x=1, y=2};
     pointMatrix(0, 1) = Point{x=3, y=4};
     pointMatrix(1, 0) = Point{x=5, y=6};
@@ -185,14 +185,14 @@ fn main() -> i32 {
     print(f"\nPoint Matrix:\n {pointMatrix.print()}");
 
     // Adding two Point matrices
-    let pointMatrix2 = Matrix::<Point>(2, 2);
+    var pointMatrix2 = Matrix::<Point>(2, 2);
     pointMatrix2(0, 0) = Point{x=2, y=3};
     pointMatrix2(0, 1) = Point{x=4, y=5};
     pointMatrix2(1, 0) = Point{x=6, y=7};
     pointMatrix2(1, 1) = Point{x=8, y=9};
 
     /// type inference
-    let pointMatrixSum = pointMatrix + pointMatrix2;
+    var pointMatrixSum = pointMatrix + pointMatrix2;
     print(f"\nSum of Point Matrices:\n {pointMatrixSum.print()}");
 
     return 0;

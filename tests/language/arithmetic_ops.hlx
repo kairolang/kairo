@@ -1,6 +1,6 @@
 fn main() -> i32 {
-    let a = 5;
-    let b = 3;
+    var a = 5;
+    var b = 3;
     print(a + b);
     print(a - b);
     print(a * b);

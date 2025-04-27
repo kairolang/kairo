@@ -10,11 +10,11 @@ interface ConstrainedI requires <U> if U has SimpleI {
 
 // A class implementing SimpleI
 class Bar with SimpleI {
-    fn innit(self) -> int {
+    fn innit(self) -> i32 {
         return self.x;
     }
 
-    pub let x: i32 = 10;
+    pub var x: i32 = 10;
 }
 
 // A class implementing constrained interface
@@ -23,18 +23,18 @@ class ConstrainedPub with ConstrainedI::<Bar> {
         return self.x > other.x;
     }
 
-    pub let x: i32 = 15;
+    pub var x: i32 = 15;
 }
 
 // Function that uses constrained interfaces
 fn use_constrained() requires <T, U> if T has ConstrainedI::<U> && U has SimpleI {
-    let instance: T;
+    var instance: T;
     print(instance.mandem(U()));
 }
 
 fn main() -> i32 {
     // Test constrained interface
-    let constrained_instance = ConstrainedPub{};
+    var constrained_instance = ConstrainedPub{};
     use_constrained::<ConstrainedPub, Bar>(); // Should execute without errors
     return 0;
 }
@@ -42,6 +42,6 @@ fn main() -> i32 {
 /*
 --------- do not remove this comment, it is used by the test script to validate the output ---------
 // START TEST
-1
+true
 // END TEST
 */

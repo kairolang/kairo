@@ -257,9 +257,9 @@
  }
  
  /// Complex arithmetic with type casting and precedence
- /* let logical_expr     = */ (foo && bar) || !(baz || qux);
- /* let complex_result   = */ ((foo * bar + 3) as float) / ((baz - qux) * 2);
- /* let mixed_operations = */ (foo * 2 + (bar - 1)) / ((baz % 5) * (qux / 4));
+ /* var logical_expr     = */ (foo && bar) || !(baz || qux);
+ /* var complex_result   = */ ((foo * bar + 3) as float) / ((baz - qux) * 2);
+ /* var mixed_operations = */ (foo * 2 + (bar - 1)) / ((baz % 5) * (qux / 4));
  
  /// Logical expressions with multiple conditions
  if foo && bar || baz {

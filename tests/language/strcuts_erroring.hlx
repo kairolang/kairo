@@ -1,5 +1,5 @@
 struct LAO {
-    let x: int;
+    var x: int;
 
     fn bar(self) -> int { // error: structs cant have methods
         return self.x;
@@ -7,7 +7,7 @@ struct LAO {
 }
 
 struct LOB {
-    let x: int;
+    var x: int;
 
     op + fn bar(self) -> int { // error: structs cant have named operators
         return self.x;
@@ -15,10 +15,10 @@ struct LOB {
 }
 
 struct LAC {
-    let x: int;
+    var x: int;
     
     class T1 { // error: structs cant have classes
-        let x: int;
+        var x: int;
     }
 }
 

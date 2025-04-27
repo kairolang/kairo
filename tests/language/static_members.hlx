@@ -1,7 +1,7 @@
 interface Multiplex {
     fn complex_method(self) -> i32;
     static fn complex_static_method();
-    let complex_field: i32;
+    var complex_field: i32;
 }
 
 // A class implementing Multiplex
@@ -14,12 +14,12 @@ class Barn with Multiplex {
         print("Barn static method");
     }
 
-    pub let complex_field: i32 = 20;
+    pub var complex_field: i32 = 20;
 }
 
 fn main() -> i32 {
     // Test Multiplex interface
-    let baz_instance = Barn{};
+    var baz_instance = Barn{};
     print(baz_instance.complex_method()); // Should print 40
     Barn::complex_static_method(); // Should print "Barn static method"
     return 0;

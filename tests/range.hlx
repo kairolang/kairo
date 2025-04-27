@@ -28,9 +28,6 @@
 /// }
 ///
 /// op's in class defs need to ignore self parm and work without self while calling as well.
-//import core::lol::*;
-ffi "c++" import "iostream";
-ffi "c++" import "chrono";
 
 // interface Incrementable {
 //     op ++ fn inc(self) -> Self;
@@ -45,7 +42,7 @@ module some_namespace {
         }
     }
 
-    type Bar = int;
+    type Bar = i32;
 }
 
 fn range(start: T, end: T, step: T = 1) -> yield T requires <T> {
@@ -56,8 +53,8 @@ fn range(start: T, end: T, step: T = 1) -> yield T requires <T> {
 }
 
 class SomeBad {
-    priv let start: i32;
-    priv let end: i32;
+    priv var start: i32;
+    priv var end: i32;
 
     fn SomeBad(self) {
         self.start = 0;
@@ -65,7 +62,7 @@ class SomeBad {
     }
 
     fn iter(self) -> yield i32 {
-        let i = self.start;
+        var i = self.start;
         
         while i < self.end {
             yield i++;
@@ -74,7 +71,7 @@ class SomeBad {
 }
 
 fn range(end: T) -> yield T requires <T> {
-    let start = T();
+    var start = T();
 
     while start < end {
         yield start;
@@ -82,28 +79,28 @@ fn range(end: T) -> yield T requires <T> {
     }
 }
 
-fn multi_iter() -> yield (int, float) {
+fn multi_iter() -> yield (i32, f64) {
     yield (1, 1.0);
     yield (2, 2.0);
     yield (3, 3.0);
 }
 // find closest if either left or right is the same then take right
-fn main() -> int {
-    let start = std::chrono::high_resolution_clock::now();
+fn main() -> i32 {
+    var start = libcxx::chrono::high_resolution_clock::now();
     
     finally {
-        let end = std::chrono::high_resolution_clock::now();
-        let duration = std::chrono::duration_cast::<std::chrono::nanoseconds>(end - start).count();
+        var end = libcxx::chrono::high_resolution_clock::now();
+        var duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
         print(f"Time taken: {duration}ns");
     }
 
-    let some_a: *SomeBad = malloc(sizeof(SomeBad)) as unsafe *SomeBad;
+    var some_a: *SomeBad = malloc(sizeof(SomeBad)) as unsafe *SomeBad;
     finally {
         print("freeing some_a");
         free(some_a as unsafe *void);
     }
 
-    let foo: some_namespace::Foo::<some_namespace::Bar> = some_namespace::Foo::<some_namespace::Bar>();
+    var foo: some_namespace::Foo::<some_namespace::Bar> = some_namespace::Foo::<some_namespace::Bar>();
 
     finally {
         print("Finally block 2");
@@ -116,7 +113,7 @@ fn main() -> int {
         print(i);
     }
 
-    let iter = range::<i32>(0, 10, 9);
+    var iter = range::<i32>(0, 10, 9);
 
     print(f"Iterating over range(0, 10): {next(iter)}");
     print(f"Iterating over range(0, 10): {next(iter)}");
@@ -125,8 +122,8 @@ fn main() -> int {
         print(i);
     }
 
-    let a = 0;
-    let b = 10;
+    var a = 0;
+    var b = 10;
 
     for i in range(a, b) {
         print(i);

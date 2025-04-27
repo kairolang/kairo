@@ -1,5 +1,5 @@
 fn main() -> i32 {
-    let x = f"Hello {5}";
+    var x = f"Hello {5}";
     print(x);
 
     print(f"num = {4.12311}");

@@ -1,9 +1,9 @@
 class Base {
-    pub let val: i32;
+    pub var val: i32;
 }
 
 class Derived derives Base {
-    let val: i32 = 42;
+    var val: i32 = 42;
 
     fn Derived(self) {
         Base::val = 50; // shadowed val
@@ -20,11 +20,11 @@ class Derived derives Base {
 }
 
 struct TempContainer {
-    let vb: i32;
+    var vb: i32;
 }
 
 class ClassCasting {
-    let val: i32;
+    var val: i32;
 
     fn ClassCasting(self, val: i32) {
         self.val = val;
@@ -49,29 +49,29 @@ fn main() -> i32 {
     // Test 1: remove constness
     const const_val: i32 = 42;
 
-    let non_const_val = const_val as i32;
+    var non_const_val = const_val as i32;
     print(f"{non_const_val}");
 
     // Test 2: upcast
-    let derived = Derived();
-    let base = derived as Base;
+    var derived = Derived();
+    var base = derived as Base;
     print(f"{base.val}");
 
-    let d = Derived();
+    var d = Derived();
 
-    let a: *Base = &d;
-    let b1: *Derived = a as *Derived;
+    var a: *Base = &d;
+    var b1: *Derived = a as *Derived;
 
     print(f"{(*b1).get_val()}");
 
-    let unsafe_cast: *i32 = 0x7FF000000000 as unsafe *i32;
+    var unsafe_cast: *i32 = 0x7FF000000000 as unsafe *i32;
     print(f"{unsafe_cast}");
 
     // missing tests for const cast
     // missing tests for downcast
     // idk what else to test
 
-    let h: *i32,
+    var h: *i32,
         f: *i32,
         g: *i32 = 0xff1 as unsafe *i32;
         
@@ -80,7 +80,7 @@ fn main() -> i32 {
 
     print(f"f = {f}, h = {h}, g = {g}");
 
-    let ic = ClassCasting(42);
+    var ic = ClassCasting(42);
     //takes_temp_container(ic as TempContainer); // without the cast this should work (since it's an implicit cast)
 
     return 0;
@@ -148,7 +148,7 @@ interface JsonIfy {
 }
 
 class Book {
-    let val: i32;
+    var val: i32;
 
     fn Book(self, val: i32) {
         self.val = val;

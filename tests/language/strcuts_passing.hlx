@@ -1,6 +1,6 @@
 struct Point {
-    let x: i32;
-    let y: i32;
+    var x: i32;
+    var y: i32;
 
     op + fn (self, other: &Point) -> Point {
         return Point {
@@ -11,15 +11,15 @@ struct Point {
 }
 
 struct Foam {
-    let x: int;
+    var x: i32;
 
-    op + fn (self) -> int { // works
+    op + fn (self) -> i32 { // works
         return self.x;
     }
 }
 
 struct Soap {
-    let x: int;
+    var x: i32;
 
     enum {
         A,
@@ -29,12 +29,12 @@ struct Soap {
 }
 
 struct Lick {
-    let x: int;
-    const y: int = 10;
+    var x: i32;
+    const y: i32 = 10;
 }
 
 struct Pick {
-    let x: int;
+    var x: i32;
     enum EnumName {
         A,
         B,
@@ -45,64 +45,64 @@ struct Pick {
 }
 
 struct Arugula {
-    let x: int;
-    let y: int;
-    let z: int;
-    let w: int;
-    let v: int;
-    let u: int;
-    let t: int;
-    let s: int;
-    let r: int;
-    let q: int;
-    let p: int;
-    let o: int;
-    let n: int;
-    let m: int;
-    let l: int;
-    let k: int;
-    let j: int;
-    let i: int;
-    let h: int;
-    let g: int;
-    let f: int;
-    let e: int;
-    let d: int;
-    let c: int;
-    let b: int;
-    let a: int;
+    var x: i32;
+    var y: i32;
+    var z: i32;
+    var w: i32;
+    var v: i32;
+    var u: i32;
+    var t: i32;
+    var s: i32;
+    var r: i32;
+    var q: i32;
+    var p: i32;
+    var o: i32;
+    var n: i32;
+    var m: i32;
+    var l: i32;
+    var k: i32;
+    var j: i32;
+    var i: i32;
+    var h: i32;
+    var g: i32;
+    var f: i32;
+    var e: i32;
+    var d: i32;
+    var c: i32;
+    var b: i32;
+    var a: i32;
 }
 
 struct Sitting1 {
     struct Nested {
-        let x: int;
+        var x: i32;
     }
 
-    let woa: Nested;
+    var woa: Nested;
 }
 
 struct Sitting2 {
     struct Nested {
-        let x: int;
+        var x: i32;
     }
 
-    let woa: Nested;
-    let x: int;
+    var woa: Nested;
+    var x: i32;
 }
 
 struct Sitting3 {
-    type alias_to_int = int;
-    let x: alias_to_int;
+    type alias_to_int = i32;
+    var x: alias_to_int;
 }
 
 fn main() -> i32 {
-    let p = Point { x = 3, y = 4 };
+    var p = Point { x = 3, y = 4 };
     print(f"({p.x}, {p.y})");
 
-    let q: Point;
+    var q: Point;
     q = Point { x = 1, y = 2 };
     
-    let r: Point = p + q;
+    var r: Point = p + q;
 
     print(f"({r.x}, {r.y})");
 

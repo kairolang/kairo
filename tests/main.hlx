@@ -19,8 +19,8 @@ ffi "c++" import "concepts";
 
 // Define the Fraction struct with n and d (numerator and denominator)
 struct Fraction {
-    let n: i32;
-    let d: i32;
+    var n: i32;
+    var d: i32;
 }
 
 // Add function at the global scope
@@ -30,27 +30,27 @@ fn add(a: i32, b: i32) -> i32 {
 
 // Overload the addition operator for Fraction
 op + fn add(a: Fraction, b: Fraction) -> Fraction {
-    let new_n = add(a.n + b.d, b.n + a.d);
-    let new_d = a.d * b.d;
+    var new_n = add(a.n + b.d, b.n + a.d);
+    var new_d = a.d * b.d;
     return { .n = new_n,
              .d = new_d };
 }
 
 op - fn subtract(a: Fraction, b: Fraction) -> Fraction {
-    let new_n = add(a.n - b.d, b.n - a.d);
-    let new_d = a.d * b.d;
+    var new_n = add(a.n - b.d, b.n - a.d);
+    var new_d = a.d * b.d;
     return Fraction { n= new_n, d= new_d };
 }
 
 op * fn multiply(a: Fraction, b: Fraction) -> Fraction {
-    let new_n = a.n * b.n;
-    let new_d = a.d * b.d;
+    var new_n = a.n * b.n;
+    var new_d = a.d * b.d;
     return Fraction { n= new_n, d= new_d };
 }
 
 op / fn divide(a: Fraction, b: Fraction) -> Fraction {
-    let new_n = a.n * b.d;
-    let new_d = a.d * b.n;
+    var new_n = a.n * b.d;
+    var new_d = a.d * b.n;
     return Fraction { n= new_n, d= new_d };
 }
 /*
@@ -256,9 +256,9 @@ fn factorial(n: i32) -> i32 {
 }
 
 eval fn range(n: i32) -> list::<i32> {
-    let v: list::<i32>;
+    var v: list::<i32>;
 
-    for (let i: i32 = 0; i < n; i++) {
+    for (var i: i32 = 0; i < n; i++) {
         v.push_back(i);
     }
 
@@ -281,7 +281,7 @@ class Fuzz {
 
 
 class Fish requires <T> if T has Bar, T derives Fuzz {
-    let fish: T;
+    var fish: T;
 }
 
 
@@ -303,9 +303,9 @@ fn print_vector(v: list::<i32>) -> void {
 
 
 class ABC {
-    let a: i32;
-    let b: i32;
-    let c: i32;
+    var a: i32;
+    var b: i32;
+    var c: i32;
 
     fn ABC(self, a: i32, b: i32, c: i32) {
         self.a = a;
@@ -323,7 +323,7 @@ class ABC {
 /// use __sfree! to free stack memory in local scope like a loop
 /// otherwise, use heap memory
 // macro __salloc!(name, typ, size) {
-//     let name: *typ = alloca(size * sizeof(typ));
+//     var name: *typ = alloca(size * sizeof(typ));
 // }
 
 // macro __sfree!(name) {
@@ -331,8 +331,8 @@ class ABC {
 // }
 
 class array requires <T, const N: u32> {
-    let data: *T = alloca(N * sizeof(T)) as *T;
-    let size: u32 = N;
+    var data: *T = alloca(N * sizeof(T)) as *T;
+    var size: u32 = N;
 }
 
 fn hi_there() -> (int, string) {
@@ -346,34 +346,34 @@ fn call_function() -> u32 {
 ffi "c++" import "chrono";
 
 fn main() -> i32 {
-    let start = libcxx::chrono::high_resolution_clock::now();
+    var start = libcxx::chrono::high_resolution_clock::now();
     // Adding two numbers
-    let sum = add(5, 7);
+    var sum = add(5, 7);
     const x: i32 = 10;
     const y: i32 = 10;
     const z: i32 = 10;
     print(f"Sum: {sum}");
 
     // Calculating factorial
-    let fact = factorial(5);
+    var fact = factorial(5);
     print(f"Factorial: {fact}");
 
     // Working with a C++ vector
-    let numbers: list::<i32> = [1, 2, 3, 4];
+    var numbers: list::<i32> = [1, 2, 3, 4];
     numbers.push_back(10);
     numbers.push_back(20);
     numbers.push_back(30);
     numbers.push_back(40);
     numbers.push_back(50);
 
-    let a: i32 = 10;
-    let bp: *i32 = &a;
+    var a: i32 = 10;
+    var bp: *i32 = &a;
 
-    let xy = hi_there();
+    var xy = hi_there();
     print(f"x: {libcxx::get::<0>(xy)}, y: {libcxx::get::<1>(xy).c_str()}");
     print(f"numbers = {numbers}");
 
-    let primitive_numbers: *u32 = alloca(5 * sizeof(u32)) as *u32;
+    var primitive_numbers: *u32 = alloca(5 * sizeof(u32)) as *u32;
     primitive_numbers[0] = 1;
     primitive_numbers[1] = 2;
     primitive_numbers[2] = 3;
@@ -387,7 +387,7 @@ fn main() -> i32 {
 
     print("Primitive numbers freed");
 
-    let windows_open_adder: *i32 = 0xAB128 as unsafe *i32;
+    var windows_open_adder: *i32 = 0xAB128 as unsafe *i32;
 
     print(f"windows_open_adder: {windows_open_adder}");
     print(f"windows_open: {a}");
@@ -399,7 +399,7 @@ fn main() -> i32 {
     print_vector(numbers);
 
     // Using C++ libcxx::string
-    let greeting = libcxx::string("Hello from Helix and C++!");
+    var greeting = libcxx::string("Hello from Helix and C++!");
     libcxx::cout << greeting << libcxx::endl;
 
     // Conditional check
@@ -409,10 +409,10 @@ fn main() -> i32 {
         print("Factorial is greater than or equal to sum.");
     }
 
-    let f1: Fraction = { .n=1, .d=2 };
-    let f2: Fraction = { .n=3, .d=4 };
+    var f1: Fraction = { .n=1, .d=2 };
+    var f2: Fraction = { .n=3, .d=4 };
 
-    let f3 = f1 + f2;
+    var f3 = f1 + f2;
 
     // Use C-style printf for output
     print(f"f1: {f1.n}/{f1.d}");
@@ -434,16 +434,16 @@ fn main() -> i32 {
     // printf("f1 as float: %f\n", f1());
     // Creating an object of class ABC
 
-    let obj = ABC(10, 20, 30);
+    var obj = ABC(10, 20, 30);
     obj.print();
 
     print(f"testing \{ wooo \} {call_function() + 182 + 21991} hhhjjj ");
 
-    let end = libcxx::chrono::high_resolution_clock::now();
+    var end = libcxx::chrono::high_resolution_clock::now();
 
 
     /// in ns
-    let duration = (end - start).count() / 1000;
+    var duration = (end - start).count() / 1000;
 
     print(f"Time taken: {duration} ns");
 

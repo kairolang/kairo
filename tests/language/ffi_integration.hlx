@@ -1,7 +1,7 @@
 ffi "c++" import "math.h";
 
 fn main() -> i32 {
-    let result: f32 = sqrt(17.0);
+    var result: f32 = sqrt(17.0);
     print(result);
 
     return 0;

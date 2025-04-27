@@ -1,5 +1,5 @@
 // Basic interface with a generic
-interface Foe requires <U> {
+interface Foo requires <U> {
     fn poo(self) -> U;
 }
 
@@ -8,9 +8,9 @@ interface Basic_Something {
     fn poo(self) -> i32;
 }
 
-// A class implementing Foe and Basic_Something
-class Drinks with Foe::<int>, Basic_Something {
-    fn poo(self) -> int {
+// A class implementing Foo and Basic_Something
+class Drinks with Foo::<i32>, Basic_Something {
+    fn poo(self) -> i32 {
         return self.x;
     }
 
@@ -18,12 +18,12 @@ class Drinks with Foe::<int>, Basic_Something {
         print("Drinks");
     }
 
-    let x: i32 = 10;
+    var x: i32 = 10;
 }
 
 fn main() -> i32 {
-    // Test Foe and Basic_Something functionality
-    let drink_instance = Drinks{};
+    // Test Foo and Basic_Something functionality
+    var drink_instance = Drinks{};
     print(drink_instance.poo()); // Should print 10
     Drinks::bar(); // Should print "Drinks"
     return 0;
