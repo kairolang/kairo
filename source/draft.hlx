@@ -23,6 +23,17 @@ enum TestResult {
     Fail
 }
 
+union ReturnStatus {
+    Success: i32,
+    DiagnosticPass: (diag::Error, i32)
+}
+
+let foo = ReturnStatus(.Success = 12)
+match foo {
+    case Success(var x): print("passed");
+    
+}
+
 enum ReturnStatus {
     Success,        // PASS
     DiagnosticPass, // this means warnings were encountered (or something that still allows for a result to be produces)
