@@ -1106,6 +1106,11 @@ __PREPROCESSOR_BEGIN {
                 .opt_fixes{},
                 .level = error ::ERR,
             });
+
+            found_paths.emplace_back(path, std::numeric_limits<size_t>::max(), Type::Module);
+            
+
+            return found_paths;
         }
 
         check_and_remove_duplicates();
