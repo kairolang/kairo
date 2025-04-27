@@ -58,6 +58,27 @@ CX_VISIT_IMPL_VA(FuncDecl, bool no_return_t) {
         }
     }
 
+    if (node.modifiers.contains(__TOKEN_N::KEYWORD_OVERRIDE)) {
+        this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_OVERRIDE, node.modifiers.get(__TOKEN_N::KEYWORD_OVERRIDE)));
+    }
+
+    if (node.modifiers.contains(__TOKEN_N::KEYWORD_DELETE)) {
+        // add and = and delete to the function decl
+        this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
+        this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_DELETE, node.modifiers.get(__TOKEN_N::KEYWORD_DELETE)));
+    }
+
+    if (node.modifiers.contains(__TOKEN_N::KEYWORD_DEFAULT)) {
+        // add and = and default to the function decl
+        this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
+        this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_DEFAULT, node.modifiers.get(__TOKEN_N::KEYWORD_DEFAULT)));
+    }
+
     NO_EMIT_FORWARD_DECL_SEMICOLON;
 
     if (node.body && node.body->body) {

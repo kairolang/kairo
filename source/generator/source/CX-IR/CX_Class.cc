@@ -16,7 +16,7 @@
 #include "utils.hh"
 
 CX_VISIT_IMPL(ClassDecl) {
-    auto add_udt_body = [node](CXIR                                         *self,
+    auto add_udt_body = [node, this](CXIR                                         *self,
                                const __AST_N::NodeT<__AST_NODE::IdentExpr>   name,
                                const __AST_N::NodeT<__AST_NODE::SuiteState> &body) {
         if (body != nullptr) {
@@ -119,14 +119,27 @@ CX_VISIT_IMPL(ClassDecl) {
 
                         add_public(self);
                         token::Token marker = ((op_t.tok == nullptr) ? node.name->name : *op_t.tok);
+
+                        add_func_modifiers(this, op_decl->modifiers);
                     
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_TILDE, marker));
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_CORE_IDENTIFIER,
                                                                 node.name->name.value(), marker));
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_LPAREN));
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_RPAREN));
+                        
+                        add_func_specifiers(this, op_decl->modifiers);
 
-                        self->visit(*op_decl->func->body);
+                        if (op_decl->func->body == nullptr) {
+                            self->append(cxir_tokens::CXX_SEMICOLON);
+                        } else {
+                            self->visit(*op_decl->func->body);
+                        }
+
+                        if (node.modifiers.contains(__TOKEN_N::KEYWORD_OVERRIDE)) {
+                            this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+                                __CXIR_CODEGEN_N::cxir_tokens::CXX_OVERRIDE, node.modifiers.get(__TOKEN_N::KEYWORD_OVERRIDE)));
+                        }
 
                         continue;
                     }
@@ -173,12 +186,14 @@ CX_VISIT_IMPL(ClassDecl) {
             if (!has_destructor) {
                 default_destructor(self, node.name);
             }
-
-            delete_copy_constructor(self, node.name);
-            delete_copy_assignment(self, node.name);
-            default_move_constructor(self, node.name);
-            default_move_assignment(self, node.name);
-
+            
+            if (node.modifiers.contains(token::tokens::KEYWORD_DEFAULT)) {
+                delete_copy_constructor(self, node.name);
+                delete_copy_assignment(self, node.name);
+                default_move_constructor(self, node.name);
+                default_move_assignment(self, node.name);
+            }
+            
             self->append(cxir_tokens::CXX_RBRACE);
         }
     };
