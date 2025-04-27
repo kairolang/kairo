@@ -13,6 +13,7 @@
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
+#include "parser/ast/include/config/AST_config.def"
 #include "utils.hh"
 
 CX_VISIT_IMPL(StructDecl) {
@@ -32,6 +33,13 @@ CX_VISIT_IMPL(StructDecl) {
                     case __AST_NODE::nodes::LetDecl:
                     case __AST_NODE::nodes::ConstDecl:
                         break;
+                    case __AST_NODE::nodes::IfState: {
+                        auto if_node = __AST_N::as<__AST_NODE::IfState>(child);
+                        
+                        if (if_node->has_const && if_node->has_eval) {
+                            break;
+                        }
+                    }
                     default:
                         CODEGEN_ERROR(
                             node.name->name,
