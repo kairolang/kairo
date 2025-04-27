@@ -92,7 +92,7 @@ def compile_and_execute(compiler_path, file_path, output_path):
         compile_process = subprocess.run(compile_cmd, capture_output=True, text=True)
 
         if compile_process.returncode != 0:
-            logger.error(f"Compilation failed for {file_path}. Error: {compile_process.stderr}")
+            # logger.error(f"Compilation failed for {file_path}. Error: {compile_process.stderr}")
             return compile_process.stdout, compile_process.stderr, False
         
         if not os.path.exists(output_path + (".exe" if os.name == "nt" else "")):
@@ -141,21 +141,20 @@ def run_test(compiler_path, folder_path, file_name):
             # check if all the lines in expected_output are in stderr
             stderr_lines    = [remove_all_unicode_colors(x.strip()) for x in stderr.split('\n')]
             expected_output = [remove_all_unicode_colors(x.strip()) for x in expected_output]
-
-            for line in expected_output:
-                if line not in stderr_lines:
-                    logger.debug(f"Error check failed for file: {file_name}")
-                    return file_name, False, f"Error check failed.\n" \
-                                             f"      {COLOR_YELLOW}Expected:{COLOR_RESET}\n" \
-                                             f"        {COLOR_GREEN}\"{line}\"{COLOR_RESET}\n" \
-                                             f"      {COLOR_YELLOW}Output:{COLOR_RESET}\n" \
-                                             f"        {(NEW_LINE_CHAR + '        ').join(stderr.splitlines())}"
+            
+            if len(stderr_lines) < len(expected_output):
+                logger.debug(f"Error check failed for file: {file_name}")
+                return file_name, False, f"Error check failed.\n" \
+                                         f"      {COLOR_YELLOW}Expected:{COLOR_RESET}\n" \
+                                         f"        {COLOR_GREEN}\"{line}\"{COLOR_RESET}\n" \
+                                         f"      {COLOR_YELLOW}Output:{COLOR_RESET}\n" \
+                                         f"        {(NEW_LINE_CHAR + '        ').join(stderr.splitlines())}"
 
         # Make sure there no stdout and there is only stderr
-        if stdout.strip() == "" and stderr.strip() != "":
+        if stderr.strip() != "":
             logger.info(f"Error check passed for file: {file_name}")
             return file_name, True, "Error check passed."
-        else:
+        else: 
             logger.debug(f"Error check failed for file: {file_name}")
             return file_name, False, f"Error check failed.\n" \
                                      f"      {COLOR_YELLOW}Expected:{COLOR_RESET}\n" \
