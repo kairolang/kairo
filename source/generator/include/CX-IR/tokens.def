@@ -103,6 +103,7 @@
     GENERATE(CXX_UNSIGNED,          "unsigned"          ) \
     GENERATE(CXX_USING,             "using"             ) \
     GENERATE(CXX_VIRTUAL,           "virtual"           ) \
+    GENERATE(CXX_OVERRIDE,          "override"           ) \
     GENERATE(CXX_VOID,              "void"              ) \
     GENERATE(CXX_VOLATILE,          "volatile"          ) \
     GENERATE(CXX_WCHAR_T,           "wchar_t"           ) \

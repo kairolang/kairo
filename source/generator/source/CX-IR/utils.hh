@@ -749,6 +749,9 @@ inline void add_func_modifiers(__CXIR_CODEGEN_N::CXIR *self, __AST_N::Modifiers 
     } else if (modifiers.contains(__TOKEN_N::KEYWORD_EVAL)) {
         self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
             __CXIR_CODEGEN_N::cxir_tokens::CXX_CONSTEXPR, modifiers.get(__TOKEN_N::KEYWORD_EVAL)));
+    } else if (modifiers.contains(__TOKEN_N::KEYWORD_VIRTUAL)) {
+        self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_VIRTUAL, modifiers.get(__TOKEN_N::KEYWORD_VIRTUAL)));
     }
 }
 
@@ -756,6 +759,32 @@ inline void add_func_specifiers(__CXIR_CODEGEN_N::CXIR *self, __AST_N::Modifiers
     if (modifiers.contains(__TOKEN_N::KEYWORD_CONST)) {
         self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
             __CXIR_CODEGEN_N::cxir_tokens::CXX_CONST, modifiers.get(__TOKEN_N::KEYWORD_CONST)));
+    }
+
+    if (modifiers.contains(__TOKEN_N::KEYWORD_OVERRIDE)) {
+        self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_OVERRIDE, modifiers.get(__TOKEN_N::KEYWORD_OVERRIDE)));
+    }
+
+    if (modifiers.contains(__TOKEN_N::KEYWORD_NOPANIC)) {
+        self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_NOEXCEPT, modifiers.get(__TOKEN_N::KEYWORD_NOPANIC)));
+    }
+
+    if (modifiers.contains(__TOKEN_N::KEYWORD_DELETE)) {
+        // add and = and delete to the function decl
+        self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
+        self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_DELETE, modifiers.get(__TOKEN_N::KEYWORD_DELETE)));
+    }
+
+    if (modifiers.contains(__TOKEN_N::KEYWORD_DEFAULT)) {
+        // add and = and default to the function decl
+        self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
+        self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_DEFAULT, modifiers.get(__TOKEN_N::KEYWORD_DEFAULT)));
     }
 }
 
