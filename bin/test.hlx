@@ -2,6 +2,8 @@
 ffi "c++" import "chrono";
 ffi "c++" import "random";
 
+import std::Error;
+
 fn return_success() -> i32? {
     return 1;  // Always returns success
 }
@@ -16,15 +18,15 @@ fn cause_panic() -> i32? {
 
 fn random_behavior() -> (i32?, i32) {
     /// Randomly execute one of the above functions
-    let rd   = libcxx::random_device();
-    // let x: unsafe *i32 = _NEW(i32);
+    var rd   = libcxx::random_device();
+    // var x: unsafe *i32 = _NEW(i32);
     // *x = 19; // *x = 19 == *(x = 19) ! (*x) = 19
-    let gen  = libcxx::mt19937(rd());
-    let dist = libcxx::uniform_int_distribution::<i32>(0, 2);
+    var gen  = libcxx::mt19937(rd());
+    var dist = libcxx::uniform_int_distribution::<i32>(0, 2);
 
-    let result: i32? = null;
+    var result: i32? = null;
 
-    let start = libcxx::chrono::high_resolution_clock::now();
+    var start = libcxx::chrono::high_resolution_clock::now();
     switch dist(gen) {
         case 0 {
             result = return_success();
@@ -37,24 +39,24 @@ fn random_behavior() -> (i32?, i32) {
         }
     }
     
-    let end = libcxx::chrono::high_resolution_clock::now();
+    var end = libcxx::chrono::high_resolution_clock::now();
 
-    let duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
+    var duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
     return (result, duration as i32);
 }
 
 // stores: {label: [duration, ...]} - map is c++ std::map
-let times = map::<string, vec::<tuple::<string, i32>>>();
+var times = map::<string, vec::<tuple::<string, i32>>>();
 
 fn run_test_case(label: string, test_func: fn() -> i32?) {
     for _ in 0..5 {
-        let state: string;
+        var state: string;
 
-        let start = libcxx::chrono::high_resolution_clock::now();
-        let result = test_func();
-        let end = libcxx::chrono::high_resolution_clock::now();
+        var start = libcxx::chrono::high_resolution_clock::now();
+        var result = test_func();
+        var end = libcxx::chrono::high_resolution_clock::now();
 
-        let duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
+        var duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
 
         if result == null {
             state = "null";
@@ -85,15 +87,15 @@ fn main() -> i32 {
 
     // test random as well:
     for _ in 0..5 {
-        let rd   = libcxx::random_device();
-        // let x: unsafe *i32 = _NEW(i32);
+        var rd   = libcxx::random_device();
+        // var x: unsafe *i32 = _NEW(i32);
         // *x = 19; // *x = 19 == *(x = 19) ! (*x) = 19
-        let gen  = libcxx::mt19937(rd());
-        let dist = libcxx::uniform_int_distribution::<i32>(0, 2);
+        var gen  = libcxx::mt19937(rd());
+        var dist = libcxx::uniform_int_distribution::<i32>(0, 2);
 
-        let result: i32? = null;
+        var result: i32? = null;
 
-        let start = libcxx::chrono::high_resolution_clock::now();
+        var start = libcxx::chrono::high_resolution_clock::now();
         switch dist(gen) {
             case 0 {
                 result = return_success();
@@ -105,11 +107,11 @@ fn main() -> i32 {
                 result = cause_panic();
             }
         }
-        let end = libcxx::chrono::high_resolution_clock::now();
+        var end = libcxx::chrono::high_resolution_clock::now();
 
-        let duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
+        var duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
 
-        let state: string;
+        var state: string;
         if result == null {
             state = "null";
         } else if result == std::Error::RuntimeError() {
@@ -140,8 +142,8 @@ fn main() -> i32 {
 ffi "c++" import "exception";
 
 fn pow(base: u64, exp: u64) -> u64 {
-    let result: u64 = 1;
-    let e = exp;
+    var result: u64 = 1;
+    var e = exp;
 
     while e > 0 {
         if e % 2 == 1 {
@@ -165,11 +167,11 @@ fn pow(base: u64, exp: u64) -> u64 {
 }
 
 fn to_u64(s: &string) -> u64 {
-    let result: u64 = 0;
-    let i = 0;
+    var result: u64 = 0;
+    var i = 0;
 
     while i < s.size() {
-        let digit = (s[i] as u64) - ('0' as u64);
+        var digit = (s[i] as u64) - ('0' as u64);
         
         if result > (0xFFFFFFFFFFFFFFFF - digit) / 10 {
             print("overflow");
@@ -184,32 +186,32 @@ fn to_u64(s: &string) -> u64 {
 }
 
 fn main() -> i32 {
-    let num = "12384979813122731242141";
-    let result = to_u64(num);
+    var num = "12384979813122731242141";
+    var result = to_u64(num);
     print(f"Result: {result}");
 }
 
 // fn to_large(number: &string) -> u64 {
-//     let final_num: u64 = 0;
-//     let n: vec::<string>;
+//     var final_num: u64 = 0;
+//     var n: vec::<string>;
 
-//     let len = number.length();
-//     let i = 0;
+//     var len = number.length();
+//     var i = 0;
 
 //     while i < len {
-//         let end = (i + 32) if (i + 32 < len) else len;
+//         var end = (i + 32) if (i + 32 < len) else len;
 //         n.push_back(number.substr(i, end));
 //         i += 32;
 //     }
 
-//     let iter = 0;
+//     var iter = 0;
 
 //     if n.size() > 1 && n[0][0] == '-' {
 //         n[0] = n[0].substr(1);
 //     }
 
 //     while iter < n.size() {
-//         let val = str_to_u64(n[iter]);
+//         var val = str_to_u64(n[iter]);
         
 //         if iter == n.size() - 1:
 //             final_num = final_num * pow(10, ((n[iter].length()) as u64)) + val;
@@ -267,7 +269,7 @@ fn main() -> i32 {
 // }
 
 // class Book {
-//     let val: i32;
+//     var val: i32;
 
 //     fn Book(self, val: i32) {
 //         self.val = val;
