@@ -79,62 +79,68 @@ fn run_test_case(label: string, test_func: fn() -> i32?) {
 
 fn main() -> i32 {
     print("Running Test Cases:\n");
+    print(f"blank fstring");
+    print(f"new \{\} fstring form {&return_success}\n");
+    print(f"new \\\{\\\} fstring form {&return_success}\n");
+    print(f"new fstring form {&return_success} ohhhhh using a curly in an fstring \{ ooooooo \} ----------------");
+    print(f"new fstring form {&return_success}, a: {&return_null}, b: {&cause_panic} ----------------\{\}");
 
+    // more then 1 argument
     // run each test 5 times and add them to the times map
-    run_test_case("return_success",  &return_success);
-    run_test_case("return_null",     &return_null);
-    run_test_case("cause_panic",     &cause_panic);
+    // run_test_case("return_success",  &return_success);
+    // run_test_case("return_null",     &return_null);
+    // run_test_case("cause_panic",     &cause_panic);
 
-    // test random as well:
-    for _ in 0..5 {
-        var rd   = libcxx::random_device();
-        // var x: unsafe *i32 = _NEW(i32);
-        // *x = 19; // *x = 19 == *(x = 19) ! (*x) = 19
-        var gen  = libcxx::mt19937(rd());
-        var dist = libcxx::uniform_int_distribution::<i32>(0, 2);
+    // // test random as well:
+    // for _ in 0..5 {
+    //     var rd   = libcxx::random_device();
+    //     // var x: unsafe *i32 = _NEW(i32);
+    //     // *x = 19; // *x = 19 == *(x = 19) ! (*x) = 19
+    //     var gen  = libcxx::mt19937(rd());
+    //     var dist = libcxx::uniform_int_distribution::<i32>(0, 2);
 
-        var result: i32? = null;
+    //     var result: i32? = null;
 
-        var start = libcxx::chrono::high_resolution_clock::now();
-        switch dist(gen) {
-            case 0 {
-                result = return_success();
-            }
-            case 1 {
-                result = return_null();
-            }
-            case 2 {
-                result = cause_panic();
-            }
-        }
-        var end = libcxx::chrono::high_resolution_clock::now();
+    //     var start = libcxx::chrono::high_resolution_clock::now();
+    //     switch dist(gen) {
+    //         case 0 {
+    //             result = return_success();
+    //         }
+    //         case 1 {
+    //             result = return_null();
+    //         }
+    //         case 2 {
+    //             result = cause_panic();
+    //         }
+    //     }
+    //     var end = libcxx::chrono::high_resolution_clock::now();
 
-        var duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
+    //     var duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start).count();
 
-        var state: string;
-        if result == null {
-            state = "null";
-        } else if result == std::Error::RuntimeError() {
-            state = "panic";
-        } else if (result as i32) == 1 {
-            state = "success";
-        } else {
-            state = "unknown";
-        }
+    //     var state: string;
+    //     if result == null {
+    //         state = "null";
+    //     } else if result == std::Error::RuntimeError() {
+    //         state = "panic";
+    //     } else if (result as i32) == 1 {
+    //         state = "success";
+    //     } else {
+    //         state = "unknown";
+    //     }
 
-        if times.contains("random") {
-            times["random"].emplace_back(state, duration as i32);
-        } else {
-            times["random"] = vec::<tuple::<string, i32>>();
-            times["random"].emplace_back(state, duration as i32);
-        }
-    }
+    //     if times.contains("random") {
+    //         times["random"].emplace_back(state, duration as i32);
+    //     } else {
+    //         times["random"] = vec::<tuple::<string, i32>>();
+    //         times["random"].emplace_back(state, duration as i32);
+    //     }
+    // }
 
-    for label, durations in times {
-        for duration in durations {
-            print(f"{label}: {libcxx::get::<0>(duration)} - {libcxx::get::<1>(duration)} ns\n");
-        }
-    }
+    // for label, durations in times {
+    //     for duration in durations {
+    //         print(f"{label}: {libcxx::get::<0>(duration)} - {libcxx::get::<1>(duration)} ns\n");
+    //     }
+    // }
 
     return 0;
 }
