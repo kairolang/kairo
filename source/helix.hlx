@@ -24,16 +24,10 @@ using the new toolchain the entire process can happen like this:
 */
 fn foo() -> i32? {
     panic "this is a panic";
-    // breaks down to the following c++:
-    return PanicFrame(
-        "this is a panic",
-        "source/helix.hlx",
-        1, "foo"
-    );
 }
 
 fn abc() -> i32 {
-    let x = ["hello", "world"];
+    var x = ["hello", "world"];
 
     // fails to codegen correctly since the `as` requires a primary expr on the right
     return x[0].length() as i32;
@@ -60,9 +54,9 @@ fn abc() -> i32 {
 
 fn helix_compiler(std::array::<std::string, N> args) -> i32
   requires <N: std::size_t> {
-    let invoke      = InvocationManager(args, true);
-    let compile     = CompilationUnit(invoke);
-    let diag_handle = PrettyDiagnosticHandler();
+    var invoke      = InvocationManager(args, true);
+    var compile     = CompilationUnit(invoke);
+    var diag_handle = PrettyDiagnosticHandler();
 
     // frontend processors
     compile.add_frontend_processor(Mem::Heap::<LexicalProcessor>());

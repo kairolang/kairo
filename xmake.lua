@@ -368,7 +368,7 @@ target("helix") -- target config defined in the config seciton
             local relative_path = path.relative(filepath, "lib-helix")
             local target_path = path.join(target_dir, "..", relative_path)
 
-            if ext == ".h" or ext == ".hh" then
+            if ext == ".h" or ext == ".hh" or ext == ".tpp" then
                 -- Process header files: prepend #line directive
                 local content = io.readfile(filepath)
                 local line_directive = string.format('#line 1 R"(%s)"\n', path.translate(path.absolute(filepath)))
