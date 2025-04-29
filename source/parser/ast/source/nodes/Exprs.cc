@@ -459,7 +459,7 @@ AST_NODE_IMPL(Expression, LiteralExpr, ParseResult<> str_concat) {
 
     std::string base_string = tok.value();
 
-    if (base_string.length() > 0 && (base_string[0] == 'f' && base_string[1] == '"')) {
+    if (base_string.length() > 0 && (base_string[0] == 'f' && base_string[1] == '"')) { // check if its a f-string
         // remove the "f" from the string.
         std::string formatted_string = base_string.substr(1);
 
@@ -525,62 +525,64 @@ AST_NODE_IMPL(Expression, LiteralExpr, ParseResult<> str_concat) {
 
         std::vector<std::pair<size_t, size_t>> original_copy = f_string_elements;
 
-        for (size_t i = 0; i < f_string_elements.size(); ++i) {
-            // start a tokenizer instance to process f-string elemets
-            parser::lexer::Lexer lexer(
-                formatted_string.substr(f_string_elements[i].first, f_string_elements[i].second),
-                tok.file_name(),
-                tok.line_number(),
-                tok.column_number() + original_copy[i].first,
-                tok.offset() + original_copy[i].first);
-
-            // remove the section of formatted_string
-            formatted_string.erase(f_string_elements[i].first, f_string_elements[i].second);
-
-            // update the position of all the elements after the current one
-            for (auto &f_string_element_ : f_string_elements) {
-                if (f_string_element_.first > f_string_elements[i].first) {
-                    f_string_element_.first -= f_string_elements[i].second;
+        if (!f_string_elements.empty()) { // if there is no f-string elements, then we dont need to do anything
+            for (size_t i = 0; i < f_string_elements.size(); ++i) {
+                // start a tokenizer instance to process f-string elemets
+                parser::lexer::Lexer lexer(
+                    formatted_string.substr(f_string_elements[i].first, f_string_elements[i].second),
+                    tok.file_name(),
+                    tok.line_number(),
+                    tok.column_number() + original_copy[i].first,
+                    tok.offset() + original_copy[i].first);
+    
+                // remove the section of formatted_string
+                formatted_string.erase(f_string_elements[i].first, f_string_elements[i].second);
+    
+                // update the position of all the elements after the current one
+                for (auto &f_string_element_ : f_string_elements) {
+                    if (f_string_element_.first > f_string_elements[i].first) {
+                        f_string_element_.first -= f_string_elements[i].second;
+                    }
                 }
+    
+                // lex the substring
+                __TOKEN_N::TokenList tokens = lexer.tokenize();
+    
+                // pre-process
+                // ...
+    
+                // make a ast generator
+                auto       iter = tokens.begin();
+                Expression _expr_parser(iter);
+    
+                // parse ast to identify syntax errors
+                ParseResult<> parse = _expr_parser.parse();
+    
+                // check if any errors were emitted and if so return
+                if (!parse || !parse.has_value()) {
+                    return std::unexpected(parse.error());
+                }
+    
+                node->format_args.emplace_back(parse.value());
             }
-
-            // lex the substring
-            __TOKEN_N::TokenList tokens = lexer.tokenize();
-
-            // pre-process
-            // ...
-
-            // make a ast generator
-            auto       iter = tokens.begin();
-            Expression _expr_parser(iter);
-
-            // parse ast to identify syntax errors
-            ParseResult<> parse = _expr_parser.parse();
-
-            // check if any errors were emitted and if so return
-            if (!parse || !parse.has_value()) {
-                return std::unexpected(parse.error());
-            }
-
-            node->format_args.emplace_back(parse.value());
+        } else {
+            // if there are no f-string elements, then we can just remove the "f" from the string
+            // since its just a normal string
+            formatted_string = base_string.substr(1);
         }
 
-        // swaps all the "{" <-> "\{" and "}" <-> "\}"
+        // Convert only "\{" to "\\{" and "\}" to "\\}"
         for (size_t i = 0; i < formatted_string.size(); ++i) {
-            if (formatted_string[i] == '{' && (i == 0 || formatted_string[i - 1] != '\\')) {
-                formatted_string.insert(i, "\\\\");
-                ++i;
-                ++i;
-            } else if (formatted_string[i] == '}' && (i == 0 || formatted_string[i - 1] != '\\')) {
-                formatted_string.insert(i, "\\\\");
-                ++i;
-                ++i;
-            } else if (formatted_string.substr(i, 2) == "\\{") {
-                formatted_string.erase(i, 1);
-                ++i;
-            } else if (formatted_string.substr(i, 2) == "\\}") {
-                formatted_string.erase(i, 1);
-                ++i;
+            if (formatted_string.substr(i, 2) == "\\{") {
+                formatted_string.insert(i, "\\");
+                i += 2;
+                continue;
+            }
+            
+            if (formatted_string.substr(i, 2) == "\\}") {
+                formatted_string.insert(i, "\\");
+                i += 2;
+                continue;
             }
         }
 
