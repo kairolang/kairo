@@ -36,8 +36,8 @@ int main(int argc, char **argv) {
     }
 
     if (LSP_MODE && error::ERRORS.size() > 0) {
-        for (const auto &err : error::ERRORS) {
-            if (err.line == 0 && err.col == 0) {
+        for (auto err : error::ERRORS) {
+            if (err.line == 0 && err.col == 0 || err.level == "none") {
                 continue;
             }
             

@@ -278,7 +278,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
 
         if (e_level == "error") {level = error::Level::ERR; }
         else if (e_level == "warning") {level = error::Level::WARN; }
-        else if (e_level == "note") {level = error::Level::NOTE; }
+        else if (e_level == "note") { level = LSP_MODE? error::Level::WARN : error::Level::NOTE; }
         else {level = error::Level::FATAL; }
 
         auto pof = std::get<0>(err);

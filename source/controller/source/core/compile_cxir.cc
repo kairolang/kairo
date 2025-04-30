@@ -232,7 +232,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         error::Level level = std::map<string, error::Level>{
             {"error", error::Level::ERR},                       //
             {"warning", error::Level::WARN},                    //
-            {"note", error::Level::NOTE}                        //
+            {"note", LSP_MODE? error::Level::WARN : error::Level::NOTE}                        //
         }[std::get<1>(err).substr(err_t.first, err_t.second)];  //
 
         std::string msg = std::get<1>(err).substr(err_t.first + err_t.second + 1);
