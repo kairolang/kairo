@@ -431,6 +431,7 @@ __AST_NODE_BEGIN {
 
         NodeT<> expr;
         __TOKEN_N::Token marker;
+        bool crash = false;
     };
 
 }  // namespace __AST_NODE_BEGIN

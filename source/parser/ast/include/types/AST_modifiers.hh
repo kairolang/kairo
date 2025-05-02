@@ -355,10 +355,11 @@ __AST_BEGIN {
         enum class Specifier : char {
             Static,  ///< 'static'
             Const,   ///< 'const' - in functions this is 'const' but for classes its 'final'
+            Default,  ///< 'default'
         };
 
         static bool is_class_specifier(const __TOKEN_N::Token &tok) {
-            return tok == __TOKEN_N::KEYWORD_CONST || tok == __TOKEN_N::KEYWORD_STATIC;
+            return tok == __TOKEN_N::KEYWORD_CONST || tok == __TOKEN_N::KEYWORD_STATIC || tok == __TOKEN_N::KEYWORD_DEFAULT;
         }
 
         explicit ClassSpecifier(__TOKEN_N::Token marker)
@@ -369,6 +370,9 @@ __AST_BEGIN {
                     break;
                 case __TOKEN_N::KEYWORD_STATIC:
                     type = Specifier::Static;
+                    break;
+                case __TOKEN_N::KEYWORD_DEFAULT:
+                    type = Specifier::Default;
                     break;
                 default:
                     throw std::runtime_error("Invalid class specifier");
@@ -397,7 +401,7 @@ __AST_BEGIN {
             AccessSpec,   ///< 'pub' | 'priv' | 'prot' | 'intl'
             FuncSpec,     ///< 'inline' | 'async' | 'static' | 'const' | 'eval'
             FuncQual,     ///< 'default' | 'panic' | 'delete' | 'const'
-            ClassSpec,    ///< 'const' | 'static'
+            ClassSpec,    ///< 'const' | 'static' | 'default'
         };
 
       private:
@@ -441,7 +445,7 @@ __AST_BEGIN {
               __TOKEN_N::KEYWORD_PANIC,
               __TOKEN_N::KEYWORD_DELETE,
               __TOKEN_N::KEYWORD_CONST}},
-            {ExpectedModifier::ClassSpec, {__TOKEN_N::KEYWORD_CONST, __TOKEN_N::KEYWORD_STATIC}}};
+            {ExpectedModifier::ClassSpec, {__TOKEN_N::KEYWORD_CONST, __TOKEN_N::KEYWORD_STATIC, __TOKEN_N::KEYWORD_DEFAULT}}};
 
 
       public:
