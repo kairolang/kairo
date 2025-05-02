@@ -451,7 +451,12 @@ CX_VISIT_IMPL(TryState) {
 
 CX_VISIT_IMPL(PanicState) {
     NO_EMIT_FORWARD_DECL;
-    ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "_HX_MC_Q7_PANIC_M", node.marker);
+    if (!node.crash) {
+        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "_HX_MC_Q7_PANIC_M", node.marker);
+    } else {
+        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "_HX_MC_Q7_INTERNAL_CRASH_PANIC_M", node.marker);
+    }
+    
     PAREN_DELIMIT(                    //
         ADD_NODE_PARAM(expr);        //
     );                                //

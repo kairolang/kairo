@@ -692,7 +692,8 @@ __PREPROCESSOR_BEGIN {
         for (NormalizedImport &imp : normalized) {
             auto [path, rel_to_index, _] = imp;
             std::string namespace_path =
-                sanitize_string((import_dirs[rel_to_index] / path).generic_string());
+                helix::abi::mangle((import_dirs[rel_to_index] / path).generic_string(),
+                                      helix::abi::ObjectType::Module);
 
             if (resolved_mapping.find(imp) != resolved_mapping.end()) {
                 auto [what_was_imported, alias, is_wildcard] = *resolved_mapping[imp];
