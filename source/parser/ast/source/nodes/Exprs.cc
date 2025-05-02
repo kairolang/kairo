@@ -241,8 +241,6 @@ AST_BASE_IMPL(Expression, parse_primary) {  // NOLINT(readability-function-cogni
                             CURRENT_TOK.token_kind_repr() + "'"));
     }
 
-    
-
     return node;
 }
 
@@ -459,7 +457,8 @@ AST_NODE_IMPL(Expression, LiteralExpr, ParseResult<> str_concat) {
 
     std::string base_string = tok.value();
 
-    if (base_string.length() > 0 && (base_string[0] == 'f' && base_string[1] == '"')) { // check if its a f-string
+    if (base_string.length() > 0 &&
+        (base_string[0] == 'f' && base_string[1] == '"')) {  // check if its a f-string
         // remove the "f" from the string.
         std::string formatted_string = base_string.substr(1);
 
@@ -525,44 +524,45 @@ AST_NODE_IMPL(Expression, LiteralExpr, ParseResult<> str_concat) {
 
         std::vector<std::pair<size_t, size_t>> original_copy = f_string_elements;
 
-        if (!f_string_elements.empty()) { // if there is no f-string elements, then we dont need to do anything
+        if (!f_string_elements
+                 .empty()) {  // if there is no f-string elements, then we dont need to do anything
             for (size_t i = 0; i < f_string_elements.size(); ++i) {
                 // start a tokenizer instance to process f-string elemets
-                parser::lexer::Lexer lexer(
-                    formatted_string.substr(f_string_elements[i].first, f_string_elements[i].second),
-                    tok.file_name(),
-                    tok.line_number(),
-                    tok.column_number() + original_copy[i].first,
-                    tok.offset() + original_copy[i].first);
-    
+                parser::lexer::Lexer lexer(formatted_string.substr(f_string_elements[i].first,
+                                                                   f_string_elements[i].second),
+                                           tok.file_name(),
+                                           tok.line_number(),
+                                           tok.column_number() + original_copy[i].first,
+                                           tok.offset() + original_copy[i].first);
+
                 // remove the section of formatted_string
                 formatted_string.erase(f_string_elements[i].first, f_string_elements[i].second);
-    
+
                 // update the position of all the elements after the current one
                 for (auto &f_string_element_ : f_string_elements) {
                     if (f_string_element_.first > f_string_elements[i].first) {
                         f_string_element_.first -= f_string_elements[i].second;
                     }
                 }
-    
+
                 // lex the substring
                 __TOKEN_N::TokenList tokens = lexer.tokenize();
-    
+
                 // pre-process
                 // ...
-    
+
                 // make a ast generator
                 auto       iter = tokens.begin();
                 Expression _expr_parser(iter);
-    
+
                 // parse ast to identify syntax errors
                 ParseResult<> parse = _expr_parser.parse();
-    
+
                 // check if any errors were emitted and if so return
                 if (!parse || !parse.has_value()) {
                     return std::unexpected(parse.error());
                 }
-    
+
                 node->format_args.emplace_back(parse.value());
             }
         } else {
@@ -578,7 +578,7 @@ AST_NODE_IMPL(Expression, LiteralExpr, ParseResult<> str_concat) {
                 i += 2;
                 continue;
             }
-            
+
             if (formatted_string.substr(i, 2) == "\\}") {
                 formatted_string.insert(i, "\\");
                 i += 2;
@@ -1846,6 +1846,54 @@ AST_NODE_IMPL(Expression, Type) {  // TODO - REMAKE using the new Modifiers and 
         const __TOKEN_N::Token &tok = CURRENT_TOK;
 
         switch (tok.token_kind()) {
+            case __TOKEN_N::OPERATOR_LOGICAL_NOT: {
+                // this is a function call, not allowed UNLESS its a fucntion call to a thing
+                // called: 'ref' or 'mref' then we replace it with a unary expression still validate
+                // there is only 1 argument and its a type like ref!(int) or mref!(int)
+
+                if (iter.peek_back().value().get() != __TOKEN_N::IDENTIFIER) {
+                    return std::unexpected(
+                        PARSE_ERROR(tok,
+                                    "expected a type, but found a macro call to: " +
+                                        iter.peek_back().value().get().get_value()));
+                }
+
+                auto cur_tok = iter.peek_back().value().get();  // get the current token again
+
+                if (cur_tok.get_value() == "ref" || cur_tok.get_value() == "mref") {
+                    iter.advance();  // skip '!'
+
+                    if (CURRENT_TOKEN_IS_NOT(__TOKEN_N::PUNCTUATION_OPEN_PAREN)) {
+                        return std::unexpected(PARSE_ERROR(
+                            tok, "expected a '(', but found: " + CURRENT_TOK.token_kind_repr()));
+                    }
+
+                    iter.advance();  // skip '('
+
+                    ParseResult<Type> arg = parse<Type>();
+                    RETURN_IF_ERROR(arg);
+
+                    IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_PAREN);
+                    iter.advance();  // skip ')'
+
+                    cur_tok = token::Token(cur_tok.line_number(),
+                                           cur_tok.column_number(),
+                                           cur_tok.length(),
+                                           cur_tok.offset(),
+                                           (cur_tok.get_value() == "ref")    ? "&"
+                                           : (cur_tok.get_value() == "mref") ? "&&"
+                                                                             : cur_tok.get_value(),
+                                           cur_tok.file_name());
+
+                    EXPR = make_node<UnaryExpr>(
+                        arg.value(), cur_tok, UnaryExpr::PosType::PreFix, true);
+
+                    break;
+                }
+
+                return std::unexpected(PARSE_ERROR(
+                    tok, "expected a type, but found a macro call to: " + cur_tok.get_value()));
+            }
             case __TOKEN_N::PUNCTUATION_OPEN_PAREN:
                 return std::unexpected(
                     PARSE_ERROR(tok, "expected a type, but found a function call"));
@@ -1914,6 +1962,7 @@ AST_NODE_IMPL(Expression, Type) {  // TODO - REMAKE using the new Modifiers and 
 
             node->nullable = true;
         } else if ((type->op.token_kind() == __TOKEN_N::OPERATOR_BITWISE_AND) ||
+                   (type->op.token_kind() == __TOKEN_N::OPERATOR_LOGICAL_AND) ||
                    (type->op.token_kind() == __TOKEN_N::OPERATOR_MUL)) {  // *&type?
             if (type->type != UnaryExpr::PosType::PreFix) {
                 return std::unexpected(

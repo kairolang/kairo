@@ -864,6 +864,15 @@ AST_NODE_IMPL(Statement, SwitchCaseState) {
         if (case_type != SwitchCaseState::CaseType::Default) {
             case_type = SwitchCaseState::CaseType::Fallthrough;
         }
+
+        // if we dont have any Suite after the case we have a fall though
+        if (HAS_NEXT_TOK &&
+            (NEXT_TOK.token_kind() == __TOKEN_N::KEYWORD_DEFAULT ||
+             NEXT_TOK.token_kind() == __TOKEN_N::KEYWORD_CASE)) {
+            iter.advance();  // skip ':'
+            return make_node<SwitchCaseState>(condition.value_or(nullptr), make_node<SuiteState>(nullptr), case_type, marker);
+        }
+
     } else {
         if (case_type == SwitchCaseState::CaseType::Default) {
             if (CURRENT_TOKEN_IS_NOT(__TOKEN_N::PUNCTUATION_OPEN_BRACE)) {
