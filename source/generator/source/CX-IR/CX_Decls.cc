@@ -120,31 +120,32 @@ CX_VISIT_IMPL(ModuleDecl) {
         ADD_TOKEN(CXX_INLINE);
     }
 
-    if (node.name->type == __AST_NODE::PathExpr::PathType::Scope) {
-        // cast as ScopePathExpr
-        auto path = __AST_N::as<__AST_NODE::ScopePathExpr>(node.name->path);
-        // keep adding more namespaces for each part
-        auto parts = path->path;
+    // if (node.name->type == __AST_NODE::PathExpr::PathType::Scope) {
+    //     // cast as ScopePathExpr
+    //     auto path = __AST_N::as<__AST_NODE::ScopePathExpr>(node.name->path);
+    //     // keep adding more namespaces for each part
+    //     auto parts = path->path;
 
-        for (const auto & part : parts) {
-            ADD_TOKEN(CXX_NAMESPACE);
-            ADD_PARAM(part);
+    //     for (const auto & part : parts) {
+    //         ADD_TOKEN(CXX_NAMESPACE);
+    //         ADD_PARAM(part);
 
-            if (part != parts.back()) {
-                ADD_TOKEN(CXX_LBRACE);
-            }
-        }
+    //         if (part != parts.back()) {
+    //             ADD_TOKEN(CXX_LBRACE);
+    //         }
+    //     }
 
-        node.body->accept(*this);
+    //     node.body->accept(*this);
 
-        for (size_t i = 0; i < (parts.size() - 1); ++i) {
-            ADD_TOKEN(CXX_LBRACE);
-        }
+    //     for (size_t i = 0; i < (parts.size() - 1); ++i) {
+    //         ADD_TOKEN(CXX_LBRACE);
+    //     }
 
-    } else {
-        ADD_TOKEN(CXX_NAMESPACE);
-        ADD_NODE_PARAM(name);
-    }
+    //     return;
+    // }
+    
+    ADD_TOKEN(CXX_NAMESPACE);
+    ADD_NODE_PARAM(name);
 
     ADD_NODE_PARAM_BODY();
 }

@@ -17,11 +17,11 @@
 
 CX_VISIT_IMPL(ClassDecl) {
     auto add_udt_body = [node, this](CXIR                                         *self,
-                               const __AST_N::NodeT<__AST_NODE::IdentExpr>   name,
-                               const __AST_N::NodeT<__AST_NODE::SuiteState> &body) {
+                                     const __AST_N::NodeT<__AST_NODE::IdentExpr>   name,
+                                     const __AST_N::NodeT<__AST_NODE::SuiteState> &body) {
         if (body != nullptr) {
             self->append(cxir_tokens::CXX_LBRACE);
-            bool has_destructor = false;
+            bool has_destructor  = false;
             bool has_constructor = false;
 
             for (auto &child : body->body->body) {
@@ -108,37 +108,64 @@ CX_VISIT_IMPL(ClassDecl) {
                     } else if (op_t.type == OpType::DeleteOp) {
                         // generate: ~name->name() body
                         has_destructor = true;
-                        
-                        if (op_decl->modifiers.contains(token::tokens::KEYWORD_PROTECTED) || op_decl->modifiers.contains(token::tokens::KEYWORD_PRIVATE)) {
+
+                        if (op_decl->modifiers.contains(token::tokens::KEYWORD_PROTECTED) ||
+                            op_decl->modifiers.contains(token::tokens::KEYWORD_PRIVATE)) {
                             error::Panic(error::CodeError{
-                                            .pof          = &op_name,
-                                            .err_code     = 0.3002,
-                                            .err_fmt_args = {
-                                                "can not define a destructor as private or protected"}});
+                                .pof          = &op_name,
+                                .err_code     = 0.3002,
+                                .err_fmt_args = {
+                                    "can not define a destructor as private or protected"}});
                         }
 
                         add_public(self);
                         token::Token marker = ((op_t.tok == nullptr) ? node.name->name : *op_t.tok);
 
                         add_func_modifiers(this, op_decl->modifiers);
-                    
+
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_TILDE, marker));
-                        self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_CORE_IDENTIFIER,
-                                                                node.name->name.value(), marker));
+                        self->append(std::make_unique<CX_Token>(
+                            cxir_tokens::CXX_CORE_IDENTIFIER, node.name->name.value(), marker));
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_LPAREN));
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_RPAREN));
-                        
+
                         add_func_specifiers(this, op_decl->modifiers);
+
+                        if (op_decl->modifiers.contains(__TOKEN_N::KEYWORD_OVERRIDE)) {
+                            this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+                                __CXIR_CODEGEN_N::cxir_tokens::CXX_OVERRIDE,
+                                op_decl->modifiers.get(__TOKEN_N::KEYWORD_OVERRIDE)));
+                        }
+
+                        if (op_decl->modifiers.contains(__TOKEN_N::KEYWORD_DELETE)) {
+                            // add and = and delete to the function decl
+                            this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+                                __CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
+                            this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+                                __CXIR_CODEGEN_N::cxir_tokens::CXX_DELETE,
+                                op_decl->modifiers.get(__TOKEN_N::KEYWORD_DELETE)));
+                        } else if (op_decl->modifiers.contains(__TOKEN_N::KEYWORD_DEFAULT)) {
+                            // add and = and default to the function decl
+                            this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+                                __CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
+                            this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
+                                __CXIR_CODEGEN_N::cxir_tokens::CXX_DEFAULT,
+                                op_decl->modifiers.get(__TOKEN_N::KEYWORD_DEFAULT)));
+                        }
 
                         if (op_decl->func->body == nullptr) {
                             self->append(cxir_tokens::CXX_SEMICOLON);
                         } else {
-                            self->visit(*op_decl->func->body);
-                        }
+                            if (op_decl->modifiers.contains(__TOKEN_N::KEYWORD_DELETE) ||
+                                op_decl->modifiers.contains(__TOKEN_N::KEYWORD_DEFAULT)) {
+                                error::Panic(error::CodeError{
+                                    .pof          = &op_name,
+                                    .err_code     = 0.3002,
+                                    .err_fmt_args = {"can not have a body for a deleted or "
+                                                     "defaulted function"}});
+                            }
 
-                        if (node.modifiers.contains(__TOKEN_N::KEYWORD_OVERRIDE)) {
-                            this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-                                __CXIR_CODEGEN_N::cxir_tokens::CXX_OVERRIDE, node.modifiers.get(__TOKEN_N::KEYWORD_OVERRIDE)));
+                            self->visit(*op_decl->func->body);
                         }
 
                         continue;
@@ -186,14 +213,14 @@ CX_VISIT_IMPL(ClassDecl) {
             if (!has_destructor) {
                 default_destructor(self, node.name);
             }
-            
+
             if (node.modifiers.contains(token::tokens::KEYWORD_DEFAULT)) {
                 delete_copy_constructor(self, node.name);
                 delete_copy_assignment(self, node.name);
                 default_move_constructor(self, node.name);
                 default_move_assignment(self, node.name);
             }
-            
+
             self->append(cxir_tokens::CXX_RBRACE);
         }
     };
