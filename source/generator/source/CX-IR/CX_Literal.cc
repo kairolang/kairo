@@ -85,7 +85,7 @@ CX_VISIT_IMPL(LiteralExpr) {
             case token::LITERAL_CHAR:
                 inference = true;
                 string_or_char = true;
-                ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "char", tok);
+                ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "wchar_t", tok);
                 ADD_TOKEN(CXX_LPAREN);
                 break;
             case token::LITERAL_FLOATING_POINT:
