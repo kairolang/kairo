@@ -877,9 +877,11 @@ inline void check_for_yield_and_panic(const __AST_N::NodeT<__AST_NODE::SuiteStat
     __TOKEN_N::Token yield_marker;
 
     for (auto &child : body->body->body) {
-        if (child->getNodeType() == __AST_NODE::nodes::PanicState) {
+        if (child->getNodeType() == __AST_NODE::nodes::PanicState) { // if panic is there then warn and change the panic to throw instead
             has_panic    = true;
             panic_marker = __AST_N::as<__AST_NODE::PanicState>(child)->marker;
+            auto panic  = __AST_N::as<__AST_NODE::PanicState>(child);
+            panic->crash = true;
 
         } else if (child->getNodeType() == __AST_NODE::nodes::YieldState) {
             has_yield    = true;
@@ -888,7 +890,7 @@ inline void check_for_yield_and_panic(const __AST_N::NodeT<__AST_NODE::SuiteStat
     }
 
     if (has_panic && !return_type->nullable) {
-        error::Panic(error::CodeError{.pof = &return_type->marker, .err_code = 0.3008});
+        error::Panic(error::CodeError{.pof = &return_type->marker, .err_code = 0.3008, .level = error::Level::WARN});
         error::Panic(error::CodeError{
             .pof = &panic_marker, .err_code = 0.3018, .mark_pof = false, .fix_fmt_args = {}, .err_fmt_args = {}, .opt_fixes = {}, .level = error::Level::NONE, .indent = 1});
     }
