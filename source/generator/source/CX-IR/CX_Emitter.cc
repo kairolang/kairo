@@ -30,10 +30,10 @@ void generator::CXIR::CXIR::visit(__AST_NODE::Program &node) {
         return false;
     });
 
-    std::string _namespace = sanitize_string(node.get_file_name());
+    std::string _namespace = helix::abi::mangle(node.get_file_name(), helix::abi::ObjectType::Module);
 
     error::NAMESPACE_MAP[_namespace] =
-        sanitize_string(std::filesystem::path(node.get_file_name()).stem().generic_string());
+        helix::abi::mangle(std::filesystem::path(node.get_file_name()).stem().generic_string(), helix::abi::ObjectType::Module);
 
     // insert header guards
     ADD_TOKEN(CXX_PP_IFNDEF);

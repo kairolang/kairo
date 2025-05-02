@@ -17,6 +17,7 @@
 #include "parser/ast/include/config/AST_config.def"
 #include "parser/ast/include/nodes/AST_expressions.hh"
 #include "parser/ast/include/types/AST_types.hh"
+#include "token/include/private/Token_generate.hh"
 #include "utils.hh"
 #include "generator/include/CX-IR/reserved.hh"
 
@@ -106,6 +107,7 @@ CX_VISIT_IMPL(UnaryExpr) {
 
         switch (node.op.token_kind()) {
             case token::OPERATOR_BITWISE_AND:
+            case token::OPERATOR_LOGICAL_AND:
             case token::OPERATOR_MUL:
                 break;
 

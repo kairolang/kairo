@@ -15,6 +15,7 @@
 
 #include <concepts>
 #include <vector>
+
 #include "generator/include/config/Gen_config.def"
 #include "parser/ast/include/config/AST_config.def"
 #include "parser/ast/include/nodes/AST_declarations.hh"
@@ -60,32 +61,41 @@ CX_VISIT_IMPL_VA(FuncDecl, bool no_return_t) {
 
     if (node.modifiers.contains(__TOKEN_N::KEYWORD_OVERRIDE)) {
         this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-            __CXIR_CODEGEN_N::cxir_tokens::CXX_OVERRIDE, node.modifiers.get(__TOKEN_N::KEYWORD_OVERRIDE)));
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_OVERRIDE,
+            node.modifiers.get(__TOKEN_N::KEYWORD_OVERRIDE)));
     }
 
     if (node.modifiers.contains(__TOKEN_N::KEYWORD_DELETE)) {
         // add and = and delete to the function decl
+        this->append(
+            std::make_unique<__CXIR_CODEGEN_N::CX_Token>(__CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
         this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-            __CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
-        this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-            __CXIR_CODEGEN_N::cxir_tokens::CXX_DELETE, node.modifiers.get(__TOKEN_N::KEYWORD_DELETE)));
-    }
-
-    if (node.modifiers.contains(__TOKEN_N::KEYWORD_DEFAULT)) {
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_DELETE,
+            node.modifiers.get(__TOKEN_N::KEYWORD_DELETE)));
+    } else if (node.modifiers.contains(__TOKEN_N::KEYWORD_DEFAULT)) {
         // add and = and default to the function decl
+        this->append(
+            std::make_unique<__CXIR_CODEGEN_N::CX_Token>(__CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
         this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-            __CXIR_CODEGEN_N::cxir_tokens::CXX_EQUAL));
-        this->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-            __CXIR_CODEGEN_N::cxir_tokens::CXX_DEFAULT, node.modifiers.get(__TOKEN_N::KEYWORD_DEFAULT)));
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_DEFAULT,
+            node.modifiers.get(__TOKEN_N::KEYWORD_DEFAULT)));
     }
 
     NO_EMIT_FORWARD_DECL_SEMICOLON;
 
     if (node.body && node.body->body) {
+        if (node.modifiers.contains(__TOKEN_N::KEYWORD_DELETE) ||
+            node.modifiers.contains(__TOKEN_N::KEYWORD_DEFAULT)) {
+            auto fail = node.name->get_back_name();
+            error::Panic(error::CodeError{
+                .pof          = &fail,
+                .err_code     = 0.3002,
+                .err_fmt_args = {"can not have a body for a deleted or defaulted function"}});
+        }
+
         // adds and removes any nested functions
-        BRACE_DELIMIT( //
-            std::erase_if(node.body->body->body, ModifyNestedFunctions(this));
-        ); //
+        BRACE_DELIMIT(                                                            //
+            std::erase_if(node.body->body->body, ModifyNestedFunctions(this)););  //
     } else {
         ADD_TOKEN(CXX_SEMICOLON);
     }
