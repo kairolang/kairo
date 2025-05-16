@@ -9,6 +9,7 @@ build/
 .clangd/
 .cache/
 target/
+private/
 vsxmake2022/
 
 compile_commands.json
