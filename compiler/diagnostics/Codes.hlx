@@ -1,0 +1,126 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+///
+/// \brief Represents a diagnostic message with associated metadata, including
+///        the level of severity, a unique identifier, and a message string.
+///        This structure is used to encapsulate diagnostic information for
+///        reporting and handling purposes.
+///
+
+/// The error code format is as follows:
+/// <category><3-digit code><severity>
+/// the following categories are used:
+///     Syntax [S]
+///     Uncategorized Errors [U]
+///     Code Generation Errors [C]
+///     Memory [M]
+///     Resolution [R]
+///     Linker [L]
+///     Semantic [SC]
+///     Portability/Platform [P]
+///     Uncategorized Warnings [WR]
+///     Uncategorized Notes [NT]
+///     Uncategorized Fatal [FT]
+///     Uncategorized Remarks [RE]
+///     Lowering [CL]
+///     Optimization [OPT]
+///     Internal [I]
+/// With the following severity levels:
+///     Ignored [I]
+///     Remark  [R]
+///     Verbose [V]
+///     Note    [N]
+///     Debug   [D]
+///     Warning [W]
+///     Error   [E]
+///     Fatal   [F]
+/// Example errors would be:
+///     SC001E - Semantic Error with code 001
+///     SC001W - Semantic Warning with code 001
+
+enum DiagnosticCategory {
+    Syntax = 0x53, ///< Syntax errors
+    UncategorizedErrors = 0x55, ///< Uncategorized errors
+    CodeGenerationErrors = 0x43, ///< Code generation errors
+    Memory = 0x4D, ///< Memory-related errors
+    Resolution = 0x52, ///< Resolution errors
+    Linker = 0x4C, ///< Linker errors
+    Semantic = 0x53, ///< Semantic errors
+    PortabilityPlatform = 0x50, ///< Portability/platform-related issues
+    UncategorizedWarnings = 0x57, ///< Uncategorized warnings
+    UncategorizedNotes = 0x4E, ///< Uncategorized notes
+    UncategorizedFatal = 0x46, ///< Uncategorized fatal errors
+    UncategorizedRemarks = 0x52, ///< Uncategorized remarks
+    Lowering = 0x4C, ///< Lowering-related issues
+    Optimization = 0x4F, ///< Optimization-related issues
+    Internal = 0x49 ///< Internal errors
+}
+
+struct DiagnosticCode {
+    pub var category: DiagnosticCategory; ///< The category of the error
+    pub var code: u32;                    ///< The unique error code
+}
+
+class DiagnosticCodeHasher {
+    pub const op () fn (self, const rhs: DiagnosticCode, const lhs: DiagnosticCode) -> libcxx::size_t {
+        return (((rhs.category) as u32) << 16 | rhs.code) == (((lhs.category) as u32) << 16 | lhs.code);
+    }
+};
+
+///          code vvv      msg vvvvvv  vvvvvv fix
+const Code: map::<DiagnosticCode, tuple::<string, string>, DiagnosticCodeHasher> = {
+    /* -------- - - - - - - - - -   S Y N T A X   - - - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Syntax, 0x000) : ("Syntax error", ""),
+    
+    /* ---- - - - -   U N C A T E G O R I Z E D   E R R O R S   - - - - ---- */
+    DiagnosticCode(DiagnosticCategory::UncategorizedErrors, 0x000) : ("Un-categorized error", ""),
+    
+    /* ---- - - -   C O D E   G E N E R A T I O N   E R R O R S   - - - ---- */
+    DiagnosticCode(DiagnosticCategory::CodeGenerationErrors, 0x000) : ("Code generation error", ""),
+    
+    /* -------- - - - - - - - - -   M E M O R Y   - - - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Memory, 0x000) : ("Memory error", ""),
+    
+    /* -------- - - - - - - -   R E S O L U T I O N   - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Resolution, 0x000) : ("Resolution error", ""),
+    
+    /* -------- - - - - - - - - -   L I N K E R   - - - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Linker, 0x000) : ("Linker error", ""),
+    
+    /* -------- - - - - - - - -   S E M A N T I C   - - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Semantic, 0x000) : ("Semantic error", ""),
+    
+    /* ---- - - - -   P O R T A B I L I T Y   P L A T F O R M   - - - - ---- */
+    DiagnosticCode(DiagnosticCategory::PortabilityPlatform, 0x000) : ("Portability/platform error", ""),
+    
+    /* ---- - - -   U N C A T E G O R I Z E D   W A R N I N G S   - - - ---- */
+    DiagnosticCode(DiagnosticCategory::UncategorizedWarnings, 0x000) : ("Un-categorized warning", ""),
+    
+    /* ---- - - - - -  U N C A T E G O R I Z E D   N O T E S   - - - - ----- */
+    DiagnosticCode(DiagnosticCategory::UncategorizedNotes, 0x000) : ("Un-categorized note", ""),
+    
+    /* ---- - - - - -  U N C A T E G O R I Z E D   F A T A L   - - - - ----- */
+    DiagnosticCode(DiagnosticCategory::UncategorizedFatal, 0x000) : ("Un-categorized fatal error", ""),
+    
+    /* ------ - - -  U N C A T E G O R I Z E D   R E M A R K S   - - - ----- */
+    DiagnosticCode(DiagnosticCategory::UncategorizedRemarks, 0x000) : ("Un-categorized remark", ""),
+    
+    /* ---------- - - - - - - -   L O W E R I N G   - - - - - - - ---------- */
+    DiagnosticCode(DiagnosticCategory::Lowering, 0x000) : ("Lowering error", ""),
+    
+    /* ------ - - - - - - -   O P T I M I Z A T I O N   - - - - - - - ------ */
+    DiagnosticCode(DiagnosticCategory::Optimization, 0x000) : ("Optimization error", ""),
+};;
