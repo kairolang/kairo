@@ -353,7 +353,9 @@ void CompilationUnit::emit_cxir /* */ (const generator::CXIR::CXIR &emitter, boo
     helix::log<LogLevel::Info>("emitting cx-ir...");
 
     if (verbose) {
-        helix::log<LogLevel::Debug>("\n", colors::fg16::yellow, emitter.to_CXIR(), colors::reset);
+        auto cxir = emitter.to_CXIR<true>(); // this should be called so source maps are generated
+        helix::log<LogLevel::Debug>("\n", colors::fg16::yellow, cxir, colors::reset);
+        helix::log<LogLevel::Debug>("\nSourceMap: ", colors::fg16::yellow, emitter.source_map.to_dict(), colors::reset);
     } else {
         helix::log<LogLevel::Info>("\n", emitter.to_readable_CXIR(), colors::reset);
     }
