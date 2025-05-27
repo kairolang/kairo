@@ -48,7 +48,7 @@ void generator::CXIR::CXIR::visit(__AST_NODE::Program &node) {
                      1,
                      1,
                      "",
-                     std::filesystem::path(node.get_file_name()).stem().generic_string(),
+                     std::filesystem::path(node.get_file_name()).generic_string(),
                      " "));
 
     ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "helix");
