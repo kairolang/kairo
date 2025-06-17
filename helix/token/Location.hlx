@@ -40,7 +40,7 @@ type Span = (u32, u32);;
 ///        It includes a reference to the file, a character span (start and
 ///        end offsets), and a line/column position for the start of the location.
 ///
-/// \size 32 bytes its going to take 64 bytes after alignment but how to optimize it? to 32 bytes?
+/// \size 32 bytes
 default class Location {
     var _file: *File::File = &null; ///< Pointer to the File object this location refers to.
                                     ///  \size 64 bits (8 bytes)

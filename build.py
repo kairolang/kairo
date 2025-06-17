@@ -13,6 +13,7 @@ import json
 import logging
 from typing import List
 from rich.logging import RichHandler
+from concurrent.futures import ThreadPoolExecutor
 
 import platform
 import sys
@@ -286,9 +287,14 @@ def update_compile_commands():
 def main():
     update_compile_commands()
     
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(builder.compile) for builder in Builder.builders]
     
-    for builder in Builder.builders:
-        builder.compile()
+        for future in futures:
+            try:
+                future.result()
+            except Exception as e:
+                log.error(f"Compilation failed: {e}")
     
     log.info("All builders compiled successfully.")
 
