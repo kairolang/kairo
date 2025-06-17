@@ -78,7 +78,7 @@ class DiagnosticCodeHasher {
     pub const op () fn (self, const rhs: DiagnosticCode, const lhs: DiagnosticCode) -> libcxx::size_t {
         return (((rhs.category) as u32) << 16 | rhs.code) == (((lhs.category) as u32) << 16 | lhs.code);
     }
-};
+}
 
 ///          code vvv      msg vvvvvv  vvvvvv fix
 const Code: map::<DiagnosticCode, tuple::<string, string>, DiagnosticCodeHasher> = {

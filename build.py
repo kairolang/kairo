@@ -1,7 +1,10 @@
 # this file does 2 really simple things:
 # 1. finds driver/helix.hlx and compiles it with all the flags
 # 2. finds all the .hlx files and updates the compile_commands.json file
-# the command used to compile is: build/release/arm64-llvm-macosx/bin/helix
+# the command used to compile is: build/release/arm64-llvm-macosx/bin/
+
+# to make an alias to helix use:
+# New-Alias -Name helix -Value .\build\release\x64-msvc-windows\bin\helix.exe
 
 import os
 from pathlib import Path
@@ -46,7 +49,10 @@ logging.basicConfig(
 )
 log = logging.getLogger("helix-builder")
 
-COMPILER_PATH = Path("build/release/arm64-llvm-macosx/bin/helix")
+COMPILER_PATH = Path("build/release/arm64-llvm-macosx/bin/helix") if system == "macos" else \
+               Path("build/release/x86_64-linux-gnu/bin/helix") if system == "linux" else \
+               Path("build/release/x64-msvc-windows/bin/helix.exe") if system == "windows" else \
+               Path("build/release/x86_64-linux-gnu/bin/helix")
 if not COMPILER_PATH.exists():
     log.error(f"Compiler not found at {COMPILER_PATH}. Please build the"
                "compiler first.")
