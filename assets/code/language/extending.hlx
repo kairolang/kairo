@@ -8,37 +8,39 @@ import std::Memory::Heap;
 
 fn main() {
     // Create a root node for integers
-    let root = Heap::construct::<BinaryTreeNode::<i32>>(10);
+    var root = Heap::construct<BinaryTreeNode<i32>>(10);
 
     root.insert(5);
     root.insert(3);
     root.insert(7);
 
-    let contains_7  = root.find(7);
-    let contains_20 = root.find(20);
+    var contains_7  = root.find(7);
+    var contains_20 = root.find(20);
 
     print(f"Tree {"contains" if contains_7  else "does not contain"} 7.");  // contains
     print(f"Tree {"contains" if contains_20 else "does not contain"} 20."); // does not contain
 }
 
-class BinaryTreeNode requires <T> {
-    let value: T;
-    let left:  *BinaryTreeNode::<T>?;
-    let right: *BinaryTreeNode::<T>?;
+class <T> BinaryTreeNode {
+    var value: T;
+    var left:  *BinaryTreeNode<T>?;
+    var right: *BinaryTreeNode<T>?;
 
-    fn BinaryTreeNode(self, value: T):
-        panic Errors::NotImplementedError(f"There's no implementation for '{typeof!(T)}'");
+    fn BinaryTreeNode(self, value: T) {
+        panic Errors::NotImplementedError(f"There's no implementation for '{typeof T}'");
+    }
 
-    fn insert(self, value: T): // Insert method, unimplemented by default for all types
-        panic Errors::NotImplementedError(f"There's no implementation for '{typeof!(T)}'");
+    fn insert(self, value: T) { // Insert method, unimplemented by default for all types
+        panic Errors::NotImplementedError(f"There's no implementation for '{typeof T}'");
+    }
     
-    fn find(self, value: T) -> bool: // Find method, unimplemented by default for all types
-        panic Errors::NotImplementedError(f"There's no implementation for '{typeof!(T)}'");
+    fn find(self, value: T) -> bool { // Find method, unimplemented by default for all types
+        panic Errors::NotImplementedError(f"There's no implementation for '{typeof T}'");
+    }
 }
 
 // Extending/Specializing the BinaryTreeNode class for numerical types (int, float, etc.)
-extend BinaryTreeNode::<T>
-  requires <T> if T has Interfaces::NumericalObject {
+extend <T impl Interfaces::NumericalObject> BinaryTreeNode<T> {
     fn BinaryTreeNode(self, value: T) {
         self.value = value;
         self.left  = null;
@@ -47,24 +49,29 @@ extend BinaryTreeNode::<T>
     
     fn insert(self, value: T) { // Insert method for numerical types
         if value < self.value {
-            if self.left?:
+            if self.left? {
                 self.left.insert(value);
-            else: // Equivalent to 'new BinaryTreeNode::<T>(value)' in C++
-                self.left = Heap::construct::<BinaryTreeNode::<T>>(value);
+            } else { // Equivalent to 'new BinaryTreeNode<T>(value)' in C++
+                self.left = Heap::construct<BinaryTreeNode<T>>(value);
+            }
         } else {
-            if self.right?:
+            if self.right? {
                 self.right.insert(value);
-            else:
-                self.right = Heap::construct::<BinaryTreeNode::<T>>(value);
+            } else {
+                self.right = Heap::construct<BinaryTreeNode<T>>(value);
+            }
         }
     }
 
     fn find(self, value: T) -> bool { // Find method for numerical types
-        if value == self.value:
+        if value == self.value {
             return true;
-        else if value < self.value:
+        } else if value < self.value {
+            // if we use the elvis operator (?.) it checks and panics if null
+            // example: self.left?.find(value) will panic if self.left is null
             return self.left?  && self.left.find(value);
-        else:
+        } else {
             return self.right? && self.right.find(value);
+        }
     }
 }

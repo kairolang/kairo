@@ -5,10 +5,11 @@
 ffi "c++" import "peripherals.hh";
 
 import libcxx::Ref;
+import libcxx::String;
 
-// Helix represents C++ references as 'libcxx::Ref::<type>' as it doesn't support reference semantics.
-fn Peripheral::<ConnectionType>
-  ::Peripheral(self, const name: libcxx::Ref::<libcxx::string>) requires <ConnectionType> {
+// Helix represents C++ references as 'libcxx::Ref<type>' as it doesn't support reference semantics.
+fn <ConnectionType> Peripheral<ConnectionType>
+  ::Peripheral(self, const name: Ref<String>) {
     self.m_name           = name;
     self.m_connected      = false;
     self.m_connectionType = ConnectionType();
@@ -18,8 +19,8 @@ fn Peripheral::<ConnectionType>
 // external C++ code. If you have the ability to adapting/modify the C++ code, it's recommended to
 // use the Helix standard library in the C++ code.
 fn WirelessKeyboard
-  ::WirelessKeyboard(self, const name: libcxx::Ref::<libcxx::string>) {
-    Peripheral::<libcxx::string>(name);
+  ::WirelessKeyboard(self, const name: Ref<String>) {
+    Peripheral<String>(name);
     self.m_batteryLevel = 100;
 }
 
@@ -35,30 +36,32 @@ fn WirelessKeyboard
     return false;
 }
 
-const fn WirelessKeyboard
-  ::getType(self) -> libcxx::string {
+fn WirelessKeyboard
+  ::getType(self) const -> String {
     return "WirelessKeyboard";
 }
 
-const fn WirelessKeyboard
-  ::getBatteryLevel(self) -> i32 /* same size as C++ int */ {
+fn WirelessKeyboard
+  ::getBatteryLevel(self) const -> i32 /* same size as C++ int */ {
     return self.m_batteryLevel;
 }
 
 fn main() -> i32 {
-    let keyboard = WirelessKeyboard("Logitech K380");
+    var keyboard = WirelessKeyboard("Logitech K380");
 
-    if keyboard.connect():
+    if keyboard.connect() {
         print("Keyboard connected successfully.");
-    else:
+    } else {
         print("Keyboard is already connected.");
+    }
 
     printPeripheralType(keyboard); // defined in peripherals.hh
 
-    if keyboard.isWirelessConnection():
+    if keyboard.isWirelessConnection() {
         print("The keyboard uses a wireless connection.");
-    else:
+    } else {
         print("The keyboard does not use a wireless connection.");
+    }
 
     print(f"Battery Level: {keyboard.getBatteryLevel()}%");
     return 0;

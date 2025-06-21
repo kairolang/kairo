@@ -10,11 +10,11 @@ fn factorial(n: i32) -> i32 {
     return n * factorial(n - 1);
 }
 
-fn selection_sort(arr: list::<T>) if T has Interfaces::Comparable {
-    let n = arr.len();
+fn <T impl Interfaces::Comparable> selection_sort(arr: list<T>) {
+    var n = arr.len();
     
     for i in 0..n {
-        let min_idx = i;
+        var min_idx = i;
         
         for j in (i+1)..n {
             if arr[j] < arr[min_idx] {
@@ -22,8 +22,8 @@ fn selection_sort(arr: list::<T>) if T has Interfaces::Comparable {
             }
         }
         
-        if min_idx != i {
-            let temp = arr[min_idx];
+        unless min_idx == i {
+            var temp     = arr[min_idx];
             arr[min_idx] = arr[i];
             arr[i]       = temp;
         }

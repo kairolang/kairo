@@ -4,10 +4,10 @@ import std::Memory;
 //       The usage of any standard library module here is a placeholder
 //       and is subject to change. The syntax for the most part is final.
 
-class Sound requires <T> {
-    prot let value: T;
+class <T> Sound {
+    prot var value: T;
 
-    fn Sound(self, value: T) {
+    fn Sound(self, value: *T) {
         self.value = Memory::move(value);
     }
 
@@ -20,22 +20,23 @@ class Sound requires <T> {
     }
 }
 
-class WoodenSpeaker derives pub Sound::<string> {
-    fn WoodenSpeaker(self, value: T) {
-        Sound(Memory::move(value));
+// by default the derived visibility is public but can be made priv
+class WoodenSpeaker derives pub Sound<string> {
+    fn WoodenSpeaker(self, value: *string) {
+        self.Sound(value);
     }
 
     fn play(self) {
-        print(f"Playing sound on wooden speaker: {self.value}");
+        print(f"Playing sound on wooden speaker: {Sound.value}");
     }
 }
 
 fn main() -> i32 {
-    let sound = Sound::<string>("beep");
+    var sound = Sound<string>("beep");
     sound.play(); // Playing sound: beep
     sound.stop(); // Stopping sound: beep
 
-    let wooden_speaker = WoodenSpeaker("beep");
+    var wooden_speaker = WoodenSpeaker("beep");
     wooden_speaker.play(); // Playing sound on wooden speaker: beep
     wooden_speaker.stop(); // Stopping sound: beep
 
