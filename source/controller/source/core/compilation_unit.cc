@@ -110,7 +110,7 @@ void process_paths(std::vector<T>                     &paths,
 }
 
 int CompilationUnit::compile(int argc, char **argv) {
-    __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Helix v0.0.1-alpha-179a");
+    __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Helix v0.0.1-alpha-9c");
     check_exit(parsed_args);
 
     return compile(parsed_args);
@@ -353,7 +353,9 @@ void CompilationUnit::emit_cxir /* */ (const generator::CXIR::CXIR &emitter, boo
     helix::log<LogLevel::Info>("emitting cx-ir...");
 
     if (verbose) {
-        helix::log<LogLevel::Debug>("\n", colors::fg16::yellow, emitter.to_CXIR(), colors::reset);
+        auto cxir = emitter.to_CXIR<true>(); // this should be called so source maps are generated
+        helix::log<LogLevel::Debug>("\n", colors::fg16::yellow, cxir, colors::reset);
+        helix::log<LogLevel::Debug>("\nSourceMap: ", colors::fg16::yellow, emitter.source_map.to_dict(), colors::reset);
     } else {
         helix::log<LogLevel::Info>("\n", emitter.to_readable_CXIR(), colors::reset);
     }

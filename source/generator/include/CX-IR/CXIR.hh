@@ -274,14 +274,139 @@ __CXIR_CODEGEN_BEGIN {
         }
     };
 
+    struct SourceLocation {
+        using Location = std::pair<size_t, size_t>;
+        
+        Location helix;
+        Location cxir;
+
+        string to_dict() const {
+            // source map of helix pos to cxir pos
+            return "(" + std::to_string(helix.first) + "," +
+                   std::to_string(helix.second) + "):(" +
+                   std::to_string(cxir.first) + "," +
+                   std::to_string(cxir.second) + "),";
+        }
+    };
+
+    struct SourceMap { /* this all a part of the same c++ output object
+        so a couple of things only the helix file and locs change
+        while the c++ source locs keep constant this should be a primary static strcut */
+        inline static size_t cxx_line_num {1};
+        inline static size_t cxx_column_num {1};
+
+        std::vector<SourceLocation> locs;
+        
+        /* {filename : [locs...]}*/
+        std::map<std::string, std::vector<std::string>> full_dict;
+        std::string    file_name;
+
+        SourceMap() = default;
+
+        void finalize() {
+            // finalize everything into the flatend dict
+            /* exmaple:
+
+            "helix_file_name" : [
+                (helix_line, helix_col): (cxir_line, cxir_col),
+                (helix_line, helix_col): (cxir_line, cxir_col),
+            ],
+            
+            */
+
+            // add the file name to the dict
+            auto [key, inserted] = full_dict.insert_or_assign(
+                file_name,
+                std::vector<std::string>{}
+            );
+
+            auto &vec = key->second;
+
+            // add the locs to the vector
+            for (const auto &loc : locs) {
+                vec.emplace_back(loc.to_dict());
+            }
+
+            // clear the locs
+            locs.clear();
+        }
+
+        static void inc_line_num(size_t inc = 1) {
+            // increment the line number
+            cxx_line_num += inc;
+            cxx_column_num = 1;
+        }
+
+        [[nodiscard]] static size_t get_line_num() {
+            return cxx_line_num;
+        }
+
+        [[nodiscard]] static size_t get_column_num() {
+            return cxx_column_num;
+        }
+
+        [[nodiscard]] static void inc_column_num(size_t inc = 1) {
+            cxx_column_num += inc;
+        }
+
+        [[nodiscard]] static void reset_line_num() {
+            cxx_line_num = 1;
+            cxx_column_num = 1;
+        }
+
+        [[nodiscard]] static std::string get_file_name(const CX_Token &token) {
+            return token.get_file_name();
+        }
+
+        void set_file_name(const std::string &file_name) {
+            // if both file names are the same return
+            if (this->file_name == file_name) {
+                return;
+            }
+
+            // everytime we set the file name we need to clear the locs and finalize the previous locs
+            if (!this->file_name.empty()) {
+                finalize();
+            }
+
+            this->file_name = file_name;
+        }
+
+        void add_loc(const SourceLocation &loc) {
+            locs.emplace_back(loc);
+        }
+
+        [[nodiscard]] string to_dict() const {
+            // convert the locs to a string
+            std::string dict = "{";
+
+            for (const auto &[key, value] : full_dict) {
+                dict += "\"" + key + "\": {";
+
+                for (const auto &loc : value) {
+                    dict += loc;
+                }
+
+                dict += "},";
+            }
+
+            dict += "}";
+
+            return dict;
+        }
+    };
+
+
     class CXIR : public __AST_VISITOR::Visitor {
       private:
         std::vector<std::unique_ptr<CX_Token>> tokens;
         std::vector<generator::CXIR::CXIR>     imports;
         std::filesystem::path                  core_dir;
         bool                                   forward_only = false;
+        
+        public:
+        inline static SourceMap source_map;
 
-      public:
         explicit CXIR(bool forward_only = false, std::vector<generator::CXIR::CXIR> imports = {})
             : imports(std::move(imports))
             , forward_only(forward_only) {}
@@ -316,13 +441,19 @@ __CXIR_CODEGEN_BEGIN {
         template <const bool add_core = true>
         [[nodiscard]] std::string to_CXIR() const {
             std::string cxir;
+            size_t line_count = 0;
 
             if constexpr (add_core) {
-                cxir += get_core() + "\n" + get_imports<false>() + "\n";
+                string core = get_core();
+                line_count = std::count(core.begin(), core.end(), '\n');
+                cxir += core + "\n" + get_imports<false>() + "\n";
             } else {
                 cxir += get_imports<false>() + "\n";
             }
 
+            // count number of lines in the CXIR
+
+            generator::CXIR::SourceMap::inc_line_num(line_count);
             cxir += generate_CXIR();
 
             if (cxir.empty()) {

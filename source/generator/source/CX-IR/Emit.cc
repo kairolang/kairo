@@ -14,6 +14,7 @@
 ///-------------------------------------------------------------------------------------- C++ ---///
 
 #include "generator/include/CX-IR/loc.hh"
+#include "generator/include/CX-IR/CXIR.hh"
 #include "neo-panic/include/error.hh"
 #include "neo-types/include/hxint.hh"
 #include "token/include/config/Token_config.def"
@@ -23,6 +24,193 @@
 static size_t f_index = 0;
 
 __CXIR_CODEGEN_BEGIN {
+
+    class CXIRBuilder {
+        string file_name;
+        inline static size_t cxir_line{30};
+        inline static size_t cxir_col{1};
+        string cxir;
+        SourceMap *source_map{nullptr};
+
+        size_t helix_line{1};
+        size_t helix_col{1};
+
+        // we need a few functions to help us also build the source map
+        void add_to_source_map(const CX_Token *token = nullptr) {
+            if (this->source_map == nullptr) {
+                return;
+            }
+
+            if (token == nullptr) {
+                this->source_map->add_loc(SourceLocation{
+                    .helix = {this->helix_line, this->helix_col},
+                    .cxir  = {this->cxir_line, this->cxir_col}
+                });
+            } else {
+                this->helix_line = token->get_line();
+                this->helix_col = token->get_column();
+
+                if (this->helix_line == 0 || this->helix_col == 0) {
+                    return;
+                }
+
+                this->source_map->add_loc(SourceLocation{
+                    .helix = {this->helix_line, this->helix_col},
+                    .cxir  = {this->cxir_line, this->cxir_col}
+                });
+            }
+        }
+
+        public:
+        explicit CXIRBuilder(const size_t len, SourceMap *source_map = nullptr) {
+            // scale the size of the cxir string by about 3.125x
+            if (len > (std::numeric_limits<size_t>::max() >> 4)) {
+                this->cxir.reserve(std::numeric_limits<size_t>::max());
+            }
+
+            this->source_map = source_map;
+
+            size_t tmp = (len << 4) + (len << 3) + len; // (16 + 8 + 1) * len = 25 * len
+            this->cxir.reserve(tmp >> 3); // divide by 8 to get the size in bytes
+        };
+
+        CXIRBuilder &add_line() {
+            this->cxir += "\n";
+            ++this->cxir_line;
+            this->cxir_col = 1;
+            return *this;
+        };
+
+        CXIRBuilder &add_line(const string &str) {
+            this->cxir += str + "\n";
+            
+            ++this->cxir_line;
+            this->cxir_col = 1;
+            
+            return *this;
+        };
+
+        CXIRBuilder &add_line(const CX_Token &token) {
+            bool new_line_added = token.get_value()[0] == '#';
+            
+            this->cxir += token.to_CXIR() + "\n";
+        
+            this->cxir_line += new_line_added ? 2 : 1;
+            this->cxir_col = 1;
+        
+            return *this;
+        };
+
+        CXIRBuilder &add_line(const std::unique_ptr<CX_Token> &token) {
+            if (token == nullptr) {
+                return *this;
+            }
+
+            this->add_line(*token);
+            return *this;
+        };
+        
+        // ONLY add change the helix mapping
+        CXIRBuilder &add(const string &str) {
+            auto lines = (std::count(str.begin(), str.end(), '\n'));
+            
+            this->cxir      += str + " ";
+            add_to_source_map(); // add the current line and col to the source map
+
+            ++this->cxir_col; // for the space
+            
+            this->cxir_line += lines;
+            this->cxir_col  += lines > 0 ? (str.find_last_of('\n') == std::string::npos
+                                         ? 0
+                                         : (str.length() - str.find_last_of('\n') - 1))
+                                         : str.length();
+            return *this;
+        };
+
+        CXIRBuilder &add(const CX_Token &token) {
+            bool new_line_added = token.get_value()[0] == '#';
+            
+            if (new_line_added) {
+                ++this->cxir_line;
+                this->cxir_col = 1;
+                this->cxir += token.get_value() + " ";
+            } else {
+                this->cxir += token.to_CXIR() + " ";
+            }
+            
+            
+            this->add_to_source_map(&token);
+
+            this->cxir_col += token.get_value().length() + 1;
+            
+            return *this;
+        };
+
+        CXIRBuilder &add(const std::unique_ptr<CX_Token> &token) {
+            if (token == nullptr) {
+                return *this;
+            }
+
+            this->add(*token);
+            return *this;
+        };
+
+        CXIRBuilder &add_line_marker(const size_t line_num, const string &file_macro = "",
+                                     const string &file_name = "") {
+            this->add_line();
+            this->add_line("#line " + std::to_string(line_num)
+                          + (file_macro != "" ? " " + file_macro : ""));
+            
+            if (!file_name.empty() && !file_macro.empty()) {
+                this->file_name = file_name;
+                source_map->set_file_name(file_name);
+            } else if (this->file_name.empty() && !file_macro.empty()) {
+                this->file_name = "_H1HJA9ZLO_17.helix-compiler.cxir";
+                source_map->set_file_name(this->file_name);
+            }
+
+            return *this;
+        };
+
+        CXIRBuilder &add_macro(const string &str) {
+            this->add_line();
+            this->add_line(str);
+            return *this;
+        };
+
+        CXIRBuilder &operator+=(const string &str) {
+            this->add(str);
+            return *this;
+        };
+        CXIRBuilder &operator+=(const CX_Token &token) {
+            this->add(token);
+            return *this;
+        };
+        CXIRBuilder &operator+=(const std::unique_ptr<CX_Token> &token) {
+            this->add(token);
+            return *this;
+        };
+
+        CXIRBuilder &operator<<(const string &str) {
+            this->add_line(str);
+            return *this;
+        };
+        CXIRBuilder &operator<<(const CX_Token &token) {
+            this->add_line(token);
+            return *this;
+        };
+        CXIRBuilder &operator<<(const std::unique_ptr<CX_Token> &token) {
+            this->add_line(token);
+            return *this;
+        };
+
+        [[nodiscard]] string build() const {
+            this->source_map->finalize();
+            return this->cxir;
+        };
+        [[nodiscard]] string get_file_name() const { return this->file_name; };
+    };
+
     std::string normalize_file_name(std::string file_name) {
         if (file_name.empty()) {
             return "";
@@ -35,38 +223,6 @@ __CXIR_CODEGEN_BEGIN {
         }
 
         return file_name;
-    }
-
-    void handle_file_change(std::string & file_name,
-                            const std::unique_ptr<CX_Token> &token,
-                            SourceMap                       &source_map,
-                            size_t                          &cxir_line,
-                            size_t                          &cxir_col) {
-
-        if (normalize_file_name(file_name) == normalize_file_name(token->get_file_name())) {
-            return;
-        }
-
-        if (token && token->get_line() != 0 &&
-            !(normalize_file_name(token->get_file_name()).empty())) {
-
-            file_name = token->get_file_name();
-            if (file_name.empty()) {
-                return;
-            }
-
-            // cxir += "\n#line 1 R\"(" + file_name + ")\"\n";
-
-            if (SOURCE_MAPS.find(file_name) == SOURCE_MAPS.end()) {
-                SOURCE_MAPS[file_name] = SourceMap();
-            }
-
-            source_map = SOURCE_MAPS[file_name];
-
-            // reset the line and column
-            cxir_line = 1;
-            cxir_col  = 1;
-        }
     }
 
     std::string get_file_name(const std::unique_ptr<CX_Token> &tok) {
@@ -116,7 +272,8 @@ __CXIR_CODEGEN_BEGIN {
         std::string file_name;
 
         std::map<string, string> file_macros;
-        std::string              cxir;
+        // std::string              cxir;
+        CXIRBuilder cxir(tokens.size(), &source_map);
 
         // get the first file name
         for (const auto &token : tokens) {
@@ -131,7 +288,7 @@ __CXIR_CODEGEN_BEGIN {
         }
 
         for (const auto &file_macro : file_macros) {
-            cxir += "#define " + file_macro.second + " \"" + file_macro.first + "\"\n";
+            cxir.add_macro("#define " + file_macro.second + " \"" + file_macro.first + "\"");
         }
 
         // generate the first #line directive
@@ -146,7 +303,8 @@ __CXIR_CODEGEN_BEGIN {
             return "#error \"Lost the original file name\"";
         }
 
-        cxir += "\n#line 1 " + file_macros.begin()->second + "\n";
+        cxir.add_line_marker(1, file_macros.begin()->second,
+                             file_macros.begin()->first); // add the first #line directive
 
         for (size_t i = 0; i < tokens.size(); ++i) {
             const auto &token = tokens[i];
@@ -157,14 +315,16 @@ __CXIR_CODEGEN_BEGIN {
                 continue;
             }
 
+            // macro processing
             if (is_1_token_pp_directive(token)) {
-                cxir += "\n" + token->get_value() + "\n";
+                cxir.add_macro(token->get_value());
                 continue;
             }
 
+            // macro processing
             if (is_2_token_pp_directive(token)) {
                 if ((i + 1) < tokens.size()) {
-                    cxir += "\n" + token->get_value() + " " + tokens[i + 1]->get_value() + "\n";
+                    cxir.add_macro(token->get_value() + " " + tokens[i + 1]->get_value());
                 } else {
                     continue;
                 }
@@ -173,6 +333,7 @@ __CXIR_CODEGEN_BEGIN {
                 continue;
             }
 
+            // macro processing
             if ((token->get_value() == "#if" || token->get_type() == cxir_tokens::CXX_PP_IF) ||
                 (token->get_value() == "#elif" || token->get_type() == cxir_tokens::CXX_PP_ELIF)) {
                 // in this case we get the line from the next to next token since '#if (' - dont have a line number
@@ -182,9 +343,10 @@ __CXIR_CODEGEN_BEGIN {
                 // add all the tokens from the ( to the other ) keeping track of nesting
                 size_t nesting = 0;
                 size_t j       = i;
-
-                cxir += "\n#line " + std::to_string(line_num) + "\n";
-                cxir += "\n" + token->get_value() + " "; // add the #if or #elif
+                
+                cxir.add_line_marker(line_num);
+                cxir.add_line()
+                    .add(token); // add the #if or #elif
 
                 for (; j < tokens.size(); ++j) {
                     if (tokens[j]->get_type() == cxir_tokens::CXX_LPAREN) {
@@ -196,15 +358,15 @@ __CXIR_CODEGEN_BEGIN {
                     if (nesting == 0) {
                         i = j;
 
-                        cxir += tokens[j]->get_value() + " "; // add the last )
+                        cxir.add(tokens[j]); // add the last )
                         break;
                     }
 
-                    cxir += tokens[j]->get_value() + " "; // add the tokens in between
+                    cxir.add(tokens[j]); // add the tokens in between
                 }
 
-                cxir += "\n";
-                cxir += "\n#line " + std::to_string(line_num) + "\n";
+                cxir.add_line(); // add a new line after the #if or #elif
+                cxir.add_line_marker(line_num);
 
                 continue;
 
@@ -212,18 +374,18 @@ __CXIR_CODEGEN_BEGIN {
             
             if (!_file_name.empty() && _file_name != file_name) { // file change
                 file_name = _file_name;
-                cxir += "\n#line 1 " + file_macros[file_name] + "\n";
+                cxir.add_line_marker(line_num, file_macros[file_name], file_name);
             }
 
             if (_line_num != 0 && _line_num != line_num) {
                 line_num = _line_num;
-                cxir += "\n#line " + std::to_string(line_num) + "\n";
+                cxir.add_line_marker(line_num);
             }
 
-            cxir += token->to_CXIR() + " ";
+            cxir.add(token);
         }
 
-        return cxir;
+        return cxir.build();
     }
 
 }  // namespace __CXIR_CODEGEN_END

@@ -35,28 +35,51 @@
     }
 #endif
 
+class Counter {
+    inline static size_t count;
+
+public:
+    static size_t get_count() {
+        return count++;
+    }
+
+    static void reset() {
+        count = 0;
+    }
+};
+
 CXXCompileAction
 CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags flags, Args cxx_args) {
     std::error_code            ec;
     std::optional<std::string> helix_src = emitter.get_file_name();
     Path                       cwd       = __CONTROLLER_FS_N::get_cwd();
-#ifndef DEBUG_OUTPUT
-    Path temp_dir  = std::filesystem::temp_directory_path(ec);
-    Path cc_source = temp_dir / generate_file_name();
-#else
-    Path temp_dir  = cwd;
-    Path cc_source = cwd / generate_file_name();
-#endif
+    Path                       exe       = __CONTROLLER_FS_N::get_exe().parent_path().parent_path();
+
+    // make sure the output directory exists exe / cache / cxx
+    if (!std::filesystem::exists(exe / "cache" / "cxx")) {
+        std::filesystem::create_directories(exe / "cache" / "cxx/", ec);
+        if (ec) {
+            helix::log<LogLevel::Error>("error creating cache at: ", (exe / "cache" / "cxx").generic_string(), " directory: ", ec.message());
+            return {};
+        }
+    }
+
+    if (!std::filesystem::exists(exe / "cache" / "cxx")) {
+        helix::log<LogLevel::Error>("error creating cache directory: ", ec.message());
+        return {};
+    }
+
+    Path cc_source = exe / "cache" / "cxx" / ("helix_cache" + std::to_string(Counter::get_count()) + ".cxx");
 
     bool is_verbose = flags.contains(EFlags(flag::types::CompileFlags::Verbose));
 
-    if (ec) {  /// use the current working directory
-        temp_dir = cwd;
-    }
+    // if (ec) {  /// use the current working directory
+    //     temp_dir = cwd;
+    // }
 
     if (flags.contains(EFlags(flag::types::CompileFlags::Verbose)) &&
         flags.contains(EFlags(flag::types::CompileFlags::Debug))) {
-        cc_source = cwd / "IR.temp.debug.verbose.helix-compiler.cxir";
+        cc_source = cwd / "IR.temp.debug.verbose.helix-compiler.cxx";
     }
 
     CXXCompileAction action = CXXCompileAction{
@@ -119,11 +142,11 @@ CXXCompileAction::~CXXCompileAction()
     = default;
 #endif
 
-void CXXCompileAction::cleanup() const {
+void CXXCompileAction::cleanup() const { // skip cleanup
 #ifndef DEBUG_OUTPUT
-    if (std::filesystem::exists(cc_source)) {
-        std::filesystem::remove(cc_source);
-    }
+    // if (std::filesystem::exists(cc_source)) {
+    //     std::filesystem::remove(cc_source);
+    // }
 #endif
 }
 
