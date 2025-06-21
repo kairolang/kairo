@@ -23,6 +23,11 @@
 
 ---
 
+> [!NOTE]
+>  ## We’ve now started work on the **self-hosted compiler**, using the current rudimentary C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/helixlang/helix-lang/tree/self-hosted) branch.
+
+---
+
 ## Table of Contents
 
 - [Helix: A Modern, High-Performance Language.](#helix-a-modern-high-performance-language)
@@ -57,12 +62,6 @@
   - [AMT: Advanced Memory Tracking](#amt-advanced-memory-tracking)
     - [Key Features of Helix's AMT System:](#key-features-of-helixs-amt-system)
   - [Project Status and Roadmap](#project-status-and-roadmap)
-    - [0.0.1 Alpha v0.1 Release Checklist](#001-alpha-v01-release-checklist)
-      - [Compiler Features](#compiler-features)
-    - [Features Deferred to v0.1 Release](#features-deferred-to-v01-release)
-      - [Language Features](#language-features)
-      - [Short-Term To-Dos](#short-term-to-dos)
-      - [Key Remaining Tasks for Self-Hosting](#key-remaining-tasks-for-self-hosting)
   - [Community and Contributing](#community-and-contributing)
   - [License](#license)
   - [Acknowledgements](#acknowledgements)
@@ -345,75 +344,12 @@ Helix introduces a novel approach to borrow checking that diverges significantly
 
 ## Project Status and Roadmap
 
-Helix is currently in the early stages of development, currently focusing on the toolchain and compiler. The project is under active development, and we are working hard to bring you a 0.0.1 release soon.
+Helix is in the early stages of development, with an initial focus on the toolchain and compiler. We're actively working toward the upcoming `v0.0.1` release.
 
-At this point the compiler is usable, but errors to syntax errors, any errors related to code do happen but might not be clear, since the error reporting system just converts a C++ error into a Helix error message.
+We’ve now started work on the **self-hosted compiler**, using the current rudimentary C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/helixlang/helix-lang/tree/self-hosted) branch.
 
-### 0.0.1 Alpha v0.1 Release Checklist
-
-#### Compiler Features
-- [x] Lexer
-- [x] Preprocessor
-- [x] AST Parser
-- [x] Code Generator
-- [x] Compiler CLI
-  
-### Features Deferred to v0.1 Release
-The following advanced features are scheduled for the v0.1 release and will not be included in the v0.0.1 alpha version, as they are not critical for the initial self-hosting capabilities of the compiler:
-- [ ] CST Parser
-- [ ] Semantic Analyzer
-- [ ] Optimizer
-- [ ] Linker
-- [ ] Compiler API
-- [ ] Compiler Tests
-- [ ] Compiler Documentation
-
-#### Language Features
-- [x] Basic Syntax
-- [x] Functions
-- [x] Classes
-- [x] Generics (`requires`)
-- [x] Type Bounds
-- [x] Enums
-- [x] Structs
-- [x] Classes
-- [x] Closures
-- [x] FFI C
-- [x] FFI C++
-- [x] Error Handling
-- [x] Pointers
-- [x] References
-- [x] Operator Overloading
-- [x] Type Inference
-- [x] Type Casting
-- [x] Inheritance
-- [x] Imports
-- [ ] Extends
-- [ ] Macros
-
-#### Short-Term To-Dos
-- [x] Parse TurboFish syntax
-- [x] Parse and codegen reference and pointer types
-- [x] Parse and codegen function pointers
-- [x] Parse Tuple types and codegen
-- [x] Convert compile messages to Helix errors
-- [x] Parse basic Helix imports
-- [x] Get f-strings working
-- [x] Convert MSVC errors into Helix format
-- [x] Add support for global scopes in the parser
-- [x] Codegen interfaces
-
-#### Key Remaining Tasks for Self-Hosting
-- [ ] Add support for destructuring and packing functions
-- [ ] Implement simple macros and invocations
-- [ ] Parse eval if statements
-- [ ] Parse and codegen catch blocks
-- [ ] Parse and codegen variadic arguments
-- [ ] Parse and codegen compiler directives
-- [ ] Ensure panic and unwinding work correctly
-- [ ] Implement a basic standard library
-
----
+> [!NOTE]
+> The current compiler is functional but still in early shape — most syntax errors are caught, but other issues may yield unclear messages due to limited error reporting (Helix simply mirrors the underlying C++ diagnostics for now).
 
 ## Community and Contributing
 
