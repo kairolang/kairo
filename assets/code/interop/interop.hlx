@@ -2,17 +2,17 @@
 
 // Optional alias 'as peripherals': This allows you to import the header under a module name.
 // If no alias is provided, the class is imported into the global scope of this file. (like in C++)
-ffi "c++" import "peripherals.hh";
+ffi "c++" import "peripherals.hh"
 
-import libcxx::Ref;
-import libcxx::String;
+import libcxx::Ref
+import libcxx::String
 
 // Helix represents C++ references as 'libcxx::Ref<type>' as it doesn't support reference semantics.
 fn <ConnectionType> Peripheral<ConnectionType>
   ::Peripheral(self, const name: Ref<String>) {
-    self.m_name           = name;
-    self.m_connected      = false;
-    self.m_connectionType = ConnectionType();
+    self.m_name           = name
+    self.m_connected      = false
+    self.m_connectionType = ConnectionType()
 }
 
 // The C++ 'std' namespace maps to 'libcxx' in Helix, enabling seamless integration with legacy or
@@ -20,49 +20,49 @@ fn <ConnectionType> Peripheral<ConnectionType>
 // use the Helix standard library in the C++ code.
 fn WirelessKeyboard
   ::WirelessKeyboard(self, const name: Ref<String>) {
-    Peripheral<String>(name);
-    self.m_batteryLevel = 100;
+    Peripheral<String>(name)
+    self.m_batteryLevel = 100
 }
 
 fn WirelessKeyboard
   ::connect(self) -> bool {
     if !self.m_connected {
-        self.m_connected = true;
-        print(f"WirelessKeyboard '{self.m_name}' connected successfully.");
-        return true;
+        self.m_connected = true
+        print(f"WirelessKeyboard '{self.m_name}' connected successfully.")
+        return true
     }
 
-    print(f"WirelessKeyboard '{self.m_name}' is already connected.");
-    return false;
+    print(f"WirelessKeyboard '{self.m_name}' is already connected.")
+    return false
 }
 
 fn WirelessKeyboard
   ::getType(self) const -> String {
-    return "WirelessKeyboard";
+    return "WirelessKeyboard"
 }
 
 fn WirelessKeyboard
   ::getBatteryLevel(self) const -> i32 /* same size as C++ int */ {
-    return self.m_batteryLevel;
+    return self.m_batteryLevel
 }
 
 fn main() -> i32 {
-    var keyboard = WirelessKeyboard("Logitech K380");
+    var keyboard = WirelessKeyboard("Logitech K380")
 
     if keyboard.connect() {
-        print("Keyboard connected successfully.");
+        print("Keyboard connected successfully.")
     } else {
-        print("Keyboard is already connected.");
+        print("Keyboard is already connected.")
     }
 
-    printPeripheralType(keyboard); // defined in peripherals.hh
+    printPeripheralType(keyboard) // defined in peripherals.hh
 
     if keyboard.isWirelessConnection() {
-        print("The keyboard uses a wireless connection.");
+        print("The keyboard uses a wireless connection.")
     } else {
-        print("The keyboard does not use a wireless connection.");
+        print("The keyboard does not use a wireless connection.")
     }
 
-    print(f"Battery Level: {keyboard.getBatteryLevel()}%");
-    return 0;
+    print(f"Battery Level: {keyboard.getBatteryLevel()}%")
+    return 0
 }

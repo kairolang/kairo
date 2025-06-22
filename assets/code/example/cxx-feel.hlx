@@ -1,44 +1,44 @@
-import std::Memory;
+import std::Memory
 
 // NOTE: None of the standard library modules are implemented yet.
 //       The usage of any standard library module here is a placeholder
 //       and is subject to change. The syntax for the most part is final.
 
 class <T> Sound {
-    prot var value: T;
+    prot var value: T
 
     fn Sound(self, value: *T) {
-        self.value = Memory::move(value);
+        self.value = Memory::move(value)
     }
 
     fn play(self) {
-        print(f"Playing sound: {self.value}");
+        print(f"Playing sound: {self.value}")
     }
 
     fn stop(self) {
-        print(f"Stopping sound: {self.value}");
+        print(f"Stopping sound: {self.value}")
     }
 }
 
 // by default the derived visibility is public but can be made priv
 class WoodenSpeaker derives pub Sound<string> {
     fn WoodenSpeaker(self, value: *string) {
-        self.Sound(value);
+        self.Sound(value)
     }
 
     fn play(self) {
-        print(f"Playing sound on wooden speaker: {Sound.value}");
+        print(f"Playing sound on wooden speaker: {Sound.value}")
     }
 }
 
 fn main() -> i32 {
-    var sound = Sound<string>("beep");
-    sound.play(); // Playing sound: beep
-    sound.stop(); // Stopping sound: beep
+    var sound = Sound<string>("beep")
+    sound.play() // Playing sound: beep
+    sound.stop() // Stopping sound: beep
 
-    var wooden_speaker = WoodenSpeaker("beep");
-    wooden_speaker.play(); // Playing sound on wooden speaker: beep
-    wooden_speaker.stop(); // Stopping sound: beep
+    var wooden_speaker = WoodenSpeaker("beep")
+    wooden_speaker.play() // Playing sound on wooden speaker: beep
+    wooden_speaker.stop() // Stopping sound: beep
 
-    return 0;
+    return 0
 }

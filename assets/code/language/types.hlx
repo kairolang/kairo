@@ -1,40 +1,40 @@
-import std::Errors;
-import std::Interfaces;
-import std::Memory::Heap;
+import std::Errors
+import std::Interfaces
+import std::Memory::Heap
 
 // NOTE: None of the standard library modules are implemented yet. The usage of any standard library
 //       module here is a placeholder and is subject to change. The syntax for the most part is final.
 
 fn main() -> i32 {
-    var int_holder = Holder<int>(69);
+    var int_holder = Holder<int>(69)
 
     finally { // The finally block is executed when the scope is exited, even if an error occurs.
         // Here, theres no need to manually delete the object since it's on the stack. Helix manages
         // stack memory. But there's no harm in manually deleting it either.
-        delete int_holder;
+        delete int_holder
     }
 
     // Helix has type inference, so theres no need to specify the type of value. But any modifiers
     // like pointers, questionable, etc. must be specified. (enforced for readability and safety)
-    var *value? = int_holder.get(1);
+    var *value? = int_holder.get(1)
     
     if !(value?) { // if value is null or panicked
-        value = Heap::construct<int>(21); // Equivalent to new int(21) in C++
+        value = Heap::construct<int>(21) // Equivalent to new int(21) in C++
     }
 
     // Helix has support for named parameters/default values
-    var *invalid_value? = int_holder.get(index=100); // Attempt to fetch an out-of-bounds value
+    var *invalid_value? = int_holder.get(index=100) // Attempt to fetch an out-of-bounds value
     
     if invalid_value?:
-        print(invalid_value);
+        print(invalid_value)
     else if invalid_value == null:
-        print("The value is null");
+        print("The value is null")
     else if Errors::BoundsError in invalid_value:
-        print("The index is out of bounds!"); // This gets printed
+        print("The index is out of bounds!") // This gets printed
     else:
-        print("The value is in an unknown state");
+        print("The value is in an unknown state")
 
-    return 0;
+    return 0
 }
 
 // Structs in Helix are data containers with no methods.
@@ -42,47 +42,47 @@ fn main() -> i32 {
 // All fields are public by default.
 struct Data {
     // Regular pointers: non-nullable, no arithmetic, and auto-dereferenced (like references in other languages).
-    var value: *T?;
+    var value: *T?
 }
 
 // Classes in Helix support methods, fields, and constructors.
 // Fields are private by default, while methods and constructors are public by default.
 class Holder requires <T> {
     // Unsafe pointers: nullable, allow pointer arithmetic, and require manual dereferencing.
-    var num_values:  usize;
-    var many_values: unsafe *Data;
+    var num_values:  usize
+    var many_values: unsafe *Data
 
     fn Holder(self, num_values: usize = 10) {
         eval unless T impl Interfaces::DefaultConstructible { // Check at compile-time
             // Panic behaves like a throw in C++ when the return type is not questionable.
-            panic Errors::InvalidTypeError("The type T must be default constructible");
+            panic Errors::InvalidTypeError("The type T must be default constructible")
         }
 
         // Equivalent to (Data*)malloc(sizeof(Data) * num_values) in C
-        self.many_values = unsafe Heap::allocate<Data>(num_values);
-        self.num_values  = num_values;
+        self.many_values = unsafe Heap::allocate<Data>(num_values)
+        self.num_values  = num_values
 
         for i in 0..num_values {
-            self.many_values[i].value = null;
+            self.many_values[i].value = null
         }
     }
 
     op delete fn (self) {
         for i in 0..self.num_values {
             if self.many_values[i].value? {
-                Heap::drop(self.many_values[i].value);
+                Heap::drop(self.many_values[i].value)
             }
         }
 
-        Heap::drop(self.many_values);
+        Heap::drop(self.many_values)
     }
 
     fn get(self, index: usize) -> *T?
       requires <T> {
         if index < self.num_values {
-            return self.many_values[index].value;
+            return self.many_values[index].value
         } else {
-            panic Errors::BoundsError("The index is out of bounds");
+            panic Errors::BoundsError("The index is out of bounds")
         }
     }
 }
