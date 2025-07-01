@@ -2,7 +2,7 @@
   <img src="../assets/helix-logo.svg" alt="Helix Programming Language Logo" width="100%">
 </div>
 
-# Helix: A Modern, High-Performance Language.
+# Helix: A High-Performance, Low-Level Language.
 
 <div>
   <img src="../assets/showcase-ex.png" width="55%" align="left" alt="Code Example">
@@ -25,6 +25,12 @@
 
 > [!NOTE]
 >  ## We’ve now started work on the **self-hosted compiler**, using the current rudimentary C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/helixlang/helix-lang/tree/self-hosted) branch.
+
+> [!NOTE]
+> ### Documentation Status & AI Assistance
+> This documentation is actively being developed; right now is is quite outdated.
+> > ### AI Content Disclaimer
+> > Initial drafts of the README, and Docs, were created by Human, then fed to AI (ChatGPT) refine for accuracy and clarity. Commit messages are generated using the GitLens Commit Message Generator. All code, designs, and core concepts are the work of humans.
 
 ---
 
