@@ -5,7 +5,7 @@
 # Helix: A High-Performance, Low-Level Language.
 
 <div>
-  <img src="../assets/showcase-ex.png" width="55%" align="left" alt="Code Example">
+  <img src="../assets/showcase-ex.png" width="52.5%" align="left" alt="Code Example">
 </div>
 
 ### Key Goals of Helix:
