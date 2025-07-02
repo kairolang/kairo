@@ -30,13 +30,13 @@
 > ### Documentation Status & AI Assistance
 > This documentation is actively being developed; right now is is quite outdated.
 > > ### AI Content Disclaimer
-> > Initial drafts of the README, and Docs, were created by Human, then fed to AI (ChatGPT) refine for accuracy and clarity. Commit messages are generated using the GitLens Commit Message Generator. All code, designs, and core concepts are the work of humans.
+> > Initial drafts of the README, and Docs, were created by Human, then fed to AI (ChatGPT) refine for accuracy and clarity, it may be incorrect in terms of wording, but we are rewriting it at this moment. Commit messages are generated using the GitLens Commit Message Generator. All code, designs, and core concepts are the work of us.
 
 ---
 
 ## Table of Contents
 
-- [Helix: A Modern, High-Performance Language.](#helix-a-modern-high-performance-language)
+- [Helix: A High-Performance, Low-Level Language.](#helix-a-high-performance-low-level-language)
     - [Key Goals of Helix:](#key-goals-of-helix)
   - [Table of Contents](#table-of-contents)
     - [Design Philosophy:](#design-philosophy)
