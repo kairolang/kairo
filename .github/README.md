@@ -11,8 +11,11 @@
 ## Key Goals of Helix:
 
 **High-performance**: The language is designed to performance match C; But, with the latest features and a more expressive syntax.
+
 **Safety**: Focused on safe memory management without sacrificing developer productivity and freedom.
+
 **Advanced Memory Tracking**: Implements a [Advanced Memory Tracking](#advanced-memory-tracking-amt) system for memory safety, while being far less strict than other languages, however that depends on user preference and can be made strict.
+
 **Robustness**: Provides tools and features that ensure code stability and reduce runtime exceptions, along with a cross-platform standard library.
 
 <div>
