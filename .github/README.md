@@ -148,8 +148,8 @@ Helix integrates with C++ via its Foreign Function Interface (FFI), enabling dir
 - **Declaration Style**: Use C++ classes in Helix without redefinition, as shown below:
 
 <div>
-  <img src="../assets/interoperability-with-cxx-helix.png" width="50%" alt="C++ Header" style="float:left; margin-left: 3%; vertical-align: top;">
-  <img src="../assets/interoperability-with-cxx-hh.png" width="50%" alt="Helix Implementing C++" style="float:right; margin-right: 3%; vertical-align: top;">
+  <img src="../assets/interoperability-with-cxx-helix.png" width="54%" alt="C++ Header" style="float:left; margin-right: 3%; vertical-align: top;">
+  <img src="../assets/interoperability-with-cxx-hh.png" width="44%" alt="Helix Implementing C++" style="float:right; margin-left: 3%; vertical-align: top;">
   <img src="../assets/bumper.png" width="100%" alt="Bumper">
 </div>
 
