@@ -5,7 +5,7 @@
 # Helix: A Readable, High-Performance, Low-Level Language.
 
 <div>
-  <img src="../assets/showcase-ex.png" width="58.5%" align="left" alt="Code Example">
+  <img src="../assets/showcase-ex.png" width="50.5%" align="left" alt="Code Example">
 </div>
 
 ## Key Goals of Helix:
@@ -99,7 +99,7 @@ Helix produces precise error messages with:
 - **Contextual Output**: The compiler annotates code snippets to highlight issues.
 
 <div>
-  <img src="../assets/error-ex.png" width="50%" align="right" alt="Error Reporting">
+  <img src="../assets/error-ex.png" width="50%" align="left" alt="Error Reporting">
 </div>
 
 This shows a return type mismatch error (`T41E`) with the offending line, expected vs. actual types, and a documentation reference.
@@ -132,9 +132,11 @@ Helix's syntax and semantics are inspired by C++ to ease adoption, with distinct
 - **Interfaces**: Interfaces in Helix are similar to C++'s pure virtual classes, providing a way to define abstract types and enforce contracts. While not having the same level of complexity as C++ or the runtime performance overhead, since they are Zero Cost Abstractions, Helix's `interface` keyword provides a simple way to define interface types, while being able to check if any object (even if they don't directly implement the interface) for compliance.
 - **Object-Oriented Features**: Like C++, Helix supports classes with member functions, encapsulation, and inheritance. The Helix class structure is streamlined to provide clear and concise object-oriented capabilities without the often verbose syntax found in C++.
 
-<div><img src="../assets/cxx-like-cxx-ex.png" width="47%" alt="C++ Example" style="float:right; margin-left: 3%; vertical-align: top;">
-  <img src="../assets/cxx-like-helix-ex.png" width="52%" alt="Helix Example" style="float:left; margin-right: 3%; vertical-align: top;">
-  <img src="../assets/bumper.png" width="100%" alt="Bumper"></div>
+<div>
+  <img src="../assets/cxx-like-cxx-ex.png" width="52%" alt="C++ Example" style="float:left; margin-left: 3%; vertical-align: top;">
+  <img src="../assets/cxx-like-helix-ex.png" width="47%" alt="Helix Example" style="float:right; margin-right: 3%; vertical-align: top;">
+  <img src="../assets/bumper.png" width="100%" alt="Bumper">
+</div>
 
 ### C++ Interoperability
 
@@ -145,9 +147,11 @@ Helix integrates with C++ via its Foreign Function Interface (FFI), enabling dir
 - **Function Calls**: Call C++ functions directly, with FFI handling calling conventions and type conversions.
 - **Declaration Style**: Use C++ classes in Helix without redefinition, as shown below:
 
-<div><img src="../assets/interoperability-with-cxx-helix.png" width="43%" alt="C++ Header" style="float:right; margin-left: 3%; vertical-align: top;">
-  <img src="../assets/interoperability-with-cxx-hh.png" width="56%" alt="Helix Implementing C++" style="float:left; margin-right: 3%; vertical-align: top;">
-  <img src="../assets/bumper.png" width="100%" alt="Bumper"></div>
+<div>
+  <img src="../assets/interoperability-with-cxx-helix.png" width="50%" alt="C++ Header" style="float:left; margin-left: 3%; vertical-align: top;">
+  <img src="../assets/interoperability-with-cxx-hh.png" width="50%" alt="Helix Implementing C++" style="float:right; margin-right: 3%; vertical-align: top;">
+  <img src="../assets/bumper.png" width="100%" alt="Bumper">
+</div>
 
 - **Bidirectional Calls**: Helix functions can be called from C++ with full interoperability, using the Itanium C++ ABI and the C ABI for seamless integration.
 
@@ -200,7 +204,7 @@ For more details, see the [Helix Language Guide](https://helix-lang.com/docs) [W
 Here's a glimpse of Helix's type system in action, demonstrating how these features are applied in real code scenarios:
 
 <div>
-  <img src="../assets/type-system-ex.png" width="55%" align="right" alt="Type System Example">
+  <img src="../assets/type-system-ex.png" width="55%" align="left" alt="Type System Example">
 </div>
 
 <div>
@@ -221,7 +225,7 @@ Helix's type system supports advanced features like generics and inheritance, en
 In Helix, extending any class to add or specialize methods for specific types is straightforward. This capability is particularly useful when working with data structures that need to handle different data types uniquely.
 
 <div>
-  <img src="../assets/extends-ex.png" width="55%" align="right" alt="Extending BinaryTreeNode Example">
+  <img src="../assets/extends-ex.png" width="55%" align="left" alt="Extending BinaryTreeNode Example">
 </div>
 
 <div>
