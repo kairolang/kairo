@@ -2,306 +2,212 @@
   <img src="../assets/helix-logo.svg" alt="Helix Programming Language Logo" width="100%">
 </div>
 
-# Helix: A High-Performance, Low-Level Language.
+# Helix: A Readable, High-Performance, Low-Level Language.
 
 <div>
   <img src="../assets/showcase-ex.png" width="58.5%" align="left" alt="Code Example">
 </div>
 
-### Key Goals of Helix:
-**High-performance**: The language is designed to be as fast as C, with modern features and a more expressive syntax.
+## Key Goals of Helix:
 
-**Safety**:           Focused on safe memory management without sacrificing developer productivity and freedom.
-
-**Borrow Checker**:   Implements a [Advanced Memory Tracking](#amt-advanced-memory-tracking) system for memory safety, while being far less strict than other languages.
-
-**Robustness**:       Provides tools and features that ensure code stability and reduce runtime errors, along with a cross-platform standard library.
+**High-performance**: The language is designed to performance match C; But, with the latest features and a more expressive syntax.
+**Safety**: Focused on safe memory management without sacrificing developer productivity and freedom.
+**Advanced Memory Tracking**: Implements a [Advanced Memory Tracking](#advanced-memory-tracking-amt) system for memory safety, while being far less strict than other languages, however that depends on user preference and can be made strict.
+**Robustness**: Provides tools and features that ensure code stability and reduce runtime exceptions, along with a cross-platform standard library.
 
 <div>
-  <img src="../assets/bumper.png", width="100%" alt="Bumper">
+  <img src="../assets/bumper.png" ,="" width="100%" alt="Bumper">
 </div>
 
----
+--------------------------------------------------------------------------------
 
 > [!NOTE]
->  ## We’ve now started work on the **self-hosted compiler**, using the current rudimentary C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/helixlang/helix-lang/tree/self-hosted) branch.
+> ## We've now started work on the **self-hosted compiler**, using the current C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/helixlang/helix-lang/tree/self-hosted) branch.
 
 > [!NOTE]
 > ### Documentation Status & AI Assistance
 > This documentation is actively being developed; right now is is quite outdated.
 > > ### AI Content Disclaimer
-> > Initial drafts of the README, and Docs, were created by Human, then fed to AI (ChatGPT) refine for accuracy and clarity, it may be incorrect in terms of wording, but we are rewriting it at this moment. Commit messages are generated using the GitLens Commit Message Generator. All code, designs, and core concepts are the work of us.
+> > Initial drafts of the Docs, were created by us, then fed to ChatGPT to refine for accuracy and clarity, it may be incorrect in terms of wording, but we are rewriting it at this moment. Commit messages are generated using the GitLens Commit Message Generator. All code, designs, and core concepts are the work of us.
 
----
+
+--------------------------------------------------------------------------------
 
 ## Table of Contents
 
-- [Helix: A High-Performance, Low-Level Language.](#helix-a-high-performance-low-level-language)
-    - [Key Goals of Helix:](#key-goals-of-helix)
+- [Helix: A Readable, High-Performance, Low-Level Language.](#helix-a-readable-high-performance-low-level-language)
+  - [Key Goals of Helix:](#key-goals-of-helix)
   - [Table of Contents](#table-of-contents)
     - [Design Philosophy:](#design-philosophy)
-    - [Some Use Cases For Helix:](#some-use-cases-for-helix)
-  - [Error Reporting](#error-reporting)
-    - [Intuitive and Helpful](#intuitive-and-helpful)
+  - [Error Reporting \& Handling](#error-reporting--handling)
+    - [Error Reporting](#error-reporting)
+    - [Error Handling](#error-handling)
   - [Familiarity to C++](#familiarity-to-c)
-    - [Code Comparison between Helix and C++](#code-comparison-between-helix-and-c)
-    - [Enhancing Developer Experience](#enhancing-developer-experience)
-  - [Native Interoperability with C++](#native-interoperability-with-c)
-    - [Effortless Integration with Existing C++ Code](#effortless-integration-with-existing-c-code)
-    - [Extending to Other Languages](#extending-to-other-languages)
-    - [Advantages of Using Helix with C++](#advantages-of-using-helix-with-c)
-  - [Why Not Rust or Zig?](#why-not-rust-or-zig)
-    - [Helix: The Best of Both Worlds](#helix-the-best-of-both-worlds)
+    - [Language Features](#language-features)
+    - [C++ Interoperability](#c-interoperability)
+  - [Features of Rust, Zig, Odin, Nim, and Helix](#features-of-rust-zig-odin-nim-and-helix)
+    - [Object-Oriented Programming (OOP)](#object-oriented-programming-oop)
+    - [Memory Safety](#memory-safety)
+    - [Language Features](#language-features-1)
+    - [Syntax and Ergonomics (User Preference)](#syntax-and-ergonomics-user-preference)
+    - [Example Code Illustration](#example-code-illustration)
+  - [Extending Functionality with Generics and Inheritance](#extending-functionality-with-generics-and-inheritance)
+    - [Extending `BinaryTreeNode` for Numerical Types](#extending-binarytreenode-for-numerical-types)
+  - [Helix ABI and FFI System](#helix-abi-and-ffi-system)
+    - [Helix FFI System](#helix-ffi-system)
+      - [Core Features](#core-features)
+      - [The Helix ABI Extension file defines how Helix interacts with foreign languages, including:](#the-helix-abi-extension-file-defines-how-helix-interacts-with-foreign-languages-including)
+      - [Benefits for Multi-Language Projects](#benefits-for-multi-language-projects)
+    - [Advanced Memory Tracking (AMT)](#advanced-memory-tracking-amt)
+      - [Key Features](#key-features)
+    - [Vial: Cross-Language Module Format](#vial-cross-language-module-format)
+      - [Key Features](#key-features-1)
+  - [What constitutes as Pure Helix Code?](#what-constitutes-as-pure-helix-code)
+    - [Helix's Cache System](#helixs-cache-system)
+  - [Helix Roadmap](#helix-roadmap)
     - [Quick Start](#quick-start)
       - [Installation \& Build](#installation--build)
     - [Prerequisites](#prerequisites)
-        - [Windows Specific (Visual Studio Build Tools)](#windows-specific-visual-studio-build-tools)
-        - [MacOS, Unix or Linux Specific (clang or gcc)](#macos-unix-or-linux-specific-clang-or-gcc)
+      - [Windows Specific (Visual Studio Build Tools)](#windows-specific-visual-studio-build-tools)
+      - [MacOS, Unix or Linux Specific (clang or gcc)](#macos-unix-or-linux-specific-clang-or-gcc)
       - [All Platforms (After following platform specific steps)](#all-platforms-after-following-platform-specific-steps)
     - [Hello, World!](#hello-world)
-  - [Advanced Type System](#advanced-type-system)
-    - [Key Aspects of Helix's Type System](#key-aspects-of-helixs-type-system)
-    - [Example Code Illustration](#example-code-illustration)
-    - [Benefits](#benefits)
-  - [Extending Functionality with Generics and Inheritance](#extending-functionality-with-generics-and-inheritance)
-    - [Extending `BinaryTreeNode` for Numerical Types](#extending-binarytreenode-for-numerical-types)
-  - [AMT: Advanced Memory Tracking](#amt-advanced-memory-tracking)
-    - [Key Features of Helix's AMT System:](#key-features-of-helixs-amt-system)
-  - [Project Status and Roadmap](#project-status-and-roadmap)
-  - [Community and Contributing](#community-and-contributing)
   - [License](#license)
   - [Acknowledgements](#acknowledgements)
   - [Links](#links)
 
----
+--------------------------------------------------------------------------------
 
 ### Design Philosophy:
-**Modern syntax**:    Combines the some of the most readable languages, with C++'s power and Python's intrinsics to create a language that is both powerful and easy to use.
 
-**General-purpose**:  Suitable for a wide range of applications, from systems programming to game development and AI.
+**Simple syntax**: Combines the some of the most readable languages, with C++'s power and Python's intrinsics - at compile time - to create a language that is both extremely powerful and easy to use even for newcomers. **General-purpose**: Suitable for a wide range of applications, from systems programming to high-performance computing, game development, and more. Due to its performance and low-level capabilities, Helix is ideal for both system-level programming and regular application development. **Ease of use**: Designed to be beginner-friendly while still offering very low-level features for experienced developers. **Interoperability**: Seamless complete integration starting with C and C++, then expanding to other languages. With an extendable FFI system that allows for easy bi-directional interoperability with any other language.
 
-**Ease of use**:      Designed to be beginner-friendly while offering very low-level features for experienced developers.
+--------------------------------------------------------------------------------
 
-**Interoperability**: Seamless integration starting with C and C++, then expanding to other languages. With an extendable FFI system that allows for easy integration with any other languages.
+## Error Reporting & Handling
 
-### Some Use Cases For Helix:
-- **Systems programming**: Ideal for low-level programming tasks that require high performance and memory safety.
-- **Game development**: Has full support for object-oriented programming, making it suitable for game engines and tools.
-- **AI and machine learning**: Offers a balance between performance and ease of use, allowing for high-speed computations and complex algorithms.
+Helix's error reporting and handling system prioritizes clear diagnostics and flexible error management for developer productivity and code reliability.
 
----
+### Error Reporting
 
-## Error Reporting
-Helix is designed with developer productivity in mind, featuring a sophisticated error reporting system that clearly communicates issues to help you quickly understand and address coding errors. The system is built to be intuitive, providing not only the error messages but also actionable suggestions and detailed notes to enhance your debugging process.
+Helix produces precise error messages with:
 
-### Intuitive and Helpful
+- **Error Codes**: Referenceable in the [Helix Error Codes Reference](https://helix-lang.com/docs/errors) [WIP].
+- **Contextual Output**: The compiler annotates code snippets to highlight issues.
 
 <div>
   <img src="../assets/error-ex.png" width="50%" align="right" alt="Error Reporting">
 </div>
 
-- **Clear Error Messages**: Helix's error messages are concise and informative, pinpointing the exact issue in your code.
-- **Actionable Suggestions**: The error system optionally provides suggestions on how to resolve the issue, guiding you towards a solution.
-- **Error Codes**: Error message's have unique codes that can be found in [Helix's documentation](https://helix-lang.com/docs/errors).
+This shows a return type mismatch error (`T41E`) with the offending line, expected vs. actual types, and a documentation reference.
 
----
+### Error Handling
 
-## Familiarity to C++
-Helix is designed with a nod to C++ developers, blending familiar syntax and paradigms with modern language features. This approach reduces the learning curve for those accustomed to C++ and enhances interoperability with existing C++ codebases.
+Helix uses a hybrid error-handling model with **questionable types** (`T?`), which can hold a value (`T`), `null`, or a `panic`. This supports both compile-time and runtime error handling.
 
-### Code Comparison between Helix and C++
+Key features:
 
-<div>
-  <img src="../assets/cxx-like-helix-ex.png" width="47%" alt="Helix Example" style="float:left; margin-right: 3%; vertical-align: top;">
-  <img src="../assets/cxx-like-cxx-ex.png" width="52%" alt="C++ Example" style="float:right; margin-left: 3%; vertical-align: top;">
-  <img src="../assets/bumper.png" width="100%" alt="Bumper">
-</div>
+- **Panic Types**: Functions that may fail return `T?` or `panic T` the decision as to weather we should allow a questionable to hold a panic or not is still undecided, but the current draft is that it should not be allowed to hold a panic, but the bootstrap compiler allows it to hold a panic, this is subject to change.
+- **Compile-Time Checks**: The compiler requires `T?` returns to be checked via pattern matching or `try`/`catch`.
+- **Type Safety**: The compiler enforces safe access to `T?` values, preventing unhandled panics or null dereferences.
 
-- **Template and Class Syntax**: Both Helix and C++ use template mechanisms to enable generic programming. Helix’s `requires` keyword functions similarly to C++ templates, but with a more readable syntax. For instance, where C++ uses `<typename T>`, Helix uses `requires <T>` to declare generic types.
-- **Function and Method Definitions**: Helix mirrors C++ in how functions and methods are defined and used, maintaining the same logic flow but simplifying syntax to increase clarity and reduce common pitfalls.
-- **Memory Management**: Helix adopts smart pointer concepts similar to C++'s `std::unique_ptr` and `std::shared_ptr` but integrates them more deeply into the language runtime to automate memory safety without manual intervention.
-- **Object-Oriented Features**: Like C++, Helix supports classes with member functions, encapsulation, and inheritance. The Helix class structure is streamlined to provide clear and concise object-oriented capabilities without the often verbose syntax found in C++.
-- **Concepts and Interfaces**: Helix has a concept system (`interface`) that is similar to C++'s concepts, but with a more straightforward syntax. Interfaces in Helix are similar to C++'s pure virtual classes, providing a way to define abstract types and enforce contracts. While not having the same level of complexity as C++ or the performance overhead, Helix's `interface` keyword provides a simple way to define abstract types.
-
-### Enhancing Developer Experience
-By drawing on the strengths of C++ and addressing its complexities, Helix aims to offer an improved developer experience:
-
-- **Error Handling and Reporting**: Helix enhances the error handling model by providing more descriptive and actionable error messages, making debugging faster and more intuitive.
-- **Performance**: While retaining the performance characteristics of C++, Helix simplifies memory management and type safety, reducing runtime errors and increasing code reliability.
-
-These examples and features illustrate Helix’s commitment to providing a familiar yet enhanced programming environment for C++ developers, ensuring that they can leverage their existing skills while enjoying the benefits of modern language constructs.
-
----
-
-## Native Interoperability with C++
-Helix has seamless integration with C++ codebases, enabling developers to utilize existing C++ libraries and frameworks effortlessly. This native interoperability is achieved through Helix's robust Foreign Function Interface (FFI), which facilitates smooth communication and data exchange between Helix and C++ code.
-
-### Effortless Integration with Existing C++ Code
-Helix's FFI system is designed to be intuitive and straightforward, minimizing the learning curve and allowing for quick adoption in projects that already rely on C++:
-
-<div>
-  <img src="../assets/interoperability-with-cxx-hh.png" width="43%" alt="Helix Implementing C++", style="float:left; margin-right: 3%; vertical-align: top;">
-  <img src="../assets/interoperability-with-cxx-helix.png" width="56%" alt="C++ Header", style="float:right; margin-left: 3%; vertical-align: top;">
-  <img src="../assets/bumper.png", width="100%" alt="Bumper">
-</div>
-
-- **Simplified Code Sharing**: Developers can easily call C++ functions from Helix and vice versa, leveraging the strength of both languages in a single project. This integration supports complex data types and custom classes, ensuring that you can continue using your refined C++ code within Helix without extensive modifications.
-- **Header File Integration**: Helix allows for the direct inclusion of C++ header files, which means you can use C++ classes and templates directly in Helix code. This is particularly useful for projects where maintaining performance-critical sections in C++ is essential.
-- **Declarations Septate From Implementations**: Helix's native interoperability with C++ allows for C++ native declarations style, allowing for a more familiar and seamless integration with C++ codebases. Where If you have a C++ class defined in a C++ header file, you can include the header file in Helix and use the class as if it were a Helix class. (See the example above)
-
-### Extending to Other Languages
-Beyond C++, Helix's FFI system is designed to be expandable, providing potential pathways to interface with other popular programming languages such as Python, Java, and Rust. This versatility makes Helix an ideal choice for multi-language environments, where different parts of a project may benefit from specific language features.
-
-### Advantages of Using Helix with C++
-
-- **Performance and Safety**: Combine the performance benefits of C++ with the safety features of Helix, such as managed memory and advanced error handling.
-- **Code Reusability**: Integrate and reuse existing C++ libraries in new Helix projects, preserving investment in existing codebases while upgrading to newer technology.
-- **Flexibility**: Helix's compatibility with C++ offers flexibility in gradually transitioning projects from C++ to Helix, or simply using the best tool for each specific task within a single project.
-
-By providing a seamless bridge between Helix and C++, developers can leverage the strengths of both languages to create robust, high-performance applications with enhanced safety features and streamlined development workflows.
-
----
-
-## Why Not Rust or Zig?
-
-While both Rust and Zig are excellent languages, they come with certain trade-offs that Helix seeks to address:
-- **Lack of OOP Support:** Both Rust and Zig lack comprehensive OOP support, which is essential for certain domains like AI or game development.
-- **Strict Safety Mechanisms (Rust):** While Rust's borrow checker is a powerful tool, it can sometimes be too strict, leading to complex refactoring for developers.
-- **Limited Features (Zig):** Zig, while performant, lacks certain features like a macro processor that Helix provides.
-
-### Helix: The Best of Both Worlds
-
-Helix draws inspirations from a variety of languages, combining the best features, to create a language that is both powerful and easy to use.
-- **Balanced Safety:** Helix features a borrow checker, but with a less strict enforcement, offering flexibility without sacrificing safety.
-- **Simpler Syntax:** Helix provides a modern, Python-like syntax, reducing verbosity while maintaining power.
-- **OOP Support:** Helix fully supports object-oriented programming, making it suitable for a wide range of applications.
-- **Zero-Cost Abstractions:** Helix also has support for zero-cost abstractions, allowing for high-level programming (including generics, interfaces, and more) without sacrificing performance.
-
----
-
-### Quick Start
-
-#### Installation & Build
-
-> [!WARNING]
-> Helix has a alpha release, it's not yet stable, barely usable, but if you want to try it out, you can either build it from source or download the latest release from the [releases page](https://github.com/helixlang/helix-lang/releases/latest).
-
-> [!TIP]
-> Linux is not *yet* tested, Most development is done on MacOS or Windows, if any issues arise with building on Linux, please open an issue.
-
-### Prerequisites
-
-- **Xmake**: [Install Xmake](https://xmake.io/#/)
-- **Python**: [Install Python](https://www.python.org/downloads/)
-- **Git**: [Install Git](https://git-scm.com/downloads)
-- **C++ Compiler**: Ensure you have a C++ compiler (e.g., **Clang**, **MSVC**, or **GCC**).
-
-##### Windows Specific (Visual Studio Build Tools)
-
-> [!CAUTION]
-> Only **msvc** is supported and tested on Windows, **gcc** is not supported on Windows. and **mingw** is not tested.
-
-1. Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the following components:
-   - **Desktop development with C++** (workload)
-   - **MSVC v143** or higher
-   - **Windows SDK**
-   - **C++ CMake tools for Windows**
-   - **C++ Clang Tools for Windows v17.0.x** or higher
-   - **C++ ATL for v143 build tools** or higher
-  
-2. Install [Python](https://www.python.org/downloads/)
-
-3. Install [xmake](https://xmake.io/#/) (PowerShell Only)
-```powershell
-$ Invoke-Expression (Invoke-Webrequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
-```
-
-##### MacOS, Unix or Linux Specific (clang or gcc)
-
-> [!WARNING]
-> **Perl** is required for building on Linux, if you don't have it installed, install using your package manager.
-
-1. Install [Python](https://www.python.org/downloads/)
-   
-2. Install Xmake (bash or zsh):
-```ps
-curl -fsSL https://xmake.io/shget.text | bash
-```
-
-3. Install necessary build tools such as Clang or GCC. (should be installed by default on MacOS)
-
-#### All Platforms (After following platform specific steps)
-
-1. Make a directory for the project and clone the repo
-```ps
-$ git clone https://github.com/helixlang/helix-lang.git
-$ cd helix-lang
-```
-
-2. Build Helix along with the LLVM backend, Clang, Tests, and the Helix Compiler Toolchain API (~30 minutes on a 8-core CPU)
-```ps
-$ xmake build
-```
-
-3. Run the tests or the compiler
-```ps
-$ xmake run tests
-$ xmake run helix -h
-```
+The `T?` syntax is a draft and may evolve to `panic T` based on feedback.
 
 --------------------------------------------------------------------------------
 
-### Hello, World!
+## Familiarity to C++
 
-Here's how you can write and run a simple "Hello, World!" program in Helix:
+Helix's syntax and semantics are inspired by C++ to ease adoption, with distinct features for clarity and safety. It also integrates directly with C++ codebases.
 
-<div>
-  <img src="../assets/hello-world-ex.png" width="40%" align="left" alt="Hello World Example">
-  <img src="../assets/bumper.png", width="100%" alt="Bumper">
-</div>
+### Language Features
 
-To compile then run the source:
+- **Templates**: Both Helix and C++ use template mechanisms to enable generic programming. Helix has the same core principles and introduces a different syntax `fn <T> name(param: T)` that is more intuitive, while still allowing for powerful type abstractions, along with a greater support for type bounds (i.e. `fn <T impl Comparable, N> name(param: [T; N]) if N > 21`).
+- **Operator Overloading**: Define operators like `+` with `fn op <operator> (params)`.
+- **Functions and Methods**: Functions and class instance methods use `fn method(self, param: i32)`. Structs are data-only but support operator overloading.
+- **Memory Management**: Smart pointers enforce safety. Raw unchecked pointers require `unsafe *T`. You can also disable any implicit behavior with file level attributes like `#[compiler::config("amt", false)]` to disable the Advanced Memory Tracking system, or `#[compiler::config("unsafe", true)]` to disable all safety checks.
+- **Classes and Inheritance**: Classes support single inheritance and explicit `virtual` functions, e.g., `class Derived : Base { ... }`.
+- **Interfaces**: Interfaces in Helix are similar to C++'s pure virtual classes, providing a way to define abstract types and enforce contracts. While not having the same level of complexity as C++ or the runtime performance overhead, since they are Zero Cost Abstractions, Helix's `interface` keyword provides a simple way to define interface types, while being able to check if any object (even if they don't directly implement the interface) for compliance.
+- **Object-Oriented Features**: Like C++, Helix supports classes with member functions, encapsulation, and inheritance. The Helix class structure is streamlined to provide clear and concise object-oriented capabilities without the often verbose syntax found in C++.
 
-```ps
-$ ./build/.../bin/helix hello_world.hlx
-# or if added to PATH
-$ helix hello_world.hlx
-$ ./hello_world
-```
+<div><img src="../assets/cxx-like-cxx-ex.png" width="47%" alt="C++ Example" style="float:right; margin-left: 3%; vertical-align: top;">
+  <img src="../assets/cxx-like-helix-ex.png" width="52%" alt="Helix Example" style="float:left; margin-right: 3%; vertical-align: top;">
+  <img src="../assets/bumper.png" width="100%" alt="Bumper"></div>
 
----
+### C++ Interoperability
 
-## Advanced Type System
-Helix boasts a robust and flexible type system designed to enhance both safety and developer productivity. It introduces several modern features that ensure code is not only safe but also clear and maintainable.
+Helix integrates with C++ via its Foreign Function Interface (FFI), enabling direct use of C++ libraries and types.
 
-### Key Aspects of Helix's Type System
-- **Non-Nullable Types by Default**: In Helix, all types are non-nullable by default, significantly reducing the risk of null-pointer errors. Helix uses a novel approach to nullable types - [Questionable Types](https://www.helix-lang.com/docs/language/questionable/), which allows for more explicit handling of null or panicking values.
-- **Flexible Pointer and Reference Handling**: Helix supports both unsafe pointers and safe pointers, allowing developers to choose the level of safety they need for their code. This flexibility enables fine-grained control over memory management while maintaining safety.
-- **Comprehensive Error Handling**: Helix's [error handling](https://www.helix-lang.com/docs/language/panicking/) system is novel to helix, it allows for either complete error handling or a more pythonic approach to error handling, this allows for more control over how errors are handled in Helix.
-- **Generics with Advanced Constraints**: The language supports generics with advanced constraints, while maintaining a simple syntax and having zero performance overhead to the binary.
+- **Header Inclusion**: Import C++ headers or C++20 modules.
+- **Type Mapping**: C++ types (e.g., `std::vector<int>`) are mapped to Helix types, with compiler-generated bindings for memory and function calls.
+- **Function Calls**: Call C++ functions directly, with FFI handling calling conventions and type conversions.
+- **Declaration Style**: Use C++ classes in Helix without redefinition, as shown below:
+
+<div><img src="../assets/interoperability-with-cxx-helix.png" width="43%" alt="C++ Header" style="float:right; margin-left: 3%; vertical-align: top;">
+  <img src="../assets/interoperability-with-cxx-hh.png" width="56%" alt="Helix Implementing C++" style="float:left; margin-right: 3%; vertical-align: top;">
+  <img src="../assets/bumper.png" width="100%" alt="Bumper"></div>
+
+- **Bidirectional Calls**: Helix functions can be called from C++ with full interoperability, using the Itanium C++ ABI and the C ABI for seamless integration.
+
+See the [Helix C++ Interoperability Guide](https://helix-lang.com/docs/cpp-interop) [WIP] for details.
+
+--------------------------------------------------------------------------------
+
+## Features of Rust, Zig, Odin, Nim, and Helix
+
+This section outlines the technical features of Rust, Zig, Odin, Nim, and Helix in key areas: object-oriented programming, memory safety, language features, and syntax. Each language's approach is described factually to highlight their design choices.
+
+### Object-Oriented Programming (OOP)
+
+- **Odin**: Supports structs with associated procedures for behavior, using explicit procedure calls for polymorphism. Does not include classes or inheritance.
+- **Nim**: Provides classes with single inheritance via `object` types and `method` for dynamic dispatch. Supports encapsulation and polymorphism.
+- **Rust**: Uses traits for polymorphism with methods like `fn method(&self)`. Structs hold data, with no support for classes or inheritance.
+- **Zig**: Offers structs for data organization, with functions defined separately. Does not support classes, inheritance, or traditional OOP polymorphism.
+- **Helix**: Same as C++ with classes, inheritance, and polymorphism. Supports operator overloading and method definitions within classes. Classes can implement interfaces for polymorphic behavior, also supports zero-cost interfaces.
+
+### Memory Safety
+
+- **Odin**: Uses manual memory management with allocators (e.g., `context.allocator`). Provides no automatic safety mechanisms.
+- **Nim**: Employs garbage collection by default for memory management. Supports manual management with `ptr` types and `dealloc`.
+- **Rust**: Enforces memory safety with a borrow checker, using lifetime annotations (e.g., `&'a T`) for references. Uses `Box<T>` for owned data and `Rc<T>` for reference counting.
+- **Zig**: Relies on manual memory management with `alloc` and `free` functions. Offers optional allocators for custom memory handling.
+- **Helix**: Uses an Advanced Memory Tracking (AMT) system that automatically manages memory safety and with performance at compile time. It supports both automatic and manual memory management, with smart pointers for safety and raw pointers for performance.
+
+### Language Features
+
+- **Odin**: Supports compile-time execution with `when` statements and constant expressions. Includes generics via type parameters, with no macro system.
+- **Nim**: Provides macros and templates for metaprogramming with `template` and `macro` constructs. Supports generics with `proc[T]`.
+- **Rust**: Offers procedural and declarative macros (e.g., `macro_rules!`) for compile-time code generation. Supports generics with `struct<T>` and `fn<T>`.
+- **Zig**: Uses comptime code execution for metaprogramming, with generics via comptime parameters. Does not include a macro system.
+- **Helix**: Provides a macro system with `macro name!(params) { ... };` for compile-time code generation. We also support procedural macros for advanced meta-programming with: `macro @name(params) { ... };`.
+
+### Syntax and Ergonomics (User Preference)
+
+- **Odin**: Uses a C-like syntax with `proc name(param: type) -> type` for procedures. Prioritizes simplicity in type and function declarations.
+- **Nim**: Features an indentation-based, Python-like syntax. Procedures are defined with `proc name(param: type): type`.
+- **Rust**: Uses a syntax with explicit ownership annotations (e.g., `Box<T>`, `Rc<T>`). Functions are defined as `fn name(&self, param: T) -> T`.
+- **Zig**: Adopts a C-like syntax with minimal abstractions. Functions are defined as `fn name(param: type) type`.
+- **Helix**: Uses a syntax with `fn <T> name(params: T)` for generics and `class X { fn method(self); fn static_m() static; }` for methods. Structs are defined as `struct X { var field: type }` (there are more in-depth cases, but this is the high-level overview).
+
+For more details, see the [Helix Language Guide](https://helix-lang.com/docs) [WIP].
+
+--------------------------------------------------------------------------------
 
 ### Example Code Illustration
-Here’s a glimpse of Helix's type system in action, demonstrating how these features are applied in real code scenarios:
+
+Here's a glimpse of Helix's type system in action, demonstrating how these features are applied in real code scenarios:
 
 <div>
   <img src="../assets/type-system-ex.png" width="55%" align="right" alt="Type System Example">
 </div>
 
-- **Use of Structs and Classes**: Helix allows the definition of structs and classes with rich features such as operator overloading, nested types, and destructors. This facilitates both simple data storage and complex object-oriented programming.
-
-- **Managed Pointers and Error Handling**: The example code demonstrates managed pointers, error handling, and the use of custom memory allocation strategies. It highlights how Helix handles out-of-bounds access attempts and other common programming errors gracefully.
-
-### Benefits
-
-- **Enhanced Safety**: The type system in Helix minimizes common errors like null dereferences and memory leaks, making applications safer by default.
-- **Increased Productivity**: By reducing boilerplate and automating routine tasks, Helix's type system lets developers focus more on business logic and less on preventing trivial bugs.
-- **Greater Flexibility**: Offering a mix of strict and flexible type handling options, Helix caters to a wide range of programming styles and requirements, making it suitable for everything from small scripts to large-scale enterprise applications.
-
 <div>
-  <img src="../assets/bumper.png", width="100%" alt="Bumper">
+  <img src="../assets/bumper.png" ,="" width="100%" alt="Bumper">
 </div>
 
----
+- **Use of Structs and Classes**: Helix allows the definition of structs and classes with rich features such as operator overloading, nested types, and destructors. This facilitates both simple data storage and complex object-oriented programming.
+- **Managed Pointers and Error Handling**: The example code demonstrates managed pointers, error handling, and the use of custom memory allocation strategies. It highlights how Helix handles out-of-bounds access attempts and other common programming errors gracefully.
+
+--------------------------------------------------------------------------------
 
 ## Extending Functionality with Generics and Inheritance
 
@@ -315,64 +221,255 @@ In Helix, extending any class to add or specialize methods for specific types is
   <img src="../assets/extends-ex.png" width="55%" align="right" alt="Extending BinaryTreeNode Example">
 </div>
 
-- **Generic Base Class**: The `BinaryTreeNode` class is defined generically, allowing it to work with any type `T`. However, by default, it does not implement any specific behavior, such as insertion or search, leaving these methods unimplemented.
-- **Specialized Extension**: For numerical types, the class is extended to implement these methods. The extended class checks if `T` implements the `NumericalObject` interface, which includes types like integers and floats. This check ensures that the methods such as `insert` and `find` are only compiled and available if `T` is a numerical type, thus maintaining type safety and efficiency.
-
-- **Implementation Details**:
-  - **Insertion**: The `insert` method adds a value to the binary tree following the standard binary search tree rules. If the tree does not have an appropriate child node to traverse to, it dynamically allocates a new node using Helix's memory management capabilities.
-  - **Search**: The `find` method searches for a value, returning `true` if found and `false` otherwise. It traverses the tree based on the value comparisons.
-
 <div>
-  <img src="../assets/bumper.png", width="100%" alt="Bumper">
+  <img src="../assets/bumper.png" ,="" width="100%" alt="Bumper">
 </div>
 
----
+--------------------------------------------------------------------------------
 
-## AMT: Advanced Memory Tracking
+## Helix ABI and FFI System
 
-Helix introduces a novel approach to borrow checking that diverges significantly from the strict model employed by languages like Rust. Instead of relying on lifetimes and compile-time error enforcement for managing memory and borrow states, Helix adopts a more flexible system designed for both safety and performance.
+Helix's Foreign Function Interface (FFI) system allows seamless integration with other languages like Python, Java, or Rust, making it ideal for projects that combine multiple languages. The FFI is flexible, extensible, and designed to maintain Helix's performance and safety guarantees when interacting with foreign code.
 
-### Key Features of Helix's AMT System:
-- **Managed Pointer Conversions**: In Helix, when a borrow operation violates conventional lifetime rules (as Helix does not use explicit lifetimes), the language automatically converts the standard references into smart pointers. This conversion depends on the context of the borrow:
-  - **Shared Managed Pointers**: If a borrow is detected being used across multiple functions or threads where ownership needs to be shared, it is converted into a shared managed pointer, allowing multiple references to the object while ensuring memory safety. This is similar to C++'s `shared_ptr`.
-  - **Sole Managed Pointers**: When an object is passed around with clear ownership (i.e., no shared ownership is detected), it becomes a sole managed pointer, ensuring that the object is owned by a single context at any given time. This is similar to C++'s `unique_ptr`.
-  - **Conversion Trigger**: Pointers only get converted when necessary, both `Shared Managed Pointer` and `Sole Managed Pointer` only get converted when a borrow checker warning is issued, otherwise, the Helix compiler manages memory at compile time, inserting the necessary checks, optimizations, and memory management code.
+### Helix FFI System
 
+The FFI system allows Helix to call functions and use data types defined in other languages while ensuring compatibility and efficiency.
 
-- **Warning Instead of Erroring**: Unlike Rust, which will stop compilation when a borrow checker error is detected, Helix issues warnings. These warnings inform the developer of potential sub-optimal memory management practices, such as:
-  - **Multiple References Passed**: This warning indicates that an object is being referenced by multiple owners or contexts, suggesting a review of the ownership model to ensure intentional design.
-  - **Borrow Outside of Lifetime**: This warning signals that a reference may outlive the scope it was originally confined to, hinting at unintended long-lived references or potential memory safety concerns.
+#### Core Features
 
-- **Performance Considerations**: Helix's method allows the code to compile and run even when potential borrow checker warnings are emitted, operating in a slightly degraded performance mode due to the overhead introduced by smart pointers. This system ensures that development can continue without immediate hard stops, allowing a broader range of functionality and optimization during later stages of development.
-- **Manual Memory Management**: For developers who require more control over memory management, Helix provides the option to bypass the borrow checker and manage memory manually. This feature is particularly useful for performance-critical code where the developer is confident in their memory management skills.
+- **Standard ABI Support**: Helix supports the C ABI and Itanium C++ ABI by default, allowing direct calls to C and C++ libraries.
+- **Helix ABI**: A custom, extensible ABI designed for performance and safety. It handles function calls, data types, memory management, and calling conventions for foreign languages.
+- **Automatic Bindings**: The Helix compiler generates bindings and wrappers based on a **Helix ABI Extension** file, reducing manual work for developers.
+- **Pure Helix Code**: All FFI interactions are lowered to an internal representation called Pure Helix Code, which is C ABI-compatible, ensuring portability and optimization.
 
----
+#### The Helix ABI Extension file defines how Helix interacts with foreign languages, including:
 
-## Project Status and Roadmap
+- **Function Signatures**: Maps foreign function prototypes to Helix types, including arguments and return values.
+- **Data Types**: Defines how foreign primitive types (e.g., Python's `PyObject*` or Rust's `Box<T>`) are represented in Helix.
+- **Memory Management**: Specifies ownership and cleanup rules, such as integrating with Python's reference counting or Rust's borrow checker.
+- **Calling Conventions**: Configures stack alignment, register usage, and parameter passing (e.g., `cdecl` or custom conventions).
+- **Data Layout**: Ensures correct struct packing and alignment for foreign types.
 
-Helix is in the early stages of development, with an initial focus on the toolchain and compiler. We're actively working toward the upcoming `v0.0.1` release.
+#### Benefits for Multi-Language Projects
 
-We’ve now started work on the **self-hosted compiler**, using the current rudimentary C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/helixlang/helix-lang/tree/self-hosted) branch.
+- **Flexibility**: The Helix ABI can be extended to support languages like Python, Java (via JNI), and Rust, with community-driven extensions.
+- **Performance**: Zero-copy techniques and compiler optimizations minimize FFI overhead.
+- **Safety**: The FFI enforces checks like bounds validation or null pointer handling, tailored to the foreign language's rules.
+- **Ease of Use**: Automatic binding generation reduces boilerplate, letting developers focus on logic.
 
-> [!NOTE]
-> The current compiler is functional but still in early shape — most syntax errors are caught, but other issues may yield unclear messages due to limited error reporting (Helix simply mirrors the underlying C++ diagnostics for now).
+--------------------------------------------------------------------------------
 
-## Community and Contributing
+### Advanced Memory Tracking (AMT)
 
-Helix is an open-source project, and we welcome contributions! Whether it's fixing bugs, improving documentation, or adding new features, your contributions are valuable.
+AMT is Helix's memory management system, handling ownership and borrowing without requiring a garbage collector (GC). It uses a dedicated intermediate representation (IR) to track memory states at compile time, ensuring safety while preserving performance in mutable contexts.
 
-- [Submit Issues](https://github.com/helixlang/helix-lang/issues)
-- [Submit Pull Requests](https://github.com/helixlang/helix-lang/pulls)
+#### Key Features
 
-Read our [Contributing Guide](CONTRIBUTING.md) for more details.
+- **Ownership and Borrowing IR**: AMT analyzes ownership and borrowing in a dedicated IR with three states:
 
----
+  - **Pass**: The borrow checker verifies that a reference is safely owned and used within its scope.
+  - **Multiple Owners Detected**: Multiple references to an object are identified, triggering a conversion to a shared pointer.
+  - **Failed Checks**: A reference violates ownership rules (e.g., outliving its scope), raising a warning about a potential memory leak.
+
+- **No Lifetimes**: Helix omits explicit lifetime annotations to simplify development. Instead, AMT resolves borrowing issues by converting references to smart pointers only when needed, if there is no need and borrow checking passes fully no conversion is made (i.e. raw pointers would be used with zero overhead).
+- **Smart Pointer Conversion**:
+
+  - **Shared Pointers**: Created when multiple owners or cross-thread references are detected. Uses reference counting to manage object lifetime, similar to C++'s `std::shared_ptr`.
+  - **Unique Pointers**: Used for single-owner contexts, ensuring exclusive ownership, akin to C++'s `std::unique_ptr`.
+  - Conversion occurs only when borrow checker warnings are issued, minimizing runtime overhead. Otherwise, AMT inserts compile-time checks and optimizations.
+
+- **Warnings, Not Errors**: AMT issues warnings for suboptimal memory patterns (e.g., multiple owners or race conditions) instead of halting compilation. Warnings can be escalated to errors via a compiler flag (e.g., `--strict-borrow`) or file level attributes.
+- **Manual Control**: Developers can bypass the AMT in `unsafe` blocks (e.g., `unsafe { let ptr: *i32 = alloc(); }`) or use unsafe pointers (`unsafe *T`) for manual memory management in performance-critical code.
+- **No Garbage Collector**: AMT eliminates the need for a GC by resolving ownership at compile time or via smart pointers. This avoids GC pauses, making Helix useable in real-time systems, performance-critical applications, and mutable-by-default workflows where frequent updates to data are common.
+
+--------------------------------------------------------------------------------
+
+### Vial: Cross-Language Module Format
+
+Vial is a binary format for preprocessed code modules, designed to accelerate compilation and enable cross-language interoperability. It stores platform-agnostic compilation artifacts, reducing redundant work during builds.
+
+#### Key Features
+
+- **Module Structure**: A Vial file contains:
+
+  - Dependency trees for imported modules.
+  - Borrow checker IR state tree from the AMT system.
+  - Preprocessed Helix code (Pure Helix Code), with platform-agnostic steps (e.g., macro expansion, type checking) completed.
+  - Cached compilation outputs for reuse.
+
+- **Compilation Process**:
+
+  - The Helix compiler preprocesses code into a Vial, performing tasks like macro expansion and borrow checking.
+  - During final compilation, only platform-specific steps (e.g., generics instantiation, `eval` execution, which are stored septate form the pure helix to allow recompile each time.) Emitting LLVM IR with minimal checks, since all checks are done at vial creation time before and all omissions is cached in the vial.
+  - Cached outputs in the Vial significantly speed up subsequent builds since rebuilding is not nessary.
+
+- **Cross-Language Support**: Vial supports other languages via language-specific modules. For example:
+
+  - To compile for Python: `helix --le=python ...` or `helix --emit-le=python /path/to/vial -o/output/folder`.
+  - Generates ELF/DLL/DYLIB binaries with wrappers for the target language (e.g., Python's C API), enabling native usage (e.g., `import vial` in Python).
+
+- **Interoperability**: Vial allows Helix code to integrate with languages like Python or C++ by emitting runtime-compatible binaries and wrappers, leveraging Helix's FFI for function and type bindings.
+- **Caching**: Stores the last known compilation state, reducing redundant processing and improving build times for multi-language projects.
+
+--------------------------------------------------------------------------------
+
+## What constitutes as Pure Helix Code?
+
+Pure Helix Code is the intermediate representation (IR) generated by the Helix compiler after preprocessing and before final compilation. It does not include platform-specific details, runtime dependencies, generics, macros, or any other features that require platform-specific handling or resolution. Pure Helix Code is designed to be platform-agnostic, allowing it to be compiled once and reused and linked to.
+
+### Helix's Cache System
+
+Helix's cache system is designed to optimize the compilation process by storing compiled Pure Helix Code artifacts, seprate from Impure Helix Code; Subsequently, the compiler can reuse the artifacts for faster builds while need a compilation unit only for Impure Helix Code, this allows for significantly faster compilation times, especially for large projects with many dependencies.
+
+--------------------------------------------------------------------------------
+
+## Helix Roadmap
+
+Phase   | Title                | Subtitle                                                 | Description                                                                               | Duration   | Status
+------- | -------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------- | ------
+Phase 1 | Foundation           | C++ Bootstrap                                            | Finalize the C++ bootstrap to handle a minimal Helix subset for writing a compiler.       | 1 month    | 🟧
+Phase 2 | Frontend             | ...                                                      | Build a full Helix frontend in Helix to parse all syntax and generate Pure Helix Code IR. | 3–4 months | 🟧
+...     | ...                  | Lexer/Parser                                             | ...                                                                                       | ...        | 🟧
+...     | ...                  | Error handling                                           | ...                                                                                       | ...        | 🟧
+...     | ...                  | Type checking                                            | ...                                                                                       | ...        | 🟥
+...     | ...                  | Type bounds checking                                     | ...                                                                                       | ...        | 🟥
+...     | ...                  | Emit Pure Helix Code IR                                  | ...                                                                                       | ...        | 🟥
+...     | ...                  | Test syntax, errors, basic C++ FFI interop               | ...                                                                                       | ...        | 🟥
+Phase 3 | AMT & Borrow Checker | ...                                                      | Add Advanced Memory Tracking and borrow checker in Helix for memory safety.               | 3–4 months | 🟥
+...     | ...                  | AMT IR for ownership/borrowing                           | ...                                                                                       | ...        | 🟥
+...     | ...                  | Borrow checker warns on bad patterns                     | ...                                                                                       | ...        | 🟥
+...     | ...                  | Integrate AMT with frontend                              | ...                                                                                       | ...        | 🟥
+...     | ...                  | Test safety (nulls, bounds), benchmark vs. C++ for speed | ...                                                                                       | ...        | 🟥
+Phase 4 | Backend              | ...                                                      | Build a Helix backend to turn Pure Helix Code IR into LLVM IR and binaries.               | 4–5 months | 🟥
+...     | ...                  | Map IR to LLVM IR                                        | ...                                                                                       | ...        | 🟥
+...     | ...                  | Handle generics, eval, platform specifics                | ...                                                                                       | ...        | 🟥
+...     | ...                  | Codegen for functions, structs, classes, T? checks       | ...                                                                                       | ...        | 🟥
+...     | ...                  | Use LLVM C++ API (via FFI) for optimization              | ...                                                                                       | ...        | 🟥
+...     | ...                  | Test binaries (ELF/DLL/DYLIB), match bootstrap output    | ...                                                                                       | ...        | 🟥
+Phase 5 | FFI & Vial           | ...                                                      | Enable interoperability and Vial module format in the self-hosted compiler.               | 3–4 months | 🟥
+...     | ...                  | FFI for C/C++ ABIs                                       | ...                                                                                       | ...        | 🟥
+...     | ...                  | Auto-generate bindings for C++ headers                   | ...                                                                                       | ...        | 🟥
+...     | ...                  | Support bidirectional calls                              | ...                                                                                       | ...        | 🟥
+...     | ...                  | Vial for Pure Helix Code, AMT state, dependency caching  | ...                                                                                       | ...        | 🟥
+...     | ...                  | ...                                                      | Cross-language output (helix --le=python)                                                 | ...        | 🟥
+...     | ...                  | Test C++ calls, Python binaries, safety checks           | ...                                                                                       | ...        | 🟥
+...     | ...                  | Optimize Vial for 50% faster incremental builds          | ...                                                                                       | ...        | 🟥
+Phase 6 | Self-Hosting         | ...                                                      | Make the Helix compiler compile itself, no C++ bootstrap needed.                          | 2–3 months | 🟥
+...     | ...                  | Port remaining bootstrap code to Helix                   | ...                                                                                       | ...        | 🟥
+...     | ...                  | Compile Helix compiler with itself                       | ...                                                                                       | ...        | 🟥
+...     | ...                  | Verify binary equivalence                                | ...                                                                                       | ...        | 🟥
+...     | ...                  | Deprecate C++ bootstrap, keep for reference              | ...                                                                                       | ...        | 🟥
+Phase 7 | Polish               | ...                                                      | Optimize and stabilize for v0.1.0 release.                                                | 3–4 months | 🟥
+...     | ...                  | Speed up frontend, AMT, LLVM IR generation               | ...                                                                                       | ...        | 🟥
+...     | ...                  | Refine error messages, link to Error Codes Reference     | ...                                                                                       | ...        | 🟥
+...     | ...                  | Stabilize Linux (GCC/Clang), test all platforms          | ...                                                                                       | ...        | 🟥
+...     | ...                  | Release v0.1.0, community testing via GitHub/Matrix      | ...                                                                                       | ...        | 🟥
+Phase 8 | Future               | ...                                                      | Push toward v1.0.0 with enhancements.                                                     | Future     | 🟥
+...     | ...                  | FFI for Rust, Java. Community ABI extensions             | ...                                                                                       | ...        | 🟥
+...     | ...                  | AMT strictness flags, real-time optimizations            | ...                                                                                       | ...        | 🟥
+...     | ...                  | Vial incremental builds, debug tools                     | ...                                                                                       | ...        | 🟥
+...     | ...                  | Update docs, tutorials. Plan v1.0.0 features             | ...                                                                                       | ...        | 🟥
+...     | ...                  | Rust FFI working, v1.0.0 roadmap set                     | ...                                                                                       | ...        | 🟥
+
+--------------------------------------------------------------------------------
+
+### Quick Start
+
+#### Installation & Build
+
+> [!WARNING] Helix has a alpha release, it's not yet stable, barely usable, but if you want to try it out, you can either build it from source or download the latest release from the [releases page](https://github.com/helixlang/helix-lang/releases/latest).
+
+> [!TIP] Linux is not _yet_ tested, Most development is done on MacOS or Windows, if any issues arise with building on Linux, please open an issue.
+
+### Prerequisites
+
+- **Xmake**: [Install Xmake](https://xmake.io/#/)
+- **Python**: [Install Python](https://www.python.org/downloads/)
+- **Git**: [Install Git](https://git-scm.com/downloads)
+- **C++ Compiler**: Ensure you have a C++ compiler (e.g., **Clang**, **MSVC**, or **GCC**).
+
+#### Windows Specific (Visual Studio Build Tools)
+
+> [!CAUTION] Only **msvc** is supported and tested on Windows, **gcc** is not supported on Windows. and **mingw** is not tested.
+
+1. Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the following components:
+
+  - **Desktop development with C++** (workload)
+  - **MSVC v143** or higher
+  - **Windows SDK**
+  - **C++ CMake tools for Windows**
+  - **C++ Clang Tools for Windows v17.0.x** or higher
+  - **C++ ATL for v143 build tools** or higher
+
+2. Install [Python](https://www.python.org/downloads/)
+
+3. Install [xmake](https://xmake.io/#/) (PowerShell Only)
+
+  ```powershell
+  $ Invoke-Expression (Invoke-Webrequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
+  ```
+
+#### MacOS, Unix or Linux Specific (clang or gcc)
+
+> [!WARNING] **Perl** is required for building on Linux, if you don't have it installed, install using your package manager.
+
+1. Install [Python](https://www.python.org/downloads/)
+
+2. Install Xmake (bash or zsh):
+
+  ```powershell
+  curl -fsSL https://xmake.io/shget.text | bash
+  ```
+
+3. Install necessary build tools such as Clang or GCC. (should be installed by default on MacOS)
+
+#### All Platforms (After following platform specific steps)
+
+1. Make a directory for the project and clone the repo
+
+  ```powershell
+  $ git clone https://github.com/helixlang/helix-lang.git
+  $ cd helix-lang
+  ```
+
+2. Build Helix along with the LLVM backend, Clang, Tests, and the Helix Compiler Toolchain API (~30 minutes on a 8-core CPU)
+
+  ```powershell
+  $ xmake build
+  ```
+
+3. Run the tests or the compiler
+
+  ```powershell
+  $ xmake run tests
+  $ xmake run helix -h
+  ```
+
+--------------------------------------------------------------------------------
+
+### Hello, World!
+
+Here's how you can write and run a simple "Hello, World!" program in Helix:
+
+<div><img src="../assets/hello-world-ex.png" width="40%" align="left" alt="Hello World Example">
+  <img src="../assets/bumper.png" ,="" width="100%" alt="Bumper"></div>
+
+To compile then run the source:
+
+```powershell
+$ ./build/.../bin/helix hello_world.hlx
+# or if added to PATH
+$ helix hello_world.hlx
+$ ./hello_world
+```
+
+--------------------------------------------------------------------------------
 
 ## License
 
 Helix is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/helixlang/helix-lang/blob/main/license) for more details.
 
----
+--------------------------------------------------------------------------------
 
 ## Acknowledgements
 
@@ -380,15 +477,15 @@ We want to thank all contributors for their efforts in making Helix a reality. Y
 
 <div align="center">
   <a href="https://github.com/helixlang/helix-lang/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=helixlang/helix-lang">
-  </a>
+  <img src="https://contrib.rocks/image?repo=helixlang/helix-lang">
+</a>
 </div>
 
----
+--------------------------------------------------------------------------------
 
 Happy coding with Helix! 🚀
 
----
+--------------------------------------------------------------------------------
 
 ## Links
 
