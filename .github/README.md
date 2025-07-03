@@ -383,9 +383,11 @@ Phase 8 | Future               | ...                                            
 
 #### Installation & Build
 
-> [!WARNING] Helix has a alpha release, it's not yet stable, barely usable, but if you want to try it out, you can either build it from source or download the latest release from the [releases page](https://github.com/helixlang/helix-lang/releases/latest).
+> [!WARNING]
+> Helix has a alpha release, it's not yet stable, barely usable, but if you want to try it out, you can either build it from source or download the latest release from the [releases page](https://github.com/helixlang/helix-lang/releases/latest).
 
-> [!TIP] Linux is not _yet_ tested, Most development is done on MacOS or Windows, if any issues arise with building on Linux, please open an issue.
+> [!TIP]
+> Linux is not _yet_ tested, Most development is done on MacOS or Windows, if any issues arise with building on Linux, please open an issue.
 
 ### Prerequisites
 
@@ -396,7 +398,8 @@ Phase 8 | Future               | ...                                            
 
 #### Windows Specific (Visual Studio Build Tools)
 
-> [!CAUTION] Only **msvc** is supported and tested on Windows, **gcc** is not supported on Windows. and **mingw** is not tested.
+> [!CAUTION]
+> Only **msvc** is supported and tested on Windows, **gcc** is not supported on Windows. and **mingw** is not tested.
 
 1. Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the following components:
 
@@ -417,7 +420,8 @@ Phase 8 | Future               | ...                                            
 
 #### MacOS, Unix or Linux Specific (clang or gcc)
 
-> [!WARNING] **Perl** is required for building on Linux, if you don't have it installed, install using your package manager.
+> [!WARNING]
+> **Perl** is required for building on Linux, if you don't have it installed, install using your package manager.
 
 1. Install [Python](https://www.python.org/downloads/)
 
