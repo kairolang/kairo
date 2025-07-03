@@ -149,8 +149,8 @@ Helix integrates with C++ via its Foreign Function Interface (FFI), enabling dir
 - **Bidirectional Calls**: Helix functions can be called from C++ with full interoperability, using the Itanium C++ ABI and the C ABI for seamless integration.
 
 <div>
-  <img src="../assets/interoperability-with-cxx-helix.png" width="54%" alt="C++ Header" style="float:left; margin-right: 3%; vertical-align: top;">
-  <img src="../assets/interoperability-with-cxx-hh.png" width="44%" alt="Helix Implementing C++" style="float:right; margin-left: 3%; vertical-align: top;">
+  <img src="../assets/interoperability-with-cxx-helix.png" width="54%" alt="C++ Header" style="float:left; margin-left: 3%; vertical-align: top;">
+  <img src="../assets/interoperability-with-cxx-hh.png" width="44%" alt="Helix Implementing C++" style="float:right; margin-right: 3%; vertical-align: top;">
   <img src="../assets/bumper.png" width="100%" alt="Bumper">
 </div>
 
