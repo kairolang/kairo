@@ -333,7 +333,7 @@ Helix's cache system is designed to optimize the compilation process by storing 
 
 Phase   | Title                | Subtitle                                                 | Description                                                                               | Duration   | Status
 ------- | -------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------- | ------
-Phase 1 | Foundation           | C++ Bootstrap                                            | Finalize the C++ bootstrap to handle a minimal Helix subset for writing a compiler.       | 1 month    | 🟧
+Phase 1 | Foundation           | C++ Bootstrap                                            | Finalize the C++ bootstrap to handle a minimal Helix subset for writing a compiler.       | 1 month    | 🟩
 Phase 2 | Frontend             | ...                                                      | Build a full Helix frontend in Helix to parse all syntax and generate Pure Helix Code IR. | 3–4 months | 🟧
 ...     | ...                  | Lexer/Parser                                             | ...                                                                                       | ...        | 🟧
 ...     | ...                  | Error handling                                           | ...                                                                                       | ...        | 🟧
