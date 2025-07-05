@@ -8,7 +8,7 @@
   <img src="../assets/showcase-ex.png" width="50.5%" align="left" alt="Code Example">
 </div>
 
-## Key Goals of Helix:
+### Key Goals of Helix:
 
 **High-performance**: The language is designed to performance match C; But, with the latest features and a more expressive syntax.
 
@@ -24,12 +24,12 @@
 
 --------------------------------------------------------------------------------
 
-> [!NOTE]
-> ## We've now started work on the **self-hosted compiler**, using the current C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/helixlang/helix-lang/tree/self-hosted) branch.
+> [!IMPORTANT]
+> ### We've now started work on the **self-hosted compiler**, using the current C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/helixlang/helix-lang/tree/self-hosted) branch.
 
 > [!NOTE]
-> ### Documentation Status & AI Assistance
-> This documentation is actively being developed; right now is is quite outdated.
+> ### Documentation Status & AI Usage Transparency
+> This documentation is actively being developed; right now the docs are quite outdated.
 > > ### AI Content Disclaimer
 > > Initial drafts of the Docs, were created by us, then fed to ChatGPT to refine for accuracy and clarity, it may be incorrect in terms of wording, but we are rewriting it at this moment. Commit messages are generated using the GitLens Commit Message Generator. All code, designs, and core concepts are the work of us.
 
@@ -87,7 +87,7 @@
 
 --------------------------------------------------------------------------------
 
-## Error Reporting & Handling
+### Error Reporting & Handling
 
 Helix's error reporting and handling system prioritizes clear diagnostics and flexible error management for developer productivity and code reliability.
 
@@ -118,7 +118,7 @@ The `T?` syntax is a draft and may evolve to `panic T` based on feedback.
 
 --------------------------------------------------------------------------------
 
-## Familiarity to C++
+### Familiarity to C++
 
 Helix's syntax and semantics are inspired by C++ to ease adoption, with distinct features for clarity and safety. It also integrates directly with C++ codebases.
 
@@ -158,7 +158,7 @@ See the [Helix C++ Interoperability Guide](https://helix-lang.com/docs/cpp-inter
 
 --------------------------------------------------------------------------------
 
-## Features of Rust, Zig, Odin, Nim, and Helix
+### Features of Rust, Zig, Odin, Nim, and Helix
 
 This section outlines the technical features of Rust, Zig, Odin, Nim, and Helix in key areas: object-oriented programming, memory safety, language features, and syntax. Each language's approach is described factually to highlight their design choices.
 
@@ -198,24 +198,28 @@ For more details, see the [Helix Language Guide](https://helix-lang.com/docs) [W
 
 --------------------------------------------------------------------------------
 
+<div>
+  <img src="../assets/type-system-ex.png" width="60%" align="left" alt="Type System Example">
+</div>
+
 ### Example Code Illustration
 
-Here's a glimpse of Helix's type system in action, demonstrating how these features are applied in real code scenarios:
-
-<div>
-  <img src="../assets/type-system-ex.png" width="55%" align="left" alt="Type System Example">
-</div>
-
-<div>
-  <img src="../assets/bumper.png" ,="" width="100%" alt="Bumper">
-</div>
+Here's a glimpse of Helix's type system in action, demonstrating how these features are applied in real code scenarios.
 
 - **Use of Structs and Classes**: Helix allows the definition of structs and classes with rich features such as operator overloading, nested types, and destructors. This facilitates both simple data storage and complex object-oriented programming.
 - **Managed Pointers and Error Handling**: The example code demonstrates managed pointers, error handling, and the use of custom memory allocation strategies. It highlights how Helix handles out-of-bounds access attempts and other common programming errors gracefully.
 
+<div>
+  <img src="../assets/bumper.png", width="100%" alt="Bumper">
+</div>
+
 --------------------------------------------------------------------------------
 
-## Extending Functionality with Generics and Inheritance
+<div>
+  <img src="../assets/extends-ex.png" width="60%" align="right" alt="Extending BinaryTreeNode Example">
+</div>
+
+### Extending Functionality with Generics and Inheritance
 
 Helix's type system supports advanced features like generics and inheritance, enabling developers to write more flexible and reusable code. The `BinaryTreeNode` example illustrates how Helix allows for extending classes to specialize behavior for certain types.
 
@@ -224,16 +228,12 @@ Helix's type system supports advanced features like generics and inheritance, en
 In Helix, extending any class to add or specialize methods for specific types is straightforward. This capability is particularly useful when working with data structures that need to handle different data types uniquely.
 
 <div>
-  <img src="../assets/extends-ex.png" width="55%" align="left" alt="Extending BinaryTreeNode Example">
-</div>
-
-<div>
-  <img src="../assets/bumper.png" ,="" width="100%" alt="Bumper">
+  <img src="../assets/bumper.png", width="100%" alt="Bumper">
 </div>
 
 --------------------------------------------------------------------------------
 
-## Helix ABI and FFI System
+### Helix ABI and FFI System
 
 Helix's Foreign Function Interface (FFI) system allows seamless integration with other languages like Python, Java, or Rust, making it ideal for projects that combine multiple languages. The FFI is flexible, extensible, and designed to maintain Helix's performance and safety guarantees when interacting with foreign code.
 
@@ -319,7 +319,7 @@ Vial is a binary format for preprocessed code modules, designed to accelerate co
 
 --------------------------------------------------------------------------------
 
-## What constitutes as Pure Helix Code?
+### What constitutes as Pure Helix Code?
 
 Pure Helix Code is the intermediate representation (IR) generated by the Helix compiler after preprocessing and before final compilation. It does not include platform-specific details, runtime dependencies, generics, macros, or any other features that require platform-specific handling or resolution. Pure Helix Code is designed to be platform-agnostic, allowing it to be compiled once and reused and linked to.
 
@@ -333,7 +333,7 @@ Helix's cache system is designed to optimize the compilation process by storing 
 
 Phase   | Title                | Subtitle                                                 | Description                                                                               | Duration   | Status
 ------- | -------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------- | ------
-Phase 1 | Foundation           | C++ Bootstrap                                            | Finalize the C++ bootstrap to handle a minimal Helix subset for writing a compiler.       | 1 month    | 🟧
+Phase 1 | Foundation           | C++ Bootstrap                                            | Finalize the C++ bootstrap to handle a minimal Helix subset for writing a compiler.       | 1 month    | 🟩
 Phase 2 | Frontend             | ...                                                      | Build a full Helix frontend in Helix to parse all syntax and generate Pure Helix Code IR. | 3–4 months | 🟧
 ...     | ...                  | Lexer/Parser                                             | ...                                                                                       | ...        | 🟧
 ...     | ...                  | Error handling                                           | ...                                                                                       | ...        | 🟧
@@ -383,9 +383,11 @@ Phase 8 | Future               | ...                                            
 
 #### Installation & Build
 
-> [!WARNING] Helix has a alpha release, it's not yet stable, barely usable, but if you want to try it out, you can either build it from source or download the latest release from the [releases page](https://github.com/helixlang/helix-lang/releases/latest).
+> [!WARNING]
+> Helix has a alpha release, it's not yet stable, barely usable, but if you want to try it out, you can either build it from source or download the latest release from the [releases page](https://github.com/helixlang/helix-lang/releases/latest).
 
-> [!TIP] Linux is not _yet_ tested, Most development is done on MacOS or Windows, if any issues arise with building on Linux, please open an issue.
+> [!TIP]
+> Linux is not _yet_ tested, Most development is done on MacOS or Windows, if any issues arise with building on Linux, please open an issue.
 
 ### Prerequisites
 
@@ -396,7 +398,8 @@ Phase 8 | Future               | ...                                            
 
 #### Windows Specific (Visual Studio Build Tools)
 
-> [!CAUTION] Only **msvc** is supported and tested on Windows, **gcc** is not supported on Windows. and **mingw** is not tested.
+> [!CAUTION]
+> Only **msvc** is supported and tested on Windows, **gcc** is not supported on Windows. and **mingw** is not tested.
 
 1. Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and select the following components:
 
@@ -417,7 +420,8 @@ Phase 8 | Future               | ...                                            
 
 #### MacOS, Unix or Linux Specific (clang or gcc)
 
-> [!WARNING] **Perl** is required for building on Linux, if you don't have it installed, install using your package manager.
+> [!WARNING]
+> **Perl** is required for building on Linux, if you don't have it installed, install using your package manager.
 
 1. Install [Python](https://www.python.org/downloads/)
 
