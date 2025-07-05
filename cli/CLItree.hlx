@@ -1,0 +1,225 @@
+ffi "c++" import "string";
+ffi "c++" import "sstream";
+ffi "c++" import "iostream";
+ffi "c++" import "vector";
+
+struct TokenizedCommand{
+    var keyword : string;
+    var arguments : vector::<string>;
+    var flags : vector::<string>;
+};
+
+fn tokenize(input : const *string) -> TokenizedCommand{
+    var cmd : TokenizedCommand;
+
+    if (input.empty()){
+        return cmd;
+    }    
+
+    var iss : libcxx::istringstream(input);
+    var token : string;
+
+    if(!(libcxx::getline(iss,token,' '))){
+        return cmd
+    }
+
+    if(libcxx::getline(iss,token,' ') && !token.empty() && token[0] != '-'){
+        cmd.keyword=token;
+    } else {
+        iss = libcxx::istringstream(token + (iss.eof() ?"":" "+ iss.str()));
+    }
+
+    while (libcxx::getline(iss,token,' ')){
+        if(token.empty()){
+            continue;
+        }
+
+        if(token[0 == '-']){
+            var flags : vector::<string>;
+            var pos : i32 = 0;
+            var double_dash : bool = token.size() > 1 && token[1] == '-';
+            var prefix_len : i32 = double_dash ? 2 : 1;
+
+            while (pos < token.size){
+                if( pos == 0 ) {
+                    pos = prefix_len;
+                } else if (double_dash && pos + 1 < token.size() && token[pos]=='-' && token[pos + 1] == '-'){
+                    flags.push_back(token.substr(0,pos));
+                    token.erase(0,pos);
+                    pos=2;
+                    double_dash=true
+                } else if (!double_dash && pos < token.size() && token[pos]=='-'){
+                    flags.push_back(token.substr(0,pos));
+                    token.erase(0,pos);
+                    pos = 1;
+                    double_dash = false;
+                } else {
+                    ++pos;
+                }
+            }
+
+            if(pos > prefix_len){
+                flags.push_back(token)
+            }
+
+            //token validation stage
+            for(var const flag : string in flags){
+                var start : i32 = (flag[0] == '-' && flag.size() > 1 && flag[1] == '-') ? 2 : 1;
+                if(flag.size()<=start){
+                    continue;
+                }
+
+                var valid : bool = true;
+                var i : i32 = start;
+                while (i < flag.size() &&  flag[i] != '='){
+                    if(!libcxx::isalnum(flag[i]) && flag[i] != '-'){
+                        valid=false;
+                    }
+                    ++i;
+                }
+
+                if (flag[i]  == '=' && i + 1 == flag.size()){
+                    valid = false;
+                }
+                if(valid){
+                    cmd.flags.pushback(flag);
+                }
+            }
+        } else {
+            //argument validation
+            var valid : bool = true;
+            for( var c : char in token){
+                if(!libcxx::isalnum(c) && !(c == '-' || c =='.' || c == ':' || c == '/' || c == '\\')){
+                    valid = false;
+                    break;
+                }
+            }
+            if(valid && !token.empty()){
+                cmd.arguments.push_back(token);
+            }
+        }
+    }
+
+    return cmd;
+}
+
+class CLItree {
+    struct node {
+        var word : string;
+        var flagList : vector::<string>;
+    }
+
+    var keywords : vector::<node>;
+
+    fn findKeywordIndex(const keyword : *string) const -> i32 {
+        for ( i : i32 in 0..(keywords.size()) ) {
+            if ( keywords[i].word == keyword) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+
+    CLItree(){
+        keywords.push_back({"_default",{}});     //keyword for situations with only flags , example : helix --help
+    }
+
+    fn addKeyword ( const word : *string) {
+        if (findKeywordIndex(word) == -1){
+            keyword.push_back({"word", {}});
+        }
+    }
+
+    fn addFlag ( const keyword : *string , const newFlags : *vector ) {
+        var idx : i32 = findKeywordIndex(keyword);
+        if (idx == -1){
+            return;
+        }
+
+        for (var flag : *string in newFlags) {
+            var exists : bool = false;
+
+            for (var const f : string in keywords[idx].flagList){
+                if (f == flag){
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists){
+                flags.push_back(flag)
+            }
+        }
+    }
+
+    fn run (command : string){
+        TokenizedCommand cmnd = tokenize(command);
+        var actualKeyword : string = cmnd.keyword.empty() : "_default" : cmnd.keyword ;  //quick check for whether the command has a keyword or not
+
+        var idx : i32 = findKeywordIndex(actualKeyword);
+        if(idx == -1) {
+            print("fail :( , invalid keyword");
+        }
+
+        var keyword : node;
+        var isFlagValid : bool = true;
+
+        for (var const flag : string in cmnd.flags) {
+            var found : bool = false;
+            for (var const f : string in keyword.flagList) {
+                if (f == flag) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                isFlagValid = false;
+            }
+        }
+
+        if(isFlagValid) {
+            print("it runs");
+
+
+        } else {
+            print(" fail :(")
+        }
+
+    }
+}
+
+fn main() -> i32 {
+    var cli : CLItree;
+
+    // Add keywords and flags
+    cli.addKeyword("build");
+    cli.addFlag("build", {"--release", "--debug", "-v"});
+
+    cli.addKeyword("test");
+    cli.addFlag("test", {"--unit", "--integration", "-q"});
+
+    // Test case 1: Valid command with valid flags
+    print("Test 1: Running 'build --release -v project1'\n");
+    cli.run("helix build --release -v project1");
+
+    // Test case 2: Valid command with no flags
+    print("\nTest 2: Running 'build project1'\n");
+    cli.run("helix build project1");
+
+    // Test case 3: Invalid flag
+    print("\nTest 3: Running 'build --invalid project1'\n");
+    cli.run("helix build --invalid project1");
+
+    // Test case 4: Valid command for 'test' keyword
+    print("\nTest 4: Running 'test --unit -q module1'\n");
+    cli.run("helix test --unit -q module1");
+
+    // Test case 5: Non-existent keyword
+    print("\nTest 5: Running 'deploy --force server'\n");
+    cli.run("helix deploy --force server");
+
+    // Default keyword flags
+    cli.addFlag("_default", {"--version", "-h"});
+    print("\nTest 6: Running 'helix --version'\n");
+    cli.run("helix --version");
+}
