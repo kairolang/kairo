@@ -13,6 +13,8 @@ fn main() -> i32 {
     var u = S::C;
 
     print(f"{s}, {t}, {u}");
+    
+    return 0;
 }
 /*
 --------- do not remove this comment, it is used by the test script to validate the output ---------

@@ -9,7 +9,7 @@ interface Basic_Something {
 }
 
 // A class implementing Foo and Basic_Something
-class Drinks with Foo::<i32>, Basic_Something {
+class Drinks impl Foo::<i32>, Basic_Something {
     fn poo(self) -> i32 {
         return self.x;
     }

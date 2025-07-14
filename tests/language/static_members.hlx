@@ -5,7 +5,7 @@ interface Multiplex {
 }
 
 // A class implementing Multiplex
-class Barn with Multiplex {
+class Barn impl Multiplex {
     fn complex_method(self) -> i32 {
         return self.complex_field * 2;
     }

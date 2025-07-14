@@ -9,7 +9,7 @@ interface Advanced requires <U> if U has Foo::<i32> {
 }
 
 // A class implementing Foo
-class Tavern with Foo::<i32> {
+class Tavern impl Foo::<i32> {
     fn flip(self) -> i32 {
         return self.x;
     }
@@ -22,7 +22,7 @@ class Achoo {
 }
 
 // A class implementing Advanced
-class AdvancedTavern with Advanced::<Tavern>
+class AdvancedTavern impl Advanced::<Tavern>
   requires <U> if U has Foo::<i32> {
     pub var advanced_field: U;
 
