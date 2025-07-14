@@ -80,7 +80,7 @@
     /* D */ GENERATE(KEYWORD_MODULE, "module")         \
     /* H */ GENERATE(KEYWORD_REQUIRES, "requires")     \
     /* H */ GENERATE(KEYWORD_EXTEND, "extend")         \
-    /* H */ GENERATE(KEYWORD_WITH, "with")             \
+    /* H */ GENERATE(KEYWORD_IMPL, "impl")             \
     /*---- M ----*/ GENERATE(KEYWORD_UNSAFE, "unsafe")
 
 // NOTE: IF THIS GENERATION IS CHANGED DO NOT FORGET TO UPDATE COUNT

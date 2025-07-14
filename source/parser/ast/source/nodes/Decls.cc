@@ -495,7 +495,7 @@ AST_NODE_IMPL(Declaration, ClassDecl, const std::shared_ptr<__TOKEN_N::TokenList
     // ClassDecl := Modifiers 'class'  E.IdentExpr UDTDeriveDecl? RequiresDecl? S.Suite
     auto parse_extends = [this](NodeT<ClassDecl> &node) -> std::expected<void, ParseError> {
         // ExtendsDecl := 'extends' (VisDecl? E.Type (',' VisDecl? E.Type)*)?
-        IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_WITH);
+        IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_IMPL);
         iter.advance();  // skip 'extends'
 
         AccessSpecifier access = AccessSpecifier(
@@ -557,7 +557,7 @@ AST_NODE_IMPL(Declaration, ClassDecl, const std::shared_ptr<__TOKEN_N::TokenList
         node->derives = derives.value();
     }
 
-    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_WITH)) {
+    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_IMPL)) {
         RETURN_IF_ERROR(parse_extends(node));
     }
 
