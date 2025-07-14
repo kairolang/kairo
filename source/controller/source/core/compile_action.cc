@@ -14,6 +14,7 @@
 ///-------------------------------------------------------------------------------------- C++ ---///
 
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <neo-panic/include/error.hh>
 #include <neo-pprint/include/hxpprint.hh>
@@ -21,6 +22,13 @@
 #include <random>
 #include <string>
 #include <utility>
+
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 #include "controller/include/config/Controller_config.def"
 #include "controller/include/shared/eflags.hh"
@@ -35,18 +43,111 @@
     }
 #endif
 
-class Counter {
-    inline static size_t count;
+class FileLock {
+  public:
+    explicit FileLock(const std::filesystem::path &path)
+        : filePath(path) {
+#ifdef _WIN32
+        hFile = CreateFileA(path.c_str(),
+                            GENERIC_READ | GENERIC_WRITE,
+                            0,
+                            nullptr,
+                            OPEN_ALWAYS,
+                            FILE_ATTRIBUTE_NORMAL,
+                            nullptr);
+        if (hFile == INVALID_HANDLE_VALUE) {
+            success = false;
+            return;
+        }
 
-public:
-    static size_t get_count() {
-        return count++;
+        OVERLAPPED ov = {0};
+        if (!LockFileEx(hFile,
+                        LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                        0,
+                        MAXDWORD,
+                        MAXDWORD,
+                        &ov)) {
+            CloseHandle(hFile);
+            hFile   = INVALID_HANDLE_VALUE;
+            success = false;
+            return;
+        }
+#else
+        fd = open(path.c_str(), O_RDWR | O_CREAT, 0666);
+        if (fd < 0) {
+            success = false;
+            return;
+        }
+
+        struct flock fl{};
+        fl.l_type   = F_WRLCK;
+        fl.l_whence = SEEK_SET;
+        fl.l_start  = 0;
+        fl.l_len    = 0;
+
+        if (fcntl(fd, F_SETLK, &fl) == -1) {
+            close(fd);
+            fd      = -1;
+            success = false;
+            return;
+        }
+#endif
+        success = true;
     }
 
-    static void reset() {
-        count = 0;
+    ~FileLock() {
+        if (!success) {
+            return;
+        }
+#ifdef _WIN32
+        OVERLAPPED ov = {0};
+        UnlockFileEx(hFile, 0, MAXDWORD, MAXDWORD, &ov);
+        CloseHandle(hFile);
+#else
+        struct flock fl{};
+        fl.l_type   = F_UNLCK;
+        fl.l_whence = SEEK_SET;
+        fl.l_start  = 0;
+        fl.l_len    = 0;
+        fcntl(fd, F_SETLK, &fl);
+        close(fd);
+#endif
+        // also delete the lock file
+        std::error_code ec;
+        std::filesystem::remove(filePath, ec);
     }
+
+    bool is_locked() const { return success; }
+
+  private:
+    std::string filePath;
+    bool        success = false;
+
+#ifdef _WIN32
+    HANDLE hFile = INVALID_HANDLE_VALUE;
+#else
+    int fd = -1;
+#endif
 };
+
+void cleanup_old_files(const std::filesystem::path &dir) {
+    using namespace std::chrono;
+    auto now = std::filesystem::file_time_type::clock::now();
+
+    for (auto &entry : std::filesystem::directory_iterator(dir)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+
+        auto ftime = std::filesystem::last_write_time(entry);
+        auto age   = duration_cast<hours>(now - ftime);
+
+        if (age.count() >= 2) {
+            std::error_code ec;
+            std::filesystem::remove(entry, ec);
+        }
+    }
+}
 
 CXXCompileAction
 CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags flags, Args cxx_args) {
@@ -59,7 +160,10 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
     if (!std::filesystem::exists(exe / "cache" / "cxx")) {
         std::filesystem::create_directories(exe / "cache" / "cxx/", ec);
         if (ec) {
-            helix::log<LogLevel::Error>("error creating cache at: ", (exe / "cache" / "cxx").generic_string(), " directory: ", ec.message());
+            helix::log<LogLevel::Error>("error creating cache at: ",
+                                        (exe / "cache" / "cxx").generic_string(),
+                                        " directory: ",
+                                        ec.message());
             return {};
         }
     }
@@ -69,7 +173,13 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
         return {};
     }
 
-    Path cc_source = exe / "cache" / "cxx" / ("helix_cache" + std::to_string(Counter::get_count()) + ".cxx");
+    FileLock cleanup_lock(exe / "cache" / "cxx" / "cleanup.lock");
+
+    if (cleanup_lock.is_locked()) {
+        cleanup_old_files(exe / "cache" / "cxx");
+    }
+
+    Path cc_source = exe / "cache" / "cxx" / ("helixCXIR" + generate_file_name(10) + ".cxx");
 
     bool is_verbose = flags.contains(EFlags(flag::types::CompileFlags::Verbose));
 
@@ -142,7 +252,7 @@ CXXCompileAction::~CXXCompileAction()
     = default;
 #endif
 
-void CXXCompileAction::cleanup() const { // skip cleanup
+void CXXCompileAction::cleanup() const {  // skip cleanup
 #ifndef DEBUG_OUTPUT
     // if (std::filesystem::exists(cc_source)) {
     //     std::filesystem::remove(cc_source);
@@ -162,5 +272,5 @@ std::string CXXCompileAction::generate_file_name(size_t length) {
 
     std::generate_n(std::back_inserter(name), length, [&]() { return chars[dist(gen)]; });
 
-    return name + ".helix-compiler.cxir";
+    return name;
 }
