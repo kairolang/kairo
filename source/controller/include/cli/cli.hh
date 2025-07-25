@@ -13,6 +13,9 @@
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
+#ifndef __CLI_2_H__
+#define __CLI_2_H__
+
 #include <array>
 #include <cstddef>
 #include <iostream>
@@ -167,3 +170,5 @@ __CONTROLLER_CLI_BEGIN {
         }
     }
 }  // end __CONTROLLER_CLI_BEGIN
+
+#endif // __CLI_2_H__
