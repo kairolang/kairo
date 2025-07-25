@@ -14,6 +14,7 @@
 
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 
 namespace sysIO {
 inline size_t __currentLine = 2;
