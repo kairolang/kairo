@@ -148,7 +148,7 @@ class CXIRCompiler {
 
     [[nodiscard]] static ExecResult exec(const std::string &cmd);
 
-    void compile_CXIR(CXXCompileAction &&action, bool dry_run = false) const;
+    [[nodiscard]] CXIRCompiler::CompileResult compile_CXIR(CXXCompileAction &&action, bool dry_run = false) const;
 
   private:
     mutable bool dry_run = false;
