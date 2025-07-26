@@ -6,6 +6,8 @@ add_rules("mode.debug", "mode.release")
 
 local abi
 local runtime
+llvm_details = {}
+is_llvm_configured = false
 
 function install_llvm_clang(package)
     local gray = "\027[1;30m"
@@ -83,11 +85,11 @@ function setup_windows()
     -- add /EHsc and /RTC1 flags
     set_policy("check.auto_ignore_flags", false)
     add_cxflags("/EHsc")
-	add_includedirs(".\\libs\\llvm-18.1.9-src\\llvm\\include")
-	add_linkdirs(".\\libs\\llvm-18.1.9-src\\llvm\\lib")
-	add_includedirs(".\\libs\\llvm-18.1.9-src\\clang\\include")
-	add_linkdirs(".\\libs\\llvm-18.1.9-src\\clang\\lib")
 
+	-- add_includedirs(".\\libs\\llvm-18.1.9-src\\llvm\\include")
+	-- add_linkdirs(".\\libs\\llvm-18.1.9-src\\llvm\\lib")
+	-- add_includedirs(".\\libs\\llvm-18.1.9-src\\clang\\include")
+	-- add_linkdirs(".\\libs\\llvm-18.1.9-src\\clang\\lib")
 end
 
 function setup_linux()
@@ -133,9 +135,9 @@ function setup_release()
 end
 
 local function setup_build_folder()
-	set_targetdir("$(buildir)/$(mode)/$(arch)-" .. abi .. "-$(os)/bin")
-	set_objectdir("$(buildir)/.resolver")
-	set_dependir ("$(buildir)/.shared")
+	set_targetdir("$(builddir)/$(mode)/$(arch)-$(os)-" .. abi .. "/bin")
+	set_objectdir("$(builddir)/.resolver")
+	set_dependir ("$(builddir)/.shared")
 end
 
 local function setup_env()
@@ -179,10 +181,10 @@ local function helix_src_setup()
 	add_headerfiles("source/**.hh") -- add all headers in the source directory
 	add_headerfiles("source/**.def")
 	add_headerfiles("source/**.inc")
-    
+
     add_includedirs("lib-helix/core/include") -- add all headers in the lib-helix/core/include directory
     add_includedirs("lib-helix/core") -- add all headers in the lib-helix/core/include directory
-    
+
     add_headerfiles("lib-helix/core/include/**.h") -- add all headers in the lib-helix/core/include directory
     add_headerfiles("lib-helix/core/include/**.hh") -- add all headers in the lib-helix/core/include directory
     add_headerfiles("lib-helix/core/include/**.tpp") -- add all headers in the lib-helix/core/include directory
@@ -192,7 +194,7 @@ local function helix_src_setup()
 
 	add_headerfiles("libs/neo-panic/**.hh")  -- add all files in the neo-panic directory
 	add_files("libs/neo-panic/**.cc")        -- add all files in the neo-panic directory
-    
+
     add_headerfiles("libs/neo-json/**.hh")    -- add all files in the neo-json directory
     add_headerfiles("libs/glaze-json/**.hpp") -- add all files in glaze-json directory
 	add_headerfiles("libs/neo-pprint/**.hh")  -- add all files in the neo-pprint directory
@@ -273,9 +275,9 @@ local function print_all_info(target)
     print("  runtime: \027[1;33m" .. runtime .. "\027[0m")
     sleep(math.random(1, 20))
     print("  target triple: \027[1;33m" .. path.basename(path.directory(path.directory(target:targetfile()))) .. "\027[0m")
-    
+
     sleep(500)
-    
+
     if is_mode("debug")
     then
         print("\n\n")
@@ -315,43 +317,219 @@ abi     = get_abi()
 runtime = get_runtime(abi)
 cxx_standard = get_cxx_standard(abi)
 
--- Define the LLVM and Clang package
+local function get_sys_llvm_details()
+    import("lib.detect.find_tool")
+
+    -- try to find llvm-config in PATH
+    local llvm_config = find_tool("llvm-config", { version = true })
+    -- if not found, check if user passed --llvm-config via xmake config
+    if not llvm_config then
+        local cfg = get_config("llvm-config")
+        if cfg then
+            llvm_config = { program = cfg, version = try { function () return os.iorunv(cfg, { "--version" }) end } }
+        end
+    end
+    
+    local build_includedir
+    local includedir
+    local libdir
+    local link_libs = {}
+    local cxxflags
+
+    if not llvm_config then
+        package("llvm-clang")
+            add_deps("cmake", "ninja") -- , "zlib", "zstd" , "perl"
+            set_sourcedir(path.join(os.scriptdir(), "libs", "llvm-18.1.9-src", "llvm"))
+            on_install(install_llvm_clang)
+        package_end()
+        add_packages("llvm-clang")
+    else
+        print("\027[1;30m" .. "found system llvm-config: " .. llvm_config.program .. " (version: " .. version_output:trim() .. ")" .. "\027[0m")
+
+        includedir = os.iorunv(llvm_config.program, {"--includedir"}):trim()
+        libdir = os.iorunv(llvm_config.program, {"--libdir"}):trim()
+        cxxflags = os.iorunv(llvm_config.program, {"--cxxflags"}):trim()
+
+        build_includedir = os.iorunv(llvm_config.program, {"--obj-root"}):trim() .. "/include"
+
+        local llvm_libs = {
+            "LLVMCore", "LLVMSupport", "LLVMBinaryFormat", "LLVMBitReader",
+            "LLVMBitWriter", "LLVMTransformUtils", "LLVMAnalysis",
+            "LLVMTarget", "LLVMOption", "LLVMProfileData", "LLVMObject",
+            "LLVMCodeGen", "LLVMMC", "LLVMMCParser", "LLVMDebugInfoCodeView",
+            "LLVMDebugInfoDWARF", "LLVMIRReader", "LLVMAsmPrinter",
+            "LLVMSelectionDAG", "LLVMGlobalISel"
+        }
+
+        for _, l in ipairs(llvm_libs) do
+            link_libs[#link_libs + 1] = l
+        end
+
+        local clang_libs = {
+            "clangFormat", "clangToolingCore", "clangLex", "clangBasic",
+            "clangTooling", "clangToolingInclusions", "clangSerialization",
+            "clangRewrite", "clangFrontend", "clangAST"
+        }
+
+        for _, l in ipairs(clang_libs) do
+            link_libs[#link_libs + 1] = l
+        end
+
+        return true, {
+            includedir = includedir,
+            libdir = libdir,
+            build_includedir = build_includedir,
+            link_libs = link_libs,
+            cxxflags = cxxflags
+        }
+    end
+end
+
+add_requires("zlib", "zstd")
+
+add_packages("zlib", "zstd")
+add_links("zstd")
+
+function checkLlvm()
+    local ok, details = get_sys_llvm_details()
+    
+    if not ok then
+        print("\027[1;31m" .. "Failed to find LLVM/Clang, please install it or add to path" .. "\027[0m")
+        return false
+    end
+
+    llvm_details       = details
+    is_llvm_configured = true
+
+    add_includedirs(details.includedir)
+    add_linkdirs(details.libdir)
+    add_includedirs(details.build_includedir)
+
+    for _, lib in ipairs(details.link_libs) do
+        add_links(lib)
+    end
+
+    -- if details.cxxflags then
+    --     add_cxflags(details.cxxflags)
+    -- end
+
+    return true
+end
+
+-- Thanks! @imlostish
 package("llvm-clang")
-    add_deps("cmake", "ninja") -- , "zlib", "zstd" , "perl"
-    set_sourcedir(path.join(os.scriptdir(), "libs", "llvm-18.1.9-src", "llvm"))
+    set_description("LLVM and Clang package for xmake")
+    -- Check for system LLVM and configure package
+    on_load(function (package)
+        -- Import necessary xmake modules
+        import("lib.detect.find_tool")
+
+        -- Try to find llvm-config
+        local llvm_config = find_tool("llvm-config", { version = true })
+        if not llvm_config then
+            local cfg = get_config("llvm-config")
+            if cfg then
+                llvm_config = {
+                    program = cfg,
+                    version = try { function () return os.iorunv(cfg, { "--version" }) end, function (err) return nil end }
+                }
+            end
+        end
+
+        if not llvm_config then
+            print("\027[1;31mNo system LLVM found, will build from source\027[0m")
+            return -- xmake will trigger on_install to build LLVM
+        end
+
+        print("\027[1;32mFound system LLVM: %s (version: %s)\027[0m", llvm_config.program, llvm_config.version)
+
+        -- Get LLVM configuration
+        local includedir = try { function () return os.iorunv(llvm_config.program, {"--includedir"}) end, function (err) return nil end }
+        local libdir = try { function () return os.iorunv(llvm_config.program, {"--libdir"}) end, function (err) return nil end }
+        local cxxflags = try { function () return os.iorunv(llvm_config.program, {"--cxxflags"}) end, function (err) return nil end }
+        local build_includedir = try { function () return os.iorunv(llvm_config.program, {"--obj-root"}) end, function (err) return nil end }
+
+        if includedir and libdir then
+            includedir = includedir:trim()
+            libdir = libdir:trim()
+            cxxflags = cxxflags and cxxflags:trim() or ""
+            build_includedir = build_includedir and (build_includedir:trim() .. "/include") or includedir
+
+            -- Define LLVM and Clang libraries
+            local link_libs = {
+                "LLVMCore", "LLVMSupport", "LLVMBinaryFormat", "LLVMBitReader",
+                "LLVMBitWriter", "LLVMTransformUtils", "LLVMAnalysis",
+                "LLVMTarget", "LLVMOption", "LLVMProfileData", "LLVMObject",
+                "LLVMCodeGen", "LLVMMC", "LLVMMCParser", "LLVMDebugInfoCodeView",
+                "LLVMDebugInfoDWARF", "LLVMIRReader", "LLVMAsmPrinter",
+                "LLVMSelectionDAG", "LLVMGlobalISel",
+                "clangFormat", "clangToolingCore", "clangLex", "clangBasic",
+                "clangTooling", "clangToolingInclusions", "clangSerialization",
+                "clangRewrite", "clangFrontend", "clangAST"
+            }
+
+            -- Add configurations to the package
+            package:add("includedirs", includedir)
+            package:add("includedirs", build_includedir)
+            package:add("linkdirs", libdir)
+            package:add("links", link_libs)
+            if cxxflags then
+                package:add("cxflags", cxxflags)
+                package:add("cxxflags", cxxflags)
+            end
+        else
+            print("\027[1;31mFailed to retrieve LLVM configuration, will build from source\027[0m")
+        end
+    end)
+
     on_install(install_llvm_clang)
+
+    on_test(function (package)
+        return checkLlvm()
+    end)
+
+    on_check(function (package)
+        return checkLlvm()
+    end)
 package_end()
 
--- Requires
-add_requires("zlib")
-add_requires("zstd")
-add_requires("llvm-clang")
 
--- Packages
-add_packages("zlib")
-add_packages("zstd")
-add_packages("llvm-clang") -- link against the LLVM-Clang package
+-- -- Requires
+-- add_requires("zlib")
+-- add_requires("zstd")
+-- add_requires("llvm-clang")
 
--- Global Links
-add_links("zstd")
+-- -- Packages
+-- add_packages("zlib")
+-- add_packages("zstd")
+-- add_packages("llvm-clang") -- link against the LLVM-Clang package
+
+-- -- Global Links
+-- add_links("zstd")
 
 setup_build_folder()
 setup_env()
-
 helix_src_setup()
-
-target("tests")
-    set_kind("binary")
-    add_files("tests/**.cc")        -- add all files in the tests directory
-    add_includedirs("tests/lib")    -- add all libs in the tests dir
-
-    remove_files("source/helix.cc") -- exclude main from the source directory
-target_end()
 
 target("helix") -- target config defined in the config seciton
     -- before_build(function (target)
         -- print_all_info(target)
     -- end)
+
+    add_packages("llvm-clang")
+
+    -- if is_llvm_configured then
+    --     print("\027[1;32m" .. "LLVM/Clang is configured successfully." .. "\027[0m")
+    --     add_includedirs(llvm_details.includedir)
+    --     add_linkdirs(llvm_details.libdir)
+    --     add_includedirs(llvm_details.build_includedir)
+
+    --     for _, lib in ipairs(llvm_details.link_libs) do
+    --         add_links(lib)
+    --     end
+    -- else
+    --     print("\027[1;31m" .. "LLVM/Clang is not configured, please check your installation." .. "\027[0m")
+    -- end
 
     set_kind("binary")
     set_languages(cxx_standard)
@@ -387,17 +565,9 @@ target("helix") -- target config defined in the config seciton
     end)
 target_end() -- empty target
 
--- rule("helix")
---   set_extensions(".hlx")
---   on_build_file(function (target, sourcefile)
---     -- Call Helix compiler to compile .hlx file to C++ or object file
---     os.run("helix %s", sourcefile)
---     -- Optionally link Helix output with C++ build
---   end)
-
 target("helix-api")
     set_kind("static")
-    set_targetdir("$(buildir)/$(mode)/$(arch)-" .. abi .. "-$(os)")
+    set_targetdir("$(builddir)/$(mode)/$(arch)-$(os)-" .. abi)
 
     after_build(function(target) -- make the helix library with all the appropriate header files
         -- determine the target output directory
