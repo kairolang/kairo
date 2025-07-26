@@ -16,13 +16,15 @@
 #ifndef __TOKEN_CONFIG_DEF__
 #define __TOKEN_CONFIG_DEF__
 
+#include <string_view>
+
 #define __TOKEN_BEGIN namespace token
 #define __TOKEN_ABI_BEGIN namespace __TOKEN_N::abi
 #define __TOKEN_CLASSES_BEGIN namespace __TOKEN_N::classes
 
-#define __TOKEN_N         token
-#define __TOKEN_ABI_N     __TOKEN_N::abi
-#define __TOKEN_TYPES_N   __TOKEN_N::tokens
+#define __TOKEN_N token
+#define __TOKEN_ABI_N __TOKEN_N::abi
+#define __TOKEN_TYPES_N __TOKEN_N::tokens
 #define __TOKEN_CLASSES_N __TOKEN_N::classes
 
 #define MAKE_TOKEN(name, string) name,
@@ -51,22 +53,30 @@
 
 #define RESERVED_COUNT RESERVED_ABI_COUNT
 
+#define CONSTEXPR_MAPPING static const
+#if defined(__clang__) || defined(_MSC_VER)
+#define CONSTEXPR_MAPPING constexpr
+#endif
+
 // The enum inside of the struct removes the naming conflict with the token classes.
-#define GENERATE_TOKENS_ENUM_AND_MAPPING                                               \
-    __TOKEN_BEGIN {                                                                    \
-        enum tokens { TOKENS(MAKE_TOKEN) };                                            \
-                                                                                       \
-        constexpr Mapping<tokens, TOKENS_COUNT> tokens_map{{TOKENS(MAKE_TOKEN_PAIR)}}; \
-    }                                                                                  \
+/// the mapping is constexpr if only the compiler is clang or msvc any other compiler it would be a
+/// static const
+#define GENERATE_TOKENS_ENUM_AND_MAPPING                                       \
+    __TOKEN_BEGIN {                                                            \
+        enum tokens { TOKENS(MAKE_TOKEN) };                                    \
+                                                                               \
+        CONSTEXPR_MAPPING __TOKEN_N::Mapping<tokens, TOKENS_COUNT> tokens_map{ \
+            {TOKENS(MAKE_TOKEN_PAIR)}};                                        \
+    }                                                                          \
     __TOKEN_CLASSES_BEGIN { TOKENS(MAKE_TOKEN_CLASS) }
 
-#define GENERATE_RESERVED_ENUM_AND_MAPPING                               \
-    __TOKEN_ABI_BEGIN {                                                  \
-        enum reserved { RESERVED(MAKE_TOKEN) };                          \
-                                                                         \
-        constexpr __TOKEN_N::Mapping<reserved, RESERVED_COUNT> reserved{ \
-            {RESERVED(MAKE_TOKEN_PAIR)}};                                \
-    }                                                                    \
+#define GENERATE_RESERVED_ENUM_AND_MAPPING                                       \
+    __TOKEN_ABI_BEGIN {                                                          \
+        enum reserved { RESERVED(MAKE_TOKEN) };                                  \
+                                                                                 \
+        CONSTEXPR_MAPPING __TOKEN_N::Mapping<reserved, RESERVED_COUNT> reserved{ \
+            {RESERVED(MAKE_TOKEN_PAIR)}};                                        \
+    }                                                                            \
     __TOKEN_CLASSES_BEGIN { RESERVED(MAKE_TOKEN_CLASS) }
 
 #endif  // __TOKEN_CONFIG_DEF__

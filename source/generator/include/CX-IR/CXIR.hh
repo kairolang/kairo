@@ -16,12 +16,6 @@
 #ifndef __CXIR_H__
 #define __CXIR_H__
 
-#include <clang/Basic/LangOptions.h>
-#include <clang/Basic/TokenKinds.h>
-#include <clang/Format/Format.h>
-#include <clang/Lex/Lexer.h>
-#include <llvm/ADT/StringRef.h>
-
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -143,58 +137,6 @@ UseTab:          Never
 GENERATE_CXIR_TOKENS_ENUM_AND_MAPPING;
 
 __CXIR_CODEGEN_BEGIN {
-    /// \brief Tiny syntax highlighter for CX-IR
-    /// \param cxir The CX-IR code to highlight
-    inline std::string token_color(const clang::Token &Tok) {
-        if (Tok.isAnnotation() || Tok.isRegularKeywordAttribute()) {
-            return "\033[38;5;140m";
-        }
-
-        if (Tok.isAnyIdentifier()) {
-            return "\033[38;5;180m";
-        }
-
-        if (Tok.isLiteral()) {
-            if (Tok.is(clang::tok::string_literal) || Tok.is(clang::tok::wide_string_literal) ||
-                Tok.is(clang::tok::utf8_string_literal)  ||
-                Tok.is(clang::tok::utf16_string_literal) ||
-                Tok.is(clang::tok::utf32_string_literal)) {
-                return "\033[38;5;114m";
-            }
-
-            return "\033[38;5;110m";
-        }
-
-        return "\033[0m";
-    }
-
-    inline std::string highlight(const std::string &sourceCode) {
-        clang::LangOptions    langOpts;
-        // clang::SourceLocation fakeLoc;
-        clang::Lexer          lexer(clang::SourceLocation(),
-                           langOpts,
-                           sourceCode.c_str(),
-                           sourceCode.c_str(),
-                           sourceCode.c_str() + sourceCode.size());
-
-        std::string output;
-
-        clang::Token token;
-
-        // print each token for debugging
-        while (lexer.Lex(token)) {
-            if (token.is(clang::tok::eof)) {
-                break;
-            }
-
-            std::string color = token_color(token);
-            output += color + std::string(token.getLiteralData(), token.getLength()) + "\033[0m";
-            output += " ";
-        }
-
-        return output;
-    }
-
     class CX_Token {
       private:
         u64         line{};
@@ -276,30 +218,28 @@ __CXIR_CODEGEN_BEGIN {
 
     struct SourceLocation {
         using Location = std::pair<size_t, size_t>;
-        
+
         Location helix;
         Location cxir;
 
         string to_dict() const {
             // source map of helix pos to cxir pos
-            return "(" + std::to_string(helix.first) + "," +
-                   std::to_string(helix.second) + "):(" +
-                   std::to_string(cxir.first) + "," +
-                   std::to_string(cxir.second) + "),";
+            return "(" + std::to_string(helix.first) + "," + std::to_string(helix.second) + "):(" +
+                   std::to_string(cxir.first) + "," + std::to_string(cxir.second) + "),";
         }
     };
 
     struct SourceMap { /* this all a part of the same c++ output object
         so a couple of things only the helix file and locs change
         while the c++ source locs keep constant this should be a primary static strcut */
-        inline static size_t cxx_line_num {1};
-        inline static size_t cxx_column_num {1};
+        inline static size_t cxx_line_num{1};
+        inline static size_t cxx_column_num{1};
 
         std::vector<SourceLocation> locs;
-        
+
         /* {filename : [locs...]}*/
         std::map<std::string, std::vector<std::string>> full_dict;
-        std::string    file_name;
+        std::string                                     file_name;
 
         SourceMap() = default;
 
@@ -311,14 +251,12 @@ __CXIR_CODEGEN_BEGIN {
                 (helix_line, helix_col): (cxir_line, cxir_col),
                 (helix_line, helix_col): (cxir_line, cxir_col),
             ],
-            
+
             */
 
             // add the file name to the dict
-            auto [key, inserted] = full_dict.insert_or_assign(
-                file_name,
-                std::vector<std::string>{}
-            );
+            auto [key, inserted] =
+                full_dict.insert_or_assign(file_name, std::vector<std::string>{});
 
             auto &vec = key->second;
 
@@ -337,20 +275,14 @@ __CXIR_CODEGEN_BEGIN {
             cxx_column_num = 1;
         }
 
-        [[nodiscard]] static size_t get_line_num() {
-            return cxx_line_num;
-        }
+        [[nodiscard]] static size_t get_line_num() { return cxx_line_num; }
 
-        [[nodiscard]] static size_t get_column_num() {
-            return cxx_column_num;
-        }
+        [[nodiscard]] static size_t get_column_num() { return cxx_column_num; }
 
-        [[nodiscard]] static void inc_column_num(size_t inc = 1) {
-            cxx_column_num += inc;
-        }
+        [[nodiscard]] static void inc_column_num(size_t inc = 1) { cxx_column_num += inc; }
 
         [[nodiscard]] static void reset_line_num() {
-            cxx_line_num = 1;
+            cxx_line_num   = 1;
             cxx_column_num = 1;
         }
 
@@ -364,7 +296,8 @@ __CXIR_CODEGEN_BEGIN {
                 return;
             }
 
-            // everytime we set the file name we need to clear the locs and finalize the previous locs
+            // everytime we set the file name we need to clear the locs and finalize the previous
+            // locs
             if (!this->file_name.empty()) {
                 finalize();
             }
@@ -372,9 +305,7 @@ __CXIR_CODEGEN_BEGIN {
             this->file_name = file_name;
         }
 
-        void add_loc(const SourceLocation &loc) {
-            locs.emplace_back(loc);
-        }
+        void add_loc(const SourceLocation &loc) { locs.emplace_back(loc); }
 
         [[nodiscard]] string to_dict() const {
             // convert the locs to a string
@@ -396,15 +327,14 @@ __CXIR_CODEGEN_BEGIN {
         }
     };
 
-
     class CXIR : public __AST_VISITOR::Visitor {
       private:
         std::vector<std::unique_ptr<CX_Token>> tokens;
         std::vector<generator::CXIR::CXIR>     imports;
         std::filesystem::path                  core_dir;
         bool                                   forward_only = false;
-        
-        public:
+
+      public:
         inline static SourceMap source_map;
 
         explicit CXIR(bool forward_only = false, std::vector<generator::CXIR::CXIR> imports = {})
@@ -441,11 +371,11 @@ __CXIR_CODEGEN_BEGIN {
         template <const bool add_core = true>
         [[nodiscard]] std::string to_CXIR() const {
             std::string cxir;
-            size_t line_count = 0;
+            size_t      line_count = 0;
 
             if constexpr (add_core) {
                 string core = get_core();
-                line_count = std::count(core.begin(), core.end(), '\n');
+                line_count  = std::count(core.begin(), core.end(), '\n');
                 cxir += core + "\n" + get_imports<false>() + "\n";
             } else {
                 cxir += get_imports<false>() + "\n";
@@ -474,9 +404,9 @@ __CXIR_CODEGEN_BEGIN {
                     file_name = token->get_file_name();
                     string fn = "// File: \'" + file_name + "\' //\n";
                     cxir += "\n\n"
-                            "//" + string(fn.length() - 1, '=') + "//\n"
-                            + fn +
-                            "//" + string(fn.length() - 1, '=') + "//\n\n";
+                            "//" +
+                            string(fn.length() - 1, '=') + "//\n" + fn + "//" +
+                            string(fn.length() - 1, '=') + "//\n\n";
                 }
 
                 cxir += token->to_clean_CXIR();
@@ -493,35 +423,7 @@ __CXIR_CODEGEN_BEGIN {
         }
 
         [[nodiscard]] static std::string format_cxir(const std::string &cxir) {
-            // Get the configuration as a string
-            std::string config = get_neo_clang_format_config();
-
-            // Use the style from the configuration string
-            clang::format::FormatStyle style = clang::format::getClangFormatStyle();
-
-            // Parse the configuration string into the FormatStyle object
-            auto error = clang::format::parseConfiguration(config, &style);
-            if (error) {
-                print("failed to parse configuration: ", error.message());
-                throw std::runtime_error("Failed to parse configuration");
-            }
-
-            // Format the cxir code using the style
-            llvm::StringRef              codeRef(cxir);
-            clang::tooling::Range        range(0, cxir.size());
-            clang::tooling::Replacements replacements =
-                clang::format::reformat(style, codeRef, {range});
-
-            // Apply the replacements to get the formatted code
-            llvm::Expected<std::string> formattedCode =
-                clang::tooling::applyAllReplacements(cxir, replacements);
-
-            if (!formattedCode) {
-                print("failed to format code: ", llvm::toString(formattedCode.takeError()).c_str());
-                throw std::runtime_error("Error formatting code");
-            }
-
-            return std::regex_replace(*formattedCode, double_semi_regexp, ";");
+            return cxir;
         }
 
         static std::string get_core();

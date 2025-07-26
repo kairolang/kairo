@@ -29,12 +29,12 @@
 #define MAKE_CXIR_TOKEN_PAIR(name, string) std::pair{name, string},
 
 // The enum inside of the struct removes the naming conflict with the token classes.
-#define GENERATE_CXIR_TOKENS_ENUM_AND_MAPPING                                    \
-    __CXIR_CODEGEN_BEGIN {                                                       \
-        enum cxir_tokens { CXX_TOKENS(MAKE_CXIR_TOKEN) };                        \
-                                                                                 \
-        constexpr token::Mapping<cxir_tokens, CXX_TOKENS_COUNT> cxir_tokens_map{ \
-            {CXX_TOKENS(MAKE_CXIR_TOKEN_PAIR)}};                                 \
+#define GENERATE_CXIR_TOKENS_ENUM_AND_MAPPING                                            \
+    __CXIR_CODEGEN_BEGIN {                                                               \
+        enum cxir_tokens { CXX_TOKENS(MAKE_CXIR_TOKEN) };                                \
+                                                                                         \
+        CONSTEXPR_MAPPING token::Mapping<cxir_tokens, CXX_TOKENS_COUNT> cxir_tokens_map{ \
+            {CXX_TOKENS(MAKE_CXIR_TOKEN_PAIR)}};                                         \
     }
 
 #define CODEGEN_ERROR(tok, msg)                                                     \
@@ -63,7 +63,7 @@
     }
 #define ADD_NODE_PARAM_BODY()     \
     if (node.body != nullptr) {   \
-        ADD_PARAM(node.body);    \
+        ADD_PARAM(node.body);     \
     } else {                      \
         ADD_TOKEN(CXX_SEMICOLON); \
     }

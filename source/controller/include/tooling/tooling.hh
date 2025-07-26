@@ -148,7 +148,7 @@ class CXIRCompiler {
 
     [[nodiscard]] static ExecResult exec(const std::string &cmd);
 
-    void compile_CXIR(CXXCompileAction &&action, bool dry_run = false) const;
+    [[nodiscard]] CXIRCompiler::CompileResult compile_CXIR(CXXCompileAction &&action, bool dry_run = false) const;
 
   private:
     mutable bool dry_run = false;
@@ -202,14 +202,12 @@ inline std::string make_command(const flag::types::Compiler _Compiler, Flags... 
             if constexpr (std::is_same_v<decltype(flag), cxx::flags::CF>) {
                 if (_Compiler == flag::types::Compiler::Clang) {
                     compile_cmd += std::string((flag).clang) + " ";
-                } else if (_Compiler == flag::types::Compiler::GCC) {
-                    compile_cmd += std::string((flag).gcc) + " ";
                 } else if (_Compiler == flag::types::Compiler::MSVC) {
                     compile_cmd += std::string((flag).msvc) + " ";
                 } else if (_Compiler == flag::types::Compiler::MingW) {
                     compile_cmd += std::string((flag).mingw) + " ";
                 } else {
-                    throw std::runtime_error("unknown compiler");
+                    compile_cmd += std::string((flag).gcc) + " "; // default to gcc
                 }
             } else if constexpr (std::is_same_v<decltype(flag), std::string> ||
                                  std::is_same_v<decltype(flag), const char *>) {

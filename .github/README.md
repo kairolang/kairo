@@ -39,24 +39,24 @@
 ## Table of Contents
 
 - [Helix: A Readable, High-Performance, Low-Level Language.](#helix-a-readable-high-performance-low-level-language)
-  - [Key Goals of Helix:](#key-goals-of-helix)
+    - [Key Goals of Helix:](#key-goals-of-helix)
   - [Table of Contents](#table-of-contents)
     - [Design Philosophy:](#design-philosophy)
-  - [Error Reporting \& Handling](#error-reporting--handling)
+    - [Error Reporting \& Handling](#error-reporting--handling)
     - [Error Reporting](#error-reporting)
     - [Error Handling](#error-handling)
-  - [Familiarity to C++](#familiarity-to-c)
+    - [Familiarity to C++](#familiarity-to-c)
     - [Language Features](#language-features)
     - [C++ Interoperability](#c-interoperability)
-  - [Features of Rust, Zig, Odin, Nim, and Helix](#features-of-rust-zig-odin-nim-and-helix)
+    - [Features of Rust, Zig, Odin, Nim, and Helix](#features-of-rust-zig-odin-nim-and-helix)
     - [Object-Oriented Programming (OOP)](#object-oriented-programming-oop)
     - [Memory Safety](#memory-safety)
     - [Language Features](#language-features-1)
     - [Syntax and Ergonomics (User Preference)](#syntax-and-ergonomics-user-preference)
     - [Example Code Illustration](#example-code-illustration)
-  - [Extending Functionality with Generics and Inheritance](#extending-functionality-with-generics-and-inheritance)
+    - [Extending Functionality with Generics and Inheritance](#extending-functionality-with-generics-and-inheritance)
     - [Extending `BinaryTreeNode` for Numerical Types](#extending-binarytreenode-for-numerical-types)
-  - [Helix ABI and FFI System](#helix-abi-and-ffi-system)
+    - [Helix ABI and FFI System](#helix-abi-and-ffi-system)
     - [Helix FFI System](#helix-ffi-system)
       - [Core Features](#core-features)
       - [The Helix ABI Extension file defines how Helix interacts with foreign languages, including:](#the-helix-abi-extension-file-defines-how-helix-interacts-with-foreign-languages-including)
@@ -65,15 +65,14 @@
       - [Key Features](#key-features)
     - [Vial: Cross-Language Module Format](#vial-cross-language-module-format)
       - [Key Features](#key-features-1)
-  - [What constitutes as Pure Helix Code?](#what-constitutes-as-pure-helix-code)
+    - [What constitutes as Pure Helix Code?](#what-constitutes-as-pure-helix-code)
     - [Helix's Cache System](#helixs-cache-system)
   - [Helix Roadmap](#helix-roadmap)
     - [Quick Start](#quick-start)
       - [Installation \& Build](#installation--build)
     - [Prerequisites](#prerequisites)
       - [Windows Specific (Visual Studio Build Tools)](#windows-specific-visual-studio-build-tools)
-      - [MacOS, Unix or Linux Specific (clang or gcc)](#macos-unix-or-linux-specific-clang-or-gcc)
-      - [All Platforms (After following platform specific steps)](#all-platforms-after-following-platform-specific-steps)
+      - [MacOS, Unix, or Linux (clang ONLY \& MUST have `libc++` \&\& `libc++abi`)](#macos-unix-or-linux-clang-only--must-have-libc--libcabi)
     - [Hello, World!](#hello-world)
   - [License](#license)
   - [Acknowledgements](#acknowledgements)
@@ -418,42 +417,37 @@ Phase 8 | Future               | ...                                            
   $ Invoke-Expression (Invoke-Webrequest 'https://xmake.io/psget.text' -UseBasicParsing).Content
   ```
 
-#### MacOS, Unix or Linux Specific (clang or gcc)
+#### MacOS, Unix, or Linux (clang ONLY & MUST have `libc++` && `libc++abi`)
 
 > [!WARNING]
 > **Perl** is required for building on Linux, if you don't have it installed, install using your package manager.
 
-1. Install [Python](https://www.python.org/downloads/)
+1. Install **clang** and **libc++**
+  - **MacOS**: Install Xcode Command Line Tools with `xcode-select --install` or install via Homebrew with `brew install llvm libc++`.
+  - **Linux**: Install `clang`, `libc++`, and `libc++abi` using your package manager:
+```bash
+sudo apt install clang
+sudo apt install libc++-dev
+sudo apt install libc++abi-dev
+```
+2. Install [Python](https://www.python.org/downloads/)
+3. Install [xmake](https://xmake.io/#/) (Terminal Only)
+```bash
+curl -fsSL https://xmake.io/shget.text | bash
+```
+4. Install [Git](https://git-scm.com/downloads)
+5. Clone the Helix repository:
+```bash
+git clone https://github.com/helixlang/helix-lang.git
+cd helix-lang
+```
+6. Build the Helix Compiler Toolchain
+```ps
+xmake
+```
+7. Add the Helix binary to your PATH (optional) it would be located in `./build/release/.../bin`
 
-2. Install Xmake (bash or zsh):
-
-  ```powershell
-  curl -fsSL https://xmake.io/shget.text | bash
-  ```
-
-3. Install necessary build tools such as Clang or GCC. (should be installed by default on MacOS)
-
-#### All Platforms (After following platform specific steps)
-
-1. Make a directory for the project and clone the repo
-
-  ```powershell
-  $ git clone https://github.com/helixlang/helix-lang.git
-  $ cd helix-lang
-  ```
-
-2. Build Helix along with the LLVM backend, Clang, Tests, and the Helix Compiler Toolchain API (~30 minutes on a 8-core CPU)
-
-  ```powershell
-  $ xmake build
-  ```
-
-3. Run the tests or the compiler
-
-  ```powershell
-  $ xmake run tests
-  $ xmake run helix -h
-  ```
+Congratulations! You have successfully installed Helix. You can now run the Helix compiler by executing `helix` in your terminal or command prompt.
 
 --------------------------------------------------------------------------------
 

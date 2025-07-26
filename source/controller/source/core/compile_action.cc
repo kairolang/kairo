@@ -46,9 +46,9 @@
 class FileLock {
   public:
     explicit FileLock(const std::filesystem::path &path)
-        : filePath(path) {
+        : filePath(path.generic_string()) {
 #ifdef _WIN32
-        hFile = CreateFileA(path.c_str(),
+        hFile = CreateFileA(path.generic_string().c_str(),
                             GENERIC_READ | GENERIC_WRITE,
                             0,
                             nullptr,
@@ -192,6 +192,56 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
         cc_source = cwd / "IR.temp.debug.verbose.helix-compiler.cxx";
     }
 
+
+    struct {
+        std::string compiler = "c++";
+        
+        static std::string does_tool_exist(const std::string& tool) {
+            char* path = std::getenv("PATH");
+            
+            for (const auto& dir : std::filesystem::path(path ? path : "").string()
+                                                     | std::views::split(':')) {
+
+                auto full_path = std::filesystem::path(std::string(dir.begin(), dir.end())) / tool;
+            
+                if (std::filesystem::exists(full_path) &&
+                    std::system((full_path.string() + " --version >/dev/null 2>&1").c_str()) == 0) {
+                    /// return the full path to the tool
+                    return full_path.string();
+                }
+            }
+            
+            return std::string{};
+        }
+    
+        void find() {
+            std::array<std::string, 6> compilers = {
+                "clang++",
+                "clang-cl",
+                "cl",
+                "g++",
+                "GCC",
+                "c++"
+            };
+
+            for (const auto &c : compilers) {
+                if (does_tool_exist(c).empty()) {
+                    continue;
+                }
+
+                this->compiler = c;
+                return;
+            }
+        }
+    } cxx_compiler = {};
+
+    cxx_compiler.find();
+
+    if (cxx_compiler.compiler.empty()) {
+        helix::log<LogLevel::Error>("no C++ compiler found, please install one");
+        return {};
+    }
+
     CXXCompileAction action = CXXCompileAction{
         /* working_dir */ cwd,
         /* cc_source   */ cc_source,
@@ -202,7 +252,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
 #if defined(__unix__) || defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) ||      \
     defined(__NetBSD__) || defined(__OpenBSD__) || defined(__bsdi__) || defined(__DragonFly__) || \
     defined(__MACH__)
-        /* cxx_compiler */ "c++",
+        /* cxx_compiler */ cxx_compiler.compiler,  // find c++ compiler using PATH
 #else
         /* cxx_compiler */ "",  // find msvc using vswhere, if not found try `c++`
 #endif
