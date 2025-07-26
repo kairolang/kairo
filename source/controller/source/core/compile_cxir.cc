@@ -27,7 +27,7 @@
     }
 #endif
 
-void CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
+CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
     this->dry_run = dry_run;
     CompileResult ret;
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
@@ -43,7 +43,7 @@ void CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
             }
         } catch (...) {
             if (error::HAS_ERRORED) {
-                return;
+                return {};
             }
 
             error::HAS_ERRORED = true;
@@ -54,10 +54,12 @@ void CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
     }
 
     action.cleanup();
-    return;
+
+    return ret;
 #else
     ret = CXIR_CXX(action);
 #endif
+    return ret;
 }
 
 CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
@@ -132,6 +134,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         cxx::flags::caretDiagnosticsMaxLinesFlag,
         cxx::flags::noElideTypeFlag,
         cxx::flags::linkTimeOptimizationFlag,
+        cxx::flags::stdLibAndLinks,
 
         ((action.flags.contains(flag::types::CompileFlags::Debug))
              ? cxx::flags::SanitizeFlag
