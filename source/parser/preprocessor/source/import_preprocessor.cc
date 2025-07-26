@@ -75,7 +75,7 @@ __PREPROCESSOR_BEGIN {
                 .opt_fixes{},
             });
 
-            std::exit(1);
+            return {};
         }
 
         if (!scope->path.empty()) {
@@ -96,10 +96,10 @@ __PREPROCESSOR_BEGIN {
                     .opt_fixes{},
                 });
 
-                std::exit(1);
+                return {};
             }
 
-            throw std::runtime_error(GET_DEBUG_INFO + "invalid path access");
+            return {};
         }
 
         if (scope->access != nullptr) {
@@ -130,7 +130,7 @@ __PREPROCESSOR_BEGIN {
                     .opt_fixes{},
                 });
 
-                std::exit(1);
+                return {};
             }
 
             if (single_import->alias->getNodeType() == __AST_NODE::nodes::IdentExpr) {
@@ -153,7 +153,7 @@ __PREPROCESSOR_BEGIN {
                     .opt_fixes{},
                 });
 
-                std::exit(1);
+                return {};
             }
         }
 
@@ -169,7 +169,7 @@ __PREPROCESSOR_BEGIN {
                     .opt_fixes{},
                 });
 
-                std::exit(1);
+                return {};
             }
 
             ASTScopePath path = __AST_N::as<__AST_NODE::ScopePathExpr>(single_import->path);
@@ -190,7 +190,7 @@ __PREPROCESSOR_BEGIN {
                     .opt_fixes{},
                 });
 
-                std::exit(1);
+                return {};
             }
 
             std::filesystem::path f_path =
@@ -198,7 +198,7 @@ __PREPROCESSOR_BEGIN {
             return {f_path, alias, single_import->is_wildcard};
         }
 
-        throw std::runtime_error(GET_DEBUG_INFO + "invalid import type");
+        return {};
     }
 
     ImportProcessor::MultipleImportsNormalized ImportProcessor::resolve_spec_import(
@@ -217,7 +217,7 @@ __PREPROCESSOR_BEGIN {
                 .opt_fixes{},
             });
 
-            std::exit(1);
+            return {};
         }
 
         if (spec_import->type == __AST_NODE::SpecImport::Type::Wildcard) {
@@ -231,7 +231,7 @@ __PREPROCESSOR_BEGIN {
                     .opt_fixes{},
                 });
 
-                std::exit(1);
+                return {};
             }
 
             imports.emplace_back(base_path, __TOKEN_N::TokenList{}, true);
@@ -246,7 +246,7 @@ __PREPROCESSOR_BEGIN {
                     .opt_fixes{},
                 });
 
-                std::exit(1);
+                return {};
             }
 
             if (!spec_import->imports->imports.empty()) {
@@ -271,7 +271,7 @@ __PREPROCESSOR_BEGIN {
                     .opt_fixes{},
                 });
 
-                std::exit(1);
+                return {};
             }
         }
 
@@ -341,7 +341,7 @@ __PREPROCESSOR_BEGIN {
                         .opt_fixes{},
                     });
 
-                    std::exit(1);
+                    goto leave_loop_has_processable_import;
                 }
 
                 ADVANCE_AND_CHECK;  // skip the language
@@ -370,14 +370,14 @@ __PREPROCESSOR_BEGIN {
                             .opt_fixes{},
                         });
 
-                        std::exit(1);
+                        goto leave_loop_has_processable_import;
                     }
 
                     ADVANCE_AND_CHECK;  // WARNING: this may fail since we break and dont break
                                         // again.
                 }
             }
-
+            
             if (iter->token_kind() == __TOKEN_N::tokens::KEYWORD_IMPORT) {
                 /// remove all import tokens
                 /// calculate the 'import' token to the ';' or '}' token
@@ -385,7 +385,7 @@ __PREPROCESSOR_BEGIN {
                 bool has_brace = false;
                 __TOKEN_N::Token start = iter.current().get();
 
-                if (!iter.peek(offset).has_value()) {
+                if (!iter.peek(offset).has_value() || iter.peek(offset).value().get().token_kind() == __TOKEN_N::tokens::EOF_TOKEN) {
                     error::Panic(error::CodeError{
                         .pof      = &start,
                         .err_code = 0.0001,
@@ -395,7 +395,26 @@ __PREPROCESSOR_BEGIN {
                         .opt_fixes{},
                     });
 
-                    std::exit(1);
+                    return false;
+                }
+
+                std::unordered_set<__TOKEN_N::tokens> valid_kinds = {
+                    __TOKEN_N::tokens::PUNCTUATION_OPEN_BRACE,
+                    __TOKEN_N::tokens::IDENTIFIER,
+                    __TOKEN_N::tokens::LITERAL_STRING
+                };
+
+                if (!valid_kinds.contains(iter.peek(1)->get().token_kind())) {
+                    error::Panic(error::CodeError{
+                        .pof      = &start,
+                        .err_code = 0.0001,
+                        .mark_pof = true,
+                        .fix_fmt_args{},
+                        .err_fmt_args{"expected a valid token after 'import' but found '" + iter.peek(1)->get().token_kind_repr() + "'."},
+                        .opt_fixes{},
+                    });
+
+                    return false;
                 }
 
                 if (iter.peek(offset)->get().token_kind() ==
@@ -414,8 +433,9 @@ __PREPROCESSOR_BEGIN {
                             .err_fmt_args{"expected a ';' or '}' to close the 'import' statement"},
                             .opt_fixes{},
                         });
-
-                        std::exit(1);
+                        
+                        found_import = false;
+                        goto leave_loop_has_processable_import;
                     }
 
                     if (iter.peek(offset)->get().token_kind() ==
@@ -434,6 +454,7 @@ __PREPROCESSOR_BEGIN {
             iter.advance();
         }
 
+leave_loop_has_processable_import:
         return found_import;
     }
 
@@ -469,7 +490,7 @@ __PREPROCESSOR_BEGIN {
                         .opt_fixes{},
                     });
 
-                    std::exit(1);
+                    return;
                 }
 
                 ADVANCE_AND_CHECK;  // skip the language
@@ -498,14 +519,14 @@ __PREPROCESSOR_BEGIN {
                             .opt_fixes{},
                         });
 
-                        std::exit(1);
+                        return;
                     }
 
                     ADVANCE_AND_CHECK;  // WARNING: this may fail since we break and dont break
                                         // again.
                 }
             }
-
+            
             if (iter->token_kind() == __TOKEN_N::tokens::KEYWORD_IMPORT) {
                 /// remove all import tokens
                 /// calculate the 'import' token to the ';' or '}' token
@@ -514,7 +535,7 @@ __PREPROCESSOR_BEGIN {
                 start          = iter.current().get();
                 start_pos      = iter.position();
 
-                if (!iter.peek(offset).has_value()) {
+                if (!iter.peek(offset).has_value() || iter.peek(offset).value().get().token_kind() == __TOKEN_N::tokens::EOF_TOKEN) {
                     error::Panic(error::CodeError{
                         .pof      = &start,
                         .err_code = 0.0001,
@@ -524,7 +545,7 @@ __PREPROCESSOR_BEGIN {
                         .opt_fixes{},
                     });
 
-                    std::exit(1);
+                    return;
                 }
 
                 if (iter.peek(offset)->get().token_kind() ==
@@ -544,7 +565,7 @@ __PREPROCESSOR_BEGIN {
                             .opt_fixes{},
                         });
 
-                        std::exit(1);
+                        return;
                     }
 
                     if (iter.peek(offset)->get().token_kind() ==
@@ -558,7 +579,7 @@ __PREPROCESSOR_BEGIN {
                 }
 
                 import_result = ast_parser.parse<__AST_NODE::ImportState>();
-                found_import  = true;
+                found_import  = import_result.has_value();
                 break;
             }
 
