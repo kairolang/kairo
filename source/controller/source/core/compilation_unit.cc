@@ -320,14 +320,14 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
         }
     }
 
-    compiler.compile_CXIR(std::move(action), LSP_MODE);
+    auto ret = compiler.compile_CXIR(std::move(action), LSP_MODE);
 
     if (LSP_MODE) {
         return 0;
     }
 
     log_time(start, parsed_args.verbose, std::chrono::high_resolution_clock::now());
-    return 0;
+    return static_cast<int>(std::get<0>(ret).return_code != 0);
 }
 
 void CompilationUnit::remove_comments(__TOKEN_N::TokenList &tokens) {

@@ -12,90 +12,95 @@ class CF {
     std::string_view mingw;
 };
 
-constexpr CF debugModeFlag{"-g -g3", "-g -g3", "/Zi", "-g -g3"};
-constexpr CF warnAllFlag{"-Wall", "-Wall", "/W4", "-Wall"};
-constexpr CF noWarningsFlag{"-w", "-w", "/w", "-w"};
-constexpr CF stdC23Flag{"-std=c23", "-std=c23", "/std:c23", "-std:c23"};
-constexpr CF stdCXX23Flag{"-std=c++23", "-std=c++23", "/std:c++20", "-std:c++23"};
-constexpr CF optimizationLevel0{"-O0", "-O0", "/Od", "-O0"};
-constexpr CF optimizationLevel1{"-O1", "-O1", "/O1", "-O1"};
-constexpr CF optimizationLevel2{"-O2", "-O2", "/O2", "-O2"};
-constexpr CF optimizationLevel3{"-O3", "-O3", "/Ox", "-O3"};
-constexpr CF dryRunFlag{"-fsyntax-only", "-fsyntax-only", "/Zs", "-fsyntax-only"};
-constexpr CF optimizationFast{"-Ofast", "-Ofast", "/Ox", "-Ofast"};
-constexpr CF optimizationSize{"-Os", "-Os", "/O1", "-Os"};
-constexpr CF linkStatic{"-static", "-static", "/MT", "-static"};
-constexpr CF linkShared{"-shared", "-shared", "/LD", "-shared"};
-constexpr CF positionIndependent{"-fPIC", "-fPIC", "/LD", "-fPIC"};
-constexpr CF cxxStandardFlag{"-xc++", "-xc++", "/TP", "-xc++"};  // force c++ mode
-constexpr CF noOptimization{"-fno-inline", "-fno-inline", "/Ob0", "-fno-inline"};
-constexpr CF defineFlag{"-D", "-D", "/D", "-D"};
-constexpr CF includeFlag{"-I", "-I", "/I", "-I"};
-constexpr CF linkFlag{"-l", "-l", "/link", "-l"};
-constexpr CF linkTimeOptimizationFlag{"-flto", "-flto", "/LTCG", "-flto"};
-constexpr CF outputFlag{"-o", "-o", "/Fe:", "-o"};
-constexpr CF inputFlag{"-i", "-i", "/Fi:", "-i"};
-constexpr CF precompiledHeaderFlag{"-include", "-include", "/FI", "-include"};
-constexpr CF preprocessorFlag{"-E", "-E", "/P", "-E"};
-constexpr CF compileOnlyFlag{"-c", "-c", "/c", "-c"};
-constexpr CF noEntryFlag{"-nostartfiles", "-nostartfiles", "/NOENTRY", "-nostartfiles"};
+constexpr CF debugModeFlag{.gcc="-g -g3", .clang="-g -g3", .msvc="/Zi", .mingw="-g -g3"};
+constexpr CF warnAllFlag{.gcc="-Wall", .clang="-Wall", .msvc="/W4", .mingw="-Wall"};
+constexpr CF noWarningsFlag{.gcc="-w", .clang="-w", .msvc="/w", .mingw="-w"};
+constexpr CF stdC23Flag{.gcc="-std=c23", .clang="-std=c23", .msvc="/std:c23", .mingw="-std:c23"};
+constexpr CF stdCXX23Flag{.gcc="-std=c++23", .clang="-std=c++23", .msvc="/std:c++20", .mingw="-std:c++23"};
+constexpr CF stdLibAndLinks{
+    .gcc="-stdlib=libc++ -lc++ -lc++abi",
+    .clang="-stdlib=libc++ -lc++ -lc++abi",
+    .msvc="",
+    .mingw=""};
+constexpr CF optimizationLevel0{.gcc="-O0", .clang="-O0", .msvc="/Od", .mingw="-O0"};
+constexpr CF optimizationLevel1{.gcc="-O1", .clang="-O1", .msvc="/O1", .mingw="-O1"};
+constexpr CF optimizationLevel2{.gcc="-O2", .clang="-O2", .msvc="/O2", .mingw="-O2"};
+constexpr CF optimizationLevel3{.gcc="-O3", .clang="-O3", .msvc="/Ox", .mingw="-O3"};
+constexpr CF dryRunFlag{.gcc="-fsyntax-only", .clang="-fsyntax-only", .msvc="/Zs", .mingw="-fsyntax-only"};
+constexpr CF optimizationFast{.gcc="-Ofast", .clang="-Ofast", .msvc="/Ox", .mingw="-Ofast"};
+constexpr CF optimizationSize{.gcc="-Os", .clang="-Os", .msvc="/O1", .mingw="-Os"};
+constexpr CF linkStatic{.gcc="-static", .clang="-static", .msvc="/MT", .mingw="-static"};
+constexpr CF linkShared{.gcc="-shared", .clang="-shared", .msvc="/LD", .mingw="-shared"};
+constexpr CF positionIndependent{.gcc="-fPIC", .clang="-fPIC", .msvc="/LD", .mingw="-fPIC"};
+constexpr CF cxxStandardFlag{.gcc="-xc++", .clang="-xc++", .msvc="/TP", .mingw="-xc++"};  // force c++ mode
+constexpr CF noOptimization{.gcc="-fno-inline", .clang="-fno-inline", .msvc="/Ob0", .mingw="-fno-inline"};
+constexpr CF defineFlag{.gcc="-D", .clang="-D", .msvc="/D", .mingw="-D"};
+constexpr CF includeFlag{.gcc="-I", .clang="-I", .msvc="/I", .mingw="-I"};
+constexpr CF linkFlag{.gcc="-l", .clang="-l", .msvc="/link", .mingw="-l"};
+constexpr CF linkTimeOptimizationFlag{.gcc="-flto", .clang="-flto", .msvc="/LTCG", .mingw="-flto"};
+constexpr CF outputFlag{.gcc="-o", .clang="-o", .msvc="/Fe:", .mingw="-o"};
+constexpr CF inputFlag{.gcc="-i", .clang="-i", .msvc="/Fi:", .mingw="-i"};
+constexpr CF precompiledHeaderFlag{.gcc="-include", .clang="-include", .msvc="/FI", .mingw="-include"};
+constexpr CF preprocessorFlag{.gcc="-E", .clang="-E", .msvc="/P", .mingw="-E"};
+constexpr CF compileOnlyFlag{.gcc="-c", .clang="-c", .msvc="/c", .mingw="-c"};
+constexpr CF noEntryFlag{.gcc="-nostartfiles", .clang="-nostartfiles", .msvc="/NOENTRY", .mingw="-nostartfiles"};
 constexpr CF noDefaultLibrariesFlag{
-    "-nodefaultlibs", "-nodefaultlibs", "/NODEFAULTLIB", "-nodefaultlibs"};
-constexpr CF noCXXSTDLibrariesFlag{"-nostdlib++", "-nostdlib++", "/NOSTDLIB", "-nostdlib++"};
-constexpr CF noCXXSTDIncludesFlag{"-nostdinc++", "-nostdinc++", "/NOSTDINC", "-nostdinc++"};
+    .gcc="-nodefaultlibs", .clang="-nodefaultlibs", .msvc="/NODEFAULTLIB", .mingw="-nodefaultlibs"};
+constexpr CF noCXXSTDLibrariesFlag{.gcc="-nostdlib++", .clang="-nostdlib++", .msvc="/NOSTDLIB", .mingw="-nostdlib++"};
+constexpr CF noCXXSTDIncludesFlag{.gcc="-nostdinc++", .clang="-nostdinc++", .msvc="/NOSTDINC", .mingw="-nostdinc++"};
 constexpr CF noBuiltinIncludesFlag{
-    "-nobuiltininc", "-nobuiltininc", "/NOBUILTININC", "-nobuiltininc"};
-constexpr CF linkLibCFlag{"-lc", "-lc", "/DEFAULTLIB:libc", "-lc"};
-constexpr CF linkPathFlag{"-L", "-L", "/LIBPATH", "-L"};
-constexpr CF linkDynamicFlag{"-Wl,-w,-rpath", "-Wl,-w,-rpath", "/LIBPATH", "-Wl,-w,-rpath"};
-constexpr CF noDiagnosticsFlag{"-fno-diagnostics-show-option",
-                               "-fno-diagnostics-show-option",
-                               "/diagnostics:column",
-                               "-fno-diagnostics-show-option"};
-constexpr CF noDiagnosticsFixitFlag{"-fno-diagnostics-fixit-info",
-                                    "-fno-diagnostics-fixit-info",
-                                    "/diagnostics:caret",
-                                    "-fno-diagnostics-fixit-info"};
-constexpr CF noDiagnosticsShowLineNumbersFlag{"-fno-diagnostics-show-line-numbers",
-                                              "-fno-diagnostics-show-line-numbers",
-                                              "/diagnostics:caret",
-                                              "-fno-diagnostics-show-line-numbers"};
-constexpr CF noDiagnosticsShowOptionFlag{"-fno-diagnostics-show-option",
-                                         "-fno-diagnostics-show-option",
-                                         "/diagnostics:caret",
-                                         "-fno-diagnostics-show-option"};
-constexpr CF noColorDiagnosticsFlag{"-fno-color-diagnostics",
-                                    "-fno-color-diagnostics",
-                                    "/diagnostics:caret",
-                                    "-fno-color-diagnostics"};
-constexpr CF caretDiagnosticsMaxLinesFlag{"-fcaret-diagnostics-max-lines=0",
-                                          "-fcaret-diagnostics-max-lines=0",
-                                          "/diagnostics:caret",
-                                          "-fcaret-diagnostics-max-lines=0"};
+    .gcc="-nobuiltininc", .clang="-nobuiltininc", .msvc="/NOBUILTININC", .mingw="-nobuiltininc"};
+constexpr CF linkLibCFlag{.gcc="-lc", .clang="-lc", .msvc="/DEFAULTLIB:libc", .mingw="-lc"};
+constexpr CF linkPathFlag{.gcc="-L", .clang="-L", .msvc="/LIBPATH", .mingw="-L"};
+constexpr CF linkDynamicFlag{.gcc="-Wl,-w,-rpath", .clang="-Wl,-w,-rpath", .msvc="/LIBPATH", .mingw="-Wl,-w,-rpath"};
+constexpr CF noDiagnosticsFlag{.gcc="",
+                               .clang="-fno-diagnostics-show-option",
+                               .msvc="/diagnostics:column",
+                               .mingw="-fno-diagnostics-show-option"};
+constexpr CF noDiagnosticsFixitFlag{.gcc="",
+                                    .clang="-fno-diagnostics-fixit-info",
+                                    .msvc="/diagnostics:caret",
+                                    .mingw="-fno-diagnostics-fixit-info"};
+constexpr CF noDiagnosticsShowLineNumbersFlag{.gcc="",
+                                              .clang="-fno-diagnostics-show-line-numbers",
+                                              .msvc="/diagnostics:caret",
+                                              .mingw="-fno-diagnostics-show-line-numbers"};
+constexpr CF noDiagnosticsShowOptionFlag{.gcc="",
+                                         .clang="-fno-diagnostics-show-option",
+                                         .msvc="/diagnostics:caret",
+                                         .mingw="-fno-diagnostics-show-option"};
+constexpr CF noColorDiagnosticsFlag{.gcc="",
+                                    .clang="-fno-color-diagnostics",
+                                    .msvc="/diagnostics:caret",
+                                    .mingw="-fno-color-diagnostics"};
+constexpr CF caretDiagnosticsMaxLinesFlag{.gcc="",
+                                          .clang="-fcaret-diagnostics-max-lines=0",
+                                          .msvc="/diagnostics:caret",
+                                          .mingw="-fcaret-diagnostics-max-lines=0"};
 constexpr CF noElideTypeFlag{
-    "-fno-elide-type", "-fno-elide-type", "/diagnostics:caret", "-fno-elide-type"};
-constexpr CF noOmitFramePointerFlag{"-fno-omit-frame-pointer",
-                                    "-fno-omit-frame-pointer",
-                                    "/diagnostics:caret",
-                                    "-fno-omit-frame-pointer"};
-constexpr CF enableExceptionsFlag{"-fexceptions", "-fexceptions", "/EHsc", "-fexceptions"};
+    .gcc="-fno-elide-type", .clang="-fno-elide-type", .msvc="/diagnostics:caret", .mingw="-fno-elide-type"};
+constexpr CF noOmitFramePointerFlag{.gcc="",
+                                    .clang="-fno-omit-frame-pointer",
+                                    .msvc="/diagnostics:caret",
+                                    .mingw="-fno-omit-frame-pointer"};
+constexpr CF enableExceptionsFlag{.gcc="-fexceptions", .clang="-fexceptions", .msvc="/EHsc", .mingw="-fexceptions"};
 
-constexpr CF fullFilePathFlag{"-fdiagnostics-absolute-paths",
-                              "-fdiagnostics-absolute-paths",
-                              "/FC",
-                              "-fdiagnostics-absolute-paths"};
-constexpr CF showCaretsFlag{"-fshow-caret",
-                           "-fshow-caret",
-                           "/diagnostics:caret",
-                           "-fshow-caret"};
-constexpr CF noErrorReportingFlag{"-fno-error-report",
-                                  "-fno-error-report",
-                                  "/errorReport:None",
-                                  "-fno-error-report"};
-constexpr CF SanitizeFlag{"-fsanitize=address,undefined,fuzzer,pointer-subtraction",
-                                    "-fsanitize=undefined,bounds,function",
-                                    "/fsanitize=address /RTCc /RTC1 /sdl /RTCu /RTCsu /RTCs",
-                                    "-fsanitize=address,undefined"};
-constexpr CF None {"", "", "", ""};
+constexpr CF fullFilePathFlag{.gcc="",
+                              .clang="-fdiagnostics-absolute-paths",
+                              .msvc="/FC",
+                              .mingw="-fdiagnostics-absolute-paths"};
+constexpr CF showCaretsFlag{.gcc="-fshow-caret",
+                           .clang="-fshow-caret",
+                           .msvc="/diagnostics:caret",
+                           .mingw="-fshow-caret"};
+constexpr CF noErrorReportingFlag{.gcc="-fno-error-report",
+                                  .clang="-fno-error-report",
+                                  .msvc="/errorReport:None",
+                                  .mingw="-fno-error-report"};
+constexpr CF SanitizeFlag{.gcc="-fsanitize=address,undefined,pointer-subtract",
+                                    .clang="-fsanitize=undefined,bounds,function",
+                                    .msvc="/fsanitize=address /RTCc /RTC1 /sdl /RTCu /RTCsu /RTCs",
+                                    .mingw="-fsanitize=address,undefined"};
+constexpr CF None{.gcc="", .clang="", .msvc="", .mingw=""};
 }  // namespace cxx::flags
 #endif  // __CXX_FLAGS_H__
