@@ -46,9 +46,9 @@
 class FileLock {
   public:
     explicit FileLock(const std::filesystem::path &path)
-        : filePath(path) {
+        : filePath(path.generic_string()) {
 #ifdef _WIN32
-        hFile = CreateFileA(path.c_str(),
+        hFile = CreateFileA(path.generic_string().c_str(),
                             GENERIC_READ | GENERIC_WRITE,
                             0,
                             nullptr,
