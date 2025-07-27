@@ -1,0 +1,112 @@
+///
+///    88                     88 88
+///    88                     88 88
+///    88                     88 88
+///    88,dPPYba,  ,adPPYYba, 88 88 ,adPPYba,
+///    88P'    "8a ""     `Y8 88 88 I8[    ""
+///    88       d8 ,adPPPPP88 88 88  `"Y8ba,
+///    88b,   ,a8" 88,    ,88 88 88 aa    ]8I
+///    8Y"Ybbd8"'  `"8bbdP"Y8 88 88 `"YbbdP"'
+///                 Trademark of Pates Blanch Co Ltd
+///
+  
+
+/*
+# Synopsis
+
+make a tool similar to xmake in terms of functionality but have it be extendable with helix code
+and support of the c++ std to allow things like cmd exec and file sys acc.
+
+# API
+```helix
+//// build.hlx
+
+import vial_build::*;
+
+
+fn build(args: vec<string>) -> i32 {
+    set_builddir();
+
+    set_project();
+    set_version();
+    set_description();
+
+    set_target("helix");
+        add_links([...]);
+        add_link(...);
+
+        add_include(...);
+        add_includes([...]);
+
+        add_source(...);
+
+        set_type(Object|Binary);
+
+        after_build(fn () {});
+        before_build(fn () {});
+
+        set_cxxflags(...);
+        add_define(..., ...);
+
+    end_target();
+}
+
+```
+
+```bash
+helix-lang on  feature/vial [$!?] via 🌙
+$ vial
+```
+
+1. Look for a build.hlx in pwd
+2. compile that into an object after verifying there is a build function in here
+3. link against the vial runtime
+
+vial runtime:
+```hlx
+import vial_build;
+
+inline_cpp("extern i32 build(vec<string> args)");
+
+fn main(argc argv) -> i32 {
+    /// sanatize args first
+    build(args);
+    return vial_build::compile();
+}
+``` -> vial.so/.dll
+
+
+vial.so/.dll + build.o -> build
+*/
+
+/// THIS FILE: is not the vial runtime nor is it the build.hlx it is for VIAL_BUILD.
+
+
+ffi "c++" import "filesystem";
+
+type Path = libcxx::filesystem::path;;
+type File = libcxx::filesystem::directory_entry;;
+
+fn get_cwd() -> Path { return libcxx::filesystem::current_path(); }
+fn normalize_path(path: Path) -> Path { return libcxx::filesystem::canonical(path); }
+
+inline fn find_build_file() -> Path {
+    var filename : string = "build.hlx";
+    var path : Path = get_cwd();
+
+    for (file : File in libcxx::filesystem::directory_iterator(path)){
+        if (file.is_regular_file() && (file.path().filename() == filename)) {
+            return normalize_path(file.path());
+        }
+    }
+}
+
+var BUILD_FILE: Path = find_build_file();
+
+var BUILD_DIR = Path("./build".raw_string());
+
+
+fn main() -> i32 {
+    print(f"build_file: {BUILD_FILE}");
+    return 0;
+}
