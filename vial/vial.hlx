@@ -1,16 +1,3 @@
-///
-///    88                     88 88
-///    88                     88 88
-///    88                     88 88
-///    88,dPPYba,  ,adPPYYba, 88 88 ,adPPYba,
-///    88P'    "8a ""     `Y8 88 88 I8[    ""
-///    88       d8 ,adPPPPP88 88 88  `"Y8ba,
-///    88b,   ,a8" 88,    ,88 88 88 aa    ]8I
-///    8Y"Ybbd8"'  `"8bbdP"Y8 88 88 `"YbbdP"'
-///                 Trademark of Pates Blanch Co Ltd
-///
-  
-
 /*
 # Synopsis
 
@@ -40,7 +27,7 @@ fn build(args: vec<string>) -> i32 {
 
         add_source(...);
 
-        set_type(Object|Binary);
+        set_linkage(Object|Binary);
 
         after_build(fn () {});
         before_build(fn () {});
@@ -82,31 +69,100 @@ vial.so/.dll + build.o -> build
 /// THIS FILE: is not the vial runtime nor is it the build.hlx it is for VIAL_BUILD.
 
 
+/*
+Tests:
+
+first:
+try the toolchain without a build.hlx file in the current directory
+should fail
+second:
+try the toolchain with a build.hlx file in the current directory
+should succeed and print the path to the build.hlx file
+
+*/
+
+
+
 ffi "c++" import "filesystem";
 
+/// P.S: Current compiler necessitates the use of
+///      `;;` for type declarations and some unknown other things.
 type Path = libcxx::filesystem::path;;
 type File = libcxx::filesystem::directory_entry;;
 
 fn get_cwd() -> Path { return libcxx::filesystem::current_path(); }
 fn normalize_path(path: Path) -> Path { return libcxx::filesystem::canonical(path); }
 
-inline fn find_build_file() -> Path {
+inline fn find_build_file() -> Path? {
     var filename : string = "build.hlx";
     var path : Path = get_cwd();
 
-    for (file : File in libcxx::filesystem::directory_iterator(path)){
-        if (file.is_regular_file() && (file.path().filename() == filename)) {
+    for (file : File in libcxx::filesystem::directory_iterator(path)) {
+        if (file.is_regular_file() && (file.path().filename() == filename.raw_string())) {
             return normalize_path(file.path());
         }
     }
+
+    // If not found, return null
+    return null;
 }
 
-var BUILD_FILE: Path = find_build_file();
+var BUILD_FILE: Path;
+var PROJECT: string = "";
+var DESCRIPTION: string = "";
+var VERSION: string = "0.1.0";
 
-var BUILD_DIR = Path("./build".raw_string());
+/// Build dir is both relative to a target and the project,
+/// defaulting to the project builddir if a target does not specify one.
+var BUILD_DIR: Path = Path(get_cwd() / "build".raw_string());
 
+struct Target {
+    var name: string;
+    var linkage: string; // Object or Binary
+    var sources: vec::<Path>;
+    var includes: vec::<Path>;
+    var links: vec::<string>;
+    var builddir: Path = Path(get_cwd() / "build".raw_string());
+    var cxxflags: vec::<string>;
+    var defines: vec::<string>;
+    var before_build: fn (*Target) -> void;
+    var after_build: fn (*Target) -> void;
+}
+
+var CURRENT_TARGET: *Target = &null;
+
+enum Linkage {
+    Object,
+    Binary,
+}
+
+fn set_builddir(path: string);
+fn set_project(name: string);
+fn set_version(version: string);
+fn set_description(description: string);
+fn set_target(name: string);
+fn add_links(links: vec::<string>);
+fn add_link(link: string);
+fn add_include(include: string);
+fn add_includes(includes: vec::<string>);
+fn add_source(source: string);
+fn set_linkage(linkage: Linkage);
+fn after_build(callback: fn (*Target) -> void);
+fn before_build(callback: fn (*Target) -> void);
+fn set_cxxflags(flags: vec::<string>);
+fn add_define(name: string, value: string);
+fn end_target(name: string? = null);
 
 fn main() -> i32 {
+    var build_file: Path? = find_build_file();
+    
+    if (build_file == null) {
+        print("no build.hlx file found in the current directory.");
+        return 1;
+    }
+
+    BUILD_FILE = build_file;
+    
     print(f"build_file: {BUILD_FILE}");
     return 0;
 }
