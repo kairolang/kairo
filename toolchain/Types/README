@@ -1,0 +1,5 @@
+### types/
+Contains the implementation files for type definitions and file system utilities.  
+This includes code for file handling, path manipulation, and other type-related utilities used throughout the project.
+
+---

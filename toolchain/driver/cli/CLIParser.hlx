@@ -1,0 +1,41 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+/// \brief A interface for CLI parsers. To be used by the Helix compiler
+/// \details This interface defines the methods that a CLI parser should implement.
+///          A key point is the ease of use and the ability to parse command line arguments
+///          in a way that is intuitive and flexible.
+///          A few things are needed:
+///          - A way to define options and their types
+///          - A way to parse the command line arguments
+///          - A way to access the parsed options
+
+/// a few types of arguments have to be supported:
+/// - boolean flags (e.g. --verbose)
+/// - string options (e.g. --output <file>)
+/// - integer options (e.g. --threads <number>)
+/// - list options (e.g. --include <path1,path2>)
+/// - positional arguments (e.g. <input_file>)
+// SUNDARESAN
+
+interface CLIParser {
+    /// \brief T must be bool, string
+    fn CLIParser(self, argc: u64, argv: vec::<string>);
+    fn get_bool(self, name: string) -> bool;
+    fn get_keyed(self, name: string) -> string?;
+    fn get_keyed(self) -> map::<string, string>;
+    fn get_positional(self, index: u64) -> string;
+    fn get_positional(self) -> vec::<string>;
+}

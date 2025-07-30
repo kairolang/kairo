@@ -1,0 +1,262 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+///
+/// \file Location.hlx
+///
+/// \brief Location class for representing the location of a token in a file.
+///
+
+import helix::types::File;
+
+///
+/// \brief Represents a position in a file as a (line, column) tuple.
+///        Line and column numbers are typically 1-based.
+///
+/// \size 16 bytes
+type Position = (u32, u32);;
+
+///
+/// \brief Represents a span in a file as a (start, end) offset tuple.
+///        Start and end are 0-based character offsets from the beginning of the file.
+///
+/// \size 16 bytes
+type Span = (u32, u32);;
+
+///
+/// \brief Represents a specific location or range within a source file.
+///        It includes a reference to the file, a character span (start and
+///        end offsets), and a line/column position for the start of the location.
+///
+/// \size 32 bytes
+default class Location {
+    var _file: *File::File = &null; ///< Pointer to the File object this location refers to.
+                                    ///  \size 64 bits (8 bytes)
+
+    var _span: Span     = (0, 0); ///< The character span (start offset, end offset) in the file.
+                                  ///  \size 128 bits (8 bytes)
+
+    var _pos: Position = (0, 0); ///< The starting position  (line, column) of this location.
+                                 ///  \size 128 bits (8 bytes)
+
+    var _chunk: u64 = 0; ///< The chunk offset of the file, since the file can be up to 4GB
+                         ///  before it gets chunked both pos and span are based on the chunk.
+                         ///  \size 64 bits (8 bytes)
+
+    ///
+    /// \brief Default constructor. Initializes an empty/invalid Location.
+    ///        The file pointer is null, and span and position are set to (0,0).
+    ///
+    default fn Location(self);
+
+    ///
+    /// \brief Constructs a Location with specified file, span, and position.
+    ///
+    /// \param self The instance of the Location class.
+    /// \param file Pointer to the File object.
+    /// \param span The character span (start, end offsets).
+    /// \param pos The starting position (line, column).
+    ///
+    fn Location(self, file: *File::File, span: Span, pos: Position, chunk: u64) {
+        self._file  = file;
+        self._span  = span;
+        self._pos   = pos;
+        self._chunk = chunk;
+    }
+
+    ///
+    /// \brief Equality operator. Checks if two Locations are identical.
+    ///
+    /// \param self The left-hand side Location.
+    /// \param other The right-hand side Location.
+    ///
+    /// \return True if file, span, and position are all equal, false otherwise.
+    ///
+    inline op == fn (self, other: Location) -> bool {
+        return (self.file()  == other.file()
+            &&  self.span()  == other.span()
+            &&  self.pos()   == other.pos())
+            &&  self.chunk() == other.chunk();
+    }
+
+    ///
+    /// \brief Inequality operator. Checks if two Locations are different.
+    ///
+    /// \param self The left-hand side Location.
+    /// \param other The right-hand side Location.
+    ///
+    /// \return True if any of file, span, or position are different, false otherwise.
+    ///
+    inline op != fn (self, other: Location) -> bool {
+        return !(self == other);
+    }
+
+    ///
+    /// \brief Less than operator. Compares two Locations for ordering.
+    ///
+    /// Comparison is done lexicographically: first by file, then by span start,
+    /// then by span end, then by combined span, then by position line, then by position column.
+    /// \param self The left-hand side Location.
+    /// \param other The right-hand side Location.
+    ///
+    /// \return True if self is considered less than other, false otherwise.
+    ///
+    inline op < fn (self, other: Location) -> bool {
+        if self.file() != other.file() {
+            return self.file() < other.file();
+        }
+
+        if self._chunk != other.chunk() {
+            return self._chunk < other.chunk();
+        }
+
+        if libcxx::get::<0>(self.span()) != libcxx::get::<0>(other.span()) {
+            return libcxx::get::<0>(self.span()) < libcxx::get::<0>(other.span());
+        }
+
+        if libcxx::get::<1>(self.span()) != libcxx::get::<1>(other.span()) {
+            return libcxx::get::<1>(self.span()) < libcxx::get::<1>(other.span());
+        }
+
+        if libcxx::get::<0>(self.span()) + libcxx::get::<1>(self.span())
+            != libcxx::get::<0>(other.span()) + libcxx::get::<1>(other.span()) {
+            return (libcxx::get::<0>(self.span()) + libcxx::get::<1>(self.span()))
+                < (libcxx::get::<0>(other.span()) + libcxx::get::<1>(other.span()));
+        }
+
+        if libcxx::get::<0>(self.pos()) != libcxx::get::<0>(other.pos()) {
+            return libcxx::get::<0>(self.pos()) < libcxx::get::<0>(other.pos());
+        }
+
+        if libcxx::get::<1>(self.pos()) != libcxx::get::<1>(other.pos()) {
+            return libcxx::get::<1>(self.pos()) < libcxx::get::<1>(other.pos());
+        }
+
+        return false;
+    }
+
+    ///
+    /// \brief Greater than operator. Compares two Locations for ordering.
+    ///        Comparison is done lexicographically: first by file, then by span
+    ///        start, then by span end, then by combined span, then by position
+    ///        line, then by position column.
+    ///
+    /// \param self The left-hand side Location.
+    /// \param other The right-hand side Location.
+    ///
+    /// \return True if self is considered greater than other, false otherwise.
+    ///
+    inline op > fn (self, other: Location) -> bool {
+        if self.file() != other.file() {
+            return self.file() > other.file();
+        }
+
+        if self._chunk != other.chunk() {
+            return self._chunk > other.chunk();
+        }
+
+        if libcxx::get::<0>(self.span()) != libcxx::get::<0>(other.span()) {
+            return libcxx::get::<0>(self.span()) > libcxx::get::<0>(other.span());
+        }
+
+        if libcxx::get::<1>(self.span()) != libcxx::get::<1>(other.span()) {
+            return libcxx::get::<1>(self.span()) > libcxx::get::<1>(other.span());
+        }
+
+        if libcxx::get::<0>(self.span()) + libcxx::get::<1>(self.span())
+            != libcxx::get::<0>(other.span()) + libcxx::get::<1>(other.span()) {
+            return (libcxx::get::<0>(self.span()) + libcxx::get::<1>(self.span()))
+                > (libcxx::get::<0>(other.span()) + libcxx::get::<1>(other.span()));
+        }
+
+        if libcxx::get::<0>(self._pos) != libcxx::get::<0>(other.pos()) {
+            return libcxx::get::<0>(self._pos) > libcxx::get::<0>(other.pos());
+        }
+
+        if libcxx::get::<1>(self._pos) != libcxx::get::<1>(other.pos()) {
+            return libcxx::get::<1>(self._pos) > libcxx::get::<1>(other.pos());
+        }
+
+        return false;
+    }
+
+    ///
+    /// \brief Less than or equal to operator.
+    ///
+    /// \param self The left-hand side Location.
+    /// \param other The right-hand side Location.
+    ///
+    /// \return True if self is less than or equal to other, false otherwise.
+    ///
+    inline op <= fn (self, other: Location) -> bool {
+        return !(self > other);
+    }
+
+    ///
+    /// \brief Greater than or equal to operator.
+    ///
+    /// \param self The left-hand side Location.
+    /// \param other The right-hand side Location.
+    ///
+    /// \return True if self is greater than or equal to other, false otherwise.
+    ///
+    inline op >= fn (self, other: Location) -> bool {
+        return !(self < other);
+    }
+
+    ///
+    /// \brief Gets the file associated with this location.
+    ///
+    /// \param self The instance of the Location class.
+    ///
+    /// \return A pointer to the File::File object.
+    ///
+    inline fn file(self) -> *File::File {
+        return self._file;
+    }
+
+    ///
+    /// \brief Gets the character span of this location.
+    ///
+    /// \param self The instance of the Location class.
+    ///
+    /// \return The Span tuple (start offset, end offset).
+    ///
+    inline fn span(self) -> Span {
+        return self._span;
+    }
+
+    ///
+    /// \brief Gets the starting position (line, column) of this location.
+    ///
+    /// \param self The instance of the Location class.
+    ///
+    /// \return The Position tuple (line, column).
+    ///
+    inline fn pos(self) -> Position {
+        return self._pos;
+    }
+
+    ///
+    /// \brief Gets the chunk offset of the file.
+    ///
+    /// \param self The instance of the Location class.
+    ///
+    /// \return The chunk offset.
+    ///
+    inline fn chunk(self) -> u64 {
+        return self._chunk;
+    }
+}

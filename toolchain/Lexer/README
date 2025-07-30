@@ -1,0 +1,5 @@
+### lexer/
+Contains the implementation files for the lexical analysis component.  
+These files handle tokenizing source code, processing character streams, and managing token types.
+
+---

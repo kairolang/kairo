@@ -1,0 +1,5 @@
+### parser/
+Contains the implementation files for the parsing component.  
+These files handle syntactic analysis, grammar rules, and building parse trees from token streams.
+
+---

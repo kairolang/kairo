@@ -1,0 +1,25 @@
+# src/
+
+This directory contains the implementation source files for the Helix Project, organized by component. Each subfolder corresponds to a major component of the language and contains the actual code (implementations) for that component.
+
+As you add more components, update this README to reflect the new structure and their purposes.
+
+## Subfolders
+
+### lexer/
+Contains the implementation files for the lexical analysis component.  
+These files handle tokenizing source code, processing character streams, and managing token types.
+
+### parser/
+Contains the implementation files for the parsing component.  
+These files handle syntactic analysis, grammar rules, and building parse trees from token streams.
+
+### ast/
+Contains the implementation files for the Abstract Syntax Tree (AST) component.  
+These files handle representing, traversing, and manipulating the AST for further analysis and code generation.
+
+### types/
+Contains the implementation files for type definitions and file system utilities.  
+This includes code for file handling, path manipulation, and other type-related utilities used throughout the project.
+
+---

@@ -1,0 +1,291 @@
+/*
+ROADMAP
+class TokenKind {
+
+    fn serialize(self) -> map::<string, string>;
+
+    op as fn (self) -> string;
+    op as fn (self) -> Kind;
+}*/
+
+enum TokenType {
+    KeywordPub,      // pub
+    KeywordPriv,     // priv
+    KeywordProt,     // prot
+
+    KeywordEval,     // eval
+    KeywordStatic,   // static
+    KeywordAsync,    // async
+    KeywordUnsafe,   // unsafe
+    KeywordInline,   // inline
+    KeywordOverride, // override
+    KeywordFinal,    // final//< is this needed or is it better to do @final?
+    
+    KeywordYield, // yield
+    UnaryDelete,  // delete
+    UnaryAwait,   // await // do i want rust style of foo.await? or await foo?
+    UnaryThread,  // thread
+    UnarySpawn,   // spawn
+
+    TypeVoid,   // void
+    TypeBool,   // bool
+    TypeUsize,  // usize
+    TypeIsize,  // isize
+    TypeF32,    // f32
+    TypeF64,    // f64
+    TypeF80,    // f80
+    TypeF128,   // f128
+    TypeU8,     // u8
+    TypeU16,    // u16
+    TypeU32,    // u32
+    TypeU64,    // u64
+    TypeU128,   // u128
+    TypeU256,   // u256
+    TypeI8,     // i8
+    TypeI16,    // i16
+    TypeI32,    // i32
+    TypeI64,    // i64
+    TypeI128,   // i128
+    TypeI256,   // i256
+
+    KeywordFn,        // fn
+    KeywordOp,        // op
+    KeywordImpl,      // impl
+    KeywordDerives,   // derives
+    KeywordEnum,      // enum
+    KeywordClass,     // class
+    KeywordType,      // type
+    KeywordInterface, // interface
+    KeywordExtend,    // extend
+    KeywordRequires,  // requires
+    KeywordWhere,     // where
+
+    KeywordModule,  // module
+    KeywordTry,     // try
+    KeywordCatch,   // catch
+    KeywordFinally, // finally
+    
+    KeywordIf,      // if
+    KeywordUnless,  // unless
+    KeywordElse,    // else
+
+    KeywordWhile,   // while
+    KeywordFor,     // for
+    KeywordContinue,// continue
+    KeywordBreak,   // break
+
+    KeywordSwitch,  // switch
+    KeywordMatch,   // match
+    KeywordCase,    // case
+    KeywordDefault, // default
+    
+    KeywordReturn, // return
+    KeywordAssert, // assert
+    KeywordPanic,  // panic
+    KeywordConst,  // const
+    KeywordVar,    // var
+
+    KeywordImport, // import
+    KeywordMacro,  // macro
+    KeywordTest,   // test
+    KeywordFfi,    // ffi
+
+    BinaryAs,      // as
+    BinaryIn,      // in
+
+    BinarySizeOf,  // sizeof
+    BinaryAlignOf, // alignof
+    BinaryTypeOf,  // typeof
+    
+    UnaryNegate,   // ~
+    UnaryQuestion, // ?
+    UnaryNot,      // !
+    UnaryAbs,      // +-
+    UnaryInc,      // ++
+    UnaryDec,      // --
+
+    OperatorAdd,   // +
+    OperatorSub,   // -
+    OperatorMul,   // *
+    OperatorScope, // ::
+    OperatorBitwiseAnd,     // &
+    OperatorRangeExclusive, // ..
+    OperatorRangeInclusive, // ..=
+
+    BinaryComma, // ,
+    BinaryDot,   // .
+    BinaryDiv,   // /
+    BinaryMod,   // %
+    BinaryMat,   // @
+
+    BinaryBitwiseOr,         // |
+    BinaryBitwiseXOR,        // ^
+    BinaryBitwiseLeftShift,  // <<
+    BinaryBitwiseRightShift, // >>
+    BinaryBitwiseNegateAnd,  // ~&
+    BinaryBitwiseNegateOr,   // ~|
+
+    BinaryAssign,                  //   =
+    BinaryBitwiseAndAssign,        //  &= | =&
+    BinaryBitwiseOrAssign,         //  |= | =|
+    BinaryBitwiseNegateOrAssign,   // ~|= | =~|
+    BinaryBitwiseXorAssign,        // ^=  | =^
+    BinaryBitwiseNotAndAssign,     // ~&= | =~&
+    BinaryBitwiseLeftShiftAssign,  // <<= | =<<
+    BinaryBitwiseRightShiftAssign, // >>= | =>>
+    BinaryAddAssign,               // +=  | =+
+    BinarySubAssign,               // -=  | =-
+    BinaryMulAssign,               // *=  | =*
+    BinaryDivAssign,               // /=  | =/
+    BinaryModAssign,               // %=  | =%
+    BinaryMatAssign,               // @=  | =@
+    BinaryPowerAssign,             // **= | =**
+    BinaryNegateAssign,            // ~=  | =~
+    /* missing NAND assign? */
+
+    BinaryPow,               // **
+    BinaryEqual,             // ==
+    BinaryNotEqual,          // !=
+    BinaryLessThan,          // <
+    BinaryGreaterThan,       // >
+    BinaryLessThanEquals,    // <=
+    BinaryGreaterThanEquals, // >=
+
+    BinaryLogicalAnd,    // &&
+    BinaryLogicalNotAnd, // !&&
+    BinaryLogicalOr,     // ||
+    BinaryLogicalNotOr,  // !||
+    BinaryLogicalXor,    // ^^
+    BinaryArrow,         // ->
+    BinaryMatchEqual,    // ===
+
+    LiteralNull,          // null
+    LiteralTrue,          // true
+    LiteralFalse,         // false
+    LiteralString,        // $string$
+    LiteralChar,          // $char$
+    LiteralFloatingPoint, // $float$
+    LiteralInteger,       // $int$
+    
+    OpenParenthesis,  // (
+    CloseParenthesis, // )
+    OpenCurlyBrace,   // {
+    CloseCurlyBrace,  // }
+    OpenBoxBracket,   // [
+    CloseBoxBracket,  // ]
+    Semicolon,        // ;
+    Colon,            // :
+    Comment,          // $comment$
+    BlockComment,     // $blockComment$
+    Ellipsis,         // ...
+
+    Self,       // self
+    Attribute,  // $attr$
+    Identifier, // $ident$
+    Unknown,    // $unknown$
+    
+    EoL, // end of line
+    EoF // end of file
+}
+
+class TokenKind {
+    // intl     // replaced with "@internal"
+    // noreturn // replaced with !
+    // struct   // can be replated with type removing the need for this keyword
+    // nopanic  // replaced with @no_panic
+    // noinline // replaced with @never_inline
+    // super doesn't exist since we have multiple inheritance so you do C++ style (class.method)
+    
+    /*
+    type Foo {
+        var a: int;
+        var b: int;
+    }
+    */
+
+    
+    
+    var kind: TokenType;
+
+    const mapping: map::<u64, tuple::<string, TokenType>> = {
+        0x1292 : ("//", TokenType::Comment)
+    };
+
+    fn TokenKind(self, kind: TokenType) {
+        self.kind = kind;
+    }
+
+    fn TokenKind(self, value: string) {
+        self.kind = self.to_kind(value);
+    }
+
+    fn to_kind(self, str: string) -> TokenType? {
+        return null;
+    }
+
+
+    fn token_kind_to_str(self) -> string? {
+
+        return null;
+    }
+
+    fn hash_to_type(self, hash: u64) -> TokenType? {
+        if (mapping.contains(hash) != __inline_cpp("map<u64, tuple<string, TokenType>>::npos")) {
+            return mapping[hash];
+        }
+
+        return null;
+    }
+
+    op == fn (self, other: TokenKind) -> bool{
+        if self.kind == other.kind {
+            return true;
+        }
+
+        return false;
+    }
+
+    op != fn (self, other: TokenKind) -> bool{
+        if self.kind != other.kind {
+            return true;
+        }
+
+        return false;
+    }
+    op == fn (self, other: string) -> bool{
+        if self.to_kind(other) == self.kind {
+            return true;
+        }
+
+        return false;
+    }
+    
+    op != fn (self, other: string) -> bool{
+        if self.to_kind(other) != self.kind {
+            return true;
+        }
+
+        return false;
+    }
+    
+    op == fn (self, other: TokenType) -> bool{
+        if self.kind == other {
+            return true;
+        }
+
+        return false;
+    }
+    
+    op != fn (self, other: TokenType) -> bool{
+        if self.kind != other {
+            return true;
+        }
+
+        return false;
+    }
+
+
+} // end of TokenKind
+
+
+// DO NOT FORGET OPS CAN START WITH A PREFIX OF l or r

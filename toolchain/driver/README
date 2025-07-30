@@ -1,0 +1,2 @@
+# this is the driver for the helix compiler toolchain, this is the core compiler that becomes the final helix compiler binary
+## dependencies: basicly everything

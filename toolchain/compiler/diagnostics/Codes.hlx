@@ -1,0 +1,142 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+///
+/// \brief Represents a diagnostic message with associated metadata, including
+///        the level of severity, a unique identifier, and a message string.
+///        This structure is used to encapsulate diagnostic information for
+///        reporting and handling purposes.
+///
+
+/// The error code format is as follows:
+/// <category><3-digit code><severity>
+/// the following categories are used:
+///     Syntax [S]
+///     Uncategorized Errors [U]
+///     Code Generation Errors [C]
+///     Memory [M]
+///     Resolution [R]
+///     Linker [L]
+///     Semantic [SC]
+///     Portability/Platform [P]
+///     Uncategorized Warnings [WR]
+///     Uncategorized Notes [NT]
+///     Uncategorized Fatal [FT]
+///     Uncategorized Remarks [RE]
+///     Lowering [CL]
+///     Optimization [OPT]
+///     Internal [I]
+/// With the following severity levels:
+///     Ignored [I]
+///     Remark  [R]
+///     Verbose [V]
+///     Note    [N]
+///     Debug   [D]
+///     Warning [W]
+///     Error   [E]
+///     Fatal   [F]
+/// Example errors would be:
+///     SC001E - Semantic Error with code 001
+///     SC001W - Semantic Warning with code 001
+
+enum DiagnosticCategory {
+    Syntax = 0x53, ///< Syntax errors
+    CodeGenerationErrors = 0x43, ///< Code generation errors
+    Memory = 0x4D, ///< Memory-related errors
+    Resolution = 0x52, ///< Resolution errors
+    Linker = 0x4C, ///< Linker errors
+    Semantic = 0x53, ///< Semantic errors
+    PortabilityPlatform = 0x50, ///< Portability/platform-related issues
+    Uncategorized = 0x57, ///< Uncategorized
+    Lowering = 0x4E, ///< Lowering-related issues
+    Optimization = 0x46, ///< Optimization-related issues
+    Internal = 0x52 ///< Internal errors
+}
+
+struct DiagnosticCode {
+    pub var category: DiagnosticCategory; ///< The category of the error
+    pub var code: u32;                    ///< The unique error code
+}
+
+class DiagnosticCodeHasher {
+    pub const op () fn (self, const rhs: DiagnosticCode, const lhs: DiagnosticCode) -> libcxx::size_t {
+        return (((rhs.category) as u32) << 16 | rhs.code) == (((lhs.category) as u32) << 16 | lhs.code);
+    }
+}
+
+///          code vvv      msg vvvvvv  vvvvvv fix
+const Code: map::<DiagnosticCode, tuple::<string, string>, DiagnosticCodeHasher> = {
+    /* -------- - - - - - - - - -   S Y N T A X   - - - - - - - - - -------- */
+    // category A is lexer errors
+    // category B is parser errors
+    // category C is parser simplification errors
+    DiagnosticCode(DiagnosticCategory::Syntax, 0x000) : ("Syntax error", ""),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA01) : ("Syntax error", "Unexpected token \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA02) : ("Syntax error", "Unexpected end of file"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA03) : ("Syntax error", "Unexpected end of line"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA04) : ("Syntax error", "Character \'{}\' not allowed"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA05) : ("Syntax error", "String literal not terminated"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA06) : ("Syntax error", "Character literal not terminated"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA07) : ("Syntax error", "Block comment not terminated"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA08) : ("Syntax error", "Number is out of range \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA09) : ("Syntax error", "Number is too large \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA0A) : ("Syntax error", "NaN (Not a Number) \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA0B) : ("Syntax error", "Infinity \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA0C) : ("Syntax error", "String literal is too long"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA0D) : ("Syntax error", "Character width does not fit in the type"),
+    
+    /* ---- - - -   C O D E   G E N E R A T I O N   E R R O R S   - - - ---- */
+    DiagnosticCode(DiagnosticCategory::CodeGenerationErrors, 0x000) : ("Code generation error", ""),
+    
+    /* -------- - - - - - - - - -   M E M O R Y   - - - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Memory, 0x000) : ("Memory error", ""),
+    
+    /* -------- - - - - - - -   R E S O L U T I O N   - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Resolution, 0x000) : ("Resolution error", ""),
+    
+    /* -------- - - - - - - - - -   L I N K E R   - - - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Linker, 0x000) : ("Linker error", ""),
+    
+    /* -------- - - - - - - - -   S E M A N T I C   - - - - - - - - -------- */
+    DiagnosticCode(DiagnosticCategory::Semantic, 0x000) : ("Semantic error", ""),
+    
+    /* ---- - - - -   P O R T A B I L I T Y   P L A T F O R M   - - - - ---- */
+    DiagnosticCode(DiagnosticCategory::PortabilityPlatform, 0x000) : ("Portability/platform error", ""),
+    
+    /* ---- - - -   U N C A T E G O R I Z E D   - - - ---- */
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0x000) : ("", ""),
+
+    // the A category is used for all file system related errors
+    // sub category 1 is for chmod related errors
+    // sub category 2 is for path related errors
+    // sub category 3 is for file type related errors
+    // sub category 0 is for file system related errors
+    // sub category F is for helix specific errors
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA01) : ("", "File specified not found: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA11) : ("", "File is not readable: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA12) : ("", "File is not writable: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA13) : ("", "File is not executable: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA21) : ("", "Specified path is a directory: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA22) : ("", "Specified path is not a directory: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA31) : ("", "Not a Helix file: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA32) : ("", "Not a Helix object file: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xAF1) : ("", "Not a Helix Vial: \'{}\'"),
+    
+    /* ---------- - - - - - - -   L O W E R I N G   - - - - - - - ---------- */
+    DiagnosticCode(DiagnosticCategory::Lowering, 0x000) : ("Lowering error", ""),
+    
+    /* ------ - - - - - - -   O P T I M I Z A T I O N   - - - - - - - ------ */
+    DiagnosticCode(DiagnosticCategory::Optimization, 0x000) : ("Optimization error", ""),
+};;

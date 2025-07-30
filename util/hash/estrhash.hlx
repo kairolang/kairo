@@ -1,0 +1,179 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+///
+/// \file helix/util/hash/estrhash.hlx
+/// \brief Hashing functions for strings at compile time.
+///        The purpose of this file is to provide a way to hash strings at compile time.
+///        This is useful for generating unique identifiers for strings that are known at
+///        compile time. The hashing algorithm used is a simple polynomial rolling hash.
+///        The hash function is not cryptographically secure and should not be used for
+///        security purposes. It is intended for use in generating unique identifiers for
+///        strings.
+///
+
+const HASH_MAX: usize = 0xFFFFFFFFFFFFFFFF;;
+
+///
+/// \brief A compile-time class for storing a fixed-size string.
+///
+/// \tparam N The size of the character array.
+///
+/// \note The string is stored as a fixed-size array of characters and is intended
+///       for use only at compile time. It is not null-terminated, mutable, or safe
+///       to use in runtime code.
+///
+
+__inline_cpp("
+    template <usize N>
+    class EvalStr {
+      public:
+        array<wchar_t, N> value;
+
+        consteval EvalStr(const char (&str)[N]) {
+            for (usize i = 0; i < N; ++i) {
+                value[i] = str[i];
+            }
+        }
+
+        consteval EvalStr(const wchar_t (&str)[N]) {
+            for (usize i = 0; i < N; ++i) {
+                value[i] = str[i];
+            }
+        }
+    };
+");
+
+///
+/// \brief Computes the length of a null-terminated string at compile time.
+///
+/// \param str A pointer to the character array (null-terminated).
+/// \param len The current length, used for recursion (defaults to 0).
+/// \return The number of characters before the null terminator.
+///
+/// \note Uses recursion for evaluation and is not safe for runtime use due to
+///       stack overflow risk.
+///
+eval fn eval_strlen(const str: *char, len: usize = 0) -> usize {
+    if str[len] != '\0' {
+        return eval_strlen(str, ++len);
+    }
+
+    return len;
+}
+
+///
+/// \brief Computes a hash for a single character in a string at compile time.
+///
+/// \param chr The character to hash.
+/// \param pos The index of the character in the string.
+/// \param hash The cumulative hash value computed so far.
+/// \return The updated hash value including this character.
+///
+/// \note Combines bitwise operations and XOR for hash computation.
+///
+eval fn eval_hash_char(const chr: char, pos: usize, hash: u64 = 0) -> u64 {
+    return ((((chr as u64) << ((pos & 7) + 1))
+              | ((chr as u64) >> ((pos & 3) + 1))) ^ pos)
+           ^ (hash << 1) ^ (hash >> 3);
+}
+
+///
+/// \brief Computes a compile-time hash for a fixed-size character array.
+///
+/// \param str Pointer to the character array.
+/// \return A 64-bit hash value derived from the character content.
+///
+/// \note Limited to arrays of size ≤ 256. Uses a custom polynomial-style hash function.
+///
+eval fn hash_string(const str: *char) -> u64 requires <const N: usize> {
+    static_assert(N <= 256, r"String too long for hashing");
+
+    var hash: u64 = 0;
+
+    for var i: usize = 0; i < N; i++ {
+        hash ^= eval_hash_char(str[i], i, hash);
+    }
+
+    return hash & HASH_MAX;
+}
+
+///
+/// \brief Computes a runtime-safe hash for a dynamically allocated string.
+///
+/// \param str Pointer to a string object.
+/// \return A 64-bit hash value, or HASH_MAX if the string is null.
+///
+/// \note Throws a runtime error if the string is too long (≥ 256 characters).
+///
+eval fn hash_string(const str: *string) -> u64 {
+    if str == &null {
+        return HASH_MAX;
+    }
+
+    if str->length() >= 256 {
+        __inline_cpp("throw libcxx::runtime_error(\"String too long for hashing\")");
+    }
+
+    var hash: u64 = 0;
+
+    for var i: usize = 0; i < str->length(); ++i {
+        hash ^= eval_hash_char((*str)[i], i, hash);
+    }
+
+    return hash & HASH_MAX;
+}
+
+///
+/// \brief Computes a compile-time hash from an EvalStr instance.
+///
+/// \return A 64-bit hash value, or HASH_MAX if the string is empty.
+///
+/// \note Uses eval_strlen and delegates to the fixed-size character hash function.
+///
+eval fn hash_string() -> u64 requires <str: const EvalStr> {
+    const len: usize = eval_strlen(str.value.data());
+
+    if len == 0 {
+        return HASH_MAX;
+    }
+
+    return hash_string::<len>(str.value.data());
+}
+
+///
+/// \brief Computes a compile-time hash from a string literal.
+///        This function is to test the hash_string function with string literals.
+///
+fn Test() -> i32 {
+    __inline_cpp("libcxx::cout << \"Hash r\'inline\': \" << (hash_string<\"inline\">()) << libcxx::endl");
+    __inline_cpp("libcxx::cout << \"Hash l\'inline\': \" << (hash_string<L\"inline\">()) << libcxx::endl");
+
+    print(f"Hash r\'inline\': {hash_string::<r"inline">()}");
+    print(f"Hash r\'fn\': {hash_string::<r"fn">()}");
+    print(f"Hash r\'var\': {hash_string::<r"var">()}");
+
+    var str: string = "inline";
+    print(f"Hash \'inline\': {hash_string(&str)}");
+
+    str = "fn";
+    print(f"Hash \'fn\': {hash_string(&str)}");
+
+    return 0;
+}
+
+// fn main() -> i32 {
+//     return Test();
+// }
