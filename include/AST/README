@@ -1,0 +1,5 @@
+### AST
+Contains header files for the Abstract Syntax Tree (AST) component.  
+These headers define the API for representing, traversing, and manipulating the AST, which is used for further analysis and code generation.
+
+---
