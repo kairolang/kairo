@@ -5,28 +5,28 @@ ffi "c++" import "vector";
 
 struct TokenizedCommand{
     var keyword : string;
-    var arguments : vector::<string>;
-    var flags : vector::<string>;
+    var arguments : vec::<string>;
+    var flags : vec::<string>;
 };
 
 fn tokenize(input : const *string) -> TokenizedCommand{
     var cmd : TokenizedCommand;
 
-    if (input.empty()){
+    if ((input == &null) || input->empty()){
         return cmd;
     }    
 
-    var iss : libcxx::istringstream(input);
+    var iss = libcxx::wistringstream(input->raw_string());
     var token : string;
 
     if(!(libcxx::getline(iss,token,' '))){
-        return cmd
+        return cmd;
     }
 
     if(libcxx::getline(iss,token,' ') && !token.empty() && token[0] != '-'){
         cmd.keyword=token;
     } else {
-        iss = libcxx::istringstream(token + (iss.eof() ?"":" "+ iss.str()));
+        iss = libcxx::wistringstream((token + ("" if iss.eof() else (" " + iss.str()))).raw_string());
     }
 
     while (libcxx::getline(iss,token,' ')){
@@ -35,20 +35,20 @@ fn tokenize(input : const *string) -> TokenizedCommand{
         }
 
         if(token[0 == '-']){
-            var flags : vector::<string>;
+            var flags : vec::<string>;
             var pos : i32 = 0;
             var double_dash : bool = token.size() > 1 && token[1] == '-';
-            var prefix_len : i32 = double_dash ? 2 : 1;
+            var prefix_len : i32 = 2 if double_dash else 1;
 
             while (pos < token.size){
                 if( pos == 0 ) {
                     pos = prefix_len;
-                } else if (double_dash && pos + 1 < token.size() && token[pos]=='-' && token[pos + 1] == '-'){
+                } else if (double_dash && pos + 1 < token.size() && token[pos] == '-' && token[pos + 1] == '-') {
                     flags.push_back(token.substr(0,pos));
                     token.erase(0,pos);
                     pos=2;
-                    double_dash=true
-                } else if (!double_dash && pos < token.size() && token[pos]=='-'){
+                    double_dash=true;
+                } else if (!double_dash && pos < token.size() && token[pos] == '-') {
                     flags.push_back(token.substr(0,pos));
                     token.erase(0,pos);
                     pos = 1;
@@ -59,12 +59,12 @@ fn tokenize(input : const *string) -> TokenizedCommand{
             }
 
             if(pos > prefix_len){
-                flags.push_back(token)
+                flags.push_back(token);
             }
 
             //token validation stage
-            for(var const flag : string in flags){
-                var start : i32 = (flag[0] == '-' && flag.size() > 1 && flag[1] == '-') ? 2 : 1;
+            for(flag : string in flags){
+                var start : i32 = 2 if (flag[0] == '-' && flag.size() > 1 && flag[1] == '-') else 1;
                 if(flag.size()<=start){
                     continue;
                 }
@@ -88,7 +88,7 @@ fn tokenize(input : const *string) -> TokenizedCommand{
         } else {
             //argument validation
             var valid : bool = true;
-            for( var c : char in token){
+            for( c : char in token){
                 if(!libcxx::isalnum(c) && !(c == '-' || c =='.' || c == ':' || c == '/' || c == '\\')){
                     valid = false;
                     break;
@@ -106,12 +106,12 @@ fn tokenize(input : const *string) -> TokenizedCommand{
 class CLItree {
     struct node {
         var word : string;
-        var flagList : vector::<string>;
+        var flagList : vec::<string>;
     }
 
-    var keywords : vector::<node>;
+    var keywords : vec::<node>;
 
-    fn findKeywordIndex(const keyword : *string) const -> i32 {
+    const fn findKeywordIndex(self, const keyword : *string)  -> i32 {
         for ( i : i32 in 0..(keywords.size()) ) {
             if ( keywords[i].word == keyword) {
                 return i;
@@ -121,40 +121,40 @@ class CLItree {
     }
 
 
-    CLItree(){
-        keywords.push_back({"_default",{}});     //keyword for situations with only flags , example : helix --help
+    fn CLItree(self) {
+        keywords.push_back(node("_default",vec::<string>()));     //keyword for situations with only flags , example : helix --help
     }
 
-    fn addKeyword ( const word : *string) {
+    fn addKeyword ( self ,  const word : *string) {
         if (findKeywordIndex(word) == -1){
-            keyword.push_back({"word", {}});
+            keyword.push_back(node("word", vec::<string>() ));
         }
     }
 
-    fn addFlag ( const keyword : *string , const newFlags : *vector ) {
+    fn addFlag ( self , const keyword : *string , const newFlags : *vector ) {
         var idx : i32 = findKeywordIndex(keyword);
         if (idx == -1){
             return;
         }
 
-        for (var flag : *string in newFlags) {
+        for (flag : *string in newFlags) {
             var exists : bool = false;
 
-            for (var const f : string in keywords[idx].flagList){
+            for ( f : string in keywords[idx].flagList){
                 if (f == flag){
                     exists = true;
                     break;
                 }
             }
             if (!exists){
-                flags.push_back(flag)
+                flags.push_back(flag);
             }
         }
     }
 
-    fn run (command : string){
-        TokenizedCommand cmnd = tokenize(command);
-        var actualKeyword : string = cmnd.keyword.empty() : "_default" : cmnd.keyword ;  //quick check for whether the command has a keyword or not
+    fn run (self , command : string){
+        var cmnd : TokenizedCommand = tokenize(command);
+        var actualKeyword : string =  "_default" if cmnd.keyword.empty() else cmnd.keyword ;  //quick check for whether the command has a keyword or not
 
         var idx : i32 = findKeywordIndex(actualKeyword);
         if(idx == -1) {
@@ -164,9 +164,9 @@ class CLItree {
         var keyword : node;
         var isFlagValid : bool = true;
 
-        for (var const flag : string in cmnd.flags) {
+        for ( flag : string in cmnd.flags) {
             var found : bool = false;
-            for (var const f : string in keyword.flagList) {
+            for ( f : string in keyword.flagList) {
                 if (f == flag) {
                     found = true;
                     break;
@@ -182,7 +182,7 @@ class CLItree {
 
 
         } else {
-            print(" fail :(")
+            print(" fail :(");
         }
 
     }
