@@ -120,6 +120,10 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
              ? cxx::flags::debugModeFlag
              : cxx::flags::optimizationLevel3),
 
+        ((action.flags.contains(flag::types::CompileFlags::Library))
+                ? cxx::flags::compileOnlyFlag
+                : cxx::flags::None),
+
         "-rdynamic",
 
         cxx::flags::cxxStandardFlag,
@@ -140,11 +144,6 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
              ? cxx::flags::SanitizeFlag
              : cxx::flags::None),
 
-// #if defined(__unix__) || defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) ||      \
-//     defined(__NetBSD__) || defined(__OpenBSD__) || defined(__bsdi__) || defined(__DragonFly__) || \
-//     defined(__MACH__)
-//         "-Wl,-w,-rpath,/usr/local/lib",
-// #endif
         cxx::flags::warnAllFlag,
         cxx::flags::outputFlag,
         "\"" + action.cc_output.generic_string() + "\""  // output

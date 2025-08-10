@@ -381,7 +381,7 @@ CX_VISIT_IMPL(FunctionCallExpr) {
 }
 
 CX_VISIT_IMPL(ArrayLiteralExpr) {
-    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "list");
+    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "vec");
     BRACE_DELIMIT(COMMA_SEP(values););
 }
 
