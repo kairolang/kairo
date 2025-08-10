@@ -194,31 +194,33 @@ structured_binding ::= '(' (untyped_param | param) (',' (untyped_param | param))
 var_param          ::= (untyped_param ('=' expr) | param ('=' expr)?);
 var_decl           ::= visibility? (specifiers* | "var") ((var_param (',' var_param)*) | (structured_binding '=' expr));
 
-requires_bound ::= "where" expr; // where x impl T
-requires_param ::= "const"? type_hint? (param | ident) ('=' expr | type)?;
-requires_decl  ::= "requires" '<' (requires_param (',' (requires_param))*)? '>'; // requires <T, V = 1> | requires <class T, V: i32>
+generic_bound ::= "where" expr; // where x impl T
+generic_param ::= "const"? type_hint? (param | ident) ('=' expr | type)?;
+generic_decl  ::= "requires" '<' (generic_param (',' (generic_param))*)? '>'; // requires <T, V = 1> | requires <class T, V: i32>
 
-requires       ::= requires_decl requires_bound?; // requires <T, V = 1> | requires <class T, V: i32>
+requires       ::= generic_decl generic_bound?; // requires <T, V = 1> | requires <class T, V: i32>
 implements     ::= "impl" (type (',' type)*);     // impl Foo, Bar | impl Foo
 derives        ::= "derives" (visibility? type (',' visibility? type)*);  // derives Foo, Bar | derives Foo
 
 // add union support to this
+//
 // union Some {
 //    x: i32,
 //    y: (f32 | i32, i32),
 // }
+//
 // var val: Some = Some::x(1);
 // var val2 Some::y(1, 2);
 
-struct_decl    ::= visibility? "struct"    scoped_path implements? requires? block?; // struct Foo { ... }
-class_decl     ::= visibility? "class"     scoped_path implements? derives? requires? block?; // class Foo { ... }
-interface_decl ::= visibility? "interface" scoped_path implements? requires? block?; // interface Foo { ... }
-extend_decl    ::= "extend" scoped_path implements? derives? requires? block; // extend Foo { ... }
+struct_decl    ::= visibility? "struct"    generic_decl? scoped_path implements? generic_bound? block?; // struct Foo { ... }
+class_decl     ::= visibility? "class"     generic_decl? scoped_path implements? derives? generic_bound? block?; // class Foo { ... }
+interface_decl ::= visibility? "interface" generic_decl? scoped_path implements? generic_bound? block?; // interface Foo { ... }
+extend_decl    ::= "extend" generic_decl? scoped_path implements? derives? generic_bound? block; // extend Foo { ... }
 
 enum_values    ::= ident ('=' expr)? (',' ident ('=' expr)?)*; // A = 1, B = 2
-enum_decl      ::= visibility? "enum" scoped_path derives? requires? '{' enum_values? '}'; // enum Foo { A = 1, B = 2 }
+enum_decl      ::= visibility? "enum" generic_decl? scoped_path derives? generic_bound? '{' enum_values? '}'; // enum Foo { A = 1, B = 2 }
 
-type_alias     ::= visibility? "type" scoped_path requires? '=' type; // type Foo requires <T> = i32
+type_alias     ::= visibility? "type" generic_decl? scoped_path generic_bound? '=' type; // type Foo requires <T> = i32
 module_decl    ::= visibility? "inline"? "module" scoped_path block; // module Foo { ... }
 
 // both override and visibility cant be used together
@@ -267,4 +269,4 @@ built_in_directives ::= '@' "volatile"     '(' ')' // makes the compiler not opt
                     |   '@' "alignas"      '(' Number         ')'; // sets the alignment of the variable/declaration
 built_in_macros     ::= "__file__" '!' | "__line__" '!' | "__column__" '!' | "__function__" '!' | "__module__" '!';
 
-program ::= (declaration | (import | multi_import) | macro | proc_macro | statement)*;
+program ::= (declaration | (import | multi_import) | macro | proc_macro | statement | expr)*;

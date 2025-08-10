@@ -28,8 +28,8 @@ NamedArgument       ::= Identifier ':' Expression; // x: 1
 ArgumentSeq         ::= (NamedArgument | Expression) (',' (NamedArgument | Expression))*; // (x: 1, y: 2) | (1, 2) | ()
 ExplicitArgumentSeq ::= ('.'? NamedArgument) (',' ('.'? NamedArgument))*; // if a dot is found all the following named args must have a .
 
-AssertExpression          ::= "assert" Expression "," StringLiteral;
-TryCatchExpression        ::= "try" ':' Expression ("catch" CatchArguments? ':' Expression)+;  // let x: i32 = try: foo() catch e: 1 catch: 2
+AssertExpression          ::= "assert" Expression "else" StringLiteral;
+TryCatchExpression        ::= "try" ':' Expression ("catch" CatchArguments? ':' Expression)+;  // var x: i32 = try: foo() catch e: 1 catch: 2
 ObjectInitializer         ::= Type '{' ExplicitArgumentSeq? '}';      // T {  x: 1,  y: 2 }
 ImplicitObjectInitializer ::= '{' ExplicitArgumentSeq? '}';  //   { .x: 1, .y: 2 }
 TernaryExpression         ::= "if" Expression ':' Expression "else" ':' Expression;    // if z: x else: y
@@ -153,7 +153,7 @@ StructuredVar   ::= (ExplicitParam | ImplicitParam) ('=' Expression)?;
 
 // ffi variables allow for ffi mangling as defined by the abi rule se | "eval";
 VariableDeclaration ::= VisibilityMod?
-                        (VariableSpec | "let" | "const" | "static")
+                        (VariableSpec | "var" | "const" | "static")
                         StorageQual? // const | static | inline | const eval | unsafe | async
                         ((DestructuredVar | StructuredVar) (',' (DestructuredVar | StructuredVar))*);
 
@@ -162,32 +162,32 @@ FFIBase  ::= "ffi" StringLiteral;
 FFIScope ::= FFIBase ScopeBlock;
 
 /* Generics/With */
-RequiresDeclaration ::= "requires" '<' RequiresParam* '>' RequiresConstraint?;
-RequiresParam   ::= ("const" Identifier (':' Type)?) | Identifier;
-RequiresConstraint  ::= ( "if" | "unless") Expression
+GenericDeclaration ::= '<' GenericParam* '>' GenericConstraint?;
+GenericParam       ::= ("const" Identifier (':' Type)?) | (Identifier (("impl" | "derives") Type)?);
+GenericConstraint  ::= ( "if" | "unless") Expression
                         ("else" ("if" | "unless") Expression ScopeBlock)*
                         ( "else" ScopeBlock)?;
 
-HasDeclaration     ::= "has" Type (',' Type)*;
-DerivesDeclaration ::= "derives" (UnsafeModifier? VisibilityMod?) Type (',' (UnsafeModifier? VisibilityMod?) Type)*;
+ImplDeclaration     ::= "impl" Type (',' Type)*;
+DerivesDeclaration  ::= "derives" (UnsafeModifier? VisibilityMod?) Type (',' (UnsafeModifier? VisibilityMod?) Type)*;
 
 /* Function Declarations */
 FunctionBase ::= FFIBase? VisibilityMod?; // NO-ORDER
 
 // impl of ops are fn ...::op...() -> ...; - this implicitly implements the alias as well (or vice versa)
-FunctionDeclaration ::= FunctionBase "fn" ScopedPath '(' ExplicitDefaultParamPack? ')' StorageQual? ArrowReturn? RequiresDeclaration? (ScopeBlock | ';');
-OperatorDeclaration ::= FunctionBase "fn" ("op" Operator) '(' ExplicitDefaultParamPack? ')' ('[' ScopedPath ']')? StorageQual? ArrowReturn? RequiresDeclaration? (ScopeBlock | ';');
-//                                        ^^^^^^^^^^^^^^^  this is also a scoped path so there may be ambiguity in parsing
+FunctionDeclaration ::= FunctionBase "fn" GenericDeclaration? ScopedPath '(' ExplicitDefaultParamPack? ')' StorageQual? ArrowReturn? (ScopeBlock | ';');
+OperatorDeclaration ::= FunctionBase "fn" GenericDeclaration? ("op" Operator) '(' ExplicitDefaultParamPack? ')' ('[' ScopedPath ']')? StorageQual? ArrowReturn? (ScopeBlock | ';');
+//                                                            ^^^^^^^^^^^^^^^  this is also a scoped path so there may be ambiguity in parsing || ALSO maybe swap op to operator
 /* Class Declarations */
 UDTBase ::= FFIBase? VisibilityMod? "const"?; // NO-ORDER (const is only for class structs and interfaces)
 
-ClassDeclaration     ::= UDTBase  "class" Identifier (DerivesDeclaration? HasDeclaration? RequiresDeclaration?) ScopeBlock;
+ClassDeclaration     ::= UDTBase  "class" GenericDeclaration? Identifier (DerivesDeclaration? ImplDeclaration?) ScopeBlock;
 EnumDeclaration      ::= UDTBase "enum"  Identifier ("derives" Type)? (('{' (',' Identifier ('=' Expression)?)* '}') | ';');
-TypeDeclaration      ::= VisibilityMod? "type" Identifier RequiresDeclaration? '=' Type;
+TypeDeclaration      ::= VisibilityMod? "type" GenericDeclaration? Identifier '=' Type;
 ModuleDeclaration    ::= VisibilityMod? "inline"? "module" ScopedPath? ScopeBlock;
-StructDeclaration    ::= UDTBase  "struct"    Identifier (HasDeclaration? RequiresDeclaration?) ScopeBlock;
-InterfaceDeclaration ::= UDTBase  "interface" Identifier (HasDeclaration? RequiresDeclaration?) ScopeBlock;
-ExtendsDeclaration   ::= "extend" ScopedPath (HasDeclaration? RequiresDeclaration?) ScopeBlock;
+StructDeclaration    ::= UDTBase  "struct"    GenericDeclaration? Identifier (ImplDeclaration?) ScopeBlock;
+InterfaceDeclaration ::= UDTBase  "interface" GenericDeclaration? Identifier (ImplDeclaration?) ScopeBlock;
+ExtendsDeclaration   ::= "extend" GenericDeclaration? ScopedPath (ImplDeclaration?) ScopeBlock;
 
 /* Test Declarations */
 // tests run when the following is passed to the helix compiler: --test
@@ -299,7 +299,7 @@ HexDigit    ::= [0-9a-fA-F];
 
 /* Literals */
 // blank expressions only need to be used if the type is questionable otherwise for something like
-// `let x: [i32: 5];` is default initialized
+// `var x: [i32: 5];` is default initialized
 
 NumericSuffix      ::= PrimitiveTypes | Identifier;                           // i32 | f32 | u8 | ...
 ExponentPart       ::= ('e' | 'E' | 'p' | 'P') ('+' | '-')? Digit+;           // e-3 | p+3
