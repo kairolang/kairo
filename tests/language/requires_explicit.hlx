@@ -1,4 +1,4 @@
-fn add(a: T, b: T) -> T requires <T> {
+fn <T> add(a: T, b: T) -> T {
     return a + b;
 }
 

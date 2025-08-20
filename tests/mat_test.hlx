@@ -10,8 +10,8 @@ interface Incrementable {
     op == fn eq(self, other: Self) -> bool;
 }
 
-fn range(start: T, end: T, step: T = 1) -> yield T
-  requires <T> if Incrementable in T {
+fn <T> range(start: T, end: T, step: T = 1) -> yield T
+  requires Incrementable in T {
 
     while start < end {
         yield start;
@@ -19,8 +19,8 @@ fn range(start: T, end: T, step: T = 1) -> yield T
     }
 }
 
-fn range(end: T) -> yield T
-  requires <T> if Incrementable in T {
+fn <T> range(end: T) -> yield T
+  requires Incrementable in T {
 
     var start = T();
 
@@ -37,8 +37,7 @@ struct Point {
 };
 
 #[assignable] // this denotes if a class can be reassigned (like primitive arrays in c/c++)
-class Matrix
-  requires <T> /* if Arithmetic in T || T derives Point */ {
+class <T> Matrix /* requires Arithmetic in T || T derives Point */ {
     priv var rows: i32, cols: i32, data: libc::array::<T>;
     pub var count = 9;
 
@@ -59,7 +58,7 @@ class Matrix
                                                 /// requires to be moved, since the object would
                                                 /// be destroyed after creation
                                                 /// example:
-                                                /// fn foo(std::Temporary<T> obj) requires <T> {}
+                                                /// fn <T> foo(std::Temporary<T> obj) {}
                                                 /// foo(T()); // creates a temporary object
                                                 ///           // and passes it to foo
         self.rows = other.rows;

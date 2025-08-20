@@ -1,5 +1,5 @@
 // Basic interface with a generic
-interface Foo requires <U> {
+interface <U> Foo {
     fn poo(self) -> U;
 }
 

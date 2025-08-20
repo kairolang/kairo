@@ -280,14 +280,14 @@ class Fuzz {
 
 
 
-class Fish requires <T> if T has Bar, T derives Fuzz {
+class <T> Fish requires T impl Bar, T derives Fuzz {
     var fish: T;
 }
 
 
 
 
-// fn fishy(f: Fish<T>) -> Fish<T> requires <T:Fizz> {
+// fn <T:Fizz> fishy(f: Fish<T>) -> Fish<T> {
 //     return f;
 // }
 
@@ -330,7 +330,7 @@ class ABC {
 //     free(name)
 // }
 
-class array requires <T, const N: u32> {
+class <T, const N: u32> array {
     var data: *T = alloca(N * sizeof(T)) as *T;
     var size: u32 = N;
 }
