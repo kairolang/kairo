@@ -1,0 +1,99 @@
+import types;
+
+const eval if defined(_WIN32) {
+    static var PATH_SEP: string = ";";
+    static var exts = [".exe", ".bat", ".cmd", ""];
+} else {
+    static var PATH_SEP: string = ":";
+    static var exts = [""];
+}
+
+inline fn get_cwd() -> types::Path {
+    return libcxx::filesystem::current_path();
+}
+
+inline fn normalize_path(path: types::Path) -> types::Path {
+    return libcxx::filesystem::canonical(path);
+}
+
+inline fn find_build_file() -> types::Path? {
+    var filename: string = "build.hlx";
+    var path: types::Path = get_cwd();
+
+    for (file : types::File in libcxx::filesystem::directory_iterator(path)) {
+        if (file.is_regular_file() && (file.path().filename() == filename.raw_string())) {
+            return normalize_path(file.path());
+        }
+    }
+
+    // If not found, return null
+    return null;
+}
+
+inline fn find_tool(name: string) -> string? {
+    static var cache: map::<string, string>;
+    static var initialized = false;
+
+    if initialized {
+        var it = cache.find(name);
+
+        if it != cache.end() {
+            return it->second;
+        }
+
+        return null;
+    }
+
+    const var path_env = libcxx::getenv(r"PATH");
+
+    if !path_env {
+        return null;
+    }
+
+    var path: string = std::to_string(path_env);
+    var start: usize = 0;
+
+    var populate_cache = fn (dir: types::Path) {
+        for entry in (libcxx::filesystem::directory_iterator(dir, libcxx::filesystem::directory_options::skip_permission_denied)) {
+            if !entry.is_regular_file() { continue; }
+
+            var name = entry.path().filename().wstring();
+
+            for ext in exts {
+                if !(name.size() >= ext.size() && name.ends_with(ext.raw_string())) { continue; }
+
+                var base = name.substr(0, name.size() - ext.size());
+                cache.emplace(base, entry.path().wstring());
+            }
+        }
+    };
+
+    while start < path.size() {
+        var end_q: usize? = path.lfind(PATH_SEP, start);
+        var end: usize = 0;
+
+        end = (path.size()) if (end_q == null) else (*end_q);
+
+        var dir = types::Path(path.subslice(start, end - start).raw_string());
+
+        if libcxx::filesystem::exists(dir) && libcxx::filesystem::is_directory(dir) {
+            try {
+                populate_cache(dir);
+            } catch {
+                // silently skip directories that cannot be read
+            }
+        }
+
+        start = end + 1;
+    }
+
+    initialized = true;
+
+    var it = cache.find(name);
+
+    if it != cache.end() {
+        return it->second;
+    }
+
+    return null;
+}
