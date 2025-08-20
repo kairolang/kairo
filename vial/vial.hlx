@@ -1,168 +1,652 @@
-/*
-# Synopsis
+import rt::api as api;
 
-make a tool similar to xmake in terms of functionality but have it be extendable with helix code
-and support of the c++ std to allow things like cmd exec and file sys acc.
+static var USING_MSVC: bool = false;
 
-# API
-```helix
-//// build.hlx
-
-import vial_build::*;
-
-
-fn build(args: vec<string>) -> i32 {
-    set_builddir();
-
-    set_project();
-    set_version();
-    set_description();
-
-    set_target("helix");
-        add_links([...]);
-        add_link(...);
-
-        add_include(...);
-        add_includes([...]);
-
-        add_source(...);
-
-        set_linkage(Object|Binary);
-
-        after_build(fn () {});
-        before_build(fn () {});
-
-        set_cxxflags(...);
-        add_define(..., ...);
-
-    end_target();
+fn in_vs_env() -> bool {
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        return std::getenv("VSCMD_VER") != &null && std::getenv("VSINSTALLDIR") != &null;
+    } else {
+        return false; // Not applicable for non-Windows systems
+    }
 }
 
-```
+fn get_msvc_cl() -> string? {
+    const eval if !(defined(_WIN32) || defined(_WIN64)) {
+        return null; // Not applicable for non-Windows systems
+    }
 
-```bash
-helix-lang on  feature/vial [$!?] via 🌙
-$ vial
-```
-
-1. Look for a build.hlx in pwd
-2. compile that into an object after verifying there is a build function in here
-3. link against the vial runtime
-
-vial runtime:
-```hlx
-import vial_build;
-
-inline_cpp("extern i32 build(vec<string> args)");
-
-fn main(argc argv) -> i32 {
-    /// sanatize args first
-    build(args);
-    return vial_build::compile();
-}
-``` -> vial.so/.dll
-
-
-vial.so/.dll + build.o -> build
-*/
-
-/// THIS FILE: is not the vial runtime nor is it the build.hlx it is for VIAL_BUILD.
-
-
-/*
-Tests:
-
-first:
-try the toolchain without a build.hlx file in the current directory
-should fail
-second:
-try the toolchain with a build.hlx file in the current directory
-should succeed and print the path to the build.hlx file
-
-*/
-
-
-
-ffi "c++" import "filesystem";
-
-/// P.S: Current compiler necessitates the use of
-///      `;;` for type declarations and some unknown other things.
-type Path = libcxx::filesystem::path;;
-type File = libcxx::filesystem::directory_entry;;
-
-fn get_cwd() -> Path { return libcxx::filesystem::current_path(); }
-fn normalize_path(path: Path) -> Path { return libcxx::filesystem::canonical(path); }
-
-inline fn find_build_file() -> Path? {
-    var filename : string = "build.hlx";
-    var path : Path = get_cwd();
-
-    for (file : File in libcxx::filesystem::directory_iterator(path)) {
-        if (file.is_regular_file() && (file.path().filename() == filename.raw_string())) {
-            return normalize_path(file.path());
+    if in_vs_env() {
+        // we only need to find the cl.exe path
+        var cl_path: string? = api::find_tool("cl");
+        
+        if cl_path != null {
+            return *cl_path;
+        } else {
+            return null; // cl.exe not found
         }
     }
 
-    // If not found, return null
-    return null;
-}
+    // If not in VS environment, try to use vswhere and find cl.exe
+    var vswhere_path: string? = api::find_tool("vswhere");
 
-var BUILD_FILE: Path;
-var PROJECT: string = "";
-var DESCRIPTION: string = "";
-var VERSION: string = "0.1.0";
+    if vswhere_path == null {
+        var mingw_path: string? = api::find_tool("mingw");
 
-/// Build dir is both relative to a target and the project,
-/// defaulting to the project builddir if a target does not specify one.
-var BUILD_DIR: Path = Path(get_cwd() / "build".raw_string());
+        if mingw_path != null {
+            return *mingw_path; // Use MinGW if available
+        }
 
-struct Target {
-    var name: string;
-    var linkage: string; // Object or Binary
-    var sources: vec::<Path>;
-    var includes: vec::<Path>;
-    var links: vec::<string>;
-    var builddir: Path = Path(get_cwd() / "build".raw_string());
-    var cxxflags: vec::<string>;
-    var defines: vec::<string>;
-    var before_build: fn (*Target) -> void;
-    var after_build: fn (*Target) -> void;
-}
+        var any_cpp: string? = api::find_tool("c++");
+        if any_cpp != null {
+            return *any_cpp; // Use any C++ compiler found
+        }
 
-var CURRENT_TARGET: *Target = &null;
+        return null; // No C++ compiler found
+    }
 
-enum Linkage {
-    Object,
-    Binary,
-}
+    // Use vswhere to find the latest Visual Studio installation
+    var vswhere_cmd: string = f"{*vswhere_path} -latest -products * -requires"
+                               "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+                               "-property installationPath";
 
-fn set_builddir(path: string);
-fn set_project(name: string);
-fn set_version(version: string);
-fn set_description(description: string);
-fn set_target(name: string);
-fn add_links(links: vec::<string>);
-fn add_link(link: string);
-fn add_include(include: string);
-fn add_includes(includes: vec::<string>);
-fn add_source(source: string);
-fn set_linkage(linkage: Linkage);
-fn after_build(callback: fn (*Target) -> void);
-fn before_build(callback: fn (*Target) -> void);
-fn set_cxxflags(flags: vec::<string>);
-fn add_define(name: string, value: string);
-fn end_target(name: string? = null);
-
-fn main() -> i32 {
-    var build_file: Path? = find_build_file();
+    var res: ExecResult = exec(vswhere_cmd);
     
-    if (build_file == null) {
-        print("no build.hlx file found in the current directory.");
+    if res.return_code != 0 {
+        api::log.error(f"Error finding Visual Studio installation: {res.output}");
+        return null; // vswhere failed
+    }
+
+    var vs_path: string = res.output.strip();
+    
+    if !libcxx::filesystem::exists(vs_path.raw_string()) {
+        api::log.error(f"Visual Studio installation path does not exist: {vs_path}");
+        return null; // Invalid path
+    }
+
+    var msvc_tools: api::types::Path = api::types::Path(vs_path.raw_string())
+                                     / r"VC" / r"Auxiliary" / r"Build" / r"vcvars64.bat";
+
+    if !libcxx::filesystem::exists(msvc_tools) {
+        api::log.error(f"MSVC tools path does not exist: {msvc_tools}");
+        return null; // MSVC tools not found
+    }
+
+    // Construct the command to run vcvars64.bat and find cl.exe
+    var compile_cmd = f"cmd.exe /c \"call \"{msvc_tools.generic_wstring()}\" >nul 2>&1 && cl";
+    
+    USING_MSVC = true;
+    return compile_cmd;
+}
+
+fn get_cpp_compiler() -> string? {
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        return get_msvc_cl();
+    } else {
+        var clang_path: string? = api::find_tool("clang++");
+    
+        if clang_path != null {
+            return f"\"{clang_path}\""; // Use Clang++ if available
+        }
+
+        var cpp_path: string? = api::find_tool("c++");
+    
+        if cpp_path != null {
+            return f"\"{cpp_path}\""; // Use any C++ compiler found
+        }
+
+        return null; // No C++ compiler found
+    }
+}
+
+fn get_helix_compiler() -> string? {
+    var helixc = api::find_tool("helix");
+    
+    if helixc != null {
+        return f"\"{helixc}\""; // Return helix compiler path
+    }
+
+    return null; // No helix compiler found
+}
+
+fn find_runtime() -> string? {
+    var exec_dir: api::types::Path = get_executable_path().parent_path();
+    var file_dir: api::types::Path = api::types::Path(std::to_string(__FILE__).raw_string()).parent_path();
+
+    if libcxx::filesystem::exists(exec_dir.parent_path() / r"pkgs" / r"vial" / r"runtime.hlx") {
+        return string((exec_dir.parent_path() / r"pkgs" / r"vial" / r"runtime.hlx").generic_wstring());
+    } else if libcxx::filesystem::exists(file_dir / r"runtime.hlx") {
+        return string((file_dir / r"runtime.hlx").generic_wstring());
+    }
+
+    api::log.error("vial runtime not found, please make sure it is in the current directory or in the pkgs/vial directory.");
+    return null; // Runtime not found
+}
+
+fn setup_build_environment() -> i32 {
+    var build_file = api::find_build_file();
+    if build_file == null {
+        api::log.error("no build.hlx file found in the current directory.");
         return 1;
     }
 
-    BUILD_FILE = build_file;
+    api::log.info("build.hlx file found.");
+    api::BUILD_FILE::set(*build_file);
     
-    print(f"build_file: {BUILD_FILE}");
+    libcxx::filesystem::create_directories(api::BUILD_DIR::value() / r".resolver" / r".cache");
+    libcxx::filesystem::create_directories(api::BUILD_DIR::value() / r"release" / r"bin");
+    libcxx::filesystem::create_directories(api::BUILD_DIR::value() / r"debug" / r"bin");
+    libcxx::filesystem::create_directories(api::BUILD_DIR::value() / r".shared" / r"libs");
+    libcxx::filesystem::create_directories(api::BUILD_DIR::value() / r".shared" / r".cache");
+    
+    api::log.debug(f"created build directory: {api::BUILD_DIR::value()}");
+
     return 0;
 }
+
+fn prepare_build_file() -> i32 {
+    var new_build_file = api::BUILD_DIR::value() / r".resolver" / r"build.hlx";
+    libcxx::filesystem::remove(new_build_file);
+
+    // open the file and add #[trivially_import(true)] to the first line
+    var input = libcxx::wifstream(api::BUILD_FILE::value(), __inline_cpp("libcxx::ios::in"));
+    
+    if !input.is_open() {
+        api::log.error("Failed to open original build file.");
+        return 1;
+    }
+
+    var output = libcxx::wofstream(new_build_file, libcxx::ios::out | libcxx::ios::trunc);
+    
+    if !output.is_open() {
+        api::log.error("Failed to create new build file.");
+        return 1;
+    }
+
+    output << r"#[trivially_import(true)]\n";
+
+    var line: libcxx::wstring;
+    
+    while (libcxx::getline(input, line)) {
+        output << line << '\n';
+    }
+
+    input.close();
+    output.close();
+
+    api::BUILD_FILE::set(new_build_file);
+    return 0;
+}
+
+fn compile_helix_sources() -> i32 {
+    var helixc = get_helix_compiler();
+    
+    if helixc == null {
+        api::log.error("helix compiler not found. install it or add it to your PATH.");
+        return 1;
+    }
+
+    api::log.info("compiling build.hlx...");
+
+    var o_ext: string;
+    
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        o_ext = ".obj";
+    } else {
+        o_ext = ".o";
+    }
+
+    var runtime_path = find_runtime();
+    
+    if runtime_path == null {
+        api::log.error("vial runtime not found in working dir or pkgs/vial.");
+        return 1;
+    }
+
+    var full_o_path = api::BUILD_DIR::value() / r".resolver" / r".cache";
+    var build_artifact = (full_o_path / (f"build_artifact{o_ext}".raw_string()));
+    var rt_artifact = (full_o_path / (f"vial_runtime{o_ext}".raw_string()));
+
+    libcxx::filesystem::remove(build_artifact);
+    libcxx::filesystem::remove(rt_artifact);
+
+    var helix_build_cmd = f"{helixc} \"{api::BUILD_FILE::value().generic_wstring()}\" -o \"{build_artifact.generic_wstring()}\" --lib";
+    var helix_rt_cmd = f"{helixc} \"{runtime_path}\" -o \"{rt_artifact.generic_wstring()}\" --lib";
+    
+    const eval if defined(DEBUG) {
+        helix_build_cmd += " --debug";
+        helix_rt_cmd    += " --debug";
+    }
+
+    helix_build_cmd += " 2>&1";
+    helix_rt_cmd    += " 2>&1";
+
+    api::log.debug(f"compiling build.hlx with: {helix_build_cmd}");
+    api::log.debug(f"compiling runtime with: {helix_rt_cmd}");
+
+    var pool: ThreadPool = ThreadPool(3);
+    var rt_future = pool.submit(exec, helix_rt_cmd);
+    var build_future = pool.submit(exec, helix_build_cmd);
+
+    var res = build_future.get();
+    
+    if res.return_code != 0 {
+        api::log.error(f"build.hlx compilation failed:\n{res.output}");
+        return 1;
+    }
+
+    api::log.info("build.hlx compiled successfully.");
+
+    res = rt_future.get();
+    
+    if res.return_code != 0 {
+        api::log.error(f"vial runtime compilation failed:\n{res.output}");
+        return 1;
+    }
+
+    api::log.info("runtime compiled successfully.");
+    return 0;
+}
+
+fn link_artifacts() -> i32 {
+    var cpp_compiler = get_cpp_compiler();
+    
+    if cpp_compiler == null {
+        api::log.error("c++ compiler not found. install one or add it to your PATH.");
+        return 1;
+    }
+
+    api::log.info("linking build resolver...");
+
+    var output_exe: api::types::Path;
+    var o_ext: string;
+
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        output_exe = api::BUILD_DIR::value() / f"build.exe".raw_string();
+        o_ext = ".obj";
+    } else {
+        output_exe = api::BUILD_DIR::value() / r".shared" / f"build".raw_string();
+        o_ext = ".o";
+    }
+
+    var full_o_path = api::BUILD_DIR::value() / r".resolver" / r".cache";
+    var flags: string;
+    
+    if USING_MSVC {
+        (flags = f"/OUT:\"{output_exe.generic_wstring()}\" " + "/EHsc /MT ");
+    } else {
+        (flags = f"-o \"{output_exe.generic_wstring()}\" " + "-std=c++20 -lpthread -lm ");
+    }
+
+    var link_cmd = f"{cpp_compiler} {flags}"
+                 + f"\"{(full_o_path / f"build_artifact{o_ext}".raw()).generic_wstring()}\" "
+                 + f"\"{(full_o_path / f"vial_runtime{o_ext}".raw()).generic_wstring()}\" "
+                 + "2>&1";
+
+    var res = exec(link_cmd);
+    api::log.debug(f"linking with: {link_cmd}");
+
+    if res.return_code != 0 {
+        api::log.error(f"linking failed:\n{res.output}");
+        return 1;
+    }
+
+    api::log.info(f"build successful! executable created at: {output_exe}");
+    return 0;
+}
+
+fn execute_build_artifact() -> i32 {
+    var helixc = get_helix_compiler();
+    var cpp_compiler = get_cpp_compiler();
+    
+    if helixc == null || cpp_compiler == null {
+        api::log.error("Required compilers not available for execution.");
+        return 1;
+    }
+
+    api::log.info("executing build artifact...");
+
+    var output_exe: api::types::Path;
+    
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        output_exe = api::BUILD_DIR::value() / f"build.exe".raw_string();
+    } else {
+        output_exe = api::BUILD_DIR::value() / r".shared" / f"build".raw_string();
+    }
+
+    var exec_cmd = f"{output_exe} {helixc} {cpp_compiler} \"{"true" if USING_MSVC else "false"}\"";
+    var res = exec(exec_cmd);
+
+    api::log.debug(f"running build with: {exec_cmd}");
+    
+    if res.return_code != 0 {
+        api::log.error(f"build execution failed:\n{res.output}");
+        return res.return_code;
+    }
+
+    api::log.info(res.output);
+    return 0;
+}
+
+fn main() -> i32 {
+    api::VERSION::set("0.1.0");
+    api::IN_TARGET::set(false);
+    api::TARGET_TRIPLE::set(f"{api::get_arch()}-{api::get_vendor()}-{api::get_system()}");
+    api::BUILD_DIR::set(api::types::Path(api::get_cwd() / r"build" / api::TARGET_TRIPLE::value().raw_string()));
+
+    api::log.debug(f"build dir {api::BUILD_DIR::value()}");
+
+    var result = setup_build_environment();
+    
+    if result != 0 {
+        return result;
+    }
+
+    api::log.debug(f"build dir {api::BUILD_DIR::value()}");
+    result = prepare_build_file();
+    
+    if result != 0 {
+        return result;
+    }
+
+    api::log.debug(f"build dir {api::BUILD_DIR::value()}");
+    result = compile_helix_sources();
+    
+    if result != 0 {
+        return result;
+    }
+
+    api::log.debug(f"build dir {api::BUILD_DIR::value()}");
+    result = link_artifacts();
+    
+    if result != 0 {
+        return result;
+    }
+
+    api::log.debug(f"build dir {api::BUILD_DIR::value()}");
+    return execute_build_artifact();
+}
+
+/*
+import rt::api as api;
+
+var log = api::Logger();
+static var USING_MSVC: bool = false;
+
+fn in_vs_env() -> bool {
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        return std::getenv("VSCMD_VER") != &null && std::getenv("VSINSTALLDIR") != &null;
+    } else {
+        return false; // Not applicable for non-Windows systems
+    }
+}
+
+fn get_msvc_cl() -> string? {
+    const eval if !(defined(_WIN32) || defined(_WIN64)) {
+        return null; // Not applicable for non-Windows systems
+    }
+
+    if (in_vs_env()) {
+        // we only need to find the cl.exe path
+        var cl_path: string? = api::find_tool("cl");
+        if (cl_path != null) {
+            return *cl_path;
+        } else {
+            return null; // cl.exe not found
+        }
+    }
+
+    // If not in VS environment, try to use vswhere and find cl.exe
+
+    var vswhere_path: string? = api::find_tool("vswhere");
+    if (vswhere_path == null) {
+        var mingw_path: string? = api::find_tool("mingw");
+        if (mingw_path != null) {
+            return *mingw_path; // Use MinGW if available
+        }
+
+        var any_cpp: string? = api::find_tool("c++");
+        if (any_cpp != null) {
+            return *any_cpp; // Use any C++ compiler found
+        }
+
+        return null; // No C++ compiler found
+    }
+
+    // Use vswhere to find the latest Visual Studio installation
+    var vswhere_cmd: string = f"{*vswhere_path} -latest -products * -requires"
+                               "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+                               "-property installationPath";
+
+    var res: ExecResult = exec(vswhere_cmd);
+    
+    if (res.return_code != 0) {
+        api::log.error(f"Error finding Visual Studio installation: {res.output}");
+        return null; // vswhere failed
+    }
+
+    var vs_path: string = res.output.strip();
+    if !libcxx::filesystem::exists(vs_path.raw_string()) {
+        api::log.error(f"Visual Studio installation path does not exist: {vs_path}");
+        return null; // Invalid path
+    }
+
+    var msvc_tools: api::types::Path = api::types::Path(vs_path.raw_string())
+                                     / r"VC" / r"Auxiliary" / r"Build" / r"vcvars64.bat";
+
+    if !libcxx::filesystem::exists(msvc_tools) {
+        api::log.error(f"MSVC tools path does not exist: {msvc_tools}");
+        return null; // MSVC tools not found
+    }
+
+    // Construct the command to run vcvars64.bat and find cl.exe
+    var compile_cmd = f"cmd.exe /c \"call \"{msvc_tools.generic_wstring()}\" >nul 2>&1 && cl";
+    USING_MSVC = true;
+    return compile_cmd;
+}
+
+fn get_cpp_compiler() -> string? {
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        return get_msvc_cl();
+    } else {
+        var clang_path: string? = api::find_tool("clang++");
+        if (clang_path != null) {
+            return f"\"{clang_path}\""; // Use Clang++ if available
+        }
+
+        var cpp_path: string? = api::find_tool("c++");
+        if (cpp_path != null) {
+            return f"\"{cpp_path}\""; // Use any C++ compiler found
+        }
+
+        return null; // No C++ compiler found
+    }
+}
+
+fn get_helix_compiler() -> string? {
+    var helixc = api::find_tool("helix");
+    if (helixc != null) {
+        return f"\"{helixc}\""; // Return helix compiler path
+    }
+
+    return null; // No helix compiler found
+}
+
+fn find_runtime() -> string? {
+    var exec_dir: api::types::Path = get_executable_path().parent_path();
+    var file_dir: api::types::Path = api::types::Path(std::to_string(__FILE__).raw_string()).parent_path();
+
+    if (libcxx::filesystem::exists(exec_dir.parent_path() / r"pkgs" / r"vial" / r"runtime.hlx")) {
+        return string((exec_dir.parent_path() / r"pkgs" / r"vial" / r"runtime.hlx").generic_wstring());
+    } else if (libcxx::filesystem::exists(file_dir / r"runtime.hlx")) {
+        return string((file_dir / r"runtime.hlx").generic_wstring());
+    }
+
+    api::log.error("vial runtime not found, please make sure it is in the current directory or in the pkgs/vial directory.");
+    return null; // Runtime not found
+}
+
+fn main() -> i32 {
+    var build_file = api::find_build_file();
+    if (build_file == null) {
+        api::log.error("no build.hlx file found in the current directory.");
+        return 1;
+    }
+
+    api::log.info("build.hlx file found.");
+
+    api::BUILD_FILE = *build_file;
+    
+    if !libcxx::filesystem::exists(api::BUILD_DIR) {
+        libcxx::filesystem::create_directories(api::BUILD_DIR / r".resolver" / r".cache");
+        api::log.debug(f"created build directory: {api::BUILD_DIR}");
+    }
+
+    var full_o_path = api::BUILD_DIR / r".resolver" / r".cache";
+    var new_build_file = api::BUILD_DIR / r".resolver" / r"build.hlx";
+
+    libcxx::filesystem::remove(new_build_file);
+
+    // open the file and add #[trivially_import(true)] to the first line
+    var input = libcxx::wifstream(api::BUILD_FILE, __inline_cpp("libcxx::ios::in"));
+    if (!input.is_open()) {
+        api::log.error("Failed to open original build file.");
+        return 1;
+    }
+
+    var output = libcxx::wofstream(new_build_file, libcxx::ios::out | libcxx::ios::trunc);
+    if (!output.is_open()) {
+        api::log.error("Failed to create new build file.");
+        return 1;
+    }
+
+    output << r"#[trivially_import(true)]\n";
+
+    var line: libcxx::wstring;
+    while (libcxx::getline(input, line)) {
+        output << line << '\n';
+    }
+
+    input.close();
+    output.close();
+
+    api::BUILD_FILE = new_build_file;
+
+    // Compile build.hlx
+    var helixc = get_helix_compiler();
+    if (helixc == null) {
+        api::log.error("helix compiler not found. install it or add it to your PATH.");
+        return 1;
+    }
+
+    api::log.info("compiling build.hlx...");
+
+    var o_ext: string;
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        o_ext = ".obj";
+    } else {
+        o_ext = ".o";
+    }
+
+    var runtime_path = find_runtime();
+    if (runtime_path == null) {
+        api::log.error("vial runtime not found in working dir or pkgs/vial.");
+        return 1;
+    }
+
+    var build_artifact = (full_o_path / (f"build_artifact{o_ext}".raw_string()));
+    var rt_artifact = (full_o_path / (f"vial_runtime{o_ext}".raw_string()));
+
+    libcxx::filesystem::remove(build_artifact);
+    libcxx::filesystem::remove(rt_artifact);
+
+    var helix_build_cmd = f"{helixc} \"{api::BUILD_FILE.generic_wstring()}\" -o \"{build_artifact.generic_wstring()}\" --lib";
+    var helix_rt_cmd = f"{helixc} \"{runtime_path}\" -o \"{rt_artifact.generic_wstring()}\" --lib";
+    
+    const eval if defined(DEBUG) {
+        helix_build_cmd += " --debug";
+        helix_rt_cmd    += " --debug";
+    }
+
+    helix_build_cmd += " 2>&1";
+    helix_rt_cmd    += " 2>&1";
+
+    api::log.debug(f"compiling build.hlx with: {helix_build_cmd}");
+    api::log.debug(f"compiling runtime with: {helix_rt_cmd}");
+
+    var pool: ThreadPool = ThreadPool(3);
+    var rt_future = pool.submit(exec, helix_rt_cmd);
+    var build_future = pool.submit(exec, helix_build_cmd);
+
+    var res = build_future.get();
+    if (res.return_code != 0) {
+        api::log.error(f"build.hlx compilation failed:\n{res.output}");
+        return 1;
+    }
+
+    api::log.info("build.hlx compiled successfully.");
+
+    res = rt_future.get();
+    if (res.return_code != 0) {
+        api::log.error(f"vial runtime compilation failed:\n{res.output}");
+        return 1;
+    }
+
+    api::log.info("runtime compiled successfully.");
+
+    // Link
+    var cpp_compiler = get_cpp_compiler();
+    if (cpp_compiler == null) {
+        api::log.error("c++ compiler not found. install one or add it to your PATH.");
+        return 1;
+    }
+
+    api::log.info("linking build resolver...");
+
+    var output_exe: api::types::Path;
+
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        output_exe = api::BUILD_DIR / f"build.exe".raw_string();
+    } else {
+        output_exe = api::BUILD_DIR / r".shared" / f"build".raw_string();
+    }
+
+    var flags: string;
+    if USING_MSVC {
+        (flags = f"/OUT:\"{output_exe.generic_wstring()}\" " + "/EHsc /MT ");
+    } else {
+        flags = f"-o \"{output_exe.generic_wstring()}\" " + "-std=c++20 -lpthread -lm ";
+    }
+
+    var link_cmd = f"{cpp_compiler} {flags}"
+                 + f"\"{(full_o_path / f"build_artifact{o_ext}".raw()).generic_wstring()}\" "
+                 + f"\"{(full_o_path / f"vial_runtime{o_ext}".raw()).generic_wstring()}\" "
+                 + "2>&1";
+
+    res = exec(link_cmd);
+    api::log.debug(f"linking with: {link_cmd}");
+
+    if (res.return_code != 0) {
+        api::log.error(f"linking failed:\n{res.output}");
+        return 1;
+    }
+
+    api::log.info(f"build successful! executable created at: {output_exe}");
+
+    // Run executable
+    api::log.info("executing build artifact...");
+
+    var exec_cmd = f"{output_exe} {helixc} {cpp_compiler} \"{"true" if USING_MSVC else "false"}\"";
+    res = exec(exec_cmd);
+
+    api::log.debug(f"running build with: {exec_cmd}");
+    
+    if (res.return_code != 0) {
+        api::log.error(f"build execution failed:\n{res.output}");
+        return res.return_code;
+    }
+
+    api::log.info(res.output);
+
+    return 0;
+}
+*/

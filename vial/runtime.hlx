@@ -1,0 +1,98 @@
+#[trivially_import(true)]
+
+import rt::api as api;
+
+__inline_cpp("extern i32 build(void);");
+
+/* Target:
+var name: string;
+var linkage: Linkage;
+var sources: vec::<types::Path>;
+var includes: vec::<types::Path>;
+var links: vec::<string>;
+var builddir: types::Path = types::Path(fs::get_cwd() / "build".raw_string());
+var cxxflags: vec::<string>;
+var defines: vec::<string>;
+var before_build: fn (*Target) -> void;
+var after_build: fn (*Target) -> void;
+*/
+
+fn compile_cmd(target: *api::Target) -> string {
+    // api::HELIX_COMPILER::value()
+    var cmd = f"{api::HELIX_COMPILER::value()}";
+
+    return cmd;
+}
+
+fn set_up_globals() {
+    api::VERSION::set("0.1.0");
+    api::IN_TARGET::set(false);
+    api::TARGET_TRIPLE::set(f"{api::get_arch()}-{api::get_vendor()}-{api::get_system()}");
+    api::BUILD_DIR::set(api::types::Path(api::get_cwd() / r"build" / api::TARGET_TRIPLE::value().raw_string()));
+}
+
+fn main(argc: i32, argv: *(*helix::std::Legacy::char)) -> i32 {
+    var args = vec::<string>();
+
+    for (i in 0..argc) {
+        args.push_back(std::to_string(argv[i]));
+    }
+
+    // the following paths must be provided by the user
+    // helix compiler path, and c++ compiler path, compiler type (msvc or clang)
+
+    var helix_compiler: string;
+    var cpp_compiler: string;
+    var is_msvc: bool = false;
+
+    if argc != 4 {
+        api::log.error("Usage: vial <helix_compiler_path> <cpp_compiler_path> <is_msvc>");
+        return 127;
+    }
+
+    helix_compiler = args[1];
+    cpp_compiler = args[2];
+    is_msvc = args[3] == "true";
+    
+    if !libcxx::filesystem::exists(helix_compiler.raw_string()) {
+        api::log.error(f"Helix compiler path does not exist: {helix_compiler}");
+        return 1; // Helix compiler not found
+    }
+
+    if !libcxx::filesystem::exists(cpp_compiler.raw_string()) {
+        api::log.error(f"C++ compiler path does not exist: {cpp_compiler}");
+        return 1; // C++ compiler not found
+    }
+
+    api::set_helix_compiler(helix_compiler.raw());
+    api::set_cpp_compiler(cpp_compiler.raw());
+    
+    finally { // ensure all targets are deleted
+        for target in api::TARGETS::value() {
+            std::forget(target);
+        }
+    }
+
+    api::log.info("Starting build process...");
+
+    var ret = build();
+
+    api::log.info(f"Build process completed. targets: {api::TARGETS::value().size()}");
+
+    for target in api::TARGETS::value() {
+        target->before_build(target);
+
+        var cmd = compile_cmd(target);
+        api::log.info(f"Compiling target: {target->name} with command: {cmd}");
+
+        // Here you would execute the command, e.g., using a system call
+        // For now, we just log it
+        // system(cmd.raw_string());
+
+        target->after_build(target);
+    }
+
+    api::log.info("Build targets registered successfully.");
+
+    return ret;
+}
