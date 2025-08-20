@@ -426,7 +426,7 @@ __AST_NODE_BEGIN {
         BASE_CORE_METHODS(InstOfExpr);
 
         enum class InstanceType {
-            Has,
+            Implement,
             Derives,
         };
 
