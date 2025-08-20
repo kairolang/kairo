@@ -4,8 +4,8 @@
 
 
 class Point {
-    pub let x: f32
-    pub let y: f32
+    pub var x: f32
+    pub var y: f32
 }
 
 
@@ -15,7 +15,7 @@ class Shape {
 
 class Circle derives Shape {
     pub fn area() -> f32 { return 3.14 * radius * radius }
-    pub let radius: f32
+    pub var radius: f32
 }
 
 class Base {
@@ -53,12 +53,12 @@ fn make_noise(a: Box<Animal>) {
     print(a.speak()) // Uses v-table lookup
 }
 
-fn make_noise(a: T) requires <T> if T has Animal {
+fn <T> make_noise(a: T) requires T impl Animal {
     print(a.speak())  // No v-table lookup, method is inlined
 }
 
 class SecureData {
-    priv let key: str
+    priv var key: str
 
     pub fn get_key() -> str { return key }
 }

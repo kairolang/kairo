@@ -2,7 +2,7 @@ interface Addable {
     op + fn (self, other: self) -> self;
 }
 
-fn add(a: T, b: T) -> T requires <T> if T has Addable {
+fn <T> add(a: T, b: T) -> T requires T impl Addable {
     return a + b;
 }
 

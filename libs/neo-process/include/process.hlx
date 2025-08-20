@@ -25,33 +25,33 @@ module neo {
     inline module detail {
         struct process_handle {
             eval if defined(__NEO_WINDOWS__) {
-                let hProcess: HANDLE;
-                let hThread: HANDLE;
+                var hProcess: HANDLE;
+                var hThread: HANDLE;
             } else {
-                let pid: pid_t;
+                var pid: pid_t;
             }
         }
 
         struct pipe_handle {
             eval if defined(__NEO_WINDOWS__) {
-                let hRead: HANDLE;
-                let hWrite: HANDLE;
+                var hRead: HANDLE;
+                var hWrite: HANDLE;
             } else {
-                let fd: *int = salloc(sizeof(int) * 2);
+                var fd: *int = salloc(sizeof(int) * 2);
             }
         }
 
         class process_info {
-            let handle: process_handle?;
-            let stdin:  pipe_handle?;
-            let stdout: pipe_handle?;
-            let stderr: pipe_handle?;
+            var handle: process_handle?;
+            var stdin:  pipe_handle?;
+            var stdout: pipe_handle?;
+            var stderr: pipe_handle?;
 
             inline fn create_pipe() -> pipe_handle {
-                let pipe: pipe_handle;
+                var pipe: pipe_handle;
 
                 eval if defined(__NEO_WINDOWS__) {
-                    let saAttr: SECURITY_ATTRIBUTES;
+                    var saAttr: SECURITY_ATTRIBUTES;
                     saAttr.nLength              = sizeof(SECURITY_ATTRIBUTES);
                     saAttr.bInheritHandle       = TRUE;
                     saAttr.lpSecurityDescriptor = &null;
@@ -81,11 +81,11 @@ module neo {
         }
 
         inline fn create_process(const command: &std::string) -> process_handle {
-            let handle: process_handle;
+            var handle: process_handle;
 
             eval if defined(__NEO_WINDOWS__) {
-                let si: STARTUPINFO;
-                let pi: PROCESS_INFORMATION;
+                var si: STARTUPINFO;
+                var pi: PROCESS_INFORMATION;
 
                 ZeroMemory(&si, sizeof(si));
                 si.cb = sizeof(si);
@@ -100,7 +100,7 @@ module neo {
                 handle.hThread  = pi.hThread;
 
             } else {
-                let pid = fork();
+                var pid = fork();
 
                 if pid == -1 {
                     panic std::runtime_error("failed to create process");
@@ -128,7 +128,7 @@ module neo {
 
         inline fn write_to_pipe(pipe: &pipe_handle, const data: &std::string) -> void {
             eval if defined(__NEO_WINDOWS__) {
-                let bytes_written: DWORD;
+                var bytes_written: DWORD;
                 WriteFile(pipe.hWrite, data.c_str(), data.size(), &bytes_written, &null);
             } else {
                 write(pipe.fd[1], data.c_str(), data.size());
@@ -136,11 +136,11 @@ module neo {
         }
 
         inline fn read_from_pipe(pipe: &pipe_handle) -> std::string {
-            let data: std::string;
+            var data: std::string;
 
             eval if defined(__NEO_WINDOWS__) {
-                let bytes_read: DWORD;
-                let buffer[4096]: CHAR;
+                var bytes_read: DWORD;
+                var buffer[4096]: CHAR;
 
                 while (true) {
                     if (!ReadFile(pipe.hRead, buffer, sizeof(buffer), &bytes_read, &null) ||
@@ -152,8 +152,8 @@ module neo {
                 }
 
             } else {
-                let buffer[4096]: char;
-                let bytes_read: size_t;
+                var buffer[4096]: char;
+                var bytes_read: size_t;
 
                 while (true) {
                     bytes_read = read(pipe.fd[0], buffer, sizeof(buffer));

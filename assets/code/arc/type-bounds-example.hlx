@@ -4,7 +4,7 @@ interface Drawable {
 }
 
 class Circle derives Drawable {
-    let radius: float;
+    var radius: float;
 
     fn Circle(self, radius: float) {
         self.radius = radius;
@@ -20,7 +20,7 @@ class Circle derives Drawable {
 }
 
 class Square derives Drawable {
-    let side: float;
+    var side: float;
 
     fn Square(self, side: float) {
         self.side = side;
@@ -35,15 +35,15 @@ class Square derives Drawable {
     }
 }
 
-fn draw_all(...objects: T)
-  requires <T> if T is Drawable {
+fn <T> draw_all(...objects: T)
+  requires T impl Drawable {
     for obj in objects {
         obj.draw();
     }
 }
 
 fn main() {
-    let shapes = (Circle(1.0), Square(1.0), Circle(2.0)); // type of tuple
+    var shapes = (Circle(1.0), Square(1.0), Circle(2.0)); // type of tuple
 
     draw_all(shapes...);
 }

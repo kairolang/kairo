@@ -14,7 +14,7 @@ fn main() -> i32 {
         delete int_holder
     }
 
-    // Helix has type inference, so theres no need to specify the type of value. But any modifiers
+    // Helix impl type inference, so theres no need to specify the type of value. But any modifiers
     // like pointers, questionable, etc. must be specified. (enforced for readability and safety)
     var *value? = int_holder.get(1)
     
@@ -22,7 +22,7 @@ fn main() -> i32 {
         value = Heap::construct<int>(21) // Equivalent to new int(21) in C++
     }
 
-    // Helix has support for named parameters/default values
+    // Helix impl support for named parameters/default values
     var *invalid_value? = int_holder.get(index=100) // Attempt to fetch an out-of-bounds value
     
     if invalid_value?:
@@ -40,14 +40,14 @@ fn main() -> i32 {
 // Structs in Helix are data containers with no methods.
 // They can include: operator overloads, nested structs, destructors, enums, and fields.
 // All fields are public by default.
-struct Data {
+struct <T> Data {
     // Regular pointers: non-nullable, no arithmetic, and auto-dereferenced (like references in other languages).
     var value: *T?
 }
 
 // Classes in Helix support methods, fields, and constructors.
 // Fields are private by default, while methods and constructors are public by default.
-class Holder requires <T> {
+class <T> Holder {
     // Unsafe pointers: nullable, allow pointer arithmetic, and require manual dereferencing.
     var num_values:  usize
     var many_values: unsafe *Data
@@ -77,8 +77,7 @@ class Holder requires <T> {
         Heap::drop(self.many_values)
     }
 
-    fn get(self, index: usize) -> *T?
-      requires <T> {
+    fn <T> get(self, index: usize) -> *T? {
         if index < self.num_values {
             return self.many_values[index].value
         } else {
