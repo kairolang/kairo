@@ -94,7 +94,7 @@ __AST_NODE_BEGIN {
     class RequiresDecl final : public Node {
         BASE_CORE_METHODS(RequiresDecl);
 
-        // RequiresDecl := 'requires' '<' RequiresParamList '>' ('if' TypeBoundList)?
+        // RequiresDecl := 'requires' '<' RequiresParamList '>' ('where' TypeBoundList)?
         explicit RequiresDecl(NodeT<RequiresParamList> params)
             : params(std::move(params)) {}
 
@@ -251,11 +251,14 @@ __AST_NODE_BEGIN {
         Modifiers qualifiers = Modifiers(Modifiers::ExpectedModifier::FuncQual);
 
         token::Token        marker;
-        NodeT<PathExpr>     name;
+        NodeT<PathExpr>     name;    // if an op then this would be alias
         NodeV<VarDecl>      params;
         NodeT<RequiresDecl> generics;
         NodeT<Type>         returns;
         NodeT<SuiteState>   body;
+        
+        bool is_op = false;  // if this is an operator function
+        std::vector<__TOKEN_N::Token> op;
     };
 
     class VarDecl final : public Node {

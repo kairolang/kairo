@@ -280,7 +280,8 @@ AST_NODE_IMPL(Declaration, TypeBoundList) {
     while (CURRENT_TOKEN_IS(__TOKEN_N::tokens::OPERATOR_LOGICAL_AND)) {
         iter.advance();  // skip '&&'
 
-        ParseResult<InstOfExpr> next = expr_parser.parse<InstOfExpr>(expr_parser.parse<Type>(), true);
+        ParseResult<InstOfExpr> next =
+            expr_parser.parse<InstOfExpr>(expr_parser.parse<Type>(), true);
         RETURN_IF_ERROR(next);
 
         node->bounds.emplace_back(next.value());
@@ -311,13 +312,21 @@ AST_NODE_IMPL_VISITOR(Jsonify, TypeBoundDecl) { json.section("TypeBoundDecl"); }
 
 // ---------------------------------------------------------------------------------------------- //
 
+#define PARSE_REQUIRES_BOUNDS(req_node)                             \
+    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {            \
+        iter.advance();                                             \
+                                                                    \
+        ParseResult<TypeBoundList> bounds = parse<TypeBoundList>(); \
+        RETURN_IF_ERROR(bounds);                                    \
+                                                                    \
+        (req_node)->bounds = bounds.value();                        \
+    }
+
 AST_NODE_IMPL(Declaration, RequiresDecl) {
     IS_NOT_EMPTY;
-    // RequiresDecl := requires' '<' RequiresParamList '>' ('if' TypeBoundList)?
+    // RequiresDecl := '<' RequiresParamList '>' ... ('requires' TypeBoundList)?
 
-    IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_REQUIRES);
-    iter.advance();  // skip 'requires
-
+    /// --------------------- params --------------------- ///
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_OPEN_ANGLE);
     iter.advance();  // skip '<'
 
@@ -328,15 +337,7 @@ AST_NODE_IMPL(Declaration, RequiresDecl) {
 
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_ANGLE);
     iter.advance();  // skip '>'
-
-    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_IF)) {
-        iter.advance();  // skip 'if'
-
-        ParseResult<TypeBoundList> bounds = parse<TypeBoundList>();
-        RETURN_IF_ERROR(bounds);
-
-        node->bounds = bounds.value();
-    }
+    /// --------------------- params --------------------- ///
 
     return node;
 }
@@ -371,6 +372,15 @@ AST_NODE_IMPL(Declaration, StructDecl, const std::shared_ptr<__TOKEN_N::TokenLis
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_STRUCT);
     iter.advance();  // skip 'struct'
 
+    /// ----- generic ----- ///
+    if CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_ANGLE) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
+
+        node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
+
     ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
     RETURN_IF_ERROR(name);
 
@@ -384,10 +394,12 @@ AST_NODE_IMPL(Declaration, StructDecl, const std::shared_ptr<__TOKEN_N::TokenLis
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
 
-        node->generics = generics.value();
+        PARSE_REQUIRES_BOUNDS(node->generics);
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_SEMICOLON)) {  // forward declaration
@@ -545,6 +557,15 @@ AST_NODE_IMPL(Declaration, ClassDecl, const std::shared_ptr<__TOKEN_N::TokenList
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_CLASS);
     iter.advance();  // skip 'class'
 
+    /// ----- generic ----- ///
+    if CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_ANGLE) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
+
+        node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
+
     ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
     RETURN_IF_ERROR(name);
 
@@ -562,10 +583,12 @@ AST_NODE_IMPL(Declaration, ClassDecl, const std::shared_ptr<__TOKEN_N::TokenList
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
 
-        node->generics = generics.value();
+        PARSE_REQUIRES_BOUNDS(node->generics);
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_SEMICOLON)) {  // forward declaration
@@ -614,6 +637,15 @@ AST_NODE_IMPL(Declaration, InterDecl, const std::shared_ptr<__TOKEN_N::TokenList
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_INTERFACE);
     iter.advance();  // skip 'interface'
 
+    /// ----- generic ----- ///
+    if CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_ANGLE) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
+
+        node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
+
     ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
     RETURN_IF_ERROR(name);
 
@@ -627,10 +659,12 @@ AST_NODE_IMPL(Declaration, InterDecl, const std::shared_ptr<__TOKEN_N::TokenList
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
 
-        node->generics = generics.value();
+        PARSE_REQUIRES_BOUNDS(node->generics);
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_SEMICOLON)) {  // forward declaration
@@ -659,7 +693,8 @@ AST_NODE_IMPL_VISITOR(Jsonify, InterDecl) {
 
 AST_NODE_IMPL(Declaration, EnumDecl, const std::shared_ptr<__TOKEN_N::TokenList> &modifiers) {
     IS_NOT_EMPTY;
-    // EnumDecl := Modifiers 'enum' (('derives' E.Type)? Ident)? (('{' (EnumMemberDecl (',' EnumMemberDecl)*)? '}') | (':' (EnumMemberDecl) ';'))
+    // EnumDecl := Modifiers 'enum' (('derives' E.Type)? Ident)? (('{' (EnumMemberDecl (','
+    // EnumMemberDecl)*)? '}') | (':' (EnumMemberDecl) ';'))
 
     NodeT<EnumDecl> node = make_node<EnumDecl>(true);
 
@@ -693,10 +728,11 @@ AST_NODE_IMPL(Declaration, EnumDecl, const std::shared_ptr<__TOKEN_N::TokenList>
         node->name = name.value();
     } else {
         if (node->derives) {
-            return std::unexpected(PARSE_ERROR(CURRENT_TOK, "anonymous enum cannot have specified type"));
+            return std::unexpected(
+                PARSE_ERROR(CURRENT_TOK, "anonymous enum cannot have specified type"));
         }
     }
-    
+
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_BRACE)) {
         iter.advance();  // skip '{'
 
@@ -709,7 +745,7 @@ AST_NODE_IMPL(Declaration, EnumDecl, const std::shared_ptr<__TOKEN_N::TokenList>
             if (!CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_COMMA)) {
                 break;
             }
-            
+
             iter.advance();  // skip ','
         }
 
@@ -772,16 +808,28 @@ AST_NODE_IMPL(Declaration, TypeDecl, const std::shared_ptr<__TOKEN_N::TokenList>
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_TYPE);
     iter.advance();  // skip 'type'
 
-    ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
-    RETURN_IF_ERROR(name);
-
-    node->name = name.value();
-
-    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
+    /// ----- generic ----- ///
+    if CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_ANGLE) {
         ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
         RETURN_IF_ERROR(generics);
 
         node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
+
+    
+    ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
+    RETURN_IF_ERROR(name);
+    
+    node->name = name.value();
+    
+    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
+
+        PARSE_REQUIRES_BOUNDS(node->generics);
     }
 
     IS_EXCEPTED_TOKEN(__TOKEN_N::OPERATOR_ASSIGN);
@@ -836,16 +884,26 @@ AST_NODE_IMPL(Declaration,
     }
 
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_FUNCTION);
-    node->marker = CURRENT_TOK; // save 'fn' token
-    iter.advance();  // skip 'fn'
+    node->marker = CURRENT_TOK;  // save 'fn' token
+    iter.advance();              // skip 'fn'
 
-    bool has_name = true;
+    /// ----- generic ----- /// only if not in an op situation
+    if (force_name && CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_ANGLE)) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
 
-    if (!force_name && !(CURRENT_TOKEN_IS(__TOKEN_N::IDENTIFIER) || CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_SCOPE))) {
-        has_name = false;
+        node->generics = generics.value();
     }
-
-    if (has_name) {
+    /// ----- generic ----- ///
+    
+    bool has_name = true;
+    
+    if (!force_name &&
+        !(CURRENT_TOKEN_IS(__TOKEN_N::IDENTIFIER) || CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_SCOPE))) {
+            has_name = false;
+        }
+        
+        if (has_name) {
         ParseResult<PathExpr> name = expr_parser.parse<PathExpr>();
         RETURN_IF_ERROR(name);
 
@@ -862,7 +920,7 @@ AST_NODE_IMPL(Declaration,
     iter.advance();  // skip '('
 
     if (!CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_CLOSE_PAREN)) {
-        __TOKEN_N::Token starting = CURRENT_TOK;
+        __TOKEN_N::Token     starting    = CURRENT_TOK;
         ParseResult<VarDecl> first_param = parse<VarDecl>(true);
         RETURN_IF_ERROR(first_param);
 
@@ -876,7 +934,7 @@ AST_NODE_IMPL(Declaration,
 
             if (param.value()->value != nullptr) {
                 has_keyword = true;
-            } else { // if theres no value but theres a keyword arg
+            } else {  // if theres no value but theres a keyword arg
                 if (has_keyword) {
                     return std::unexpected(
                         PARSE_ERROR(starting, "positional argument after default argument"));
@@ -886,15 +944,17 @@ AST_NODE_IMPL(Declaration,
             node->params.emplace_back(param.value());
         }
     }
-    
+
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_PAREN);
     iter.advance();  // skip ')'
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
 
-        node->generics = generics.value();
+        PARSE_REQUIRES_BOUNDS(node->generics);
         found_requires = true;
     }
 
@@ -911,10 +971,12 @@ AST_NODE_IMPL(Declaration,
                 return std::unexpected(PARSE_ERROR(CURRENT_TOK, "duplicate requires clause"));
             }
 
-            ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-            RETURN_IF_ERROR(generics);
+            if (node->generics == nullptr) {
+                return std::unexpected(PARSE_ERROR(
+                    CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+            }
 
-            node->generics = generics.value();
+            PARSE_REQUIRES_BOUNDS(node->generics);
         }
     }
 
@@ -1218,7 +1280,8 @@ AST_BASE_IMPL(Declaration, parse) {
     IS_NOT_EMPTY;
 
     __TOKEN_N::Token tok = CURRENT_TOK;  /// get the current token from the iterator
-    std::shared_ptr<__TOKEN_N::TokenList> modifiers = nullptr;  /// create a pointer to the modifiers
+    std::shared_ptr<__TOKEN_N::TokenList> modifiers =
+        nullptr;  /// create a pointer to the modifiers
 
     /* TODO: make this not happen if bool is passed */
     while (Modifiers::is_modifier(tok)) {
@@ -1284,3 +1347,11 @@ AST_BASE_IMPL(Declaration, parse) {
             return state_parser.parse(modifiers);
     }
 }
+
+
+
+
+//// game plan for mergering
+// start by changing the function parser to accpect operators
+// then change the decl parser to remove operator parsing
+// then remove all refs to OpDecl
