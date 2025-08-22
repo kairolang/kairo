@@ -29,26 +29,26 @@ fn add(a: i32, b: i32) -> i32 {
 }
 
 // Overload the addition operator for Fraction
-op + fn add(a: Fraction, b: Fraction) -> Fraction {
+fn op + (a: Fraction, b: Fraction)[add] -> Fraction {
     var new_n = add(a.n + b.d, b.n + a.d);
     var new_d = a.d * b.d;
     return { .n = new_n,
              .d = new_d };
 }
 
-op - fn subtract(a: Fraction, b: Fraction) -> Fraction {
+fn op - (a: Fraction, b: Fraction)[subtract] -> Fraction {
     var new_n = add(a.n - b.d, b.n - a.d);
     var new_d = a.d * b.d;
     return Fraction { n= new_n, d= new_d };
 }
 
-op * fn multiply(a: Fraction, b: Fraction) -> Fraction {
+fn op * (a: Fraction, b: Fraction)[multiply] -> Fraction {
     var new_n = a.n * b.n;
     var new_d = a.d * b.d;
     return Fraction { n= new_n, d= new_d };
 }
 
-op / fn divide(a: Fraction, b: Fraction) -> Fraction {
+fn op / (a: Fraction, b: Fraction)[divide] -> Fraction {
     var new_n = a.n * b.d;
     var new_d = a.d * b.n;
     return Fraction { n= new_n, d= new_d };
@@ -59,143 +59,143 @@ op / fn divide(a: Fraction, b: Fraction) -> Fraction {
 // + - * / % ^ & | ~ ! = < > += -= *= /= %= ^= &= |= << >> >>= <<= == != <= >= <=>(since C++20) && || ++ -- , ->* -> ( ) [ ]
 
 // Overload the unary minus operator for Fraction
-op - fn unary_minus(a: Fraction) -> Fraction {
+fn op - (a: Fraction)[unary_minus] -> Fraction {
     return Fraction { n= -a.n, d= a.d };
 }
 
 // Overload the unary plus operator for Fraction
 
-op + fn unary_plus(a: Fraction) -> Fraction {
+fn op + (a: Fraction)[unary_plus] -> Fraction {
     return Fraction { n= a.n, d= a.d };
 }
 
 // Overload the increment operator for Fraction
 
-op ++ fn increment(a: Fraction) -> Fraction {
+fn op ++ (a: Fraction)[increment] -> Fraction {
     return Fraction { n= a.n + a.d, d= a.d };
 }
 
 // Overload the decrement operator for Fraction
 
-op -- fn decrement(a: Fraction) -> Fraction {
+fn op -- (a: Fraction)[decrement] -> Fraction {
     return Fraction { n= a.n - a.d, d= a.d };
 }
 
 // Overload the addition assignment operator for Fraction
 
-op += fn add_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op += (a: Fraction, b: Fraction)[add_assign] -> Fraction {
     return a + b;
 }
 
 // Overload the subtraction assignment operator for Fraction
 
-op -= fn subtract_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op -= (a: Fraction, b: Fraction)[subtract_assign] -> Fraction {
     return a - b;
 }
 
 // Overload the multiplication assignment operator for Fraction
 
-op *= fn multiply_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op *= (a: Fraction, b: Fraction)[multiply_assign] -> Fraction {
     return a * b;
 }
 
 // Overload the division assignment operator for Fraction
 
-op /= fn divide_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op /= (a: Fraction, b: Fraction)[divide_assign] -> Fraction {
     return a / b;
 }
 
 // Overload the modulus assignment operator for Fraction
 
-op %= fn modulus_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op %= (a: Fraction, b: Fraction)[modulus_assign] -> Fraction {
     return Fraction { n= a.n % b.n, d= a.d % b.d };
 }
 
 // Overload the bitwise AND assignment operator for Fraction
 
-op &= fn bitwise_and_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op &= (a: Fraction, b: Fraction)[bitwise_and_assign] -> Fraction {
     return Fraction { n= a.n & b.n, d= a.d & b.d };
 }
 
 // Overload the bitwise OR assignment operator for Fraction
 
-op |= fn bitwise_or_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op |= (a: Fraction, b: Fraction)[bitwise_or_assign] -> Fraction {
     return Fraction { n= a.n | b.n, d= a.d | b.d };
 }
 
 // Overload the bitwise XOR assignment operator for Fraction
 
-op ^= fn bitwise_xor_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op ^= (a: Fraction, b: Fraction)[bitwise_xor_assign] -> Fraction {
     return Fraction { n= a.n ^ b.n, d= a.d ^ b.d };
 }
 
 // Overload the left shift assignment operator for Fraction
 
-op <<= fn left_shift_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op <<= (a: Fraction, b: Fraction)[left_shift_assign] -> Fraction {
     return Fraction { n= a.n << b.n, d= a.d << b.d };
 }
 
 // Overload the right shift assignment operator for Fraction
 
-op >>= fn right_shift_assign(a: Fraction, b: Fraction) -> Fraction {
+fn op >>= (a: Fraction, b: Fraction)[right_shift_assign] -> Fraction {
     return Fraction { n= a.n >> b.n, d= a.d >> b.d };
 }
 
 // Overload the modulus operator for Fraction
 
-op % fn modulus(a: Fraction, b: Fraction) -> Fraction {
+fn op % (a: Fraction, b: Fraction)[modulus] -> Fraction {
     return Fraction { n= a.n % b.n, d= a.d % b.d };
 }
 
 // Overload the bitwise AND operator for Fraction
 
-op & fn bitwise_and(a: Fraction, b: Fraction) -> Fraction {
+fn op & (a: Fraction, b: Fraction)[bitwise_and] -> Fraction {
     return Fraction { n= a.n & b.n, d= a.d & b.d };
 }
 
 // Overload the bitwise OR operator for Fraction
 
-op | fn bitwise_or(a: Fraction, b: Fraction) -> Fraction {
+fn op | (a: Fraction, b: Fraction)[bitwise_or] -> Fraction {
     return Fraction { n= a.n | b.n, d= a.d | b.d };
 }
 
 // Overload the bitwise XOR operator for Fraction
 
-op ^ fn bitwise_xor(a: Fraction, b: Fraction) -> Fraction {
+fn op ^ (a: Fraction, b: Fraction)[bitwise_xor] -> Fraction {
     return Fraction { n= a.n ^ b.n, d= a.d ^ b.d };
 }
 
 // Overload the left shift operator for Fraction
 
-op << fn left_shift(a: Fraction, b: Fraction) -> Fraction {
+fn op << (a: Fraction, b: Fraction)[left_shift] -> Fraction {
     return Fraction { n= a.n << b.n, d= a.d << b.d };
 }
 
 // Overload the right shift operator for Fraction
 
-op >> fn right_shift(a: Fraction, b: Fraction) -> Fraction {
+fn op >> (a: Fraction, b: Fraction)[right_shift] -> Fraction {
     return Fraction { n= a.n >> b.n, d= a.d >> b.d };
 }
 
 // Overload the comparison operators for Fraction
 
-op < fn less_than(a: Fraction, b: Fraction) -> bool {
+fn op < (a: Fraction, b: Fraction)[less_than] -> bool {
     return a.n * b.d < b.n * a.d;
 }
 
-op > fn greater_than(a: Fraction, b: Fraction) -> bool {
+fn op > (a: Fraction, b: Fraction)[greater_than] -> bool {
     return a.n * b.d > b.n * a.d;
 }
 
-op <= fn less_than_or_equal(a: Fraction, b: Fraction) -> bool {
+fn op <= (a: Fraction, b: Fraction)[less_than_or_equal] -> bool {
     return a.n * b.d <= b.n * a.d;
 }
 
-op >= fn greater_than_or_equal(a: Fraction, b: Fraction) -> bool {
+fn op >= (a: Fraction, b: Fraction)[greater_than_or_equal] -> bool {
     return a.n * b.d >= b.n * a.d;
 }
 
-// op <=> fn three_way_comparison(a: Fraction, b: Fraction) -> i32 {
+// fn op <=> (a: Fraction, b: Fraction)[three_way_comparison] -> i32 {
 //     if a.n * b.d < b.n * a.d {
 //         return -1;
 //     } else if a.n * b.d > b.n * a.d {
@@ -205,25 +205,25 @@ op >= fn greater_than_or_equal(a: Fraction, b: Fraction) -> bool {
 //     }
 // }
 
-op && fn logical_and(a: Fraction, b: Fraction) -> bool {
+fn op && (a: Fraction, b: Fraction)[logical_and] -> bool {
     return a.n && b.n && a.d && b.d;
 }
 
-op || fn logical_or(a: Fraction, b: Fraction) -> bool {
+fn op || (a: Fraction, b: Fraction)[logical_or] -> bool {
     return a.n || b.n || a.d || b.d;
 }
 
-op ! fn logical_not(a: Fraction) -> bool {
+fn op ! (a: Fraction)[logical_not] -> bool {
     return !a.n && !a.d;
 }
 
 // Overload the equality operator for Fraction
-op == fn equals(a: Fraction, b: Fraction) -> bool {
+fn op == (a: Fraction, b: Fraction)[equals] -> bool {
     return a.n * b.d == b.n * a.d;
 }
 
 // // Overload the subscript operator for Fraction (returning numerator or denominator)
-// op [] fn access_element(a: Fraction, index: i32) -> i32 {
+// fn op [] (a: Fraction, index: i32)[access_element] -> i32 {
 //     if index == 0 {
 //         return a.n;
 //     } else if index == 1 {
@@ -234,12 +234,12 @@ op == fn equals(a: Fraction, b: Fraction) -> bool {
 // }
 
 // // Function call operator, which returns the fraction's value as a floating-point number
-// op () fn fraction_to_float(a: Fraction) -> float {
+// fn op () (a: Fraction)[fraction_to_float] -> float {
 //     return a.n as float / a.d as float;
 // }
 // TODO: references do not work - THEY DO NOW!!!!
 // Overload the stream insertion operator (for printing)
-// op << fn stream_insert(out: libcxx::ostream , a: Fraction) -> libcxx::ostream {
+// fn op << (out: libcxx::ostream , a: Fraction)[stream_insert] -> libcxx::ostream {
 //     return out << a.n << "/" << a.d;
 // }
 

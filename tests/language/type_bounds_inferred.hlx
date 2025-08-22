@@ -1,5 +1,5 @@
 interface Addable {
-    op + fn (self, other: self) -> self;
+    fn op + (self, other: self) -> self;
 }
 
 fn <T> add(a: T, b: T) -> T requires T impl Addable {

@@ -14,7 +14,7 @@ class Derived derives Base {
         return self.val;
     }
 
-    op as fn (self) -> string {
+    fn op as (self) -> string {
         return "class: Derived";
     }
 }
@@ -30,13 +30,13 @@ class ClassCasting {
         self.val = val;
     }
 
-    op as fn (self) -> TempContainer {
+    fn op as (self) -> TempContainer {
         return TempContainer {
             vb = self.val
         };
     }
 
-    op delete fn (self) {
+    fn op delete (self) {
         print("destroying");
     }
 }
@@ -154,7 +154,7 @@ class Book {
         self.val = val;
     }
 
-    op as fn (self) -> string {
+    fn op as (self) -> string {
         return "class: Book";
     }
 }

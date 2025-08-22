@@ -30,9 +30,9 @@
 /// op's in class defs need to ignore self parm and work without self while calling as well.
 
 // interface Incrementable {
-//     op ++ fn inc(self) -> Self;
-//     op < fn lt(self, other: Self) -> bool;
-//     op == fn eq(self, other: Self) -> bool;
+//     fn op ++ (self)[inc] -> Self;
+//     fn op < (self, other: Self)[lt] -> bool;
+//     fn op == (self, other: Self)[eq] -> bool;
 // }
 
 module some_namespace {

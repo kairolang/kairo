@@ -5,9 +5,9 @@ ffi "c++" import "memory";
 /* ------------------------------------------- helper ------------------------------------------- */
 /// define a basic range method since c++ does not provide one and helix does not have a std (yet)
 interface Incrementable {
-    op ++ fn inc(self) -> Self;
-    op < fn lt(self, other: Self) -> bool;
-    op == fn eq(self, other: Self) -> bool;
+    fn op ++ (self)[inc] -> Self;
+    fn op < (self, other: Self)[lt] -> bool;
+    fn op == (self, other: Self)[eq] -> bool;
 }
 
 fn <T> range(start: T, end: T, step: T = 1) -> yield T
@@ -81,16 +81,16 @@ class <T> Matrix /* requires Arithmetic in T || T derives Point */ {
     }
 
     /// mat access operator
-    op () fn call_op(self, r: i32, c: i32) -> &T {
+    fn op () (self, r: i32, c: i32)[call_op] -> &T {
         return self.data[r * self.cols + c];
     }
 
-    // op () fn const_call_op(self, r: i32, c: i32) -> T { /// this isnt going to compile 99% sure
+    // fn op () (self, r: i32, c: i32)[const_call_op] -> T { /// this isnt going to compile 99% sure
     //     return self.data[r * self.cols + c];
     // }
 
     /// mat addition
-    op + fn add(self, other: &Matrix::<T>) -> Matrix::<T> {
+    fn op + (self, other: &Matrix::<T>)[add] -> Matrix::<T> {
         var result = Matrix::<T>(self.rows, self.cols);
 
         for (var i: i32 = 0; i < self.rows * self.cols; ++i) {
@@ -101,7 +101,7 @@ class <T> Matrix /* requires Arithmetic in T || T derives Point */ {
     }
 
     /// mat scalar multiplication
-    op * fn mul(self, scalar: T) -> Matrix::<T> {
+    fn op * (self, scalar: T)[mul] -> Matrix::<T> {
         var result = Matrix::<T>(self.rows, self.cols);
         
         for i in range(rows * cols) {
@@ -123,7 +123,7 @@ class <T> Matrix /* requires Arithmetic in T || T derives Point */ {
 
 extend Matrix for Point {
     /// mat addition
-    op + fn add(const other: &Matrix::<Point>) -> Matrix::<Point> {
+    fn op + (const other: &Matrix::<Point>)[add] -> Matrix::<Point> {
         var result = Matrix::<Point>(rows, cols);
 
         for i in range(rows * cols) {

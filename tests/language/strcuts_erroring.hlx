@@ -9,7 +9,7 @@ struct LAO {
 struct LOB {
     var x: int;
 
-    op + fn bar(self) -> int { // error: structs cant have named operators
+    fn op + (self)[bar] -> int { // error: structs cant have named operators
         return self.x;
     }
 }

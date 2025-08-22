@@ -67,7 +67,7 @@ class <T> Holder {
         }
     }
 
-    op delete fn (self) {
+    fn op delete (self) {
         for i in 0..self.num_values {
             if self.many_values[i].value? {
                 Heap::drop(self.many_values[i].value)

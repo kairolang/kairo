@@ -117,8 +117,8 @@ module DiagnosticsEngine {
         
         fn finalize();
 
-        op ? fn (self) -> bool; // allows to question the handler and see if an error is preset
-        op [] fn (self, uuid: DiagnosticsEngine::UUID) -> *DiagnosticsEngine::Report?;
+        fn op ? (self) -> bool; // allows to question the handler and see if an error is preset
+        fn op [] (self, uuid: DiagnosticsEngine::UUID) -> *DiagnosticsEngine::Report?;
     }
     
     enum Options {
@@ -140,7 +140,7 @@ module DiagnosticsEngine {
     module Errors {
         interface Error {
             fn Error(self);            // all errors should have a default constructor
-            op as fn (self) -> string; // conversion to string
+            fn op as (self) -> string; // conversion to string
         }
 
         module Syntax {
