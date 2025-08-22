@@ -153,12 +153,12 @@ class Location {
     fn column(self) -> usize;
     fn serialize(self) -> map::<string, string>;
 
-    op == fn (self, other: Location) -> bool;
-    op != fn (self, other: Location) -> bool;
-    op < fn (self, other: Location) -> bool;
-    op > fn (self, other: Location) -> bool;
-    op <= fn (self, other: Location) -> bool;
-    op >= fn (self, other: Location) -> bool;
+    fn op == (self, other: Location) -> bool;
+    fn op != (self, other: Location) -> bool;
+    fn op < (self, other: Location) -> bool;
+    fn op > (self, other: Location) -> bool;
+    fn op <= (self, other: Location) -> bool;
+    fn op >= (self, other: Location) -> bool;
 }
 ```
 
@@ -186,12 +186,12 @@ class Token {
     fn value(self) -> string?;
     fn serialize(self) -> map::<string, string>;
 
-    op == fn (self, other: Token) -> bool;
-    op != fn (self, other: Token) -> bool;
-    op == fn (self, other: TokenKind) -> bool;
-    op != fn (self, other: TokenKind) -> bool;
-    op == fn (self, other: string) -> bool;
-    op != fn (self, other: string) -> bool;
+    fn op == (self, other: Token) -> bool;
+    fn op != (self, other: Token) -> bool;
+    fn op == (self, other: TokenKind) -> bool;
+    fn op != (self, other: TokenKind) -> bool;
+    fn op == (self, other: string) -> bool;
+    fn op != (self, other: string) -> bool;
 }
 ```
 
@@ -211,15 +211,15 @@ class TokenKind {
     fn to_kind(self, value: string?) -> Kind?;
     fn serialize(self) -> map::<string, string>;
 
-    op == fn (self, other: TokenKind) -> bool;
-    op != fn (self, other: TokenKind) -> bool;
-    op == fn (self, other: string) -> bool;
-    op != fn (self, other: string) -> bool;
-    op == fn (self, other: Kind) -> bool;
-    op != fn (self, other: Kind) -> bool;
+    fn op == (self, other: TokenKind) -> bool;
+    fn op != (self, other: TokenKind) -> bool;
+    fn op == (self, other: string) -> bool;
+    fn op != (self, other: string) -> bool;
+    fn op == (self, other: Kind) -> bool;
+    fn op != (self, other: Kind) -> bool;
 
-    op as fn (self) -> string;
-    op as fn (self) -> Kind;
+    fn op as (self) -> string;
+    fn op as (self) -> Kind;
 }
 ```
 
@@ -235,10 +235,10 @@ class File {
     fn File(self, abs_path: string, content: string);
     fn serialize(self) -> map::<string, string>;
     fn read(self) -> string;
-    op [] fn (self, index: Range::<usize>) -> string?;
+    fn op [] (self, index: Range::<usize>) -> string?;
 
-    op == fn (self, other: File) -> bool;
-    op != fn (self, other: File) -> bool;
+    fn op == (self, other: File) -> bool;
+    fn op != (self, other: File) -> bool;
 }
 ```
 
