@@ -26,7 +26,7 @@ CX_VISIT_IMPL(ExtendDecl) {
             bool has_constructor = false;
 
             for (auto &child : body->body->body) {
-                if (child->getNodeType() == __AST_NODE::nodes::FuncDecl) {
+                if (child->getNodeType() == __AST_NODE::nodes::FuncDecl && !__AST_N::as<__AST_NODE::FuncDecl>(child)->is_op) {
                     auto         func_decl = __AST_N::as<__AST_NODE::FuncDecl>(child);
                     token::Token func_name = func_decl->name->get_back_name();
 
@@ -52,7 +52,7 @@ CX_VISIT_IMPL(ExtendDecl) {
                         self->visit(*func_decl);
                     }
 
-                } else if (child->getNodeType() == __AST_NODE::nodes::OpDecl) {
+                } else if (child->getNodeType() == __AST_NODE::nodes::FuncDecl && __AST_N::as<__AST_NODE::FuncDecl>(child)->is_op) {
                     // we need to handle the `in` operator since its codegen also has to check for
                     // the presence of the begin and end functions 2 variations of the in operator
                     // are possible
@@ -60,11 +60,11 @@ CX_VISIT_IMPL(ExtendDecl) {
                     // 2. `in` operator that takes 1 arg and returns a bool (used in expressions)
                     // we need to handle both of these cases
                     token::Token op_name;
-                    auto         op_decl = __AST_N::as<__AST_NODE::OpDecl>(child);
+                    auto         op_decl = __AST_N::as<__AST_NODE::FuncDecl>(child);
                     auto         op_t    = OpType(*op_decl, true);
 
-                    if (op_decl->func->name != nullptr) {
-                        op_name = op_decl->func->name->get_back_name();
+                    if (op_decl->name != nullptr) {
+                        op_name = op_decl->name->get_back_name();
                     } else {
                         op_name = op_decl->op.back();
                     }
@@ -127,13 +127,13 @@ CX_VISIT_IMPL(ExtendDecl) {
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_LPAREN));
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_RPAREN));
 
-                        self->visit(*op_decl->func->body);
+                        self->visit(*op_decl->body);
 
                         continue;
                     }
 
-                    add_visibility(self, op_decl->func);
-                    self->visit(*op_decl, true);
+                    add_visibility(self, op_decl);
+                    self->visit(*op_decl, true, true);
                 } else if (child->getNodeType() == __AST_NODE::nodes::LetDecl) {
                     auto let_decl = __AST_N::as<__AST_NODE::LetDecl>(child);
 

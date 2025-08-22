@@ -23,7 +23,7 @@ CX_VISIT_IMPL(InterDecl) {
     // S.Suite
     // ADD_NODE_PARAM(generics); // WE need a custom generics impl here as Self is the first generic
 
-    /// op + fn add(self, other: self) -> self;
+    /// fn op + (self, other: self)[add] -> self;
     /// { $self + b } -> std::same_as<self>;
     /// { $self.add(b) } -> std::same_as<self>;
 
@@ -45,7 +45,6 @@ CX_VISIT_IMPL(InterDecl) {
     /// the only things allwoed in a n itnerface delc:
     /// - LetDecl
     /// - FuncDecl
-    /// - OpDecl
     /// - TypeDecl
     /// - ConstDecl
 
@@ -96,83 +95,87 @@ CX_VISIT_IMPL(InterDecl) {
     for (auto &decl : node.body->body->body) {
         switch (decl->getNodeType()) {
             case __AST_NODE::nodes::FuncDecl: {
-                __AST_N::NodeT<__AST_NODE::FuncDecl> func_decl =
+                {
+                    __AST_N::NodeT<__AST_NODE::FuncDecl> func_decl =
                     __AST_N::as<__AST_NODE::FuncDecl>(decl);
 
-                auto [$self, $static] = contains_self_static(func_decl);
-                if ($self && $static) {
-                    CODEGEN_ERROR(self,
-                                  "function is marked static but also takes a self parameter");
-                    break;
-                }
-
-                if (func_decl->body != nullptr) {
-                    CODEGEN_ERROR(func_decl->get_name_t().back(),
-                                  "functions have to be forward declarations in an interface.")
-                    break;
-                }
-
-                if (func_decl->generics != nullptr) {
-                    CODEGEN_ERROR(func_decl->get_name_t().back(),
-                                  "functions can not have `requires` in an interface, apply them "
-                                  "to the interface itself instead.");
-                    break;
-                }
-
-                if (!func_decl->params.empty()) {
-                    bool first = $self;
-
-                    for (auto &param : func_decl->params) {
-                        if (first) {
-                            first = !first;
-                            continue;
-                        }
-
-                        type_map[&param] = generate_unique_name();
+                    if (func_decl->is_op) {
+                        goto __AST_NODE_Func_OpDecl;
                     }
-                }
 
-                break;
-            }
-
-            case __AST_NODE::nodes::OpDecl: {  // WARN: this does not remove the self param from the
-                                               //       function decl
-                __AST_N::NodeT<__AST_NODE::OpDecl> op_decl = __AST_N::as<__AST_NODE::OpDecl>(decl);
-
-                auto [$self, $static] = contains_self_static(op_decl);
-                if ($self && $static) {
-                    CODEGEN_ERROR(self,
-                                  "function is marked static but also takes a self parameter");
-                    break;
-                }
-
-                if (op_decl->func->body != nullptr) {
-                    CODEGEN_ERROR(op_decl->func->get_name_t().back(),
-                                  "functions have to be forward declarations in an interface.")
-                    break;
-                }
-
-                if (op_decl->func->generics != nullptr) {
-                    CODEGEN_ERROR(op_decl->func->get_name_t().back(),
-                                  "functions can not have `requires` in an interface, apply them "
-                                  "to the interface itself instead.");
-                    break;
-                }
-
-                if (!op_decl->func->params.empty()) {
-                    bool first = $self;
-
-                    for (auto &param : op_decl->func->params) {
-                        if (first) {
-                            first = !first;
-                            continue;
-                        }
-
-                        type_map[&param] = generate_unique_name();
+                    auto [$self, $static] = contains_self_static(func_decl);
+                    if ($self && $static) {
+                        CODEGEN_ERROR(self,
+                                    "function is marked static but also takes a self parameter");
+                        break;
                     }
+
+                    if (func_decl->body != nullptr) {
+                        CODEGEN_ERROR(func_decl->get_name_t().back(),
+                                    "functions have to be forward declarations in an interface.")
+                        break;
+                    }
+
+                    if (func_decl->generics != nullptr) {
+                        CODEGEN_ERROR(func_decl->get_name_t().back(),
+                                    "functions can not have `requires` in an interface, apply them "
+                                    "to the interface itself instead.");
+                        break;
+                    }
+
+                    if (!func_decl->params.empty()) {
+                        bool first = $self;
+
+                        for (auto &param : func_decl->params) {
+                            if (first) {
+                                first = !first;
+                                continue;
+                            }
+
+                            type_map[&param] = generate_unique_name();
+                        }
+                    }
+
+                    break;
                 }
 
-                break;
+                __AST_NODE_Func_OpDecl: {
+                    __AST_N::NodeT<__AST_NODE::FuncDecl> func_decl = __AST_N::as<__AST_NODE::FuncDecl>(decl);
+                    auto [$self, $static] = contains_self_static(func_decl);
+                    if ($self && $static) {
+                        CODEGEN_ERROR(self,
+                                    "function is marked static but also takes a self parameter");
+                        break;
+                    }
+
+                    if (func_decl->body != nullptr) {
+                        CODEGEN_ERROR(func_decl->get_name_t().back(),
+                                    "functions have to be forward declarations in an interface.")
+                        break;
+                    }
+
+                    if (func_decl->generics != nullptr) {
+                        CODEGEN_ERROR(func_decl->get_name_t().back(),
+                                    "functions can not have `requires` in an interface, apply them "
+                                    "to the interface itself instead.");
+                        break;
+                    }
+
+                    if (!func_decl->params.empty()) {
+                        bool first = $self;
+
+                        for (auto &param : func_decl->params) {
+                            if (first) {
+                                first = !first;
+                                continue;
+                            }
+
+                            type_map[&param] = generate_unique_name();
+                        }
+                    }
+
+                    break;
+                }
             }
 
             /// ------------------------- only validation at this stage ------------------------ ///
@@ -340,11 +343,15 @@ CX_VISIT_IMPL(InterDecl) {
     /// at this stage validation is done, now we need to only focus on the codegen
     for (auto &decl : node.body->body->body) {
         switch (decl->getNodeType()) {
-            case __AST_NODE::nodes::FuncDecl: {  // fn foo(self, a: U) -> i32;
+            case __AST_NODE::nodes::FuncDecl: {{  // fn foo(self, a: U) -> i32;
                 /// if static codegen: { self::foo(a) } -> std::same_as<i32>;
                 /// if instance codegen: { self_parm_name.foo(a) } -> std::same_as<i32>;
                 __AST_N::NodeT<__AST_NODE::FuncDecl> func_decl =
                     __AST_N::as<__AST_NODE::FuncDecl>(decl);
+
+                if (func_decl->is_op) {
+                    goto LINE417_Func_OpDecl;
+                }
 
                 auto [$self, $static] = contains_self_static(func_decl);
 
@@ -411,8 +418,8 @@ CX_VISIT_IMPL(InterDecl) {
                 break;
             }
 
-            case __AST_NODE::nodes::OpDecl: {
-                /// op + fn add(self, other: self) -> self;
+            LINE417_Func_OpDecl: {
+                /// fn op + (self, other: self)[add] -> self;
                 /// if static codegen:
                 ///    { self::add(a, b) } -> std::same_as<self>;
                 ///    { a + b } -> std::same_as<self>;
@@ -421,16 +428,16 @@ CX_VISIT_IMPL(InterDecl) {
                 ///    { self_parm_name + b } -> std::same_as<self>;
 
                 /// heres is all the decls:
-                /// unary (prefix):  op + fn add(self) -> self;
-                /// unary (postfix): op r+ fn add(self) -> self;
-                /// binary:          op + fn add(self, other: self) -> self;
-                /// array:           op [] fn add(self, other: self) -> self;
+                /// unary (prefix):  fn op + (self)[add] -> self;
+                /// unary (postfix): fn op r+ (self)[add] -> self;
+                /// binary:          fn op + (self, other: self)[add] -> self;
+                /// array:           fn op [] (self, other: self)[add] -> self;
 
-                __AST_N::NodeT<__AST_NODE::OpDecl> op_decl = __AST_N::as<__AST_NODE::OpDecl>(decl);
+                __AST_N::NodeT<__AST_NODE::FuncDecl> op_decl = __AST_N::as<__AST_NODE::FuncDecl>(decl);
 
                 auto [$self, $static] = contains_self_static(op_decl);
 
-                if (op_decl->func->name != nullptr) {  // first declaration
+                if (op_decl->name != nullptr) {  // first declaration
                     ADD_TOKEN(CXX_LBRACE);
 
                     if ($self) {
@@ -441,13 +448,13 @@ CX_VISIT_IMPL(InterDecl) {
                         ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     }
 
-                    ADD_PARAM(op_decl->func->name);
+                    ADD_PARAM(op_decl->name);
                     ADD_TOKEN(CXX_LPAREN);
 
-                    if (!op_decl->func->params.empty()) {
+                    if (!op_decl->params.empty()) {
                         bool first = $self;
 
-                        for (auto &param : op_decl->func->params) {
+                        for (auto &param : op_decl->params) {
                             if (first) {
                                 first = !first;
                                 continue;
@@ -458,7 +465,7 @@ CX_VISIT_IMPL(InterDecl) {
                             ADD_TOKEN(CXX_COMMA);
                         }
 
-                        if (!$self || op_decl->func->params.size() != 1) {
+                        if (!$self || op_decl->params.size() != 1) {
                             tokens.pop_back();
                         }
                     }
@@ -468,18 +475,18 @@ CX_VISIT_IMPL(InterDecl) {
                     ADD_TOKEN(CXX_RBRACE);
                     ADD_TOKEN(CXX_PTR_ACC);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "std", op_decl->func->get_name_t().back());
+                        CXX_CORE_IDENTIFIER, "std", op_decl->get_name_t().back());
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "Meta", op_decl->func->get_name_t().back());
+                        CXX_CORE_IDENTIFIER, "Meta", op_decl->get_name_t().back());
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "is_convertible_to", op_decl->func->get_name_t().back());
+                        CXX_CORE_IDENTIFIER, "is_convertible_to", op_decl->get_name_t().back());
                     ADD_TOKEN(CXX_LESS_THAN);
 
-                    if (op_decl->func->returns) {
-                        if (!is_self_t(op_decl->func->returns)) {
-                            ADD_PARAM(op_decl->func->returns);
+                    if (op_decl->returns) {
+                        if (!is_self_t(op_decl->returns)) {
+                            ADD_PARAM(op_decl->returns);
                         }
                     } else {
                         ADD_TOKEN(CXX_VOID);
@@ -502,7 +509,7 @@ CX_VISIT_IMPL(InterDecl) {
                             CODEGEN_ERROR(op_decl->op.front(),
                                           "Invalid operator/parameters for operator overload");
                         } else {
-                            CODEGEN_ERROR(op_decl->func->get_name_t().back(),
+                            CODEGEN_ERROR(op_decl->get_name_t().back(),
                                           "Invalid operator/parameters for operator overload");
                         }
 
@@ -519,7 +526,7 @@ CX_VISIT_IMPL(InterDecl) {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, self_parm_name);
                             } else {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER,
-                                                   type_map[&op_decl->func->params.front()]);
+                                                   type_map[&op_decl->params.front()]);
                             }
 
                             break;
@@ -529,7 +536,7 @@ CX_VISIT_IMPL(InterDecl) {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, self_parm_name);
                             } else {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER,
-                                                   type_map[&op_decl->func->params.front()]);
+                                                   type_map[&op_decl->params.front()]);
                             }
 
                             for (auto &tok : op_decl->op) {
@@ -551,7 +558,7 @@ CX_VISIT_IMPL(InterDecl) {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, self_parm_name);
                             } else {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER,
-                                                   type_map[&op_decl->func->params.front()]);
+                                                   type_map[&op_decl->params.front()]);
                             }
 
                             for (auto &tok : op_decl->op) {
@@ -559,7 +566,7 @@ CX_VISIT_IMPL(InterDecl) {
                             }
 
                             ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER,
-                                               type_map[&op_decl->func->params.back()]);
+                                               type_map[&op_decl->params.back()]);
 
                             break;
                         }
@@ -568,12 +575,12 @@ CX_VISIT_IMPL(InterDecl) {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, self_parm_name);
                             } else {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER,
-                                                   type_map[&op_decl->func->params.front()]);
+                                                   type_map[&op_decl->params.front()]);
                             }
 
                             ADD_TOKEN(CXX_LBRACKET);
                             ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER,
-                                               type_map[&op_decl->func->params.back()]);
+                                               type_map[&op_decl->params.back()]);
                             ADD_TOKEN(CXX_RBRACKET);
 
                             break;
@@ -582,15 +589,15 @@ CX_VISIT_IMPL(InterDecl) {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, self_parm_name);
                             } else {
                                 ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER,
-                                                   type_map[&op_decl->func->params.front()]);
+                                                   type_map[&op_decl->params.front()]);
                             }
 
                             ADD_TOKEN(CXX_LPAREN);
 
                             bool first = $self;
 
-                            if (!op_decl->func->params.empty()) {
-                                for (auto &param : op_decl->func->params) {
+                            if (!op_decl->params.empty()) {
+                                for (auto &param : op_decl->params) {
                                     if (first) {
                                         first = !first;
                                         continue;
@@ -602,7 +609,7 @@ CX_VISIT_IMPL(InterDecl) {
                                     ADD_TOKEN(CXX_COMMA);
                                 }
 
-                                if (!$self || op_decl->func->params.size() != 1) {
+                                if (!$self || op_decl->params.size() != 1) {
                                     tokens.pop_back();
                                 }
                             }
@@ -619,18 +626,18 @@ CX_VISIT_IMPL(InterDecl) {
                     ADD_TOKEN(CXX_RBRACE);
                     ADD_TOKEN(CXX_PTR_ACC);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "std", op_decl->func->get_name_t().back());
+                        CXX_CORE_IDENTIFIER, "std", op_decl->get_name_t().back());
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "Meta", op_decl->func->get_name_t().back());
+                        CXX_CORE_IDENTIFIER, "Meta", op_decl->get_name_t().back());
                     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
                     ADD_TOKEN_AS_VALUE_AT_LOC(
-                        CXX_CORE_IDENTIFIER, "is_convertible_to", op_decl->func->get_name_t().back());
+                        CXX_CORE_IDENTIFIER, "is_convertible_to", op_decl->get_name_t().back());
                     ADD_TOKEN(CXX_LESS_THAN);
 
-                    if (op_decl->func->returns) {
-                        if (!is_self_t(op_decl->func->returns)) {
-                            ADD_PARAM(op_decl->func->returns);
+                    if (op_decl->returns) {
+                        if (!is_self_t(op_decl->returns)) {
+                            ADD_PARAM(op_decl->returns);
                         }
                     } else {
                         ADD_TOKEN(CXX_VOID);
@@ -641,7 +648,7 @@ CX_VISIT_IMPL(InterDecl) {
                 }
 
                 break;
-            }
+            }}
 
             case __AST_NODE::nodes::LetDecl: {  // let foo: i32;
                 /// if static codegen: { self::foo } -> std::same_as<i32>;
