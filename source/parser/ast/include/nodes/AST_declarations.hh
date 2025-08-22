@@ -244,7 +244,7 @@ __AST_NODE_BEGIN {
             return result;
         }
 
-        // op + fn ();
+        // fn op + ();
 
         Modifiers modifiers  = Modifiers(Modifiers::ExpectedModifier::FuncSpec,
                                         Modifiers::ExpectedModifier::AccessSpec);
@@ -293,18 +293,6 @@ __AST_NODE_BEGIN {
         Modifiers      modifiers = Modifiers(Modifiers::ExpectedModifier::FuncSpec);
         Modifiers      vis       = Modifiers(Modifiers::ExpectedModifier::AccessSpec);
         NodeV<VarDecl> vars;
-    };
-
-    class OpDecl final : public Node {
-        BASE_CORE_METHODS(OpDecl);
-
-        // OpDecl :=  SharedModifiers? 'op' T FuncDecl[no_SharedModifiers=true]
-        explicit OpDecl(bool /* unused */) {}
-
-        Modifiers                     modifiers = Modifiers(Modifiers::ExpectedModifier::FuncSpec,
-                                        Modifiers::ExpectedModifier::AccessSpec);
-        std::vector<__TOKEN_N::Token> op;
-        NodeT<FuncDecl>               func;
     };
 
     class ModuleDecl final : public Node {

@@ -38,7 +38,7 @@ __AST_NODE_BEGIN {
       public:
         Node()                                                                          = default;
         virtual ~Node()                                                                 = default;
-        virtual void                      accept(__AST_VISITOR::Visitor &visitor) const = 0;
+        virtual void                      accept(__AST_VISITOR::Visitor &visitor)       = 0;
         [[nodiscard]] virtual nodes       getNodeType() const                           = 0;
         [[nodiscard]] virtual std::string getNodeName() const                           = 0;
         [[nodiscard]] virtual bool        is(nodes node) const                          = 0;
@@ -67,7 +67,7 @@ __AST_NODE_BEGIN {
             : filename(std::move(file_name))
             , source_tokens(source_tokens) {}
 
-        void accept(parser ::ast ::visitor ::Visitor &visitor) const override {
+        void accept(parser ::ast ::visitor ::Visitor &visitor) override {
             visitor.visit(*this);
         }
 

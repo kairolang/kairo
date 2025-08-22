@@ -98,8 +98,6 @@ __AST_NODE_BEGIN {
                 return parse_FFIDecl(std::forward<Args>(args)...);
             } else if constexpr (std::same_as<T, LetDecl>) {
                 return parse_LetDecl(std::forward<Args>(args)...);
-            } else if constexpr (std::same_as<T, OpDecl>) {
-                return parse_OpDecl(std::forward<Args>(args)...);
             } else if constexpr (std::same_as<T, ModuleDecl>) {
                 return parse_ModuleDecl(std::forward<Args>(args)...);
             }
@@ -140,8 +138,6 @@ __AST_NODE_BEGIN {
         parse_FFIDecl(const std::shared_ptr<__TOKEN_N::TokenList> &modifiers = nullptr);
         ParseResult<LetDecl>
         parse_LetDecl(const std::shared_ptr<__TOKEN_N::TokenList> &modifiers = nullptr);
-        ParseResult<OpDecl>
-        parse_OpDecl(const std::shared_ptr<__TOKEN_N::TokenList> &modifiers = nullptr);
     };
 }  //  namespace __AST_NODE_BEGIN
 
