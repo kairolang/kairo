@@ -1,0 +1,31 @@
+import std::Error::ValueError as ValueError;
+
+interface BasicI {
+    fn op==(self, other: i32) -> bool;
+}
+
+struct Basic {
+    var count: i32 = 109;
+
+    fn op == (self, other: i32) -> bool {
+        return self.count == other;
+    }
+}
+
+
+fn <T> new_function() -> T? requires T impl BasicI {
+    panic ValueError::ValueError("This is a test error message");
+    return T();
+}
+
+
+
+fn main() -> i32 {
+    var call = new_function::<Basic>();
+
+    std::print(f"Count: {(*call).count}");
+
+    
+
+    return 0;
+}
