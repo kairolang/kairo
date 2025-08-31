@@ -21,6 +21,11 @@
 // helix_mod -> 3
 // helix_mod_lib -> 4
 // invalid -> 0
+
+#include <cctype>
+#include <cstddef>
+#include <iomanip>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 
@@ -123,12 +128,21 @@ inline std::string sanitize_string(const std::string &input) {
     return output + "_N";
 }
 
-enum class ObjectType : u8 { Module, Class, Struct, Function, Operator, Reserved, Internal, None };
+enum class ObjectType : unsigned char {
+    Module,
+    Class,
+    Struct,
+    Function,
+    Operator,
+    Reserved,
+    Internal,
+    None
+};
 
+// --- Mangler: encodes non-alnum/_ as $XXXX, appends $L<length>_E$
 inline std::string mangle(const std::string &input, ObjectType type) {
-    if (input.empty()) {
+    if (input.empty())
         throw std::invalid_argument("Input string cannot be empty");
-    }
 
     std::string prefix;
     switch (type) {
@@ -153,27 +167,71 @@ inline std::string mangle(const std::string &input, ObjectType type) {
         case ObjectType::Internal:
             prefix = "_$I_";
             break;
+        default:
+            break;
     }
 
     std::string output = prefix;
 
     for (char ch : input) {
-        if (std::isalnum(ch) || ch == '_') {
+        if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_') {
             output += ch;
         } else {
-            output += '$';
-            char hex[3];
-            snprintf(hex, sizeof(hex), "%02X", static_cast<unsigned char>(ch));
-            output += hex;
+            std::ostringstream oss;
+            oss << '$' << std::uppercase << std::hex << std::setw(4) << std::setfill('0')
+                << (static_cast<unsigned int>(static_cast<unsigned char>(ch)));
+            output += oss.str();
         }
     }
 
-    output += "$L";
-    output += std::to_string(input.length()) + "_E$";
-
+    output += "$L" + std::to_string(input.length()) + "_E$";
     return output;
 }
 
+// --- Detect mangled type by prefix
+inline ObjectType is_mangled(const std::string &input) {
+    if (input.size() < 4 || input[0] != '_' || input[1] != '$')
+        return ObjectType::None;
+
+    std::string prefix = input.substr(0, 3);
+    if (prefix == "_$M_")
+        return ObjectType::Module;
+    if (prefix == "_$C_")
+        return ObjectType::Class;
+    if (prefix == "_$S_")
+        return ObjectType::Struct;
+    if (prefix == "_$F_")
+        return ObjectType::Function;
+    if (prefix == "_$O_")
+        return ObjectType::Operator;
+    if (prefix == "_$R_")
+        return ObjectType::Reserved;
+    if (prefix == "_$I_")
+        return ObjectType::Internal;
+
+    return ObjectType::None;
+}
+
+// --- Check hex digit
+inline bool is_hex_digit(char c) {
+    return std::isdigit(static_cast<unsigned char>(c)) || (c >= 'a' && c <= 'f') ||
+           (c >= 'A' && c <= 'F');
+}
+
+// --- Extract basename without extension
+inline std::string basename_no_ext(const std::string &path) {
+    size_t slash  = path.rfind('/');
+    size_t bslash = path.rfind('\\');
+    size_t sep    = (slash == std::string::npos)
+                        ? bslash
+                        : ((bslash != std::string::npos && bslash > slash) ? bslash : slash);
+    size_t start  = (sep == std::string::npos) ? 0 : sep + 1;
+    size_t dot    = path.rfind('.');
+    size_t end    = (dot != std::string::npos && dot > start) ? dot : path.length();
+    return path.substr(start, end - start);
+}
+
+// --- Demangler: supports $XX and $XXXX, validates length
 inline std::string demangle(const std::string &input, ObjectType type) {
     std::string expected_prefix;
     switch (type) {
@@ -198,128 +256,114 @@ inline std::string demangle(const std::string &input, ObjectType type) {
         case ObjectType::Internal:
             expected_prefix = "_$I_";
             break;
+        default:
+            break;
     }
 
-    if (!input.starts_with(expected_prefix)) {
+    if (!input.starts_with(expected_prefix))
         throw std::invalid_argument("Invalid mangled name or type mismatch");
-    }
 
     size_t len_pos = input.rfind("$L");
-    if (len_pos == std::string::npos) {
-        throw std::invalid_argument("Invalid mangled name: missing length");
-    }
-
     size_t end_pos = input.rfind("_E$");
-    if (end_pos == std::string::npos || end_pos <= len_pos) {
-        throw std::invalid_argument("Invalid mangled name: missing end marker");
-    }
+    if (len_pos == std::string::npos || end_pos == std::string::npos || end_pos <= len_pos)
+        throw std::invalid_argument("Invalid mangled name: missing length markers");
 
-    std::string len_str = input.substr(len_pos + 2 /* part after: "$L" */,
-                                       end_pos - len_pos - 2 /* part before: "_E$" */);
-
-    if (len_str.empty()) {
+    std::string len_str = input.substr(len_pos + 2, end_pos - len_pos - 2);
+    if (len_str.empty())
         throw std::invalid_argument("Invalid length in mangled name");
-    }
 
-    size_t expected_len;
-    try {
-        expected_len = std::stoul(len_str);
-    } catch (...) { throw std::invalid_argument("Invalid length in mangled name"); }
+    size_t expected_len = std::stoul(len_str);
 
     std::string encoded =
         input.substr(expected_prefix.length(), len_pos - expected_prefix.length());
     std::string output;
 
-    for (size_t i = 0; i < encoded.length(); ++i) {
-        if (encoded[i] == '$' && i + 2 < encoded.length()) {
-            std::string hex = encoded.substr(i + 1, 2);
-            try {
-                unsigned char ch = static_cast<unsigned char>(std::stoul(hex, nullptr, 16));
-                output += ch;
-                i += 2;
-            } catch (...) { throw std::invalid_argument("Invalid hex encoding in mangled name"); }
-        } else {
-            output += encoded[i];
+    for (size_t i = 0; i < encoded.size();) {
+        if (encoded[i] == '$') {
+            size_t j     = i + 1;
+            size_t count = 0;
+            while (j < encoded.size() && count < 4 && is_hex_digit(encoded[j])) {
+                ++j;
+                ++count;
+            }
+            if (count == 4 || count == 2) {
+                unsigned long code = std::stoul(encoded.substr(i + 1, count), nullptr, 16);
+                output += static_cast<char>(code);
+                i = j;
+                continue;
+            }
         }
+        output += encoded[i++];
     }
 
-    if (output.length() != expected_len) {
+    if (output.size() != expected_len)
         throw std::invalid_argument("Demangled length mismatch");
-    }
 
     return output;
 }
 
-inline ObjectType is_mangled(const std::string &input) {
-    if (input.length() < 4 || input[0] != '_' || input[1] != '$') {
-        return ObjectType::None;  // Not a recognized mangled name
-    }
-
-    std::string prefix = input.substr(0, 3);
-    if (prefix == "_$M_")
-        return ObjectType::Module;
-    if (prefix == "_$C_")
-        return ObjectType::Class;
-    if (prefix == "_$S_")
-        return ObjectType::Struct;
-    if (prefix == "_$F_")
-        return ObjectType::Function;
-    if (prefix == "_$O_")
-        return ObjectType::Operator;
-    if (prefix == "_$R_")
-        return ObjectType::Reserved;
-    if (prefix == "_$I_")
-        return ObjectType::Internal;
-
-    return ObjectType::None;  // Not a recognized mangled name
-}
-
-// function to demangle a part of a name such as in helix::_$M_foo$L3::bar
-// to helix::foo::bar
-inline std::string demangle_parttial(const std::string &input) {
-    // read from each char in the string untill we find a _$
-    // then read ill the chars until we find a _E$ and then keep checking the rest of the string
-
+// --- Demangle partial segments, strip directories for Modules
+inline std::string demangle_partial(const std::string &input) {
     std::string output;
-
-    for (size_t i = 0; i < input.length(); ++i) {
-        if (i + 3 < input.length() && input[i] == '_' && input[i + 1] == '$') {
+    for (size_t i = 0; i < input.size(); ++i) {
+        if (i + 3 < input.size() && input[i] == '_' && input[i + 1] == '$') {
+            ObjectType ty = ObjectType::None;
             switch (input[i + 2]) {
                 case 'M':
+                    ty = ObjectType::Module;
+                    break;
                 case 'C':
+                    ty = ObjectType::Class;
+                    break;
                 case 'S':
+                    ty = ObjectType::Struct;
+                    break;
                 case 'F':
+                    ty = ObjectType::Function;
+                    break;
                 case 'O':
+                    ty = ObjectType::Operator;
+                    break;
                 case 'R':
+                    ty = ObjectType::Reserved;
+                    break;
                 case 'I':
+                    ty = ObjectType::Internal;
                     break;
                 default:
                     output += input[i];
                     continue;
             }
 
-            // found a prefix, now read until we find a _E$
             size_t end_pos = input.find("_E$", i);
-
-            if (end_pos != std::string::npos) {
-                std::string mangled = input.substr(i, end_pos - i + 3);
-                i                   = end_pos + 2;  // move past _E$
-
-                auto type = is_mangled(mangled);
-                if (type == ObjectType::None) {
-                    output += input.substr(i, end_pos - i + 3);  // keep the mangled name as is
-                    continue;
-                }
-
-                // demangle the name
-                std::string demangled = demangle(mangled, type);
-                output += demangled;
+            if (end_pos == std::string::npos) {
+                output += input[i];
                 continue;
             }
+
+            std::string mangled = input.substr(i, end_pos - i + 3);
+            std::string dem     = demangle(mangled, ty);
+            if (ty == ObjectType::Module)
+                dem = basename_no_ext(dem);
+            output += dem;
+            i = end_pos + 2;  // loop will ++
+            continue;
         }
 
         output += input[i];
     }
+    return output;
+}
+
+// --- Strip leading helix:: prefix
+inline std::string strip_helix_prefix(const std::string &input) {
+    const std::string p1 = "helix::";
+    const std::string p2 = "::helix::";
+    if (input.starts_with(p1))
+        return input.substr(p1.length());
+    if (input.starts_with(p2))
+        return input.substr(p2.length());
+    return input;
 }
 }  // namespace helix::abi
 
