@@ -133,6 +133,9 @@ __AST_NODE_BEGIN {
             }
         }
 
+        explicit ArgumentListExpr(NodeV<> args)
+            : args(std::move(args)) {}
+
         explicit ArgumentListExpr(bool /* unused */) {}
 
         NodeV<> args;
@@ -157,8 +160,12 @@ __AST_NODE_BEGIN {
         /// TODO: add support for generics
         BASE_CORE_METHODS(ScopePathExpr);
 
-        explicit ScopePathExpr(NodeT<IdentExpr> first) { path.emplace_back(std::move(first)); }
+        explicit ScopePathExpr(NodeT<IdentExpr> full) { path.emplace_back(std::move(full)); }
         explicit ScopePathExpr(bool /* unused */) {}
+        explicit ScopePathExpr(NodeV<IdentExpr> path, NodeT<> access, bool global_scope)
+            : path(std::move(path))
+            , access(std::move(access))
+            , global_scope(global_scope) {}
 
         // -- Helper Functions -- //
 
@@ -170,6 +177,8 @@ __AST_NODE_BEGIN {
 
             return path.back()->name;
         }
+
+
 
         NodeV<IdentExpr> path;
         NodeT<>          access;
@@ -211,15 +220,19 @@ __AST_NODE_BEGIN {
     class PathExpr final : public Node {  // := ScopePathExpr | DotPathExpr
         BASE_CORE_METHODS(PathExpr);
 
-        explicit PathExpr(NodeT<> path)
-            : path(std::move(path))
-            , type(PathType::Identifier) {}
-
         enum class PathType : char {
             Scope,
             Dot,
             Identifier,
         };
+
+        explicit PathExpr(NodeT<> path)
+            : path(std::move(path))
+            , type(PathType::Identifier) {}
+
+        explicit PathExpr(NodeT<> path, PathType type)
+            : path(std::move(path))
+            , type(type) {}
 
         NodeT<>  path;
         PathType type = PathType::Identifier;

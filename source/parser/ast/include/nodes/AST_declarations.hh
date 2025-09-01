@@ -37,6 +37,8 @@ __AST_NODE_BEGIN {
         NodeT<NamedVarSpecifier> var;
         NodeT<>                  value;
         bool                     is_const = false;
+        NodeT<InstOfExpr>        bound;
+
     };
 
     class RequiresParamList final : public Node {
@@ -79,6 +81,8 @@ __AST_NODE_BEGIN {
         explicit TypeBoundList(NodeT<InstOfExpr> bound) {
             (this->bounds).emplace_back(std::move(bound));
         }
+
+        explicit TypeBoundList(bool /* unused */) {}
 
         NodeV<InstOfExpr> bounds;
     };
