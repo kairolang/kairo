@@ -29,8 +29,6 @@
 #include <stdexcept>
 #include <string>
 
-#include "neo-types/include/hxint.hh"
-
 inline int find_import_priority(bool is_module,  // NOLINT
                                 bool found_helix_mod,
                                 bool found_helix_hdr,

@@ -71,7 +71,7 @@ const helix::CompTimeMap<float, Errors, 150> ERROR_MAP({
     MP(0.3005, Errors{"cant use static with self", "remove static from the function specifier.", error::ERR}),
     MP(0.3006, Errors{"self cant contain a type or a value", "remove the type or value from self.", error::ERR}),
     MP(0.3007, Errors{"class constructor must have a self parameter, and cannot have a return type or be static", "", error::ERR}),
-    MP(0.3008, Errors{"This function can panic but is not marked as questionable. Functions that panic must be explicitly marked.", "Add a '?' to the function's return type. If the function is void, change the return type to 'void?'. Note: constructors should not panic.", error::ERR}),
+    MP(0.3008, Errors{"This function can panic but is not marked as questionable. Doing so will result in an exception being thrown.", "Add a '?' to the function's return type. If the function is void, change the return type to 'void?'. Note: constructors should not panic.", error::ERR}),
     MP(0.3018, Errors{"Panic found here", "", error::NOTE}),
     MP(0.3009, Errors{"This function yields values but is not marked as a generator. Functions that yield must be explicitly marked.", "Add 'yield' to the return type of the function. For example: 'yield i32'.", error::ERR}),
     MP(0.3019, Errors{"Yield found here", "", error::NOTE}),
