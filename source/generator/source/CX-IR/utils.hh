@@ -95,17 +95,19 @@ contains_self_static(const __AST_N::NodeT<__AST_NODE::FuncDecl> &func_decl) {
     return found_self_static;
 }
 
-inline std::pair<bool, bool>
-contains_self_static(const __AST_N::NodeT<__AST_NODE::OpDecl> &op_decl) {
-    auto func_decl       = op_decl->func;
-    func_decl->modifiers = op_decl->modifiers;
-
-    return contains_self_static(func_decl);
-}
-
 inline void handle_static_self_fn_decl(__AST_N::NodeT<__AST_NODE::FuncDecl> &func_decl,
-                                       token::Token                         &pof) {
+                                       token::Token                         &pof,
+                                       bool in_udt = true) {
     auto [has_self, has_static] = contains_self_static(func_decl);
+
+    if (!in_udt) {  // free fucntion, cannot have self
+        if (has_self) {
+            CODEGEN_ERROR(pof, "cannot have 'self' in a free function");
+            return;
+        }
+
+        return;  // free function, no need to do any processing or checks
+    }
 
     if (!has_static) {
         if (!has_self) {
@@ -123,15 +125,12 @@ inline void handle_static_self_fn_decl(__AST_N::NodeT<__AST_NODE::FuncDecl> &fun
     }
 }
 
-inline void handle_static_self_fn_decl(__AST_N::NodeT<__AST_NODE::OpDecl> &op_decl,
-                                       token::Token                       &pof,
-                                       bool                                in_udt = true) {
-    auto &func_decl      = op_decl->func;
-    func_decl->modifiers = op_decl->modifiers;
+inline void handle_static_self_fn_decl(__AST_NODE::FuncDecl&func_decl,
+                                       token::Token                         &pof,
+                                       bool in_udt = true) {
+    auto [has_self, has_static] = contains_self_static(std::make_shared<__AST_NODE::FuncDecl>(func_decl));
 
     if (!in_udt) {  // free fucntion, cannot have self
-        auto [has_self, has_static] = contains_self_static(func_decl);
-
         if (has_self) {
             CODEGEN_ERROR(pof, "cannot have 'self' in a free function");
             return;
@@ -140,7 +139,20 @@ inline void handle_static_self_fn_decl(__AST_N::NodeT<__AST_NODE::OpDecl> &op_de
         return;  // free function, no need to do any processing or checks
     }
 
-    handle_static_self_fn_decl(func_decl, pof);
+    if (!has_static) {
+        if (!has_self) {
+            error::Panic(error::CodeError{.pof = &pof, .err_code = 0.3004});
+
+            func_decl.modifiers.add(__AST_N::FunctionSpecifier(
+                token::Token(__TOKEN_N::KEYWORD_STATIC, "helix_internal.file")));
+        }
+    } else if (has_self) {
+        error::Panic(error::CodeError{.pof = &pof, .err_code = 0.3005});
+    }
+
+    if (has_self) {
+        func_decl.params.erase(func_decl.params.begin());
+    }
 }
 
 template <typename T>
@@ -174,17 +186,6 @@ inline void add_visibility(generator::CXIR::CXIR                      *self,
     }
 }
 
-inline void add_visibility(generator::CXIR::CXIR                    *self,
-                           const __AST_N::NodeT<__AST_NODE::OpDecl> &op_decl) {
-    if (op_decl->modifiers.contains(__TOKEN_N::KEYWORD_PROTECTED)) {
-        add_protected(self);
-    } else if (op_decl->modifiers.contains(__TOKEN_N::KEYWORD_PRIVATE)) {
-        add_private(self);
-    } else {
-        add_public(self);
-    }
-}
-
 template <typename T>
 inline void add_visibility(generator::CXIR::CXIR *self, const T &decl) {
     if constexpr (HasVisiblityModifier<T>) {
@@ -198,7 +199,7 @@ inline void add_visibility(generator::CXIR::CXIR *self, const T &decl) {
     }
 }
 
-inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::OpDecl> &op_decl) {
+inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::FuncDecl> &op_decl) {
     // check for self and static context
     auto [is_self, is_static] = contains_self_static(op_decl);
 
@@ -216,7 +217,7 @@ inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::OpD
 
     // distinguish unary prefix vs unary postfix
     auto is_unary_postfix = [&]() -> bool {
-        return op_decl->func->params.size() == 1 &&
+        return op_decl->params.size() == 1 &&
                (op_decl->op[0] == __TOKEN_N::tokens::OPERATOR_R_INC ||
                 op_decl->op[0] == __TOKEN_N::tokens::OPERATOR_R_DEC);
     };
@@ -227,7 +228,7 @@ inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::OpD
             return OperatorType::Call;  // call operator `()`
         }
 
-        if (op_decl->func->params.size() == 2) {  // (self, ...)
+        if (op_decl->params.size() == 2) {  // (self, ...)
             if (is_array_operator()) {
                 return OperatorType::Array;  // array operator `[]`
             }
@@ -235,7 +236,7 @@ inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::OpD
             return OperatorType::Binary;  // binary operator
         }
 
-        if (op_decl->func->params.size() == 1) {  // (self)
+        if (op_decl->params.size() == 1) {  // (self)
             if (is_unary_postfix()) {
                 return OperatorType::UnaryPostfix;  // unary postfix operator `x++` or `x--`
             }
@@ -243,7 +244,7 @@ inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::OpD
             return OperatorType::UnaryPrefix;  // unary prefix operator
         }
 
-        if (op_decl->func->params.size() > 2) {  // (self, ..., ...)
+        if (op_decl->params.size() > 2) {  // (self, ..., ...)
             if (is_call_operator()) {
                 return OperatorType::Array;  // array operator `[]`
             }
@@ -266,7 +267,7 @@ inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::OpD
             return OperatorType::None;
         }
 
-        if (op_decl->func->params.empty() || op_decl->func->params.size() == 0) {  // (...)
+        if (op_decl->params.empty() || op_decl->params.size() == 0) {  // (...)
             if (is_call_operator()) {
                 return OperatorType::Call;  // call operator `()`
             }
@@ -274,7 +275,7 @@ inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::OpD
             return OperatorType::None;
         }
 
-        if (op_decl->func->params.size() == 1) {  // (...)
+        if (op_decl->params.size() == 1) {  // (...)
             if (is_unary_postfix()) {
                 return OperatorType::UnaryPostfix;  // unary postfix operator `x++` or `x--`
             }
@@ -282,11 +283,11 @@ inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::OpD
             return OperatorType::UnaryPrefix;  // unary prefix operator
         }
 
-        if (op_decl->func->params.size() == 2) {  // (..., ...)
+        if (op_decl->params.size() == 2) {  // (..., ...)
             return OperatorType::Binary;          // binary operator
         }
 
-        if (op_decl->func->params.size() > 2) {  // (..., ..., ...)
+        if (op_decl->params.size() > 2) {  // (..., ..., ...)
             return OperatorType::Call;
         }
     }
@@ -512,20 +513,20 @@ struct OpType {
     Type              type = None;
     __TOKEN_N::Token *tok  = nullptr;
 
-    OpType(const __AST_NODE::OpDecl &op, bool in_udt) {
+    OpType(const __AST_NODE::FuncDecl &op, bool in_udt) {
         if (in_udt) {
             type = det_t(op);
         }
     }
 
-    Type det_t(const __AST_NODE::OpDecl &op) {
+    Type det_t(const __AST_NODE::FuncDecl &op) {
         /// see the token and signature
         if (op.op.size() < 1) {
             return None;
         }
 
         tok                   = const_cast<__TOKEN_N::Token *>(&op.op.front());
-        auto [$self, $static] = contains_self_static(std::make_shared<__AST_NODE::OpDecl>(op));
+        auto [$self, $static] = contains_self_static(std::make_shared<__AST_NODE::FuncDecl>(op));
 
         if (op.op.size() == 1 && op.op.back() == __TOKEN_N::KEYWORD_IN) {
             if ($static) {
@@ -548,16 +549,16 @@ struct OpType {
             }
 
             // check the signature we don't give a shit about the func name rn
-            if ($self && op.func->params.size() == 1) {  // most likely GeneratorOp
-                if (op.func->returns &&
-                    op.func->returns->specifiers.contains(__TOKEN_N::KEYWORD_YIELD)) {
+            if ($self && op.params.size() == 1) {  // most likely GeneratorOp
+                if (op.returns &&
+                    op.returns->specifiers.contains(__TOKEN_N::KEYWORD_YIELD)) {
                     return GeneratorOp;
                 }
-            } else if ($self && op.func->params.size() == 2) {  // most likely ContainsOp
-                if (op.func->returns &&
-                    op.func->returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr) {
+            } else if ($self && op.params.size() == 2) {  // most likely ContainsOp
+                if (op.returns &&
+                    op.returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr) {
                     // make sure the ret is a bool
-                    auto node = __AST_N::as<__AST_NODE::IdentExpr>(op.func->returns->value);
+                    auto node = __AST_N::as<__AST_NODE::IdentExpr>(op.returns->value);
 
                     if (node->is_reserved_primitive && node->name.value() == "bool") {
                         return ContainsOp;
@@ -575,19 +576,19 @@ struct OpType {
         }
 
         if (op.op.size() == 1 && op.op.back() == __TOKEN_N::KEYWORD_AS) {
-            // op as fn (self) -> string {}
+            // fn op as (self) -> string {}
             // the as op must take self as the only arg and return any type
             if ($static) {
                 error::Panic(error::CodeError{
                     .pof          = tok,
                     .err_code     = 0.3002,
                     .err_fmt_args = {"can not mark 'as' operator with static, signature must be "
-                                     "'op as fn (self) -> <type>'"}});
+                                     "'fn op as (self) -> <type>'"}});
 
                 return Error;
             }
 
-            if (!op.func->returns) {
+            if (!op.returns) {
                 error::Panic(error::CodeError{
                     .pof          = tok,
                     .err_code     = 0.3002,
@@ -596,8 +597,8 @@ struct OpType {
                 return Error;
             }
 
-            if ($self && op.func->params.size() == 1) {
-                if (op.func->returns) {
+            if ($self && op.params.size() == 1) {
+                if (op.returns) {
                     return CastOp;
                 }
             }
@@ -605,7 +606,7 @@ struct OpType {
             error::Panic(error::CodeError{
                 .pof          = tok,
                 .err_code     = 0.3002,
-                .err_fmt_args = {"invalid 'as' operator, must be 'op as fn (self) -> <type>'"}});
+                .err_fmt_args = {"invalid 'as' fn op erator, must be 'op as (self) -> <type>'"}});
 
             return Error;
         }
@@ -620,14 +621,14 @@ struct OpType {
                     .err_code     = 0.3002,
                     .err_fmt_args = {
                         "can not mark 'delete' operator with static, signature must be "
-                        "'op delete fn (self)' delete should not return anything even if its "
+                        "'fn op delete (self)' delete should not return anything even if its "
                         "'void'."}});
 
                 return Error;
             }
 
-            if ($self && op.func->params.size() == 1) {
-                if (!op.func->returns) {
+            if ($self && op.params.size() == 1) {
+                if (!op.returns) {
                     return DeleteOp;
                 }
             }
@@ -635,7 +636,7 @@ struct OpType {
             error::Panic(error::CodeError{
                 .pof          = tok,
                 .err_code     = 0.3002,
-                .err_fmt_args = {"invalid 'delete' operator, must be 'op delete fn (self)' delete "
+                .err_fmt_args = {"invalid 'delete' fn op erator, must be 'op delete (self)' delete "
                                  "should not return anything even if its 'void'."}});
 
             return Error;
@@ -644,7 +645,7 @@ struct OpType {
         if (op.op.size() == 1 && op.op.back() == __TOKEN_N::OPERATOR_ASSIGN) {
             // ClassName& operator=(ClassName&&)
             // ClassName& operator=(const ClassName&)
-            // signature for move assign is `op = fn (self, _: const ClassName&) -> ... {}`
+            // signature for move assign is `fn op = (self, _: const ClassName&) -> ... {}`
 
             // for copy we need to check:
             // takes 2 params incl. self
@@ -661,13 +662,13 @@ struct OpType {
             }
         }
 
-        // panic operator signature is `op panic fn (self) -> string {}` or `static op panic fn ()
+        // panic fn op erator signature is `op panic fn (self) -> string {}` or `static op panic ()
         // -> string {}`
         if (op.op.size() == 1 && op.op.back() == __TOKEN_N::KEYWORD_PANIC) {
-            if ((($self && op.func->params.size() == 1) || ($static && op.func->params.empty())) &&
-                op.func->returns &&
-                op.func->returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr &&
-                __AST_N::as<__AST_NODE::IdentExpr>(op.func->returns->value)->name.value() ==
+            if ((($self && op.params.size() == 1) || ($static && op.params.empty())) &&
+                op.returns &&
+                op.returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr &&
+                __AST_N::as<__AST_NODE::IdentExpr>(op.returns->value)->name.value() ==
                     "string") {
                 return PanicOp;
             }
@@ -676,15 +677,15 @@ struct OpType {
                 .pof          = tok,
                 .err_code     = 0.3002,
                 .err_fmt_args = {
-                    "invalid 'panic' operator, must be 'op panic fn (self) -> string' or 'static "
-                    "op panic fn () -> string'"}});
+                    "invalid 'panic' fn op erator, must be 'op panic (self) -> string' or 'static "
+                    "fn op panic () -> string'"}});
         }
 
-        // question operator signature is `op ? fn (self) -> bool {}`
+        // question fn op erator signature is `op ? (self) -> bool {}`
         if (op.op.size() == 1 && op.op.back() == __TOKEN_N::PUNCTUATION_QUESTION_MARK) {
-            if ($self && op.func->params.size() == 1 && op.func->returns &&
-                op.func->returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr &&
-                __AST_N::as<__AST_NODE::IdentExpr>(op.func->returns->value)->name.value() ==
+            if ($self && op.params.size() == 1 && op.returns &&
+                op.returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr &&
+                __AST_N::as<__AST_NODE::IdentExpr>(op.returns->value)->name.value() ==
                     "bool") {
                 return QuestionOp;
             }
@@ -692,7 +693,7 @@ struct OpType {
             error::Panic(error::CodeError{
                 .pof          = tok,
                 .err_code     = 0.3002,
-                .err_fmt_args = {"invalid '?' operator, must be 'op ? fn (self) -> bool'"}});
+                .err_fmt_args = {"invalid '?' fn op erator, must be 'op ? (self) -> bool'"}});
 
             return Error;
         }
@@ -779,7 +780,7 @@ class ModifyNestedFunctions {
     bool operator()(const __AST_N::NodeT<> &elm) const {
         emitter->append(std::make_unique<CX_Token>(CXX_SEMICOLON));
 
-        if (elm->getNodeType() == __AST_NODE::nodes::FuncDecl) {
+        if (elm->getNodeType() == __AST_NODE::nodes::FuncDecl && !(__AST_N::as<__AST_NODE::FuncDecl>(elm)->is_op)) {
             __AST_N::NodeT<__AST_NODE::FuncDecl> func_decl = __AST_N::as<__AST_NODE::FuncDecl>(elm);
 
             if (func_decl->name != nullptr) {
@@ -834,11 +835,11 @@ class ModifyNestedFunctions {
             return true;
         }
 
-        if (elm->getNodeType() == __AST_NODE::nodes::OpDecl) {
-            __AST_N::NodeT<__AST_NODE::OpDecl> func_decl = __AST_N::as<__AST_NODE::OpDecl>(elm);
+        if (elm->getNodeType() == __AST_NODE::nodes::FuncDecl && __AST_N::as<__AST_NODE::FuncDecl>(elm)->is_op) {
+            __AST_N::NodeT<__AST_NODE::FuncDecl> func_decl = __AST_N::as<__AST_NODE::FuncDecl>(elm);
 
             error::Panic _(error::CodeError{
-                .pof          = &func_decl->func->marker,
+                .pof          = &func_decl->marker,
                 .err_code     = 0.0001,
                 .err_fmt_args = {"operator declarenanos are not allowed in functions, remove it or "
                                  "modify the function to be a functor."}});

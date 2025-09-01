@@ -1,0 +1,32 @@
+import types;
+import fs;
+import linkage::*;
+
+struct Target {
+    var name: string;
+    var linkage: Linkage;
+    var sources: vec::<types::Path>;
+    var includes: vec::<types::Path>;
+    var links: vec::<string>;
+    var builddir: types::Path = types::Path(fs::get_cwd() / "build".raw_string());
+    var cxxflags: vec::<string>;
+    var defines: vec::<string>;
+    var before_build: fn (*Target) -> void;
+    var after_build: fn (*Target) -> void;
+
+    fn op as (self) -> string {
+        // nice format
+        return "Target {\n"
+            + f"  name: {name},\n"
+            + f"  linkage: {linkage},\n"
+            + f"  sources: {sources},\n"
+            + f"  includes: {includes},\n"
+            + f"  links: {links},\n"
+            + f"  builddir: {builddir},\n"
+            + f"  cxxflags: {cxxflags},\n"
+            + f"  defines: {defines},\n"
+            + f"  before_build: {before_build},\n"
+            + f"  after_build: {after_build}\n"
+        + "}";
+    }
+}

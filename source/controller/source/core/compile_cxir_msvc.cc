@@ -150,6 +150,10 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
              ? cxx::flags::SanitizeFlag
              : cxx::flags::None),
 
+        ((action.flags.contains(flag::types::CompileFlags::Library))
+            ? cxx::flags::compileOnlyFlag
+            : cxx::flags::None),
+
         // cxx::flags::noDefaultLibrariesFlag,
         // cxx::flags::noCXXSTDLibrariesFlag,
         // cxx::flags::noCXXSTDIncludesFlag,

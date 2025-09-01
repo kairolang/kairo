@@ -35,7 +35,6 @@
     MACRO(FuncDecl)          \
     MACRO(VarDecl)           \
     MACRO(FFIDecl)           \
-    MACRO(LetDecl)           \
-    MACRO(OpDecl)
+    MACRO(LetDecl)
 
 #endif  // __AST_DECLARATIONS_DEF__

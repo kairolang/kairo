@@ -37,7 +37,7 @@ fn abc() -> i32 {
     //
     // couple of notes about helix:
     // - the language is still in development and is not stable yet.
-    // - the language right now has a c++ backend, and the self-hosted compiler would initially also
+    // - the language right now impl a c++ backend, and the self-hosted compiler would initially also
     //   have a c++ backend. but that would be migrated to a llvm backend later on. (the c++ backend
     //   is just a temporary solution, since llvm is really hard to work with and the c++ backend is
     //   much easier to work with - for now)
@@ -52,8 +52,7 @@ fn abc() -> i32 {
     // most part, the self-hosted compiler will be able to do much more and be much more flexible.
 }
 
-fn helix_compiler(std::array::<std::string, N> args) -> i32
-  requires <N: std::size_t> {
+fn <N: std::size_t> helix_compiler(std::array::<std::string, N> args) -> i32 {
     var invoke      = InvocationManager(args, true);
     var compile     = CompilationUnit(invoke);
     var diag_handle = PrettyDiagnosticHandler();

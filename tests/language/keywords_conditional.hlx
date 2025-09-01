@@ -47,7 +47,7 @@ fn main() -> i32 {
 //     };
 
 //     if stdout.len() < 3:
-//         return false; // indicates the test has failed
+//         return false; // indicates the test impl failed
 
 //     var excepted: list<string> = [
 //         "x is greater than 5",
@@ -65,9 +65,8 @@ fn main() -> i32 {
 //     }
 // }
 
-// fn zip(args: ...T) -> (T::underlying_t, ...)
-//   requires <...T>
-//   if (T... has std::ranges::Iterable) -> {
+// fn <...T> zip(args: ...T) -> (T::underlying_t, ...)
+//   requires (T... impl std::ranges::Iterable) -> {
 
 //     var zipped_result: std::Vec<(T::underlying_t?...)>; // [(string, int, ...)]
 //     bool has_next = true;

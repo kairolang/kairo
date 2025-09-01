@@ -38,6 +38,7 @@ namespace types {
         None    = 0,
         Debug   = 1 << 0,
         Verbose = 1 << 1,
+        Library = 1 << 2,
     };
 
     enum class Compiler : u8 {

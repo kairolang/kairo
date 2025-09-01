@@ -23,6 +23,13 @@
 #include "utils.hh"
 
 CX_VISIT_IMPL_VA(FuncDecl, bool no_return_t) {
+    if (node.is_op) {
+        throw std::runtime_error(
+            std::string(colors::fg16::green) + std::string(__FILE__) + ":" +
+            std::to_string(__LINE__) + colors::reset + std::string(" - ") +
+            "Function Declaration is missing the name param (ub), open an issue on github.");
+    }
+
     ADD_NODE_PARAM(generics);
 
     // add the modifiers

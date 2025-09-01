@@ -1,0 +1,4 @@
+/// P.S: Current compiler necessitates the use of
+///      `;;` for type declarations and some unknown other things.
+type Path = libcxx::filesystem::path;;
+type File = libcxx::filesystem::directory_entry;;

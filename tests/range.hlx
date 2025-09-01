@@ -30,13 +30,13 @@
 /// op's in class defs need to ignore self parm and work without self while calling as well.
 
 // interface Incrementable {
-//     op ++ fn inc(self) -> Self;
-//     op < fn lt(self, other: Self) -> bool;
-//     op == fn eq(self, other: Self) -> bool;
+//     fn op ++ (self)[inc] -> Self;
+//     fn op < (self, other: Self)[lt] -> bool;
+//     fn op == (self, other: Self)[eq] -> bool;
 // }
 
 module some_namespace {
-    class Foo requires <T> {
+    class <T> Foo {
         fn Foo(self) {
             print("Foo");
         }
@@ -45,7 +45,7 @@ module some_namespace {
     type Bar = i32;
 }
 
-fn range(start: T, end: T, step: T = 1) -> yield T requires <T> {
+fn <T> range(start: T, end: T, step: T = 1) -> yield T {
     while start < end {
         yield start;
         start += step;
@@ -70,7 +70,7 @@ class SomeBad {
     }
 }
 
-fn range(end: T) -> yield T requires <T> {
+fn <T> range(end: T) -> yield T {
     var start = T();
 
     while start < end {

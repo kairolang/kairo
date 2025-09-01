@@ -75,7 +75,6 @@
 /// [x] * ConstDecl *  VisDecl? 'const' SharedModifiers VarDecl* ';'                             ///
 /// [x] * TypeDecl  *  VisDecl? 'type'  E.IdentExpr RequiresDecl? '=' E ';'                      ///
 /// [x] * EnumDecl  *  VisDecl? 'enum' ('derives' E.Type)? E.ObjInitExpr                         ///
-/// [x] * OpDecl    *  SharedModifiers? 'op' T FuncDecl[no_SharedModifiers=true]                 ///
 /// [x] * FuncDecl  *  SharedModifiers? 'fn' E.PathExpr '(' VarDecl[true]* ')' RequiresDecl? S.Suite
 /// [x] * StructDecl* 'const'? VisDecl? 'struct'    E.IdentExpr UDTDeriveDecl? RequiresDecl? S.Suite
 /// [x] * ClassDecl * 'const'? VisDecl? 'class' E.IdentExpr UDTDeriveDecl? ExtendsDecl?
@@ -110,6 +109,8 @@
 #include "parser/ast/include/types/AST_modifiers.hh"
 #include "parser/ast/include/types/AST_types.hh"
 #include "token/include/Token.hh"
+#include "token/include/config/Token_config.def"
+#include "token/include/private/Token_base.hh"
 #include "token/include/private/Token_generate.hh"
 
 AST_NODE_IMPL(Declaration, RequiresParamDecl) {
@@ -129,12 +130,32 @@ AST_NODE_IMPL(Declaration, RequiresParamDecl) {
 
     node->var = var.value();
 
+    __TOKEN_N::Token op;
+
+    node->bound = nullptr;
+
+    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_IMPL) || CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_DERIVES)) {
+        op = CURRENT_TOK;
+        iter.advance();  // skip 'impl' or 'derives'
+
+        ParseResult<Type> type = expr_parser.parse<Type>();
+        RETURN_IF_ERROR(type);
+
+        NodeT<InstOfExpr> bound = make_node<InstOfExpr>(node->var->path, type.value(),
+                                                    op == __TOKEN_N::KEYWORD_IMPL
+                                                        ? InstOfExpr::InstanceType::Implement
+                                                        : InstOfExpr::InstanceType::Derives,
+                                                    op);
+        bound->in_requires = true;
+        node->bound = bound;
+    }
+
     if CURRENT_TOKEN_IS (__TOKEN_N::OPERATOR_ASSIGN) {
         iter.advance();  // skip '='
 
         ParseResult<> value = expr_parser.parse();
         RETURN_IF_ERROR(value);
-
+    
         node->value = value.value();
     }
 
@@ -280,7 +301,8 @@ AST_NODE_IMPL(Declaration, TypeBoundList) {
     while (CURRENT_TOKEN_IS(__TOKEN_N::tokens::OPERATOR_LOGICAL_AND)) {
         iter.advance();  // skip '&&'
 
-        ParseResult<InstOfExpr> next = expr_parser.parse<InstOfExpr>(expr_parser.parse<Type>(), true);
+        ParseResult<InstOfExpr> next =
+            expr_parser.parse<InstOfExpr>(expr_parser.parse<Type>(), true);
         RETURN_IF_ERROR(next);
 
         node->bounds.emplace_back(next.value());
@@ -311,13 +333,21 @@ AST_NODE_IMPL_VISITOR(Jsonify, TypeBoundDecl) { json.section("TypeBoundDecl"); }
 
 // ---------------------------------------------------------------------------------------------- //
 
+#define PARSE_REQUIRES_BOUNDS(req_node)                             \
+    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {            \
+        iter.advance();                                             \
+                                                                    \
+        ParseResult<TypeBoundList> bounds = parse<TypeBoundList>(); \
+        RETURN_IF_ERROR(bounds);                                    \
+                                                                    \
+        (req_node)->bounds = bounds.value();                        \
+    }
+
 AST_NODE_IMPL(Declaration, RequiresDecl) {
     IS_NOT_EMPTY;
-    // RequiresDecl := requires' '<' RequiresParamList '>' ('if' TypeBoundList)?
+    // RequiresDecl := '<' RequiresParamList '>' ... ('requires' TypeBoundList)?
 
-    IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_REQUIRES);
-    iter.advance();  // skip 'requires
-
+    /// --------------------- params --------------------- ///
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_OPEN_ANGLE);
     iter.advance();  // skip '<'
 
@@ -329,13 +359,18 @@ AST_NODE_IMPL(Declaration, RequiresDecl) {
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_ANGLE);
     iter.advance();  // skip '>'
 
-    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_IF)) {
-        iter.advance();  // skip 'if'
+    /// --------------------- bounds --------------------- ///
+    NodeV<InstOfExpr> bounds;
+    for (const auto &param : node->params->params) {
+        if (param->bound != nullptr) {
+            bounds.push_back(param->bound);
+        }
+    }
 
-        ParseResult<TypeBoundList> bounds = parse<TypeBoundList>();
-        RETURN_IF_ERROR(bounds);
-
-        node->bounds = bounds.value();
+    if (!bounds.empty()) {
+        NodeT<TypeBoundList> bound_list = make_node<TypeBoundList>(true);
+        bound_list->bounds = bounds;
+        node->bounds = bound_list;
     }
 
     return node;
@@ -371,6 +406,15 @@ AST_NODE_IMPL(Declaration, StructDecl, const std::shared_ptr<__TOKEN_N::TokenLis
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_STRUCT);
     iter.advance();  // skip 'struct'
 
+    /// ----- generic ----- ///
+    if CURRENT_TOKEN_IS (__TOKEN_N::PUNCTUATION_OPEN_ANGLE) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
+
+        node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
+
     ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
     RETURN_IF_ERROR(name);
 
@@ -384,10 +428,12 @@ AST_NODE_IMPL(Declaration, StructDecl, const std::shared_ptr<__TOKEN_N::TokenLis
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
 
-        node->generics = generics.value();
+        PARSE_REQUIRES_BOUNDS(node->generics);
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_SEMICOLON)) {  // forward declaration
@@ -545,6 +591,15 @@ AST_NODE_IMPL(Declaration, ClassDecl, const std::shared_ptr<__TOKEN_N::TokenList
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_CLASS);
     iter.advance();  // skip 'class'
 
+    /// ----- generic ----- ///
+    if CURRENT_TOKEN_IS (__TOKEN_N::PUNCTUATION_OPEN_ANGLE) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
+
+        node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
+
     ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
     RETURN_IF_ERROR(name);
 
@@ -562,10 +617,12 @@ AST_NODE_IMPL(Declaration, ClassDecl, const std::shared_ptr<__TOKEN_N::TokenList
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
 
-        node->generics = generics.value();
+        PARSE_REQUIRES_BOUNDS(node->generics);
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_SEMICOLON)) {  // forward declaration
@@ -614,6 +671,15 @@ AST_NODE_IMPL(Declaration, InterDecl, const std::shared_ptr<__TOKEN_N::TokenList
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_INTERFACE);
     iter.advance();  // skip 'interface'
 
+    /// ----- generic ----- ///
+    if CURRENT_TOKEN_IS (__TOKEN_N::PUNCTUATION_OPEN_ANGLE) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
+
+        node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
+
     ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
     RETURN_IF_ERROR(name);
 
@@ -627,10 +693,12 @@ AST_NODE_IMPL(Declaration, InterDecl, const std::shared_ptr<__TOKEN_N::TokenList
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
 
-        node->generics = generics.value();
+        PARSE_REQUIRES_BOUNDS(node->generics);
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_SEMICOLON)) {  // forward declaration
@@ -659,7 +727,8 @@ AST_NODE_IMPL_VISITOR(Jsonify, InterDecl) {
 
 AST_NODE_IMPL(Declaration, EnumDecl, const std::shared_ptr<__TOKEN_N::TokenList> &modifiers) {
     IS_NOT_EMPTY;
-    // EnumDecl := Modifiers 'enum' (('derives' E.Type)? Ident)? (('{' (EnumMemberDecl (',' EnumMemberDecl)*)? '}') | (':' (EnumMemberDecl) ';'))
+    // EnumDecl := Modifiers 'enum' (('derives' E.Type)? Ident)? (('{' (EnumMemberDecl (','
+    // EnumMemberDecl)*)? '}') | (':' (EnumMemberDecl) ';'))
 
     NodeT<EnumDecl> node = make_node<EnumDecl>(true);
 
@@ -693,10 +762,11 @@ AST_NODE_IMPL(Declaration, EnumDecl, const std::shared_ptr<__TOKEN_N::TokenList>
         node->name = name.value();
     } else {
         if (node->derives) {
-            return std::unexpected(PARSE_ERROR(CURRENT_TOK, "anonymous enum cannot have specified type"));
+            return std::unexpected(
+                PARSE_ERROR(CURRENT_TOK, "anonymous enum cannot have specified type"));
         }
     }
-    
+
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_BRACE)) {
         iter.advance();  // skip '{'
 
@@ -709,7 +779,7 @@ AST_NODE_IMPL(Declaration, EnumDecl, const std::shared_ptr<__TOKEN_N::TokenList>
             if (!CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_COMMA)) {
                 break;
             }
-            
+
             iter.advance();  // skip ','
         }
 
@@ -772,16 +842,27 @@ AST_NODE_IMPL(Declaration, TypeDecl, const std::shared_ptr<__TOKEN_N::TokenList>
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_TYPE);
     iter.advance();  // skip 'type'
 
+    /// ----- generic ----- ///
+    if CURRENT_TOKEN_IS (__TOKEN_N::PUNCTUATION_OPEN_ANGLE) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
+
+        node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
+
     ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
     RETURN_IF_ERROR(name);
 
     node->name = name.value();
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
 
-        node->generics = generics.value();
+        PARSE_REQUIRES_BOUNDS(node->generics);
     }
 
     IS_EXCEPTED_TOKEN(__TOKEN_N::OPERATOR_ASSIGN);
@@ -811,7 +892,7 @@ AST_NODE_IMPL_VISITOR(Jsonify, TypeDecl) {
 AST_NODE_IMPL(Declaration,
               FuncDecl,
               const std::shared_ptr<__TOKEN_N::TokenList> &modifiers,
-              bool                                         force_name) {
+              bool /*deprecated*/                          force_name) {
     IS_NOT_EMPTY;
     // FuncDecl :=  Modifiers 'fn' E.PathExpr '(' VarDecl[true]* ')' RequiresDecl? ('->'
     // E.TypeExpr)? (S.Suite | ';' | '=' ('default' | 'delete'))
@@ -836,33 +917,68 @@ AST_NODE_IMPL(Declaration,
     }
 
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_FUNCTION);
-    node->marker = CURRENT_TOK; // save 'fn' token
-    iter.advance();  // skip 'fn'
+    node->marker = CURRENT_TOK;  // save 'fn' token
+    iter.advance();              // skip 'fn'
+
+    /// ----- generic ----- /// only if not in an op situation
+    if (force_name && CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_ANGLE)) {
+        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
+        RETURN_IF_ERROR(generics);
+
+        node->generics = generics.value();
+    }
+    /// ----- generic ----- ///
 
     bool has_name = true;
 
-    if (!force_name && !(CURRENT_TOKEN_IS(__TOKEN_N::IDENTIFIER) || CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_SCOPE))) {
-        has_name = false;
-    }
+    if CURRENT_TOKEN_IS (__TOKEN_N::KEYWORD_OPERATOR) {
+        /// this is an operator decl that goes like fn on ... ()[alias] -> T {}
+        node->is_op = true;
 
-    if (has_name) {
-        ParseResult<PathExpr> name = expr_parser.parse<PathExpr>();
-        RETURN_IF_ERROR(name);
+        IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_OPERATOR);
+        auto starting_tok = CURRENT_TOK;
+        iter.advance();  // skip 'op'
 
-        if (name.value()->type == PathExpr::PathType::Dot) {
-            return std::unexpected(PARSE_ERROR(CURRENT_TOK, "invalid function name"));
+        for (int op_token_count = 0; op_token_count < 4; ++op_token_count) {
+            if CURRENT_TOKEN_IS (token::PUNCTUATION_OPEN_PAREN) {
+                break;
+            }
+
+            node->op.push_back(CURRENT_TOK);
+
+            if (op_token_count == 3) {
+                return std::unexpected(PARSE_ERROR(
+                    starting_tok,
+                    "operator declaration incomplete, exceeded maximum allowed tokens before '('"));
+            }
+
+            iter.advance();  // skip operator token
+        }
+    } else {
+        if (!force_name && !(CURRENT_TOKEN_IS(__TOKEN_N::IDENTIFIER) ||
+                             CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_SCOPE))) {
+            has_name = false;
         }
 
-        node->name = name.value();
-    } else {
-        node->name = nullptr;
+        if (has_name) {
+            ParseResult<PathExpr> name = expr_parser.parse<PathExpr>();
+            RETURN_IF_ERROR(name);
+
+            if (name.value()->type == PathExpr::PathType::Dot) {
+                return std::unexpected(PARSE_ERROR(CURRENT_TOK, "invalid function name"));
+            }
+
+            node->name = name.value();
+        } else {
+            node->name = nullptr;
+        }
     }
 
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_OPEN_PAREN);
     iter.advance();  // skip '('
 
     if (!CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_CLOSE_PAREN)) {
-        __TOKEN_N::Token starting = CURRENT_TOK;
+        __TOKEN_N::Token     starting    = CURRENT_TOK;
         ParseResult<VarDecl> first_param = parse<VarDecl>(true);
         RETURN_IF_ERROR(first_param);
 
@@ -876,7 +992,7 @@ AST_NODE_IMPL(Declaration,
 
             if (param.value()->value != nullptr) {
                 has_keyword = true;
-            } else { // if theres no value but theres a keyword arg
+            } else {  // if theres no value but theres a keyword arg
                 if (has_keyword) {
                     return std::unexpected(
                         PARSE_ERROR(starting, "positional argument after default argument"));
@@ -886,15 +1002,44 @@ AST_NODE_IMPL(Declaration,
             node->params.emplace_back(param.value());
         }
     }
-    
+
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_PAREN);
     iter.advance();  // skip ')'
 
-    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
-        ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-        RETURN_IF_ERROR(generics);
+    if (node->is_op) {
+        // we can have an alias name
+        if CURRENT_TOKEN_IS (__TOKEN_N::PUNCTUATION_OPEN_BRACKET) {
+            iter.advance();  // skip '['
 
-        node->generics = generics.value();
+            if (CURRENT_TOKEN_IS(__TOKEN_N::IDENTIFIER) ||
+                CURRENT_TOKEN_IS(__TOKEN_N::OPERATOR_SCOPE)) {
+                ParseResult<PathExpr> alias = expr_parser.parse<PathExpr>();
+                RETURN_IF_ERROR(alias);
+
+                if (alias.value()->type == PathExpr::PathType::Dot) {
+                    return std::unexpected(PARSE_ERROR(CURRENT_TOK, "invalid operator alias"));
+                }
+
+                node->name = alias.value();
+            } else {
+                return std::unexpected(
+                    PARSE_ERROR(CURRENT_TOK, "expected identifier for operator alias"));
+            }
+
+            IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_BRACKET);
+            iter.advance();  // skip ']'
+        } else {
+            node->name = nullptr;
+        }
+    }
+
+    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_REQUIRES)) {
+        if (node->generics == nullptr) {
+            return std::unexpected(PARSE_ERROR(
+                CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+        }
+
+        PARSE_REQUIRES_BOUNDS(node->generics);
         found_requires = true;
     }
 
@@ -911,10 +1056,12 @@ AST_NODE_IMPL(Declaration,
                 return std::unexpected(PARSE_ERROR(CURRENT_TOK, "duplicate requires clause"));
             }
 
-            ParseResult<RequiresDecl> generics = parse<RequiresDecl>();
-            RETURN_IF_ERROR(generics);
+            if (node->generics == nullptr) {
+                return std::unexpected(PARSE_ERROR(
+                    CURRENT_TOK, "requires declaration must be preceded by a generic declaration"));
+            }
 
-            node->generics = generics.value();
+            PARSE_REQUIRES_BOUNDS(node->generics);
         }
     }
 
@@ -938,6 +1085,133 @@ AST_NODE_IMPL(Declaration,
         return std::unexpected(PARSE_ERROR(CURRENT_TOK, "expected function body"));
     }
 
+    /// now we append the following to the params:
+    /// const loc: libcxx::source_location = libcxx::source_location::current()
+    /// along with the following to elm 0 of the body:
+    /// __REGISTER_HELIX_TRACE_BLOCK__(loc.file_name(), loc.line(), __HELIX_FUNCNAME__);
+    
+    auto function_name = node->name;
+    // if (!(node->is_op) && (function_name != nullptr && !((function_name->get_back_name().value() == "main" ||
+    //                                     function_name->get_back_name().value() == "_main" ||
+    //                                     function_name->get_back_name().value() == "wmain" ||
+    //                                     function_name->get_back_name().value() == "WinMain" ||
+    //                                     function_name->get_back_name().value() == "wWinMain" ||
+    //                                     function_name->get_back_name().value() == "_tmain" ||
+    //                                     function_name->get_back_name().value() == "_tWinMain")))) {
+    //     node->params.emplace_back(make_node<VarDecl>(
+    //         make_node<NamedVarSpecifier>(
+    //             make_node<IdentExpr>(
+    //                 token::Token(__TOKEN_N::IDENTIFIER, "$source$loc", node->marker)),
+
+    //             make_node<Type>(make_node<ScopePathExpr>(
+    //                 NodeV<IdentExpr>{
+    //                     make_node<IdentExpr>(
+    //                         token::Token(__TOKEN_N::IDENTIFIER, "libcxx", node->marker)),
+    //                 },
+
+    //                 make_node<IdentExpr>(
+    //                     token::Token(__TOKEN_N::IDENTIFIER, "source_location", node->marker)),
+
+    //                 true))),
+
+    //         make_node<FunctionCallExpr>(
+    //             make_node<PathExpr>(
+    //                 make_node<ScopePathExpr>(
+    //                     NodeV<IdentExpr>{
+    //                         make_node<IdentExpr>(
+    //                             token::Token(__TOKEN_N::IDENTIFIER, "libcxx", node->marker)),
+
+    //                         make_node<IdentExpr>(token::Token(
+    //                             __TOKEN_N::IDENTIFIER, "source_location", node->marker)),
+    //                     },
+
+    //                     make_node<IdentExpr>(
+    //                         token::Token(__TOKEN_N::IDENTIFIER, "current", node->marker)),
+
+    //                     true),
+
+    //                 PathExpr::PathType::Scope),
+
+    //             make_node<ArgumentListExpr>(nullptr),
+    //             nullptr)));
+    // }
+
+    NodeT<ArgumentListExpr> register_trace;
+
+    // if (!(node->is_op) && (function_name != nullptr && !((function_name->get_back_name().value() == "main" ||
+    //                                     function_name->get_back_name().value() == "_main" ||
+    //                                     function_name->get_back_name().value() == "wmain" ||
+    //                                     function_name->get_back_name().value() == "WinMain" ||
+    //                                     function_name->get_back_name().value() == "wWinMain" ||
+    //                                     function_name->get_back_name().value() == "_tmain" ||
+    //                                     function_name->get_back_name().value() == "_tWinMain")))) {
+    //     register_trace = make_node<ArgumentListExpr>(NodeV<>{
+    //         make_node<ArgumentExpr>(make_node<PathExpr>(
+    //             make_node<DotPathExpr>(make_node<IdentExpr>(token::Token(
+    //                                        __TOKEN_N::IDENTIFIER, "$source$loc", node->marker)),
+
+    //                                    make_node<FunctionCallExpr>(
+    //                                        make_node<PathExpr>(make_node<IdentExpr>(token::Token(
+    //                                            __TOKEN_N::IDENTIFIER, "file_name", node->marker))),
+
+    //                                        make_node<ArgumentListExpr>(nullptr),
+    //                                        nullptr)),
+
+    //             PathExpr::PathType::Dot)),
+
+    //         make_node<ArgumentExpr>(make_node<PathExpr>(
+    //             make_node<DotPathExpr>(make_node<IdentExpr>(token::Token(
+    //                                        __TOKEN_N::IDENTIFIER, "$source$loc", node->marker)),
+
+    //                                    make_node<FunctionCallExpr>(
+    //                                        make_node<PathExpr>(make_node<IdentExpr>(token::Token(
+    //                                            __TOKEN_N::IDENTIFIER, "line", node->marker))),
+
+    //                                        make_node<ArgumentListExpr>(nullptr),
+    //                                        nullptr)),
+
+    //             PathExpr::PathType::Dot)),
+
+    //         make_node<ArgumentExpr>(make_node<IdentExpr>(
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+    //     });
+    // } else {
+    //     register_trace = make_node<ArgumentListExpr>(NodeV<>{
+    //         make_node<ArgumentExpr>(make_node<IdentExpr>(
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__FILE__", node->marker))),
+
+    //         make_node<ArgumentExpr>(make_node<IdentExpr>(
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__LINE__", node->marker))),
+
+    //         make_node<ArgumentExpr>(make_node<IdentExpr>(
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+    //     });
+    // }
+
+    register_trace = make_node<ArgumentListExpr>(NodeV<>{
+        make_node<ArgumentExpr>(make_node<IdentExpr>(
+            token::Token(__TOKEN_N::IDENTIFIER, "__FILE__", node->marker))),
+
+        make_node<ArgumentExpr>(make_node<IdentExpr>(
+            token::Token(__TOKEN_N::IDENTIFIER, "__LINE__", node->marker))),
+
+        make_node<ArgumentExpr>(make_node<IdentExpr>(
+            token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+    });
+
+    if (node->body != nullptr && node->body->body != nullptr) {
+        node->body->body->body.emplace(
+            node->body->body->body.begin(),
+
+            make_node<FunctionCallExpr>(
+                make_node<PathExpr>(make_node<IdentExpr>(token::Token(
+                    __TOKEN_N::IDENTIFIER, "__REGISTER_HELIX_TRACE_BLOCK__", node->marker))),
+
+                register_trace,
+
+                nullptr));
+    }
+
     return node;
 }
 
@@ -955,7 +1229,9 @@ AST_NODE_IMPL_VISITOR(Jsonify, FuncDecl) {
         .add("returns", get_node_json(node.returns))
         .add("body", get_node_json(node.body))
         .add("modifiers", node.modifiers.to_json())
-        .add("qualifiers", node.qualifiers.to_json());
+        .add("qualifiers", node.qualifiers.to_json())
+        .add("is_op", node.is_op)
+        .add("op", node.op);
 }
 
 // ---------------------------------------------------------------------------------------------- //
@@ -1127,53 +1403,6 @@ AST_NODE_IMPL_VISITOR(Jsonify, LetDecl) {
 
 // ---------------------------------------------------------------------------------------------- //
 
-/* TODO: MERGE WITH FUNCTION DECL */
-AST_NODE_IMPL(Declaration, OpDecl, const std::shared_ptr<__TOKEN_N::TokenList> &modifiers) {
-    IS_NOT_EMPTY;
-    // OpDecl := Modifiers 'op' T FuncDecl[no_SharedModifiers=true]
-
-    NodeT<OpDecl> node = make_node<OpDecl>(true);
-
-    if (modifiers != nullptr) {
-        for (auto &tok : *modifiers) {
-            if (!node->modifiers.find_add(tok.current().get())) {
-                return std::unexpected(
-                    PARSE_ERROR(tok.current().get(), "invalid modifier for an operator"));
-            }
-        }
-    } else {
-        while (node->modifiers.find_add(CURRENT_TOK)) {
-            iter.advance();  // skip modifier
-        }
-    }
-
-    IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_OPERATOR);
-
-    // TODO: Find a better way to do this...
-    while (iter.advance().get().token_kind() != token::KEYWORD_FUNCTION) {
-        node->op.push_back(CURRENT_TOK);  // skip token and push it
-    }
-
-    /// 'fn' here, so we now need to parse the function in name optional mode
-    ParseResult<FuncDecl> fn = parse<FuncDecl>(nullptr, false);
-    RETURN_IF_ERROR(fn);
-
-    // NodeT<FuncDecl> fn_node = make_node<FuncDecl>();
-
-    node->func.swap(fn.value());
-
-    return node;
-}
-
-AST_NODE_IMPL_VISITOR(Jsonify, OpDecl) {
-    json.section("OpDecl")
-        .add("op", node.op)
-        .add("func", get_node_json(node.func))
-        .add("modifiers", node.modifiers.to_json());
-}
-
-// ---------------------------------------------------------------------------------------------- //
-
 AST_NODE_IMPL(Declaration, ModuleDecl, const std::shared_ptr<__TOKEN_N::TokenList> &modifiers) {
     IS_NOT_EMPTY;
     // ModuleDecl := 'inline'? 'module' E.PathExpr[scopeOnly=true] S.Suite
@@ -1218,7 +1447,8 @@ AST_BASE_IMPL(Declaration, parse) {
     IS_NOT_EMPTY;
 
     __TOKEN_N::Token tok = CURRENT_TOK;  /// get the current token from the iterator
-    std::shared_ptr<__TOKEN_N::TokenList> modifiers = nullptr;  /// create a pointer to the modifiers
+    std::shared_ptr<__TOKEN_N::TokenList> modifiers =
+        nullptr;  /// create a pointer to the modifiers
 
     /* TODO: make this not happen if bool is passed */
     while (Modifiers::is_modifier(tok)) {
@@ -1270,7 +1500,8 @@ AST_BASE_IMPL(Declaration, parse) {
         case __TOKEN_N::KEYWORD_FUNCTION:
             return parse<FuncDecl>(modifiers);
         case __TOKEN_N::KEYWORD_OPERATOR:
-            return parse<OpDecl>(modifiers);
+            return std::unexpected(
+                PARSE_ERROR(tok, "operator declaration is in the wrong place/format"));
         case __TOKEN_N::KEYWORD_TYPE:
             return parse<TypeDecl>(modifiers);
         // case __TOKEN_N::KEYWORD_UNION:

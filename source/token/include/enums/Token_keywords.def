@@ -55,8 +55,8 @@
     /* D */ GENERATE(KEYWORD_CLASS, "class")           \
     /* D */ GENERATE(KEYWORD_UNION, "union")           \
     /* D */ GENERATE(KEYWORD_STRUCT, "struct")         \
+    /* D */ GENERATE(KEYWORD_WHERE, "where")           \
     /* D */ GENERATE(KEYWORD_INTERFACE, "interface")   \
-    /* H */ GENERATE(KEYWORD_HAS, "has")               \
     /* S */ GENERATE(KEYWORD_TRY, "try")               \
     /* S */ GENERATE(KEYWORD_PANIC, "panic")           \
     /* S */ GENERATE(KEYWORD_CATCH, "catch")           \

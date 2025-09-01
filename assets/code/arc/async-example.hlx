@@ -6,8 +6,8 @@ async fn fetch_data() -> string {
 }
 
 fn main() {
-    let future: Future = spawn fetch_data(); // start a os-manged child process
-    let data = await future;
+    var future: Future = spawn fetch_data(); // start a os-manged child process
+    var data = await future;
     
     for i in data:
         print(f"{i=}", end=", ");

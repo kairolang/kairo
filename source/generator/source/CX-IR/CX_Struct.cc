@@ -29,10 +29,9 @@ CX_VISIT_IMPL(StructDecl) {
                     case __AST_NODE::nodes::EnumDecl:
                     case __AST_NODE::nodes::StructDecl:
                     case __AST_NODE::nodes::TypeDecl:
-                    case __AST_NODE::nodes::OpDecl:
                     case __AST_NODE::nodes::LetDecl:
                     case __AST_NODE::nodes::ConstDecl:
-                        break;
+                    break;
                     case __AST_NODE::nodes::IfState: {
                         auto if_node = __AST_N::as<__AST_NODE::IfState>(child);
                         
@@ -40,7 +39,13 @@ CX_VISIT_IMPL(StructDecl) {
                             break;
                         }
                     }
-                    default:
+                    case __AST_NODE::nodes::FuncDecl: {
+                        auto func_decl = __AST_N::as<__AST_NODE::FuncDecl>(child);
+                    
+                        if (func_decl->is_op && (func_decl->name == nullptr)) {
+                            break;
+                        }
+                    } default:
                         CODEGEN_ERROR(
                             node.name->name,
                             "struct declaration cannot have a node of type: '" +
@@ -50,10 +55,10 @@ CX_VISIT_IMPL(StructDecl) {
                         continue;
                 }
 
-                if (child->getNodeType() == __AST_NODE::nodes::OpDecl) {
-                    auto op_decl = __AST_N::as<__AST_NODE::OpDecl>(child);
-                    if (op_decl->func->name) {
-                        auto marker = op_decl->func->name->get_back_name();
+                if (child->getNodeType() == __AST_NODE::nodes::FuncDecl && __AST_N::as<__AST_NODE::FuncDecl>(child)->is_op) {
+                    auto op_decl = __AST_N::as<__AST_NODE::FuncDecl>(child);
+                    if (op_decl->name) {
+                        auto marker = op_decl->name->get_back_name();
                         CODEGEN_ERROR(
                             marker,
                             "struct declaration cannot have named operators; remove the named alias.");
@@ -111,13 +116,13 @@ CX_VISIT_IMPL(StructDecl) {
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_LPAREN));
                         self->append(std::make_unique<CX_Token>(cxir_tokens::CXX_RPAREN));
 
-                        self->visit(*op_decl->func->body);
+                        self->visit(*op_decl->body);
 
                         continue;
                     }
 
-                    add_visibility(self, op_decl->func);
-                    self->visit(*op_decl, true);
+                    add_visibility(self, op_decl);
+                    self->visit(*op_decl, true, true);
                 } else if (child->getNodeType() == __AST_NODE::nodes::LetDecl) {
                     auto let_decl = __AST_N::as<__AST_NODE::LetDecl>(child);
 

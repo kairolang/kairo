@@ -12,7 +12,7 @@ class CF {
     std::string_view mingw;
 };
 
-constexpr CF debugModeFlag{.gcc="-g -g3", .clang="-g -g3", .msvc="/Zi", .mingw="-g -g3"};
+constexpr CF debugModeFlag{.gcc="-g -g3 -DDEBUG", .clang="-g -g3 -DDEBUG", .msvc="/Zi /DDEBUG", .mingw="-g -g3 -DDEBUG"};
 constexpr CF warnAllFlag{.gcc="-Wall", .clang="-Wall", .msvc="/W4", .mingw="-Wall"};
 constexpr CF noWarningsFlag{.gcc="-w", .clang="-w", .msvc="/w", .mingw="-w"};
 constexpr CF stdC23Flag{.gcc="-std=c23", .clang="-std=c23", .msvc="/std:c23", .mingw="-std:c23"};

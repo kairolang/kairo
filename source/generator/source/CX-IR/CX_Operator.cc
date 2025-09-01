@@ -16,9 +16,8 @@
 #include "generator/include/config/Gen_config.def"
 #include "utils.hh"
 
-CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
+CX_VISIT_IMPL_VA(FuncDecl, bool in_udt, bool is_op) {
     OpType       op_t  = OpType(node, in_udt);
-    auto         _node = std::make_shared<__AST_NODE::OpDecl>(node);
     token::Token tok;
 
     /// FIXME: really have to add markers to the rewrite of the compiler
@@ -32,17 +31,17 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
         if (!node.op.empty()) {
             tok = node.op.front();
         } else {
-            auto name = node.func->get_name_t();
+            auto name = node.get_name_t();
             if (!name.empty()) {
                 tok = name.back();
             } else {
-                tok = node.func->marker;
+                tok = node.marker;
             }
         }
     }
 
-    handle_static_self_fn_decl(_node, tok, in_udt);
-    check_for_yield_and_panic(node.func->body, node.func->returns);
+    handle_static_self_fn_decl(node, tok, in_udt);
+    check_for_yield_and_panic(node.body, node.returns);
 
     // ---------------------------- add generator state ---------------------------- //
     if (in_udt && op_t.type == OpType::GeneratorOp) {
@@ -51,7 +50,7 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
         ADD_TOKEN(CXX_COLON);
 
         ADD_TOKEN(CXX_MUTABLE);
-        ADD_NODE_PARAM(func->returns);
+        ADD_NODE_PARAM(returns);
         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "$gen_state", tok);
 
         ADD_TOKEN(CXX_ASSIGN);
@@ -66,8 +65,8 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
 
     // ---------------------------- operator declaration ---------------------------- //
 
-    if (node.func->generics) {  //
-        ADD_NODE_PARAM(func->generics);
+    if (node.generics) {  //
+        ADD_NODE_PARAM(generics);
     };
 
     if (!node.modifiers.contains(__TOKEN_N::KEYWORD_INLINE)) {
@@ -107,7 +106,7 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
 
             auto type =
                 __AST_N::make_node<__AST_NODE::Type>(__AST_N::make_node<__AST_NODE::UnaryExpr>(
-                    node.func->returns,
+                    node.returns,
                     __TOKEN_N::Token(__TOKEN_N::OPERATOR_MUL, "*", *op_t.tok),
                     __AST_NODE::UnaryExpr::PosType::PreFix,
                     true));
@@ -119,7 +118,7 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
                         ),
                     type));
 
-            node.func->params.emplace_back(param);
+            node.params.emplace_back(param);
         }
 
         // if its a panic op
@@ -146,8 +145,8 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
     }
 
     ADD_TOKEN(CXX_LPAREN);
-    if (!node.func->params.empty()) {
-        for (auto &param : node.func->params) {
+    if (!node.params.empty()) {
+        for (auto &param : node.params) {
             ADD_PARAM(param);
             ADD_TOKEN(CXX_COMMA);
         }
@@ -160,10 +159,10 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
 
     ADD_TOKEN(CXX_PTR_ACC);
 
-    if (node.func->returns) {  //
-        ADD_NODE_PARAM(func->returns);
+    if (node.returns) {  //
+        ADD_NODE_PARAM(returns);
     } else {
-        ADD_TOKEN_AT_LOC(CXX_VOID, node.func->marker);
+        ADD_TOKEN_AT_LOC(CXX_VOID, node.marker);
     }
 
     if (node.modifiers.contains(__TOKEN_N::KEYWORD_OVERRIDE)) {
@@ -180,8 +179,8 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
             __CXIR_CODEGEN_N::cxir_tokens::CXX_DELETE,
             node.modifiers.get(__TOKEN_N::KEYWORD_DELETE)));
 
-        if (node.func->name != nullptr) {
-            auto fail = node.func->name->get_back_name();
+        if (node.name != nullptr) {
+            auto fail = node.name->get_back_name();
             error::Panic(
                 error::CodeError{.pof          = &fail,
                                  .err_code     = 0.3002,
@@ -195,8 +194,8 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
             __CXIR_CODEGEN_N::cxir_tokens::CXX_DEFAULT,
             node.modifiers.get(__TOKEN_N::KEYWORD_DEFAULT)));
 
-        if (node.func->name != nullptr) {
-            auto fail = node.func->name->get_back_name();
+        if (node.name != nullptr) {
+            auto fail = node.name->get_back_name();
             error::Panic(
                 error::CodeError{.pof          = &fail,
                                  .err_code     = 0.3002,
@@ -204,7 +203,7 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
         }
     }
 
-    if (node.func->body && node.func->body->body) {
+    if (node.body && node.body->body) {
         if (node.modifiers.contains(__TOKEN_N::KEYWORD_DELETE) ||
             node.modifiers.contains(__TOKEN_N::KEYWORD_DEFAULT)) {
             auto fail = node.op.back();
@@ -215,7 +214,7 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
         }
         // adds and removes any nested functions
         BRACE_DELIMIT(                                                                  //
-            std::erase_if(node.func->body->body->body, ModifyNestedFunctions(this)););  //
+            std::erase_if(node.body->body->body, ModifyNestedFunctions(this)););  //
     } else {
         ADD_TOKEN(CXX_SEMICOLON);
     }
@@ -223,28 +222,28 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
     // ---------------------------- function declaration ---------------------------- //
 
     // add the alias function first if it has a name
-    if (node.func->name != nullptr) {
-        if (node.func->generics) {  //
-            ADD_NODE_PARAM(func->generics);
+    if (node.name != nullptr) {
+        if (node.generics) {  //
+            ADD_NODE_PARAM(generics);
         };
 
         add_func_modifiers(this, node.modifiers);
 
         ADD_TOKEN(CXX_AUTO);
 
-        ADD_NODE_PARAM(func->name);
+        ADD_NODE_PARAM(name);
 
         PAREN_DELIMIT(                //
-            COMMA_SEP(func->params);  //
+            COMMA_SEP(params);  //
         );
 
         add_func_specifiers(this, node.modifiers);
 
         ADD_TOKEN(CXX_PTR_ACC);
-        if (node.func->returns) {  //
-            ADD_NODE_PARAM(func->returns);
+        if (node.returns) {  //
+            ADD_NODE_PARAM(returns);
         } else {
-            ADD_TOKEN_AT_LOC(CXX_VOID, node.func->marker);
+            ADD_TOKEN_AT_LOC(CXX_VOID, node.marker);
         }
 
         if (node.modifiers.contains(__TOKEN_N::KEYWORD_OVERRIDE)) {
@@ -281,8 +280,8 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
             }
 
             ADD_TOKEN(CXX_LPAREN);
-            if (!node.func->params.empty()) {
-                for (auto &param : node.func->params) {
+            if (!node.params.empty()) {
+                for (auto &param : node.params) {
                     ADD_PARAM(param->var->path);
                     ADD_TOKEN(CXX_COMMA);
                 }
@@ -338,7 +337,7 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
         ADD_TOKEN(CXX_EXPLICIT);
         add_func_modifiers(this, node.modifiers);
         ADD_TOKEN(CXX_OPERATOR);
-        ADD_PARAM(node.func->returns);
+        ADD_PARAM(node.returns);
         ADD_TOKEN(CXX_LPAREN);
         ADD_TOKEN(CXX_RPAREN);
         add_func_specifiers(this, node.modifiers);
@@ -349,12 +348,12 @@ CX_VISIT_IMPL_VA(OpDecl, bool in_udt) {
             ADD_TOKEN_AT_LOC(CXX_PTR_ACC, *op_t.tok);
             ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "operator$cast", *op_t.tok);
             // ANGLE_DELIMIT(                                       //
-            //     ADD_PARAM(node.func->returns);                   //
+            //     ADD_PARAM(node.returns);                   //
             // );                                                   //
             PAREN_DELIMIT(                                       //
                 ADD_TOKEN(CXX_STATIC_CAST);                      //
                 ANGLE_DELIMIT(                                   //
-                    ADD_PARAM(node.func->returns);               //
+                    ADD_PARAM(node.returns);               //
                     ADD_TOKEN_AS_VALUE(CXX_CORE_OPERATOR, "*");  //
                 );                                               //
                 PAREN_DELIMIT(                                   //

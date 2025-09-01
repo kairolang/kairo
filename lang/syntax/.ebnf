@@ -10,12 +10,12 @@ hex_digit   ::= [0-9a-fA-F];
 // generic only allows for const or eval'd expressions to be used, they can be variables but must
 // be const and known at compile time
 self      ::= '&'? "self"; // self  == *this | &self == this
-generic   ::= '<' (type | expr) (',' (type | expr))* '>'; // <T, V, R> | requires <i32, 1>
+generic   ::= '<' (type | expr) (',' (type | expr))* '>'; // <T, V, R> | <i32, 1>
 fn_return ::= "->" type; // -> T
 
 // change this to a binary operator
 operator_path   ::= "op" operator;                                     // op+ | op-
-scoped_path_elm ::= "*"* (ident | operator_path) '?'? "requires"? generic?; // x | op+ | self | x<T> | *x | Foo requires <T>
+scoped_path_elm ::= "*"* (ident | operator_path) '?'? generic?; // x | op+ | self | x<T> | *x | Foo <T>
 member_path     ::= expr '.' scoped_path_elm;                          // x.y | x<T>.y   | x::V.y | x::V[T].*y.z
 scoped_path     ::= ("::")? scoped_path_elm ("::" scoped_path_elm)*;   // ::V | V | V[T] | V[T]::R
 
@@ -194,43 +194,43 @@ structured_binding ::= '(' (untyped_param | param) (',' (untyped_param | param))
 var_param          ::= (untyped_param ('=' expr) | param ('=' expr)?);
 var_decl           ::= visibility? (specifiers* | "var") ((var_param (',' var_param)*) | (structured_binding '=' expr));
 
-requires_bound ::= "where" expr; // where x impl T
-requires_param ::= "const"? type_hint? (param | ident) ('=' expr | type)?;
-requires_decl  ::= "requires" '<' (requires_param (',' (requires_param))*)? '>'; // requires <T, V = 1> | requires <class T, V: i32>
+generic_bound ::= "requires" expr; // requires x impl T
+generic_param ::= "const"? type_hint? (param | ident) ('=' expr | type)?;
+generic_decl  ::= '<' (generic_param (',' (generic_param))*)? '>'; // <T, V = 1> | <class T, V: i32>
 
-requires       ::= requires_decl requires_bound?; // requires <T, V = 1> | requires <class T, V: i32>
 implements     ::= "impl" (type (',' type)*);     // impl Foo, Bar | impl Foo
 derives        ::= "derives" (visibility? type (',' visibility? type)*);  // derives Foo, Bar | derives Foo
 
 // add union support to this
+//
 // union Some {
 //    x: i32,
 //    y: (f32 | i32, i32),
 // }
+//
 // var val: Some = Some::x(1);
 // var val2 Some::y(1, 2);
 
-struct_decl    ::= visibility? "struct"    scoped_path implements? requires? block?; // struct Foo { ... }
-class_decl     ::= visibility? "class"     scoped_path implements? derives? requires? block?; // class Foo { ... }
-interface_decl ::= visibility? "interface" scoped_path implements? requires? block?; // interface Foo { ... }
-extend_decl    ::= "extend" scoped_path implements? derives? requires? block; // extend Foo { ... }
+struct_decl    ::= visibility? "struct"    generic_decl? scoped_path implements? generic_bound? block?; // struct Foo { ... }
+class_decl     ::= visibility? "class"     generic_decl? scoped_path implements? derives? generic_bound? block?; // class Foo { ... }
+interface_decl ::= visibility? "interface" generic_decl? scoped_path implements? generic_bound? block?; // interface Foo { ... }
+extend_decl    ::= "extend" generic_decl? scoped_path implements? derives? generic_bound? block; // extend Foo { ... }
 
 enum_values    ::= ident ('=' expr)? (',' ident ('=' expr)?)*; // A = 1, B = 2
-enum_decl      ::= visibility? "enum" scoped_path derives? requires? '{' enum_values? '}'; // enum Foo { A = 1, B = 2 }
+enum_decl      ::= visibility? "enum" generic_decl? scoped_path derives? generic_bound? '{' enum_values? '}'; // enum Foo { A = 1, B = 2 }
 
-type_alias     ::= visibility? "type" scoped_path requires? '=' type; // type Foo requires <T> = i32
+type_alias     ::= visibility? "type" generic_decl? scoped_path generic_bound? '=' type; // type <T> Foo = i32
 module_decl    ::= visibility? "inline"? "module" scoped_path block; // module Foo { ... }
 
 // both override and visibility cant be used together
 func_decl      ::= visibility? ("override" | "final")? "fn" scoped_path '(' parameters? ')' qualifier* fn_return? block?; // fn foo(x: i32) -> i32 { ... }
-
-// operator_decl.scoped_path == (("::"? ident "requires"? generic?)+ "::")? "op" operator
-operator_decl  ::= visibility? ("override" | "final")? scoped_path '(' parameters? ')' ('[' ident ']')? qualifier* fn_return? block?; // op+ (x: i32) -> i32 { ... }
+//                              |-------------------------< ^^^^^^^^^^^
+//                              |-> also covers operators with op+, ... being a part of scoped_path
 
 test_decl ::= "test" string_literal block; // test "foo" { ... }
 ffi       ::= "ffi" string_literal; // ffi "c++" import "include/lang/panic.h";
 
-primary_declaration ::= var_decl | struct_decl | class_decl | interface_decl | extend_decl | enum_decl | type_alias | func_decl | operator_decl
+primary_declaration ::= var_decl | struct_decl | class_decl | interface_decl | extend_decl | enum_decl | type_alias | func_decl
 declaration         ::= (proc_macro_invoke* ffi? primary_declaration) | test_decl | module_decl;
 
 /* Macros */
@@ -267,4 +267,4 @@ built_in_directives ::= '@' "volatile"     '(' ')' // makes the compiler not opt
                     |   '@' "alignas"      '(' Number         ')'; // sets the alignment of the variable/declaration
 built_in_macros     ::= "__file__" '!' | "__line__" '!' | "__column__" '!' | "__function__" '!' | "__module__" '!';
 
-program ::= (declaration | (import | multi_import) | macro | proc_macro | statement)*;
+program ::= (declaration | (import | multi_import) | macro | proc_macro | statement | expr)*;

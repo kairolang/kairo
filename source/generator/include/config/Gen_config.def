@@ -21,9 +21,9 @@
 #define __CXIR_CODEGEN_N generator::CXIR
 
 #define CX_VISIT_IMPL(type) \
-    void __CXIR_CODEGEN_N::CXIR::visit([[maybe_unused]] const __AST_NODE::type &node)
+    void __CXIR_CODEGEN_N::CXIR::visit([[maybe_unused]] __AST_NODE::type &node)
 #define CX_VISIT_IMPL_VA(type, ...) \
-    void __CXIR_CODEGEN_N::CXIR::visit(const __AST_NODE::type &node /* NOLINT */, __VA_ARGS__)
+    void __CXIR_CODEGEN_N::CXIR::visit(__AST_NODE::type &node /* NOLINT */, __VA_ARGS__)
 
 #define MAKE_CXIR_TOKEN(name, string) name,
 #define MAKE_CXIR_TOKEN_PAIR(name, string) std::pair{name, string},

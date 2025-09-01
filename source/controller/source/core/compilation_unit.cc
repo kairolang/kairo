@@ -277,6 +277,10 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
         action_flags |= flag::CompileFlags(flag::types::CompileFlags::Verbose);
     }
 
+    if (parsed_args.build_lib == __CONTROLLER_CLI_N::CLIArgs::ABI::HELIX) {
+        action_flags |= flag::CompileFlags(flag::types::CompileFlags::Library);
+    }
+
     return {CXXCompileAction::init(emitter, out_file, action_flags, parsed_args.cxx_args), 0};
 }
 
@@ -298,7 +302,7 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
     std::chrono::time_point<std::chrono::high_resolution_clock> start =
         std::chrono::high_resolution_clock::now();
     auto [action, result] = build_unit(parsed_args);
-    CXXCompileAction _;
+
     switch (result) {
         case 0:
             break;
@@ -308,6 +312,10 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
 
         case 2:
             return 0;
+
+        default:
+            helix::log<LogLevel::Error>("unknown result code: ", result);
+            return 1;
     }
 
     helix::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiling");

@@ -4,7 +4,7 @@ interface SimpleI {
     fn innit(self) -> i32;
 }
 
-interface ConstrainedI requires <U> if U has SimpleI {
+interface <U> ConstrainedI requires U impl SimpleI {
     fn mandem(self, other: U) -> bool;
 }
 
@@ -27,7 +27,7 @@ class ConstrainedPub impl ConstrainedI::<Bar> {
 }
 
 // Function that uses constrained interfaces
-fn use_constrained() requires <T, U> if T has ConstrainedI::<U> && U has SimpleI {
+fn <T, U> use_constrained() requires T impl ConstrainedI::<U> && U impl SimpleI {
     var instance: T;
     print(instance.mandem(U()));
 }

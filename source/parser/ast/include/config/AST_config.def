@@ -33,7 +33,7 @@
 #define AST_BASE_IMPL(name, fn) __AST_N::ParseResult<> __AST_NODE::name::fn()
 
 #define AST_NODE_IMPL_VISITOR(visitor, name) \
-    void __AST_VISITOR::visitor::visit([[maybe_unused]] const __AST_NODE::name &node)
+    void __AST_VISITOR::visitor::visit([[maybe_unused]] __AST_NODE::name &node)
 
 #define BASE_CORE_METHODS(name)                                                            \
   public:                                                                                  \
@@ -43,7 +43,7 @@
     name &operator=(const name &) = default;                                               \
     name(name &&)                 = default;                                               \
     name &operator=(name &&)      = default;                                               \
-    void  accept(__AST_VISITOR::Visitor &visitor) const override { visitor.visit(*this); } \
+    void  accept(__AST_VISITOR::Visitor &visitor) override { visitor.visit(*this); } \
     [[nodiscard]] nodes       getNodeType() const override { return nodes::name; }         \
     [[nodiscard]] std::string getNodeName() const override { return #name; } \
     [[nodiscard]] bool        is(nodes node) const override { return getNodeType() == node; }
@@ -165,8 +165,8 @@
 #define FORWARD_DECL(name) class name;
 #define DECL_PARSE_FUNC(name) ParseResult<name> parse_##name();
 #define NODE_ENUM(name) name,
-#define VISIT_FUNC(name) virtual void visit(const __AST_NODE::name &) = 0;
-#define VISIT_EXTEND(name) void visit(const __AST_NODE::name &node) override;
+#define VISIT_FUNC(name) virtual void visit(__AST_NODE::name &) = 0;
+#define VISIT_EXTEND(name) void visit(__AST_NODE::name &node) override;
 
 #define GENERATE_MACRO_HELPER(MACRO) EXPRS(MACRO) STATES(MACRO) DECLS(MACRO)
 
@@ -174,9 +174,9 @@
 #define GENERATE_NODES_FORWARD_DECLS GENERATE_MACRO_HELPER(FORWARD_DECL)
 #define GENERATE_PARSE_FUNCS
 #define GENERATE_VISIT_FUNCS \
-    GENERATE_MACRO_HELPER(VISIT_FUNC) virtual void visit(const __AST_NODE::Program &) = 0;
+    GENERATE_MACRO_HELPER(VISIT_FUNC) virtual void visit(__AST_NODE::Program &) = 0;
 #define GENERATE_VISIT_EXTENDS \
-    GENERATE_MACRO_HELPER(VISIT_EXTEND) void visit(const __AST_NODE::Program &) override;
+    GENERATE_MACRO_HELPER(VISIT_EXTEND) void visit(__AST_NODE::Program &) override;
 
 namespace parser::preprocessor {
     class ImportProcessor;

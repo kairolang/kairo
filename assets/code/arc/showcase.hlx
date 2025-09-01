@@ -1,6 +1,6 @@
 class Point {
-    let x: int;
-    let y: int;
+    var x: int;
+    var y: int;
 
     eval fn Point(self, x: int, y: int) {
         self.x = x;
@@ -18,14 +18,14 @@ class Point {
 }
 
 fn main() {
-    let p = Point(0, 0);
+    var p = Point(0, 0);
 
     for i in 1..4 {
         p.move(i, i);
         p.display();
     }
 
-    let value: u32 = p.x as u32;
+    var value: u32 = p.x as u32;
 
     match value {
         0 -> print("The point is at the origin"),
