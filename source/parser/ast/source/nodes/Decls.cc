@@ -109,6 +109,8 @@
 #include "parser/ast/include/types/AST_modifiers.hh"
 #include "parser/ast/include/types/AST_types.hh"
 #include "token/include/Token.hh"
+#include "token/include/config/Token_config.def"
+#include "token/include/private/Token_base.hh"
 #include "token/include/private/Token_generate.hh"
 
 AST_NODE_IMPL(Declaration, RequiresParamDecl) {
@@ -128,12 +130,32 @@ AST_NODE_IMPL(Declaration, RequiresParamDecl) {
 
     node->var = var.value();
 
+    __TOKEN_N::Token op;
+
+    node->bound = nullptr;
+
+    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_IMPL) || CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_DERIVES)) {
+        op = CURRENT_TOK;
+        iter.advance();  // skip 'impl' or 'derives'
+
+        ParseResult<Type> type = expr_parser.parse<Type>();
+        RETURN_IF_ERROR(type);
+
+        NodeT<InstOfExpr> bound = make_node<InstOfExpr>(node->var->path, type.value(),
+                                                    op == __TOKEN_N::KEYWORD_IMPL
+                                                        ? InstOfExpr::InstanceType::Implement
+                                                        : InstOfExpr::InstanceType::Derives,
+                                                    op);
+        bound->in_requires = true;
+        node->bound = bound;
+    }
+
     if CURRENT_TOKEN_IS (__TOKEN_N::OPERATOR_ASSIGN) {
         iter.advance();  // skip '='
 
         ParseResult<> value = expr_parser.parse();
         RETURN_IF_ERROR(value);
-
+    
         node->value = value.value();
     }
 
@@ -336,7 +358,20 @@ AST_NODE_IMPL(Declaration, RequiresDecl) {
 
     IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_ANGLE);
     iter.advance();  // skip '>'
-    /// --------------------- params --------------------- ///
+
+    /// --------------------- bounds --------------------- ///
+    NodeV<InstOfExpr> bounds;
+    for (const auto &param : node->params->params) {
+        if (param->bound != nullptr) {
+            bounds.push_back(param->bound);
+        }
+    }
+
+    if (!bounds.empty()) {
+        NodeT<TypeBoundList> bound_list = make_node<TypeBoundList>(true);
+        bound_list->bounds = bounds;
+        node->bounds = bound_list;
+    }
 
     return node;
 }
@@ -905,7 +940,7 @@ AST_NODE_IMPL(Declaration,
         iter.advance();  // skip 'op'
 
         for (int op_token_count = 0; op_token_count < 4; ++op_token_count) {
-            if CURRENT_TOKEN_IS(token::PUNCTUATION_OPEN_PAREN) {
+            if CURRENT_TOKEN_IS (token::PUNCTUATION_OPEN_PAREN) {
                 break;
             }
 
@@ -1048,6 +1083,133 @@ AST_NODE_IMPL(Declaration,
         node->body = body.value();
     } else {
         return std::unexpected(PARSE_ERROR(CURRENT_TOK, "expected function body"));
+    }
+
+    /// now we append the following to the params:
+    /// const loc: libcxx::source_location = libcxx::source_location::current()
+    /// along with the following to elm 0 of the body:
+    /// __REGISTER_HELIX_TRACE_BLOCK__(loc.file_name(), loc.line(), __HELIX_FUNCNAME__);
+    
+    auto function_name = node->name;
+    // if (!(node->is_op) && (function_name != nullptr && !((function_name->get_back_name().value() == "main" ||
+    //                                     function_name->get_back_name().value() == "_main" ||
+    //                                     function_name->get_back_name().value() == "wmain" ||
+    //                                     function_name->get_back_name().value() == "WinMain" ||
+    //                                     function_name->get_back_name().value() == "wWinMain" ||
+    //                                     function_name->get_back_name().value() == "_tmain" ||
+    //                                     function_name->get_back_name().value() == "_tWinMain")))) {
+    //     node->params.emplace_back(make_node<VarDecl>(
+    //         make_node<NamedVarSpecifier>(
+    //             make_node<IdentExpr>(
+    //                 token::Token(__TOKEN_N::IDENTIFIER, "$source$loc", node->marker)),
+
+    //             make_node<Type>(make_node<ScopePathExpr>(
+    //                 NodeV<IdentExpr>{
+    //                     make_node<IdentExpr>(
+    //                         token::Token(__TOKEN_N::IDENTIFIER, "libcxx", node->marker)),
+    //                 },
+
+    //                 make_node<IdentExpr>(
+    //                     token::Token(__TOKEN_N::IDENTIFIER, "source_location", node->marker)),
+
+    //                 true))),
+
+    //         make_node<FunctionCallExpr>(
+    //             make_node<PathExpr>(
+    //                 make_node<ScopePathExpr>(
+    //                     NodeV<IdentExpr>{
+    //                         make_node<IdentExpr>(
+    //                             token::Token(__TOKEN_N::IDENTIFIER, "libcxx", node->marker)),
+
+    //                         make_node<IdentExpr>(token::Token(
+    //                             __TOKEN_N::IDENTIFIER, "source_location", node->marker)),
+    //                     },
+
+    //                     make_node<IdentExpr>(
+    //                         token::Token(__TOKEN_N::IDENTIFIER, "current", node->marker)),
+
+    //                     true),
+
+    //                 PathExpr::PathType::Scope),
+
+    //             make_node<ArgumentListExpr>(nullptr),
+    //             nullptr)));
+    // }
+
+    NodeT<ArgumentListExpr> register_trace;
+
+    // if (!(node->is_op) && (function_name != nullptr && !((function_name->get_back_name().value() == "main" ||
+    //                                     function_name->get_back_name().value() == "_main" ||
+    //                                     function_name->get_back_name().value() == "wmain" ||
+    //                                     function_name->get_back_name().value() == "WinMain" ||
+    //                                     function_name->get_back_name().value() == "wWinMain" ||
+    //                                     function_name->get_back_name().value() == "_tmain" ||
+    //                                     function_name->get_back_name().value() == "_tWinMain")))) {
+    //     register_trace = make_node<ArgumentListExpr>(NodeV<>{
+    //         make_node<ArgumentExpr>(make_node<PathExpr>(
+    //             make_node<DotPathExpr>(make_node<IdentExpr>(token::Token(
+    //                                        __TOKEN_N::IDENTIFIER, "$source$loc", node->marker)),
+
+    //                                    make_node<FunctionCallExpr>(
+    //                                        make_node<PathExpr>(make_node<IdentExpr>(token::Token(
+    //                                            __TOKEN_N::IDENTIFIER, "file_name", node->marker))),
+
+    //                                        make_node<ArgumentListExpr>(nullptr),
+    //                                        nullptr)),
+
+    //             PathExpr::PathType::Dot)),
+
+    //         make_node<ArgumentExpr>(make_node<PathExpr>(
+    //             make_node<DotPathExpr>(make_node<IdentExpr>(token::Token(
+    //                                        __TOKEN_N::IDENTIFIER, "$source$loc", node->marker)),
+
+    //                                    make_node<FunctionCallExpr>(
+    //                                        make_node<PathExpr>(make_node<IdentExpr>(token::Token(
+    //                                            __TOKEN_N::IDENTIFIER, "line", node->marker))),
+
+    //                                        make_node<ArgumentListExpr>(nullptr),
+    //                                        nullptr)),
+
+    //             PathExpr::PathType::Dot)),
+
+    //         make_node<ArgumentExpr>(make_node<IdentExpr>(
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+    //     });
+    // } else {
+    //     register_trace = make_node<ArgumentListExpr>(NodeV<>{
+    //         make_node<ArgumentExpr>(make_node<IdentExpr>(
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__FILE__", node->marker))),
+
+    //         make_node<ArgumentExpr>(make_node<IdentExpr>(
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__LINE__", node->marker))),
+
+    //         make_node<ArgumentExpr>(make_node<IdentExpr>(
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+    //     });
+    // }
+
+    register_trace = make_node<ArgumentListExpr>(NodeV<>{
+        make_node<ArgumentExpr>(make_node<IdentExpr>(
+            token::Token(__TOKEN_N::IDENTIFIER, "__FILE__", node->marker))),
+
+        make_node<ArgumentExpr>(make_node<IdentExpr>(
+            token::Token(__TOKEN_N::IDENTIFIER, "__LINE__", node->marker))),
+
+        make_node<ArgumentExpr>(make_node<IdentExpr>(
+            token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+    });
+
+    if (node->body != nullptr && node->body->body != nullptr) {
+        node->body->body->body.emplace(
+            node->body->body->body.begin(),
+
+            make_node<FunctionCallExpr>(
+                make_node<PathExpr>(make_node<IdentExpr>(token::Token(
+                    __TOKEN_N::IDENTIFIER, "__REGISTER_HELIX_TRACE_BLOCK__", node->marker))),
+
+                register_trace,
+
+                nullptr));
     }
 
     return node;
