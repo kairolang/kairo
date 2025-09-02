@@ -47,6 +47,7 @@ namespace types {
         Clang,
         MingW,
         Custom,
+        None,
     };
 
     enum class ErrorType : u8 { NotFound, Error, Success };

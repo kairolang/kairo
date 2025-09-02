@@ -13,7 +13,11 @@
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 
 #include "controller/include/config/Controller_config.def"
 #include "controller/include/config/cxx_flags.hh"
@@ -23,7 +27,7 @@
 #include "controller/include/tooling/tooling.hh"
 #include "parser/preprocessor/include/preprocessor.hh"
 #include "token/include/config/Token_config.def"
-#include "token/include/private/Token_list.hh"
+
 
 #ifndef DEBUG_LOG
 #define DEBUG_LOG(...)                            \
@@ -33,16 +37,16 @@
 #endif
 
 namespace CXIR {
-    std::string strip(const std::string& str, const std::string& chars = " \t\n\r") {
-        size_t start = str.find_first_not_of(chars);
-        if (start == std::string::npos) {
-            return "";
-        }
-
-        size_t end = str.find_last_not_of(chars);
-        return str.substr(start, end - start + 1);
+std::string strip(const std::string &str, const std::string &chars = " \t\n\r") {
+    size_t start = str.find_first_not_of(chars);
+    if (start == std::string::npos) {
+        return "";
     }
+
+    size_t end = str.find_last_not_of(chars);
+    return str.substr(start, end - start + 1);
 }
+}  // namespace CXIR
 
 CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &action) const {
     bool is_verbose       = action.flags.contains(EFlags(flag::types::CompileFlags::Verbose));
@@ -57,58 +61,166 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     std::string vs_path;
     std::string compile_cmd;
 
-    std::string where_vswhere =
-        R"("C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" )";
+    auto get_cache_root = []() -> std::filesystem::path {
+#ifdef _WIN32
+        if (const char *p = std::getenv("LOCALAPPDATA"); p && *p) {
+            return std::filesystem::path(p) / "helix-lang" / "cache";
+        }
+        if (const char *p = std::getenv("USERPROFILE"); p && *p) {
+            return std::filesystem::path(p) / "AppData" / "Local" / "helix-lang" / "cache";
+        }
+#else
+        if (const char *p = std::getenv("XDG_CACHE_HOME"); p && *p) {
+            return std::filesystem::path(p) / "helix-lang";
+        }
+        if (const char *p = std::getenv("HOME"); p && *p) {
+            return std::filesystem::path(p) / ".cache" / "helix-lang";
+        }
+#endif
+        return std::filesystem::temp_directory_path() / "helix-lang";
+    };
 
-    std::string vswhere_cmd =
-        where_vswhere +
-        "-latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property "
-        "installationPath";
+    std::filesystem::path cache_dir = get_cache_root();
+    std::error_code       ec;
+    std::filesystem::create_directories(cache_dir, ec);
+    std::filesystem::path cache_file = cache_dir / "msvc_tools_cache.bin";
 
-    DEBUG_LOG("vswhere command: " + vswhere_cmd);
-    vs_result = exec(vswhere_cmd);
+    auto read_cache =
+        [&](const std::filesystem::path &p, std::string &out_vs, std::string &out_msvc) -> bool {
+        std::ifstream ifs(p, std::ios::binary);
+        if (!ifs)
+            return false;
+        uint32_t version = 0;
+        ifs.read(reinterpret_cast<char *>(&version), sizeof(version));
+        if (ifs.fail())
+            return false;
+        uint64_t ts = 0;
+        ifs.read(reinterpret_cast<char *>(&ts), sizeof(ts));
+        uint32_t n = 0;
+        ifs.read(reinterpret_cast<char *>(&n), sizeof(n));
+        if (ifs.fail())
+            return false;
+        out_vs.resize(n);
+        ifs.read(&out_vs[0], n);
+        if (ifs.fail())
+            return false;
+        ifs.read(reinterpret_cast<char *>(&n), sizeof(n));
+        if (ifs.fail())
+            return false;
+        out_msvc.resize(n);
+        ifs.read(&out_msvc[0], n);
+        return !ifs.fail();
+    };
 
-    if (!std::filesystem::exists(
-            "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe")) {
-        DEBUG_LOG("vswhere not found");
-        return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
+    auto write_cache = [&](const std::filesystem::path &p,
+                           const std::string           &vs,
+                           const std::string           &msvc) -> bool {
+        std::ofstream ofs(p, std::ios::binary | std::ios::trunc);
+        if (!ofs)
+            return false;
+        uint32_t version = 1;
+        ofs.write(reinterpret_cast<const char *>(&version), sizeof(version));
+        uint64_t ts = static_cast<uint64_t>(
+            std::chrono::system_clock::to_time_t(std::chrono::system_clock::now()));
+        ofs.write(reinterpret_cast<const char *>(&ts), sizeof(ts));
+        uint32_t n = static_cast<uint32_t>(vs.size());
+        ofs.write(reinterpret_cast<const char *>(&n), sizeof(n));
+        ofs.write(vs.data(), n);
+        n = static_cast<uint32_t>(msvc.size());
+        ofs.write(reinterpret_cast<const char *>(&n), sizeof(n));
+        ofs.write(msvc.data(), n);
+        return !ofs.fail();
+    };
+
+    std::string cached_vs, cached_msvc;
+    bool        used_cache = false;
+    if (std::filesystem::exists(cache_file)) {
+        if (read_cache(cache_file, cached_vs, cached_msvc)) {
+            if (!cached_vs.empty() && !cached_msvc.empty() &&
+                std::filesystem::exists(std::filesystem::path(cached_vs)) &&
+                std::filesystem::exists(std::filesystem::path(cached_msvc))) {
+                vs_path          = cached_vs;
+                msvc_tools_path  = std::filesystem::path(cached_msvc);
+                vswhere_found    = true;
+                msvc_found       = true;
+                msvc_tools_found = true;
+                used_cache       = true;
+                DEBUG_LOG("using cached msvc tools: " + msvc_tools_path.generic_string());
+            } else {
+                DEBUG_LOG("cache present but paths missing; will refresh cache");
+            }
+        } else {
+            DEBUG_LOG("failed to read msvc cache; will refresh");
+        }
     }
 
-    if (vs_result.return_code != 0) {
-        DEBUG_LOG("vswhere failed to execute: " + std::to_string(vs_result.return_code));
+    if (!used_cache) {
+        std::string where_vswhere =
+            R"("C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe")";
+
+        std::filesystem::path vswhere_exe = std::filesystem::path(
+            "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe");
+
+        if (!std::filesystem::exists(vswhere_exe)) {
+            DEBUG_LOG("vswhere not found at expected location: " + vswhere_exe.generic_string());
+            helix::log<LogLevel::Warning>(
+                "visual Studio not found attempting to find any other c++ compiler");
+            return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
+        }
+
+        std::string vswhere_cmd =
+            std::string("\"") + vswhere_exe.string() +
+            "\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 "
+            "-property installationPath";
+
+        DEBUG_LOG("vswhere command: " + vswhere_cmd);
+        vs_result = exec(vswhere_cmd);
+
+        if (vs_result.return_code != 0) {
+            DEBUG_LOG("vswhere failed to execute: " + std::to_string(vs_result.return_code));
+            DEBUG_LOG("vswhere output: " + vs_result.output);
+            return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
+        }
+
         DEBUG_LOG("vswhere output: " + vs_result.output);
-        return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
-    }
+        vs_path = vs_result.output;
+        vs_path.erase(vs_path.find_last_not_of(" \n\r\t") + 1);  // trim trailing whitespace
 
-    DEBUG_LOG("vswhere output: " + vs_result.output);
-    vs_path = vs_result.output;
-    vs_path.erase(vs_path.find_last_not_of(" \n\r\t") + 1);  // trim trailing whitespace
+        DEBUG_LOG("vswhere path: " + vs_path);
+        vswhere_found = vs_result.return_code == 0 && !vs_result.output.empty();
+        msvc_found    = std::filesystem::exists(vs_path);
 
-    DEBUG_LOG("vswhere path: " + vs_path);
-    vswhere_found = vs_result.return_code == 0 && !vs_result.output.empty();
-    msvc_found    = std::filesystem::exists(vs_path);
+        if (!vswhere_found || !msvc_found) {
+            helix::log<LogLevel::Warning>(
+                "visual Studio not found attempting to find any other c++ compiler");
+            return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
+        }
 
-    if (!vswhere_found || !msvc_found) {
-        helix::log<LogLevel::Warning>(
-            "visual Studio not found attempting to find any other c++ compiler");
-        return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
-    }
+        msvc_tools_path =
+            std::filesystem::path(vs_path) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat";
+        msvc_tools_found = std::filesystem::exists(msvc_tools_path);
 
-    msvc_tools_path =
-        std::filesystem::path(vs_path) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat";
-    msvc_tools_found = std::filesystem::exists(msvc_tools_path);
+        if (!msvc_tools_found) {
+            helix::log<LogLevel::Warning>(
+                "msvc tools not found attempting to find any other c++ compiler");
+            return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
+        }
 
-    if (!msvc_tools_found) {
-        helix::log<LogLevel::Warning>(
-            "msvc tools not found attempting to find any other c++ compiler");
-        return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
+        try {
+            if (!write_cache(cache_file, vs_path, msvc_tools_path.generic_string())) {
+                DEBUG_LOG("warning: failed to write msvc tools cache");
+            } else {
+                DEBUG_LOG("wrote msvc tools cache to: " + cache_file.generic_string());
+            }
+        } catch (...) { DEBUG_LOG("exception while writing cache (ignored)"); }
     }
 
     DEBUG_LOG("msvc tools path: " + msvc_tools_path.generic_string());
     compile_cmd = "cmd.exe /c \"call \"" + msvc_tools_path.string() + "\" >nul 2>&1 && cl ";
 
     // get the path to the core lib
-    auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "include" / "core.hh";
+    auto core =
+        __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "include" / "core.hh";
     // auto core_lib_dir = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib";
 
     if (!std::filesystem::exists(core)) {
@@ -119,6 +231,8 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     /// start with flags we know are going to be present
     compile_cmd += make_command(  // ...
         flag::types::Compiler::MSVC,
+        // (this->dry_run) ? flag::types::Compiler::MSVC : flag::types::Compiler::None,
+        // (this->dry_run) ? "clang-cl" : "cl",
 
         "/FI\"" + core.generic_string() + "\" ",
 
@@ -146,13 +260,11 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         ((action.flags.contains(flag::types::CompileFlags::Debug)) ? "/RTC1" : ""),
         cxx::flags::fullFilePathFlag,
         cxx::flags::noErrorReportingFlag,
-        ((action.flags.contains(flag::types::CompileFlags::Debug))
-             ? cxx::flags::SanitizeFlag
-             : cxx::flags::None),
+        ((action.flags.contains(flag::types::CompileFlags::Debug)) ? cxx::flags::SanitizeFlag
+                                                                   : cxx::flags::None),
 
-        ((action.flags.contains(flag::types::CompileFlags::Library))
-            ? cxx::flags::compileOnlyFlag
-            : cxx::flags::None),
+        ((action.flags.contains(flag::types::CompileFlags::Library)) ? cxx::flags::compileOnlyFlag
+                                                                     : cxx::flags::None),
 
         // cxx::flags::noDefaultLibrariesFlag,
         // cxx::flags::noCXXSTDLibrariesFlag,
@@ -222,9 +334,9 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     }
 
     DEBUG_LOG("parsing output");
-    for (auto & line : lines) {
+    for (auto &line : lines) {
         ErrorPOFNormalized err = CXIRCompiler::parse_msvc_err(line);
-        
+
         DEBUG_LOG("parsed error: ", std::get<1>(err));
         if (std::get<0>(err).token_kind() == __TOKEN_N::WHITESPACE) {
             continue;
@@ -240,7 +352,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
             }
 
             continue;
-            
+
             DEBUG_LOG("file not found (this is a bug)");
             // FIXME: for some fucking reason this causes some sort of memory corruption
             //        and caused the compiler to exit prematurely with a exit code of 0
@@ -258,15 +370,15 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
 
         // we either get: ('error'/'warn'/'note')':' 'C' ...
         // or we get: ('error'/'warn'/'note')':' ...
-        size_t err_t = 0;
-        size_t c_pos = raw_err.find('C');
-        size_t colon_pos = raw_err.find(':');
+        size_t err_t           = 0;
+        size_t c_pos           = raw_err.find('C');
+        size_t colon_pos       = raw_err.find(':');
         size_t first_non_space = raw_err.find_first_not_of(' ');
 
         // Validate if the 'C' is part of an MSVC error code (e.g., C4005)
         if (c_pos != std::string::npos && std::isdigit(raw_err[c_pos + 1])) {
             // 'C' is part of an MSVC error code
-            err_t = (c_pos-1) - first_non_space;
+            err_t = (c_pos - 1) - first_non_space;
         } else if (colon_pos != std::string::npos) {
             // Fallback to ':' position
             err_t = colon_pos - first_non_space;
@@ -276,14 +388,19 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         }
 
         DEBUG_LOG("getting err code for '", raw_err.substr(0, err_t), "'");
-        
-        error::Level level;
-        std::string e_level = raw_err.substr(0, err_t);
 
-        if (e_level == "error") {level = error::Level::ERR; }
-        else if (e_level == "warning") {level = error::Level::WARN; }
-        else if (e_level == "note") { level = LSP_MODE? error::Level::WARN : error::Level::NOTE; }
-        else {level = error::Level::FATAL; }
+        error::Level level;
+        std::string  e_level = raw_err.substr(0, err_t);
+
+        if (e_level == "error") {
+            level = error::Level::ERR;
+        } else if (e_level == "warning") {
+            level = error::Level::WARN;
+        } else if (e_level == "note") {
+            level = LSP_MODE ? error::Level::WARN : error::Level::NOTE;
+        } else {
+            level = error::Level::FATAL;
+        }
 
         auto pof = std::get<0>(err);
         try {  // if the file is a core lib file, ignore all but errors
@@ -304,7 +421,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
 
         DEBUG_LOG("panicking with error: '", raw_err, "'");
         DEBUG_LOG("token: ", pof.to_json());
-        
+
         error::Panic(error::CodeError{
             .pof          = &pof,
             .err_code     = 0.8245,
@@ -319,9 +436,10 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     DEBUG_LOG("finished parsing output");
 
     if (compile_result.return_code == 0 && !error::HAS_ERRORED) {
-        helix::log_opt<LogLevel::Progress>(is_verbose, "lowered " + action.helix_src.generic_string() +
-                                   " and compiled cxir");
-        helix::log_opt<LogLevel::Progress>(is_verbose, "compiled successfully to " + action.cc_output.generic_string());
+        helix::log_opt<LogLevel::Progress>(
+            is_verbose, "lowered " + action.helix_src.generic_string() + " and compiled cxir");
+        helix::log_opt<LogLevel::Progress>(
+            is_verbose, "compiled successfully to " + action.cc_output.generic_string());
 
         return {compile_result, flag::ErrorType(flag::types::ErrorType::Success)};
     }
