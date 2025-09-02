@@ -75,12 +75,12 @@ class FileMemoryBuffer {
     /// \param rel_to the file path relative to which this buffer's path should be resolved.
     ///        defaults to the current working directory.
     /// \param file_type the type of file this buffer represents, defaults to FileLevel::User.
-    fn FileMemoryBuffer(self,
+    fn <T> FileMemoryBuffer(self,
                         src: T,
                         rel_to: Path          = __CONTROLLER_FS_N!::get_cwd(),
                         name: string          = "__/helix$$internal/__",
                         file_level: FileLevel = FileLevel::User,
-                        file_type: FileType   = FileType::Source) requires <T> {
+                        file_type: FileType   = FileType::Source) {
         self.source     = src;
         self.name       = name;
         self.rel_to     = rel_to;
@@ -105,7 +105,7 @@ class FileMemoryBuffer {
     /// replaced after initialization.
     ///
     /// \param other the buffer to copy from.
-    op = fn assign_op(self, const _: &FileMemoryBuffer) -> &FileMemoryBuffer = delete;
+    fn op = (self, const _: &FileMemoryBuffer)[assign_op] -> &FileMemoryBuffer = delete;
 
     /// move constructor to transfer ownership of a file memory buffer. this
     /// constructor is used to move the contents of a buffer to another buffer,
@@ -121,7 +121,7 @@ class FileMemoryBuffer {
     /// functions.
     ///
     /// \param other the buffer to move from.
-    op = fn assign_op(self, _: FileMemoryBuffer &&) -> &FileMemoryBuffer = default;
+    fn op = (self, _: FileMemoryBuffer &&)[assign_op] -> &FileMemoryBuffer = default;
 
     /// returns a reference to the source string. this provides direct access to
     /// modify the source string held within the buffer, typically used when the
@@ -188,13 +188,13 @@ class FileMemoryBuffer {
     fn set_source(self, const src: &string);
 
     priv { // TODO: AST - add priv blocks
-        let source:     string;
-        let name:       string;
-        let rel_to:     Path      = controller::file_system::get_cwd();
-        let file_level: FileLevel = FileLevel::User;
-        let file_type:  FileType  = FileType::Source;
-        let is_valid:   bool      = false;
-        let locked:     bool      = false;
+        var source:     string;
+        var name:       string;
+        var rel_to:     Path      = controller::file_system::get_cwd();
+        var file_level: FileLevel = FileLevel::User;
+        var file_type:  FileType  = FileType::Source;
+        var is_valid:   bool      = false;
+        var locked:     bool      = false;
     }
 }
 
@@ -227,8 +227,8 @@ class LexicalProcessor derives pub FrontendProcessor {
 
     fn LexicalProcessor(self, const _: &LexicalProcessor)                    = default;
     fn LexicalProcessor(self, _: &&LexicalProcessor)                         = default;
-    op = fn assign_op(self, const _: &LexicalProcessor) -> &LexicalProcessor = default;
-    op = fn move_op(self, _: &&LexicalProcessor) -> &LexicalProcessor        = default;
+    fn op = (self, const _: &LexicalProcessor)[assign_op] -> &LexicalProcessor = default;
+    fn op = (self, _: &&LexicalProcessor)[move_op] -> &LexicalProcessor        = default;
     
     #[override]
     fn delete(self) = default;
@@ -241,8 +241,8 @@ class PreProcessor derives pub FrontendProcessor {
 
     fn PreProcessor(self, const _: &PreProcessor)                    = default;
     fn PreProcessor(self, _: &&PreProcessor)                         = default;
-    op = fn assign_op(self, const _: &PreProcessor) -> &PreProcessor = default;
-    op = fn move_op(self, _: &&PreProcessor) -> &PreProcessor        = default;
+    fn op = (self, const _: &PreProcessor)[assign_op] -> &PreProcessor = default;
+    fn op = (self, _: &&PreProcessor)[move_op] -> &PreProcessor        = default;
     
     #[override]
     fn delete(self) = default;
@@ -255,8 +255,8 @@ class ASTProcessor derives pub FrontendProcessor {
 
     fn ASTProcessor(self, const _: &ASTProcessor)                    = default;
     fn ASTProcessor(self, _: &&ASTProcessor)                         = default;
-    op = fn assign_op(self, const _: &ASTProcessor) -> &ASTProcessor = default;
-    op = fn move_op(self, _: &&ASTProcessor) -> &ASTProcessor        = default;
+    fn op = (self, const _: &ASTProcessor)[assign_op] -> &ASTProcessor = default;
+    fn op = (self, _: &&ASTProcessor)[move_op] -> &ASTProcessor        = default;
     
     #[override]
     fn delete(self) = default;
@@ -280,8 +280,8 @@ class ExecutableGenerator derives pub BackendProcessor {
 
     fn ExecutableGenerator(self, const _: &ExecutableGenerator)                    = default;
     fn ExecutableGenerator(self, _: &&ExecutableGenerator)                         = default;
-    op = fn assign_op(self, const _: &ExecutableGenerator) -> &ExecutableGenerator = default;
-    op = fn move_op(self, _: &&ExecutableGenerator) -> &ExecutableGenerator        = default;
+    fn op = (self, const _: &ExecutableGenerator)[assign_op] -> &ExecutableGenerator = default;
+    fn op = (self, _: &&ExecutableGenerator)[move_op] -> &ExecutableGenerator        = default;
     
     #[override]
     fn delete(self) = default;
@@ -351,11 +351,11 @@ class CompilationUnit {
 
     fn release_resources();
 
-    let invocation:         *InvocationManager;
-    let diagnostic_handler: *DiagnosticHandler;
-    let file_manager:       *FileManager;
-    let frontend_processor: *FrontendProcessor;
-    let backend_processor:  *BackendProcessor;
+    var invocation:         *InvocationManager;
+    var diagnostic_handler: *DiagnosticHandler;
+    var file_manager:       *FileManager;
+    var frontend_processor: *FrontendProcessor;
+    var backend_processor:  *BackendProcessor;
 
-    let hasErrors: bool;
+    var hasErrors: bool;
 };

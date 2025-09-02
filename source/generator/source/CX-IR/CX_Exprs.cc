@@ -583,7 +583,7 @@ CX_VISIT_IMPL(InstOfExpr) {
             ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "value");
 
             break;
-        case __AST_NODE::InstOfExpr::InstanceType::Has:
+        case __AST_NODE::InstOfExpr::InstanceType::Implement:
             // since type is just an expr we would do
             // lhs.operator$contains(type);
 

@@ -347,7 +347,7 @@ parser ::ast ::ParseResult<> parser::ast::node::Expression::parse(
 
                 break;
 
-            case __TOKEN_N::KEYWORD_HAS:
+            case __TOKEN_N::KEYWORD_IMPL:
             case __TOKEN_N::KEYWORD_DERIVES:
                 expr = parse<InstOfExpr>(expr, in_requires);
                 RETURN_IF_ERROR(expr);
@@ -1645,12 +1645,12 @@ AST_NODE_IMPL(Expression, InstOfExpr, ParseResult<> lhs, bool in_requires) {
         RETURN_IF_ERROR(lhs);
     }
 
-#define INST_OF_OPS {__TOKEN_N::KEYWORD_HAS, __TOKEN_N::KEYWORD_DERIVES}
+#define INST_OF_OPS {__TOKEN_N::KEYWORD_IMPL, __TOKEN_N::KEYWORD_DERIVES}
     IS_IN_EXCEPTED_TOKENS(INST_OF_OPS);
 #undef INST_OF_OPS
 
-    if CURRENT_TOKEN_IS (__TOKEN_N::KEYWORD_HAS) {
-        op = InstOfExpr::InstanceType::Has;
+    if CURRENT_TOKEN_IS (__TOKEN_N::KEYWORD_IMPL) {
+        op = InstOfExpr::InstanceType::Implement;
     }
 
     tok = iter.current();
@@ -1659,7 +1659,7 @@ AST_NODE_IMPL(Expression, InstOfExpr, ParseResult<> lhs, bool in_requires) {
 
     ParseResult<> rhs;
 
-    if (op == InstOfExpr::InstanceType::Has) {
+    if (op == InstOfExpr::InstanceType::Implement) {
         if (in_requires) {
             rhs = parse<Type>();
         } else {

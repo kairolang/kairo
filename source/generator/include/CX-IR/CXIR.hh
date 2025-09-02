@@ -443,99 +443,99 @@ __CXIR_CODEGEN_BEGIN {
             return cxir;
         }
 
-        void visit(const parser::ast::node::LiteralExpr &node) override;
-        void visit(const parser::ast::node::BinaryExpr &node) override;
-        void visit(const parser::ast::node::UnaryExpr &node) override;
-        void visit(const parser::ast::node::IdentExpr &node) override;
-        void visit(const parser::ast::node::NamedArgumentExpr &node) override;
-        void visit(const parser::ast::node::ArgumentExpr &node) override;
-        void visit(const parser::ast::node::ArgumentListExpr &node) override;
-        void visit(const parser::ast::node::GenericInvokeExpr &node) override;
-        void visit(const parser::ast::node::ScopePathExpr &node) override { visit(node, true); }
-        void visit(const parser::ast::node::ScopePathExpr &node, bool access);
-        void visit(const parser::ast::node::DotPathExpr &node) override;
-        void visit(const parser::ast::node::ArrayAccessExpr &node) override;
-        void visit(const parser::ast::node::PathExpr &node) override;
-        void visit(const parser::ast::node::FunctionCallExpr &node) override;
-        void visit(const parser::ast::node::ArrayLiteralExpr &node) override;
-        void visit(const parser::ast::node::TupleLiteralExpr &node) override;
-        void visit(const parser::ast::node::SetLiteralExpr &node) override;
-        void visit(const parser::ast::node::MapPairExpr &node) override;
-        void visit(const parser::ast::node::MapLiteralExpr &node) override;
-        void visit(const parser::ast::node::ObjInitExpr &node) override;
-        void visit(const parser::ast::node::LambdaExpr &node) override;
-        void visit(const parser::ast::node::TernaryExpr &node) override;
-        void visit(const parser::ast::node::ParenthesizedExpr &node) override;
-        void visit(const parser::ast::node::CastExpr &node) override;
-        void visit(const parser::ast::node::InstOfExpr &node) override;
-        void visit(const parser::ast::node::AsyncThreading &node) override;
-        void visit(const parser::ast::node::Type &node) override;
-        void visit(const parser::ast::node::NamedVarSpecifier &node, bool omit_t);
-        void visit(const parser::ast::node::NamedVarSpecifier &node) override {
+        void visit(parser::ast::node::LiteralExpr &node) override;
+        void visit(parser::ast::node::BinaryExpr &node) override;
+        void visit(parser::ast::node::UnaryExpr &node) override;
+        void visit(parser::ast::node::IdentExpr &node) override;
+        void visit(parser::ast::node::NamedArgumentExpr &node) override;
+        void visit(parser::ast::node::ArgumentExpr &node) override;
+        void visit(parser::ast::node::ArgumentListExpr &node) override;
+        void visit(parser::ast::node::GenericInvokeExpr &node) override;
+        void visit(parser::ast::node::ScopePathExpr &node) override { visit(node, true); }
+        void visit(parser::ast::node::ScopePathExpr &node, bool access);
+        void visit(parser::ast::node::DotPathExpr &node) override;
+        void visit(parser::ast::node::ArrayAccessExpr &node) override;
+        void visit(parser::ast::node::PathExpr &node) override;
+        void visit(parser::ast::node::FunctionCallExpr &node) override;
+        void visit(parser::ast::node::ArrayLiteralExpr &node) override;
+        void visit(parser::ast::node::TupleLiteralExpr &node) override;
+        void visit(parser::ast::node::SetLiteralExpr &node) override;
+        void visit(parser::ast::node::MapPairExpr &node) override;
+        void visit(parser::ast::node::MapLiteralExpr &node) override;
+        void visit(parser::ast::node::ObjInitExpr &node) override;
+        void visit(parser::ast::node::LambdaExpr &node) override;
+        void visit(parser::ast::node::TernaryExpr &node) override;
+        void visit(parser::ast::node::ParenthesizedExpr &node) override;
+        void visit(parser::ast::node::CastExpr &node) override;
+        void visit(parser::ast::node::InstOfExpr &node) override;
+        void visit(parser::ast::node::AsyncThreading &node) override;
+        void visit(parser::ast::node::Type &node) override;
+        void visit(parser::ast::node::NamedVarSpecifier &node, bool omit_t);
+        void visit(parser::ast::node::NamedVarSpecifier &node) override {
             visit(node, false);
         }
-        void visit(const parser::ast::node::NamedVarSpecifierList &node, bool omit_t);
-        void visit(const parser::ast::node::NamedVarSpecifierList &node) override {
+        void visit(parser::ast::node::NamedVarSpecifierList &node, bool omit_t);
+        void visit(parser::ast::node::NamedVarSpecifierList &node) override {
             visit(node, false);
         }
-        void visit(const parser::ast::node::ForPyStatementCore &node) override;
-        void visit(const parser::ast::node::ForCStatementCore &node) override;
-        void visit(const parser::ast::node::ForState &node) override;
-        void visit(const parser::ast::node::WhileState &node) override;
-        void visit(const parser::ast::node::ElseState &node) override;
-        void visit(const parser::ast::node::IfState &node) override;
-        void visit(const parser::ast::node::SwitchCaseState &node) override;
-        void visit(const parser::ast::node::SwitchState &node) override;
-        void visit(const parser::ast::node::YieldState &node) override;
-        void visit(const parser::ast::node::DeleteState &node) override;
+        void visit(parser::ast::node::ForPyStatementCore &node) override;
+        void visit(parser::ast::node::ForCStatementCore &node) override;
+        void visit(parser::ast::node::ForState &node) override;
+        void visit(parser::ast::node::WhileState &node) override;
+        void visit(parser::ast::node::ElseState &node) override;
+        void visit(parser::ast::node::IfState &node) override;
+        void visit(parser::ast::node::SwitchCaseState &node) override;
+        void visit(parser::ast::node::SwitchState &node) override;
+        void visit(parser::ast::node::YieldState &node) override;
+        void visit(parser::ast::node::DeleteState &node) override;
 
-        void visit(const parser::ast::node::ImportState &node) override;
-        void visit(const parser::ast::node::ImportItems &node) override;
-        void visit(const parser::ast::node::SingleImport &node) override;
-        void visit(const parser::ast::node::SpecImport &node) override;
-        void visit(const parser::ast::node::MultiImportState &node) override;
+        void visit(parser::ast::node::ImportState &node) override;
+        void visit(parser::ast::node::ImportItems &node) override;
+        void visit(parser::ast::node::SingleImport &node) override;
+        void visit(parser::ast::node::SpecImport &node) override;
+        void visit(parser::ast::node::MultiImportState &node) override;
 
-        void visit(const parser::ast::node::ReturnState &node) override;
-        void visit(const parser::ast::node::BreakState &node) override;
-        void visit(const parser::ast::node::BlockState &node) override;
-        void visit(const parser::ast::node::SuiteState &node) override;
-        void visit(const parser::ast::node::ContinueState &node) override;
-        void visit(const parser::ast::node::CatchState &node) override;
-        void visit(const parser::ast::node::FinallyState &node) override;
-        void visit(const parser::ast::node::TryState &node) override;
-        void visit(const parser::ast::node::PanicState &node) override;
-        void visit(const parser::ast::node::ExprState &node) override;
-        void visit(const parser::ast::node::RequiresParamDecl &node) override;
-        void visit(const parser::ast::node::RequiresParamList &node) override;
-        void visit(const parser::ast::node::EnumMemberDecl &node) override;
-        void visit(const parser::ast::node::UDTDeriveDecl &node) override;
-        void visit(const parser::ast::node::TypeBoundList &node) override;
-        void visit(const parser::ast::node::TypeBoundDecl &node) override;
-        void visit(const parser::ast::node::RequiresDecl &node) override;
-        void visit(const parser::ast::node::ModuleDecl &node) override;
-        void visit(const parser::ast::node::StructDecl &node) override;
-        void visit(const parser::ast::node::ConstDecl &node) override;
-        void visit(const parser::ast::node::ClassDecl &node) override;
-        void visit(const parser::ast::node::ExtendDecl &node) override;
-        void visit(const parser::ast::node::InterDecl &node) override;
-        void visit(const parser::ast::node::EnumDecl &node) override;
-        void visit(const parser::ast::node::TypeDecl &node) override;
-        void visit(const parser::ast::node::FuncDecl &node, bool no_return_t);
-        void visit(const parser::ast::node::VarDecl &node) override;
-        void visit(const parser::ast::node::FFIDecl &node) override;
+        void visit(parser::ast::node::ReturnState &node) override;
+        void visit(parser::ast::node::BreakState &node) override;
+        void visit(parser::ast::node::BlockState &node) override;
+        void visit(parser::ast::node::SuiteState &node) override;
+        void visit(parser::ast::node::ContinueState &node) override;
+        void visit(parser::ast::node::CatchState &node) override;
+        void visit(parser::ast::node::FinallyState &node) override;
+        void visit(parser::ast::node::TryState &node) override;
+        void visit(parser::ast::node::PanicState &node) override;
+        void visit(parser::ast::node::ExprState &node) override;
+        void visit(parser::ast::node::RequiresParamDecl &node) override;
+        void visit(parser::ast::node::RequiresParamList &node) override;
+        void visit(parser::ast::node::EnumMemberDecl &node) override;
+        void visit(parser::ast::node::UDTDeriveDecl &node) override;
+        void visit(parser::ast::node::TypeBoundList &node) override;
+        void visit(parser::ast::node::TypeBoundDecl &node) override;
+        void visit(parser::ast::node::RequiresDecl &node) override;
+        void visit(parser::ast::node::ModuleDecl &node) override;
+        void visit(parser::ast::node::StructDecl &node) override;
+        void visit(parser::ast::node::ConstDecl &node) override;
+        void visit(parser::ast::node::ClassDecl &node) override;
+        void visit(parser::ast::node::ExtendDecl &node) override;
+        void visit(parser::ast::node::InterDecl &node) override;
+        void visit(parser::ast::node::EnumDecl &node) override;
+        void visit(parser::ast::node::TypeDecl &node) override;
+        void visit(parser::ast::node::FuncDecl &node, bool no_return_t);
+        void visit(parser::ast::node::FuncDecl &node, bool in_udt, bool is_op);
+        void visit(parser::ast::node::VarDecl &node) override;
+        void visit(parser::ast::node::FFIDecl &node) override;
 
-        void visit(const parser::ast::node::LetDecl &node) override { visit(node, false); };
-        void visit(const parser::ast::node::LetDecl &node, bool is_in_statement);
+        void visit(parser::ast::node::LetDecl &node) override { visit(node, false); };
+        void visit(parser::ast::node::LetDecl &node, bool is_in_statement);
 
-        void visit(const parser::ast::node::OpDecl &node) override { visit(node, false); };
-        void visit(const parser::ast::node::OpDecl &node, bool in_udt);
-
-        /// REMOVED: void visit(const parser::ast::node::OpDecl &node, bool remove_self) {};
-        void visit(const parser::ast::node::Program &node) override {
-            visit(const_cast<parser::ast::node::Program &>(node));
-        }
-        void visit(parser::ast::node::Program &node);
-        void visit(const parser::ast::node::FuncDecl &node) override { visit(node, false); };
+        void visit(parser::ast::node::Program &node) override;
+        void visit(parser::ast::node::FuncDecl &node) override {
+            if (node.is_op) {
+                visit(node, false, true);
+            } else {
+                visit(node, false);
+            }
+        };
     };
 
     // inline CXIR get_node_json(const __AST_VISITOR::NodeT<> &node) {

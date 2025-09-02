@@ -135,9 +135,9 @@ function setup_release()
 end
 
 local function setup_build_folder()
-	set_targetdir("$(builddir)/$(mode)/$(arch)-$(os)-" .. abi .. "/bin")
-	set_objectdir("$(builddir)/.resolver")
-	set_dependir ("$(builddir)/.shared")
+	set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)-" .. abi .. "/bin")
+	set_objectdir("$(buildir)/.resolver")
+	set_dependir ("$(buildir)/.shared")
 end
 
 local function setup_env()
@@ -487,10 +487,6 @@ package("llvm-clang")
     on_test(function (package)
         return checkLlvm()
     end)
-
-    on_check(function (package)
-        return checkLlvm()
-    end)
 package_end()
 
 
@@ -567,7 +563,7 @@ target_end() -- empty target
 
 target("helix-api")
     set_kind("static")
-    set_targetdir("$(builddir)/$(mode)/$(arch)-$(os)-" .. abi)
+    set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)-" .. abi)
 
     after_build(function(target) -- make the helix library with all the appropriate header files
         -- determine the target output directory

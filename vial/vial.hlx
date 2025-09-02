@@ -2,6 +2,9 @@ import rt::api as api;
 
 static var USING_MSVC: bool = false;
 
+// "⠈", "⠐", "⠠", "⢀", "⡀", "⠄", "⠂", "⠁"
+
+
 fn in_vs_env() -> bool {
     const eval if defined(_WIN32) || defined(_WIN64) {
         return std::getenv("VSCMD_VER") != &null && std::getenv("VSINSTALLDIR") != &null;

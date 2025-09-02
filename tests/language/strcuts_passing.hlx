@@ -2,7 +2,7 @@ struct Point {
     var x: i32;
     var y: i32;
 
-    op + fn (self, other: &Point) -> Point {
+    fn op + (self, other: &Point) -> Point {
         return Point {
             x = self.x + other.x,
             y = self.y + other.y
@@ -13,7 +13,7 @@ struct Point {
 struct Foam {
     var x: i32;
 
-    op + fn (self) -> i32 { // works
+    fn op + (self) -> i32 { // works
         return self.x;
     }
 }

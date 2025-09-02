@@ -14,7 +14,7 @@ struct Target {
     var before_build: fn (*Target) -> void;
     var after_build: fn (*Target) -> void;
 
-    op as fn (self) -> string {
+    fn op as (self) -> string {
         // nice format
         return "Target {\n"
             + f"  name: {name},\n"

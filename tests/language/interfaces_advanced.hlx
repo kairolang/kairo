@@ -1,8 +1,8 @@
-interface Foo requires <U> {
+interface <U> Foo requires {
     fn flip(self) -> U;
 }
 
-interface Advanced requires <U> if U has Foo::<i32> {
+interface <U> Advanced requires U impl Foo::<i32> {
     fn advanced_method(self) -> U;
     static fn advanced_static_method(value: U) -> U;
     var advanced_field: U;
@@ -22,8 +22,8 @@ class Achoo {
 }
 
 // A class implementing Advanced
-class AdvancedTavern impl Advanced::<Tavern>
-  requires <U> if U has Foo::<i32> {
+class <U> AdvancedTavern impl Advanced::<Tavern>
+  requires U impl Foo::<i32> {
     pub var advanced_field: U;
 
     fn advanced_method(self) -> U {
@@ -57,7 +57,7 @@ fn main() -> i32 {
     var advanced_instance = AdvancedTavern::<Tavern>(Tavern{});
     print(advanced_instance.advanced_method().flip()); // Should print 10
 
-    // print("true" if (InvalidTavern has Advanced::<Tavern>) else "false"); // Should print false
+    // print("true" if (InvalidTavern impl Advanced::<Tavern>) else "false"); // Should print false
     print("false");
 
     // TODO: Fix scope path for generics before enabling this test

@@ -28,7 +28,7 @@ union ReturnStatus {
     DiagnosticPass: (diag::Error, i32)
 }
 
-let foo = ReturnStatus(.Success = 12)
+var foo = ReturnStatus(.Success = 12)
 match foo {
     case Success(var x): print("passed");
     
@@ -62,7 +62,7 @@ module LexicalProcessor {
     class Lexer;
 
     enum TokenKind;
-    static let TokenKindRepresentation: map<TokenKind, string>;
+    static var TokenKindRepresentation: map<TokenKind, string>;
 }
 
 module PreProcessor { // may not have this in the future
@@ -77,13 +77,13 @@ module PreProcessor { // may not have this in the future
 
 /// everything the DiagnosticsEngine needs to cover:
 /// concatenation of diagnostics:
-///    lets say we have 2 reports for the same location, like `let u8 = 5;` 2 errors for `u8` - excepted an identifier but got a type, primitive type's can not be used in this context.
+///    lets say we have 2 reports for the same location, like `var u8 = 5;` 2 errors for `u8` - excepted an identifier but got a type, primitive type's can not be used in this context.
 /// this should concat into 1 error:
 /// error: [S...E] excepted an identifier but got 'u8' (type)
 ///   related error: [S...E] primitive type's can not be used in this context.
 ///      --> some_file.hlx:10:5
 ///     9 | ...
-///    10 | let _: u8 = "5";
+///    10 | var _: u8 = "5";
 ///       |     ++ ^^
 ///    11 | ...
 ///    fix: Replace 'u8' with a valid identifier or alias.
@@ -98,7 +98,7 @@ module PreProcessor { // may not have this in the future
 ///    replated diagnostics
 ///    fixes
 ///
-/// in this case the following has to be reported
+/// in this case the following impl to be reported
 /// base_uuid = handler.report(Report{
 ///    level:    Level::Error,
 ///    code:     Errors::Syntax::UnexpectedToken(current_token, Foundation::TokenKind::Identifier),
@@ -108,8 +108,8 @@ module PreProcessor { // may not have this in the future
 
 module DiagnosticsEngine {
     /// used like:
-    /// let diag_handler = DiagnosticsEngine::Handlers::Pretty(DiagnosticsEngine::Options::ShowColors, DiagnosticsEngine::Options::ShowLocation, DiagnosticsEngine::Options::ShowFixes)
-    /// let ci = LexicalProcessor::Lexer
+    /// var diag_handler = DiagnosticsEngine::Handlers::Pretty(DiagnosticsEngine::Options::ShowColors, DiagnosticsEngine::Options::ShowLocation, DiagnosticsEngine::Options::ShowFixes)
+    /// var ci = LexicalProcessor::Lexer
     interface Handler {
         fn Handler(self, ...options: DiagnosticsEngine::Options);
         fn report(self, report: DiagnosticsEngine::Report) ->  DiagnosticsEngine::UUID;
@@ -117,22 +117,22 @@ module DiagnosticsEngine {
         
         fn finalize();
 
-        op ? fn (self) -> bool; // allows to question the handler and see if an error is preset
-        op [] fn (self, uuid: DiagnosticsEngine::UUID) -> *DiagnosticsEngine::Report?;
+        fn op ? (self) -> bool; // allows to question the handler and see if an error is preset
+        fn op [] (self, uuid: DiagnosticsEngine::UUID) -> *DiagnosticsEngine::Report?;
     }
     
     enum Options {
         ShowColors,
         ShowLocation,
         ShowFixes,
-        StaticTests // this checks for things likes 'let x: int = "y"; // test {  }'
+        StaticTests // this checks for things likes 'var x: int = "y"; // test {  }'
     }
 
     class UUID;
     
     
     struct Context {
-        let uuid: DiagnosticsEngine::UUID;
+        var uuid: DiagnosticsEngine::UUID;
     }
 
     enum Level { Ignored, Note, Remark, Warning, Error, Fatal }
@@ -140,12 +140,12 @@ module DiagnosticsEngine {
     module Errors {
         interface Error {
             fn Error(self);            // all errors should have a default constructor
-            op as fn (self) -> string; // conversion to string
+            fn op as (self) -> string; // conversion to string
         }
 
         module Syntax {
             struct UnexpectedToken with Error {
-                priv let data: string;
+                priv var data: string;
 
                 fn UnexpectedToken(self) default; // default construct
                 fn UnexpectedToken(self, token: Foundation::Token, except: Foundation::TokenKind) {
@@ -156,10 +156,10 @@ module DiagnosticsEngine {
     }
     
     struct Report {
-        let level: DiagnosticsEngine::Level;
-        let context: 
-        let location: Diagnostics::LocationRange;
-        let fixes: 
+        var level: DiagnosticsEngine::Level;
+        var context: 
+        var location: Diagnostics::LocationRange;
+        var fixes: 
 
     }
 }
@@ -186,9 +186,9 @@ module DiagnosticsEngine {
 
 template <std::size_t N>
 int helix_compiler(std::array<std::string, N> args) {
-    let invocation  = InvocationManager(args, true);
-    let compile     = CompilationUnit(invocation);
-    let diag_handle = PrettyDiagnosticHandler();
+    var invocation  = InvocationManager(args, true);
+    var compile     = CompilationUnit(invocation);
+    var diag_handle = PrettyDiagnosticHandler();
     // possible options: PrettyDiagnosticHandler(), JsonDiagnosticHandler(), YmlDiagnosticHandler(), 
     // base: DiagnosticHandler
 

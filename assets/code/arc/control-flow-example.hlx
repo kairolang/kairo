@@ -1,4 +1,4 @@
-let x: int = 10;
+var x: int = 10;
 
 if x > 5 {
     print("x is greater than 5");
@@ -12,6 +12,6 @@ unless x < 5 { // unless is the same as if not
     print("x is 5 or less");
 }
 
-for let i: int = 0; i < 10; i += 1{
+for var i: int = 0; i < 10; i += 1{
     print(i);
 }
