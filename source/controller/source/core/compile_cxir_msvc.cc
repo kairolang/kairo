@@ -254,8 +254,11 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
 
         "/nologo",
         "/Zc:__cplusplus",
-        "-D__cpp_concepts=202002L",
+        "/D__cpp_concepts=202002L",
         "/std:c++latest",
+        "/D_CRT_SECURE_NO_WARNINGS",
+        "/D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
+
 
         ((action.flags.contains(flag::types::CompileFlags::Debug)) ? "/RTC1" : ""),
         cxx::flags::fullFilePathFlag,

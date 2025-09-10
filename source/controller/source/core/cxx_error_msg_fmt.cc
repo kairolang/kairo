@@ -18,6 +18,7 @@
 #include "controller/include/shared/file_system.hh"
 #include "controller/include/tooling/tooling.hh"
 #include "generator/include/CX-IR/loc.hh"
+#include "parser/preprocessor/include/private/utils.hh"
 
 
 /// key is the line number in the output, value is the line and column, and length associated in the
@@ -176,6 +177,6 @@ CXIRCompiler::ErrorPOFNormalized CXIRCompiler::parse_msvc_err(std::string msvc_o
                        file_path,
                        "<other>");
 
-    return {pof, message, file_path};
+    return {pof, helix::abi::demangle_partial(message), file_path};
 }
 
