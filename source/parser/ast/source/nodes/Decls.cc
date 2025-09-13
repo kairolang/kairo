@@ -96,6 +96,7 @@
 #include <utility>
 #include <vector>
 
+#include "generator/source/CX-IR/utils.hh"
 #include "neo-panic/include/error.hh"
 #include "neo-pprint/include/hxpprint.hh"
 #include "parser/ast/include/config/AST_config.def"
@@ -1197,6 +1198,9 @@ AST_NODE_IMPL(Declaration,
 
         make_node<ArgumentExpr>(make_node<IdentExpr>(
             token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+
+        make_node<ArgumentExpr>(make_node<IdentExpr>(
+            token::Token(__TOKEN_N::IDENTIFIER, generate_unique_name(), node->marker)))
     });
 
     if (node->body != nullptr && node->body->body != nullptr) {
