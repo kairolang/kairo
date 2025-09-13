@@ -28,7 +28,6 @@
 #include "parser/preprocessor/include/preprocessor.hh"
 #include "token/include/config/Token_config.def"
 
-
 #ifndef DEBUG_LOG
 #define DEBUG_LOG(...)                            \
     if (is_verbose) {                             \
@@ -259,7 +258,6 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         "/D_CRT_SECURE_NO_WARNINGS",
         "/D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
 
-
         ((action.flags.contains(flag::types::CompileFlags::Debug)) ? "/RTC1" : ""),
         cxx::flags::fullFilePathFlag,
         cxx::flags::noErrorReportingFlag,
@@ -269,14 +267,9 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         ((action.flags.contains(flag::types::CompileFlags::Library)) ? cxx::flags::compileOnlyFlag
                                                                      : cxx::flags::None),
 
-        // cxx::flags::noDefaultLibrariesFlag,
-        // cxx::flags::noCXXSTDLibrariesFlag,
-        // cxx::flags::noCXXSTDIncludesFlag,
-        // cxx::flags::noBuiltinIncludesFlag,
-        // FIXME: add these later
-        // cxx::flags::linkTimeOptimizationFlag,
         cxx::flags::warnAllFlag,
-        cxx::flags::outputFlag,
+        ((action.flags.contains(flag::types::CompileFlags::Library)) ? cxx::flags::outputLibFlag
+                                                                     : cxx::flags::outputFlag),
         "\"" + action.cc_output.generic_string() + "\""  // output
     );
 

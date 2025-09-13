@@ -39,6 +39,7 @@ constexpr CF includeFlag{.gcc="-I", .clang="-I", .msvc="/I", .mingw="-I"};
 constexpr CF linkFlag{.gcc="-l", .clang="-l", .msvc="/link", .mingw="-l"};
 constexpr CF linkTimeOptimizationFlag{.gcc="-flto", .clang="-flto", .msvc="/LTCG", .mingw="-flto"};
 constexpr CF outputFlag{.gcc="-o", .clang="-o", .msvc="/Fe:", .mingw="-o"};
+constexpr CF outputLibFlag{.gcc="-o", .clang="-o", .msvc="/Fo:", .mingw="-o"};
 constexpr CF inputFlag{.gcc="-i", .clang="-i", .msvc="/Fi:", .mingw="-i"};
 constexpr CF precompiledHeaderFlag{.gcc="-include", .clang="-include", .msvc="/FI", .mingw="-include"};
 constexpr CF preprocessorFlag{.gcc="-E", .clang="-E", .msvc="/P", .mingw="-E"};

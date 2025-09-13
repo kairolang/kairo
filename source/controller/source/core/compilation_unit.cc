@@ -378,7 +378,7 @@ CompilationUnit::determine_output_file(const __CONTROLLER_CLI_N::CLIArgs &parsed
                                : std::filesystem::path(in_file_path).stem().generic_string();
 
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
-    out_file += ".exe";
+    out_file += (parsed_args.build_lib == __CONTROLLER_CLI_N::CLIArgs::ABI::HELIX) ? ".obj" : ".exe";
 #endif
 
     return __CONTROLLER_FS_N::normalize_path_no_check(out_file);
