@@ -716,7 +716,7 @@ leave_loop_has_processable_import:
                 helix::abi::mangle((import_dirs[rel_to_index] / path).generic_string(),
                                       helix::abi::ObjectType::Module);
 
-            if (resolved_mapping.find(imp) != resolved_mapping.end()) {
+            if ((resolved_mapping.find(imp) != resolved_mapping.end()) && (rel_to_index != std::numeric_limits<size_t>::max())) {
                 auto [what_was_imported, alias, is_wildcard] = *resolved_mapping[imp];
                 /// so now we know the import is in helix::<namespace_path>
                 /// so lets say:
@@ -807,7 +807,9 @@ leave_loop_has_processable_import:
         // true but just in case we check
         if (!std::filesystem::is_regular_file(parsed_args.file)) [[unlikely]] {
             error::Panic(error::CompilerError{
-                .err_code = 2.1001, .fix_fmt_args = {}, .err_fmt_args = {path.generic_string()}});
+                .err_code = 0.0001, .fix_fmt_args = {}, .err_fmt_args = {"could not locate the requsted import of: " + path.generic_string()}});
+        
+            return;
         }
 
         auto [action, ec] = unit.build_unit(parsed_args, false, true);
@@ -842,6 +844,8 @@ leave_loop_has_processable_import:
                 .err_fmt_args{"import path could not be resolved"},
                 .opt_fixes{},
             });
+
+            return;
         }
 
         if (type == Type::Module) {
@@ -911,16 +915,7 @@ leave_loop_has_processable_import:
                     /// see if it exists in the location we are looking for
                     if (std::filesystem::exists(import_dirs[index] / path) &&
                         std::filesystem::is_regular_file(import_dirs[index] / path)) {
-                        error::Panic(error::CodeError{
-                            .pof      = &marker,
-                            .err_code = 0.0123,
-                            .mark_pof = true,
-                            .fix_fmt_args{},
-                            .err_fmt_args{"path found in multiple locations: " +
-                                          (import_dirs[index] / path).generic_string()},
-                            .opt_fixes{},
-                            .level = error::WARN,
-                        });
+                        // be quiet
                     }
 
                     /// the file dont exist
