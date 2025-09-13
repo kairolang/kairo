@@ -382,6 +382,18 @@ CX_VISIT_IMPL(FunctionCallExpr) {
 
 CX_VISIT_IMPL(ArrayLiteralExpr) {
     ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "vec");
+    
+    if (!node.values.empty() && node.values.size() > 0) {
+        ANGLE_DELIMIT(
+            if (node.values[0] != nullptr) {
+                ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "decltype");
+                PAREN_DELIMIT(
+                    ADD_PARAM(node.values[0]);
+                );
+            }
+        );
+    }
+
     BRACE_DELIMIT(COMMA_SEP(values););
 }
 
@@ -400,6 +412,18 @@ CX_VISIT_IMPL(TupleLiteralExpr) {
 
 CX_VISIT_IMPL(SetLiteralExpr) {
     ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "set");
+    
+    if (!node.values.empty() && node.values.size() > 0) {
+        ANGLE_DELIMIT(
+            if (node.values[0] != nullptr) {
+                ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "decltype");
+                PAREN_DELIMIT(
+                    ADD_PARAM(node.values[0]);
+                );
+            }
+        );
+    }
+
     BRACE_DELIMIT(COMMA_SEP(values););
 }
 
@@ -412,6 +436,26 @@ CX_VISIT_IMPL(MapPairExpr) {
 }
 
 CX_VISIT_IMPL(MapLiteralExpr) {
+    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "map");
+
+    if (!node.values.empty()) {
+        auto key = node.values[0]->key;
+        auto val = node.values[0]->value;
+
+        if (key != nullptr && val != nullptr) {
+            ANGLE_DELIMIT(
+                if (node.values[0] != nullptr) {
+                    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "decltype");
+                    PAREN_DELIMIT(
+                        ADD_PARAM(key);
+                        ADD_TOKEN(CXX_COMMA);
+                        ADD_PARAM(val);
+                    );
+                }
+            );
+        }
+    }
+
     BRACE_DELIMIT(
         if (!node.values.empty()) {
             for (auto &i : node.values) {
