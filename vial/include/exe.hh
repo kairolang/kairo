@@ -17,8 +17,7 @@
 #define __EXE_H__
 
 /// uncomment only for lsp support otherwise there will be build errors.
-// #include
-// "/Volumes/Development/Projects/Helix/helix-lang/build/release/arm64-macosx-llvm/core/include/core.hh"
+#include "../../lib-helix/core/include/core.hh"
 
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
 #   include <windows.h>

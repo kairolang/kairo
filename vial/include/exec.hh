@@ -13,11 +13,11 @@
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
-/// uncomment only for lsp support otherwise there will be build errors.
-// #include "/Volumes/Development/Projects/Helix/helix-lang/build/release/arm64-macosx-llvm/core/include/core.hh"
-
 #ifndef __EXEC_H__
 #define __EXEC_H__
+
+/// uncomment only for lsp support otherwise there will be build errors.
+#include "../../lib-helix/core/include/core.hh"
 
 namespace helix {
 
@@ -68,7 +68,7 @@ inline ExecResult exec(const string &wcmd) {
     si.dwFlags |= STARTF_USESTDHANDLES;
 
     if (!CreateProcess(nullptr,
-                        const_cast<wchar_t *>(cmd.c_str()),
+                        const_cast<char *>(cmd.c_str()),
                         nullptr,
                         nullptr,
                         TRUE,

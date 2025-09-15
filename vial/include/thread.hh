@@ -17,7 +17,7 @@
 #define __THREAD_H__
 
 /// uncomment only for lsp support otherwise there will be build errors.
-#include "/Volumes/Development/Projects/Helix/helix-lang/build/release/arm64-macosx-llvm/core/include/core.hh"
+#include "../../lib-helix/core/include/core.hh"
 
 #include <atomic>
 #include <condition_variable>
