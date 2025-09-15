@@ -1,0 +1,50 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+import vial::rt::api as api;
+
+fn prepare_build_file() -> i32 {
+    var new_build_file = api::BUILD_DIR::value() / r".resolver" / r"build.hlx";
+    libcxx::filesystem::remove(new_build_file);
+
+    // open the file and add #[trivially_import(true)] to the first line
+    var input = libcxx::wifstream(api::BUILD_FILE::value(), __inline_cpp("libcxx::ios::in"));
+    
+    if !input.is_open() {
+        api::log.error("Failed to open original build file.");
+        return 1;
+    }
+
+    var output = libcxx::wofstream(new_build_file, libcxx::ios::out | libcxx::ios::trunc);
+    
+    if !output.is_open() {
+        api::log.error("Failed to create new build file.");
+        return 1;
+    }
+
+    output << r"#[trivially_import(true)]\n";
+
+    var line: libcxx::wstring;
+    
+    while (libcxx::getline(input, line)) {
+        output << line << '\n';
+    }
+
+    input.close();
+    output.close();
+
+    api::BUILD_FILE::set(new_build_file);
+    return 0;
+}

@@ -1,0 +1,90 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+import vial::rt::api as api;
+
+import vial::toolchain::cxx::*;
+import vial::toolchain::helix::*;
+import vial::env::environment::*;
+
+fn compile_helix_sources() -> i32 {
+    var helixc = get_helix_compiler();
+    
+    if helixc == null {
+        api::log.error("helix compiler not found. install it or add it to your PATH.");
+        return 1;
+    }
+
+    api::log.debug("compiling build.hlx...");
+
+    var o_ext: string;
+    
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        o_ext = "";
+    } else {
+        o_ext = ".o";
+    }
+
+    var runtime_path = find_runtime();
+    
+    if runtime_path == null {
+        api::log.error("vial runtime not found in working dir or pkgs/vial.");
+        return 1;
+    }
+
+    var full_o_path = api::BUILD_DIR::value() / r".resolver" / r".cache";
+    var build_artifact = (full_o_path / (f"build_artifact{o_ext}".raw_string()));
+    var rt_artifact = (full_o_path / (f"vial_runtime{o_ext}".raw_string()));
+
+    libcxx::filesystem::remove(build_artifact);
+    libcxx::filesystem::remove(rt_artifact);
+
+    var helix_build_cmd = f"{helixc} \"{api::BUILD_FILE::value().generic_wstring()}\" -o \"{build_artifact.generic_wstring()}\" --lib";
+    var helix_rt_cmd = f"{helixc} \"{runtime_path}\" -o \"{rt_artifact.generic_wstring()}\" --lib";
+    
+    const eval if defined(DEBUG) {
+        helix_build_cmd += " --debug";
+        helix_rt_cmd    += " --debug";
+    }
+
+    helix_build_cmd += " 2>&1";
+    helix_rt_cmd    += " 2>&1";
+
+    api::log.debug(f"compiling build.hlx with: {helix_build_cmd}");
+    api::log.debug(f"compiling runtime with: {helix_rt_cmd}");
+
+    var pool: ThreadPool = ThreadPool(3);
+    var rt_future = pool.submit(exec, helix_rt_cmd);
+    var build_future = pool.submit(exec, helix_build_cmd);
+
+    var res = build_future.get();
+    
+    if res.return_code != 0 {
+        api::log.error(f"build.hlx compilation failed:\n{res.output}");
+        return 1;
+    }
+
+    api::log.debug("build.hlx compiled successfully.");
+
+    res = rt_future.get();
+    
+    if res.return_code != 0 {
+        api::log.error(f"vial runtime compilation failed:\n{res.output}");
+        return 1;
+    }
+
+    api::log.info("runtime compiled successfully.");
+    return 0;
+}
