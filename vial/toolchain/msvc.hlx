@@ -1,0 +1,111 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+import vial::rt::api as api;
+
+fn in_vs_env() -> bool {
+    const eval if defined(_WIN32) || defined(_WIN64) {
+        return libcxx::getenv(std::string_to_nstring("VSCMD_VER").raw()) != (&null)
+               && libcxx::getenv(std::string_to_nstring("VSINSTALLDIR").raw()) != (&null);
+    } else {
+        return false; // Not applicable for non-Windows systems
+    }
+}
+
+fn get_msvc_tooling() -> string? {
+    const eval if !(defined(_WIN32) || defined(_WIN64)) {
+        return null; // Not applicable for non-Windows systems
+    }
+
+    if in_vs_env() {
+        // we only need to find the cl.exe path
+        var cl_path: string? = api::find_tool("cl");
+        
+        if cl_path != null {
+            return *cl_path;
+        } else {
+            return null; // cl.exe not found
+        }
+    }
+
+    // If not in VS environment, try to use vswhere and find cl.exe
+    var vswhere_path: string? = api::find_tool("vswhere");
+
+    if vswhere_path == null {
+        var mingw_path: string? = api::find_tool("mingw");
+
+        if mingw_path != null {
+            return *mingw_path; // Use MinGW if available
+        }
+
+        var any_cpp: string? = api::find_tool("c++");
+        if any_cpp != null {
+            return *any_cpp; // Use any C++ compiler found
+        }
+
+        return null; // No C++ compiler found
+    }
+
+    // Use vswhere to find the latest Visual Studio installation
+    var vswhere_cmd: string = f"{*vswhere_path} -latest -products * -requires "
+                               "Microsoft.VisualStudio.Component.VC.Tools.x86.x64 "
+                               "-property installationPath";
+
+    var res: std::ProcessOutput = std::system(vswhere_cmd, true);
+    
+    if res.return_code != 0 {
+        api::log.error(f"Error finding Visual Studio installation: {res.stderr_data}");
+        return null; // vswhere failed
+    }
+
+    var vs_path: string = res.stdout_data.strip();
+    
+    if !libcxx::filesystem::exists(vs_path.raw_string()) {
+        api::log.error(f"Visual Studio installation path does not exist: {vs_path}");
+        return null; // Invalid path
+    }
+
+    var msvc_tools: api::types::Path = api::types::Path(vs_path.raw_string())
+                                     / r"VC" / r"Auxiliary" / r"Build" / r"vcvars64.bat";
+
+    if !libcxx::filesystem::exists(msvc_tools) {
+        api::log.error(f"MSVC tools path does not exist: {msvc_tools}");
+        return null; // MSVC tools not found
+    }
+
+    api::log.debug(f"MSVC tools found at: {msvc_tools}");
+    return string(msvc_tools.generic_wstring());
+}
+
+fn get_msvc_cl() -> string? {
+    var msvc_tools = get_msvc_tooling();
+
+    if msvc_tools == null {
+        return null; // MSVC tools not found
+    }
+    
+    var vswhere_path: string? = api::find_tool("vswhere");
+
+    if vswhere_path == null {
+        return *msvc_tools; // return the compiler path if not using MSVC
+    }
+
+    // Construct the command to run vcvars64.bat and find cl.exe
+    // a ending quote is necessary to allow the compile_cmd to work correctly
+    var compile_cmd = f"cmd.exe /c \"call \"{(*msvc_tools)}\" > nul 2>&1 && cl";
+    
+    api::USING_MSVC::set(true);
+    return compile_cmd;
+}
