@@ -1,26 +1,99 @@
-import types;
-import fs;
-import linkage::*;
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
 
+import vial::rt::types;
+import vial::rt::fs;
+import vial::rt::linkage::*;
+
+/// \brief      Represents a single build target and its metadata used by the build/runtime system.
+/// \details    The `Target` struct encapsulates everything needed to compile and link a unit of code:
+///             identity, source files, include/search paths, link-time dependencies, compiler flags,
+///             pre/post build hooks and the directory where build artifacts are produced. It is a
+///             lightweight, plain-data description intended to be inspected and acted upon by the
+///             build system logic.
+///
+/// \example     Minimal usage
+///            - Create a `Target` with `name`, `linkage`, and `sources`.
+///            - Populate `includes`, `cxxflags`, `links` as needed.
+///            - Optionally set `before_build` / `after_build` hooks for custom behavior.
+///
+/// \notes      The `Target` struct is a plain data description and does not itself perform any I/O or
+///             process invocation; the build/runtime layer consumes the struct and implements the
+///             concrete compile/link actions.
+///
+/// \see        `Linkage` enum for linkage types (Static, Shared, Binary).
+///
 struct Target {
+    /// The human-readable name of the target. Used for logging, diagnostic messages and as an
+    ///     identifier in build graphs.
     var name: string;
+
+    /// The `Linkage` of the target (e.g. static, shared, executable). Controls how the target is
+    ///     linked and how it participates in dependency resolution and packaging.
     var linkage: Linkage;
+
+    /// A vector of source file `types::Path` values that should be compiled for this target. Paths
+    ///     are interpreted relative to the workspace unless they are absolute.
     var sources: vec::<types::Path>;
+
+    /// Include directories (`types::Path`) to be added to the compiler include/search path for
+    ///     compiling this target.
     var includes: vec::<types::Path>;
+
+    /// Linker search directories (link directories) as `types::Path`. These are the directories
+    ///     passed to the linker when resolving library dependencies at link time.
+    var link_dirs: vec::<types::Path>; // link directories
+
+    /// A list of library names (strings) that this target links against. The build system will
+    ///     translate these into platform-specific linker arguments using `link_dirs` and other
+    ///     platform settings.
     var links: vec::<string>;
+
+    /// The filesystem path where build artifacts for this target are written. By default it is
+    ///     set to the current working directory joined with `"build"`. Consumers may override this
+    ///     to direct output to a custom location.
     var builddir: types::Path = types::Path(fs::get_cwd() / "build".raw_string());
+
+    /// Extra C/C++ compiler flags to use when compiling this target. These are appended to the
+    ///     compiler command line and should be provided as individual string tokens (e.g. `"-O2"`).
     var cxxflags: vec::<string>;
+
+    /// Preprocessor defines to pass to the compiler (e.g. `"FEATURE_X=1"` or `"DEBUG"`). Each
+    ///     entry is a single define token.
     var defines: vec::<string>;
+
+    /// Optional callback invoked immediately before building this target. Signature: `fn (*Target) -> void`.
+    ///     Use this to perform target-specific setup or to mutate target state prior to compilation.
     var before_build: fn (*Target) -> void;
+
+    /// Optional callback invoked after the target has been built. Signature: `fn (*Target) -> void`.
+    ///     Useful for custom packaging, installation steps, or side effects that must run after build.
     var after_build: fn (*Target) -> void;
 
+
+    /// Returns a human-readable, multi-line string representation of the `Target`. This is intended
+    ///     for debugging and logging: it summarizes field values (including vectors and callbacks) in
+    ///     a structured format.
     fn op as (self) -> string {
-        // nice format
-        return "Target {\n"
+        
+        return "Target {\n" /// nice format ;)
             + f"  name: {name},\n"
             + f"  linkage: {linkage},\n"
             + f"  sources: {sources},\n"
             + f"  includes: {includes},\n"
+            + f"  link_dirs: {link_dirs},\n"
             + f"  links: {links},\n"
             + f"  builddir: {builddir},\n"
             + f"  cxxflags: {cxxflags},\n"
