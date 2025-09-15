@@ -133,6 +133,7 @@ __CONTROLLER_CLI_BEGIN {
         bool emit_cst    = false;
         bool emit_ir     = false;
         bool emit_doc    = false;
+        bool emit_deps   = false;
 
         struct tool_chain {
             std::string target;

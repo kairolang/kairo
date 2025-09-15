@@ -78,6 +78,7 @@ DISCLAIMER: All of these options are subject to change in future versions of hel
                             "emit-doc",
                             "Extract and output doc-comments along with signatures in JSON format",
                             {"emit-doc"});
+        args::Flag emit_deps(parser, "deps", "Output list of imported dependencies", {"deps"});
 
         args::Group toolchain_group(
             parser, "Cross Compilation Toolchain Options", args::Group::Validators::AtMostOne);
@@ -139,9 +140,10 @@ DISCLAIMER: All of these options are subject to change in future versions of hel
         args::ValueFlagList<std::string> module_dirs(
             parser, "moddir", "Specify Helix modules directories", {'m'});
         args::Positional<std::string> input_file(parser, "file", "Specify input file path");
-        
+
         /// any other flags after -- are treated as compiler flags
-        args::PositionalList<std::string> cxx_args(parser, "c++_flags", "Flags to pass into the C++ compiler");
+        args::PositionalList<std::string> cxx_args(
+            parser, "c++_flags", "Flags to pass into the C++ compiler");
 
         parser.LongSeparator(" ");
 
@@ -219,11 +221,13 @@ https://helix-lang.com/ for more information.
             this->emit_cst    = emit_cst;
             this->emit_ir     = emit_ir;
             this->emit_doc    = emit_doc;
-            
+            this->emit_deps   = emit_deps;
 
             if (verbose && quiet) {
-                print_err(colors::fg16::red, "Error:", colors::reset
-                        , " Cannot specify both verbose and quiet options.");
+                print_err(colors::fg16::red,
+                          "Error:",
+                          colors::reset,
+                          " Cannot specify both verbose and quiet options.");
                 this->exit_   = true;
                 this->exit_co = 1;
                 return;

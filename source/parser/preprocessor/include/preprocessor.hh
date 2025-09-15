@@ -83,6 +83,8 @@
 #endif
 
 inline std::vector<CXXCompileAction> COMPILE_ACTIONS;
+inline std::unordered_set<std::filesystem::path>  DEPENDENCIES;     // all imported files
+
 __PREPROCESSOR_BEGIN {
     class ImportProcessor {
       private:

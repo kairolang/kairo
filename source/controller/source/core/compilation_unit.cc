@@ -178,6 +178,15 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
         return {};
     }
 
+    // we print all the paths of the imported files for debugging purposes
+    if (parsed_args.verbose) {
+        helix::log_opt<LogLevel::Debug>(enable_logging, "imported files: [");
+        for (const auto &imp : DEPENDENCIES) {
+            helix::log_opt<LogLevel::Debug>(enable_logging, imp.generic_string() + ", ");
+        }
+        helix::log_opt<LogLevel::Debug>(enable_logging, "]");
+    }
+
     helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "preprocessed");
 
     if (parsed_args.emit_tokens) {
@@ -203,7 +212,7 @@ __AST_N::NodeT<__AST_NODE::Program> CompilationUnit::parse_ast(__TOKEN_N::TokenL
 /// compile and return the path of the compiled file without calling the linker
 /// ret codes: 0 - success, 1 - error, 2 - lsp mode
 std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
-    __CONTROLLER_CLI_N::CLIArgs &parsed_args, bool enable_logging, bool no_unit) {
+    __CONTROLLER_CLI_N::CLIArgs &parsed_args, bool enable_logging, bool no_unit) { // false, true
     if (parsed_args.error) {
         NO_LOGS           = true;
         error::SHOW_ERROR = true;
@@ -221,6 +230,10 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
 
     if (tokens.empty()) {
         return {{}, 1};
+    }
+
+    if (parsed_args.emit_deps && enable_logging && !no_unit) {
+        return {{}, 3};
     }
 
     helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsing ast...");
@@ -312,6 +325,9 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
 
         case 2:
             return 0;
+
+        case 3: // emit dependencies
+            return 3;
 
         default:
             helix::log<LogLevel::Error>("unknown result code: ", result);

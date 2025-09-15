@@ -832,6 +832,8 @@ leave_loop_has_processable_import:
         CompilationUnit unit;  // create a new compile unit instance
         parsed_args.file =
             (import_dirs[rel_to_index] / path).generic_string();  // set the file path
+        
+        DEPENDENCIES.insert(import_dirs[rel_to_index] / path);
 
         // check if the file exists and is a regular file by this point this should always be
         // true but just in case we check

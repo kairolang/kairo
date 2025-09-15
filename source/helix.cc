@@ -13,6 +13,7 @@
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
+#include "parser/preprocessor/include/preprocessor.hh"
 #define _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING
 #define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
 #define _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
@@ -33,6 +34,19 @@ int main(int argc, char **argv) {
         result = compiler.compile(argc, argv);
     } catch (error::Panic &e) {  // hard error
         errors.push_back(e.final_err.to_json());
+    }
+
+    if (result == 3) {  // just print dependencies
+        // we print json format so its easy to parse
+        print("{\"dependencies\": [");
+        
+        for (const auto &imp : DEPENDENCIES) {
+            print("  \"" + imp.generic_string() + "\",");
+        }
+        
+        print("]}");
+
+        return 0;
     }
 
     if (LSP_MODE && error::ERRORS.size() > 0) {
