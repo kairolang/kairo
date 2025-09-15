@@ -1,3 +1,18 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
 /*
 # Synopsis
 
@@ -98,18 +113,30 @@ struct ExecResult {
 
 */
 
-ffi "c++" import "exec.hh";
-ffi "c++" import "exe.hh";
-ffi "c++" import "thread.hh";
+ffi "c++" import "vial/include/exec.hh";
+ffi "c++" import "vial/include/exe.hh";
+ffi "c++" import "vial/include/thread.hh";
 
-import linkage::*;
-import target::*;
-import fs::*;
-import types::*;
-import logger::*;
-import triple::*;
+import vial::rt::linkage::*;
+import vial::rt::target::*;
+import vial::rt::fs::*;
+import vial::rt::types::*;
+import vial::rt::logger::*;
+import vial::rt::triple::*;
 
 static var log = Logger();
+
+class USING_MSVC {
+    __inline_cpp("inline static bool instance{}");
+    
+    static fn value() -> ref!(bool) {
+        return instance;
+    }
+    
+    static fn set(value: bool) {
+        instance = value;
+    }
+}
 
 class BUILD_FILE {
     __inline_cpp("inline static Path instance{}");
@@ -246,15 +273,16 @@ inline fn set_helix_compiler(path: Path) {
         log.error(f"helix compiler path does not exist: {path}");
     }
 
-    CXX_COMPILER::set(path.generic_wstring());
+    HELIX_COMPILER::set(path.generic_wstring());
 }
 
+// no checks
 inline fn set_cpp_compiler(path: Path) {
-    if !libcxx::filesystem::exists(path) {
-        log.error(f"c++ compiler path does not exist: {path}");
-    }
+    // if !libcxx::filesystem::exists(path) {
+    //     log.error(f"c++ compiler path does not exist: {path}");
+    // }
 
-    HELIX_COMPILER::set(path.generic_wstring());
+    CXX_COMPILER::set(path.generic_wstring());
 }
 
 inline fn set_target(name: string) {
@@ -401,6 +429,38 @@ inline fn add_includes(includes: vec::<string>) {
     for include in includes {
         try {
             target->includes.push_back(normalize_path(Path(include.raw())));
+        } catch {
+            log.error(f"path not found {include}");
+        }
+    }
+}
+
+inline fn add_linkdir(link: string) {
+    if !IN_TARGET::value() {
+        log.error("not in a target, cannot add link.");
+        return;
+    }
+
+    var target = TARGETS::value().back();
+
+    try {
+        target->link_dirs.push_back(normalize_path(Path(link.raw())));
+    } catch {
+        log.error(f"path not found {link}");
+    }
+}
+
+inline fn add_linkdirs(link_dirs: vec::<string>) {
+    if !IN_TARGET::value() {
+        log.error("not in a target, cannot add link_dirs.");
+        return;
+    }
+
+    var target = TARGETS::value().back();
+
+    for include in link_dirs {
+        try {
+            target->link_dirs.push_back(normalize_path(Path(include.raw())));
         } catch {
             log.error(f"path not found {include}");
         }

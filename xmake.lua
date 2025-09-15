@@ -558,6 +558,34 @@ target("helix") -- target config defined in the config seciton
 
         -- Remove the README.md file
         os.rm(path.join(target_dir, "..", "README.md"))
+
+
+        -- we need to compiler vial as well for the helix build tool to work well
+        -- Z:\devolopment\helix\helix-lang\build\release\x64-windows-msvc\bin\helix.exe Z:\devolopment\helix\helix-lang\vial\driver\main.hlx -o Z:\devolopment\helix\helix-lang\build\release\x64-windows-msvc\bin\vial -IZ:\devolopment\helix\helix-lang\
+        local hcompiler = target:targetfile()
+        local vial_inc = path.join(target_dir, "..", "pkgs")
+        local vial_driver = path.join(target_dir, "..", "pkgs", "vial", "driver", "main.hlx")
+        local vial_output = path.join(target_dir, "vial")
+        -- now that we have the compiler with us we need to move everything from the vial/ folder to pkgs/vial in the build folder (same as core)
+        
+        for _, filepath in ipairs(os.files("vial/**")) do
+            local relative_path = path.relative(filepath, "vial")
+            local target_path = path.join(target_dir, "..", "pkgs", "vial", relative_path)
+
+            os.cp(filepath, target_path)
+        end
+
+        -- now compile vial itself using whats in the driver
+        -- local compile_cmd = string.format(
+        --     '%s -I "%s" "%s" -o "%s"',
+        --     hcompiler, vial_inc, vial_driver, vial_output
+        -- )
+
+        os.execv(hcompiler, {
+            "-I", vial_inc,
+            vial_driver,
+            "-o", vial_output
+        })
     end)
 target_end() -- empty target
 
