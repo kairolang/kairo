@@ -1,6 +1,60 @@
 import compiler::diagnostics::DiagnosticInterface;
+import compiler::diagnostics::Level;
+import compiler::diagnostics::Codes;
+import helix::token::Location;
 
-class DiagnosticHandlerBase extend DiagnosticInterface::DiagnosticHandler {
+// interface DiagnosticHandler {
+//     fn DiagnosticHandler(self);
+
+//     fn set_group(self, group: u64) -> self;
+//     fn set_related(self, related: *self) -> self;
+//     fn set_level(self, level: Level::DiagnosticSeverity) -> self;
+//     fn set_code(self, code: Codes::DiagnosticCode) -> self;
+
+//     fn format_message(self, format_args: tuple::<string>) -> self;
+//     fn set_message(self, message: string) -> self; // override the default message
+
+//     fn add_error(self, message: string) -> self;
+//     fn add_warning(self, message: string) -> self;
+//     fn add_note(self, message: string) -> self;
+//     fn add_remark(self, message: string) -> self;
+//     fn add_fix(self, message: string) -> self;
+
+//     fn mark_remove(self, loc: Location::Location) -> self;
+//     fn mark_error(self, loc: Location::Location) -> self;
+//     fn mark_warning(self, loc: Location::Location) -> self;
+//     fn mark_note(self, loc: Location::Location) -> self;
+//     fn mark_remark(self, loc: Location::Location) -> self;
+//     fn mark_fix(self, loc: Location::Location, replace_with: string) -> self;
+//     fn mark_add(self, pos: Location::Position) -> self;
+
+//     fn ignore(self) -> self;
+
+//     fn get_message(self) -> string;
+//     fn get_location(self) -> Location::Location;
+//     fn get_level(self) -> Level::DiagnosticSeverity;
+//     fn get_code(self) -> Codes::DiagnosticCode;
+//     fn get_group(self) -> u64;
+//     fn get_related(self) -> *self;
+
+//     static fn finalize() -> vec::<Diagnostic>;
+//     static fn has_error() -> bool;
+// }
+
+struct Diagnostic {
+    var group: u64 = 0;
+    var related: *DiagnosticHandlerBase = &null;
+    var level: Level::DiagnosticSeverity = Level::DiagnosticSeverity::Error;
+    var code: Codes::DiagnosticCode = Codes::UNSET;
+    var message: string = "";
+    var location: Location::Location;
+    var ignored: bool = false;
+
+    // Additional fields for diagnostics
+    var fixes: vec::<string> = vec::<string>();
+}
+
+class DiagnosticHandlerBase /* extend DiagnosticInterface::DiagnosticHandler */ {
     var group: u64 = 0;
     var related: *DiagnosticHandlerBase = &null;
     var level: Level::DiagnosticSeverity = Level::DiagnosticSeverity::Error;
@@ -11,141 +65,5 @@ class DiagnosticHandlerBase extend DiagnosticInterface::DiagnosticHandler {
 
     var diagnostics: vec::<Diagnostic> = vec::<Diagnostic>();
 
-    fn DiagnosticHandlerBase(self) {
-        // default location for fallback (can be overwritten later)
-        self.location = Location::Location("unknown", 0, 0, 0, 0);
-    }h
-
-    fn set_group(self, group: u64) -> self {
-        self.group = group;
-        return self;
-    }
-
-    fn set_related(self, related: *self) -> self {
-        self.related = related;
-        return self;
-    }
-
-    fn set_level(self, level: Level::DiagnosticSeverity) -> self {
-        self.level = level;
-        return self;
-    }
-
-    fn set_code(self, code: Codes::DiagnosticCode) -> self {
-        self.code = code;
-        return self;
-    }
-
-    fn format_message(self, format_args: tuple::<string>) -> self {
-        self.message = std::format(format_args); // or your custom format
-        return self;
-    }
-
-    fn set_message(self, message: string) -> self {
-        self.message = message;
-        return self;
-    }
-
-    fn add_error(self, message: string) -> self {
-        self.diagnostics.push(Diagnostic(Level::Error, message, self.location));
-        return self;
-    }
-
-    fn add_warning(self, message: string) -> self {
-        self.diagnostics.push(Diagnostic(Level::Warning, message, self.location));
-        return self;
-    }
-
-    fn add_note(self, message: string) -> self {
-        self.diagnostics.push(Diagnostic(Level::Note, message, self.location));
-        return self;
-    }
-
-    fn add_remark(self, message: string) -> self {
-        self.diagnostics.push(Diagnostic(Level::Info, message, self.location));
-        return self;
-    }
-
-    fn add_fix(self, message: string) -> self {
-        self.diagnostics.push(Diagnostic(Level::Fix, message, self.location));
-        return self;
-    }
-
-    fn mark_remove(self, loc: Location::Location) -> self {
-        self.diagnostics.push(Diagnostic(Level::Fix, "remove", loc));
-        return self;
-    }
-
-    fn mark_error(self, loc: Location::Location) -> self {
-        self.location = loc;
-        return self;
-    }
-
-    fn mark_warning(self, loc: Location::Location) -> self {
-        self.diagnostics.push(Diagnostic(Level::Warning, "", loc));
-        return self;
-    }
-
-    fn mark_note(self, loc: Location::Location) -> self {
-        self.diagnostics.push(Diagnostic(Level::Note, "", loc));
-        return self;
-    }
-
-    fn mark_remark(self, loc: Location::Location) -> self {
-        self.diagnostics.push(Diagnostic(Level::Info, "", loc));
-        return self;
-    }
-
-    fn mark_fix(self, loc: Location::Location, replace_with: string) -> self {
-        self.diagnostics.push(Diagnostic(Level::Fix, f"replace with '{replace_with}'", loc));
-        return self;
-    }
-
-    fn mark_add(self, pos: Location::Position) -> self {
-        var loc = Location::Location(pos.file, pos.line, pos.column, pos.line, pos.column);
-        self.diagnostics.push(Diagnostic(Level::Fix, "add", loc));
-        return self;
-    }
-
-    fn ignore(self) -> self {
-        self.ignored = true;
-        return self;
-    }
-
-    fn get_message(self) -> string {
-        return self.message;
-    }
-
-    fn get_location(self) -> Location::Location {
-        return self.location;
-    }
-
-    fn get_level(self) -> Level::DiagnosticSeverity {
-        return self.level;
-    }
-
-    fn get_code(self) -> Codes::DiagnosticCode {
-        return self.code;
-    }
-
-    fn get_group(self) -> u64 {
-        return self.group;
-    }
-
-    fn get_related(self) -> *self {
-        return self.related;
-    }
-
-    static fn finalize(self) -> vec::<Diagnostic> {
-        return self.diagnostics;
-    }
-
-    static fn has_error(self) -> bool {
-        for d in self.diagnostics {
-            if d.level == Level::DiagnosticSeverity::Error {
-                return true;
-            }
-        }
-        return false;
-    }
+    
 }

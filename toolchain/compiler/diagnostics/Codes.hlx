@@ -76,6 +76,23 @@ class DiagnosticCodeHasher {
     }
 }
 
+fn hex_to_string(value: u32) -> string {
+    var result: string = "";
+    var started: bool = false;
+
+    for (var i: i32 = 12; i >= 0; i -= 4) { // 16-bit max, 4 bits per hex digit
+        var nibble: u32 = (value >> i) & 0xF;
+        var hex_char: char =  ('0' + nibble) if (nibble < 10) else ('A' + nibble - 10);
+
+        if (hex_char != '0' || started || i == 0) {
+            result += hex_char;
+            started = true;
+        }
+    }
+
+    return result;
+}
+
 ///          code vvv      msg vvvvvv  vvvvvv fix
 const Code: map::<DiagnosticCode, tuple::<string, string>, DiagnosticCodeHasher> = {
     /* -------- - - - - - - - - -   S Y N T A X   - - - - - - - - - -------- */
