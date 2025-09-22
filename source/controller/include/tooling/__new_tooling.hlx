@@ -126,37 +126,31 @@ class FileMemoryBuffer {
     /// returns a reference to the source string. this provides direct access to
     /// modify the source string held within the buffer, typically used when the
     /// contents need to be updated or processed.
-    #[use_ret_val]
     fn get_source_ref(self) -> &string;
 
     /// returns a reference to the buffer name. this provides access to the name
     /// of the buffer which may be used for identification purposes, especially in
     /// contexts where multiple buffers are managed or logged.
-    #[use_ret_val]
     fn get_name_ref(self) -> &string;
 
     /// returns a reference to the relative path. this path is used to determine
     /// the location of the file in relation to a base directory, commonly used for
     /// resolving physical file paths from logical paths in complex projects.
-    #[use_ret_val]
     fn get_rel_to_ref(self) -> &Path;
 
     /// returns the file type as a constant reference. the file type indicates
     /// the role of the file within the system, affecting how it is processed
     /// and utilized within the compilation or execution environment.
-    #[use_ret_val]
     const fn get_file_level(self) -> FileLevel;
 
     /// checks if the file buffer is valid. a buffer is considered valid if it
     /// contains non-empty source content. this is critical for operations that
     /// should only proceed with valid data.
-    #[use_ret_val]
     const fn is_valid_file(self) -> bool;
 
     /// checks if the file buffer is locked. a locked buffer cannot be modified,
     /// ensuring that data remains consistent during operations that require
     /// immutability.
-    #[use_ret_val]
     const fn is_locked(self) -> bool;
 
     /// locks the buffer to prevent modification. this is used to ensure that no
@@ -172,13 +166,11 @@ class FileMemoryBuffer {
 
     /// returns the size of the buffer. the size is determined by the length of
     /// the source string, representing the amount of data held in the buffer.
-    #[use_ret_val]
     const fn get_buffer_size(self) -> usize;
 
     /// retrieves the buffer content as a string. this method provides a copy of
     /// the buffer's contents, useful for operations that require a non-modifiable
     /// version of the data.
-    #[use_ret_val]
     const fn get_buffer(self) -> string;
 
     /// set the source of the buffer. this method allows replacing the current
@@ -318,10 +310,8 @@ class CompilationUnit {
     fn CompilationUnit &operator=(CompilationUnit &&) noexcept = default;
 
     
-    #[use_ret_val]
     fn bool initialize();
     
-    #[use_ret_val]
     fn bool process();
     fn finalize();
 
@@ -332,20 +322,16 @@ class CompilationUnit {
     const fn report_diagnostics();
 
     
-    #[use_ret_val]
     fn FileManager       &get_file_manager_ref();
     
-    #[use_ret_val]
     fn InvocationManager &get_invocation_manager_ref();
 
     
-    #[use_ret_val]
     const fn has_errors() -> bool;
     fn clear_errors();
     const fn log_status();
     const fn emit_errors();
 
-    #[use_ret_val]
     const fn validate_inputs() -> bool;
     fn setup_environment();
 
