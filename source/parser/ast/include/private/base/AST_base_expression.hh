@@ -113,7 +113,7 @@ __AST_NODE_BEGIN {
         };
 
       private:
-        ParseResult<NamedArgumentExpr>     parse_NamedArgumentExpr(bool is_anonymous = false);
+        ParseResult<NamedArgumentExpr>     parse_NamedArgumentExpr(bool is_anonymous = false, bool in_obj_init = false);
         ParseResult<PathExpr>              parse_PathExpr(ParseResult<> simple_path = nullptr);
         ParseResult<UnaryExpr>             parse_UnaryExpr(ParseResult<> lhs = nullptr, bool in_type = false);
         ParseResult<BinaryExpr>            parse_BinaryExpr(ParseResult<> lhs, int min_precedence);

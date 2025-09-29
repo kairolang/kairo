@@ -117,6 +117,7 @@
 #include <vector>
 
 #include "lexer/include/lexer.hh"
+#include "neo-panic/include/error.hh"
 #include "neo-pprint/include/hxpprint.hh"
 #include "parser/ast/include/config/AST_config.def"
 #include "parser/ast/include/nodes/AST_declarations.hh"
@@ -328,12 +329,12 @@ parser ::ast ::ParseResult<> parser::ast::node::Expression::parse(
 
                 if (iter.peek().has_value() &&
                     (iter.peek().value().get().token_kind() != __TOKEN_TYPES_N::IDENTIFIER)) {
-                    continue_loop = false;
+                        continue_loop = false;
                     break;
                 }
 
                 if (iter.peek(2).has_value() &&
-                    iter.peek(2).value().get().token_kind() != __TOKEN_TYPES_N::OPERATOR_ASSIGN) {
+                    iter.peek(2).value().get().token_kind() != __TOKEN_TYPES_N::PUNCTUATION_COLON) {
                     continue_loop = false;
                     break;
                 }
@@ -708,7 +709,7 @@ AST_NODE_IMPL_VISITOR(Jsonify, IdentExpr) { json.section("IdentExpr", node.name)
 // ---------------------------------------------------------------------------------------------- //
 
 // should not be called by `parse` directly as it is a helper function
-AST_NODE_IMPL(Expression, NamedArgumentExpr, bool is_anonymous) {
+AST_NODE_IMPL(Expression, NamedArgumentExpr, bool is_anonymous, bool in_obj_init) {
     IS_NOT_EMPTY;
 
     // := '.'? IdentExpr '=' E
@@ -722,8 +723,13 @@ AST_NODE_IMPL(Expression, NamedArgumentExpr, bool is_anonymous) {
     ParseResult<IdentExpr> name = parse<IdentExpr>();
     RETURN_IF_ERROR(name);
 
-    IS_EXCEPTED_TOKEN(__TOKEN_N::OPERATOR_ASSIGN);
-    iter.advance();  // skip '='
+    if (in_obj_init) {
+        IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_COLON);
+        iter.advance();  // skip ':'
+    } else {
+        IS_EXCEPTED_TOKEN(__TOKEN_N::OPERATOR_ASSIGN);
+        iter.advance();  // skip '='
+    }
 
     ParseResult<> value = parse();
     RETURN_IF_ERROR(value);
@@ -1437,7 +1443,7 @@ AST_NODE_IMPL(Expression, ObjInitExpr, bool skip_start_brace, ParseResult<> obj_
                             "parsing, use a more explict initializer"));
     }
 
-    ParseResult<NamedArgumentExpr> first = parse<NamedArgumentExpr>(is_anonymous);
+    ParseResult<NamedArgumentExpr> first = parse<NamedArgumentExpr>(is_anonymous, true);
     RETURN_IF_ERROR(first);
 
     NodeT<ObjInitExpr> obj = make_node<ObjInitExpr>(first.value());
@@ -1450,7 +1456,7 @@ AST_NODE_IMPL(Expression, ObjInitExpr, bool skip_start_brace, ParseResult<> obj_
                 break;
             }
 
-            ParseResult<NamedArgumentExpr> next = parse<NamedArgumentExpr>(is_anonymous);
+            ParseResult<NamedArgumentExpr> next = parse<NamedArgumentExpr>(is_anonymous, true);
             RETURN_IF_ERROR(next);
 
             obj->kwargs.push_back(next.value());

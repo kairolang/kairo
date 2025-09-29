@@ -448,7 +448,12 @@ CX_VISIT_IMPL(MapLiteralExpr) {
                     ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "decltype");
                     PAREN_DELIMIT(
                         ADD_PARAM(key);
-                        ADD_TOKEN(CXX_COMMA);
+                    );
+
+                    ADD_TOKEN(CXX_COMMA);
+
+                    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "decltype");
+                    PAREN_DELIMIT(
                         ADD_PARAM(val);
                     );
                 }
