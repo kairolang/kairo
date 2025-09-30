@@ -52,7 +52,7 @@ log = logging.getLogger("helix-builder")
 
 COMPILER_PATH = Path("build/release/arm64-llvm-macosx/bin/helix") if system == "macos" else \
                Path("build/release/x86_64-linux-gnu/bin/helix") if system == "linux" else \
-               Path("build/release/x64-msvc-windows/bin/helix.exe") if system == "windows" else \
+               Path("build/release/x64-windows-msvc/bin/helix.exe") if system == "windows" else \
                Path("build/release/x86_64-linux-gnu/bin/helix")
 if not COMPILER_PATH.exists():
     log.error(f"Compiler not found at {COMPILER_PATH}. Please build the"
@@ -198,23 +198,23 @@ class Builder:
 # ---------------------------------- START OF COMPILER COMMANDS ---------------------------------- #
 
 # the helix compiler
-Builder("driver/bin/helix.hlx", "helix")                                       \
+Builder("toolchain/driver/bin/helix.hlx", "helix")                             \
     .add_include_dir(Path("."))                                                \
 
 # the helix code formatter
-Builder("driver/bin/fmt.hlx", "helix-fmt")                                     \
+Builder("toolchain/driver/bin/fmt.hlx", "helix-fmt")                           \
     .add_include_dir(Path("."))                                                \
     
 # the helix ide client for lsp support
-Builder("driver/bin/analyzer.hlx", "helix-analyzer")                           \
+Builder("toolchain/driver/bin/analyzer.hlx", "helix-analyzer")                 \
     .add_include_dir(Path("."))                                                \
     
 # the helix linker
-Builder("driver/bin/ld.hlx", "helix-ld")                                       \
+Builder("toolchain/driver/bin/ld.hlx", "helix-ld")                             \
     .add_include_dir(Path("."))                                                \
     
 # the helix package manager
-Builder("driver/bin/vial.hlx", "vial")                                         \
+Builder("toolchain/driver/bin/vial.hlx", "vial")                               \
     .add_include_dir(Path("."))                                                \
 
 # ----------------------------------- END OF COMPILER COMMANDS ----------------------------------- #
