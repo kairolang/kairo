@@ -430,8 +430,9 @@ __PREPROCESSOR_BEGIN {
                             .err_code = 0.0001,
                             .mark_pof = true,
                             .fix_fmt_args{},
-                            .err_fmt_args{"expected a ';' or '}' to close the 'import' statement"},
+                            .err_fmt_args{"expected a " + std::string(has_brace ? "'}'" : "';'") + " to close the 'import' statement"},
                             .opt_fixes{},
+                            .level=error::Level::ERR
                         });
                         
                         found_import = false;
@@ -441,13 +442,24 @@ __PREPROCESSOR_BEGIN {
                     if (iter.peek(offset)->get().token_kind() ==
                         (has_brace ? __TOKEN_N::tokens::PUNCTUATION_CLOSE_BRACE
                                    : __TOKEN_N::tokens::PUNCTUATION_SEMICOLON)) {
-                        break;
+                        found_import  = true;
+                        goto leave_loop_has_processable_import;
                     }
 
                     ++offset;
                 }
 
-                found_import  = true;
+                error::Panic(error::CodeError{
+                    .pof      = &start,
+                    .err_code = 0.0001,
+                    .mark_pof = true,
+                    .fix_fmt_args{},
+                    .err_fmt_args{"expected a " + std::string(has_brace ? "'}'" : "';'") + " to close the import"},
+                    .opt_fixes{},
+                    .level=error::Level::ERR
+                });
+
+                found_import = false;
                 break;
             }
 
@@ -779,15 +791,15 @@ leave_loop_has_processable_import:
                         tokens, {start_pos, start}, std::make_pair(_alias, namespace_path));
                 }
             } else {
-                error::Panic(error::CodeError{
-                    .pof      = &start,
-                    .err_code = 0.0001,
-                    .mark_pof = true,
-                    .fix_fmt_args{},
-                    .err_fmt_args{"the import handler lost the import at: " +
-                                  (import_dirs[rel_to_index] / path).generic_string()},
-                    .opt_fixes{},
-                });
+                // error::Panic(error::CodeError{
+                //     .pof      = &start,
+                //     .err_code = 0.0001,
+                //     .mark_pof = true,
+                //     .fix_fmt_args{},
+                //     .err_fmt_args{"the import handler lost the import at: " +
+                //                   (import_dirs[rel_to_index] / path).generic_string()},
+                //     .opt_fixes{},
+                // });
             }
         }
 
@@ -838,14 +850,14 @@ leave_loop_has_processable_import:
         // check if the file exists and is a regular file by this point this should always be
         // true but just in case we check
         if (!std::filesystem::is_regular_file(parsed_args.file)) [[unlikely]] {
-            error::Panic(error::CodeError{
-                .pof      = &start,
-                .err_code = 0.0001,
-                .mark_pof = true,
-                .fix_fmt_args{},
-                .err_fmt_args{"import path could not be resolved"},
-                .opt_fixes{},
-            });
+            // error::Panic(error::CodeError{
+            //     .pof      = &start,
+            //     .err_code = 0.0001,
+            //     .mark_pof = true,
+            //     .fix_fmt_args{},
+            //     .err_fmt_args{"import path could not be resolved"},
+            //     .opt_fixes{},
+            // });
 
             return;
         }
@@ -960,15 +972,15 @@ leave_loop_has_processable_import:
                     continue;
                 }
 
-                error::Panic(error::CodeError{
-                    .pof      = &marker,
-                    .err_code = 0.0123,
-                    .mark_pof = true,
-                    .fix_fmt_args{},
-                    .err_fmt_args{"import path could not be resolved"},
-                    .opt_fixes{},
-                    .level = error::ERR,
-                });
+                // error::Panic(error::CodeError{
+                //     .pof      = &marker,
+                //     .err_code = 0.0123,
+                //     .mark_pof = true,
+                //     .fix_fmt_args{},
+                //     .err_fmt_args{"import path could not be resolved"},
+                //     .opt_fixes{},
+                //     .level = error::ERR,
+                // });
             }
 
             /// now figure out duplicates and remove all but the lowest index
@@ -1121,14 +1133,13 @@ leave_loop_has_processable_import:
                 .err_code = 0.0123,
                 .mark_pof = true,
                 .fix_fmt_args{},
-                .err_fmt_args{"could not locate import"},
+                .err_fmt_args{"import path could not be resolved"},
                 .opt_fixes{},
-                .level = error ::ERR,
+                .level = error::ERR,
             });
 
             found_paths.emplace_back(path, std::numeric_limits<size_t>::max(), Type::Module);
             
-
             return found_paths;
         }
 

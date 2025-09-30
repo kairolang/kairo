@@ -175,7 +175,7 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
     }
 
     if (error::HAS_ERRORED) {
-        return {};
+        return tokens;
     }
 
     // we print all the paths of the imported files for debugging purposes
@@ -322,23 +322,23 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
 
         case 1:
             return 1;
-
+        
         case 2:
             return 0;
-
+        
         case 3: // emit dependencies
             return 3;
-
+        
         default:
             helix::log<LogLevel::Error>("unknown result code: ", result);
             return 1;
     }
-
+    
     helix::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiling");
-
+    
     if (error::HAS_ERRORED || parsed_args.lsp_mode) {
         LSP_MODE = parsed_args.lsp_mode;
-
+        
         if (LSP_MODE && !parsed_args.emit_ir) {
             return 0;
         }
