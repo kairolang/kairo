@@ -1,0 +1,256 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+///
+/// \file helix/util/hash/estrhash.hlx
+/// \brief Hashing functions for strings at compile time.
+///        The purpose of this file is to provide a way to hash strings at compile time.
+///        This is useful for generating unique identifiers for strings that are known at
+///        compile time. The hashing algorithm used is a simple polynomial rolling hash.
+///        The hash function is not cryptographically secure and should not be used for
+///        security purposes. It is intended for use in generating unique identifiers for
+///        strings.
+///
+
+const var kHashMax          = static_cast::<usize>(0xFFFFFFFFFFFFFFFF);
+const var kFnvOffsetBasis   = static_cast::<u64>(1469598103934665603);
+const var kFnvPrime         = static_cast::<u64>(0x100000001b3);
+const var kGoldenRatioMix   = static_cast::<u64>(0x9e3779b97f4a7c15);
+
+///
+/// \brief A helper class to hold a string literal at compile time.
+///        This class is used to pass string literals to the hash function.
+///
+/// \tparam N The size of the string literal (including null terminator).
+///
+class <const N: usize> EvalStrBuffer {
+    pub var value: array::<char, N>;
+
+    ///
+    /// \brief Construct from a narrow string literal.
+    ///
+    eval fn EvalStrBuffer(self, const str: ref!(std::Memory::buffer::<std::Legacy::char, N>)) {
+        for var i: usize = 0; i < N; ++i {
+            value[i] = static_cast::<char>(str[i]);
+        }
+    }
+
+    ///
+    /// \brief Construct from a wide string literal.
+    ///
+    eval fn EvalStrBuffer(self, const str: ref!(std::Memory::buffer::<char, N>)) {
+        for var i: usize = 0; i < N; ++i {
+            value[i] = str[i];
+        }
+    }
+}
+
+///
+/// \brief compute the length of a null-terminated string.
+///        loop form is faster than recursion for constexpr and runtime.
+///
+/// \param  str A pointer to the character array (null-terminated).
+/// \return The number of characters before the null terminator.
+///
+/// \note This function is intended for use with string literals and
+///       null-terminated strings known at compile time.
+///
+eval fn compute_length(const str: *char) -> usize {
+    var n: usize = 0;
+    
+    while str[n] != '\0' {
+        n += 1;
+    }
+
+    return n;
+}
+
+///
+/// \brief FNV-1a hash step with optional position mixing.
+///        Inlined directly into loops to avoid call overhead.
+///
+/// \param  chr  The character to mix into the hash.
+/// \param  hash The current hash value.
+/// \param  pos  The position of the character in the string (0-based).
+/// \return The updated hash value after mixing in the character.
+///
+eval fn mix_char(chr: char, hash: u64, pos: usize) -> u64 {
+    var h: u64 = hash ^ static_cast::<u64>(chr);
+    h *= kFnvPrime;
+    h ^= static_cast::<u64>(pos); // TODO: benchmark if this helps or hurts
+    return h;
+}
+
+///
+/// \brief Eval-time character hash step with position mixing.
+///        Inlined directly into loops to avoid call overhead.
+///
+/// \param  chr  The character to mix into the hash.
+/// \param  pos  The position of the character in the string (0-based).
+/// \param  hash The current hash value.
+/// \return The updated hash value after mixing in the character.
+///
+/// \ref Uses FNV-1a with position mixing.
+///
+eval fn <const N: usize> compute_hash(const str: *char) -> u64 {
+    static_assert(N <= 256, r"String too long for hashing");
+    
+    const len: usize = compute_length(str);
+    if len == 0 {
+        return kHashMax;
+    }
+
+    var hash: u64 = kFnvOffsetBasis;
+    
+    for var i: usize = 0; i < len; ++i {
+        hash = mix_char(str[i], hash, i);
+    }
+
+    return (hash ^ (static_cast::<u64>(len) * kGoldenRatioMix)) & kHashMax;
+}
+
+///
+/// \brief Computes a runtime hash from a string reference.
+///        This function is to test the compile-time hash function with runtime strings.
+///
+/// \param  str A reference to the string to hash.
+/// \return A 64-bit hash value, or HASH_MAX if the string is empty.
+///
+/// \ref Uses FNV-1a with position mixing.
+///
+eval fn compute_hash(const str: *string) -> u64 {
+    if (str == &null) || (str->length() == 0) {
+        return kHashMax;
+    }
+    
+    if str->length() >= 256 {
+        __inline_cpp("throw libcxx::runtime_error(\"String too long for hashing\")");
+    }
+
+    var hash: u64 = kFnvOffsetBasis;
+    const len: usize = str->length();
+    
+    for var i: usize = 0; i < len; ++i {
+        hash = mix_char((*str)[i], hash, i);
+    }
+
+    return (hash ^ (static_cast::<u64>(len) * kGoldenRatioMix)) & kHashMax;
+}
+
+
+/// \brief Computes a hash from a string literal at compile time.
+///        This function is the main entry point for compile-time string hashing.
+///
+/// \tparam str The string literal to hash.
+/// \return A 64-bit hash value, or HASH_MAX if the string is empty.
+/// \ref Uses FNV-1a with position mixing.
+///
+eval fn <str: const EvalStrBuffer> compute_hash() -> u64 {
+    const len: usize = compute_length(str.value.data());
+    
+    eval if len == 0 {
+        return kHashMax;
+    }
+
+    return compute_hash::<len>(str.value.data());
+}
+
+fn to_hex_string(const value: usize) -> string {
+    return libcxx::format(r"{:x}", value).data();
+}
+
+///
+/// \brief Computes a compile-time hash from a string literal.
+///        This function is to test the compute_hash function with string literals.
+///
+fn Test() -> i32 {
+    // --- compile-time string literal hashes ---
+    print(f"hash<\"inline\">\t= 0x{to_hex_string(compute_hash::<r"inline">())}");
+    print(f"hash<\"fn\">    \t= 0x{to_hex_string(compute_hash::<r"fn">())}");
+    print(f"hash<\"var\">   \t= 0x{to_hex_string(compute_hash::<r"var">())}");
+    print(f"hash<\"class\"> \t= 0x{to_hex_string(compute_hash::<r"class">())}");
+    print(f"hash<\"return\">\t= 0x{to_hex_string(compute_hash::<r"return">())}");
+    print(f"hash<\"if\">    \t= 0x{to_hex_string(compute_hash::<r"if">())}");
+    print(f"hash<\"else\">  \t= 0x{to_hex_string(compute_hash::<r"else">())}");
+    print(f"hash<\"while\"> \t= 0x{to_hex_string(compute_hash::<r"while">())}");
+    print(f"hash<\"for\">   \t= 0x{to_hex_string(compute_hash::<r"for">())}");
+    print(f"hash<\"match\"> \t= 0x{to_hex_string(compute_hash::<r"match">())}");
+
+    // --- wide string literal ---
+    __inline_cpp("libcxx::cout << \"hash<L\\\"inline\\\">\t= 0x\" << libcxx::hex << (compute_hash<L\"inline\">()) << libcxx::endl;");
+
+    // --- runtime string hashing ---
+    var s: string = "inline";
+    print(f"hash(\"inline\")\t= 0x{to_hex_string(compute_hash(&s))}");
+
+    s = "fn";
+    print(f"hash(\"fn\")\t= 0x{to_hex_string(compute_hash(&s))}");
+
+    s = "var";
+    print(f"hash(\"var\")\t= 0x{to_hex_string(compute_hash(&s))}");
+
+    // --- empty string case ---
+    var empty: string = "";
+    print(f"hash(\"\")\t= 0x{to_hex_string(compute_hash(&empty))}");
+    print(f"hash<\"\">\t= 0x{to_hex_string(compute_hash::<r"\"">())}");
+
+    // --- long string (to trigger runtime error path if ≥ 256) ---
+    // note: runtime will throw, so just demo compile-time length guard
+    try {
+        var long_str = string(300, 'a');
+        print(f"hash(long string 300a)\t= 0x{to_hex_string(compute_hash(&long_str))}");
+    } catch (e: libcxx::exception) {
+        libcxx::cout << r"runtime error (expected for long string): " << e.what() << libcxx::endl;
+    }
+
+    // Case sensitivity
+    print(f"hash<\"fn\">\t= 0x{to_hex_string(compute_hash::<r"fn">())}");
+    print(f"hash<\"Fn\">\t= 0x{to_hex_string(compute_hash::<r"Fn">())}");
+    print(f"hash<\"fN\">\t= 0x{to_hex_string(compute_hash::<r"fN">())}");
+    print(f"hash<\"FN\">\t= 0x{to_hex_string(compute_hash::<r"FN">())}");
+
+    // Single chars
+    print(f"hash<\"a\">\t= 0x{to_hex_string(compute_hash::<r"a">())}");
+    print(f"hash<\"A\">\t= 0x{to_hex_string(compute_hash::<r"A">())}");
+    print(f"hash<\"_\">\t= 0x{to_hex_string(compute_hash::<r"_">())}");
+    print(f"hash<\"$\">\t= 0x{to_hex_string(compute_hash::<r"$">())}");
+    print(f"hash<\"0\">\t= 0x{to_hex_string(compute_hash::<r"0">())}");
+
+    // Whitespace / escapes
+    print(f"hash<\" \">\t= 0x{to_hex_string(compute_hash::<r" ">())}");
+    print(f"hash<\"\\t\">\t= 0x{to_hex_string(compute_hash::<r"\\t">())}");
+    print(f"hash<\"\\n\">\t= 0x{to_hex_string(compute_hash::<r"\\n">())}");
+    // beware: embedded null can't be expressed in Helix literal unless you support raw bytes
+
+    // Operators
+    print(f"hash<\"+\">\t= 0x{to_hex_string(compute_hash::<r"+">())}");
+    print(f"hash<\"==\">\t= 0x{to_hex_string(compute_hash::<r"==">())}");
+    print(f"hash<\"!=\">\t= 0x{to_hex_string(compute_hash::<r"!=">())}");
+    print(f"hash<\"=>\">\t= 0x{to_hex_string(compute_hash::<r"=>">())}");
+
+    // Unicode
+    var uni: string = "λ";
+    print(f"hash(\"λ\")\t= 0x{to_hex_string(compute_hash(&uni))}");
+
+    uni = "你好";
+    print(f"hash(\"你好\")\t= 0x{to_hex_string(compute_hash(&uni))}");
+
+    return 0;
+}
+
+
+fn main() -> i32 {
+    return Test();
+}
