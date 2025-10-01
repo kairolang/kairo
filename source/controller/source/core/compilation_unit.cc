@@ -270,7 +270,7 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
     generator::CXIR::CXIR emitter = generate_cxir(false);
     helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "emitted cx-ir");
 
-    if (parsed_args.emit_ir) {
+    if (parsed_args.emit_ir && !parsed_args.lsp_mode) {
         emit_cxir(emitter, parsed_args.verbose);
         return {{}, 2};
     }
@@ -316,7 +316,7 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
     std::chrono::time_point<std::chrono::high_resolution_clock> start =
         std::chrono::high_resolution_clock::now();
     auto [action, result] = build_unit(parsed_args);
-
+    
     switch (result) {
         case 0:
             break;
@@ -346,7 +346,6 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
     }
 
     auto ret = compiler.compile_CXIR(std::move(action), LSP_MODE);
-
     if (LSP_MODE) {
         return 0;
     }
