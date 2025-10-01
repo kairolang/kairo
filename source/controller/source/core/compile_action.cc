@@ -132,19 +132,48 @@ class FileLock {
 
 void cleanup_old_files(const std::filesystem::path &dir) {
     using namespace std::chrono;
+
     auto now = std::filesystem::file_time_type::clock::now();
+    std::vector<std::filesystem::directory_entry> files;
 
+    // collect regular files
     for (auto &entry : std::filesystem::directory_iterator(dir)) {
-        if (!entry.is_regular_file()) {
-            continue;
+        if (entry.is_regular_file()) {
+            files.push_back(entry);
         }
+    }
 
+    // age-based cleanup
+    for (auto &entry : files) {
         auto ftime = std::filesystem::last_write_time(entry);
         auto age   = duration_cast<hours>(now - ftime);
 
         if (age.count() >= 2) {
             std::error_code ec;
             std::filesystem::remove(entry, ec);
+        }
+    }
+
+    // refresh file list after deletions
+    files.clear();
+    for (auto &entry : std::filesystem::directory_iterator(dir)) {
+        if (entry.is_regular_file()) {
+            files.push_back(entry);
+        }
+    }
+
+    // enforce max 75 files
+    if (files.size() > 75) {
+        std::sort(files.begin(), files.end(),
+            [](auto &a, auto &b) {
+                return std::filesystem::last_write_time(a) <
+                       std::filesystem::last_write_time(b);
+            });
+
+        std::size_t excess = files.size() - 75;
+        for (std::size_t i = 0; i < excess; ++i) {
+            std::error_code ec;
+            std::filesystem::remove(files[i], ec);
         }
     }
 }
