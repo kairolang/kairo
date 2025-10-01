@@ -89,24 +89,6 @@ __AST_BEGIN {
         explicit FFIQualifier(__TOKEN_N::Token marker)
             : marker(std::move(marker)) {
             switch (marker.token_kind()) {
-                case __TOKEN_N::KEYWORD_CLASS:
-                    type = Qualifier::Class;
-                    break;
-                case __TOKEN_N::KEYWORD_INTERFACE:
-                    type = Qualifier::Interface;
-                    break;
-                case __TOKEN_N::KEYWORD_STRUCT:
-                    type = Qualifier::Struct;
-                    break;
-                case __TOKEN_N::KEYWORD_ENUM:
-                    type = Qualifier::Enum;
-                    break;
-                case __TOKEN_N::KEYWORD_UNION:
-                    type = Qualifier::Union;
-                    break;
-                case __TOKEN_N::KEYWORD_TYPE:
-                    type = Qualifier::Type;
-                    break;
                 default:
                     throw std::runtime_error("Invalid ffi specifier");
                     break;
@@ -396,7 +378,6 @@ __AST_BEGIN {
       public:
         enum class ExpectedModifier : char {
             StorageSpec,  ///< 'ffi' | 'static'
-            FfiSpec,      ///< 'class' | 'interface' | 'struct' | 'enum' | 'union' | 'type'
             TypeSpec,     ///< 'const' | 'module' | 'yield' | 'async' | 'ffi' | 'unsafe'
             AccessSpec,   ///< 'pub' | 'priv' | 'prot' | 'intl'
             FuncSpec,     ///< 'inline' | 'async' | 'static' | 'const' | 'eval'
@@ -409,13 +390,6 @@ __AST_BEGIN {
         std::unordered_set<__TOKEN_TYPES_N>                                allowed_modifiers;
         std::unordered_map<ExpectedModifier, std::vector<__TOKEN_TYPES_N>> modifiers_map = {
             {ExpectedModifier::StorageSpec, {__TOKEN_N::KEYWORD_FFI, __TOKEN_N::KEYWORD_STATIC}},
-            {ExpectedModifier::FfiSpec,
-             {__TOKEN_N::KEYWORD_CLASS,
-              __TOKEN_N::KEYWORD_INTERFACE,
-              __TOKEN_N::KEYWORD_STRUCT,
-              __TOKEN_N::KEYWORD_ENUM,
-              __TOKEN_N::KEYWORD_UNION,
-              __TOKEN_N::KEYWORD_TYPE}},
             {ExpectedModifier::TypeSpec,
              {__TOKEN_N::KEYWORD_CONST,
               __TOKEN_N::KEYWORD_MODULE,
@@ -475,8 +449,6 @@ __AST_BEGIN {
             switch (modifier) {
                 case ExpectedModifier::StorageSpec:
                     return StorageSpecifier::is_storage_specifier(tok);
-                case ExpectedModifier::FfiSpec:
-                    return FFIQualifier::is_ffi_specifier(tok);
                 case ExpectedModifier::TypeSpec:
                     return TypeSpecifier::is_type_qualifier(tok);
                 case ExpectedModifier::AccessSpec:
@@ -509,9 +481,6 @@ __AST_BEGIN {
                     switch (modifier_type) {
                         case ExpectedModifier::StorageSpec:
                             modifiers.emplace_back(StorageSpecifier(current_token));
-                            break;
-                        case ExpectedModifier::FfiSpec:
-                            modifiers.emplace_back(FFIQualifier(current_token));
                             break;
                         case ExpectedModifier::TypeSpec:
                             modifiers.emplace_back(TypeSpecifier(current_token));

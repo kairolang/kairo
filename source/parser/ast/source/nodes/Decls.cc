@@ -749,23 +749,25 @@ AST_NODE_IMPL(Declaration, EnumDecl, const std::shared_ptr<__TOKEN_N::TokenList>
     IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_ENUM);
     iter.advance();  // skip 'enum'
 
-    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_DERIVES)) {
-        ParseResult<Type> derives = expr_parser.parse<Type>();
-        RETURN_IF_ERROR(derives);
-
-        node->derives = derives.value();
-    }
-
     if (CURRENT_TOKEN_IS(__TOKEN_N::IDENTIFIER)) {
         ParseResult<IdentExpr> name = expr_parser.parse<IdentExpr>();
         RETURN_IF_ERROR(name);
-
+        
         node->name = name.value();
     } else {
-        if (node->derives) {
-            return std::unexpected(
-                PARSE_ERROR(CURRENT_TOK, "anonymous enum cannot have specified type"));
+    if (node->derives) {
+        return std::unexpected(
+            PARSE_ERROR(CURRENT_TOK, "anonymous enum cannot have specified type"));
         }
+    }
+    
+    if (CURRENT_TOKEN_IS(__TOKEN_N::KEYWORD_DERIVES)) {
+        iter.advance();  // skip 'derives'
+        
+        ParseResult<Type> derives = expr_parser.parse<Type>();
+        RETURN_IF_ERROR(derives);
+        
+        node->derives = derives.value();
     }
 
     if (CURRENT_TOKEN_IS(__TOKEN_N::PUNCTUATION_OPEN_BRACE)) {
