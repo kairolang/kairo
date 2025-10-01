@@ -24,10 +24,10 @@
 ///        strings.
 ///
 
-const var kHashMax          = static_cast::<usize>(0xFFFFFFFFFFFFFFFF);
-const var kFnvOffsetBasis   = static_cast::<u64>(1469598103934665603);
-const var kFnvPrime         = static_cast::<u64>(0x100000001b3);
-const var kGoldenRatioMix   = static_cast::<u64>(0x9e3779b97f4a7c15);
+const kHashMax:         usize = static_cast::<usize>(0xFFFFFFFFFFFFFFFF);;
+const kFnvOffsetBasis:  u64   = static_cast::<u64>(1469598103934665603);;
+const kFnvPrime:        u64   = static_cast::<u64>(0x100000001b3);;
+const kGoldenRatioMix:  u64   = static_cast::<u64>(0x9e3779b97f4a7c15);;
 
 ///
 /// \brief A helper class to hold a string literal at compile time.
@@ -123,7 +123,7 @@ eval fn <const N: usize> compute_hash(const str: *char) -> u64 {
 
 ///
 /// \brief Computes a runtime hash from a string reference.
-///        This function is to test the compile-time hash function with runtime strings.
+///        This function is to test the eval-time hash function with runtime strings.
 ///
 /// \param  str A reference to the string to hash.
 /// \return A 64-bit hash value, or HASH_MAX if the string is empty.
@@ -149,9 +149,38 @@ eval fn compute_hash(const str: *string) -> u64 {
     return (hash ^ (static_cast::<u64>(len) * kGoldenRatioMix)) & kHashMax;
 }
 
+///
+/// \brief Eval-time character hash step with position mixing.
+///        Inlined directly into loops to avoid call overhead.
+///
+/// \param  chr  The character to mix into the hash.
+/// \param  pos  The position of the character in the string (0-based).
+/// \param  hash The current hash value.
+/// \return The updated hash value after mixing in the character.
+///
+/// \ref Uses FNV-1a with position mixing.
+///
+__inline_cpp("
+template <usize N>
+consteval u64 compute_hash(const char (&str)[N]) {
+    static_assert(N <= 256, \"String too long for hashing\");
+    
+    if constexpr (N == 0) {
+        return kHashMax;
+    }
+
+    u64 hash = kFnvOffsetBasis;
+    
+    for (usize i = 0; i < N; ++i) {
+        hash = mix_char(str[i], hash, i);
+    }
+
+    return (hash ^ (static_cast<u64>(N) * kGoldenRatioMix)) & kHashMax;
+}
+");
 
 /// \brief Computes a hash from a string literal at compile time.
-///        This function is the main entry point for compile-time string hashing.
+///        This function is the main entry point for eval-time string hashing.
 ///
 /// \tparam str The string literal to hash.
 /// \return A 64-bit hash value, or HASH_MAX if the string is empty.
@@ -167,16 +196,18 @@ eval fn <str: const EvalStrBuffer> compute_hash() -> u64 {
     return compute_hash::<len>(str.value.data());
 }
 
+
+
 fn to_hex_string(const value: usize) -> string {
     return libcxx::format(r"{:x}", value).data();
 }
 
 ///
-/// \brief Computes a compile-time hash from a string literal.
+/// \brief Computes a eval-time hash from a string literal.
 ///        This function is to test the compute_hash function with string literals.
 ///
 fn Test() -> i32 {
-    // --- compile-time string literal hashes ---
+    // --- eval-time string literal hashes ---
     print(f"hash<\"inline\">\t= 0x{to_hex_string(compute_hash::<r"inline">())}");
     print(f"hash<\"fn\">    \t= 0x{to_hex_string(compute_hash::<r"fn">())}");
     print(f"hash<\"var\">   \t= 0x{to_hex_string(compute_hash::<r"var">())}");
@@ -207,7 +238,7 @@ fn Test() -> i32 {
     print(f"hash<\"\">\t= 0x{to_hex_string(compute_hash::<r"\"">())}");
 
     // --- long string (to trigger runtime error path if ≥ 256) ---
-    // note: runtime will throw, so just demo compile-time length guard
+    // note: runtime will throw, so just demo eval-time length guard
     try {
         var long_str = string(300, 'a');
         print(f"hash(long string 300a)\t= 0x{to_hex_string(compute_hash(&long_str))}");
@@ -227,6 +258,14 @@ fn Test() -> i32 {
     print(f"hash<\"_\">\t= 0x{to_hex_string(compute_hash::<r"_">())}");
     print(f"hash<\"$\">\t= 0x{to_hex_string(compute_hash::<r"$">())}");
     print(f"hash<\"0\">\t= 0x{to_hex_string(compute_hash::<r"0">())}");
+
+    __inline_cpp("
+        auto rbrace = to_hex_string(compute_hash<L\"{\">());
+        auto lbrace = to_hex_string(compute_hash<L\"}\">());
+    ");
+
+    print(f"hash<\"R Brace\">\t= 0x{rbrace}");
+    print(f"hash<\"L Brace\">\t= 0x{lbrace}");
 
     // Whitespace / escapes
     print(f"hash<\" \">\t= 0x{to_hex_string(compute_hash::<r" ">())}");
