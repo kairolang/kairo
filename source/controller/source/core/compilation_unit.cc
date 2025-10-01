@@ -272,6 +272,7 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
 
     if (parsed_args.emit_ir) {
         emit_cxir(emitter, parsed_args.verbose);
+        return {{}, 2};
     }
 
     std::filesystem::path out_file = determine_output_file(parsed_args, in_file_path);
