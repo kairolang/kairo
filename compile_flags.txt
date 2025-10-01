@@ -1,0 +1,4 @@
+/std=c++latest
+/Ihelix-lang/lib-helix/core/include
+/Ihelix-lang/lib-helix/core
+/Ihelix-lang/libs
