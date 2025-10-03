@@ -18,6 +18,14 @@ from concurrent.futures import ThreadPoolExecutor
 import platform
 import sys
 
+# Setup rich-enhanced logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+    handlers=[RichHandler(rich_tracebacks=True)]
+)
+log = logging.getLogger("helix-builder")
+
 arch = platform.machine()
 system = platform.system().lower()
 
@@ -42,13 +50,19 @@ else:
 
 target_triple = f"{arch}-{system}-{abi}"
 
-# Setup rich-enhanced logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(message)s",
-    handlers=[RichHandler(rich_tracebacks=True)]
-)
-log = logging.getLogger("helix-builder")
+MSVC_FLAGS = [
+    "cl.exe", "/nologo", "/std:c++latest", "/MT", "/w",
+    "/Isource", "/Ilib-helix\\core\\include", "/Ilib-helix\\core", "/Ilibs",
+    "/EHsc", "/DNDEBUG"
+]
+
+CLANG_FLAGS = [
+    "clang++", "-std=c++23", "-O3", "-w",
+    "-Isource", "-Ilib-helix/core/include", "-Ilib-helix/core", "-Ilibs",
+    "-DNDEBUG"
+]
+
+ALL_CPP_EXTS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"}
 
 COMPILER_PATH = Path("build/release/arm64-llvm-macosx/bin/helix") if system == "macos" else \
                Path("build/release/x86_64-linux-gnu/bin/helix") if system == "linux" else \
@@ -200,22 +214,27 @@ class Builder:
 # the helix compiler
 Builder("toolchain/driver/bin/helix.hlx", "helix")                             \
     .add_include_dir(Path("."))                                                \
+    .add_include_dir(Path(".") / "toolchain")                                  \
 
 # the helix code formatter
 Builder("toolchain/driver/bin/fmt.hlx", "helix-fmt")                           \
     .add_include_dir(Path("."))                                                \
+    .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix ide client for lsp support
 Builder("toolchain/driver/bin/analyzer.hlx", "helix-analyzer")                 \
     .add_include_dir(Path("."))                                                \
+    .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix linker
 Builder("toolchain/driver/bin/ld.hlx", "helix-ld")                             \
     .add_include_dir(Path("."))                                                \
+    .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix package manager
 Builder("toolchain/driver/bin/vial.hlx", "vial")                               \
     .add_include_dir(Path("."))                                                \
+    .add_include_dir(Path(".") / "toolchain")                                  \
 
 # ----------------------------------- END OF COMPILER COMMANDS ----------------------------------- #
 
@@ -245,6 +264,30 @@ def update_compile_commands():
     builder0 = Builder.builders[0]
     builder0.build_compile_commands()
 
+    cwd = Path.cwd()
+    
+    for path in cwd.rglob("*"):
+        # avoid the cwd/libs folders and cwd/build
+        if "build" in path.parts or "libs" in path.parts or "private" in path.parts:
+            continue
+
+        if path.suffix.lower() in ALL_CPP_EXTS:
+            # compute relative path
+            rel = path.relative_to(cwd)
+            # Choose flags depending on platform
+            if system == "windows":
+                args = MSVC_FLAGS.copy()
+            else:
+                args = CLANG_FLAGS.copy()
+            # put the file in command
+            entry = {
+                "directory": str(cwd),
+                "arguments": args + [str(rel)],
+                "file": str(rel)
+            }
+            new_compile_commands.append(entry)
+
+
     all_the_hlx_files = [
         # exclude the build directory
         file for file in Path(".").rglob("*.hlx")
@@ -263,14 +306,14 @@ def update_compile_commands():
     for file in appended_files:
         new_compile_commands.append({
             "directory": str(os.getcwd()),
-            "command": builder0.cmd[3:],
+            "arguments": builder0.cmd[3:],
             "file": str(Path(file).absolute())
         })
 
     for builder in Builder.builders:
         command = {
             "directory": str(os.getcwd()),
-            "command": builder.cmd[3:],
+            "arguments": builder.cmd[3:],
             "file": str(Path(builder.file).absolute())
         }
         new_compile_commands.append(command)
@@ -286,7 +329,10 @@ def update_compile_commands():
 
 def main():
     update_compile_commands()
-    
+
+    if "--update-index" in sys.argv:
+        return
+        
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(builder.compile) for builder in Builder.builders]
     
