@@ -1,0 +1,91 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+/// \file helix/types/Path.hlx
+/// \brief Abstraction over filesystem paths.
+
+import Core::FileSystem::*;
+
+default class Path {
+    var path_data:  FilePath;
+    var entry_type: FileType;
+
+    default fn Path(self);
+
+    fn Path(self, input: string, mustExist: bool = true) {
+        var raw = std::Memory::move(input).raw_string();
+        self.path_data = libcxx::filesystem::absolute(FilePath(raw));
+
+        if self.path_data.empty() {
+            print("Empty path");
+            std::crash(127);
+        }
+
+        if mustExist && !libcxx::filesystem::exists(self.path_data) {
+            print("Nonexistent path");
+            std::crash(127);
+        }
+
+        self.entry_type = __inline_cpp("libcxx::filesystem::status(this->path_data).type()");
+    }
+
+    const fn Extension(self) -> FilePath {
+        return self.path_data.extension().generic_wstring();
+    }
+
+    const fn Filename(self) -> FilePath {
+        return self.path_data.filename().generic_wstring();
+    }
+
+    const fn FullPath(self) -> FilePath {
+        return self.path_data.generic_wstring();
+    }
+
+    const fn Type(self) -> FileType {
+        return self.entry_type;
+    }
+
+    const fn IsDirectory(self) -> bool {
+        return self.entry_type == FileType::directory;
+    }
+
+    const fn IsRegularFile(self) -> bool {
+        return self.entry_type == FileType::regular;
+    }
+
+    const fn IsSymlink(self) -> bool {
+        return self.entry_type == FileType::symlink;
+    }
+
+    const fn IsFIFO(self) -> bool {
+        return self.entry_type == FileType::fifo;
+    }
+
+    const fn IsSocket(self) -> bool {
+        return self.entry_type == FileType::socket;
+    }
+
+    const fn IsBlockDevice(self) -> bool {
+        return self.entry_type == FileType::block;
+    }
+
+    const fn IsCharacterDevice(self) -> bool {
+        return self.entry_type == FileType::character;
+    }
+
+    const fn op as (self) -> *FilePath {
+        return &self.path_data;
+    }
+}
