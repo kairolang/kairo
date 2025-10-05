@@ -1,0 +1,72 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+import Core::SourceFile::*;
+import Core::SourceLocation::*;
+import Core::FullSourceLocation::*;
+import Core::Path::*;
+
+class SourceManager {
+    priv var files: vec::<SourceFile>;
+    priv var path_map: map::<string,u32>; ///< canonical path -> FileID
+    priv var next_id: u32 = 1;
+
+    default fn SourceManager(self);
+
+    fn open_file(self, path: Path) -> u32 {
+        var abs = Path(path.FullPath(), true);
+        var canon = abs.FullPath();
+
+        if self.path_map.count(canon) > 0 {
+            return self.path_map[canon];
+        }
+
+        var buf = MappedFileBuffer::open(&canon);
+        if !buf.is_valid() {
+            std::print(f"Failed to open file: {canon}\n");
+            return 0;
+        }
+
+        var fid = self.next_id;
+        self.next_id += 1;
+
+        var sf = SourceFile(fid, abs, buf);
+        self.files.push_back(sf);
+        self.path_map[canon] = fid;
+
+        return fid;
+    }
+
+    fn get_file(self, fid: u32) -> *SourceFile {
+        if fid == 0 || fid >= self.next_id { return &null; }
+        return &self.files[fid-1]; // dense array, 0-based
+    }
+
+    fn get_loc(self, fid: u32, offset: u32) -> SourceLocation {
+        var sf = self.get_file(fid);
+        if sf == &null || offset >= sf->size_bytes() {
+            return SourceLocation{};
+        }
+        return SourceLocation::get(fid, offset);
+    }
+
+    fn resolve(self, loc: SourceLocation) -> FullSourceLocation {
+        var sf = self.get_file(loc.file_id());
+        if sf == &null { return FullSourceLocation(SourceFile{},0,0); }
+
+        var lc = sf->compute_line_col(loc.offset());
+        return FullSourceLocation(*sf, libcxx::get::<0>(lc), libcxx::get::<1>(lc));
+    }
+}

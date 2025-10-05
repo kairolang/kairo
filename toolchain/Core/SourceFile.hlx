@@ -1,0 +1,86 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+import Core::Path::*;
+import Core::MappedFileBuffer::*;
+import Core::MemoryBuffer::*;
+
+class SourceFile {
+    var file_id: u32;
+    var path:    Path;
+    var buffer:  MappedFileBuffer;
+    var size:    usize;
+    var line_table: vec::<u32>; ///< newline byte offsets
+
+    fn SourceFile(self, fid: u32, p: Path, buf: MappedFileBuffer) {
+        self.file_id = fid;
+        self.path    = p;
+        self.buffer  = buf;
+        self.size    = buf.bytes()->size();
+        self.build_line_table();
+    }
+
+    const fn id(self) -> u32 {
+        return self.file_id;
+    }
+
+    const fn full_path(self) -> Path {
+        return self.path;
+    }
+
+    const fn size_bytes(self) -> usize {
+        return self.size;
+    }
+
+    fn data(self) -> const *u8 {
+        return self.buffer.bytes()->data();
+    }
+
+    fn view(self) -> const *MemoryBuffer {
+        return self.buffer.bytes();
+    }
+
+    fn build_line_table(self) {
+        self.line_table.clear();
+        var data = self.data();
+        for (var i: usize = 0; i < self.size; ++i) {
+            if data[i] == '\n' as u8 {
+                self.line_table.push_back(i as u32);
+            }
+        }
+    }
+
+    /// Binary search in line_table to compute line/col.
+    fn compute_line_col(self, offset: u32) -> (u32, u32) {
+        if offset >= self.size { return (0, 0); }
+
+        var table = self.line_table;
+        if table.empty() {
+            return (1, offset+1);
+        }
+
+        var idx: isize = libcxx::lower_bound(table.begin(), table.end(), offset) - table.begin();
+
+        if idx == 0 {
+            return (1, offset+1);
+        }
+
+        var line = (idx+1) as u32;
+        var line_start = (table[idx-1] + 1);
+        var col = offset - line_start + 1;
+
+        return (line, col);
+    }
+}

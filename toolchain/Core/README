@@ -1,0 +1,9 @@
+### types/
+Contains the implementation files for type definitions and file system utilities.  
+This includes code for file handling, path manipulation, and other type-related utilities used throughout the project.
+
+---
+
+
+
+FIXME: Random bug if an unspecified import does not end with a semicolon. the compiler goes in an infinite loop.
