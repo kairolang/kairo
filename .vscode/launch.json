@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+        "name": "Run Helix File",
+        "request": "launch",
+        "cwd": "${workspaceFolder}",
+        "preLaunchTask": "build-helix-current",
+        "console": "integratedTerminal",   // <—— important
+        "stopAtEntry": false,
+        
+        // Defaults (non-Windows → cppdbg)
+        "type": "cppdbg",
+        "program": "${workspaceFolder}/build/.gens/dbg_run",
+        "MIMode": "gdb",
+        "miDebuggerPath": "/usr/bin/gdb",
+
+        "osx": {
+            "MIMode": "lldb",
+            "miDebuggerPath": "/usr/bin/lldb"
+        },
+        "windows": {
+            "type": "cppvsdbg",
+            "program": "${workspaceFolder}/build/.gens/dbg_run.exe"
+        }
+    }
+  ]
+}
