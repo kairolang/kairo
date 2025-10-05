@@ -1,0 +1,369 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+/// \file helix/types/MMap.hlx
+/// \brief Memory-mapped file and buffer utilities.
+///
+/// \detail This file provides classes for memory-mapped file access and UTF-8
+///         string views. It includes platform-specific implementations for
+///         Windows and POSIX systems.
+///
+/// \warning Error handling is minimal for brevity. Production code should
+///          include robust error checking and handling.
+/// \warning Not thread-safe. Must not be accessed concurrently without external
+///          synchronization.
+
+import Core::MMapRegion::*;
+import Core::MemoryBuffer::*;
+import Core::UTF8View::*;
+
+///
+/// \class MappedFileBuffer
+///
+/// \brief File-backed memory buffer using memory mapping.
+///
+/// \detail
+///  - Derives from `MemoryBuffer`.
+///  - Wraps a file as a memory buffer.
+///  - Uses `MMapRegion` internally to manage lifecycle.
+///  - Cross-platform: Windows `CreateFileMappingW/MapViewOfFile`, POSIX `mmap`.
+///
+/// \warning Large files may exceed addressable space on 32-bit systems.
+///
+class MappedFileBuffer {
+    var _region: MMapRegion   = MMapRegion{};   ///< backing mapped region
+    var _view:   MemoryBuffer = MemoryBuffer{}; ///< cached memory buffer view
+    var _valid:  bool         = false;          ///< mapping success flag
+
+    ///
+    /// \brief Default constructor (invalid mapping).
+    ///
+    /// \detail Initializes an empty, invalid mapping.
+    ///
+    default fn MappedFileBuffer(self);
+
+    ///
+    /// \brief RAII destructor to unmap the file.
+    ///
+    /// \detail Ensures proper unmapping of resources.
+    /// \note Automatically called on destruction.
+    ///
+    fn op delete(self) { self.close(); }
+
+    ///
+    /// \brief Checks if the mapping is valid.
+    ///
+    /// \return `true` if mapping succeeded, `false` otherwise.
+    ///
+    const fn is_valid(self) -> bool { return self._valid; }
+
+    ///
+    /// \brief Returns size of mapped data in bytes.
+    ///
+    /// \note Size excludes any null terminator. (only on windows tho - POSIX always adds)
+    ///
+    fn bytes(self) -> *MemoryBuffer {
+        if !self._valid {
+            return &null;
+        }
+
+        return &self._view;
+    }
+
+    ///
+    /// \brief Closes the mapping and releases resources.
+    ///
+    /// \detail Unmaps the file and resets internal state.
+    ///
+    /// \note Safe to call multiple times; subsequent calls are no-ops.
+    ///
+    /// \warning IF this is called while there are existing views/iterators,
+    ///          behavior is undefined and likely results in a crash.
+    ///
+    fn close(self) {
+        _region.close();
+        self._view = MemoryBuffer{};
+        self._valid = false;
+    }
+
+    ///
+    /// \brief Opens a file and memory-maps it.
+    ///
+    /// \param path Path string pointer.
+    ///
+    /// \return Mapped buffer object. Use `is_valid()` to verify.
+    ///
+    /// \panics Never panics, but may fail if:
+    ///   - File does not exist.
+    ///   - File too large for address space.
+    ///   - Permission denied.
+    ///   - Other OS-level errors.
+    ///
+    /// \see do_open
+    ///
+    static fn open(path: *string) -> MappedFileBuffer {
+        var buf: MappedFileBuffer;
+        buf._valid = buf.do_open(path);
+        
+        return buf;
+    }
+
+    ///
+    /// \brief Internal OS-specific open implementation.
+    ///
+    /// \param path File path pointer (must not be null).
+    ///
+    /// \return true if successful, false otherwise.
+    ///
+    /// \detail
+    /// ### Windows:
+    ///   - Opens file with `CreateFileW`.
+    ///   - Retrieves size via `GetFileSizeEx`.
+    ///   - Rejects files > `usize::max`.
+    ///   - Creates read-only mapping via `CreateFileMappingW`.
+    ///   - Views file with `MapViewOfFile`.
+    ///   - Closes file/mapping handles after map is established.
+    ///
+    /// ### POSIX:
+    ///   - Opens file descriptor via `open(O_RDONLY)`.
+    ///   - Retrieves size via `fstat`.
+    ///   - Rejects files > `usize::max`.
+    ///   - Uses `mmap(PROT_READ | MAP_PRIVATE)`.
+    ///   - Appends null terminator manually at `mapping[size]`.
+    ///   - Closes FD immediately after mapping.
+    ///
+    /// \warning
+    ///   - Zero-byte files map to null data pointer with size=0.
+    ///   - Mapping failures (e.g., ENOMEM, INVALID_HANDLE_VALUE) return false.
+    ///   - Users must check `_valid` after open.
+    ///
+    /// \see CreateFileW, GetFileSizeEx, CreateFileMappingW, MapViewOfFile,
+    ///      open, fstat, mmap, munmap
+    ///
+    priv fn do_open(self, path: *string) -> bool {
+        if path == &null {
+            return false;
+        }
+        
+        self.close();
+
+        const eval if defined(_WIN32) {
+            var hFile: HANDLE = CreateFileW(
+                path->raw_string().c_str(),
+                GENERIC_READ,
+                FILE_SHARE_READ,
+                &null,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                &null
+            );
+
+            if hFile == INVALID_HANDLE_VALUE {
+                return false;
+            }
+
+            var fsize: LARGE_INTEGER;
+            if GetFileSizeEx(hFile, &fsize) == 0 {
+                CloseHandle(hFile);
+                return false;
+            }
+
+            if (((fsize.QuadPart)) as u64) > __inline_cpp("__NumData<usize>::max") {
+                CloseHandle(hFile);
+                return false;
+            }
+
+            if (fsize.QuadPart) == 0 {
+                CloseHandle(hFile);
+                self._region = MMapRegion(&null, 0);
+                return true;
+            }
+
+            var hMap: HANDLE = CreateFileMappingW(
+                hFile,
+                &null,
+                PAGE_READONLY,
+                0,
+                0,
+                &null
+            );
+
+            if hMap == &null {
+                CloseHandle(hFile); return false;
+            }
+
+            var mapping: *u8 = MapViewOfFile(
+                hMap,
+                FILE_MAP_READ,
+                0,
+                0,
+                0
+            ) as unsafe *u8;
+
+            CloseHandle(hMap);
+            CloseHandle(hFile);
+
+            if mapping == &null {
+                return false;
+            }
+
+            self._region.set(mapping, ((fsize.QuadPart) as usize));
+            self._view = MemoryBuffer(self._region.data(), self._region.size());
+            self._valid = true;
+
+            return true;
+        } else {
+            var fd: i32 = ::open(path->raw_string().c_str(), O_RDONLY);
+            if fd == -1 {
+                return false;
+            }
+
+            var st: stat;
+            if fstat(fd, &st) < 0 {
+                ::close(fd);
+                return false;
+            }
+
+            if (st.st_size as u64) > __inline_cpp("__NumData<usize>::max") {
+                ::close(fd);
+                return false;
+            }
+
+            if st.st_size == 0 {
+                ::close(fd);
+                self.data = &null;
+                self.size = 0;
+                return true;
+            }
+
+            var mapping = (mmap(
+                &null,
+                st.st_size+1,
+                PROT_READ,
+                MAP_PRIVATE,
+                fd,
+                0
+            )) as unsafe *u8;
+
+            ::close(fd);
+
+            if mapping == (MAP_FAILED as unsafe *u8) {
+                return false;
+            }
+
+            (mapping + self._region.size())[0] = (0 as u8); // null terminator
+
+            self._region.set(mapping, ((st.st_size) as usize));
+            self._view = MemoryBuffer(self._region.data(), self._region.size());
+            self._valid = true;
+
+            return true;
+        }
+    }
+}
+
+inline fn to_string(cp: char32_t) -> string {
+    var out: string;
+
+    if (cp <= 0x7F) {
+        out.push_back(static_cast<char>(cp));
+    } else if (cp <= 0x7FF) {
+        out.push_back(static_cast<char>(0xC0 | ((cp >> 6) & 0x1F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else if (cp <= 0xFFFF) {
+        out.push_back(static_cast<char>(0xE0 | ((cp >> 12) & 0x0F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back(static_cast<char>(0xF0 | ((cp >> 18) & 0x07)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+
+    return out;
+}
+
+class Timer {
+    priv var _start: libcxx::chrono::steady_clock::time_point;
+    priv var _label: string;
+
+    /// construct a timer with optional label
+    fn Timer(self, label: string = "Timer") {
+        self._start = libcxx::chrono::steady_clock::now();
+        self._label = label;
+    }
+
+    /// destructor prints elapsed time automatically
+    fn op delete (self) {
+        var end = libcxx::chrono::steady_clock::now();
+        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
+        std::print(f"{self._label} elapsed: {dur.count()} µs ({(dur.count()) / 1000.0} ms)\n");
+    }
+
+    /// get elapsed duration in microseconds without stopping
+    fn elapsed_us(self) -> i64 {
+        var end = libcxx::chrono::steady_clock::now();
+        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
+        return dur.count();
+    }
+
+    /// restart the timer
+    fn reset(self) {
+        self._start = libcxx::chrono::steady_clock::now();
+    }
+}
+
+///
+/// \brief Example test harness.
+///
+/// \detail Opens a sample file, prints its size, and decodes it as UTF-8.
+///
+/// \return Exit status: 0 on success, 1 on failure.
+///
+/// \example
+/// \code
+/// fn main() -> i32 {
+///     return Test();
+/// }
+/// \endcode
+///
+fn Test() -> i32 {
+    var timer: Timer = Timer("MMap Test");
+    
+    var path: string = "testdata.txt";
+    var buf: MappedFileBuffer = MappedFileBuffer::open(&path);
+
+    if !buf.is_valid() {
+        std::print("Failed to open file\n");
+        return 1;
+    }
+
+    var mem:  *MemoryBuffer = buf.bytes();   // extend lifetime
+    var ptr:  *u8           = mem->data();
+    var size:  usize        = mem->size();
+    var chars: UTF8View     = mem->chars();
+
+
+    var content: nstring = nstring(ptr as unsafe *(std::Legacy::char), size);
+
+    libcxx::this_thread::sleep_for(libcxx::chrono::milliseconds(5000));
+
+    return 0;
+}
+
+fn main() -> i32 {
+    return Test();
+}

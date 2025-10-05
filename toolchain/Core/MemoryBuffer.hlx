@@ -1,0 +1,70 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+import Core::UTF8View::*;
+
+///
+/// \class MemoryBuffer
+///
+/// \brief Simple buffer holding a MMapRegin, in a locked read-only state.
+///
+/// \detail This class encapsulates a pointer to raw byte data and its size.
+///         It provides accessors for byte and character views.
+///         The character view decodes the bytes as UTF-8.
+///
+/// \warning Not thread-safe. Must not be accessed concurrently without external
+///          synchronization.
+///
+class MemoryBuffer {
+    priv var _data: *u8   = &null;  ///< raw bytes
+    priv var _size: usize = 0;      ///< size in bytes (excluding terminator)
+    
+    ///
+    /// \brief Default constructor (null buffer).
+    ///
+    default fn MemoryBuffer(self);
+
+    ///
+    /// \brief Constructs buffer from raw pointer and size.
+    ///
+    /// \param data Pointer to external buffer.
+    /// \param size Size in bytes (without null terminator).
+    ///
+    fn MemoryBuffer(self, data: *u8, size: usize) {
+        self._data = data;
+        self._size = size;
+    }
+    
+    ///
+    /// \brief Returns raw pointer to buffer.
+    ///
+    /// \note Does not guarantee null-termination.
+    ///
+    fn data(self) -> *u8 { return self._data; }
+
+    ///
+    /// \brief Returns size of buffer in bytes.
+    ///
+    /// \note Size excludes any null terminator.
+    ///
+    fn size(self) -> usize { return self._size; }
+
+    ///
+    /// \brief Returns a UTF-8 view of the buffer.
+    ///
+    fn chars(self) -> UTF8View {
+        return UTF8View(self._data, self._size);
+    }
+}

@@ -1,0 +1,110 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+///
+/// \class MMapRegion
+///
+/// \brief RAII wrapper for memory-mapped regions.
+///
+/// \detail This class manages a region of memory mapped from a file or buffer.
+///         It ensures proper cleanup by automatically unmapping memory on
+///         destruction. Both Windows and POSIX platforms are supported.
+///
+/// \note A null terminator is included for safe string handling.
+///
+/// \warning Not thread-safe. Must not be accessed concurrently without external
+///          synchronization.
+///
+class MMapRegion {
+    pub var _data: *u8   = &null;   ///< raw mapped bytes (null if unmapped)
+    pub var _size: usize = 0;       ///< size in bytes (excluding terminator)
+
+    ///
+    /// \brief Constructs an empty region with null _data.
+    ///
+    default fn MMapRegion(self);
+
+    ///
+    /// \brief constructs a region with given _data and size.
+    ///
+    fn MMapRegion(self, data: *u8, size: usize) {
+        self._data = data;
+        self._size = size;
+    }
+
+    ///
+    /// \brief Cleans up the mapped region if it is valid.
+    ///
+    /// \detail This destructor ensures that any mapped memory is properly
+    ///         unmapped when the object goes out of scope.
+    ///
+    /// \note This is automatically called when the object is destroyed.
+    ///
+    /// \warning Not thread-safe. Must not be accessed concurrently without external
+    ///          synchronization.
+    ///
+    fn op delete(self) { self.close(); }
+
+    ///
+    /// \brief Unmaps and releases the memory region.
+    ///
+    /// \detail
+    ///  - On Windows: calls `UnmapViewOfFile`.
+    ///  - On POSIX: calls `munmap` with size+1 (to cover null terminator).
+    ///  - Resets `data` and `size` after cleanup.
+    ///
+    /// \note Safe to call multiple times; subsequent calls are no-ops.
+    ///
+    /// \panics If OS system calls fail (rare), behavior is undefined but likely
+    ///         results in a crash.
+    ///
+    fn close(self) {
+        if self._data == &null { return; }
+        
+        const eval if defined(_WIN32) {
+            UnmapViewOfFile(self._data);
+        } else {
+            munmap(self._data, self._size + 1); // include null terminator page
+        }
+        
+        self._data = &null;
+        self._size = 0;
+    }
+ 
+    ///
+    /// \brief Returns pointer to mapped data.
+    ///
+    /// \note May return null if region is unmapped.
+    ///
+    fn data(self) -> *u8 { return self._data; }
+    
+    ///
+    /// \brief Returns size of mapped data in bytes.
+    ///
+    /// \note Size excludes any null terminator.
+    ///
+    fn size(self) -> usize { return self._size; }
+
+    ///
+    /// \brief Sets the mapped data
+    ///
+    /// \param data Pointer to the mapped data
+    /// \param size Size of the mapped data in bytes
+    ///
+    fn set(self, data: *u8, size: usize) {
+        self._data = data;
+        self._size = size;
+    }
+}
