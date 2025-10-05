@@ -1,0 +1,286 @@
+/*
+ROADMAP
+class TokenKind {
+
+    fn serialize(self) -> map::<string, string>;
+
+    op as fn (self) -> string;
+    op as fn (self) -> Kind;
+}*/
+
+import Core::EvalHash::*;
+
+// DO NOT FORGET OPS CAN START WITH A PREFIX OF l or r
+
+enum TokenKind derives u64 {
+    ///===----------------------------------------------------------------===///
+    ///   Special tokens
+    ///===----------------------------------------------------------------===///
+    Eof,            // "EOF"
+    Unknown,        // (unrecognized)
+
+    ///===----------------------------------------------------------------===///
+    //    Identifiers & literals
+    ///===----------------------------------------------------------------===///
+    Identifier,          // <identifier>
+    FixedConstant,       // e.g. "123", "0xFFF", "0b1010", "0o1298"
+    FloatConstant,       // e.g. "10.290", "0x1.2p-3", ".5", "3.14e-2", "1e3"
+
+    StringLiteral,       // e.g. "hello"
+    NarrowStringLiteral, // e.g. n"hello"
+    FormatStringLiteral, // e.g. f"{name}"
+
+    CharConstant,        // e.g. 'a'
+    NarrowCharConstant,  // e.g. n'a'
+    FormatCharConstant,  // e.g. f'{a}'
+
+    NullLiteral,         // "null" | "&null" (the second variant is parsed)
+
+    ///===----------------------------------------------------------------===///
+    ///   Punctuators (Clang-compatible)
+    ///===----------------------------------------------------------------===///
+    LParen      = compute_hash::<r"(">(),    // "("
+    RParen      = compute_hash::<r")">(),    // ")"
+
+    LSquare     = compute_hash::<r"[">(),    // "["
+    RSquare     = compute_hash::<r"]">(),    // "]"
+    
+    ///
+    /// we are using directly what compute_hash would return since the bootstrap
+    ///    compiler does not let use use r"{" and r"}" for some reason, and
+    ///    it completely changes.
+    ///
+    /// TODO: after the self-hosted compiler can compile the compiler make this
+    ///       use compute_hash instead of raw Hexadecimal.
+    ///
+    LBrace      = 0xda8ad96d0c87c27d,        // "{"
+    RBrace      = 0xda8adf6d0c87b48f,        // "}"
+
+    Less        = compute_hash::<r"<">(),    // "<"
+    Greater     = compute_hash::<r">">(),    // ">"
+
+    Plus        = compute_hash::<r"+">(),    // "+"
+    Minus       = compute_hash::<r"-">(),    // "-"
+    Star        = compute_hash::<r"*">(),    // "*"
+    Slash       = compute_hash::<r"/">(),    // "/"
+    Percent     = compute_hash::<r"%">(),    // "%"
+    Caret       = compute_hash::<r"^">(),    // "^"
+    Pipe        = compute_hash::<r"|">(),    // "|"
+    Amp         = compute_hash::<r"&">(),    // "&"
+    Starstar    = compute_hash::<r"**">(),   // "**"      NOT (clang-compatible)
+
+    Range       = compute_hash::<r"..">(),   // ".."      NOT (clang-compatible)
+    Rangeequal  = compute_hash::<r"..=">(),  // "..="     NOT (clang-compatible)
+
+
+    Tilde       = compute_hash::<r"~">(),    // "~"
+    Exclaim     = compute_hash::<r"!">(),    // "!"
+    At          = compute_hash::<r"@">(),    // "@"       NOT (clang-compatible)
+
+
+    Equal       = compute_hash::<r"=">(),    // "="
+    Plusplus    = compute_hash::<r"++">(),   // "++"
+    Minusminus  = compute_hash::<r"--">(),   // "--"
+
+    Arrow       = compute_hash::<r"->">(),   // "->"
+    Arrowstar   = compute_hash::<r"->*">(),  // "->*"
+    Questiondot = compute_hash::<r"?.">(),   // "?."      NOT (clang-compatible)
+
+    Colon       = compute_hash::<r":">(),    // ":"
+    Semicolon   = compute_hash::<r";">(),    // ";"
+    Comma       = compute_hash::<r",">(),    // ","
+    Dot         = compute_hash::<r".">(),    // "."
+    Dotstar     = compute_hash::<r".*">(),   // ".*"
+    Coloncolon  = compute_hash::<r"::">(),   // "::"
+
+    Ellipsis    = compute_hash::<r"...">(),  // "..."
+
+    Question    = compute_hash::<r"?">(),    // "?"
+
+    /// we need to add syn support for "foo() ?? 21"
+    QuestionQuestion  = compute_hash::<r"??">(), // "??"  NOT (clang-compatible)
+    EqualEqualEqual   = compute_hash::<r"===">(),// "===" NOT (clang-compatible)
+
+    ///===----------------------------------------------------------------===///
+    ///   Assignment operators (Clang-compatible)
+    ///===----------------------------------------------------------------===///
+    PlusEqual           = compute_hash::<r"+=">(),  // "+="
+    MinusEqual          = compute_hash::<r"-=">(),  // "-="
+    StarEqual           = compute_hash::<r"*=">(),  // "*="
+    SlashEqual          = compute_hash::<r"/=">(),  // "/="
+    PercentEqual        = compute_hash::<r"%=">(),  // "%="
+    AmpEqual            = compute_hash::<r"&=">(),  // "&="
+    PipeEqual           = compute_hash::<r"|=">(),  // "|="
+    CaretEqual          = compute_hash::<r"^=">(),  // "^="
+    LesslessEqual       = compute_hash::<r"<<=">(), // "<<="
+    GreatergreaterEqual = compute_hash::<r">>=">(), // ">>="
+    StarstarEqual       = compute_hash::<r"**=">(), // "**=" NOT (clang-comp)
+    AtEqual             = compute_hash::<r"@=">(),  // "@="  NOT (clang-comp)
+
+    ///===----------------------------------------------------------------===///
+    ///   Logical / comparison operators (Clang-compatible)
+    ///===----------------------------------------------------------------===///
+    EqualEqual     = compute_hash::<r"==">(), // "=="
+    ExclaimEqual   = compute_hash::<r"!=">(), // "!="
+    Lessless       = compute_hash::<r"<<">(), // "<<"
+    Greatergreater = compute_hash::<r">>">(), // ">>"
+    LessEqual      = compute_hash::<r"<=">(), // "<="
+    GreaterEqual   = compute_hash::<r">=">(), // ">="
+    Ampamp         = compute_hash::<r"&&">(), // "&&"
+    Pipepipe       = compute_hash::<r"||">(), // "||"
+
+    ///===----------------------------------------------------------------===///
+    ///   Keywords (Clang subset + Helix)
+    ///===----------------------------------------------------------------===///
+
+    /// Control flow
+    KwReturn     = compute_hash::<r"return">(),    // "return"
+    KwBreak      = compute_hash::<r"break">(),     // "break"
+    KwContinue   = compute_hash::<r"continue">(),  // "continue"
+    KwPanic      = compute_hash::<r"panic">(),     // "panic"
+
+    KwMatch      = compute_hash::<r"match">(),     // "match"
+    KwCase       = compute_hash::<r"case">(),      // "case"
+    KwDefault    = compute_hash::<r"default">(),   // "default"
+
+    KwCatch      = compute_hash::<r"catch">(),     // "catch"
+    KwTry        = compute_hash::<r"try">(),       // "try"
+    KwFinally    = compute_hash::<r"finally">(),   // "finally"
+
+    KwIf         = compute_hash::<r"if">(),        // "if"
+    KwElse       = compute_hash::<r"else">(),      // "else"
+    KwWhile      = compute_hash::<r"while">(),     // "while"
+    KwFor        = compute_hash::<r"for">(),       // "for"
+    KwAssert     = compute_hash::<r"assert">(),    // "assert"
+    KwLoop       = compute_hash::<r"loop">(),      // "loop"
+
+    /// Declarations
+    KwVar        = compute_hash::<r"var">(),       // "var"
+    KwConst      = compute_hash::<r"const">(),     // "const"
+
+    KwFn         = compute_hash::<r"fn">(),        // "fn"
+    KwOp         = compute_hash::<r"op">(),        // "op"
+    KwClass      = compute_hash::<r"class">(),     // "class"
+    KwEnum       = compute_hash::<r"enum">(),      // "enum"
+    KwType       = compute_hash::<r"type">(),      // "type"
+    KwStruct     = compute_hash::<r"struct">(),    // "struct"
+    KwInterface  = compute_hash::<r"interface">(), // "interface"
+    KwExtend     = compute_hash::<r"extend">(),    // "extend"
+
+    KwModule     = compute_hash::<r"module">(),    // "module"
+    KwTest       = compute_hash::<r"test">(),      // "test"
+
+    KwMacro      = compute_hash::<r"macro">(),     // "macro"
+
+    KwImport     = compute_hash::<r"import">(),    // "import"
+    KwOverride   = compute_hash::<r"override">(),  // "override"
+    KwFinal      = compute_hash::<r"final">(),     // "final"
+
+    KwFfi        = compute_hash::<r"ffi">(),       // "ffi"
+
+    /// Type / trait expressions
+    KwAs         = compute_hash::<r"as">(),        // "as"
+
+    KwImpl       = compute_hash::<r"impl">(),      // "impl"
+    KwDerives    = compute_hash::<r"derives">(),   // "derives"
+
+    KwRequires   = compute_hash::<r"requires">(),  // "requires"
+
+    /// Access control
+    KwPub        = compute_hash::<r"pub">(),       // "pub"
+    KwPriv       = compute_hash::<r"priv">(),      // "priv"
+    KwProt       = compute_hash::<r"prot">(),      // "prot"
+
+    /// Specifiers / qualifiers
+    KwEval       = compute_hash::<r"eval">(),      // "eval"
+    KwUnsafe     = compute_hash::<r"unsafe">(),    // "unsafe"
+    KwStatic     = compute_hash::<r"static">(),    // "static"
+    KwAsync      = compute_hash::<r"async">(),     // "async"
+    KwInline     = compute_hash::<r"inline">(),    // "inline"
+
+    /// Special identifiers
+    KwSelf       = compute_hash::<r"self">(),      // "self"
+
+    /// Booleans
+    KwTrue       = compute_hash::<r"true">(),      // "true"
+    KwFalse      = compute_hash::<r"false">(),     // "false"
+
+    ///===----------------------------------------------------------------===///
+    ///   Binary operators
+    ///===----------------------------------------------------------------===///
+    KwIn     = compute_hash::<r"in">(),     // "in"
+    KwAnd    = compute_hash::<r"and">(),    // "and"
+    KwAndEq  = compute_hash::<r"and_eq">(), // "and_eq"
+    KwBitand = compute_hash::<r"bitand">(), // "bitand"
+    KwBitor  = compute_hash::<r"bitor">(),  // "bitor"
+    KwCompl  = compute_hash::<r"compl">(),  // "compl"
+    KwNot    = compute_hash::<r"not">(),    // "not"
+    KwNotEq  = compute_hash::<r"not_eq">(), // "not_eq"
+    KwOr     = compute_hash::<r"or">(),     // "or"
+    KwOrEq   = compute_hash::<r"or_eq">(),  // "or_eq"
+    KwXor    = compute_hash::<r"xor">(),    // "xor"
+    KwXorEq  = compute_hash::<r"xor_eq">(), // "xor_eq"
+
+    ///===----------------------------------------------------------------===///
+    ///   Primitive types (Helix superset of Clang fundamental types)
+    ///===----------------------------------------------------------------===///
+    KwVoid  = compute_hash::<r"void">(),  // "void"
+    KwBool  = compute_hash::<r"bool">(),  // "bool"
+
+    KwUsize = compute_hash::<r"usize">(), // "usize"
+    KwIsize = compute_hash::<r"isize">(), // "isize"
+
+    KwF32   = compute_hash::<r"f32">(),   // "f32"
+    KwF64   = compute_hash::<r"f64">(),   // "f64"
+    KwF80   = compute_hash::<r"f80">(),   // "f80"
+    KwF128  = compute_hash::<r"f128">(),  // "f128"
+
+    KwU8    = compute_hash::<r"u8">(),    // "u8"
+    KwU16   = compute_hash::<r"u16">(),   // "u16"
+    KwU32   = compute_hash::<r"u32">(),   // "u32"
+    KwU64   = compute_hash::<r"u64">(),   // "u64"
+    KwU128  = compute_hash::<r"u128">(),  // "u128"
+    KwU256  = compute_hash::<r"u256">(),  // "u256"
+
+    KwI8    = compute_hash::<r"i8">(),    // "i8"
+    KwI16   = compute_hash::<r"i16">(),   // "i16"
+    KwI32   = compute_hash::<r"i32">(),   // "i32"
+    KwI64   = compute_hash::<r"i64">(),   // "i64"
+    KwI128  = compute_hash::<r"i128">(),  // "i128"
+    KwI256  = compute_hash::<r"i256">(),  // "i256"
+
+    ///===----------------------------------------------------------------===///
+    ///   Unary keywords (Helix adds extra)
+    ///===----------------------------------------------------------------===///
+    KwAwait    = compute_hash::<r"await">(),      // "await"
+    KwThread   = compute_hash::<r"thread">(),     // "thread"
+    KwSpawn    = compute_hash::<r"spawn">(),      // "spawn"
+
+    KwDelete   = compute_hash::<r"delete">(),     // "delete"
+    KwYield    = compute_hash::<r"yield">(),      // "yield"
+
+    KwSizeof   = compute_hash::<r"sizeof">(),     // "sizeof"
+    KwAlignof  = compute_hash::<r"alignof">(),    // "alignof"
+    KwTypeof   = compute_hash::<r"typeof">(),     // "typeof"
+
+    ///===----------------------------------------------------------------===///
+    ///   Builtins
+    ///===----------------------------------------------------------------===///
+    BuiltinFile         = compute_hash::<r"__file__">(),     // "__file__"
+    BuiltinLine         = compute_hash::<r"__line__">(),     // "__line__"
+    BuiltinColumn       = compute_hash::<r"__column__">(),   // "__column__"
+    BuiltinFunction     = compute_hash::<r"__function__">(), // "__function__"
+    BuiltinModule       = compute_hash::<r"__module__">(),   // "__module__"
+    
+    BuiltinVolatile     = compute_hash::<r"volatile">(),     // "volatile"
+    BuiltinPacked       = compute_hash::<r"packed">(),       // "packed"
+    BuiltinUnlikely     = compute_hash::<r"unlikely">(),     // "unlikely"
+    BuiltinLikely       = compute_hash::<r"likely">(),       // "likely"
+    BuiltinInternal     = compute_hash::<r"internal">(),     // "internal"
+    BuiltinExperimental = compute_hash::<r"experimental">(), // "experimental"
+    BuiltinForceInline  = compute_hash::<r"force_inline">(), // "force_inline"
+    BuiltinNoInline     = compute_hash::<r"no_inline">(),    // "no_inline"
+    BuiltinDeprecated   = compute_hash::<r"deprecated">(),   // "deprecated"
+    BuiltinMustUse      = compute_hash::<r"must_use">(),     // "must_use"
+    BuiltinAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
+};
