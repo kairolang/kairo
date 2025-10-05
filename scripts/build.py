@@ -102,8 +102,15 @@ class Builder:
             elif arg == "--emit-ast":
                 self.emit_ast = True
 
+        if self.binary is None:
+            out = self.file.stem
+        else:
+            out = self.binary
+
+
         # output dir is build/target_triple/debug or release/bin/...
         self.output_dir = Path("build", target_triple, "debug" if self.debug else "release")
+        self.output: str = f"-o{self.output_dir}/bin/{out}"
         Path(self.output_dir, "bin").mkdir(parents=True, exist_ok=True)
         Builder.builders.append(self)
 
@@ -151,15 +158,11 @@ class Builder:
     
     def build_compile_commands(self) -> "Builder":
         """Build the compile commands for the compile_commands.json file."""
-        if self.binary is None:
-            out = self.file.stem
-        else:
-            out = self.binary
 
         self.cmd = [
             str(self.compiler),
             str(self.file),
-            f"-o{self.output_dir}/bin/{out}"
+            self.output
         ]
         
         if self.verbose:
@@ -239,100 +242,158 @@ Builder("toolchain/driver/bin/vial.hlx", "vial")                               \
 # ----------------------------------- END OF COMPILER COMMANDS ----------------------------------- #
 
 def update_compile_commands():
-    if not Path("compile_commands.json").exists():
-        # Create an empty compile_commands.json file
-        with open("compile_commands.json", "w") as f:
-            json.dump([], f)
-    with open("compile_commands.json", "r") as f:
-        compile_commands = json.load(f)
-
-    new_compile_commands: list[dict] = []
-
-    # also index all the .hlx files in the current directory and its subs and assume the same
-    # flags as the helix.hlx file
-
-    if len(Builder.builders) == 0:
-        log.error("No builders found. Please add a builder.")
-        return
-    
-    """
-    At some point in the future instead of assuming the same flags as the helix.hlx file
-    we look at the includes and then the .hlx files in the includes would follow the same
-    same flags as its builder
-    """
+    cwd = Path.cwd()
+    cwd_str = str(cwd)
 
     builder0 = Builder.builders[0]
     builder0.build_compile_commands()
 
-    cwd = Path.cwd()
-    
-    for path in cwd.rglob("*"):
-        # avoid the cwd/libs folders and cwd/build
-        if "build" in path.parts or "libs" in path.parts or "private" in path.parts:
-            continue
+    skip_dirs = {"build", "libs", "private"}
+    new_compile_commands = []
 
+    # Collect files in one pass
+    all_hlx = []
+    for path in cwd.rglob("*"):
+        if any(skip in path.parts for skip in skip_dirs):
+            continue
         if path.suffix.lower() in ALL_CPP_EXTS:
-            # compute relative path
             rel = path.relative_to(cwd)
-            # Choose flags depending on platform
-            if system == "windows":
-                args = MSVC_FLAGS.copy()
-            else:
-                args = CLANG_FLAGS.copy()
-            # put the file in command
-            entry = {
-                "directory": str(cwd),
+            args = MSVC_FLAGS.copy() if system == "windows" else CLANG_FLAGS.copy()
+            new_compile_commands.append({
+                "directory": cwd_str,
                 "arguments": args + [str(rel)],
                 "file": str(rel)
-            }
-            new_compile_commands.append(entry)
+            })
+        elif path.suffix.lower() == ".hlx":
+            all_hlx.append(path)
 
+    builder_files_set = {b.file for b in Builder.builders}
+    appended_files = [f for f in all_hlx if f not in builder_files_set]
 
-    all_the_hlx_files = [
-        # exclude the build directory
-        file for file in Path(".").rglob("*.hlx")
-        if "build" not in file.parts and
-           "lib-helix" not in file.parts
-    ]
-
-    all_the_builders_files = [
-        builder0.file for builder0 in Builder.builders
-    ]
-
-    appended_files = [
-        file for file in all_the_hlx_files if file not in all_the_builders_files
-    ]
-
+    # Add hlx files
     for file in appended_files:
         new_compile_commands.append({
-            "directory": str(os.getcwd()),
+            "directory": cwd_str,
             "arguments": builder0.cmd[3:],
-            "file": str(Path(file).absolute())
+            "file": str(file.resolve())
         })
 
+    # Add builder files
     for builder in Builder.builders:
-        command = {
-            "directory": str(os.getcwd()),
+        new_compile_commands.append({
+            "directory": cwd_str,
             "arguments": builder.cmd[3:],
-            "file": str(Path(builder.file).absolute())
-        }
-        new_compile_commands.append(command)
-
-    # replace all duplicates with the new ones
-    # while keeping the old ones
+            "file": str(Path(builder.file).resolve())
+        })
 
     with open("compile_commands.json", "w") as f:
-        json.dump(new_compile_commands, f, indent=4)
-        log.info("Updated compile_commands.json with new compile commands.")
-        log.info("Added new compile commands to compile_commands.json.")
+        json.dump(new_compile_commands, f, indent=2)
 
+
+def test(test_path: Path):
+    # we still use the first builders flags with the test file but theres one diff here we
+    # copy the test file to a temp location (build/.shared/tests/) and then compile it there
+    # but beofre the coping we need to make sure the file contains a fn Test() -> i32 { ... }
+    # if not, log an error and return
+    
+    found_test_fn = False
+    in_multi_line_comment = 0
+
+    with open(test_path, "r") as f:
+        for line in f.readlines():
+            i = 0
+            stripped_line = ""
+            while i < len(line):
+                if in_multi_line_comment > 0:
+                    if line.startswith("/*", i):
+                        in_multi_line_comment += 1
+                        i += 2
+                        continue
+                    elif line.startswith("*/", i):
+                        in_multi_line_comment -= 1
+                        i += 2
+                        continue
+                    else:
+                        i += 1
+                        continue
+
+                if line.startswith("//", i):
+                    # rest of line is comment
+                    break
+                elif line.startswith("/*", i):
+                    in_multi_line_comment += 1
+                    i += 2
+                    continue
+                else:
+                    stripped_line += line[i]
+                    i += 1
+
+            if "fn Test() -> i32" in stripped_line:
+                found_test_fn = True
+                break
+        
+    if not found_test_fn:
+        log.error("Test file must contain a function `fn Test() -> i32 { ... }`")
+        return
+    
+    temp_test_dir = Path("build/.shared/tests")
+    temp_test_dir.mkdir(parents=True, exist_ok=True)
+    temp_test_file = temp_test_dir / test_path.name
+    
+    with open(test_path, "r") as src, open(temp_test_file, "w") as dst:
+        dst.write(src.read())
+        # we also need to add a main function to call the Test function
+        dst.write("\nfn main() -> i32 {\n")
+        dst.write("    return Test();\n")
+        dst.write("}\n")
+        log.info(f"Copied test file to {temp_test_file}")
+
+    test_builder = Builder(temp_test_file, "test")
+    test_builder.includes = Builder.builders[0].includes
+    test_builder.links = Builder.builders[0].links
+    test_builder.link_libs = Builder.builders[0].link_libs
+    test_builder.cxx_flags = Builder.builders[0].cxx_flags
+    test_builder.debug = True
+    # we compile the file to build/.gens/test_run
+    test_output_dir = Path("build/.gens/")
+    test_output_dir.mkdir(parents=True, exist_ok=True)
+    test_builder.output = f"-o{test_output_dir}/test_run"
+
+    test_builder.build_compile_commands()
+    test_builder.compile()
+    log.info(f"Running test binary {test_output_dir}/test_run")
+    
+    # we run the file in the cur shell to make sure all stdout and errr is shown
+    print("-" * os.get_terminal_size().columns)
+    try:
+        # print a horizinal line full width of the terminal before running the test
+        result = subprocess.run([str(test_output_dir / "test_run")], check=True)
+        log.info(f"Test executed successfully with exit code {result.returncode}")
+    except subprocess.CalledProcessError as e:
+        log.error(f"Test execution failed: {e}")
+    print("-" * os.get_terminal_size().columns)
+
+    return
 
 def main():
     update_compile_commands()
 
     if "--update-index" in sys.argv:
         return
-        
+    
+    test_file = None
+    for arg in sys.argv:
+        if arg.endswith(".hlx"):
+            test_file = arg
+            break
+
+    test_path = Path(test_file)
+    if not test_path.exists():
+        log.error(f"Test file {test_file} does not exist.")
+        return
+    else:
+        return test(test_path)
+    
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(builder.compile) for builder in Builder.builders]
     
