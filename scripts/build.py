@@ -64,14 +64,8 @@ CLANG_FLAGS = [
 
 ALL_CPP_EXTS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"}
 
-COMPILER_PATH = Path("build/release/arm64-llvm-macosx/bin/helix") if system == "macos" else \
-               Path("build/release/x86_64-linux-gnu/bin/helix") if system == "linux" else \
-               Path("build/release/x64-windows-msvc/bin/helix.exe") if system == "windows" else \
-               Path("build/release/x86_64-linux-gnu/bin/helix")
-if not COMPILER_PATH.exists():
-    log.error(f"Compiler not found at {COMPILER_PATH}. Please build the"
-               "compiler first.")
-    sys.exit(1)
+# helix can be run using $$ helix <args>
+COMPILER_PATH = "helix"
 
 class Builder:
     builders: list["Builder"] = []
@@ -215,27 +209,27 @@ class Builder:
 # ---------------------------------- START OF COMPILER COMMANDS ---------------------------------- #
 
 # the helix compiler
-Builder("toolchain/driver/bin/helix.hlx", "helix")                             \
+Builder("toolchain/driver/main/helix.hlx", "helix")                             \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
 
 # the helix code formatter
-Builder("toolchain/driver/bin/fmt.hlx", "helix-fmt")                           \
+Builder("toolchain/driver/main/fmt.hlx", "helix-fmt")                           \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix ide client for lsp support
-Builder("toolchain/driver/bin/analyzer.hlx", "helix-analyzer")                 \
+Builder("toolchain/driver/main/analyzer.hlx", "helix-analyzer")                 \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix linker
-Builder("toolchain/driver/bin/ld.hlx", "helix-ld")                             \
+Builder("toolchain/driver/main/ld.hlx", "helix-ld")                             \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix package manager
-Builder("toolchain/driver/bin/vial.hlx", "vial")                               \
+Builder("toolchain/driver/main/vial.hlx", "vial")                               \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
 
@@ -387,12 +381,13 @@ def main():
             test_file = arg
             break
 
-    test_path = Path(test_file)
-    if not test_path.exists():
-        log.error(f"Test file {test_file} does not exist.")
-        return
-    else:
-        return test(test_path)
+    if test_file is not None:
+        test_path = Path(test_file)
+        if not test_path.exists():
+            log.error(f"Test file {test_file} does not exist.")
+            return
+        else:
+            return test(test_path)
     
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(builder.compile) for builder in Builder.builders]
