@@ -26,7 +26,7 @@ const eval if defined(_WIN32) {
 }
 
 fn read_file(path: types::Path) -> string? {
-    var ifs = libcxx::ifstream(path.generic_wstring(), libcxx::ios::binary);
+    var ifs = libcxx::ifstream(path.generic_string(), libcxx::ios::binary);
 
     if !ifs {
         return null;

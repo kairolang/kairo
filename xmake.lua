@@ -117,6 +117,12 @@ function setup_macos()
 		add_includedirs("/opt/homebrew/include")
 		add_linkdirs("/opt/homebrew/lib")
 	end
+
+    add_ldflags("-mmacosx-version-min=10.15", {force = true})
+    add_cxxflags("-mmacosx-version-min=10.15", {force = true})
+
+    -- also compile with static libc++
+    add_cxxflags("-static", "-lc++", "-lc++abi", {force = true})
 end
 
 function setup_debug()
