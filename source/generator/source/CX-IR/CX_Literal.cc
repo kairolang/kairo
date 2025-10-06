@@ -133,16 +133,25 @@ CX_VISIT_IMPL(LiteralExpr) {
                         ADD_TOKEN(CXX_LPAREN);
                         break;
                     case Int::IntRange::U64:
+                        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "u64", tok);
+                        ADD_TOKEN(CXX_LPAREN);
+                        break;
                     case Int::IntRange::I64:
                         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "i64", tok);
                         ADD_TOKEN(CXX_LPAREN);
                         break;
                     case Int::IntRange::U128:
+                        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "u128", tok);
+                        ADD_TOKEN(CXX_LPAREN);
+                        break;
                     case Int::IntRange::I128:
                         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "i128", tok);
                         ADD_TOKEN(CXX_LPAREN);
                         break;
                     case Int::IntRange::U256:
+                        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "u256", tok);
+                        ADD_TOKEN(CXX_LPAREN);
+                        break;
                     case Int::IntRange::I256:
                         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "i256", tok);
                         ADD_TOKEN(CXX_LPAREN);
