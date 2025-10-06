@@ -77,6 +77,7 @@ __PREPROCESSOR_BEGIN {
                                        // (i cba to make it a pointer lol)
         std::vector<std::filesystem::path> import_dirs;
         __CONTROLLER_CLI_N::CLIArgs        parsed_args;
+        void* override_processable_imports = nullptr; // NOLINT - if 0xFFF is present then we stop processing imports
 
       public:
         enum class Type {

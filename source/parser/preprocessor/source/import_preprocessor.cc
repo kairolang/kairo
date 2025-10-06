@@ -321,6 +321,10 @@ __PREPROCESSOR_BEGIN {
         bool found_import = false;
         __TOKEN_N::TokenList::TokenListIter iter = tokens.begin();
 
+        if (override_processable_imports == reinterpret_cast<void*>(0xFFF)) {
+            return false;
+        }
+
         while (iter.remaining_n() > 0) {
             if (iter->token_kind() == __TOKEN_N::tokens::KEYWORD_FFI) {
                 /// TODO: add checks to see if tokens are empty after advancing
@@ -480,6 +484,7 @@ leave_loop_has_processable_import:
         size_t start_pos = std::numeric_limits<size_t>::max();
         Token  start;
         Token  end;
+        size_t end_pos = std::numeric_limits<size_t>::max();
         bool   found_import = false;
 
         while (iter.remaining_n() > 0) {
@@ -502,6 +507,7 @@ leave_loop_has_processable_import:
                         .opt_fixes{},
                     });
 
+                    override_processable_imports = (void*)(0xFFF);
                     return;
                 }
 
@@ -531,6 +537,7 @@ leave_loop_has_processable_import:
                             .opt_fixes{},
                         });
 
+                        override_processable_imports = (void*)(0xFFF);
                         return;
                     }
 
@@ -556,7 +563,8 @@ leave_loop_has_processable_import:
                         .err_fmt_args{"expected a something after 'import' keyword"},
                         .opt_fixes{},
                     });
-
+                    
+                    override_processable_imports = (void*)(0xFFF);
                     return;
                 }
 
@@ -577,6 +585,7 @@ leave_loop_has_processable_import:
                             .opt_fixes{},
                         });
 
+                        override_processable_imports = (void*)(0xFFF);
                         return;
                     }
 
@@ -584,6 +593,7 @@ leave_loop_has_processable_import:
                         (has_brace ? __TOKEN_N::tokens::PUNCTUATION_CLOSE_BRACE
                                    : __TOKEN_N::tokens::PUNCTUATION_SEMICOLON)) {
                         end = iter.peek(offset).value().get();
+                        end_pos = iter.peek(offset).value().get().offset();
                         break;
                     }
 
@@ -599,11 +609,13 @@ leave_loop_has_processable_import:
         }
 
         if (!found_import) {
+            override_processable_imports = (void*)(0xFFF);
             return;
         }
 
         if (!import_result.has_value() || start == Token()) {
             import_result.error().panic();
+            override_processable_imports = (void*)(0xFFF);
             return;
         }
 
