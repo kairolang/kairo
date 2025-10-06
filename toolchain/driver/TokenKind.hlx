@@ -7,43 +7,54 @@ class TokenKind {
     op as fn (self) -> string;
     op as fn (self) -> Kind;
 }*/
+// DO NOT FORGET OPS CAN START WITH A PREFIX OF l or r
 
 import Core::EvalHash::*;
 
-// DO NOT FORGET OPS CAN START WITH A PREFIX OF l or r
-
 enum TokenKind derives u64 {
     ///===----------------------------------------------------------------===///
-    ///   Special tokens
+    ///   Special tokens                  (Reserved values = 0x00 - 0x23)
     ///===----------------------------------------------------------------===///
-    Eof,            // "EOF"
-    Unknown,        // (unrecognized)
-
-    ///===----------------------------------------------------------------===///
-    //    Identifiers & literals
-    ///===----------------------------------------------------------------===///
-    Identifier,          // <identifier>
-    FixedConstant,       // e.g. "123", "0xFFF", "0b1010", "0o1298"
-    FloatConstant,       // e.g. "10.290", "0x1.2p-3", ".5", "3.14e-2", "1e3"
-
-    StringLiteral,       // e.g. "hello"
-    NarrowStringLiteral, // e.g. n"hello"
-    FormatStringLiteral, // e.g. f"{name}"
-
-    CharConstant,        // e.g. 'a'
-    NarrowCharConstant,  // e.g. n'a'
-    FormatCharConstant,  // e.g. f'{a}'
-
-    NullLiteral,         // "null" | "&null" (the second variant is parsed)
+    TkUnknown     = 0x001, // (unrecognized)
+    TkEof         = 0x002, // (end of file)
+    TkError       = 0x003, // (lexing error)
+    TkComment     = 0x004, // (comment)
+    TkNewLine     = 0x005, // (newline)
+    TkWhitespace  = 0x006, // (whitespace)                      RESERVED/UNUSED
+    TkFileStart   = 0x007, // (start of file)
+    TkFileEnd     = 0x008, // (end of file)
+    TkGenerated   = 0x009, // (generated code marker)
+    TkMacroExpand = 0x00a, // (macro expansion marker)
+    
 
     ///===----------------------------------------------------------------===///
-    ///   Punctuators (Clang-compatible)
+    //    Special tokens Continued        (Reserved values = 0x24 - 0xFE)
     ///===----------------------------------------------------------------===///
-    LParen      = compute_hash::<r"(">(),    // "("
-    RParen      = compute_hash::<r")">(),    // ")"
+    LitIdentifier    = 0x024,  // <identifier>
+    LitInt           = 0x025,  // e.g. "123", "0xFFF", "0b1010", "0o1298"
+    LitFloat         = 0x026,  // e.g. "10.290", "0x1.2p-3",
+                                  //       ".5",    "3.14e-2" , "1e3"
 
-    LSquare     = compute_hash::<r"[">(),    // "["
-    RSquare     = compute_hash::<r"]">(),    // "]"
+    LitString        = 0x027,  // e.g. "hello"
+    LitString_Narrow = 0x028,  // e.g. n"hello"
+    LitString_Format = 0x029,  // e.g. f"{name}"
+
+    LitChar          = 0x02a,  // e.g. 'a'
+    LitChar_Narrow   = 0x02b,  // e.g. n'a'
+    LitChar_Format   = 0x02c,  // e.g. f'{a}'
+
+    LitNull          = 0x02d,  // "null"
+
+    ///===----------------------------------------------------------------===///
+    ///   Punctuators
+    ///               "#" is valid within identifiers, so we treat it as such
+    ///               "$" is an illegal token in helix
+    ///===----------------------------------------------------------------===///
+    OpLParen      = compute_hash::<r"(">(),    // "("
+    OpRParen      = compute_hash::<r")">(),    // ")"
+
+    OpLSquare     = compute_hash::<r"[">(),    // "["
+    OpRSquare     = compute_hash::<r"]">(),    // "]"
     
     ///
     /// we are using directly what compute_hash would return since the bootstrap
@@ -53,81 +64,85 @@ enum TokenKind derives u64 {
     /// TODO: after the self-hosted compiler can compile the compiler make this
     ///       use compute_hash instead of raw Hexadecimal.
     ///
-    LBrace      = 0xda8ad96d0c87c27d,        // "{"
-    RBrace      = 0xda8adf6d0c87b48f,        // "}"
+    OpLBrace      = 0xda8ad96d0c87c37d,        // "{"
+    OpRBrace      = 0xda8adf6d0c87b58f,        // "}"
 
-    Less        = compute_hash::<r"<">(),    // "<"
-    Greater     = compute_hash::<r">">(),    // ">"
+    OpBackslash   = compute_hash::<r"\\">(),   // "\"
+    OpLess        = compute_hash::<r"<">(),    // "<"
+    OpGreater     = compute_hash::<r">">(),    // ">"
+    OpPlus        = compute_hash::<r"+">(),    // "+"
+    OpMinus       = compute_hash::<r"-">(),    // "-"
+    OpStar        = compute_hash::<r"*">(),    // "*"
+    OpSlash       = compute_hash::<r"/">(),    // "/"
+    OpPercent     = compute_hash::<r"%">(),    // "%"
+    OpCaret       = compute_hash::<r"^">(),    // "^"
+    OpPipe        = compute_hash::<r"|">(),    // "|"
+    OpAmp         = compute_hash::<r"&">(),    // "&"
+    OpCaretCaret  = compute_hash::<r"^^">(),   // "^^" (exponentiation)
 
-    Plus        = compute_hash::<r"+">(),    // "+"
-    Minus       = compute_hash::<r"-">(),    // "-"
-    Star        = compute_hash::<r"*">(),    // "*"
-    Slash       = compute_hash::<r"/">(),    // "/"
-    Percent     = compute_hash::<r"%">(),    // "%"
-    Caret       = compute_hash::<r"^">(),    // "^"
-    Pipe        = compute_hash::<r"|">(),    // "|"
-    Amp         = compute_hash::<r"&">(),    // "&"
-    Starstar    = compute_hash::<r"**">(),   // "**"      NOT (clang-compatible)
+    OpRange       = compute_hash::<r"..">(),   // ".."    NOT (clang-compatible)
+    OpRangeEqual  = compute_hash::<r"..=">(),  // "..="   NOT (clang-compatible)
 
-    Range       = compute_hash::<r"..">(),   // ".."      NOT (clang-compatible)
-    Rangeequal  = compute_hash::<r"..=">(),  // "..="     NOT (clang-compatible)
+    OpTilde       = compute_hash::<r"~">(),    // "~"
+    OpQuestion    = compute_hash::<r"?">(),    // "?"     NOT (clang-compatible)
+    OpExclaim     = compute_hash::<r"!">(),    // "!"     NOT (clang-compatible)
+    OpAt          = compute_hash::<r"@">(),    // "@"     NOT (clang-compatible)
 
+    OpEqual       = compute_hash::<r"=">(),    // "="
+    OpPlusplus    = compute_hash::<r"++">(),   // "++"
+    OpMinusMinus  = compute_hash::<r"--">(),   // "--"
 
-    Tilde       = compute_hash::<r"~">(),    // "~"
-    Exclaim     = compute_hash::<r"!">(),    // "!"
-    At          = compute_hash::<r"@">(),    // "@"       NOT (clang-compatible)
+    OpArrow             = compute_hash::<r"->">(),   // "->"
+    OpArrowStar         = compute_hash::<r"->*">(),  // "->*"
+    OpQuestionArrow     = compute_hash::<r"?->">(),  // "?->"   NOT (clang-comp)
+    OpQuestionArrowStar = compute_hash::<r"?->*">(), // "?->*   NOT (clang-comp)
+    OpExclaimArrow      = compute_hash::<r"!->">(),  // "!->"   NOT (clang-comp)
+    OpExclaimArrowStar  = compute_hash::<r"!->*">(), // "!->"   NOT (clang-comp)
 
+    OpColon           = compute_hash::<r":">(),    // ":"
+    OpSemicolon       = compute_hash::<r";">(),    // ";"
+    OpComma           = compute_hash::<r",">(),    // ","
+    OpDot             = compute_hash::<r".">(),    // "."
+    OpDotStar         = compute_hash::<r".*">(),   // ".*"
+    OpColonColon      = compute_hash::<r"::">(),   // "::"
 
-    Equal       = compute_hash::<r"=">(),    // "="
-    Plusplus    = compute_hash::<r"++">(),   // "++"
-    Minusminus  = compute_hash::<r"--">(),   // "--"
-
-    Arrow       = compute_hash::<r"->">(),   // "->"
-    Arrowstar   = compute_hash::<r"->*">(),  // "->*"
-    Questiondot = compute_hash::<r"?.">(),   // "?."      NOT (clang-compatible)
-
-    Colon       = compute_hash::<r":">(),    // ":"
-    Semicolon   = compute_hash::<r";">(),    // ";"
-    Comma       = compute_hash::<r",">(),    // ","
-    Dot         = compute_hash::<r".">(),    // "."
-    Dotstar     = compute_hash::<r".*">(),   // ".*"
-    Coloncolon  = compute_hash::<r"::">(),   // "::"
-
-    Ellipsis    = compute_hash::<r"...">(),  // "..."
-
-    Question    = compute_hash::<r"?">(),    // "?"
-
-    /// we need to add syn support for "foo() ?? 21"
-    QuestionQuestion  = compute_hash::<r"??">(), // "??"  NOT (clang-compatible)
-    EqualEqualEqual   = compute_hash::<r"===">(),// "===" NOT (clang-compatible)
-
+    OpQuestionDot     = compute_hash::<r"?.">(),   // "?."      NOT (clang-comp)
+    OpQuestionDotStar = compute_hash::<r"?.*">(),  // "?.*"     NOT (clang-comp)
+    OpExclaimDot      = compute_hash::<r"!.">(),   // "!."      NOT (clang-comp)
+    OpExclaimDotStar  = compute_hash::<r"!.*">(),  // "!.*"     NOT (clang-comp)
+    OpEllipsis        = compute_hash::<r"...">(),  // "..."
+    OpEllipsis        = compute_hash::<r"...">(),  // "..."
+    
     ///===----------------------------------------------------------------===///
     ///   Assignment operators (Clang-compatible)
     ///===----------------------------------------------------------------===///
-    PlusEqual           = compute_hash::<r"+=">(),  // "+="
-    MinusEqual          = compute_hash::<r"-=">(),  // "-="
-    StarEqual           = compute_hash::<r"*=">(),  // "*="
-    SlashEqual          = compute_hash::<r"/=">(),  // "/="
-    PercentEqual        = compute_hash::<r"%=">(),  // "%="
-    AmpEqual            = compute_hash::<r"&=">(),  // "&="
-    PipeEqual           = compute_hash::<r"|=">(),  // "|="
-    CaretEqual          = compute_hash::<r"^=">(),  // "^="
-    LesslessEqual       = compute_hash::<r"<<=">(), // "<<="
-    GreatergreaterEqual = compute_hash::<r">>=">(), // ">>="
-    StarstarEqual       = compute_hash::<r"**=">(), // "**=" NOT (clang-comp)
-    AtEqual             = compute_hash::<r"@=">(),  // "@="  NOT (clang-comp)
+    OpPlusEqual           = compute_hash::<r"+=">(),  // "+="
+    OpMinusEqual          = compute_hash::<r"-=">(),  // "-="
+    OpStarEqual           = compute_hash::<r"*=">(),  // "*="
+    OpSlashEqual          = compute_hash::<r"/=">(),  // "/="
+    OpPercentEqual        = compute_hash::<r"%=">(),  // "%="
+    OpAmpEqual            = compute_hash::<r"&=">(),  // "&="
+    OpPipeEqual           = compute_hash::<r"|=">(),  // "|="
+    OpCaretEqual          = compute_hash::<r"^=">(),  // "^="
+    OpLessLessEqual       = compute_hash::<r"<<=">(), // "<<="
+    OpGreaterGreaterEqual = compute_hash::<r">>=">(), // ">>="
+    OpAtEqual             = compute_hash::<r"@=">(),  // "@="   NOT (clang-comp)
 
     ///===----------------------------------------------------------------===///
     ///   Logical / comparison operators (Clang-compatible)
     ///===----------------------------------------------------------------===///
-    EqualEqual     = compute_hash::<r"==">(), // "=="
-    ExclaimEqual   = compute_hash::<r"!=">(), // "!="
-    Lessless       = compute_hash::<r"<<">(), // "<<"
-    Greatergreater = compute_hash::<r">>">(), // ">>"
-    LessEqual      = compute_hash::<r"<=">(), // "<="
-    GreaterEqual   = compute_hash::<r">=">(), // ">="
-    Ampamp         = compute_hash::<r"&&">(), // "&&"
-    Pipepipe       = compute_hash::<r"||">(), // "||"
+    OpLessEqualGreater = compute_hash::<r"<=>">(), // "<=>" (spaceship operator)
+    OpEqualEqualEqual  = compute_hash::<r"===">(), // "==="     NOT (clang-comp)
+    OpEqualEqual       = compute_hash::<r"==">(),  // "=="
+    OpExclaimEqual     = compute_hash::<r"!=">(),  // "!="
+    OpLessLess         = compute_hash::<r"<<">(),  // "<<"
+    OpGreaterGreater   = compute_hash::<r">>">(),  // ">>"
+    OpLessEqual        = compute_hash::<r"<=">(),  // "<="
+    OpGreaterEqual     = compute_hash::<r">=">(),  // ">="
+    OpAmpAmp           = compute_hash::<r"&&">(),  // "&&"
+    OpPipePipe         = compute_hash::<r"||">(),  // "||"
+    OpPipeGreater      = compute_hash::<r"|>">(),  // (`a |> f(x)`  > `f(a, x)`)
+    OpLessPipe         = compute_hash::<r"<|">(),  // (`f <| a`  > `f(a)`)
 
     ///===----------------------------------------------------------------===///
     ///   Keywords (Clang subset + Helix)
@@ -259,28 +274,29 @@ enum TokenKind derives u64 {
     KwDelete   = compute_hash::<r"delete">(),     // "delete"
     KwYield    = compute_hash::<r"yield">(),      // "yield"
 
-    KwSizeof   = compute_hash::<r"sizeof">(),     // "sizeof"
-    KwAlignof  = compute_hash::<r"alignof">(),    // "alignof"
-    KwTypeof   = compute_hash::<r"typeof">(),     // "typeof"
+    KwSizeOf   = compute_hash::<r"sizeof">(),     // "sizeof"
+    KwAlignOf  = compute_hash::<r"alignof">(),    // "alignof"
+    KwTypeOf   = compute_hash::<r"typeof">(),     // "typeof"
 
     ///===----------------------------------------------------------------===///
     ///   Builtins
     ///===----------------------------------------------------------------===///
-    BuiltinFile         = compute_hash::<r"__file__">(),     // "__file__"
-    BuiltinLine         = compute_hash::<r"__line__">(),     // "__line__"
-    BuiltinColumn       = compute_hash::<r"__column__">(),   // "__column__"
-    BuiltinFunction     = compute_hash::<r"__function__">(), // "__function__"
-    BuiltinModule       = compute_hash::<r"__module__">(),   // "__module__"
+    BiFile         = compute_hash::<r"__file__">(),     // "__file__"
+    BiLine         = compute_hash::<r"__line__">(),     // "__line__"
+    BiColumn       = compute_hash::<r"__column__">(),   // "__column__"
+    BiFunction     = compute_hash::<r"__function__">(), // "__function__"
+    BiModule       = compute_hash::<r"__module__">(),   // "__module__"
     
-    BuiltinVolatile     = compute_hash::<r"volatile">(),     // "volatile"
-    BuiltinPacked       = compute_hash::<r"packed">(),       // "packed"
-    BuiltinUnlikely     = compute_hash::<r"unlikely">(),     // "unlikely"
-    BuiltinLikely       = compute_hash::<r"likely">(),       // "likely"
-    BuiltinInternal     = compute_hash::<r"internal">(),     // "internal"
-    BuiltinExperimental = compute_hash::<r"experimental">(), // "experimental"
-    BuiltinForceInline  = compute_hash::<r"force_inline">(), // "force_inline"
-    BuiltinNoInline     = compute_hash::<r"no_inline">(),    // "no_inline"
-    BuiltinDeprecated   = compute_hash::<r"deprecated">(),   // "deprecated"
-    BuiltinMustUse      = compute_hash::<r"must_use">(),     // "must_use"
-    BuiltinAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
+    /// builtin attributes
+    BiVolatile     = compute_hash::<r"volatile">(),     // "volatile"
+    BiPacked       = compute_hash::<r"packed">(),       // "packed"
+    BiUnlikely     = compute_hash::<r"unlikely">(),     // "unlikely"
+    BiLikely       = compute_hash::<r"likely">(),       // "likely"
+    BiInternal     = compute_hash::<r"internal">(),     // "internal"
+    BiExperimental = compute_hash::<r"experimental">(), // "experimental"
+    BiForceInline  = compute_hash::<r"force_inline">(), // "force_inline"
+    BiNoInline     = compute_hash::<r"no_inline">(),    // "no_inline"
+    BiDeprecated   = compute_hash::<r"deprecated">(),   // "deprecated"
+    BiMustUse      = compute_hash::<r"must_use">(),     // "must_use"
+    BiAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
 };
