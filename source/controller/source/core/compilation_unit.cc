@@ -110,7 +110,7 @@ void process_paths(std::vector<T>                     &paths,
 }
 
 int CompilationUnit::compile(int argc, char **argv) {
-    __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Helix v0.0.1-alpha-9c");
+    __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Helix Compiler v0.0.1-beta-1e");
     check_exit(parsed_args);
 
     return compile(parsed_args);

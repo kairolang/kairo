@@ -1,5 +1,5 @@
 set_project    ("helix-lang")
-set_version    ("0.0.1-alpha-9c", { soname = true })
+set_version    ("0.0.1-beta-1e", { soname = true })
 set_description("The Helix Compiler. Python's Simplicity, Rust inspired Syntax, and C++'s Power")
 
 add_rules("mode.debug", "mode.release")
