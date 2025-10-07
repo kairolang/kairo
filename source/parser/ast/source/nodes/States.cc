@@ -267,7 +267,12 @@ parser ::ast ::node ::Statement ::parse(const std::shared_ptr<__TOKEN_N::TokenLi
                                    /// if(iter.remaining_n() == 0) { return std::unexpected(...); }
 
     __TOKEN_N::Token tok = CURRENT_TOK;  /// get the current token from the iterator
-    // modifiers        = get_modifiers(iter);  /// get the modifiers for the statement
+
+    // if modifers is not empty and it has one elm that is a delete then we parse a delete state
+    if (modifiers != nullptr && modifiers->size() == 1 &&
+        modifiers->at(0).token_kind() == __TOKEN_N::KEYWORD_DELETE) {
+        return parse<DeleteState>();
+    }
 
     switch (tok.token_kind()) {
         case __TOKEN_N::KEYWORD_IF:
@@ -1000,8 +1005,9 @@ AST_NODE_IMPL_VISITOR(Jsonify, YieldState) {
 AST_NODE_IMPL(Statement, DeleteState) {
     IS_NOT_EMPTY;
 
-    IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_DELETE);
-    iter.advance();
+    // since its a modifier this is already checked
+    // IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_DELETE);
+    // iter.advance();
 
     ParseResult<> expr = expr_parser.parse();
     RETURN_IF_ERROR(expr);
