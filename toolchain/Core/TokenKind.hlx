@@ -6,11 +6,17 @@ class TokenKind {
 
     op as fn (self) -> string;
     op as fn (self) -> Kind;
-}*/
+}
+*/
+
 // DO NOT FORGET OPS CAN START WITH A PREFIX OF l or r
 
 import Core::EvalHash::*;
 
+///
+// TODO: change both this and compute_hash to lower the size of the enum from
+//       u64 to u32. We don't need that many bits and it will save memory.
+///
 enum TokenKind derives u64 {
     ///===----------------------------------------------------------------===///
     ///   Special tokens                  (Reserved values = 0x00 - 0x23)
@@ -26,59 +32,55 @@ enum TokenKind derives u64 {
     TkGenerated   = 0x009, // (generated code marker)
     TkMacroExpand = 0x00a, // (macro expansion marker)
     
-
     ///===----------------------------------------------------------------===///
     //    Special tokens Continued        (Reserved values = 0x24 - 0xFE)
     ///===----------------------------------------------------------------===///
     LitIdentifier    = 0x024,  // <identifier>
-    LitInt           = 0x025,  // e.g. "123", "0xFFF", "0b1010", "0o1298"
-    LitFloat         = 0x026,  // e.g. "10.290", "0x1.2p-3",
-                                  //       ".5",    "3.14e-2" , "1e3"
+    LitNull          = 0x025,  // "null"
+    LitInt           = 0x026,  // e.g. "123", "0xFFF", "0b1010", "0o1298"
+    LitFloat         = 0x027,  // e.g. "10.290", "0x1.2p-3",
+                               //       ".5",    "3.14e-2" , "1e3"
 
-    LitString        = 0x027,  // e.g. "hello"
-    LitString_Narrow = 0x028,  // e.g. n"hello"
-    LitString_Format = 0x029,  // e.g. f"{name}"
+    LitString        = 0x028,  // e.g.  "hello"
+    LitString_Narrow = 0x029,  // e.g. n"hello"
+    LitString_Format = 0x02a,  // e.g. f"{name}"
 
-    LitChar          = 0x02a,  // e.g. 'a'
-    LitChar_Narrow   = 0x02b,  // e.g. n'a'
-    LitChar_Format   = 0x02c,  // e.g. f'{a}'
-
-    LitNull          = 0x02d,  // "null"
+    LitChar          = 0x02b,  // e.g.  'a'
+    LitChar_Narrow   = 0x02c,  // e.g. n'a'
+    LitChar_Format   = 0x02d,  // e.g. f'{a}'
 
     ///===----------------------------------------------------------------===///
     ///   Punctuators
     ///               "#" is valid within identifiers, so we treat it as such
     ///               "$" is an illegal token in helix
-    ///===----------------------------------------------------------------===///
-    OpLParen      = compute_hash::<r"(">(),    // "("
-    OpRParen      = compute_hash::<r")">(),    // ")"
-
-    OpLSquare     = compute_hash::<r"[">(),    // "["
-    OpRSquare     = compute_hash::<r"]">(),    // "]"
-    
     ///
     /// we are using directly what compute_hash would return since the bootstrap
     ///    compiler does not let use use r"{" and r"}" for some reason, and
     ///    it completely changes.
     ///
+    ///===----------------------------------------------------------------===///
+    ///
     /// TODO: after the self-hosted compiler can compile the compiler make this
     ///       use compute_hash instead of raw Hexadecimal.
     ///
-    OpLBrace      = 0xda8ad96d0c87c37d,        // "{"
-    OpRBrace      = 0xda8adf6d0c87b58f,        // "}"
-
-    OpBackslash   = compute_hash::<r"\\">(),   // "\"
-    OpLess        = compute_hash::<r"<">(),    // "<"
-    OpGreater     = compute_hash::<r">">(),    // ">"
-    OpPlus        = compute_hash::<r"+">(),    // "+"
-    OpMinus       = compute_hash::<r"-">(),    // "-"
-    OpStar        = compute_hash::<r"*">(),    // "*"
-    OpSlash       = compute_hash::<r"/">(),    // "/"
-    OpPercent     = compute_hash::<r"%">(),    // "%"
-    OpCaret       = compute_hash::<r"^">(),    // "^"
-    OpPipe        = compute_hash::<r"|">(),    // "|"
-    OpAmp         = compute_hash::<r"&">(),    // "&"
-    OpCaretCaret  = compute_hash::<r"^^">(),   // "^^" (exponentiation)
+    OpLBrace      = 0xda8ad96d0c87c37d,       // "{"
+    OpRBrace      = 0xda8adf6d0c87b58f,       // "}"
+    OpLParen      = compute_hash::<r"("> (),  // "("
+    OpRParen      = compute_hash::<r")"> (),  // ")"
+    OpLSquare     = compute_hash::<r"["> (),  // "["
+    OpRSquare     = compute_hash::<r"]"> (),  // "]"
+    OpBackslash   = compute_hash::<r"\\">(),  // "\"
+    OpLess        = compute_hash::<r"<"> (),  // "<"
+    OpGreater     = compute_hash::<r">"> (),  // ">"
+    OpPlus        = compute_hash::<r"+"> (),  // "+"
+    OpMinus       = compute_hash::<r"-"> (),  // "-"
+    OpStar        = compute_hash::<r"*"> (),  // "*"
+    OpSlash       = compute_hash::<r"/"> (),  // "/"
+    OpPercent     = compute_hash::<r"%"> (),  // "%"
+    OpCaret       = compute_hash::<r"^"> (),  // "^"
+    OpPipe        = compute_hash::<r"|"> (),  // "|"
+    OpAmp         = compute_hash::<r"&"> (),  // "&"
+    OpCaretCaret  = compute_hash::<r"^^">(),  // "^^"           (exponentiation)
 
     OpRange       = compute_hash::<r"..">(),   // ".."    NOT (clang-compatible)
     OpRangeEqual  = compute_hash::<r"..=">(),  // "..="   NOT (clang-compatible)
@@ -110,7 +112,6 @@ enum TokenKind derives u64 {
     OpQuestionDotStar = compute_hash::<r"?.*">(),  // "?.*"     NOT (clang-comp)
     OpExclaimDot      = compute_hash::<r"!.">(),   // "!."      NOT (clang-comp)
     OpExclaimDotStar  = compute_hash::<r"!.*">(),  // "!.*"     NOT (clang-comp)
-    OpEllipsis        = compute_hash::<r"...">(),  // "..."
     OpEllipsis        = compute_hash::<r"...">(),  // "..."
     
     ///===----------------------------------------------------------------===///
