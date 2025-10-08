@@ -13,18 +13,32 @@
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------- Lib-Helix ---///
 
-/// \brief File system type aliases and enumerations.
+class Timer {
+    priv var _start: libcxx::chrono::steady_clock::time_point;
+    priv var _label: string;
 
-/// Filesystem path alias.
-type FilePath = libcxx::filesystem::path;;
+    /// construct a timer with optional label
+    fn Timer(self, label: string = "Timer") {
+        self._start = libcxx::chrono::steady_clock::now();
+        self._label = label;
+    }
 
-/// Filesystem entry type alias.
-type FileType = libcxx::filesystem::file_type;;
+    /// destructor prints elapsed time automatically
+    fn op delete (self) {
+        var end = libcxx::chrono::steady_clock::now();
+        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
+        std::print(f"{self._label} elapsed: {dur.count()} µs ({(dur.count()) / 1000.0} ms)\n");
+    }
 
-/// File output modes.
-enum FileOutMode {
-    Read,
-    Write,
-    Append,
-    Truncate
+    /// get elapsed duration in microseconds without stopping
+    fn elapsed_us(self) -> i64 {
+        var end = libcxx::chrono::steady_clock::now();
+        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
+        return dur.count();
+    }
+
+    /// restart the timer
+    fn reset(self) {
+        self._start = libcxx::chrono::steady_clock::now();
+    }
 }

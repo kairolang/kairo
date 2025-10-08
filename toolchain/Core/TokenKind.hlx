@@ -17,21 +17,23 @@ import Core::EvalHash::*;
 // TODO: change both this and compute_hash to lower the size of the enum from
 //       u64 to u32. We don't need that many bits and it will save memory.
 ///
-enum TokenKind derives u64 {
+/// Key: (At) - Annotation, (Kw) - Keyword, (Op) - Operator,
+///      (Bi) - Builtin, (Lit) - Literal
+enum TokenKind derives u32 {
     ///===----------------------------------------------------------------===///
     ///   Special tokens                  (Reserved values = 0x00 - 0x23)
     ///===----------------------------------------------------------------===///
     TkUnknown     = 0x001, // (unrecognized)
     TkEof         = 0x002, // (end of file)
     TkError       = 0x003, // (lexing error)
-    TkComment     = 0x004, // (comment)
+    AtComment     = 0x004, // (comment)
     TkNewLine     = 0x005, // (newline)
     TkWhitespace  = 0x006, // (whitespace)                      RESERVED/UNUSED
     TkFileStart   = 0x007, // (start of file)
     TkFileEnd     = 0x008, // (end of file)
     TkGenerated   = 0x009, // (generated code marker)
     TkMacroExpand = 0x00a, // (macro expansion marker)
-    
+
     ///===----------------------------------------------------------------===///
     //    Special tokens Continued        (Reserved values = 0x24 - 0xFE)
     ///===----------------------------------------------------------------===///
@@ -63,24 +65,24 @@ enum TokenKind derives u64 {
     /// TODO: after the self-hosted compiler can compile the compiler make this
     ///       use compute_hash instead of raw Hexadecimal.
     ///
-    OpLBrace      = 0xda8ad96d0c87c37d,       // "{"
-    OpRBrace      = 0xda8adf6d0c87b58f,       // "}"
-    OpLParen      = compute_hash::<r"("> (),  // "("
-    OpRParen      = compute_hash::<r")"> (),  // ")"
-    OpLSquare     = compute_hash::<r"["> (),  // "["
-    OpRSquare     = compute_hash::<r"]"> (),  // "]"
-    OpBackslash   = compute_hash::<r"\\">(),  // "\"
-    OpLess        = compute_hash::<r"<"> (),  // "<"
-    OpGreater     = compute_hash::<r">"> (),  // ">"
-    OpPlus        = compute_hash::<r"+"> (),  // "+"
-    OpMinus       = compute_hash::<r"-"> (),  // "-"
-    OpStar        = compute_hash::<r"*"> (),  // "*"
-    OpSlash       = compute_hash::<r"/"> (),  // "/"
-    OpPercent     = compute_hash::<r"%"> (),  // "%"
-    OpCaret       = compute_hash::<r"^"> (),  // "^"
-    OpPipe        = compute_hash::<r"|"> (),  // "|"
-    OpAmp         = compute_hash::<r"&"> (),  // "&"
-    OpCaretCaret  = compute_hash::<r"^^">(),  // "^^"           (exponentiation)
+    OpLBrace      = static_cast::<u32>(0xd60d1a11), // "{"
+    OpRBrace      = static_cast::<u32>(0xd60d6ae3), // "}"
+    OpLParen      = compute_hash::<r"("> (),        // "("
+    OpRParen      = compute_hash::<r")"> (),        // ")"
+    OpLSquare     = compute_hash::<r"["> (),        // "["
+    OpRSquare     = compute_hash::<r"]"> (),        // "]"
+    OpBackslash   = compute_hash::<r"\\">(),        // "\"
+    OpLess        = compute_hash::<r"<"> (),        // "<"
+    OpGreater     = compute_hash::<r">"> (),        // ">"
+    OpPlus        = compute_hash::<r"+"> (),        // "+"
+    OpMinus       = compute_hash::<r"-"> (),        // "-"
+    OpStar        = compute_hash::<r"*"> (),        // "*"
+    OpSlash       = compute_hash::<r"/"> (),        // "/"
+    OpPercent     = compute_hash::<r"%"> (),        // "%"
+    OpCaret       = compute_hash::<r"^"> (),        // "^"
+    OpPipe        = compute_hash::<r"|"> (),        // "|"
+    OpAmp         = compute_hash::<r"&"> (),        // "&"
+    OpCaretCaret  = compute_hash::<r"^^">(),        // "^^"    (exponentiation)
 
     OpRange       = compute_hash::<r"..">(),   // ".."    NOT (clang-compatible)
     OpRangeEqual  = compute_hash::<r"..=">(),  // "..="   NOT (clang-compatible)
@@ -113,7 +115,7 @@ enum TokenKind derives u64 {
     OpExclaimDot      = compute_hash::<r"!.">(),   // "!."      NOT (clang-comp)
     OpExclaimDotStar  = compute_hash::<r"!.*">(),  // "!.*"     NOT (clang-comp)
     OpEllipsis        = compute_hash::<r"...">(),  // "..."
-    
+
     ///===----------------------------------------------------------------===///
     ///   Assignment operators (Clang-compatible)
     ///===----------------------------------------------------------------===///
@@ -194,9 +196,6 @@ enum TokenKind derives u64 {
 
     KwFfi        = compute_hash::<r"ffi">(),       // "ffi"
 
-    /// Type / trait expressions
-    KwAs         = compute_hash::<r"as">(),        // "as"
-
     KwImpl       = compute_hash::<r"impl">(),      // "impl"
     KwDerives    = compute_hash::<r"derives">(),   // "derives"
 
@@ -225,6 +224,7 @@ enum TokenKind derives u64 {
     ///   Binary operators
     ///===----------------------------------------------------------------===///
     KwIn     = compute_hash::<r"in">(),     // "in"
+    KwAs     = compute_hash::<r"as">(),     // "as"
     KwAnd    = compute_hash::<r"and">(),    // "and"
     KwAndEq  = compute_hash::<r"and_eq">(), // "and_eq"
     KwBitand = compute_hash::<r"bitand">(), // "bitand"
@@ -238,35 +238,35 @@ enum TokenKind derives u64 {
     KwXorEq  = compute_hash::<r"xor_eq">(), // "xor_eq"
 
     ///===----------------------------------------------------------------===///
-    ///   Primitive types (Helix superset of Clang fundamental types)
+    ///   Primitive types
     ///===----------------------------------------------------------------===///
-    KwVoid  = compute_hash::<r"void">(),  // "void"
-    KwBool  = compute_hash::<r"bool">(),  // "bool"
+    AtVoid  = compute_hash::<r"void">(),  // "void"
+    AtBool  = compute_hash::<r"bool">(),  // "bool"
 
-    KwUsize = compute_hash::<r"usize">(), // "usize"
-    KwIsize = compute_hash::<r"isize">(), // "isize"
+    AtUsize = compute_hash::<r"usize">(), // "usize"
+    AtIsize = compute_hash::<r"isize">(), // "isize"
 
-    KwF32   = compute_hash::<r"f32">(),   // "f32"
-    KwF64   = compute_hash::<r"f64">(),   // "f64"
-    KwF80   = compute_hash::<r"f80">(),   // "f80"
-    KwF128  = compute_hash::<r"f128">(),  // "f128"
+    AtF32   = compute_hash::<r"f32">(),   // "f32"
+    AtF64   = compute_hash::<r"f64">(),   // "f64"
+    AtF80   = compute_hash::<r"f80">(),   // "f80"
+    AtF128  = compute_hash::<r"f128">(),  // "f128"
 
-    KwU8    = compute_hash::<r"u8">(),    // "u8"
-    KwU16   = compute_hash::<r"u16">(),   // "u16"
-    KwU32   = compute_hash::<r"u32">(),   // "u32"
-    KwU64   = compute_hash::<r"u64">(),   // "u64"
-    KwU128  = compute_hash::<r"u128">(),  // "u128"
-    KwU256  = compute_hash::<r"u256">(),  // "u256"
+    AtU8    = compute_hash::<r"u8">(),    // "u8"
+    AtU16   = compute_hash::<r"u16">(),   // "u16"
+    AtU32   = compute_hash::<r"u32">(),   // "u32"
+    AtU64   = compute_hash::<r"u64">(),   // "u64"
+    AtU128  = compute_hash::<r"u128">(),  // "u128"
+    AtU256  = compute_hash::<r"u256">(),  // "u256"
 
-    KwI8    = compute_hash::<r"i8">(),    // "i8"
-    KwI16   = compute_hash::<r"i16">(),   // "i16"
-    KwI32   = compute_hash::<r"i32">(),   // "i32"
-    KwI64   = compute_hash::<r"i64">(),   // "i64"
-    KwI128  = compute_hash::<r"i128">(),  // "i128"
-    KwI256  = compute_hash::<r"i256">(),  // "i256"
+    AtI8    = compute_hash::<r"i8">(),    // "i8"
+    AtI16   = compute_hash::<r"i16">(),   // "i16"
+    AtI32   = compute_hash::<r"i32">(),   // "i32"
+    AtI64   = compute_hash::<r"i64">(),   // "i64"
+    AtI128  = compute_hash::<r"i128">(),  // "i128"
+    AtI256  = compute_hash::<r"i256">(),  // "i256"
 
     ///===----------------------------------------------------------------===///
-    ///   Unary keywords (Helix adds extra)
+    ///   Unary keywords
     ///===----------------------------------------------------------------===///
     KwAwait    = compute_hash::<r"await">(),      // "await"
     KwThread   = compute_hash::<r"thread">(),     // "thread"
@@ -287,7 +287,7 @@ enum TokenKind derives u64 {
     BiColumn       = compute_hash::<r"__column__">(),   // "__column__"
     BiFunction     = compute_hash::<r"__function__">(), // "__function__"
     BiModule       = compute_hash::<r"__module__">(),   // "__module__"
-    
+
     /// builtin attributes
     BiVolatile     = compute_hash::<r"volatile">(),     // "volatile"
     BiPacked       = compute_hash::<r"packed">(),       // "packed"
@@ -301,3 +301,257 @@ enum TokenKind derives u64 {
     BiMustUse      = compute_hash::<r"must_use">(),     // "must_use"
     BiAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
 };
+
+
+fn is_annotation(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::AtI256:    case TokenKind::AtU16:
+        case TokenKind::AtVoid:    case TokenKind::AtU32:
+        case TokenKind::AtBool:    case TokenKind::AtU64:
+        case TokenKind::AtUsize:   case TokenKind::AtU128:
+        case TokenKind::AtIsize:   case TokenKind::AtU256:
+        case TokenKind::AtF32:     case TokenKind::AtI8:
+        case TokenKind::AtF64:     case TokenKind::AtI16:
+        case TokenKind::AtF80:     case TokenKind::AtI32:
+        case TokenKind::AtF128:    case TokenKind::AtI64:
+        case TokenKind::AtU8:      case TokenKind::AtI128:
+        case TokenKind::AtComment:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_keyword(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::KwReturn:      case TokenKind::KwBreak:
+        case TokenKind::KwCase:        case TokenKind::KwDefault:
+        case TokenKind::KwIf:          case TokenKind::KwElse:
+        case TokenKind::KwLoop:        case TokenKind::KwVar:
+        case TokenKind::KwClass:       case TokenKind::KwEnum:
+        case TokenKind::KwExtend:      case TokenKind::KwModule:
+        case TokenKind::KwFinal:       case TokenKind::KwFfi:
+        case TokenKind::KwDerives:     case TokenKind::KwRequires:
+        case TokenKind::KwEval:        case TokenKind::KwUnsafe:
+        case TokenKind::KwAwait:       case TokenKind::KwThread:
+        case TokenKind::KwSizeOf:      case TokenKind::KwAlignOf:
+        case TokenKind::KwPanic:       case TokenKind::KwMatch:
+        case TokenKind::KwCatch:       case TokenKind::KwTry:
+        case TokenKind::KwWhile:       case TokenKind::KwFor:
+        case TokenKind::KwConst:       case TokenKind::KwFn:
+        case TokenKind::KwType:        case TokenKind::KwStruct:
+        case TokenKind::KwTest:        case TokenKind::KwMacro:
+        case TokenKind::KwAs:          case TokenKind::KwImpl:
+        case TokenKind::KwPub:         case TokenKind::KwPriv:
+        case TokenKind::KwStatic:      case TokenKind::KwAsync:
+        case TokenKind::KwSpawn:       case TokenKind::KwDelete:
+        case TokenKind::KwTypeOf:      case TokenKind::KwContinue:
+        case TokenKind::KwFinally:     case TokenKind::KwImport:
+        case TokenKind::KwAssert:      case TokenKind::KwOverride:
+        case TokenKind::KwOp:          case TokenKind::KwProt:
+        case TokenKind::KwInterface:   case TokenKind::KwInline:
+        case TokenKind::KwYield:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_unary_operator(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::KwNot:        case TokenKind::OpQuestion:
+        case TokenKind::KwAwait:      case TokenKind::OpExclaim:
+        case TokenKind::KwThread:     case TokenKind::KwCompl:
+        case TokenKind::KwSpawn:      case TokenKind::OpAt:
+        case TokenKind::KwDelete:     case TokenKind::OpEqual:
+        case TokenKind::KwYield:      case TokenKind::OpPlusplus:
+        case TokenKind::KwSizeOf:     case TokenKind::OpMinusMinus:
+        case TokenKind::KwAlignOf:    case TokenKind::OpPlus:
+        case TokenKind::KwTypeOf:     case TokenKind::OpMinus:
+        case TokenKind::KwAs:         case TokenKind::OpStar:
+        case TokenKind::OpRange:      case TokenKind::OpAmp:
+        case TokenKind::OpTilde:      case TokenKind::OpEllipsis:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_binary_operator(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::KwIn:               case TokenKind::OpLessLessEqual:
+        case TokenKind::KwAs:               case TokenKind::OpGreaterGreaterEqual:
+        case TokenKind::KwAnd:              case TokenKind::OpAtEqual:
+        case TokenKind::KwAndEq:            case TokenKind::OpEqual:
+        case TokenKind::KwBitand:           case TokenKind::OpLess:
+        case TokenKind::KwBitor:            case TokenKind::OpGreater:
+        case TokenKind::KwNotEq:            case TokenKind::OpPlus:
+        case TokenKind::KwOr:               case TokenKind::OpMinus:
+        case TokenKind::KwOrEq:             case TokenKind::OpStar:
+        case TokenKind::KwXor:              case TokenKind::OpSlash:
+        case TokenKind::KwXorEq:            case TokenKind::OpPercent:
+        case TokenKind::OpLessEqualGreater: case TokenKind::OpCaret:
+        case TokenKind::OpEqualEqualEqual:  case TokenKind::OpPipe:
+        case TokenKind::OpEqualEqual:       case TokenKind::OpAmp:
+        case TokenKind::OpExclaimEqual:     case TokenKind::OpCaretCaret:
+        case TokenKind::OpLessLess:         case TokenKind::OpRange:
+        case TokenKind::OpGreaterGreater:   case TokenKind::OpRangeEqual:
+        case TokenKind::OpLessEqual:        case TokenKind::OpAt:
+        case TokenKind::OpGreaterEqual:     case TokenKind::OpArrow:
+        case TokenKind::OpAmpAmp:           case TokenKind::OpArrowStar:
+        case TokenKind::OpPipePipe:         case TokenKind::OpQuestionArrow:
+        case TokenKind::OpPipeGreater:      case TokenKind::OpQuestionArrowStar:
+        case TokenKind::OpLessPipe:         case TokenKind::OpExclaimArrow:
+        case TokenKind::OpPlusEqual:        case TokenKind::OpExclaimArrowStar:
+        case TokenKind::OpMinusEqual:       case TokenKind::OpComma:
+        case TokenKind::OpStarEqual:        case TokenKind::OpDot:
+        case TokenKind::OpSlashEqual:       case TokenKind::OpDotStar:
+        case TokenKind::OpPercentEqual:     case TokenKind::OpQuestionDot:
+        case TokenKind::OpAmpEqual:         case TokenKind::OpQuestionDotStar:
+        case TokenKind::OpPipeEqual:        case TokenKind::OpExclaimDot:
+        case TokenKind::OpCaretEqual:       case TokenKind::OpExclaimDotStar:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_assignment_operator(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::OpPlusEqual:      case TokenKind::OpPipeEqual:
+        case TokenKind::OpMinusEqual:     case TokenKind::OpCaretEqual:
+        case TokenKind::OpStarEqual:      case TokenKind::OpLessLessEqual:
+        case TokenKind::OpSlashEqual:     case TokenKind::OpGreaterGreaterEqual:
+        case TokenKind::OpPercentEqual:   case TokenKind::OpAtEqual:
+        case TokenKind::OpAmpEqual:       case TokenKind::OpEqual:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_punctuator(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::TkNewLine:    case TokenKind::OpLSquare:
+        case TokenKind::TkWhitespace: case TokenKind::OpRSquare:
+        case TokenKind::OpLBrace:     case TokenKind::OpBackslash:
+        case TokenKind::OpRBrace:     case TokenKind::OpColon:
+        case TokenKind::OpLParen:     case TokenKind::OpSemicolon:
+        case TokenKind::OpRParen:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_operator(kind: TokenKind) -> bool {
+    return is_unary_operator(kind)
+        || is_binary_operator(kind)
+        || is_assignment_operator(kind);
+}
+
+fn is_builtin(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::BiFile:       case TokenKind::BiLikely:
+        case TokenKind::BiLine:       case TokenKind::BiInternal:
+        case TokenKind::BiColumn:     case TokenKind::BiExperimental:
+        case TokenKind::BiFunction:   case TokenKind::BiForceInline:
+        case TokenKind::BiModule:     case TokenKind::BiNoInline:
+        case TokenKind::BiVolatile:   case TokenKind::BiDeprecated:
+        case TokenKind::BiPacked:     case TokenKind::BiMustUse:
+        case TokenKind::BiUnlikely:   case TokenKind::BiAlignAs:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_special(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::KwSelf:
+        case TokenKind::TkUnknown:
+        case TokenKind::TkEof:
+        case TokenKind::TkError:
+        case TokenKind::AtComment:
+        case TokenKind::TkNewLine:
+        case TokenKind::TkWhitespace:
+        case TokenKind::TkFileStart:
+        case TokenKind::TkFileEnd:
+        case TokenKind::TkGenerated:
+        case TokenKind::TkMacroExpand:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_internal(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::TkUnknown:
+        case TokenKind::TkEof:
+        case TokenKind::TkError:
+        case TokenKind::TkFileStart:
+        case TokenKind::TkFileEnd:
+        case TokenKind::TkGenerated:
+        case TokenKind::TkMacroExpand:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_literal(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::KwTrue:
+        case TokenKind::KwFalse:
+        case TokenKind::LitIdentifier:
+        case TokenKind::LitNull:
+        case TokenKind::LitInt:
+        case TokenKind::LitFloat:
+        case TokenKind::LitString:
+        case TokenKind::LitString_Narrow:
+        case TokenKind::LitString_Format:
+        case TokenKind::LitChar:
+        case TokenKind::LitChar_Narrow:
+        case TokenKind::LitChar_Format:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_substitutable(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::KwAnd:
+        case TokenKind::KwAndEq:
+        case TokenKind::KwBitand:
+        case TokenKind::KwBitor:
+        case TokenKind::KwCompl:
+        case TokenKind::KwNot:
+        case TokenKind::KwNotEq:
+        case TokenKind::KwOr:
+        case TokenKind::KwOrEq:
+        case TokenKind::KwXor:
+        case TokenKind::KwXorEq:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn substitute(kind: TokenKind) -> TokenKind {
+    switch kind {
+        case TokenKind::KwAnd:     return TokenKind::OpAmpAmp;
+        case TokenKind::KwAndEq:   return TokenKind::OpAmpEqual;
+        case TokenKind::KwBitand:  return TokenKind::OpAmp;
+        case TokenKind::KwBitor:   return TokenKind::OpPipe;
+        case TokenKind::KwCompl:   return TokenKind::OpTilde;
+        case TokenKind::KwNot:     return TokenKind::OpExclaim;
+        case TokenKind::KwNotEq:   return TokenKind::OpExclaimEqual;
+        case TokenKind::KwOr:      return TokenKind::OpPipePipe;
+        case TokenKind::KwOrEq:    return TokenKind::OpPipeEqual;
+        case TokenKind::KwXor:     return TokenKind::OpCaret;
+        case TokenKind::KwXorEq:   return TokenKind::OpCaretEqual;
+        default:                   return TokenKind::TkUnknown;
+    }
+}

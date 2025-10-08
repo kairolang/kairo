@@ -14,7 +14,6 @@
 ///-------------------------------------------------------------------------------- Lib-Helix ---///
 
 ///
-/// \file helix/util/hash/EvalHash.hlx
 /// \brief Hashing functions for strings at compile time.
 ///        The purpose of this file is to provide a way to hash strings at compile time.
 ///        This is useful for generating unique identifiers for strings that are known at
@@ -24,10 +23,11 @@
 ///        strings.
 ///
 
-const kHashMax:         usize = static_cast::<usize>(0xFFFFFFFFFFFFFFFF);;
-const kFnvOffsetBasis:  u64   = static_cast::<u64>(1469598103934665603);;
-const kFnvPrime:        u64   = static_cast::<u64>(0x100000001b3);;
-const kGoldenRatioMix:  u64   = static_cast::<u64>(0x9e3779b97f4a7c15);;
+const kFnvOffsetBasis:  u64   = 0x14650FB0739D0383;;
+const kGoldenRatioMix:  u64   = 0x9e3779b97f4a7c15;;
+const kReservedLow:     u64   = 0x00000000000000FF;;
+const kFnvPrime:        u64   = 0x00000100000001b3;;
+const kHashMax:         usize = 0xFFFFFFFFFFFFFFFF;;
 
 ///
 /// \brief A helper class to hold a string literal at compile time.
@@ -55,6 +55,18 @@ class <const N: usize> EvalStrBuffer {
             value[i] = str[i];
         }
     }
+}
+
+///
+/// \brief Fold a 64-bit hash into a 32-bit hash.
+///        This is useful for reducing the size of the hash for storage
+///        or comparison.
+///
+/// \param  hash64 The 64-bit hash value to fold.
+/// \return A 32-bit hash value.
+///
+eval fn fold_hash(const hash64: u64) -> u32 {
+    return static_cast::<u32>((hash64 >> 32) ^ hash64);
 }
 
 ///
@@ -118,7 +130,10 @@ eval fn <const N: usize> compute_hash(const str: *char) -> u64 {
         hash = mix_char(str[i], hash, i);
     }
 
-    return (hash ^ (static_cast::<u64>(len) * kGoldenRatioMix)) & kHashMax;
+    return fold_hash((
+        (hash ^ (static_cast::<u64>(len) * kGoldenRatioMix))
+              + kReservedLow
+        ) & kHashMax);
 }
 
 ///
@@ -146,7 +161,10 @@ eval fn compute_hash(const str: *string) -> u64 {
         hash = mix_char((*str)[i], hash, i);
     }
 
-    return (hash ^ (static_cast::<u64>(len) * kGoldenRatioMix)) & kHashMax;
+    return fold_hash((
+        (hash ^ (static_cast::<u64>(len) * kGoldenRatioMix))
+              + kReservedLow
+        ) & kHashMax);
 }
 
 ///
@@ -175,7 +193,10 @@ consteval u64 compute_hash(const char (&str)[N]) {
         hash = mix_char(str[i], hash, i);
     }
 
-    return (hash ^ (static_cast<u64>(N) * kGoldenRatioMix)) & kHashMax;
+    return fold_hash((
+        (hash ^ (static_cast<u64>(N) * kGoldenRatioMix))
+              + kReservedLow
+        ) & kHashMax);
 }
 ");
 
@@ -190,7 +211,7 @@ eval fn <str: const EvalStrBuffer> compute_hash() -> u64 {
     const len: usize = compute_length(str.value.data());
     
     eval if len == 0 {
-        return kHashMax;
+        return fold_hash(kHashMax);
     }
 
     return compute_hash::<len>(str.value.data());
@@ -260,12 +281,12 @@ fn Test() -> i32 {
     print(f"hash<\"0\">\t= 0x{to_hex_string(compute_hash::<r"0">())}");
 
     __inline_cpp("
-        auto rbrace = to_hex_string(compute_hash<L\"{\">());
-        auto lbrace = to_hex_string(compute_hash<L\"}\">());
+        auto lbrace = to_hex_string(compute_hash<L\"{\">());
+        auto rbrace = to_hex_string(compute_hash<L\"}\">());
     ");
 
-    print(f"hash<\"R Brace\">\t= 0x{rbrace}");
     print(f"hash<\"L Brace\">\t= 0x{lbrace}");
+    print(f"hash<\"R Brace\">\t= 0x{rbrace}");
 
     // Whitespace / escapes
     print(f"hash<\" \">\t= 0x{to_hex_string(compute_hash::<r" ">())}");
