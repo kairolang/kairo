@@ -7,3 +7,11 @@ CLI arg structure: [system] [flags] [objects]
 - the system in our use case is the programming language
 - flags aka the catalysts decide how to control the execution of the argument
 - objects are just the files that these arguments are carried out on
+
+# flags
+
+List of possible flags supported by the Catalyst system , abiding by ISO standards:
+
+- -f and --flag as commonly used
+- values such as in --flag=8 will be supported even without the equal sign , therefore allowing --flag8 and -f8 too. Could also be -ftrue or -fno-option which translate to -f=true and -f=no-option
+- flags may also support the windows convention of /
