@@ -1,0 +1,238 @@
+/*
+ROADMAP LEXER
+    class Token {
+    var value: string;
+    var kind: TokenKind;
+    var location: Location?;
+
+    enum RemapMode {
+        Location,
+        Value,
+        Kind,
+        KindAndValue,
+        LocationAndKind,
+        ValueAndLocation,
+        All,
+    }
+
+    fn Token(self, kind: TokenKind, value: string, location: Location?);
+
+    fn remap(self, token: &Token, mode: RemapMode) -> bool;
+    fn location(self) -> Location; // Error if location is null
+    fn value(self) -> string?;
+    fn serialize(self) -> map::<string, string>;
+
+    op == fn (self, other: Token) -> bool;
+    op != fn (self, other: Token) -> bool;
+    op == fn (self, other: TokenKind) -> bool;
+    op != fn (self, other: TokenKind) -> bool;
+    op == fn (self, other: string) -> bool;
+    op != fn (self, other: string) -> bool;
+}
+
+
+
+
+*/
+
+import Core::SourceLocation::*;
+import Core::TokenKind::*;
+
+/// size = 16 bytes on 64-bit
+///      sizeof(kind)   = 32 bits
+///      sizeof(loc)    = 32 bits
+///      sizeof(len)    = 32 bits
+///      sizeof(imm)    = 32 bits
+///      alignof(Token) = 4 bytes
+///      total          = 16 bytes + 0 bytes padding
+///
+/// on 32-bit alignment is 4 bytes, total size is still 16 bytes
+class Token {
+    /* 8B */ pub var kind: TokenKind;
+    /* 4B */ pub var loc:  SourceLocation;
+    /* 4B */ pub var len:  u32;
+    /* 4B */ pub var imm:  u32 = 0 | (0xF << 28);
+} //Token end
+
+///
+/// \brief a class to keep track of immediate values for tokens
+///
+eval fn hash_kind_i8(tok: TokenKind) -> i8 {
+    return static_cast::<i8>(
+        (static_cast::<u32>(tok) >> 1) ^ static_cast::<u32>(tok)
+    );
+}
+
+class ImmediateTable {
+    const IMM_MAX: u32 = 0x0FFFFFFF; // 28-bit index ceiling (≈268 M entries)
+
+    enum StringEncoding derives i8 {
+        Raw    = hash_kind_i8(TokenKind::LitString),
+        Narrow = hash_kind_i8(TokenKind::LitString_Narrow),
+        Format = hash_kind_i8(TokenKind::LitString_Format),
+    }
+
+    struct IntData {
+        var value:       u64;  // unsigned value (fits 64-bit immediates)
+        var loc:         u64;  // hi-32b = source location, lo-32b = len
+                               // if loc is non zero we should not use value
+        var base:        u8;   // 2, 8, 10, 16
+        var width:       u16;  // bit-width: 8,16,32,64,128,256,...
+        var is_unsigned: bool; // true if explicitly unsigned
+    }
+
+    struct FloatData {
+        var value: f80; // extended precision float (80-bit)
+        var loc:   u64; // hi-32b = source location, lo-32b = len
+                        // if loc is non zero we should not use value
+        var width: u16; // precision bits: 32,64,80,128
+    }
+
+    struct StringFragment {
+        var loc:        u64; // hi-32b = source location, lo-32b = len
+        var encoding:   i8;  // from StringEncoding
+        var expr_table: u32; // index into StringExprPool
+        var expr_count: u32; // number of embedded exprs
+        var next:       u32; // next fragment or U32_MAX if none
+    }
+
+    class StringExprPool {
+        var strings: vec::<Token>; // pooled string-expr tokens
+
+        /// \brief Append a vector of tokens and return (start-idx, count).
+        fn emplace(self, str_vec: vec::<Token>) -> (u32, u32) {
+            var idx = self.strings.size();
+
+            if (idx + str_vec.size()) > 0xFFFFFFFF {
+                std::print("StringExprPool overflow, cannot emplace more strings\n");
+                std::crash(73);
+            }
+
+            for s in str_vec {
+                self.strings.push_back(s);
+            }
+
+            return (idx, str_vec.size());
+        }
+    }
+
+    var int_literals:    vec::<IntData>;
+    var float_literals:  vec::<FloatData>;
+    var char_literals:   vec::<char32_t>;
+    var bool_literals:   vec::<bool>;
+    var string_literals: vec::<StringFragment>;
+    var expr_pool:       StringExprPool = StringExprPool();
+
+    fn ImmediateTable(self) {
+        self.int_literals    = vec::<IntData>();
+        self.float_literals  = vec::<FloatData>();
+        self.char_literals   = vec::<char32_t>();
+        self.bool_literals   = vec::<bool>();
+        self.string_literals = vec::<StringFragment>();
+    }
+
+    fn emplace_int(
+        self,
+        value: u64, // unsigned value (fits 64-bit immediates)
+        loc: SourceRange, // source location + length packed into u64
+        base: u8,        // 2, 8, 10, 16
+        width: u16,     // bit-width: 8,16,32,64
+        is_unsigned: bool // true if explicitly unsigned
+    ) -> u32 {
+        var idx = self.int_literals.size();
+        if idx >= IMM_MAX {
+            std::print("ImmediateTable int_literals overflow\n");
+            std::crash(73);
+        }
+
+        self.int_literals.push_back(IntData{
+            value:       value,
+            loc:         (static_cast::<u64>(loc.start.id) << 32) | static_cast::<u64>(loc.length),
+            base:        base,
+            width:       width,
+            is_unsigned: is_unsigned
+        });
+        return idx;
+    }
+
+    fn emplace_float(self, value: f80, width: u8) -> u32 {
+        var idx = self.float_literals.size();
+        if idx >= IMM_MAX {
+            std::print("ImmediateTable float_literals overflow\n");
+            std::crash(73);
+        }
+
+        self.float_literals.push_back(FloatData{
+            value: value,
+            width: width
+        });
+
+        return idx;
+    }
+
+    fn emplace_char(self, value: char32_t) -> u32 {
+        var idx = self.char_literals.size();
+        if idx >= IMM_MAX {
+            std::print("ImmediateTable char_literals overflow\n");
+            std::crash(73);
+        }
+
+        self.char_literals.push_back(value);
+        return idx;
+    }
+
+    fn emplace_bool(self, value: bool) -> u32 {
+        var idx = self.bool_literals.size();
+        if idx >= IMM_MAX {
+            std::print("ImmediateTable bool_literals overflow\n");
+            std::crash(73);
+        }
+
+        self.bool_literals.push_back(value);
+        return idx;
+    }
+
+    struct StringIntermediate {
+        var tok:   Token;        // fragment token
+        var exprs: vec::<Token>; // embedded expressions
+        var len:   u32;          // fragment length (excl. quotes)
+    }
+
+    /// \brief Insert a series of string fragments and link them.
+    /// Example input: "foo" f"bar{expr}baz" "qux"
+    fn emplace_string(self, fragments: vec::<StringIntermediate>) -> u32 {
+        var start_idx = self.string_literals.size();
+
+        if start_idx >= IMM_MAX {
+            std::print("ImmediateTable string_literals overflow\n");
+            std::crash(73);
+        }
+
+        for frag in fragments {
+            var expr_idx:   u32 = 0;
+            var expr_count: u32 = 0;
+
+            if frag.exprs.size() > 0 {
+                var res      = self.expr_pool.emplace(frag.exprs);
+                expr_idx     = libcxx::get::<0>(res);
+                expr_count   = libcxx::get::<1>(res);
+            }
+
+            var frag_idx = self.string_literals.size();
+
+            self.string_literals.push_back(StringFragment{
+                len:        frag.len,
+                encoding:   hash_kind_i8(frag.tok.kind),
+                expr_table: expr_idx,
+                expr_count: expr_count,
+                next:       static_cast::<u32>(0xFFFFFFFF), /// sentinel no next
+            });
+
+            if frag_idx > 0 {
+                self.string_literals[frag_idx - 1].next = frag_idx;
+            }
+        }
+
+        return start_idx;
+    }
+}

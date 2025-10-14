@@ -13,8 +13,11 @@
 ///                                                                          ///
 ///------------------------------------------------------------ HELIX -------///
 
+#ifndef __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
+#   define __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
+
 ///
-/// \file SmallFunction.hh
+/// \file Core/SmallFunction.hh
 /// \brief Inline small callable wrapper with zero dynamic allocations.
 ///
 /// \details
@@ -38,9 +41,6 @@
 ///
 /// \see helix::ThreadPool, std::function
 ///
-
-#ifndef __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
-#   define __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
 
 #include <cstring>
 #include <include/core.hh>
@@ -301,7 +301,7 @@ class SmallFunction {
     ///     inline.
     ///
     void move_from(SmallFunction &&other) noexcept {
-        libcxx::memcpy(&_storage, &other._storage, sizeof(Storage));
+        std::Memory::copy(&_storage, &other._storage, sizeof(Storage));
         _call    = other._call;
         _destroy = other._destroy;
 
