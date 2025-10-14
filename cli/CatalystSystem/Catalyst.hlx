@@ -28,7 +28,7 @@ class Catalyst{
 
     struct Flag{
         var Type : FlagType;                        
-        var alias : std::vec<string>;           //stores all possible versions of the flag such as -h , --help , /help
+        var alias : vec::<string>;           //stores all possible versions of the flag such as -h , --help , /help
 
         var needsInput : bool;    
     }
