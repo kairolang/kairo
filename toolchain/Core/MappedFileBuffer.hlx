@@ -29,7 +29,7 @@ import Core::MMapRegion::*;
 import Core::MemoryBuffer::*;
 import Core::UTF8View::*;
 
-///
+/// 
 /// \class MappedFileBuffer
 ///
 /// \brief File-backed memory buffer using memory mapping.
@@ -364,6 +364,3 @@ fn Test() -> i32 {
     return 0;
 }
 
-fn main() -> i32 {
-    return Test();
-}
