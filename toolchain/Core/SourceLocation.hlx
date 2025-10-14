@@ -14,7 +14,6 @@
 ///-------------------------------------------------------------------------------- Lib-Helix ---///
 
 ///
-/// \file Location.hlx
 ///
 /// \brief Defines the core location type used by the lexer and parser to
 ///        identify positions within source files. This is a minimal,
@@ -41,23 +40,90 @@
 /// \size 8 or 12 bytes (depending on target: u32 + usize)
 ///
 class SourceLocation {
-    var fid: u32 = 0;
-    var off: u32 = 0;
+    pub var id: u32 = 0;
 
-    const fn is_valid(self) -> bool { return self.fid != 0; }
-    const fn is_invalid(self) -> bool { return self.fid == 0; }
-
-    const fn file_id(self) -> u32 { return self.fid; }
-    const fn offset(self) -> u32 { return self.off; }
-
-    static fn get(fid: u32, off: u32) -> SourceLocation {
-        var L: SourceLocation;
-        L.fid = fid;
-        L.off = off;
-        return L;
+    fn SourceLocation(self) {
+        self.id = 0;
     }
 
-    const fn advance(self, n: u32) -> SourceLocation {
-        return SourceLocation::get(self.fid, self.off + n);
+    eval static fn from_raw(raw: u32) -> SourceLocation {
+        var loc = SourceLocation();
+        loc.id = raw;
+        return loc;
+    }
+
+    eval static fn from_base(base: u32, offset: u32) -> SourceLocation {
+        var loc = SourceLocation();
+        loc.id = base + offset;
+        return loc;
+    }
+
+    fn is_valid(self) -> bool {
+        return self.id != 0;
+    }
+
+    fn is_invalid(self) -> bool {
+        return self.id == 0;
+    }
+
+    fn raw(self) -> u32 {
+        return self.id;
+    }
+
+    fn with_offset(self, delta: i32) -> SourceLocation {
+        var new_val = static_cast::<i64>(self.id) + static_cast::<i64>(delta);
+        if new_val < 0 {
+            std::print("SourceLocation underflow\n");
+            std::crash(73);
+        }
+        if new_val > 0xFFFFFFFF {
+            std::print("SourceLocation overflow\n");
+            std::crash(73);
+        }
+
+        var loc = SourceLocation();
+        loc.id = static_cast::<u32>(new_val);
+        return loc;
+    }
+
+    fn op == (self, other: SourceLocation) -> bool {
+        return self.id == other.id;
+    }
+
+    fn op != (self, other: SourceLocation) -> bool {
+        return self.id != other.id;
+    }
+
+    fn op < (self, other: SourceLocation) -> bool {
+        return self.id < other.id;
+    }
+
+    fn op <= (self, other: SourceLocation) -> bool {
+        return self.id <= other.id;
+    }
+
+    fn op > (self, other: SourceLocation) -> bool {
+        return self.id > other.id;
+    }
+
+    fn op >= (self, other: SourceLocation) -> bool {
+        return self.id >= other.id;
+    }
+
+    eval fn hash(self) -> u32 {
+        // simple FNV-1a hash for uniform distribution
+        var h: u32 = 0x811C9DC5;
+        h = (h ^ self.id) * 0x01000193;
+        return h;
+    }
+
+    eval static fn from_ptr(ptr: *void) -> SourceLocation {
+        return SourceLocation::from_raw(
+            static_cast::<u32>(reinterpret_cast::<usize>(ptr))
+        );
+    }
+
+    fn op as (self) -> string {
+        return f"SourceLocation({self.id})";
     }
 }

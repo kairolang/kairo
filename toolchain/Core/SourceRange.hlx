@@ -12,3 +12,127 @@
 ///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+import Core::SourceLocation::*;
+
+/*
+class SourceLocation {
+    pub var id: u32 = 0;
+
+    fn SourceLocation(self) {
+        self.id = 0;
+    }
+
+    eval fn from_raw(raw: u32) -> SourceLocation {
+        var loc = SourceLocation();
+        loc.id = raw;
+        return loc;
+    }
+
+    eval fn from_base(base: u32, offset: u32) -> SourceLocation {
+        var loc = SourceLocation();
+        loc.id = base + offset;
+        return loc;
+    }
+
+    fn is_valid(self) -> bool {
+        return self.id != 0;
+    }
+
+    fn is_invalid(self) -> bool {
+        return self.id == 0;
+    }
+
+    fn raw(self) -> u32 {
+        return self.id;
+    }
+
+    fn with_offset(self, delta: i32) -> SourceLocation {
+        var new_val = static_cast::<i64>(self.id) + static_cast::<i64>(delta);
+        if new_val < 0 {
+            std::print("SourceLocation underflow\n");
+            std::crash(73);
+        }
+        if new_val > 0xFFFFFFFF {
+            std::print("SourceLocation overflow\n");
+            std::crash(73);
+        }
+
+        var loc = SourceLocation();
+        loc.id = static_cast::<u32>(new_val);
+        return loc;
+    }
+
+    fn op == (self, other: SourceLocation) -> bool {
+        return self.id == other.id;
+    }
+
+    fn op != (self, other: SourceLocation) -> bool {
+        return self.id != other.id;
+    }
+
+    fn op < (self, other: SourceLocation) -> bool {
+        return self.id < other.id;
+    }
+
+    fn op <= (self, other: SourceLocation) -> bool {
+        return self.id <= other.id;
+    }
+
+    fn op > (self, other: SourceLocation) -> bool {
+        return self.id > other.id;
+    }
+
+    fn op >= (self, other: SourceLocation) -> bool {
+        return self.id >= other.id;
+    }
+
+    eval fn hash(self) -> u32 {
+        // simple FNV-1a hash for uniform distribution
+        var h: u32 = 0x811C9DC5;
+        h = (h ^ self.id) * 0x01000193;
+        return h;
+    }
+
+    eval fn from_ptr(ptr: *void) -> SourceLocation {
+        return SourceLocation::from_raw(
+            static_cast::<u32>(reinterpret_cast::<usize>(ptr))
+        );
+    }
+
+    fn to_string(self) -> string {
+        return libcxx::format(r"SourceLocation({})", self.id).data();
+    }
+}
+*/
+
+class SourceRange {
+    pub var id:  SourceLocation;
+    pub var len: u32;
+
+    fn SourceRange(self) {
+        self.id  = SourceLocation::from_raw(0);
+        self.len = 0;
+    }
+
+    fn SourceRange(self, id: SourceLocation, len: u32) {
+        self.id  = id;
+        self.len = len;
+    }
+
+    fn is_valid(self) -> bool {
+        return self.id.is_valid();
+    }
+
+    fn is_invalid(self) -> bool {
+        return self.id.is_invalid();
+    }
+
+    fn end(self) -> SourceLocation {
+        return self.id.with_offset(static_cast::<i32>(self.len));
+    }
+
+    fn op as (self) -> string {
+        return f"SourceRange({self.id.to_string()}, {self.len})";
+    }
+}

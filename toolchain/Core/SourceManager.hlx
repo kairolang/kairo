@@ -17,56 +17,235 @@ import Core::SourceFile::*;
 import Core::SourceLocation::*;
 import Core::FullSourceLocation::*;
 import Core::Path::*;
+import Core::MappedFileBuffer::*;
+import Core::MemoryBuffer::*;
+import Core::SourceLineTable::*;
+import Core::ThreadPool::*;
 
+///
+/// \brief Centralized management of source files, buffers, and location mapping.
+///        Provides indirection between user-facing file paths and compact
+///        32-bit SourceLocation IDs used throughout the compiler.
+///
+/// \details
+/// The SourceManager is responsible for:
+///   - Loading files via memory mapping (MappedFileBuffer)
+///   - Assigning each file a contiguous base offset in the global source space
+///   - Resolving SourceLocation → (file, offset) mappings
+///   - Managing lifetime of loaded buffers
+///
+/// The global model mirrors Clang:
+///   - Each file occupies a contiguous region in a single logical address space
+///   - SourceLocation::id is simply (file_base + offset)
+///   - Each file's base offset is stored in the file table
+///
+/// ote Thread safety: not thread-safe. Access must be externally synchronized.
+///
+
+///
+/// \class SourceManager
+///
+/// \brief Manages the mapping between files, buffers, and SourceLocations.
+///
+/// Provides:
+///   - File loading (`load_file`)
+///   - File ID resolution (`find_file_containing`)
+///   - Location mapping (`resolve`)
+///   - Direct buffer access (`get_buffer`)
+///
 class SourceManager {
-    priv var files: vec::<SourceFile>;
-    priv var path_map: map::<string,u32>; ///< canonical path -> FileID
-    priv var next_id: u32 = 1;
+    __inline_cpp("using Thread = libcxx::thread");
+    priv var _pool:   *ThreadPool;         ///< background threads for line indexing
+    priv var _threads: vec::<Thread>;      ///< threads for line indexing
+    priv var _files:   vec::<SourceFile>;  ///< all loaded files
+    priv var _total_b: u64 = 0;            ///< cumulative buffer space
+    pub  var _line_table: SourceLineTable;
 
-    default fn SourceManager(self);
+    fn SourceManager(self) {
+        self._files = vec::<SourceFile>();
+        self._total_b = 0;
+    }
 
-    fn open_file(self, path: Path) -> u32 {
-        var abs = Path(path.FullPath(), true);
-        var canon = abs.FullPath();
+    fn op delete (self) {
+        for t: ref!(Thread) in self._threads {
+            if t.joinable() {
+                t.join();
+            }
+        }
+    }
 
-        if self.path_map.count(canon) > 0 {
-            return self.path_map[canon];
+    //----------------------------------------------------------------------
+    // File management
+    //----------------------------------------------------------------------
+
+    /// \brief Loads a file and registers it with the manager.
+    ///
+    /// \param file_path Path object or string to load.
+    /// \return SourceFile index (FileID).
+    ///
+    /// ote Returns existing entry if file already loaded.
+    ///
+    fn load_file(self, file_path: Path) -> u32 {
+        // normalize to absolute path
+        var abs_path = Path(file_path.FullPath());
+
+        // avoid duplicate loads
+        for i in range::<usize>(0, self._files.size()) {
+            if self._files[i].path.FullPath() == abs_path.FullPath() {
+                return i as u32;
+            }
         }
 
-        var buf = MappedFileBuffer::open(&canon);
+        // attempt mapping
+        var path_str = abs_path.FullPath();
+        var buf      = MappedFileBuffer::load(&path_str);
+
         if !buf.is_valid() {
-            std::print(f"Failed to open file: {canon}\n");
-            return 0;
+            std::print("SourceManager: failed to map file {}", abs_path.FullPath());
+            std::crash(127);
         }
 
-        var fid = self.next_id;
-        self.next_id += 1;
+        var file_base = static_cast::<u32>(self._total_b);
+        var new_file = SourceFile(abs_path, buf, file_base);
 
-        var sf = SourceFile(fid, abs, buf);
-        self.files.push_back(sf);
-        self.path_map[canon] = fid;
+        self._files.push_back(new_file);
+        self._total_b += new_file.size_bytes;
 
-        return fid;
+        self._line_table.register_file(((
+            self._files.size() - 1) as u32),
+            static_cast::<u32>(buf.bytes()->size()
+        ));
+        
+        /// FIXME: use internal thread pool
+        /*
+        libcxx::thread::spawn(fn () {
+            var lt = &self._line_table;
+            lt.build_full_index(((self._files.size() - 1) as u32), buf);
+        });
+        */
+        __inline_cpp("{");
+            var file_id = static_cast::<u32>((self._files.size()) - 1);
+            var buffer  = buf.bytes();
+            var lt_ptr  = &(self._line_table);
+
+            self._pool->enqueue(fn () {
+                // we need to push a build line table index job
+            });
+        __inline_cpp("}");
+
+        return (self._files.size() - 1) as u32;
     }
 
-    fn get_file(self, fid: u32) -> *SourceFile {
-        if fid == 0 || fid >= self.next_id { return &null; }
-        return &self.files[fid-1]; // dense array, 0-based
+    fn get_line_col(self, loc: SourceLocation) -> (usize, usize) {
+        var res = self.resolve(loc);
+        return self._line_table.resolve_line_col(libcxx::get::<0>(res), loc);
     }
 
-    fn get_loc(self, fid: u32, offset: u32) -> SourceLocation {
-        var sf = self.get_file(fid);
-        if sf == &null || offset >= sf->size_bytes() {
-            return SourceLocation{};
+    /// \brief Finds which file a given global SourceLocation belongs to.
+    ///
+    /// \param loc SourceLocation to resolve.
+    /// \return (FileID, local offset)
+    ///
+    /// ote O(N) over number of loaded files, which is acceptable for few files.
+    ///
+    fn resolve(self, loc: SourceLocation) -> (u32, u32) {
+        var id = loc.raw();
+
+        for i in range::<usize>(0, self._files.size()) {
+            var file = self._files[i];
+            if id >= file.base_offset && id < file.end_offset() {
+                return (i as u32, id - file.base_offset);
+            }
         }
-        return SourceLocation::get(fid, offset);
+
+        return (0xFFFFFFFF, 0); // invalid
     }
 
-    fn resolve(self, loc: SourceLocation) -> FullSourceLocation {
-        var sf = self.get_file(loc.file_id());
-        if sf == &null { return FullSourceLocation(SourceFile{},0,0); }
-
-        var lc = sf->compute_line_col(loc.offset());
-        return FullSourceLocation(*sf, libcxx::get::<0>(lc), libcxx::get::<1>(lc));
+    fn is_line_index_ready(self, file_id: u32) -> bool {
+        return false;
     }
+
+    fn wait_for_line_index(self, file_id: u32) {
+        self._line_table.wait_until_ready(file_id);
+    }
+
+    /// \brief Retrieves the mapped memory buffer for a given file ID.
+    fn get_buffer(self, file_id: u32) -> *MemoryBuffer {
+        if file_id >= self._files.size() {
+            return &null;
+        }
+        return self._files[file_id].buffer.bytes();
+    }
+
+    /// \brief Returns file path string for diagnostics.
+    fn get_filename(self, file_id: u32) -> string {
+        if file_id >= self._files.size() {
+            return "<invalid>";
+        }
+        return self._files[file_id].path.FullPath();
+    }
+
+    /// \brief Converts (FileID, local offset) → SourceLocation.
+    fn get_loc(self, file_id: u32, offset: u32) -> SourceLocation {
+        if file_id >= self._files.size() {
+            return SourceLocation::from_raw(0);
+        }
+
+        var file = self._files[file_id];
+        return SourceLocation::from_base(file.base_offset, offset);
+    }
+
+    //----------------------------------------------------------------------
+    // Diagnostics
+    //----------------------------------------------------------------------
+
+    fn dump_files(self) {
+        std::print("=== SourceManager Dump ===");
+        
+        for i in range::<usize>(0, self._files.size()) {
+            var f = self._files[i];
+            std::print(f"[{i}] {f.path.FullPath()}");
+            std::print(f"  base: {f.base_offset}");
+            std::print(f"  size: {f.size_bytes}");
+        }
+    }
+
+    fn file_count(self) -> usize {
+        return self._files.size();
+    }
+    
+    fn total_bytes(self) -> u64 {
+        return self._total_b;
+    }
+}
+
+fn Test() -> i32 {
+    std::print("=== SourceManager Test ===");
+
+    var sm   = SourceManager();
+    var path = Path("run.ps1");
+    var fid  = sm.load_file(path);
+
+    sm.dump_files();
+    std::print(f"waiting for file {fid}...");
+    
+    sm.wait_for_line_index(fid);
+    std::print(f"file {fid} ready!");
+
+    var loc = sm.get_loc(fid, 42);
+    std::print(f"loc.raw() = {loc.raw()}");
+
+    var resolved = sm.resolve(loc);
+    var rid      = libcxx::get::<0>(resolved);
+    var roff     = libcxx::get::<1>(resolved);
+    std::print(f"Resolved: file={rid}, offset={roff}");
+
+    var linecol = sm.get_line_col(loc);
+    var line    = libcxx::get::<0>(linecol);
+    var col     = libcxx::get::<1>(linecol);
+    std::print(f"Line/Column = {line}:{col}");
+
+    sm._line_table.dump();
+
+    return 0;
 }

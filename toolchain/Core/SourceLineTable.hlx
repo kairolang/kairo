@@ -1,0 +1,103 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+import Core::Path::*;
+import Core::MappedFileBuffer::*;
+import Core::MemoryBuffer::*;
+import Core::SourceLocation::*;
+
+ffi "c++" import "Core/Core/Types.hh";
+
+__inline_cpp("
+    #define CStyleCast(T, val) (T)(val)
+");
+
+///
+/// contains line number mapping for files using simd
+///
+/// \class SourceLineTable
+///
+/// \brief Maintains a global, SIMD-optimized map of line-start offsets
+///        for all loaded source files. Supports both incremental updates
+///        (by the lexer) and full background construction.
+///
+/// \note This class does not do any threading itself, but is designed
+///       to be used in a multi-threaded context. It uses atomic operations
+///       to ensure that readers can safely access the line tables while
+///       they are being built or updated.
+///
+class SourceLineTable {
+    /// TODO: rewrite from scratch since this is a mess and doesn't get what we
+    ///     need it to do. We want:
+    ///         - lock-free reads
+    ///         - a single thread safe file table builder api - Used by
+    ///           SourceManager and each call is pushed to the ThreadPool
+    ///         - line indexing must satisfy the pef req of being complete before
+    ///           the file is used for parsing otherwise the diagnostics will be
+    ///           slowed down waiting for the line table for a fid to be built
+    ///         - same table can be used by multiple threads
+    ///         - minimal memory usage
+    ///         - extremely fast binary search for line/col resolution along
+    ///           with an api for resolving line/col from a SourceLocation
+    class FileEntry; ///< forward declaration
+
+    ///< The file table is a vector of pointers to FileEntry objects.
+    priv var _file_table: std::Atomic::<*vec::<*FileEntry>> = std::Atomic::<*vec::<*FileEntry>>(&null);
+    ///< Number of files in the file table. This is not actually needed since we can get
+    ///< the size of the vector, but it makes some operations easier.
+    priv var _file_count: std::Atomic::<u64> = std::Atomic::<u64>(0);
+    ///< Whether or not the line table is currently being built. for any file.
+    priv var _active:     std::Atomic::<bool> = std::Atomic::<bool>(false);
+
+    class FileEntry {
+        ///< The file ID (index in the file table).
+        pub var file_id:    u32;
+        ///< Number of lines in the file.
+        pub var line_count: std::Atomic::<u32> = std::Atomic::<u32>(0);
+        ///< Size of the file in bytes.
+        pub var file_size:  u32;
+        ///< Whether or not the line table for this file is ready.
+        pub var ready:      std::Atomic::<bool> = std::Atomic::<bool>(false);
+        ///< Pointer to the vector of line start offsets.
+        pub var lines:      std::Atomic::<*vec::<u32>> = std::Atomic::<*vec::<u32>>(&null);
+
+        /// Default constructor for FileEntry.
+        fn FileEntry(self) = default;
+
+        /// Explicitly delete copy/move constructors and assignment since the
+        /// class contains atomics.
+        delete fn FileEntry(self, other: ref!(FileEntry));
+        delete fn op=(self, other: ref!(FileEntry));
+
+        /// \brief Constructs a FileEntry with the given file ID and size.
+        fn FileEntry(self, id: u32, size: u32) {
+            self.file_id   = id;
+            self.file_size = size;
+        }
+    }
+
+    /// API Spec:
+    ///    - fn build_index(fid);
+    ///    - fn is_ready(fid) -> bool;
+    ///    - fn get_line_col(fid, offset) -> (line, col);
+    ///    - fn wait_until_ready(fid);
+    
+
+    
+}
+
+__inline_cpp("
+    #undef CStyleCast
+");
