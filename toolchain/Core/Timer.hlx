@@ -18,27 +18,31 @@ class Timer {
     priv var _label: string;
 
     /// construct a timer with optional label
-    fn Timer(self, label: string = "Timer") {
+    inline fn Timer(self, label: string = "Timer") {
         self._start = libcxx::chrono::steady_clock::now();
         self._label = label;
     }
 
     /// destructor prints elapsed time automatically
-    fn op delete (self) {
-        var end = libcxx::chrono::steady_clock::now();
-        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
-        std::print(f"{self._label} elapsed: {dur.count()} µs ({(dur.count()) / 1000.0} ms)\n");
+    inline fn op delete (self) {
+        self.stop();
     }
 
     /// get elapsed duration in microseconds without stopping
-    fn elapsed_us(self) -> i64 {
+    inline fn elapsed_us(self) -> i64 {
         var end = libcxx::chrono::steady_clock::now();
         var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
         return dur.count();
     }
 
+    inline fn stop(self) {
+        var end = libcxx::chrono::steady_clock::now();
+        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
+        std::print(f"{self._label} elapsed: {dur.count()} µs ({(dur.count()) / 1000.0} ms)\n");
+    }
+
     /// restart the timer
-    fn reset(self) {
+    inline fn reset(self) {
         self._start = libcxx::chrono::steady_clock::now();
     }
 }

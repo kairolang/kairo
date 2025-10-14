@@ -15,7 +15,8 @@
 
 import Core::Timer::*;
 
-ffi "c++" import "Core/SmallFunction.hh";
+ffi "c++" import "Core/Core/SmallFunction.hh";
+ffi "c++" import "Core/Core/Types.hh";
 
 ///
 /// \class ThreadPool
@@ -56,9 +57,7 @@ class ThreadPool {
     class Task;
 
     /// Type aliases for brevity
-    type <T> Atomic  = libcxx::atomic::<T>;
     type FunctionT   = SmallFunction::<64>;
-    type MemoryOrder = libcxx::memory_order;
 
     /// C++ threading alias for std::thread, the alias is in a __inline_cpp
     /// block to avoid stage(0) parser issues with the 'thread' keyword.
@@ -84,9 +83,9 @@ class ThreadPool {
     priv var _count:   usize = 0;
     priv var _threads: vec::<Thread>;
     priv var _queues:  vec::<*PartitionQueue>;
-    priv var _groups:  array::<Atomic::<u64>, 256> = array::<Atomic::<u64>, 256>();
-    priv var _rr:      Atomic::<usize> = Atomic::<usize>(0);
-    priv var _active:  Atomic::<bool>  = Atomic::<bool>(true);
+    priv var _groups:  array::<std::Atomic::<u64>, 256> = array::<std::Atomic::<u64>, 256>();
+    priv var _rr:      std::Atomic::<usize> = std::Atomic::<usize>(0);
+    priv var _active:  std::Atomic::<bool>  = std::Atomic::<bool>(true);
 
     ///
     /// \class Task
@@ -163,8 +162,8 @@ class ThreadPool {
         priv var _mask: u64 = 0;
         priv var _cap:  u64 = 0;
 
-        priv var _enqueue_pos: Atomic::<u64> = Atomic::<u64>(0);
-        priv var _dequeue_pos: Atomic::<u64> = Atomic::<u64>(0);
+        priv var _enqueue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
+        priv var _dequeue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
 
         ///
         /// \struct ThreadPool::PartitionQueue::Cell
@@ -216,7 +215,7 @@ class ThreadPool {
         ///
         __inline_cpp("
         struct alignas(CACHE_LINE) Cell {
-            Atomic<u64> seq = Atomic<u64>(0);
+            std::Atomic<u64> seq {0};
             Task        val;
 
             Cell() = default;
@@ -273,7 +272,7 @@ class ThreadPool {
             for i in range::<usize>(0, c) {
                 self._buf[i].seq.store(
                     static_cast::<u64>(i),
-                    MemoryOrder::relaxed
+                    std::MemoryOrder::relaxed
                 );
             }
         }
@@ -285,20 +284,20 @@ class ThreadPool {
         /// \return `true` if the task was successfully enqueued, otherwise `false` if full.
         ///
         inline fn push(self, v: Task) -> bool {
-            var pos = self._enqueue_pos.load(MemoryOrder::relaxed);
+            var pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
 
             while true {
                 var idx  = static_cast::<usize>(pos & self._mask);
                 var cell = &self._buf[idx];
-                var seq  = cell->seq.load(MemoryOrder::acquire);
+                var seq  = cell->seq.load(std::MemoryOrder::acquire);
                 var dif  = static_cast::<i64>(seq) - static_cast::<i64>(pos);
 
                 if dif == 0 {
                     if self._enqueue_pos.compare_exchange_weak(pos, pos + 1,
-                        MemoryOrder::release, MemoryOrder::relaxed)
+                        std::MemoryOrder::release, std::MemoryOrder::relaxed)
                     {
                         cell->val = std::Memory::move(v);
-                        cell->seq.store(pos + 1, MemoryOrder::release);
+                        cell->seq.store(pos + 1, std::MemoryOrder::release);
 
                         return true;
                     }
@@ -306,7 +305,7 @@ class ThreadPool {
                     return false; // full
                 } else {
                     _thread_pause();
-                    pos = self._enqueue_pos.load(MemoryOrder::relaxed);
+                    pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
                 }
             }
         }
@@ -318,27 +317,27 @@ class ThreadPool {
         /// \return `true` if successful, `false` if queue is empty.
         ///
         inline fn pop(self, out: *Task) -> bool {
-            var pos = self._dequeue_pos.load(MemoryOrder::relaxed);
+            var pos = self._dequeue_pos.load(std::MemoryOrder::relaxed);
 
             while true {
                 var idx  = static_cast::<usize>(pos & self._mask);
                 var cell = &self._buf[idx];
-                var seq  = cell->seq.load(MemoryOrder::acquire);
+                var seq  = cell->seq.load(std::MemoryOrder::acquire);
                 var dif  = static_cast::<i64>(seq) - static_cast::<i64>(pos + 1);
 
                 if dif == 0 {
                     if self._dequeue_pos.compare_exchange_weak(pos, pos + 1,
-                        MemoryOrder::release, MemoryOrder::relaxed)
+                        std::MemoryOrder::release, std::MemoryOrder::relaxed)
                     {
                         (*out) = std::Memory::move(cell->val);
-                        cell->seq.store(pos + self._cap, MemoryOrder::release);
+                        cell->seq.store(pos + self._cap, std::MemoryOrder::release);
                         return true;
                     }
                 } else if dif < 0 {
                     return false;
                 } else {
                     _thread_pause();
-                    pos = self._dequeue_pos.load(MemoryOrder::relaxed);
+                    pos = self._dequeue_pos.load(std::MemoryOrder::relaxed);
                 }
             }
         }
@@ -382,11 +381,11 @@ class ThreadPool {
         var self_ptr: *ThreadPool = __inline_cpp("this");
 
         for gi in range::<usize>(0, 256) {
-            self._groups[gi].store(0, MemoryOrder::relaxed);
+            self._groups[gi].store(0, std::MemoryOrder::relaxed);
         }
 
         for _ in range::<usize>(0, n) {
-            var q = libcxx::make_unique::<PartitionQueue>(DEFAULT_QUEUE_SIZE);
+            var q = std::create_unique::<PartitionQueue>(DEFAULT_QUEUE_SIZE);
             self._queues.push_back(q.release());
         }
 
@@ -427,7 +426,7 @@ class ThreadPool {
     /// \see wait_group, is_completed
     ///
     inline fn enqueue(self, _fn: FunctionT, group: u8 = 0) {
-        if !self._active.load(MemoryOrder::relaxed) {
+        if !self._active.load(std::MemoryOrder::relaxed) {
             return;
         }
 
@@ -436,7 +435,7 @@ class ThreadPool {
         task._fn    = std::Memory::move(_fn);
         task._group = group;
 
-        var start  = self._rr.fetch_add(1, MemoryOrder::relaxed);
+        var start  = self._rr.fetch_add(1, std::MemoryOrder::relaxed);
         var offset = (start * 0x9E3779B97F4A7C15) & 0xFFFFFFFFFFFFFFFF;
         var qid    = static_cast::<usize>((offset >> 32) % self._count);
 
@@ -444,7 +443,7 @@ class ThreadPool {
             var idx = (qid + k) % self._count;
 
             if (self._queues[idx]->push(std::Memory::move(task))) {
-                self._groups[group].fetch_add(1, MemoryOrder::relaxed);
+                self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
                 return;
             }
         }
@@ -467,7 +466,7 @@ class ThreadPool {
     inline fn wait_group(self, group: u8) {
         var spins: u32 = 0;
 
-        while self._groups[group].load(MemoryOrder::acquire) > 0 {
+        while self._groups[group].load(std::MemoryOrder::acquire) > 0 {
             if spins < 10000 {
                 _thread_pause();
                 ++spins;
@@ -540,11 +539,11 @@ class ThreadPool {
             return static_cast::<usize>(((*state) * 0x2545f4914f6cdd1d) >> 32);
         }
 
-        while self._active.load(MemoryOrder::acquire) {
+        while self._active.load(std::MemoryOrder::acquire) {
             if q->pop(&task) {
                 task._fn();
 
-                self._groups[task._group].fetch_sub(1, MemoryOrder::relaxed);
+                self._groups[task._group].fetch_sub(1, std::MemoryOrder::relaxed);
                 spins = 0;
 
                 continue;
@@ -565,7 +564,7 @@ class ThreadPool {
                     if self._queues[target]->steal(&task) {
                         task._fn();
                         self._groups[task._group].fetch_sub(
-                            1, MemoryOrder::relaxed
+                            1, std::MemoryOrder::relaxed
                         );
 
                         found = true;
@@ -597,7 +596,7 @@ class ThreadPool {
     /// \return `true` if all tasks have finished, otherwise `false`.
     ///
     fn is_completed(self, group: u8) -> bool {
-        return self._groups[group].load(MemoryOrder::acquire) == 0;
+        return self._groups[group].load(std::MemoryOrder::acquire) == 0;
     }
 
     ///
@@ -606,7 +605,7 @@ class ThreadPool {
     /// \return `true` if threads are still processing or accepting work.
     ///
     fn is_active(self) -> bool {
-        return self._active.load(MemoryOrder::acquire);
+        return self._active.load(std::MemoryOrder::acquire);
     }
 
     ///
@@ -625,7 +624,7 @@ class ThreadPool {
     /// \return Number of pending tasks.
     ///
     fn get_pending_tasks(self, group: u8) -> u64 {
-        return self._groups[group].load(MemoryOrder::acquire);
+        return self._groups[group].load(std::MemoryOrder::acquire);
     }
 
     ///
@@ -637,7 +636,7 @@ class ThreadPool {
         var total: u64 = 0;
 
         for gi in range::<usize>(0, 256) {
-            total += self._groups[gi].load(MemoryOrder::acquire);
+            total += self._groups[gi].load(std::MemoryOrder::acquire);
         }
 
         return total;
@@ -658,9 +657,9 @@ class ThreadPool {
     /// \see enqueue
     ///
     fn warmup(self, spins: i32 = 1000000) {
-        var barrier: Atomic::<usize> = Atomic::<usize>(0);
+        var barrier: std::Atomic::<usize> = std::Atomic::<usize>(0);
 
-        fn heat_task(barrier: *Atomic::<usize>, spins: i32) {
+        fn heat_task(barrier: *std::Atomic::<usize>, spins: i32) {
             var x: i64 = 1;
 
             for var j: i32 = 0; j < spins; ++j {
@@ -685,7 +684,7 @@ class ThreadPool {
             }, static_cast::<u8>(i));
         }
 
-        while barrier.load(MemoryOrder::acquire) < self._count {
+        while barrier.load(std::MemoryOrder::acquire) < self._count {
             _thread_pause();
         }
 
