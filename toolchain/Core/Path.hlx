@@ -13,7 +13,6 @@
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------- Lib-Helix ---///
 
-/// \file helix/types/Path.hlx
 /// \brief Abstraction over filesystem paths.
 
 import Core::FileSystem::*;
@@ -22,6 +21,10 @@ default class Path {
     var path_data:  FilePath;
     var entry_type: FileType;
 
+    //----------------------------------------------------------------------
+    // Constructors
+    //----------------------------------------------------------------------
+
     default fn Path(self);
 
     fn Path(self, input: string, mustExist: bool = true) {
@@ -29,27 +32,35 @@ default class Path {
         self.path_data = libcxx::filesystem::absolute(FilePath(raw));
 
         if self.path_data.empty() {
-            print("Empty path");
+            std::print("Error: empty path string\n");
             std::crash(127);
         }
 
         if mustExist && !libcxx::filesystem::exists(self.path_data) {
-            print("Nonexistent path");
+            std::print(f"Error: path does not exist: {self.path_data.generic_wstring()}\n");
             std::crash(127);
         }
 
         self.entry_type = __inline_cpp("libcxx::filesystem::status(this->path_data).type()");
     }
 
-    const fn Extension(self) -> FilePath {
+    //----------------------------------------------------------------------
+    // Queries
+    //----------------------------------------------------------------------
+
+    const fn Exists(self) -> bool {
+        return libcxx::filesystem::exists(self.path_data);
+    }
+
+    const fn Extension(self) -> string {
         return self.path_data.extension().generic_wstring();
     }
 
-    const fn Filename(self) -> FilePath {
+    const fn Filename(self) -> string {
         return self.path_data.filename().generic_wstring();
     }
 
-    const fn FullPath(self) -> FilePath {
+    const fn FullPath(self) -> string {
         return self.path_data.generic_wstring();
     }
 
@@ -85,7 +96,15 @@ default class Path {
         return self.entry_type == FileType::character;
     }
 
-    const fn op as (self) -> *FilePath {
+    //----------------------------------------------------------------------
+    // Conversion
+    //----------------------------------------------------------------------
+
+    fn op as (self) -> *FilePath {
         return &self.path_data;
+    }
+
+    fn to_string(self) -> string {
+        return self.path_data.generic_wstring();
     }
 }

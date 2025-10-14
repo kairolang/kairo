@@ -18,7 +18,7 @@
 ///
 /// \brief RAII wrapper for memory-mapped regions.
 ///
-/// \detail This class manages a region of memory mapped from a file or buffer.
+/// \details This class manages a region of memory mapped from a file or buffer.
 ///         It ensures proper cleanup by automatically unmapping memory on
 ///         destruction. Both Windows and POSIX platforms are supported.
 ///
@@ -47,7 +47,7 @@ class MMapRegion {
     ///
     /// \brief Cleans up the mapped region if it is valid.
     ///
-    /// \detail This destructor ensures that any mapped memory is properly
+    /// \details This destructor ensures that any mapped memory is properly
     ///         unmapped when the object goes out of scope.
     ///
     /// \note This is automatically called when the object is destroyed.
@@ -60,7 +60,7 @@ class MMapRegion {
     ///
     /// \brief Unmaps and releases the memory region.
     ///
-    /// \detail
+    /// \details
     ///  - On Windows: calls `UnmapViewOfFile`.
     ///  - On POSIX: calls `munmap` with size+1 (to cover null terminator).
     ///  - Resets `data` and `size` after cleanup.

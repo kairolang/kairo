@@ -39,7 +39,7 @@ class MemoryBuffer {
     ///
     /// \brief Constructs buffer from raw pointer and size.
     ///
-    /// \param data Pointer to external buffer.
+    /// \param data Pointer to external buffer.z
     /// \param size Size in bytes (without null terminator).
     ///
     fn MemoryBuffer(self, data: *u8, size: usize) {
