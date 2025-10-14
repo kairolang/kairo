@@ -1,14 +1,3 @@
-/*
-ROADMAP
-class TokenKind {
-
-    fn serialize(self) -> map::<string, string>;
-
-    op as fn (self) -> string;
-    op as fn (self) -> Kind;
-}
-*/
-
 // DO NOT FORGET OPS CAN START WITH A PREFIX OF l or r
 
 import Core::EvalHash::*;
@@ -301,7 +290,6 @@ enum TokenKind derives u32 {
     BiMustUse      = compute_hash::<r"must_use">(),     // "must_use"
     BiAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
 };
-
 
 fn is_annotation(kind: TokenKind) -> bool {
     switch kind {
