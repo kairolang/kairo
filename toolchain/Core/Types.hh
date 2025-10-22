@@ -50,6 +50,22 @@
 
 #include <include/core.hh>
 
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
+#   include <immintrin.h>        // SSE, AVX, AVX2, AVX512 intrinsics
+#   include <emmintrin.h>        // SSE2 baseline
+#   include <tmmintrin.h>        // SSSE3
+#   define _thread_pause() _mm_pause()
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#   include <arm_acle.h>         // __yield()
+#   include <arm_neon.h>         // NEON intrinsics
+#   define _thread_pause() __yield()
+#elif defined(__riscv)
+#   define _thread_pause() asm volatile("pause" ::: "memory")
+#else
+#   include <thread>
+#   define _thread_pause() ::std::this_thread::yield()
+#endif
+
 namespace helix::std {
 
 // ----------------------------------------------------------------------
@@ -203,6 +219,34 @@ constexpr UniquePtr<T> create_unique(Args &&...args) {
 /// \brief Null pointer type alias for uniformity.
 ///
 using nullptr_t = decltype(nullptr);
+
+///
+/// \brief Alias for const-qualified pointer type.
+///
+/// \tparam T Underlying pointer type.
+///
+template <typename T>
+using const_ptr = const T*;
+
+///
+/// \brief Restrict qualifier macro for pointer optimization.
+///
+#if defined(__GNUC__) || defined(__clang__)
+#  define __RESTRICT__ __restrict__
+#elif defined(_MSC_VER)
+#  define __RESTRICT__ __restrict
+#else
+#  define __RESTRICT__
+#endif
+
+///
+/// \brief Alias for restrict-qualified pointer type.
+///
+/// \tparam T Underlying pointer type.
+/// \see __RESTRICT__
+///
+template<typename T>
+using restrict_ptr = T* __RESTRICT__;
 
 ///
 /// \note
