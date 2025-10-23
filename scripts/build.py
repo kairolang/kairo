@@ -11,6 +11,9 @@ from pathlib import Path
 import subprocess
 import json
 import logging
+import re
+import tempfile
+import shutil
 from typing import List
 from rich.logging import RichHandler
 from concurrent.futures import ThreadPoolExecutor
@@ -284,7 +287,7 @@ def update_compile_commands():
         json.dump(new_compile_commands, f, indent=2)
 
 
-def test(test_path: Path):
+def test(test_path: Path, performance: bool = False):
     # we still use the first builders flags with the test file but theres one diff here we
     # copy the test file to a temp location (build/.shared/tests/) and then compile it there
     # but beofre the coping we need to make sure the file contains a fn Test() -> i32 { ... }
@@ -347,7 +350,7 @@ def test(test_path: Path):
     test_builder.links = Builder.builders[0].links
     test_builder.link_libs = Builder.builders[0].link_libs
     test_builder.cxx_flags = Builder.builders[0].cxx_flags
-    test_builder.debug = True
+    test_builder.debug = False if performance else True
     # we compile the file to build/.gens/test_run
     test_output_dir = Path("build/.gens/")
     test_output_dir.mkdir(parents=True, exist_ok=True)
@@ -369,6 +372,160 @@ def test(test_path: Path):
 
     return
 
+def extract_cpp_from_ir(file: str, line_range: str):
+    """
+    Calls Helix to emit IR, strips boilerplate and colors, isolates the emitted C++
+    for a given file and line range, then runs clang-format.
+    """
+    builder0 = Builder.builders[0]
+    builder0.build_compile_commands()
+
+    cmd = [builder0.compiler, file, "--emit-ir", "--verbose"]
+    for inc in builder0.includes:
+        cmd.append(f"-I{inc}")
+
+    log.info(f"Running Helix IR emission for {file}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    output = result.stdout
+
+    if not output.strip():
+        log.error("No output received from Helix compiler.")
+        return
+
+    # --- Step 1: Trim header preamble ---
+    hdr_pat = re.compile(r"#define __HELIX_CORE_CXX__.*?#endif", re.DOTALL)
+    m = hdr_pat.search(output)
+    if m:
+        output = output[m.end():]
+
+    # Trim the everything after the last #endif
+    last_endif = output.rfind("#endif")
+    if last_endif != -1:
+        output = output[:last_endif + len("#endif")]
+
+    # --- Step 2: Strip ANSI color codes ---
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    output = ansi_escape.sub('', output)
+
+    # --- Step 3: Build mapping from file → list of lines ---
+    file_lines: dict[str, list[str]] = {}
+    current_file = None
+    current_macro = None
+    current_line = None
+    in_guard_section = False
+
+    for raw in output.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+
+        # Detect #define "<path>"
+        if line.startswith("#define") and len(line.split()) == 3:
+            _, macro, path_token = line.split(maxsplit=2)
+            current_file = path_token.strip('"')
+            current_macro = macro
+            current_line = None
+            in_guard_section = False
+            if current_file not in file_lines:
+                file_lines[current_file] = []
+            continue
+
+        # Handle #line directives
+        if line.startswith("#line") and current_file:
+            parts = line.split()
+            try:
+                ln = int(parts[1])
+            except Exception:
+                continue
+
+            # If the #line belongs to this file macro, reset line base
+            if len(parts) == 3 and parts[2] == current_macro:
+                # Helix emits 2 separate "#line 1" blocks for same file.
+                # The second one (after the #define guards) is actual code.
+                if in_guard_section:
+                    # second #line 1 for same file: start fresh (real code)
+                    file_lines[current_file] = []
+                in_guard_section = True
+                current_line = ln - 1
+            elif len(parts) == 2:
+                current_line = ln - 1
+            continue
+
+        # Skip preprocessor (non-guard) lines
+        if line.startswith("#"):
+            continue
+
+        if current_file is None or current_line is None:
+            continue
+
+        # Extend file lines buffer
+        lines = file_lines[current_file]
+        while len(lines) <= current_line:
+            lines.append("")
+        # Append/merge same line if split across output chunks
+        if lines[current_line]:
+            lines[current_line] += "\n" + raw
+        else:
+            lines[current_line] = raw
+        current_line += 1
+
+    # --- Step 4: Match target file (absolute vs relative) ---
+    found_file = None
+    for path in file_lines:
+        if path.endswith(file):
+            found_file = path
+            break
+
+    if not found_file:
+        log.error(f"No matching file section found for {file}")
+        return
+
+    lines = file_lines[found_file]
+    log.info(f"Extracted {len(lines)} mapped lines for {found_file}")
+
+    # --- Step 5: Parse line range (accept ':' or '-') ---
+    if not line_range:
+        all_lines = True
+        line_range = f"1:{len(lines)}"
+    if ":" in line_range:
+        start_line, end_line = map(int, line_range.split(":"))
+    elif "-" in line_range:
+        start_line, end_line = map(int, line_range.split("-"))
+    else:
+        start_line = end_line = int(line_range)
+
+    start_line = max(1, start_line)
+    end_line = max(start_line, end_line)
+
+    if start_line > len(lines):
+        log.warning(f"Start line {start_line} beyond file end ({len(lines)}).")
+        return
+
+    isolated = lines[start_line - 1:end_line]
+    isolated_code = "\n".join(l for l in isolated if l.strip())
+    if not isolated_code.strip():
+        log.warning(f"No content found in range {start_line}-{end_line}.")
+        return
+
+    log.info(f"Isolated lines {start_line}-{end_line} "
+             f"({len(isolated)} lines in section).")
+
+    # --- Step 6: clang-format ---
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".cpp", mode="w") as tmp:
+        tmp.write(isolated_code)
+        tmp_path = tmp.name
+
+    try:
+        fmt = subprocess.run(
+            ["clang-format", "-style=file", tmp_path],
+            capture_output=True,
+            text=True
+        )
+        print(fmt.stdout if fmt.returncode == 0 else isolated_code)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        
 def main():
     update_compile_commands()
 
@@ -376,10 +533,22 @@ def main():
         return
     
     test_file = None
-    for arg in sys.argv:
-        if arg.endswith(".hlx"):
-            test_file = arg
-            break
+    performance_test = False
+    if len(sys.argv) >= 3 and "test" in sys.argv:
+        for arg in sys.argv:
+            if arg.endswith(".hlx"):
+                if test_file is not None:
+                    log.error("Only one test file can be specified at a time.")
+                    return
+                
+                test_file = arg
+            if arg == "--perf":
+                performance_test = True
+
+    if len(sys.argv) >= 3 and sys.argv[1] == "line":
+        file = sys.argv[2]
+        line_range = sys.argv[3] if len(sys.argv) >= 4 else None
+        return extract_cpp_from_ir(file, line_range)
 
     if test_file is not None:
         test_path = Path(test_file)
@@ -387,7 +556,7 @@ def main():
             log.error(f"Test file {test_file} does not exist.")
             return
         else:
-            return test(test_path)
+            return test(test_path, performance_test)
     
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(builder.compile) for builder in Builder.builders]

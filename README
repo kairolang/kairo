@@ -1,245 +1,50 @@
 # Helix Programming Language
 
-Helix is the safe, expressive systems language for the new AI & embedded era. Helix uses the LLVM toolchain for performance directly matching C++, while guaranteeing memory safety, concurrency correctness, and a fresh 2026 take on developer productivity.
+<div align="center">
+  <img src="assets/helix-logo.svg" alt="Helix Programming Language Logo" width="60%">
+</div>
 
-## Features
-- **Memory Safety**: Helix ensures memory safety without a garbage collector, preventing common bugs like null pointer dereferencing and buffer overflows.
+---
 
-- **Concurrency**: Built-in support for safe concurrency, making it easier to write multi-threaded applications.
-- **Performance**: Compiles to highly optimized machine code using LLVM, achieving performance notwithstanding to C++.
+Helix is a **statically typed  programming language**, built for systems programming and high-performance applications. Designed with interoperability in mind. Helix aims to combine the power and control of low-level languages with the safety and clarity of high-level design.
 
-- **Fresh Syntax**: A clean and expressive syntax, taking inspirtaton form modern langues and focusing on both developer productivity and code clarity for reviewrs and maintainers.
-- **Interoperability**: Seamless interoperability with C, C++, and community support for other languages, via the FFI API.
+### The goals of Helix:
 
-- **Tooling**: Comes with a robust set of tools including a package manager, build system, integrated testing framework, static analyzer, debugger, and an LSP server for IDE integration.
+- Safe, and productive programming language.
+- Allow for low-level programming with fine-grained control.
+- Seamless interoperability with C and C++ along with other native languages.
+- Include a portable, well-structured standard library.
+- Encourage clear, maintainable, and reviewable code through strong, expressive semantics.
+- An alternative to C, C++, and Rust or work alongside them.
 
-- **Cross-Platform**: Supports all LLVM target triples, making it easy to develop applications for various platforms, and embedded systems.
+### Why Helix?
 
-- **Core Infra & Embedded Focus**: Designed with a focus on core infrastructure and embedded systems notwithstanding HFTs, OS Kernels, Physics Engines, Probabilistic Programming, and AI/ML workloads.
+##### Think of programming languages like power tools.
+- **C and C++** would hand you a chainsaw with no guard; incredibly fast and powerful, but one wrong move and you’re missing a limb.
+- **Rust** won’t even hand you the chainsaw until you’ve passed a safety course; secure, but sometimes at the cost of productivity and simplicity.
+- **Helix** would hand you a chainsaw with safeguards where every cut is deliberate, not accidental.
 
-## Getting Started
-To get started with Helix, visit the [official website](https://helix-lang.org) for installation instructions, documentation, and tutorials.
+### Design Rationale
+- We liked the simplicity of **Python's** syntax but wanted more.
+- We wanted the performance and control of **C and C++**.
+- We admired **Rust's** safety features but, at times, found them cumbersome.
+- We liked **Rust's** Meta-programming and Trait system.
+- We liked **Zig's** approach to interoperability.
+- We wanted a powerful module system.
+- We wanted a robust standard library.
+- We wanted a language that would work drop-in with any existing C or C++ codebases.
+- We wanted all; *without* compromising on any front.
+- So we created **Helix**.
 
-## Example Code
-```helix
-// helix doesnt need a main function but you can define one if you want
+Helix is built to slot directly into C **and** C++ ecosystems, offering a fresh syntax and features, without abandoning decades of code.
 
-std::print("Hello, World!")
+### Current Status:
+The **Stage 0 compiler** (written in C++) is functional and can compile Helix, currently very unstable, and riddled with bugs. Development of the **Stage 1 compiler**, written in Helix itself, is in progress.
 
-fn <N: usize> something(x: [i32; N], y: i32) -> i32 {
-    var sum: i32 = 0
+Thanks to all contributors pushing Helix forward.
 
-    for i in x {
-        sum += i * y
-    }
+### Getting Started:
+To get started with Helix, please refer to the [Installation Guide](https://www.helix-lang.com/install/) and [Learn](https://www.helix-lang.com/learn/).
 
-    return sum
-}
-
-class Point {
-    var x: f64
-    var y: f64
-
-    fn Point(self, x: f64, y: f64) {
-        self.x = x
-        self.y = y
-    }
-
-    fn move_by(self, dx: f64, dy: f64) {
-        self.x += dx
-        self.y += dy
-    }
-
-    fn op as (self) -> string {
-        return f"Point(x={self.x}, y={self.y})"
-    }
-
-    fn op % (self, other: *Point)[distance] -> f64 { // pointers in helix are safe and non-nullable by default with no pointer arithmetic a lot of times the helix compiler would be able to optimize any non pointer to a pointer type if the performance would be better
-        let dx = self.x - other.x
-        let dy = self.y - other.y
-        return std::Math::sqrt(dx * dx + dy * dy)
-    }
-}
-
-var p1 = Point(0.0, 0.0)
-var p2 = Point(x: 3.0, y: 4.0) // passing named arguments too is supported
-
-std::print(f"Distance: {p1 % p2}") // Output: Distance: 5.0
-
-// pattern matching
-match p1 {
-    case Point { var x: 0.0, var y: 0.0 } {
-        std::print("Origin")
-    } case Point { var x, var y: 0.0 } where x == y {
-        std::print("On the line y = x")
-    } case Point { _, var y } where y > 0.0 {
-        std::print(f"Somewhere else on the plane at y = {y}")
-    } default Point {var x, var y} {
-        std::print(f"Somewhere else on the plane at (x={x}, y={y})")
-    }
-}
-
-// error handling
-fn divide(a: f64, b: f64) -> f64? {
-    if b == 0.0 {
-        return null // returning null indicates an error
-    }
-    return a / b
-}
-
-// helix has a few kinds of types for error handling
-// 1. questionable types: T? - can either be a value of type T or null, or a panic
-// 2. panic or value types: T! - can either be a value of type T or a panic but not null
-// 3. for questionable types a panic doesnt get thrown automatically you have to // explicitly handle it or use the `!` operator to propagate it
-// 4. for panic or value types a panic gets thrown automatically if you try to use the // value without handling it or use the `!` operator to propagate it
-// 5. you can use `try` `catch` and `finally` blocks to handle panics
-
-try {
-    var result = divide(10.0, 0.0)!
-    std::print(f"Result: {result}")
-} catch (e) {
-    std::print(f"Caught an error: {e}")
-}
-
-// finally block always executes at end of scope and can be detached from try-catch
-// its useful for cleanup code
-var file = std::File::open("data.txt")!
-finally {
-    file.close()
-}
-
-// generics
-fn <T impl std::Interfaces::Equals> find_index(arr: [T], value: T) -> i32 {
-    for i in 0..arr.len() {
-        if arr[i] == value {
-            return i
-        }
-    }
-
-    return -1
-}
-
-std::print(f"Index of 3: {find_index([1, 2, 3, 4, 5], 3)}") // Output: Index of 3: 2
-
-// helix has a powerful macro system somewhat in between rust and C++ macros
-// macros do stay in the namespace they are defined in and can be imported and exported like functions they also stay in vial files allowing for marcos to be shipped as libraries
-macro log!(source_loc = std::intrinsics::source_location(), args = ...) { // variadic types are tuples of any length and can be passed to functions that take tuples of the same length and types
-    std::print(f"[LOG] {source_loc.file()}:{source_loc.line()} - Executing command with args: {args}")
-}
-
-log!("arg1", 42, 3.14, true) // Output: [LOG] main.helix:67 - Executing command with args: (arg1, 42, 3.14, true)
-
-// FFI example
-ffi "c++" import "iostream" // no other work needed its all handled by the compiler and as close to native as possible ONE NOTE THO C++ standard library doesnt go into the std namespace of helix it instead goes into a aliased namesapce called cpp this is to avoid any conflicts with the helix standard library but anything else aside the C++ standard library can be used as normal and has the same importing ruleset as C++ code
-
-cpp::cout << "Hello from C++!" << cpp::std::endl;
-
-// Helix also has built in support for subprocesses
-var result = std::subprocess::run("ls", "-l", "/usr")!
-std::print(f"Subprocess exited with code {result.exit_code}")
-
-// Helix has first class support for async programming
-async fn fetch_data(url: string) -> string! {
-    // Simulate an asynchronous operation
-    await std::Time::sleep(2.0)
-    return f"Data from {url}"
-}
-
-var future = thread fetch_data("https://example.com")
-std::print("Fetching data asynchronously...")
-
-var data = await future!
-std::print(f"Received: {data}")
-
-// Helix also has spawn which is an alterative to thread that uses a thread pool instead of creating a new thread every time
-var future2 = spawn fetch_data("https://example.org")
-std::print("Fetching data asynchronously using spawn...")
-
-var data2 = await future2!
-std::print(f"Received: {data2}")
-
-// Helix also has built in support for SIMD operations
-// std is subject to change
-var a = std::simd!(f32, 4){1.0, 2.0, 3.0, 4.0}
-var b = std::simd!(f32, 4){5.0, 6.0, 7.0, 8.0}
-var c = a + b // element wise addition
-
-std::print(f"SIMD Result: {c}") // Output: SIMD Result: (6.0, 8.0, 10.0, 12.0)
-
-// Support for low level programming
-unsafe {
-    var buff: unsafe *u8 = [16; u8 = 0]
-
-    for i in 0..16 {
-        buff[i] = (*buff[i]) + 1 // doing both pointer deref and arithmetic
-    }
-}
-
-std::print(f"Buffer: {buff}") // Output: Buffer: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-
-// either you need an unsafe block or the function needs to be marked unsafe to use unsafe features
-// most of the std would have unsafe function overloads for applications that need it
-// helix does have unsafe overloads
-
-class <T> SomeArrayType {
-    var data: unsafe *T
-    var len: usize
-
-    fn SomeArrayType(self, len: usize) {
-        self.len = len
-        self.data = unsafe std::Memory::alloc(len * sizeof(T)) as unsafe *T // allocating uninitialized memory that function in the std has no safe overload
-    }
-
-    fn get(self, index: usize) -> T? {
-        if index >= self.len {
-            return null
-        }
-
-        return unsafe *(self.data + index) // pointer arithmetic and deref
-    }
-
-    unsafe fn get(self, index: usize) -> T { // unsafe function
-        return *(self.data + index)
-    }
-}
-
-var arr = SomeArrayType<i32>(10)
-unsafe {
-    for i in 0..11 {
-
-        var val = arr.get(i) // safe version
-        if val != null {
-            std::print(f"Value at {i}: {val}")
-        } else {
-            std::print(f"Index {i} out of bounds")
-        }
-
-        var val2 = unsafe arr.get(i) // unsafe version
-        std::print(f"Unsafe Value at {i}: {val2}") // if i is out of bounds this will lead to undefined behavior or a SEGFAULT, thats the tradeoff for the performance gain
-    }
-}
-
-// Helix also has support for inline assembly
-unsafe fn get_cpu_id() -> u32 {
-    var cpu_id: u32
-    inline "asm" {
-        "mov eax, 1"
-        "cpuid"
-        out("eax") cpu_id
-    }
-    return cpu_id
-}
-
-// and inline C/C++
-unsafe fn get_cpu_pid() -> u32 {
-    inline "c++" {
-        #include <unistd.h>
-
-        return getpid();
-    }
-}
-
-std::print(f"CPU ID: {get_cpu_id()}")
-
-// helix has many more features this is just a small sample of what helix can do
-```
+> [!NOTE]
+> Documentation is a work in progress and most of whats there is written using AI (LLMs). It has many missing parts and inaccuracies. We are working on redoing it and would appreciate any contributions, feedback, or suggestions you may have! You can find the source on [GitHub](https://github.com/helixlang/helix-site), and the website is hosted at [helix-lang.com](https://www.helix-lang.com).
