@@ -1,22 +1,22 @@
-///--- The Helix Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
-///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   For more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------- Lib-Helix ---///
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+
+ffi "c++" import "Core/SmallFunction.hh";
+ffi "c++" import "Core/Types.hh";
 
 import Core::Timer::*;
-
-ffi "c++" import "Core/Core/SmallFunction.hh";
-ffi "c++" import "Core/Core/Types.hh";
 
 ///
 /// \class ThreadPool
@@ -477,6 +477,20 @@ class ThreadPool {
                 libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
                 spins = 0; // reset to check more frequently again
             }
+        }
+    }
+
+    ///
+    /// \brief Waits for completion of all tasks across all groups.
+    ///
+    /// \details
+    /// Iteratively invokes `wait_group` for each group ID from 0 to 255.
+    ///
+    /// \see wait_group
+    ///
+    inline fn wait_all(self) {
+        for gi in range::<u32>(0, 256) {
+            self.wait_group(gi);
         }
     }
 

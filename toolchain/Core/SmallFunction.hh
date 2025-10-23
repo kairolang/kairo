@@ -14,7 +14,7 @@
 ///------------------------------------------------------------ HELIX -------///
 
 #ifndef __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
-#   define __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
+#define __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
 
 ///
 /// \file Core/SmallFunction.hh
@@ -47,30 +47,19 @@
 #include <type_traits>
 #include <utility>
 
-#if defined(_WIN32)
-#   include <windows.h>
-#elif defined(__linux__)
-#   include <pthread.h>
-#   include <sched.h>
-#elif defined(__APPLE__)
-#   include <mach/mach_init.h>
-#   include <mach/thread_act.h>
-#   include <pthread.h>
-#else
-#   include <thread>
-#endif
+#include "Types.hh"
 
-#if defined(__x86_64__)
-#   include <immintrin.h>
-#   define _thread_pause() _mm_pause()
-#elif defined(__aarch64__)
-#   include <arm_acle.h>
-#   define _thread_pause() __yield()
-#elif defined(__riscv)
-#   define _thread_pause() asm volatile("pause" ::: "memory")
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__linux__)
+#include <pthread.h>
+#include <sched.h>
+#elif defined(__APPLE__)
+#include <mach/mach_init.h>
+#include <mach/thread_act.h>
+#include <pthread.h>
 #else
-#   include <thread>
-#   define _thread_pause() libcxx::this_thread::yield()
+#include <thread>
 #endif
 
 namespace helix {

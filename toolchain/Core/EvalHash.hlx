@@ -1,27 +1,17 @@
-///--- The Helix Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
-///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   For more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------- Lib-Helix ---///
-
-///
-/// \brief Hashing functions for strings at compile time.
-///        The purpose of this file is to provide a way to hash strings at compile time.
-///        This is useful for generating unique identifiers for strings that are known at
-///        compile time. The hashing algorithm used is a simple polynomial rolling hash.
-///        The hash function is not cryptographically secure and should not be used for
-///        security purposes. It is intended for use in generating unique identifiers for
-///        strings.
-///
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
 
 const kFnvOffsetBasis:  u64   = 0x14650FB0739D0383;;
 const kGoldenRatioMix:  u64   = 0x9e3779b97f4a7c15;;
@@ -200,6 +190,7 @@ consteval u64 compute_hash(const char (&str)[N]) {
 }
 ");
 
+///
 /// \brief Computes a hash from a string literal at compile time.
 ///        This function is the main entry point for eval-time string hashing.
 ///
@@ -217,16 +208,13 @@ eval fn <str: const EvalStrBuffer> compute_hash() -> u64 {
     return compute_hash::<len>(str.value.data());
 }
 
-
-
+///
+/// \brief Converts a usize value to a hexadecimal string.
+///
 fn to_hex_string(const value: usize) -> string {
     return libcxx::format(r"{:x}", value).data();
 }
 
-///
-/// \brief Computes a eval-time hash from a string literal.
-///        This function is to test the compute_hash function with string literals.
-///
 fn Test() -> i32 {
     // --- eval-time string literal hashes ---
     print(f"hash<\"inline\">\t= 0x{to_hex_string(compute_hash::<r"inline">())}");
