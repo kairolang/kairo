@@ -1,0 +1,204 @@
+///--- The Helix Project ------------------------------------------------------------------------///
+///                                                                                              ///
+///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
+///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
+///   were made.                                                                                 ///
+///                                                                                              ///
+///   For more information on the license terms and requirements, please visit:                  ///
+///     https://creativecommons.org/licenses/by/4.0/                                             ///
+///                                                                                              ///
+///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   Copyright (c) 2024-2025 The Helix Project (CC BY 4.0)                                      ///
+///                                                                                              ///
+///-------------------------------------------------------------------------------- Lib-Helix ---///
+
+/// \brief Interface for Helix's CLI options / parser specification.
+/// \details This comment block describes *all flags* that the Helix compiler driver must support,
+///          the semantics, how parsing should work, and how flags interact. The implementation
+///          should use an OptionTable approach: one entry per flag, with properties (name, alias,
+///          takesValue, repeats, category, default, etc.). Once committed, flag names and
+///          semantics are part of public API; changes cost compatibility.
+///
+///          Key requirements:
+///            • Support single-letter short flags (-O, -I, -l, etc.), and descriptive long flags (--target, etc.).
+///            • Use separators consistent with industry: space or “=” after long flags; joined or space after short flags.
+///            • Allow repeating flags for multi-value (e.g., -I, -l, warnings).
+///            • Use toggle form for feature flags: -f<feature> / -fno-<feature>.
+///            • Support cross-compilation: target/host triples, sysroot, architecture, tuning, etc.
+///            • Support diagnostics, warnings, sanitizers, hardening options, backend / pass-through flags.
+///
+/// The flags below are grouped by category. Some are marked “planned” if not yet implemented.
+///
+///
+// / / The following flags MUST be supported:
+
+/// GENERAL / HELP & VERSION
+/// - h, --help
+///     Show usage / help text.
+/// - v, --version
+///     Print the compiler version.
+/// --verbose
+///     Increase verbosity of compiler output. May be repeatable to increase detail.
+/// --quiet
+///     Suppress non-error, noncritical output (less verbose). Mutually exclusive with verbose.
+
+/// PROFILES / BUILD MODES
+/// --profile=<debug|release|small|fast>
+///     Predefined sets of flags configuring optimization, debug symbols, size vs speed tradeoffs.
+///     Examples:
+///       - debug → low/no optimization, full debug info, safety checks on.
+///       - release → higher optimization, less debugging, safety checks possibly off.
+///       - small → size-oriented optimize, omit unneeded code.
+///       - fast → aggressive optimization for runtime speed.
+
+/// INPUT / SOURCE / OUTPUT
+/// - o <file>
+///     Set output file path (binary, object, library, etc.).
+/// - c
+///     Compile only: create object file(s), do not link.
+/// - S
+///     Emit assembly code; stop before assembling to binary.
+/// - E
+///     Preprocess only: output source after macro expansion / imports, etc.
+/// - I <dir>
+///     Add an include / module import search directory.
+/// - L <dir>
+///     Add a library search directory (for linking).
+/// - l<name>
+///     Link with library by name (e.g. -lfoo → libfoo).
+/// --sysroot <dir>
+///     Define alternate root for system headers/libraries. Critical for cross-compiles.
+/// --prelude <file>
+///     Use this custom prelude file instead of the default built-in one.
+/// --no-prelude
+///     Do not include Helix's default prelude.
+/// --no-stdlib
+///     Do not link/include the Helix standard library. Useful in minimal / embedded / bootstrapping modes.
+
+/// TARGET / CROSS-COMPILATION
+/// --target=<triple>
+///     Target triple: architecture-vendor-os-ABI (e.g. x86_64-linux-gnu, aarch64-apple-darwin, riscv64-unknown-linux).
+/// --host=<triple>
+///     If cross-compiling, optionally specify the host triple (defaults to native if omitted).
+/// -march=<arch>
+///     Architecture level (e.g. x86_64, armv8, riscv64).
+/// -mcpu=<cpu>
+///     Specific CPU microarchitecture tuning.
+/// -mabi=<abi>
+///     ABI setting (e.g. for RISC-V, ARM, etc.).
+/// -mtune=<cpu>
+///     Tune generated code for given CPU, without breaking target ABI.
+
+/// OPTIMIZATION & DEBUG
+/// -O0, -O1, -O2, -O3
+///     Optimization levels.
+/// -Os
+///     Optimize for size.
+/// -Oz
+///     Aggressive size reduction (smaller code at cost of some speed).
+/// -g
+///     Include debug information/symbols.
+/// -g0
+///     Explicitly disable debug info even if defaults might include it.
+
+/// WARNINGS & DIAGNOSTICS
+/// - w
+///     Suppress all warnings.
+/// -Wall
+///     Enable common / standard set of warnings.
+/// -Wextra
+///     Enable additional, less common warnings.
+/// -Werror
+///     Treat warning messages as errors.
+/// -Wno-<name>
+///     Disable a specific warning.
+/// --emit=<tokens|ast|ir|asm|cxx>
+///     Emit intermediate representations / artifacts.
+/// -fdiagnostics-format=<fmt>
+///     Diagnostic output format. Options: gcc, clang, msvc, helix, json.
+
+/// LANGUAGE / FEATURE FLAGS
+/// -funsafe / -fno-unsafe
+///     Enable / disable unsafe code features.
+/// -fexceptions / -fno-exceptions
+///     Exception handling.
+/// -fimplicit-conversions / -fno-implicit-conversions
+///     Allow or disallow implicit type conversions.
+/// -funion-inference / -fno-union-inference
+///     Infer union types from usage.
+/// -fstrict-null / -fno-strict-null
+///     Enforce stricter null pointer/reference handling.
+/// -finline / -fno-inline
+///     Inlining heuristics.
+/// -ftail-call / -fno-tail-call
+///     Tail-call optimization.
+/// -fconst-checks / -fno-const-checks
+///     Enforce const correctness and stricter const rules.
+/// -fstatic-checks / -fno-static-checks
+///     Extra compile-time safety checks.
+/// -fdead-code-elim / -fno-dead-code-elim
+///     Remove unreachable / unused code.
+/// -fexport / -fno-export
+///     Visibility of global symbols.
+/// -fmutable / -fno-mutable
+///     Whether variables are mutable by default or require explicit mutability.
+
+/// STANDARDS & INTEROP
+/// -std=helix20
+///     Use the Helix 2020 language standard.
+/// -std=helix-next
+///     Use the bleeding-edge / upcoming Helix standard (may break compatibility).
+/// -std=c++23 (or other)
+///     For C/C++ interop or compiling foreign-language modules (when compiling .c/.cpp or using C++ FFI).
+
+/// FFI (FOREIGN FUNCTION INTERFACE)
+/// --ffi=<lang>
+///     Enable foreign-function interface for external language(s) (e.g. “c”, “c++”, “wasm”, etc.).
+/// --ffi-include <dir>
+///     Add directory for FFI headers / includes.
+
+/// PASS-THROUGH / BACKEND FLAGS
+/// -Xcxx <args>
+///     Forward additional args unchanged to the underlying C++ compiler / backend.
+/// -Xlinker <args>
+///     Forward args to the linker.
+/// -Xassembler <args>
+///     Forward args to the assembler.
+
+/// HARDENING & SANITIZERS (PLANNED / MUST SUPPORT)
+/// -fsanitize=<list>
+///     Enable runtime instrumentation: e.g. address, undefined behavior, memory, thread, leak sanitizers.
+/// -fno-omit-frame-pointer / -fno-omit-fp
+///     Preserve frame pointer for better backtraces / profiling.
+/// -fstack-protector / -fstack-protector-strong etc.
+///     Add stack overflow / buffer overwrite protection (where supported).
+/// -fPIE / -fpie, -fPIC / -fpic
+///     Position-independent code / executables for shared libraries or ASLR.
+/// -fno-rtti-data / -frtti (if applicable)
+///     Toggle runtime type info / reflection data (if Helix supports).
+/// -ffast-math, -fno-fast-math (or mode variants)
+///     Control floating-point compromises (speed vs IEEE correctness).
+
+/// OTHER ADVANCED FLAGS (PLANNED)
+/// -Xthreads <n>
+///     Number of threads for parallel compilation / codegen / LTO.
+/// -fvisibility=<default|hidden|…>
+///     Control symbol visibility / exports.
+/// -fsanitize-opts / options for sanitizers (verbosity, leak detection thresholds, etc.).
+/// -save-temps
+///     Keep intermediate temporary files (IRs, AST dumps, preprocessed sources).
+/// -coverage
+///     Instrument code for test coverage.
+/// -dump-passes
+///     Emit diagnostic output / logs of intermediate compiler passes (AST, IR after each transformation).
+
+/// ENVIRONMENT VARIABLES
+/// HELIX_FLAGS
+///     Default flags applied to all compilation invocations (from environment).
+/// HELIX_IMPORTS
+///     Colon-delimited set of directories to search for module / import files.
+/// HELIX_LIBRARIES
+///     Colon-delimited directories to search for libraries when linking.
+/// HELIX_PATH
+///     Path to Helix root / installation directory.
