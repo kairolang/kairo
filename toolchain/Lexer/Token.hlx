@@ -29,13 +29,10 @@ ROADMAP LEXER
     op == fn (self, other: string) -> bool;
     op != fn (self, other: string) -> bool;
 }
-
-
-
-
 */
 
 import Core::SourceLocation::*;
+import Core::SourceRange::*;
 import Core::TokenKind::*;
 
 /// size = 16 bytes on 64-bit
@@ -221,7 +218,7 @@ class ImmediateTable {
             var frag_idx = self.string_literals.size();
 
             self.string_literals.push_back(StringFragment{
-                len:        frag.len,
+                loc:        (static_cast::<u64>(frag.tok.loc.raw()) << 32) | static_cast::<u64>(frag.len),
                 encoding:   hash_kind_i8(frag.tok.kind),
                 expr_table: expr_idx,
                 expr_count: expr_count,
