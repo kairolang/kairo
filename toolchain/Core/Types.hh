@@ -67,11 +67,6 @@
 #endif
 
 namespace helix::std {
-
-// ----------------------------------------------------------------------
-// Threading and Synchronization
-// ----------------------------------------------------------------------
-
 ///
 /// \brief Atomic type alias for thread-safe integral or pointer operations.
 ///
@@ -148,10 +143,6 @@ using Future = libcxx::future<void>;
 /// \see libcxx::promise
 ///
 using Promise = libcxx::promise<void>;
-
-// ----------------------------------------------------------------------
-// Smart Pointers
-// ----------------------------------------------------------------------
 
 ///
 /// \brief Alias for unique ownership smart pointer.
