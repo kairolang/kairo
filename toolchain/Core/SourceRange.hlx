@@ -1,138 +1,212 @@
-///--- The Helix Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
-///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   For more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------- Lib-Helix ---///
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
 
 import Core::SourceLocation::*;
 
-/*
-class SourceLocation {
-    pub var id: u32 = 0;
-
-    fn SourceLocation(self) {
-        self.id = 0;
-    }
-
-    eval fn from_raw(raw: u32) -> SourceLocation {
-        var loc = SourceLocation();
-        loc.id = raw;
-        return loc;
-    }
-
-    eval fn from_base(base: u32, offset: u32) -> SourceLocation {
-        var loc = SourceLocation();
-        loc.id = base + offset;
-        return loc;
-    }
-
-    fn is_valid(self) -> bool {
-        return self.id != 0;
-    }
-
-    fn is_invalid(self) -> bool {
-        return self.id == 0;
-    }
-
-    fn raw(self) -> u32 {
-        return self.id;
-    }
-
-    fn with_offset(self, delta: i32) -> SourceLocation {
-        var new_val = static_cast::<i64>(self.id) + static_cast::<i64>(delta);
-        if new_val < 0 {
-            std::print("SourceLocation underflow\n");
-            std::crash(73);
-        }
-        if new_val > 0xFFFFFFFF {
-            std::print("SourceLocation overflow\n");
-            std::crash(73);
-        }
-
-        var loc = SourceLocation();
-        loc.id = static_cast::<u32>(new_val);
-        return loc;
-    }
-
-    fn op == (self, other: SourceLocation) -> bool {
-        return self.id == other.id;
-    }
-
-    fn op != (self, other: SourceLocation) -> bool {
-        return self.id != other.id;
-    }
-
-    fn op < (self, other: SourceLocation) -> bool {
-        return self.id < other.id;
-    }
-
-    fn op <= (self, other: SourceLocation) -> bool {
-        return self.id <= other.id;
-    }
-
-    fn op > (self, other: SourceLocation) -> bool {
-        return self.id > other.id;
-    }
-
-    fn op >= (self, other: SourceLocation) -> bool {
-        return self.id >= other.id;
-    }
-
-    eval fn hash(self) -> u32 {
-        // simple FNV-1a hash for uniform distribution
-        var h: u32 = 0x811C9DC5;
-        h = (h ^ self.id) * 0x01000193;
-        return h;
-    }
-
-    eval fn from_ptr(ptr: *void) -> SourceLocation {
-        return SourceLocation::from_raw(
-            static_cast::<u32>(reinterpret_cast::<usize>(ptr))
-        );
-    }
-
-    fn to_string(self) -> string {
-        return libcxx::format(r"SourceLocation({})", self.id).data();
-    }
-}
-*/
+///
+/// \file Core/SourceRange.hlx
+/// \brief compact representation of a half-open interval between two source
+///        locations.
+///
+/// \details
+/// `SourceRange` models a range of text within a single source file, defined by
+/// a starting and ending `SourceLocation`. the range is **half-open** - meaning
+/// it includes the start position but excludes the end - consistent with how
+/// most compiler systems handle spans and slices.
+///
+/// this structure provides utilities for validation, containment checks,
+/// overlap detection, merging, and hashing. it's used throughout the compiler
+/// for diagnostics, token spans, and syntax tree mappings.
+///
+/// `SourceRange` assumes both endpoints are in the same file; it does not
+/// perform cross-file validation on its own.
+///
+/// \note zero-length or invalid ranges are allowed, but considered non-meaningful
+/// for operations like merging or containment.
+///
+/// \see SourceLocation, SourceManager, SourceLineTable
+///
 
 class SourceRange {
-    pub var id:  SourceLocation;
-    pub var len: u32;
+    pub var start: SourceLocation; ///< inclusive start of the range
+    pub var end:   SourceLocation; ///< exclusive end of the range.
 
+    ///
+    /// \brief default constructor, initializes to invalid range.
+    ///
     fn SourceRange(self) {
-        self.id  = SourceLocation::from_raw(0);
-        self.len = 0;
+        self.start = SourceLocation();
+        self.end   = SourceLocation();
     }
 
-    fn SourceRange(self, id: SourceLocation, len: u32) {
-        self.id  = id;
-        self.len = len;
+    ///
+    /// \brief constructs a range from two explicit bounds.
+    ///
+    /// \param start start location.
+    /// \param stop  end location.
+    /// \return range covering [start, stop).
+    ///
+    eval static fn from_bounds(start: SourceLocation, stop: SourceLocation) -> SourceRange {
+        var range   = SourceRange();
+        range.start = start;
+        range.end   = stop;
+
+        return range;
     }
 
+    ///
+    /// \brief constructs a range from start location and length.
+    ///
+    /// \param start start location.
+    /// \param len   number of bytes to cover.
+    /// \return range covering [start, start+len).
+    ///
+    eval static fn from_bounds(start: SourceLocation, len: usize) -> SourceRange {
+        var range   = SourceRange();
+        range.start = start;
+        range.end   = start.with_offset(len);
+
+        return range;
+    }
+
+    ///
+    /// \brief constructs a single-character range.
+    ///
+    /// \param loc source location to cover.
+    /// \return range covering [loc, loc+1).
+    ///
+    eval static fn single(loc: SourceLocation) -> SourceRange {
+        var range   = SourceRange();
+        range.start = loc;
+        range.end   = loc.with_offset(1);
+
+        return range;
+    }
+
+    ///
+    /// \brief checks if range is valid.
+    ///
+    /// \details
+    /// a range is valid if both endpoints are valid and `start <= end`.
+    ///
     fn is_valid(self) -> bool {
-        return self.id.is_valid();
+        return (self.start.is_valid())
+            && (self.end.is_valid())
+            && (self.start <= self.end);
     }
 
+    ///
+    /// \brief checks if range is invalid.
+    ///
     fn is_invalid(self) -> bool {
-        return self.id.is_invalid();
+        return !self.is_valid();
     }
 
-    fn end(self) -> SourceLocation {
-        return self.id.with_offset(static_cast::<i32>(self.len));
+    ///
+    /// \brief returns the size (in bytes) of the range.
+    ///
+    /// \return difference between `end` and `start` ids, or 0 if reversed.
+    ///
+    fn size(self) -> u32 {
+        if self.end < self.start {
+            return 0;
+        }
+
+        return (self.end.raw()) - (self.start.raw());
     }
 
+    ///
+    /// \brief checks if a location falls within the range.
+    ///
+    /// \param loc location to test.
+    /// \return true if `start <= loc < end`.
+    ///
+    fn contains(self, loc: SourceLocation) -> bool {
+        return (loc >= self.start) && (loc < self.end);
+    }
+
+    ///
+    /// \brief checks if this range overlaps another.
+    ///
+    /// \param other other range to test.
+    /// \return true if intervals intersect.
+    ///
+    fn overlaps(self, other: SourceRange) -> bool {
+        return (self.start < other.end) && (other.start < self.end);
+    }
+
+    ///
+    /// \brief merges two ranges into their minimal bounding span.
+    ///
+    /// \param other other range to merge with.
+    /// \return merged range covering both.
+    ///
+    /// \note if one range is invalid, the other is returned unchanged.
+    ///
+    fn merge(self, other: SourceRange) -> SourceRange {
+        if self.is_invalid() {
+            return other;
+        }
+
+        if other.is_invalid() {
+            return self;
+        }
+
+        var range   = SourceRange();
+        range.start = (self.start) if (self.start < other.start) else (other.start);
+        range.end   = (self.end)   if (self.end   > other.end)   else (other.end);
+        
+        return range;
+    }
+
+    ///
+    /// \brief equality operator.
+    ///
+    fn op == (self, other: SourceRange) -> bool {
+        return self.start == other.start && self.end == other.end;
+    }
+
+    ///
+    /// \brief inequality operator.
+    ///
+    fn op != (self, other: SourceRange) -> bool {
+        return !(self == other);
+    }
+
+    ///
+    /// \brief string conversion operator.
+    ///
+    /// \return formatted string like `SourceRange(start: <start>, end: <end>)`.
+    ///
     fn op as (self) -> string {
-        return f"SourceRange({self.id.to_string()}, {self.len})";
+        return f"SourceRange(start: {self.start}, end: {self.end})";
+    }
+
+
+    ///
+    /// \brief computes a hash for this range.
+    ///
+    /// \details
+    /// mixes both start and end values using FNV-1a-like hashing for
+    /// good distribution in hash tables.
+    ///
+    eval fn hash(self) -> u32 {
+        var h: u32 = 0x811C9DC5;
+        h = (h ^ self.start.raw()) * 0x01000193;
+        h = (h ^ self.end.raw())   * 0x01000193;
+
+        return h;
     }
 }
