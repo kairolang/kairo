@@ -1,110 +1,180 @@
-///--- The Helix Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
-///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   For more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------- Lib-Helix ---///
-
-/// \brief Abstraction over filesystem paths.
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
 
 import Core::FileSystem::*;
 
+///
+/// \file Core/Path.hlx
+/// \brief high-level abstraction over libc++ filesystem paths.
+///
+/// \details
+/// `Path` wraps around `libcxx::filesystem::path` to provide a safer,
+/// higher-level interface for working with file and directory paths.
+/// it automatically canonicalizes input paths, validates existence,
+/// and exposes lightweight query functions for file attributes.
+///
+/// key behaviors:
+///   - converts input into an absolute path on construction.
+///   - performs validation unless `mustExist = false`.
+///   - caches file type for faster attribute lookups.
+///   - provides uniform UTF-8-compatible string output.
+///
+/// \note this class is designed as a thin wrapper and does not perform
+/// any I/O beyond filesystem metadata queries.
+///
+/// \see FileSystem, VirtualFileManager, MappedFileBuffer
+///
+
 default class Path {
-    var path_data:  FilePath;
-    var entry_type: FileType;
+    var path_data:  FilePath; ///< underlying filesystem path object.
+    var entry_type: FileType; ///< cached type of the path entry.
 
-    //----------------------------------------------------------------------
-    // Constructors
-    //----------------------------------------------------------------------
-
+    ///
+    /// \brief default constructor (creates empty path).
+    ///
     default fn Path(self);
 
+    ///
+    /// \brief constructs and validates a new Path from string input.
+    ///
+    /// \param input raw path string (absolute or relative).
+    /// \param mustExist if true, ensures the path exists on disk.
+    ///
+    /// \details
+    /// - converts `input` into an absolute canonical path.
+    /// - crashes if the path is empty or non-existent when `mustExist` is true.
+    ///
+    /// \warning
+    /// this constructor performs a system call to check existence.
+    ///
     fn Path(self, input: string, mustExist: bool = true) {
         var raw = std::Memory::move(input).raw_string();
         self.path_data = libcxx::filesystem::absolute(FilePath(raw));
 
         if self.path_data.empty() {
-            std::print("Error: empty path string\n");
-            std::crash(127);
+            std::crash(std::Error::RuntimeError("Path: empty path string"));
         }
 
-        if mustExist && !libcxx::filesystem::exists(self.path_data) {
-            std::print(f"Error: path does not exist: {self.path_data.generic_wstring()}\n");
-            std::crash(127);
+        if mustExist && (!libcxx::filesystem::exists(self.path_data)) {
+            std::crash(std::Error::RuntimeError(
+                f"Path: path does not exist: {self.path_data.generic_wstring()}"
+            ));
         }
 
-        self.entry_type = __inline_cpp("libcxx::filesystem::status(this->path_data).type()");
+        self.entry_type = libcxx::filesystem::status(self.path_data)
+                         .__inline_cpp("type()");
     }
 
-    //----------------------------------------------------------------------
-    // Queries
-    //----------------------------------------------------------------------
-
-    const fn Exists(self) -> bool {
+    ///
+    /// \brief checks if path exists.
+    ///
+    const fn exists(self) -> bool {
         return libcxx::filesystem::exists(self.path_data);
     }
 
-    const fn Extension(self) -> string {
+    ///
+    /// \brief returns file extension (including the dot).
+    ///
+    const fn extension(self) -> string {
         return self.path_data.extension().generic_wstring();
     }
 
-    const fn Filename(self) -> string {
+    ///
+    /// \brief returns the final filename component.
+    ///
+    const fn filename(self) -> string {
         return self.path_data.filename().generic_wstring();
     }
 
-    const fn FullPath(self) -> string {
+    ///
+    /// \brief returns the absolute normalized path as string.
+    ///
+    const fn full_path(self) -> string {
         return self.path_data.generic_wstring();
     }
 
-    const fn Type(self) -> FileType {
+    ///
+    /// \brief returns the cached filesystem entry type.
+    ///
+    const fn file_type(self) -> FileType {
         return self.entry_type;
     }
 
-    const fn IsDirectory(self) -> bool {
+    ///
+    /// \brief true if the path refers to a directory.
+    ///
+    const fn is_directory(self) -> bool {
         return self.entry_type == FileType::directory;
     }
 
-    const fn IsRegularFile(self) -> bool {
+    ///
+    /// \brief true if the path refers to a regular file.
+    ///
+    const fn is_regular_file(self) -> bool {
         return self.entry_type == FileType::regular;
     }
 
-    const fn IsSymlink(self) -> bool {
+    ///
+    /// \brief true if the path refers to a symbolic link.
+    ///
+    const fn is_symlink(self) -> bool {
         return self.entry_type == FileType::symlink;
     }
 
-    const fn IsFIFO(self) -> bool {
+    ///
+    /// \brief true if the path refers to a fifo node.
+    ///
+    const fn is_fifo(self) -> bool {
         return self.entry_type == FileType::fifo;
     }
 
-    const fn IsSocket(self) -> bool {
+    ///
+    /// \brief true if the path refers to a unix domain socket.
+    ///
+    const fn is_socket(self) -> bool {
         return self.entry_type == FileType::socket;
     }
 
-    const fn IsBlockDevice(self) -> bool {
+    ///
+    /// \brief true if the path refers to a block device.
+    ///
+    const fn is_block_device(self) -> bool {
         return self.entry_type == FileType::block;
     }
 
-    const fn IsCharacterDevice(self) -> bool {
+    ///
+    /// \brief true if the path refers to a character device.
+    ///
+    const fn is_character_device(self) -> bool {
         return self.entry_type == FileType::character;
     }
 
-    //----------------------------------------------------------------------
-    // Conversion
-    //----------------------------------------------------------------------
-
+    ///
+    /// \brief implicit conversion to underlying FilePath pointer.
+    ///
     fn op as (self) -> *FilePath {
         return &self.path_data;
     }
 
-    fn to_string(self) -> string {
-        return self.path_data.generic_wstring();
+    ///
+    /// \brief string representation for debugging/logging.
+    ///
+    /// \return formatted as
+    ///         `"Path(path_data: <abs_path>, entry_type: <numeric_type>)"`.
+    ///
+    fn op as (self) -> string {
+        return f"Path(path_data: {self.path_data.generic_wstring()}, entry_type: {static_cast::<u32>(self.entry_type)})";
     }
 }

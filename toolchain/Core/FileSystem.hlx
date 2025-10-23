@@ -1,30 +1,44 @@
-///--- The Helix Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
-///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   For more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------- Lib-Helix ---///
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
 
-/// \brief File system type aliases and enumerations.
+///
+/// \file Core/FileTypes.hlx
+/// \brief type aliases and enums for filesystem abstractions.
+///
+/// \details
+/// defines unified aliases and enums for working with the filesystem across
+/// the helix runtime. used by file i/o, virtual file management, and compiler
+/// subsystems that depend on portable file handling semantics.
+///
+/// provides:
+///   - type aliases for filesystem paths and entry types
+///   - simple enumeration for file output modes
+///
+/// \see Path, VirtualFileManager
+///
 
-/// Filesystem path alias.
+/// filesystem path alias (based on libc++ std::filesystem::path)
 type FilePath = libcxx::filesystem::path;;
 
-/// Filesystem entry type alias.
+/// filesystem entry type alias
 type FileType = libcxx::filesystem::file_type;;
 
-/// File output modes.
+/// file output modes used for low-level i/o operations
 enum FileOutMode {
-    Read,
-    Write,
-    Append,
-    Truncate
+    Read,      ///< open for reading only
+    Write,     ///< open for writing, overwriting if exists
+    Append,    ///< open for writing at end of file
+    Truncate   ///< open and clear existing file contents
 }
