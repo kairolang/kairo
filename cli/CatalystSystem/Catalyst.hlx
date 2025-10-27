@@ -23,6 +23,11 @@
 
 class Catalyst{
     enum FlagType{
+        Help,
+        Exit,
+        Version,
+
+
 
     }
 
@@ -30,16 +35,21 @@ class Catalyst{
         var Type : FlagType;                        
         var alias : vec::<string>;           //stores all possible versions of the flag such as -h , --help , /help
 
-        var needsInput : bool;    
+        var takesValue : bool;  
+        var value : str;     //if flag is -f=something
     }
 
     var FlagTable : priv static std::vec<Flag>;     //holds all possible flags
 
-
-
     fn addFlag( flag : Flag ) -> bool {
         FlagTable.add(flag);
         return true;
+    }
+
+    fn Tokenize(){
+
+        
+
     }
 
 }
