@@ -21,7 +21,7 @@
 /// \brief Will specify flag type , such as help, optimization, compile and others 
 ///
 
-class Catalyst{
+class Catalyst{  
     enum FlagType{
 
     }
