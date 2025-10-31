@@ -19,10 +19,10 @@ Helix is a **statically typed  programming language**, built for systems program
 
 ### Why Helix?
 
-##### Think of programming languages like power tools.
-- **C and C++** would hand you a chainsaw with no guard; incredibly fast and powerful, but one wrong move and you’re missing a limb.
-- **Rust** won’t even hand you the chainsaw until you’ve passed a safety course; secure, but sometimes at the cost of productivity and simplicity.
-- **Helix** would hand you a chainsaw with safeguards where every cut is deliberate, not accidental.
+##### Think of programming languages like making coffee.
+- **C and C++** give you the beans, grinder, and espresso machine; and all the ingredients, but you dont have any instructions on how to make it, you have all the freedom but no guidance.
+- **Rust** gives you some ingredients and some fancy equipment, but you are forced to follow stricts recipes and you dont have enough creative freedom do what you want. You can't experiment with the recipes.
+- **Helix** gives you all that you need, with clear recipes and instructions, but also allows you to experiment and make your own recipes, without any restrictions.
 
 ### Design Rationale
 - We liked the simplicity of **Python's** syntax but wanted more.
