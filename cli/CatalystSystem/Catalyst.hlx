@@ -11,17 +11,18 @@
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
 ///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
-///-------------------------------------------------------------------------------- Lib-Helix ---///
+///----------------------------------------------------------------------------------------------///
 
 ///
 /// \brief An easy to use tool that abstracts the background process of creating CLI arguments 
 ///
 
-///
-/// \brief Will specify flag type , such as help, optimization, compile and others 
-///
+
 
 class Catalyst{  
+
+    var pointer : i32 ;   // lexer cursor
+
     enum FlagType{
 
     }
@@ -30,16 +31,63 @@ class Catalyst{
         var Type : FlagType;                        
         var alias : vec::<string>;           //stores all possible versions of the flag such as -h , --help , /help
 
-        var needsInput : bool;    
+        var needsValue : bool;
+        var value : string;    
+
     }
 
-    var FlagTable : priv static std::vec<Flag>;     //holds all possible flags
+    priv static var FlagTable: vec::<Flag>;     //holds all possible flags
 
 
 
-    fn addFlag( flag : Flag ) -> bool {
+    fn addFlag(self, flag : Flag ) -> bool {
         FlagTable.add(flag);
         return true;
+    }
+
+    fn Tokenize(self, sentence : string ){
+
+        __inline_cpp("
+        static void *jump_table[256] = {
+            [0 ... 255] = &&other,
+            ['-'] = &&single_dash
+            ['/'] = &&slash_flag,
+        }");
+
+        
+
+        for pointer : i32 in sentence.length {
+            
+            __inline_cpp("goto *jump_table[(uint8_t)arg[0]]");
+        }
+
+        __inline_cpp("single_dash :");
+            if (sentence[(i+1)]) == '-' { 
+                /// brackets around sentence are due to messed up operator precedence
+                /// var a = (tok.token_kind()) as i32
+                /// auto a = tok.as_cast<i32>(token_kind())
+                                           
+                __inline_cpp("goto double_dash");
+            }
+
+            
+
+        __inline_cpp("other :");
+            if sentence[i] == ' ' {
+                continue;
+            }
+            flag += sentence
+
+
+        __inline_cpp("double_dash :");
+
+
+
+
+        __inline_cpp("slash_flag :");
+
+
+
     }
 
 }
