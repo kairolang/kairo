@@ -21,7 +21,7 @@ Helix is a **statically typed  programming language**, built for systems program
 
 ##### Think of programming languages like making coffee.
 - **C and C++** give you the beans, grinder, and espresso machine; and all the ingredients, but you dont have any instructions on how to make it, you have all the freedom but no guidance.
-- **Rust** gives you some ingredients and some fancy equipment, but you are forced to follow stricts recipes and you dont have enough creative freedom do what you want. You can't experiment with the recipes.
+- **Rust** gives you some ingredients and some fancy equipment, but you are forced to follow strict recipes and you don't have enough creative freedom do what you would like. You can't experiment with the recipes and create your own variations easily.
 - **Helix** gives you all that you need, with clear recipes and instructions, but also allows you to experiment and make your own recipes, without any restrictions.
 
 ### Design Rationale
