@@ -16,3 +16,29 @@
 ///
 /// \brief This file will use the catalyst system as a tool to affect the compilation process 
 ///
+
+
+//-------------------------------Global compilation variables ------------------------------------//
+
+var OPTIMIZE : i32 = 1 ;
+var WARNING : bool = false ;
+var EMIT_ASM : bool = false ;
+var EMIT_CPP : bool = false ;
+
+
+//---------------------------------ALIAS MAP -------------------------------------------------------//
+
+// Add new flags easily as shown below in the format , uses O1 lookup times 
+// "[alias]" : (Flagtype, needsValue),
+
+
+static var aliasMap : map::<string, FlagType> = {
+    "-h" : (FlagType::HELP, 0),
+    "--help" : (FlagType::HELP, 0),
+    "/help" : (FlagType::HELP, 0),
+    "-v" : (FlagType::VERSION, 0),
+    "--version" : (FlagType::VERSION, 0),
+    "/version" : (FlagType::VERSION, 0)
+};
+
+
