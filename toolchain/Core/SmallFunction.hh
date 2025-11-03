@@ -42,10 +42,7 @@
 /// \see helix::ThreadPool, std::function
 ///
 
-#include <cstring>
 #include <include/core.hh>
-#include <type_traits>
-#include <utility>
 
 #include "Types.hh"
 
@@ -204,7 +201,7 @@ class SmallFunction {
     ///
     /// \brief Invokes the stored callable if one exists.
     ///
-    /// \detail
+    /// \details
     /// Performs a direct type-erased call through `_call`.
     /// If no callable is present, the function returns silently.
     ///
@@ -219,7 +216,7 @@ class SmallFunction {
     ///
     /// \brief Resets and destroys the stored callable.
     ///
-    /// \detail
+    /// \details
     /// Calls the stored destructor function (if any) and clears both
     ///     function pointers. After `reset()`, the instance becomes empty and
     ///     safe to reuse.
@@ -245,7 +242,7 @@ class SmallFunction {
     /// \struct Storage
     /// \brief Internal aligned storage buffer for callable placement.
     ///
-    /// \detail
+    /// \details
     /// Provides statically allocated space for storing callable
     ///     objects of up to `InlineSize` bytes.
     ///     Aligned to `max_align_t` for safety across platforms.
@@ -260,7 +257,7 @@ class SmallFunction {
     /// \tparam F Type of the callable.
     /// \param f Callable instance to store.
     ///
-    /// \detail
+    /// \details
     ///     Performs placement-new into `_storage.data` and sets up
     ///     function pointers for later invocation and destruction.
     ///
@@ -284,7 +281,7 @@ class SmallFunction {
     ///
     /// \param other Source `SmallFunction` to move from.
     ///
-    /// \detail
+    /// \details
     /// Copies raw storage memory, moves function pointers, and clears
     ///     the source. The move is shallow, as callable contents are already
     ///     inline.

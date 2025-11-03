@@ -381,11 +381,11 @@ class SourceLineTable {
 
         finally {
             for part in *partials {
-                std::forget(part);
+                std::destroy(part);
             }
 
             partials->clear();
-            std::forget(partials);
+            std::destroy(partials);
         }
 
         const group: u8 = 100;
@@ -439,7 +439,7 @@ class SourceLineTable {
             }
 
             if part != &null {
-                std::forget(part);
+                std::destroy(part);
             }
         }
 

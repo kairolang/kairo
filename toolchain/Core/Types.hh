@@ -21,7 +21,7 @@
 /// \brief Common type and function aliases for Helix core and standard
 /// interoperability.
 ///
-/// \detail
+/// \details
 /// This header provides unified type aliases and helper functions for
 /// threading, synchronization, and memory management primitives used across the
 /// Helix toolchain. It re-exports key C++ standard library types and functions
@@ -41,7 +41,7 @@
 ///   - **Smart pointers** (unique_ptr, shared_ptr, weak_ptr)
 ///   - **Synchronization constructs** (locks, promises, futures)
 ///
-/// ### Licensing
+/// \note
 /// Part of the Helix Project under the Attribution 4.0 International License
 /// (CC BY 4.0). Redistribution and modification are permitted with attribution.
 ///
@@ -50,23 +50,42 @@
 
 #include <include/core.hh>
 
+#include <bit>
+#include <execution>
+#include <memory>
+#include <memory_resource>
+#include <mutex>
+#include <new>
+
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
 #   include <immintrin.h>        // SSE, AVX, AVX2, AVX512 intrinsics
 #   include <emmintrin.h>        // SSE2 baseline
 #   include <tmmintrin.h>        // SSSE3
 #   define _thread_pause() _mm_pause()
+#   define _simd_available() 1
+#   define _x86_64_simd
 #elif defined(__aarch64__) || defined(_M_ARM64)
 #   include <arm_acle.h>         // __yield()
 #   include <arm_neon.h>         // NEON intrinsics
 #   define _thread_pause() __yield()
+#   define _simd_available() 1
+#   define _aarch64_simd
 #elif defined(__riscv)
 #   define _thread_pause() asm volatile("pause" ::: "memory")
+#   define _simd_available() 0
 #else
 #   include <thread>
 #   define _thread_pause() ::std::this_thread::yield()
+#   define _simd_available() 0
 #endif
 
 namespace helix::std {
+///
+/// \brief Byte type alias for low-level memory operations.
+/// \see libcxx::byte
+///
+using Byte = libcxx::byte;
+
 ///
 /// \brief Atomic type alias for thread-safe integral or pointer operations.
 ///

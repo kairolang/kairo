@@ -704,7 +704,6 @@ class ThreadPool {
 
         _thread_pause();
     }
-
 }
 
 ///

@@ -26,8 +26,8 @@ import Core::MemoryBuffer::*;
 /// managed by `VirtualFileManager`. it holds a reference to a `MappedFileBuffer`
 /// and tracks its base offset and size within the larger virtual memory map.
 ///
-/// this abstraction allows higher-level systems — such as the `SourceManager`,
-/// lexer, and parser — to uniformly access source contents without worrying
+/// this abstraction allows higher-level systems- such as the `SourceManager`,
+/// lexer, and parser- to uniformly access source contents without worrying
 /// about file segmentation or buffer ownership.
 ///
 /// each `SourceFile` is valid only as long as its parent `MappedFileBuffer`
