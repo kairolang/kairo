@@ -172,7 +172,7 @@ class VirtualFileManager {
     fn op delete (self) {
         for seg: *Segment in _segments {
             if seg != &null {
-                std::forget(seg);
+                std::destroy(seg);
             }
         }
 
@@ -180,7 +180,7 @@ class VirtualFileManager {
 
         for p: *MappedFileBuffer in _parents {
             if p != &null {
-                std::forget(p);
+                std::destroy(p);
             }
         }
 
@@ -326,7 +326,7 @@ class VirtualFileManager {
         for i in range::<usize>(fid, _segments.size()) {
             var seg = _segments[i];
             
-            if off < seg->offset + seg->size {
+            if off < (seg->offset + seg->size) {
                 var local = static_cast::<u32>(off - seg->offset);
                 return SourceLocation::from_base(seg->fid, local);
             }
@@ -359,5 +359,4 @@ class VirtualFileManager {
         result += ")";
         return result;
     }
-    
 }

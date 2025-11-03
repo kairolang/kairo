@@ -29,7 +29,7 @@ import Core::UTF8View::*;
 /// typically wraps a memory-mapped region (`MMapRegion`) or subrange of one,
 /// exposing convenient access for lexers, parsers, and file i/o layers.
 ///
-/// this class performs no ownership or lifetime management — the backing
+/// this class performs no ownership or lifetime management- the backing
 /// memory must remain valid for the duration of its use.
 ///
 /// \note
@@ -44,7 +44,7 @@ import Core::UTF8View::*;
 ///
 /// \details
 /// provides direct pointer access (`data()`, `size()`) and utf-8 decoding
-/// through the `chars()` method. used heavily by the compiler’s source and
+/// through the `chars()` method. used heavily by the compiler's source and
 /// file management subsystems.
 ///
 class MemoryBuffer {

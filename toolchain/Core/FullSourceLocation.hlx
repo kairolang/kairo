@@ -24,7 +24,7 @@ import Core::VirtualFileManager::*;
 /// \details
 /// `FullSourceLocation` combines a low-level `SourceLocation` identifier
 /// with its resolved file metadata, including file path, line, and column.
-/// it’s primarily used for diagnostics, debugging, and user-facing messages
+/// it's primarily used for diagnostics, debugging, and user-facing messages
 /// where exact source coordinates are required.
 ///
 /// unlike `SourceLocation`, which stores an opaque numeric id, this class

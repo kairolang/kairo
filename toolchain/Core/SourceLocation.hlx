@@ -54,7 +54,9 @@ class SourceLocation {
     /// \return a new SourceLocation with `id = raw`.
     ///
     eval static fn from_raw(raw: u32) -> SourceLocation {
-        var loc = SourceLocation(); loc.id = raw; return loc;
+        var loc = SourceLocation();
+        loc.id = raw;
+        return loc;
     }
 
     ///

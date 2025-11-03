@@ -37,7 +37,7 @@ import Core::Timer::*;
 /// the class supports utf-8 viewing via `UTF8View` and is used heavily by the
 /// `VirtualFileManager` and `SourceManager`.
 ///
-/// \warning not thread-safe. synchronization is the caller’s responsibility.
+/// \warning not thread-safe. synchronization is the caller's responsibility.
 /// \warning error handling is minimal; production builds should add safety
 ///          layers around i/o and mapping failures.
 ///
@@ -52,7 +52,7 @@ import Core::Timer::*;
 ///
 /// ownership semantics:
 ///   - if created via `load()`, the buffer owns its region.
-///   - if created via `attach()`, it references another buffer’s region.
+///   - if created via `attach()`, it references another buffer's region.
 ///
 class MappedFileBuffer {
     var _region:      MMapRegion   = MMapRegion{};   ///< underlying mmap region.
@@ -135,7 +135,8 @@ class MappedFileBuffer {
     ///
     fn attach(self, parent: *MappedFileBuffer, offset: usize, length: usize) {
         if (parent == &null) || (!parent->_region.is_valid()) {
-            self._region = MMapRegion{}; return;
+            self._region = MMapRegion{};
+            return;
         }
 
         self._region.attach(&parent->_region, offset, length);

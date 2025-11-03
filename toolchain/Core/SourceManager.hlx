@@ -186,6 +186,10 @@ class SourceManager {
     fn resolve(self, loc: SourceLocation) -> VirtualFileManager::SegmentResolve {
         var id = static_cast::<usize>(loc.raw());
 
+        if id > 0 {
+            --id;
+        }
+
         for i in range::<usize>(0, self._files.size()) {
             var f = self._files[i];
 
@@ -251,20 +255,6 @@ class SourceManager {
     }
 
     ///
-    /// \brief converts file id + offset into a SourceLocation.
-    ///
-    fn get_loc(self, file_id: u32, offset: u32) -> SourceLocation {
-        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
-            return SourceLocation::from_raw(0);
-        }
-
-        return SourceLocation::from_base(
-            self._files[file_id]->base_offset,
-            offset
-        );
-    }
-
-    ///
     /// \brief fetches file view handle from VirtualFileManager.
     ///
     fn get_file_view(self, fid: u32) -> VirtualFileManager::FileHandle {
@@ -323,6 +313,24 @@ class SourceManager {
         return self._total_b;
     }
 
+    ///
+    /// \brief retrieves a MemoryBuffer view for a SourceRange.
+    ///
+    fn get_view(self, range: SourceRange) -> MemoryBuffer {
+        var res     = self.resolve(range.start);
+        var file_id = res.fid;
+        var offset  = res.offset;
+        var length  = static_cast::<usize>(range.end.raw() - range.start.raw());
+        var file    = self._files[file_id];
+        var buf     = file->buffer->bytes();
+
+        if (offset + length) > buf.size() {
+            length = buf.size() - offset;
+        }
+
+        return MemoryBuffer(buf.data() + offset, length);
+    }
+    
     ///
     /// \brief prints loaded file metadata for debugging.
     ///
