@@ -23,16 +23,12 @@ class Catalyst{
 
     var pointer : i32 ;   // lexer cursor
 
-    enum FlagType{
-        HELP,
-        VERSION,
-        OPTIMIZE,
-        ASM,
-        CPP,
-        WARNING,
-        
-
+    struct TokenKind{
+        var flag : FlagType;
+        var value : string;
     }
+
+    
 
     struct Flag{
         var Type : FlagType;                       

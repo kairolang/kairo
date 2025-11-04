@@ -16,3 +16,124 @@
 ///
 /// \brief Contains all the definitions for each flag to be inserted at compile time
 ///
+
+enum FlagType {
+    FILE, // for input/output files
+
+    // --- GENERAL / HELP & VERSION ---
+    HELP        = compute_hash<r"-h">(),
+    HELP_LONG   = compute_hash<r"--help">(),
+    VERSION     = compute_hash<r"-v">(),
+    VERSION_LONG= compute_hash<r"--version">(),
+    VERBOSE     = compute_hash<r"--verbose">(),
+    QUIET       = compute_hash<r"--quiet">(),
+
+    // --- PROFILES / BUILD MODES ---
+    PROFILE     = compute_hash<r"--profile">(),
+
+    // --- INPUT / SOURCE / OUTPUT ---
+    OUTPUT      = compute_hash<r"-o">(),
+    COMPILE_ONLY= compute_hash<r"-c">(),
+    EMIT_ASM    = compute_hash<r"-S">(),
+    PREPROCESS  = compute_hash<r"-E">(),
+    INCLUDE_DIR = compute_hash<r"-I">(),
+    LIB_DIR     = compute_hash<r"-L">(),
+    LINK_LIB    = compute_hash<r"-l">(),
+    SYSROOT     = compute_hash<r"--sysroot">(),
+    PRELUDE     = compute_hash<r"--prelude">(),
+    NO_PRELUDE  = compute_hash<r"--no-prelude">(),
+    NO_STDLIB   = compute_hash<r"--no-stdlib">(),
+
+    // --- TARGET / CROSS-COMPILATION ---
+    TARGET      = compute_hash<r"--target">(),
+    HOST        = compute_hash<r"--host">(),
+    MARCH       = compute_hash<r"-march">(),
+    MCPU        = compute_hash<r"-mcpu">(),
+    MABI        = compute_hash<r"-mabi">(),
+    MTUNE       = compute_hash<r"-mtune">(),
+
+    // --- OPTIMIZATION & DEBUG ---
+    OPTIMIZE0   = compute_hash<r"-O0">(),
+    OPTIMIZE1   = compute_hash<r"-O1">(),
+    OPTIMIZE2   = compute_hash<r"-O2">(),
+    OPTIMIZE3   = compute_hash<r"-O3">(),
+    OPTIMIZE_S  = compute_hash<r"-Os">(),
+    OPTIMIZE_Z  = compute_hash<r"-Oz">(),
+    DEBUG       = compute_hash<r"-g">(),
+    DEBUG_OFF   = compute_hash<r"-g0">(),
+
+    // --- WARNINGS & DIAGNOSTICS ---
+    NOWARN      = compute_hash<r"-w">(),
+    WALL        = compute_hash<r"-Wall">(),
+    WEXTRA      = compute_hash<r"-Wextra">(),
+    WERROR      = compute_hash<r"-Werror">(),
+    WNO_PREFIX  = compute_hash<r"-Wno-">(), // prefix form
+    EMIT        = compute_hash<r"--emit">(),
+    DIAG_FORMAT = compute_hash<r"-fdiagnostics-format">(),
+
+    // --- LANGUAGE / FEATURE FLAGS ---
+    FUNSAFE             = compute_hash<r"-funsafe">(),
+    FNO_UNSAFE          = compute_hash<r"-fno-unsafe">(),
+    FEXCEPTIONS         = compute_hash<r"-fexceptions">(),
+    FNO_EXCEPTIONS      = compute_hash<r"-fno-exceptions">(),
+    FIMPLICIT_CONV      = compute_hash<r"-fimplicit-conversions">(),
+    FNO_IMPLICIT_CONV   = compute_hash<r"-fno-implicit-conversions">(),
+    FUNION_INFER        = compute_hash<r"-funion-inference">(),
+    FNO_UNION_INFER     = compute_hash<r"-fno-union-inference">(),
+    FSTRICT_NULL        = compute_hash<r"-fstrict-null">(),
+    FNO_STRICT_NULL     = compute_hash<r"-fno-strict-null">(),
+    FINLINE             = compute_hash<r"-finline">(),
+    FNO_INLINE          = compute_hash<r"-fno-inline">(),
+    FTAIL_CALL          = compute_hash<r"-ftail-call">(),
+    FNO_TAIL_CALL       = compute_hash<r"-fno-tail-call">(),
+    FCONST_CHECKS       = compute_hash<r"-fconst-checks">(),
+    FNO_CONST_CHECKS    = compute_hash<r"-fno-const-checks">(),
+    FSTATIC_CHECKS      = compute_hash<r"-fstatic-checks">(),
+    FNO_STATIC_CHECKS   = compute_hash<r"-fno-static-checks">(),
+    FDEAD_CODE_ELIM     = compute_hash<r"-fdead-code-elim">(),
+    FNO_DEAD_CODE_ELIM  = compute_hash<r"-fno-dead-code-elim">(),
+    FEXPORT             = compute_hash<r"-fexport">(),
+    FNO_EXPORT          = compute_hash<r"-fno-export">(),
+    FMUTABLE            = compute_hash<r"-fmutable">(),
+    FNO_MUTABLE         = compute_hash<r"-fno-mutable">(),
+
+    // --- STANDARDS & INTEROP ---
+    STD                 = compute_hash<r"-std">(),
+
+    // --- FFI ---
+    FFI                 = compute_hash<r"--ffi">(),
+    FFI_INCLUDE         = compute_hash<r"--ffi-include">(),
+
+    // --- PASS-THROUGH / BACKEND FLAGS ---
+    XCXX                = compute_hash<r"-Xcxx">(),
+    XLINKER             = compute_hash<r"-Xlinker">(),
+    XASSEMBLER          = compute_hash<r"-Xassembler">(),
+
+    // --- HARDENING & SANITIZERS ---
+    FSANITIZE           = compute_hash<r"-fsanitize">(),
+    FNO_OMIT_FP         = compute_hash<r"-fno-omit-frame-pointer">(),
+    FNO_OMIT_FP_SHORT   = compute_hash<r"-fno-omit-fp">(),
+    FSTACK_PROTECTOR    = compute_hash<r"-fstack-protector">(),
+    FPIE                = compute_hash<r"-fPIE">(),
+    FPIE_LOWER          = compute_hash<r"-fpie">(),
+    FPIC                = compute_hash<r"-fPIC">(),
+    FPIC_LOWER          = compute_hash<r"-fpic">(),
+    FNO_RTTI_DATA       = compute_hash<r"-fno-rtti-data">(),
+    FRTTI               = compute_hash<r"-frtti">(),
+    FFAST_MATH          = compute_hash<r"-ffast-math">(),
+    FNO_FAST_MATH       = compute_hash<r"-fno-fast-math">(),
+
+    // --- ADVANCED / OTHER ---
+    XTHREADS            = compute_hash<r"-Xthreads">(),
+    FVISIBILITY         = compute_hash<r"-fvisibility">(),
+    FSANITIZE_OPTS      = compute_hash<r"-fsanitize-opts">(),
+    SAVE_TEMPS          = compute_hash<r"-save-temps">(),
+    COVERAGE            = compute_hash<r"-coverage">(),
+    DUMP_PASSES         = compute_hash<r"-dump-passes">(),
+
+    // --- ENVIRONMENT VARIABLES (not CLI flags, but useful if referenced) ---
+    ENV_FLAGS           = compute_hash<r"HELIX_FLAGS">(),
+    ENV_IMPORTS         = compute_hash<r"HELIX_IMPORTS">(),
+    ENV_LIBRARIES       = compute_hash<r"HELIX_LIBRARIES">(),
+    ENV_PATH            = compute_hash<r"HELIX_PATH">(),
+};
