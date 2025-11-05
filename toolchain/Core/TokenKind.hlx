@@ -306,6 +306,114 @@ enum TokenKind derives u32 {
     BiAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
 };
 
+//****************************************************************************//
+//           MAKE SURE TO KEEP THIS IN SYNC WITH THE ENUM ABOVE               //
+//****************************************************************************//
+
+fn is_valid_token_kind(kind: u32) -> bool {
+    switch static_cast::<TokenKind>(kind) {
+        case TokenKind::TkUnknown:          case TokenKind::TkEof:
+        case TokenKind::AtComment:          case TokenKind::TkNewLine:
+        case TokenKind::TkFileStart:        case TokenKind::TkFileEnd:
+        case TokenKind::TkMacroExpand:      case TokenKind::LitIdentifier:
+        case TokenKind::LitInt:             case TokenKind::LitFloat:
+        case TokenKind::LitString_Narrow:   case TokenKind::LitString_Format:
+        case TokenKind::LitChar_Narrow:     case TokenKind::LitChar_Format:
+        case TokenKind::OpRBrace:           case TokenKind::OpLParen:
+        case TokenKind::OpLSquare:          case TokenKind::OpRSquare:
+        case TokenKind::OpLess:             case TokenKind::OpGreater:
+        case TokenKind::OpMinus:            case TokenKind::OpStar:
+        case TokenKind::OpPercent:          case TokenKind::OpCaret:
+        case TokenKind::OpAmp:              case TokenKind::OpCaretCaret:
+        case TokenKind::OpRangeEqual:       case TokenKind::OpTilde:
+        case TokenKind::OpExclaim:          case TokenKind::OpAt:
+        case TokenKind::OpPlusplus:         case TokenKind::OpMinusMinus:
+        case TokenKind::OpArrowStar:        case TokenKind::OpQuestionArrow:
+        case TokenKind::OpExclaimArrow:     case TokenKind::OpExclaimArrowStar:
+        case TokenKind::OpSemicolon:        case TokenKind::OpComma:
+        case TokenKind::OpDotStar:          case TokenKind::OpColonColon:
+        case TokenKind::OpQuestionDotStar:  case TokenKind::OpExclaimDot:
+        case TokenKind::OpEllipsis:         case TokenKind::OpPlusEqual:
+        case TokenKind::OpStarEqual:        case TokenKind::OpSlashEqual:
+        case TokenKind::OpAmpEqual:         case TokenKind::OpPipeEqual:
+        case TokenKind::OpLessLessEqual:    case TokenKind::OpGreaterGreaterEqual:
+        case TokenKind::OpLessEqualGreater: case TokenKind::OpEqualEqualEqual:
+        case TokenKind::OpExclaimEqual:     case TokenKind::OpLessLess:
+        case TokenKind::OpLessEqual:        case TokenKind::OpGreaterEqual:
+        case TokenKind::OpPipePipe:         case TokenKind::OpPipeGreater:
+        case TokenKind::KwReturn:           case TokenKind::KwBreak:
+        case TokenKind::KwPanic:            case TokenKind::KwMatch:
+        case TokenKind::KwDefault:          case TokenKind::KwCatch:
+        case TokenKind::KwFinally:          case TokenKind::TkError:
+        case TokenKind::KwIf:               case TokenKind::TkWhitespace:
+        case TokenKind::KwElse:             case TokenKind::TkGenerated:
+        case TokenKind::KwWhile:            case TokenKind::LitNull:
+        case TokenKind::KwFor:              case TokenKind::LitString:
+        case TokenKind::KwAssert:           case TokenKind::LitChar:
+        case TokenKind::KwLoop:             case TokenKind::OpLBrace:
+        case TokenKind::KwVar:              case TokenKind::OpRParen:
+        case TokenKind::KwConst:            case TokenKind::OpBackslash:
+        case TokenKind::KwFn:               case TokenKind::OpPlus:
+        case TokenKind::KwOp:               case TokenKind::OpSlash:
+        case TokenKind::KwClass:            case TokenKind::OpPipe:
+        case TokenKind::KwEnum:             case TokenKind::OpRange:
+        case TokenKind::KwType:             case TokenKind::OpQuestion:
+        case TokenKind::KwStruct:           case TokenKind::OpEqual:
+        case TokenKind::KwInterface:        case TokenKind::OpArrow:
+        case TokenKind::KwExtend:           case TokenKind::OpQuestionArrowStar:
+        case TokenKind::KwModule:           case TokenKind::OpColon:
+        case TokenKind::KwTest:             case TokenKind::OpDot:
+        case TokenKind::KwMacro:            case TokenKind::OpQuestionDot:
+        case TokenKind::KwImport:           case TokenKind::OpExclaimDotStar:
+        case TokenKind::KwOverride:         case TokenKind::OpMinusEqual:
+        case TokenKind::KwFinal:            case TokenKind::OpPercentEqual:
+        case TokenKind::KwFfi:              case TokenKind::OpCaretEqual:
+        case TokenKind::KwImpl:             case TokenKind::OpAtEqual:
+        case TokenKind::KwDerives:          case TokenKind::OpEqualEqual:
+        case TokenKind::KwRequires:         case TokenKind::OpGreaterGreater:
+        case TokenKind::KwPub:              case TokenKind::OpAmpAmp:
+        case TokenKind::KwPriv:             case TokenKind::OpLessPipe:
+        case TokenKind::KwProt:             case TokenKind::KwContinue:
+        case TokenKind::KwEval:             case TokenKind::KwCase:
+        case TokenKind::KwUnsafe:           case TokenKind::KwTry:
+        case TokenKind::AtU128:             case TokenKind::KwStatic:
+        case TokenKind::AtU256:             case TokenKind::KwAsync:
+        case TokenKind::AtI8:               case TokenKind::KwInline:
+        case TokenKind::AtI16:              case TokenKind::KwSelf:
+        case TokenKind::AtI32:              case TokenKind::KwTrue:
+        case TokenKind::AtI64:              case TokenKind::KwFalse:
+        case TokenKind::AtI128:             case TokenKind::KwIn:
+        case TokenKind::AtI256:             case TokenKind::KwAs:
+        case TokenKind::KwAwait:            case TokenKind::KwAnd:
+        case TokenKind::KwThread:           case TokenKind::KwAndEq:
+        case TokenKind::KwSpawn:            case TokenKind::KwBitand:
+        case TokenKind::KwDelete:           case TokenKind::KwBitor:
+        case TokenKind::KwYield:            case TokenKind::KwCompl:
+        case TokenKind::KwSizeOf:           case TokenKind::KwNot:
+        case TokenKind::KwAlignOf:          case TokenKind::KwNotEq:
+        case TokenKind::KwTypeOf:           case TokenKind::KwOr:
+        case TokenKind::BiFile:             case TokenKind::KwOrEq:
+        case TokenKind::BiLine:             case TokenKind::KwXor:
+        case TokenKind::BiColumn:           case TokenKind::KwXorEq:
+        case TokenKind::BiFunction:         case TokenKind::AtVoid:
+        case TokenKind::BiModule:           case TokenKind::AtBool:
+        case TokenKind::BiVolatile:         case TokenKind::AtUsize:
+        case TokenKind::BiPacked:           case TokenKind::AtIsize:
+        case TokenKind::BiUnlikely:         case TokenKind::AtF32:
+        case TokenKind::BiLikely:           case TokenKind::AtF64:
+        case TokenKind::BiInternal:         case TokenKind::AtF80:
+        case TokenKind::BiExperimental:     case TokenKind::AtF128:
+        case TokenKind::BiForceInline:      case TokenKind::AtU8:
+        case TokenKind::BiNoInline:         case TokenKind::AtU16:
+        case TokenKind::BiDeprecated:       case TokenKind::AtU32:
+        case TokenKind::BiMustUse:          case TokenKind::AtU64:
+        case TokenKind::BiAlignAs:
+            return true;
+        default:
+            return false;
+    }
+}
+
 fn is_annotation(kind: TokenKind) -> bool {
     switch kind {
         case TokenKind::AtI256:    case TokenKind::AtU16:
