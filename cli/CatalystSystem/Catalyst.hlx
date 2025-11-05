@@ -17,6 +17,8 @@
 /// \brief An easy to use tool that abstracts the background process of creating CLI arguments 
 ///
 
+import Core::EvalHash::*;
+
 
 
 class Catalyst{  
@@ -48,6 +50,10 @@ class Catalyst{
 
     fn Tokenize(self, sentence : string ){
 
+        var parsedFlags : array::<FlagType, 64> = array::<FlagType, 64>() ; 
+        var word : string ;
+        var parser : i32 = 0 ;
+
         __inline_cpp("
         static void *jump_table[256] = {
             [0 ... 255] = &&other,
@@ -58,6 +64,7 @@ class Catalyst{
         
 
         for pointer : i32 in sentence.length {
+            word = "";
             
             __inline_cpp("goto *jump_table[(uint8_t)sentence[pointer]]");
         }
@@ -78,13 +85,28 @@ class Catalyst{
             while(true){
                 pointer++;
                 switch(sentence[pointer]){
-                    case a :
-                    case b :
-                    case c :
-                    case d :
-                    case e :
+                    case '-' :                                                   //would be next flag
+                        parsedFlags[parser] = (FlagType) {compute_hash(word)};
+                        pointer--;                                               //so that loop detects dash 
+                        break;
+                    case ' ' :
+                        parsedFlags[parser] = (FlagType) {compute_hash(word)};
+                        break;
+                    case '/' :                                                   //same explanation as '-' case
+                        parsedFlags[parser] = (FlagType) {compute_hash(word)};
+                        pointer--;
+                        break;
+
+                    default :                                                   //flag starts here 
+                        word+=sentence[pointer];
+
+
                 }
             }
+
+            //TODO : in default , need to add -abc support and add hasDash boolean to check for stuff like -fno-omit-fp
+
+            continue ;
 
         
 
