@@ -13,6 +13,8 @@
 ///                                                                          ///
 ///------------------------------------------------------------ HELIX -------///
 
+ffi "c++" import "Types.hh";
+
 import Core::SourceFile::*;
 import Core::SourceLocation::*;
 import Core::FullSourceLocation::*;
@@ -291,6 +293,10 @@ class SourceManager {
         return _vfile_mgr->get_loc(fid, off);
     }
 
+    fn get_loc(self, ptr: std::restrict_ptr::<u8>) -> SourceLocation {
+        return _vfile_mgr->get_loc(ptr);
+    }
+
     ///
     /// \brief returns SourceRange for file id, offset, and length.
     ///
@@ -329,6 +335,46 @@ class SourceManager {
         }
 
         return MemoryBuffer(buf.data() + offset, length);
+    }
+
+    ///
+    /// \brief retrieves a UTF-8 string for a SourceRange.
+    ///
+    /// \param range source range to fetch.
+    /// \return UTF-8 string covering the range.
+    ///
+    /// \warning This is a very expensive operation. Use only for debugging.
+    ///
+    fn get_string_view(self, range: SourceRange) -> string {
+        var mbuf = self.get_view(range);
+        var cstr = mbuf.data();
+        var str: string;
+        var p = cstr;
+        var end = cstr + mbuf.size();
+
+        str.reserve(mbuf.size());
+
+        while (p < end) {
+            var res = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+            var codepoint = res.chr;
+            var len = res.len;
+
+            if len == 0 {
+                break;
+            }
+
+            eval if sizeof (char) == 4 {
+                str.push_back(static_cast::<char>(codepoint));
+            } else { // where a char is 2 bytes (windows)
+                codepoint -= 0x10000;
+                str.push_back(static_cast::<char>(0xD800 + (codepoint >> 10)));
+                str.push_back(static_cast::<char>(0xDC00 + (codepoint & 0x3FF)));
+            }
+
+            p += len;
+        }
+
+        return str;
     }
     
     ///
@@ -448,6 +494,13 @@ fn Test() -> i32 {
     var col  = full_loc.column;
 
     std::print(f"Line/Column = {line}:{col}");
+
+    /// get the string at the sroucerange
+    var mbuf: MemoryBuffer;
+    __inline_cpp("{");
+        var timer = Timer("Getting MemoryBuffer from SourceRange");
+        mbuf = sm->get_view(range);
+    __inline_cpp("}");
 
     std::print(f"line table dump: {sm->_line_table}");
     std::print(f"VFS dump: {*vfm}");
