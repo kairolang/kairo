@@ -345,7 +345,7 @@ class SourceManager {
     ///
     /// \warning This is a very expensive operation. Use only for debugging.
     ///
-    fn get_string_view(self, range: SourceRange) -> string {
+    fn get_text(self, range: SourceRange) -> string {
         var mbuf = self.get_view(range);
         var cstr = mbuf.data();
         var str: string;

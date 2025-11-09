@@ -20,6 +20,13 @@ const FNV_PRIME:         u64   = 0x00000100000001b3;;
 const HASH_MAX:          usize = 0xFFFFFFFFFFFFFFFF;;
 
 ///
+/// \brief Converts a usize value to a hexadecimal string.
+///
+fn to_hex_string(const value: usize) -> string {
+    return libcxx::format(r"{:x}", value).data();
+}
+
+///
 /// \brief A helper class to hold a string literal at compile time.
 ///        This class is used to pass string literals to the hash function.
 ///
@@ -205,8 +212,8 @@ eval fn compute_hash(const str: *string) -> u64 {
         std::crash(std::Error::RuntimeError("String too long for hashing (max 255 chars)"));
     }
 
-    var hash: u64 = FNV_OFFSET_BASIS;
-    const len: usize = str->length();
+    var   hash : u64   = FNV_OFFSET_BASIS;
+    const len  : usize = str->length();
     
     for var i: usize = 0; i < len; ++i {
         hash = mix_char((*str)[i], hash, i);
@@ -270,11 +277,52 @@ eval fn <str: const EvalStrBuffer> compute_hash() -> u64 {
 }
 
 ///
-/// \brief Converts a usize value to a hexadecimal string.
+/// \brief Stateful incremental hasher compatible with compute_hash.
+///        Can be reused to hash multiple tokens in sequence.
 ///
-fn to_hex_string(const value: usize) -> string {
-    return libcxx::format(r"{:x}", value).data();
-}
+class HashState {
+    var value: u64   = FNV_OFFSET_BASIS;
+    var index: usize = 1;
+
+    ///
+    /// \brief Mix a single character into the hash state.
+    ///
+    fn mix(self, chr: char) {
+        self.value = mix_char(chr, self.value, self.index - 1);
+        ++self.index;
+    }
+
+    ///
+    /// \brief Mix a buffer of chars (1-255 chars).
+    ///
+    fn mix_buffer(self, const buf: *char, const len: usize) {
+        if (len == 0) || (len >= 256) || ((len + self.index) > 256) {
+            std::crash(std::Error::RuntimeError("Buffer too long for hashing (max 255 chars)"));
+        }
+
+        for var i: usize = 0; i < len; ++i {
+            self.mix(buf[i]);
+        }
+    }
+
+    ///
+    /// \brief Finalize the hash into a folded 32-bit value.
+    ///
+    fn finalize(self) -> u64 {
+        return fold_hash((
+            (self.value ^ (static_cast::<u64>(self.index - 1) * GOLDEN_RATIO_MIX))
+                + RESERVED_LOW
+        ) & HASH_MAX);
+    }
+
+    ///
+    /// \brief Reset the hash state for reuse.
+    ///
+    fn reset(self) {
+        self.value = FNV_OFFSET_BASIS;
+        self.index = 0;
+    }
+};
 
 fn Test() -> i32 {
     // --- eval-time string literal hashes ---

@@ -335,6 +335,12 @@ class VirtualFileManager {
         std::crash(std::Error::RuntimeError("VirtualFileManager: Offset not in mapped region"));
     }
 
+    /// just a pointer should also return a srouce location
+    fn get_loc(self, ptr: std::restrict_ptr::<u8>) -> SourceLocation {
+        var res = self.resolve_ptr(ptr);
+        return self.get_loc(static_cast::<u32>(res.fid), res.offset);
+    }
+
     ///
     /// \brief constructs a `SourceRange` covering a byte span.
     ///
