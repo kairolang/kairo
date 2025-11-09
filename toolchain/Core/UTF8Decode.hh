@@ -70,29 +70,36 @@ struct DecodeResult {
 ///
 /// layout is aligned to 64 bytes for cache friendliness.
 ///
-alignas(64) static constexpr u8 Utf8LengthTable[256 * 4] = {
-#define X1 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-#define X2 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2
-#define X3 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3
-#define X4 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4
+alignas(64) static constexpr u8 Utf8LengthTable[256] = {
     // 0x00-0x7F: ASCII (1-byte)
-    X1,X1,X1,X1,X1,X1,X1,X1,
-    // 0x80-0xBF: continuation bytes (treated as invalid starts)
-    X1,X1,X1,X1,X1,X1,X1,X1,
+    /* 0x00-0x7F */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    // 0x80-0xBF: continuation bytes (invalid starts)
+    /* 0x80-0xBF */
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
     // 0xC0-0xDF: 2-byte sequences
-    X2,X2,X2,X2,X2,X2,X2,X2,
-    X2,X2,X2,X2,X2,X2,X2,X2,
+    /* 0xC0-0xDF */
+    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
     // 0xE0-0xEF: 3-byte sequences
-    X3,X3,X3,X3,X3,X3,X3,X3,
-    X3,X3,X3,X3,X3,X3,X3,X3,
+    /* 0xE0-0xEF */
+    3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,
     // 0xF0-0xF7: 4-byte sequences
-    X4,X4,X4,X4,X4,X4,X4,X4,
+    /* 0xF0-0xF7 */
+    4,4,4,4,4,4,4,4,
     // 0xF8-0xFF: invalid starts
-    X1,X1,X1,X1,X1,X1,X1,X1
-#undef X1
-#undef X2
-#undef X3
-#undef X4
+    /* 0xF8-0xFF */
+    1,1,1,1,1,1,1,1
 };
 
 ///
@@ -107,7 +114,7 @@ alignas(64) static constexpr u8 Utf8LengthTable[256 * 4] = {
 /// \return pointer to first non-ascii byte or `end` if none found.
 ///
 static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
-#if defined(__x86_64__) || defined(_M_X64)
+#if defined(_x86_64_simd)
     const __m128i mask = _mm_set1_epi8(static_cast<char>(0x80));
     while (p + 16 <= end) {
         __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i *>(p));
@@ -115,7 +122,7 @@ static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
             break;
         p += 16;
     }
-#elif defined(__ARM_NEON)
+#elif defined(_aarch64_simd)
     const uint8x16_t mask = vdupq_n_u8(0x80);
     while (p + 16 <= end) {
         uint8x16_t v    = vld1q_u8(p);
@@ -128,6 +135,10 @@ static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
         p += 16;
     }
 #endif
+    if (p > end) {
+        p = end;
+    }
+
     return p;
 }
 
@@ -151,6 +162,10 @@ static inline DecodeResult decode_utf8_lut(const u8 *s,
     }
 
     u8 b0  = s[0];
+    if (b0 >= 0x80 && b0 < 0xC0) {
+        return {.chr = 0xFFFD, .len = 1};
+    }
+
     u8 len = Utf8LengthTable[b0];
     if (len == 1) {
         return {.chr = b0, .len = 1};
