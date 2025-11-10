@@ -389,7 +389,6 @@ class ThreadPool {
             self._queues.push_back(q.release());
         }
 
-
         for i in range::<usize>(0, n) {
         __inline_cpp("
             _threads.emplace_back([self_ptr, i]() {

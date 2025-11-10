@@ -106,15 +106,16 @@ class SourceLocation {
     /// \return a new SourceLocation with adjusted `id`.
     ///
     /// \warning aborts if underflow or overflow occurs.
+    /// FIXME: this is failing for some reason
     ///
-    fn with_offset(self, delta: i32) -> SourceLocation {
+    fn with_offset(self, delta: i64) -> SourceLocation {
         var new_val = static_cast::<i64>(self.id) + static_cast::<i64>(delta);
         
-        if new_val < 0 {
+        if static_cast::<i64>(delta) < 0 {
             std::crash(std::Error::RuntimeError("SourceLocation: underflow"));
         }
         
-        if new_val > 0xFFFFFFFF {
+        if (static_cast::<i64>(delta)) > (0xFFFFFFFF) {
             std::crash(std::Error::RuntimeError("SourceLocation: overflow"));
         }
 

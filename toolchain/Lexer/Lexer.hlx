@@ -1,0 +1,727 @@
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+
+ffi "c++" import "Lexer/CharTable.hh";
+
+import Core::SourceManager::*;
+import Core::SourceLocation::*;
+import Core::FullSourceLocation::*;
+import Core::MappedFileBuffer::*;
+import Core::MemoryBuffer::*;
+import Core::ThreadPool::*;
+import Core::ArenaAllocator::*;
+import Core::SourceRange::*;
+import Core::TokenKind::*;
+import Lexer::Token::*;
+
+/// to prevent issues later down the pipeline
+/// we need to be able to detect git conflict markers in the source code.
+/// ignore them and emit clean diagnostics if they are found.
+/// this enum represents the state of conflict marker detection.
+enum ConflictMarker derives u8 {
+    None,     ///< no conflict detected.
+    Start,    ///< conflict start "<<<<<<<<" marker detected.
+    Separator,///< conflict separator "========" marker detected.
+    End       ///< conflict end ">>>>>>>>" marker detected.
+}
+
+class TokenBuffer {
+    struct Chunk; ///< forward declaration
+
+    type TokenPtr  = *Token;
+    type ChunkBuff = *Chunk;
+
+    /// we allocate tokens in chunks of 512 tokens then store the base
+    /// pointer and the data. this allows us to avoid moving tokens around
+    /// when we need to grow the buffer. while still allowing for contiguous
+    /// storage of tokens in the base (offset by base). lets say we want
+    /// token at index 600, we can find it at:
+    /// chunk_index  = 600 / 512 = 1
+    /// offset_index = 600 % 512 = 88
+    /// token_ptr    = chunks[chunk_index].base + offset_index
+    /// this allows a O(1) access time to any token in the buffer.
+    /// while still allowing for efficient appending of tokens.
+    struct Chunk {
+        var base:     TokenPtr;
+        var capacity: usize;
+        var length:   usize;
+    }
+
+    var _allocator:    ArenaAllocator = ArenaAllocator(2048 * sizeof (TokenPtr));
+    var _chunks:       ChunkBuff      = &null; // array of chunk descriptors
+    var _chunk_count:  usize          = 0;     // number of allocated chunks
+    var _total_length: usize          = 0;     // number of tokens in all chunks
+    var _chunk_size:   usize          = 512;   // number of tokens per chunk
+
+    default fn TokenBuffer(self);
+    
+    priv fn grow(self) {
+        // allocate a new chunk in the arena
+        var new_chunk = self._allocator.create::<Chunk>();
+
+        new_chunk->capacity = self._chunk_size;
+        new_chunk->length   = 0;
+
+        // allocate backing token pointer array for this chunk
+        new_chunk->base = reinterpret_cast::<TokenPtr>(
+            self._allocator.alloc(
+                sizeof  (Token) * self._chunk_size,
+                alignof (Token)
+            )
+        );
+
+        // expand chunk table if this is the first or subsequent chunk
+        if self._chunks == &null {
+            // first chunk array (one pointer)
+            self._chunks = reinterpret_cast::<ChunkBuff>(
+                self._allocator.alloc(sizeof (Chunk), alignof (Chunk))
+            );
+        } else {
+            // append next chunk descriptor (contiguous chunk table)
+            // grows by one entry in arena allocator
+            var new_table = reinterpret_cast::<ChunkBuff>(
+                self._allocator.alloc(
+                    sizeof  (Chunk) * (self._chunk_count + 1),
+                    alignof (Chunk)
+                )
+            );
+        
+            std::Memory::copy(
+                new_table,
+                self._chunks,
+                sizeof (Chunk) * self._chunk_count
+            );
+
+            self._chunks = new_table;
+        }
+
+        self._chunks[self._chunk_count] = *new_chunk;
+        ++self._chunk_count;
+    }
+
+    fn append(self, token: Token) { // copying is fine since a token is 16-bytes
+        // check if we need to grow the chunk table
+        if (self._chunk_count == 0)
+        || ((self._chunks[self._chunk_count - 1].length)
+            == (self._chunks[self._chunk_count - 1].capacity))
+        {
+            self.grow();
+        }
+
+        var chunk = &self._chunks[self._chunk_count - 1];
+        chunk->base[chunk->length] = token;
+        ++chunk->length;
+
+        ++self._total_length;
+    }
+
+    fn get(self, index: usize) -> Token {
+        if index >= self._total_length {
+            std::crash(std::Error::RuntimeError(
+                "TokenBuffer::get() - index out of bounds"
+            ));
+        }
+
+        var chunk_index  = index / self._chunk_size;
+        var offset_index = index % self._chunk_size;
+
+        return self._chunks[chunk_index].base[offset_index];
+    }
+
+    fn set_chunk_size(self, size: usize) {
+        if size == 0 {
+            std::crash(std::Error::RuntimeError(
+                "TokenBuffer::set_chunk_size() - chunk size must be > than zero"
+            ));
+        }
+
+        self._chunk_size = size;
+    }
+
+    fn destroy(self) {
+        self._chunk_count  = 0;
+        self._total_length = 0;
+        self._chunks       = &null;
+        self._allocator.destroy();
+    }
+
+    fn size(self) -> usize {
+        return self._total_length;
+    }
+
+    fn chunk_count(self) -> usize {
+        return self._chunk_count;
+    }
+
+    fn chunk_size(self) -> usize {
+        return self._chunk_size;
+    }
+
+    fn allocator(self) -> *ArenaAllocator {
+        return &self._allocator;
+    }
+
+    fn chunks(self) -> ChunkBuff {
+        return self._chunks;
+    }
+
+    fn op delete (self) {
+        self.destroy();
+    }
+
+    fn op in (self) -> yield Token {
+        for var c: usize = 0; c < self._chunk_count; ++c {
+            var chunk = &self._chunks[c];
+
+            for var i: usize = 0; i < chunk->length; ++i {
+                yield chunk->base[i];
+            }
+        }
+    }
+}
+
+class Lexer {
+    /// lowkey this formatting style looks a lot better tbh
+    var _tokens         : TokenBuffer = TokenBuffer();
+    var _last_token     : Token = Token();
+    var _sm             : *SourceManager;
+    var _cursor         : usize = 0;
+    var _fid            : u32 = 0;
+    var _file_buffer    : MemoryBuffer;
+    var _initialized    : bool = false;
+
+    fn lex(self, fid: u32) -> bool;
+    priv fn destroy(self);
+    priv fn load_file(self, fid: u32) -> bool;
+    fn Lexer(self, sm: *SourceManager) {
+        self._sm = sm;
+        self._initialized = false; // we only initialize on lex call
+    }
+
+    fn tokens(self) -> *TokenBuffer;
+    fn get_file_size(self) -> usize;
+    fn get_file_data(self) -> std::const_ptr::<u8>;
+    priv fn current_token(self) -> Token;
+    priv fn get_source_location(self) -> SourceLocation;
+
+    fn decode_and_advance(self, buff: std::const_ptr::<u8>, buff_size: usize) -> DecodeResult;
+    fn decode_and_peak(self, buff: std::const_ptr::<u8>, buff_size: usize) -> DecodeResult;
+    fn decode_and_peak(self, offset: isize = 0) -> DecodeResult;
+    priv fn <const N: usize> get_char32(self) -> array::<DecodeResult, N>;
+    priv fn <const N: usize> peek_char32(self) -> array::<DecodeResult, N>;
+    priv fn peek_char(self, offset: isize = 1) -> char32_t;
+
+    priv fn seek(self, offset: isize);
+    priv fn is_eof(self) -> bool;
+    priv fn retreat_to_last(self);
+    priv fn advance_cursor(self, count: usize = 1);
+    priv fn retreat_cursor(self, count: usize = 1);
+    priv fn remaining_size(self, buff_size: usize) -> usize;
+    priv fn current_position(self, buff: std::const_ptr::<u8>) -> std::const_ptr::<u8>;
+    var _last_advanced: isize = 0;
+    
+    priv fn lex_illegal_character(self, tok: *Token) -> usize;
+    priv fn lex_number(self, tok: *Token) -> usize;
+    priv fn lex_identifier_or_keyword(self, tok: *Token) -> usize;
+    priv fn lex_operator_or_punctuation(self, tok: *Token) -> usize;
+    priv fn lex_whitespace_or_newline(self, tok: *Token) -> usize;
+    priv fn lex_string_or_char_literal(self, tok: *Token) -> usize;
+
+    static fn classify(chr: char32_t) -> CharClass { return classify_char32(chr); }
+    var _conflict_state: ConflictMarker = ConflictMarker::None;
+}
+
+fn Lexer::load_file(/* self, */ fid: u32) -> bool {
+    if self._sm == &null {
+        return false;
+    }
+
+    // if we already have a buffer loaded, keep it
+    if self._file_buffer.is_valid() {
+        return true;
+    }
+
+    var buffer = self._sm->get_buffer(fid);
+
+    if buffer == null || (!(*buffer).is_valid()) {
+        return false;
+    }
+    
+    self._file_buffer = *buffer;
+    return true;
+}
+
+fn Lexer::lex(/* self, */ fid: u32) -> bool {
+    if self._initialized {
+        return false; /// we only have 1 lexer per file
+    }
+
+    if !self.load_file(fid) {
+        return false;
+    }
+
+    self._sm->wait_for_line_index(fid); // ensure line index is ready
+    self._fid = fid;
+    self._initialized = true;
+
+    var chars: std::const_ptr::<u8> = self.get_file_data();
+    var size:  usize = self._file_buffer.size();
+
+    if chars == &null {
+        return false;
+    }
+
+    /// we can now do some immediate math to figure out where does the char fall under
+    /// we have the following ranges to consider
+    /// identifiers/keywords:
+    /// 'a' - 'z' | 'A' - 'Z' |'0' - '9' | '_' | '#'
+    ///  operators/punctuation:
+    /// '{' '}' '(' ')' '[' ']' '+' '-' '*' '/' '%' '^' '|' '&' '~' '<' '>' '!' '=' '?' '@' ':' ';' ',' '.' '\'
+    /// string literals are a coumpund or single since they can have a prefix or postfix
+    /// '"' "'" '#"' '#"'
+
+    while (_cursor < self.get_file_size()) {
+        /// this is where the main lexing loop will go
+        /// our first step is to do 1 operation to figure out which basic range the char falls under
+        var token: Token = Token(); // we always keep tokens stack allocated
+                                    // since they only take 16-bytes each
+        
+        var start_pos    = self.get_source_location();
+        var current_char = self.decode_and_peak( // only a peek so no advance
+            self.current_position(chars), self.remaining_size(size)
+        );
+
+        var c: char32_t = normalize_char32(current_char.chr);
+        var cls         = classify_char32(c);
+        var parsed_len: usize = 0; // failed
+
+        switch cls {
+            case CharClass::Identifier { // identifier or keyword
+                parsed_len = self.lex_identifier_or_keyword(&token);
+            } case CharClass::Number { // integer or float literal
+                // NOTE: floats can start with a dot and this does not cover
+                //       '.' so if we are in function peek and see a number
+                //       then we have a float
+                /// right now c constrains the current char but the cursor
+                /// has already advanced, we do not retreat it rather call the parse function with the first char
+                parsed_len = self.lex_number(&token);
+            } case CharClass::Operator { // this is either an operator or punctuation
+                parsed_len = self.lex_operator_or_punctuation(&token);
+            } case CharClass::String { // string or char literal
+                parsed_len = self.lex_string_or_char_literal(&token);
+            } case CharClass::Whitespace { // whitespace or newline
+                parsed_len = self.lex_whitespace_or_newline(&token);
+            } case CharClass::Illegal { // illegal character
+                parsed_len = self.lex_illegal_character(&token);
+            }
+        }
+
+        if parsed_len == 0 {
+            token.kind = TokenKind::TkError;
+            self.advance_cursor(current_char.len); // skip the illegal char
+        } else {
+            self.advance_cursor(parsed_len);
+        }
+
+        var end_pos = self.get_source_location();
+        token.range = SourceRange::from_bounds(start_pos, end_pos);
+
+        self._tokens.append(token);
+    }
+
+    return true;
+}
+
+fn Lexer::tokens(/* self */) -> *TokenBuffer {
+    return &(self._tokens);
+}
+
+fn Lexer::get_file_size(/* self */) -> usize {
+    if !self._file_buffer.is_valid() {
+        return 0;
+    }
+
+    return self._file_buffer.size() - 1;
+}
+
+fn Lexer::get_file_data(/* self */) -> std::const_ptr::<u8> {
+    if !self._file_buffer.is_valid() {
+        return &null;
+    }
+
+    return self._file_buffer.data();
+}
+
+fn Lexer::decode_and_advance(/* self, */ buff: std::const_ptr::<u8>, buff_size: usize) -> DecodeResult {
+    var result = UTF8View::decode_utf8(buff, buff_size);
+
+    if result.len > 0 {
+        self.advance_cursor(result.len); // sets self._last_advanced
+    }
+
+    return result;
+}
+
+fn Lexer::decode_and_peak(/* self, */ buff: std::const_ptr::<u8>, buff_size: usize) -> DecodeResult {
+    return UTF8View::decode_utf8(buff, buff_size);
+}
+
+fn Lexer::decode_and_peak(/* self, */ offset: isize) -> DecodeResult {
+    var pos: isize = static_cast::<isize>(self._cursor) + offset;
+    if (pos < 0) || (static_cast::<usize>(pos) >= self.get_file_size()) {
+        return DecodeResult('\0', 0);
+    }
+
+    return UTF8View::decode_utf8(
+        self.get_file_data() + static_cast::<usize>(pos),
+        self.get_file_size() - static_cast::<usize>(pos)
+    );
+}
+
+fn Lexer::destroy(/* self */) {
+    self._tokens.destroy();
+}
+
+fn Lexer::is_eof(/* self */) -> bool {
+    return self._cursor >= self.get_file_size();
+}
+
+fn Lexer::peek_char(/* self, */ offset: isize) -> char32_t {
+    var pos: isize = static_cast::<isize>(self._cursor) + offset;
+    if (pos < 0) || (static_cast::<usize>(pos) >= self.get_file_size()) {
+        return '\0';
+    }
+
+    var result = UTF8View::decode_utf8(
+        self.get_file_data() + static_cast::<usize>(pos),
+        self.get_file_size() - static_cast::<usize>(pos)
+    );
+
+    return result.chr;
+}
+fn Lexer::current_position(/* self, */ buff: std::const_ptr::<u8>) -> std::const_ptr::<u8> {
+    return buff + self._cursor;
+}
+
+fn Lexer::remaining_size(/* self, */ buff_size: usize) -> usize {
+    return buff_size - self._cursor;
+}
+
+fn Lexer::advance_cursor(/* self, */ count: usize) {
+    if (self._cursor + count) > self.get_file_size() {
+        self._cursor = self.get_file_size();
+        return;
+    }
+
+    self._last_advanced = count;
+    self._cursor += count;
+}
+
+fn Lexer::retreat_cursor(/* self, */ count: usize) {
+    if count > self._cursor {
+        self._cursor = 0;
+        return;
+    }
+
+    self._last_advanced = -count;
+    self._cursor -= count;
+}
+
+fn Lexer::current_token(/* self */) -> Token {
+    if self._tokens.size() == 0 {
+        return Token();
+    }
+
+    return self._tokens.get(self._tokens.size() - 1);
+}
+
+fn Lexer::get_source_location(/* self */) -> SourceLocation {
+    return self._sm->get_loc(self._fid, self._cursor);
+}
+
+fn Lexer::seek(/* self, */ offset: isize) {
+    var new_pos: isize = static_cast::<isize>(self._cursor) + offset;
+
+    if (new_pos < 0) {
+        self._cursor = 0;
+    } else if (static_cast::<usize>(new_pos) > self.get_file_size()) {
+        self._cursor = self.get_file_size();
+    } else {
+        self._cursor = static_cast::<usize>(new_pos);
+    }
+}
+
+
+fn Lexer::lex_illegal_character(/* self, */ tok: *Token) -> usize {
+    return 0;
+}
+/// all the parser functions will go here
+fn Lexer::lex_number(/* self, */ tok: *Token) -> usize {
+    // we start with lex number since we need full support for the following:
+    // we have a few cases to consider
+    // 1. decimal int (e.g., 1234)
+    // 2. hex int (e.g., 0x1A3F)
+    // 3. binary int (e.g., 0b1010)
+    // 4. octal int (e.g., 0o755)
+    // 5. decimal float (e.g., 123.456, .456, 123.)
+    // 6. hex float (e.g., 0x1.8p10)
+    // 7. scientific float (e.g., 1.23e10, 1.23E-10, 1e+10)
+    // we also need to consider suffixes (any identifier chars after the number)
+    // helix also allows underscores in numbers for readability (e.g., 1_000_000)
+
+    return 0;
+}
+
+fn Lexer::lex_identifier_or_keyword(/* self, */ tok: *Token) -> usize {
+    return 0;
+}
+
+///
+/// \brief decodes up to N UTF-8 codepoints from the current cursor position.
+/// \details
+/// SIMD-optimized for ASCII text, with scalar fallback for multibyte sequences.
+/// advances the cursor by exactly the number of bytes consumed.
+/// _last_advanced is set to total bytes advanced.
+///
+fn <const N: usize> Lexer::get_char32(/* self, */) -> array::<DecodeResult, N> {
+    var out: array::<DecodeResult, N>;
+    var data: std::const_ptr::<u8> = self.current_position(self.get_file_data());
+    var size: usize = (self.get_file_size() - self._cursor) + 1; // +1 since its 0-indexed
+    out.fill(DecodeResult('\0', 0));
+
+    if size == 0 {
+        self._last_advanced = 0;
+        return out;
+    }
+
+    var i: usize = 0;
+    var consumed: usize = 0;
+
+    for (; i < N && consumed < size; ++i) {
+        var b: u8 = data[consumed];
+
+        if b < 0x80 {
+            out[i] = DecodeResult(static_cast::<char32_t>(b), 1);
+            consumed += 1;
+        } else {
+            out[i]    = UTF8View::decode_utf8(data + consumed, size - consumed);
+            consumed += ((out[i]).len) if ((out[i]).len > 0) else 1;
+        }
+    }
+
+    self._last_advanced = static_cast::<isize>(consumed);
+    self.advance_cursor(consumed);
+
+    return out;
+}
+
+
+fn <const N: usize> Lexer::peek_char32(/* self */) -> array::<DecodeResult, N> {
+    var results = self.get_char32::<N>();
+    self.retreat_to_last(); // restore cursor
+    self._last_advanced = 0; // no advance
+    return results;
+}
+
+fn Lexer::retreat_to_last(/* self */) {
+    if self._last_advanced > 0 {
+        self.retreat_cursor(static_cast::<usize>(self._last_advanced));
+    } else if self._last_advanced < 0 {
+        self.advance_cursor(static_cast::<usize>(-self._last_advanced));
+    }
+}
+
+fn Lexer::lex_whitespace_or_newline(/* self, */ tok: *Token) -> usize {
+    /// helix sees newlines as a separate token from whitespace
+    /// but both can be merged into a single token if they are contiguous (like \n\n\n (or \r\n\r\n\r\n) can be one newline token instead of 3)
+    
+    var len: usize = 0;
+    /// we can avoid peeking 16 here and just decode and peek one char at a time
+    /// we also do need to consider both line encodings \n and \r\n
+    /// we also need to consider that whitespace can be mixed with newlines (e.g., " \n \n")
+    /// but in the case of if its lets say " \n \n" we want to emit a single newline token with the whitespace as trivia
+    /// so we need to keep track of the last char type we saw (whitespace or newline) and if we see a different type we emit the token
+    var last_char_type: CharClass = CharClass::Whitespace;
+    var current_char: DecodeResult;
+    var pos: usize = self._cursor;
+
+    // while (pos < self.get_file_size()) {
+    //     current_char = self.decode_and_peak(pos);
+
+    //     if current_char.len == 0 {
+    //         break; // EOF
+    //     }
+
+    //     var cls = classify_char32(current_char.chr);
+    //     if cls == CharClass::Whitespace {
+    //         if last_char_type == CharClass::Newline {
+
+    return 0;
+    
+}
+
+fn Lexer::lex_string_or_char_literal(/* self, */ tok: *Token) -> usize {
+    return 0;
+}
+
+module Helpers {
+    inline fn is_char_op_or_punctuation(c: DecodeResult) -> bool {
+        if (c.len == 0) || (c.len > 1) || (c.chr > 127) || (c.chr == '\0') {
+            return false;
+        }
+
+        switch (c.chr) {
+            case MACRO_UNICODE_OPERATOR_CHAR_CASES {
+                return true;
+            } default {
+                return false;
+            }
+        }
+    }
+
+    inline fn set_kind(tok: *Token, hash_state: *HashState) {
+        var hash: u64 = hash_state->finalize();
+        
+        if is_valid_token_kind(hash) {
+            tok->kind = static_cast::<TokenKind>(hash);
+            return;
+        } else {
+            tok->kind = TokenKind::TkError;
+            tok->imm = static_cast::<u32>(hash);
+            return;
+        }
+    }
+}
+
+fn Lexer::lex_operator_or_punctuation(/* self, */ tok: *Token) -> usize {
+    var timer2 = Timer("Lex Operator/Punctuation");
+    if self.is_eof() { /// this logic is definitely broken, needs to be reworked
+        return 0;
+    }
+
+    // we first load in the first 16 char32_t from the current position
+    const NULL_TERM: char = '\0';
+    const MAX_SIZE:  usize = 4;
+    const chars: array::<DecodeResult, MAX_SIZE> = self.peek_char32::<MAX_SIZE>();
+
+    const c1: DecodeResult = chars[0];
+    const c2: DecodeResult = chars[1];
+    const c3: DecodeResult = chars[2];
+    const c4: DecodeResult = chars[3];
+
+    var hash_state = HashState();
+    var len: usize = 0;
+    var hash_input: std::Memory::buffer::<char, MAX_SIZE> = __inline_cpp("{
+        NULL_TERM, NULL_TERM, NULL_TERM, NULL_TERM
+    }");
+
+    var c1_str = string(static_cast::<char>(c1.chr), 1) if ((c1.chr) != NULL_TERM) else "NULL_TERM";
+    var c2_str = string(static_cast::<char>(c2.chr), 1) if ((c2.chr) != NULL_TERM) else "NULL_TERM";
+    var c3_str = string(static_cast::<char>(c3.chr), 1) if ((c3.chr) != NULL_TERM) else "NULL_TERM";
+    var c4_str = string(static_cast::<char>(c4.chr), 1) if ((c4.chr) != NULL_TERM) else "NULL_TERM";
+    
+    std::print(f"chars: '{c1_str}' '{c2_str}' '{c3_str}' '{c4_str}'\n");
+
+    if !(Helpers::is_char_op_or_punctuation(c1)) {
+        return 0;
+    }
+
+    hash_input[0] = c1.chr;
+    hash_state.mix(c1.chr);
+    len += c1.len;
+
+    if !(Helpers::is_char_op_or_punctuation(c2)) {
+        Helpers::set_kind(tok, &hash_state);
+        return len;
+    }
+
+    hash_input[1] = c2.chr;
+    hash_state.mix(c2.chr);
+    len += c2.len;
+
+    if !(Helpers::is_char_op_or_punctuation(c3)) {
+        Helpers::set_kind(tok, &hash_state);
+        return len;
+    }
+
+    hash_input[2] = c3.chr;
+    hash_state.mix(c3.chr);
+    len += c3.len;
+
+    if !(Helpers::is_char_op_or_punctuation(c4)) {
+        Helpers::set_kind(tok, &hash_state);
+        return len;
+    }
+
+    hash_input[3] = c4.chr;
+    hash_state.mix(c4.chr);
+    len += c4.len;
+
+    return len;
+}
+
+fn Test() -> i32 {
+    var pool: *ThreadPool;
+    var vfm:  *VirtualFileManager;
+    var sm:   *SourceManager;
+    var path:  Path;
+    var fid:   u32;
+
+    finally {
+        if sm != &null {
+            delete sm;
+            sm = &null;
+        }
+
+        if pool != &null {
+            delete pool;
+            pool = &null;
+        }
+
+        if vfm != &null {
+            delete vfm;
+            vfm = &null;
+        }
+    }
+
+    __inline_cpp("{");
+        var timer = Timer("Load Test");
+
+        pool = std::create::<ThreadPool>(4);
+        vfm  = std::create::<VirtualFileManager>();
+        sm   = std::create::<SourceManager>(pool, vfm);
+        path = Path("test.hlx");
+        fid  = sm->load_file(path);
+    __inline_cpp("}");
+
+    // if fid == 0 {
+    //     std::print("Failed to load test.hlx");
+    //     return 1;
+    // }
+
+    var lexer = Lexer(sm);
+    if !lexer.lex(fid) {
+        std::print("Failed to lex test.hlx");
+        return 1;
+    }
+
+    var tokens = lexer.tokens();
+
+    for t: Token in (*tokens) {
+        std::print(f"token: {t} data: {sm->get_text(t.range)}");
+    }
+
+    return 0;
+}

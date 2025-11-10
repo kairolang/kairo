@@ -306,6 +306,314 @@ enum TokenKind derives u32 {
     BiAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
 };
 
+//****************************************************************************//
+//           MAKE SURE TO KEEP THIS IN SYNC WITH THE ENUM ABOVE               //
+//****************************************************************************//
+
+fn is_valid_token_kind(kind: u32) -> bool {
+    switch static_cast::<TokenKind>(kind) {
+        case TokenKind::TkUnknown:          case TokenKind::TkEof:
+        case TokenKind::AtComment:          case TokenKind::TkNewLine:
+        case TokenKind::TkFileStart:        case TokenKind::TkFileEnd:
+        case TokenKind::TkMacroExpand:      case TokenKind::LitIdentifier:
+        case TokenKind::LitInt:             case TokenKind::LitFloat:
+        case TokenKind::LitString_Narrow:   case TokenKind::LitString_Format:
+        case TokenKind::LitChar_Narrow:     case TokenKind::LitChar_Format:
+        case TokenKind::OpRBrace:           case TokenKind::OpLParen:
+        case TokenKind::OpLSquare:          case TokenKind::OpRSquare:
+        case TokenKind::OpLess:             case TokenKind::OpGreater:
+        case TokenKind::OpMinus:            case TokenKind::OpStar:
+        case TokenKind::OpPercent:          case TokenKind::OpCaret:
+        case TokenKind::OpAmp:              case TokenKind::OpCaretCaret:
+        case TokenKind::OpRangeEqual:       case TokenKind::OpTilde:
+        case TokenKind::OpExclaim:          case TokenKind::OpAt:
+        case TokenKind::OpPlusplus:         case TokenKind::OpMinusMinus:
+        case TokenKind::OpArrowStar:        case TokenKind::OpQuestionArrow:
+        case TokenKind::OpExclaimArrow:     case TokenKind::OpExclaimArrowStar:
+        case TokenKind::OpSemicolon:        case TokenKind::OpComma:
+        case TokenKind::OpDotStar:          case TokenKind::OpColonColon:
+        case TokenKind::OpQuestionDotStar:  case TokenKind::OpExclaimDot:
+        case TokenKind::OpEllipsis:         case TokenKind::OpPlusEqual:
+        case TokenKind::OpStarEqual:        case TokenKind::OpSlashEqual:
+        case TokenKind::OpAmpEqual:         case TokenKind::OpPipeEqual:
+        case TokenKind::OpLessLessEqual:    case TokenKind::OpGreaterGreaterEqual:
+        case TokenKind::OpLessEqualGreater: case TokenKind::OpEqualEqualEqual:
+        case TokenKind::OpExclaimEqual:     case TokenKind::OpLessLess:
+        case TokenKind::OpLessEqual:        case TokenKind::OpGreaterEqual:
+        case TokenKind::OpPipePipe:         case TokenKind::OpPipeGreater:
+        case TokenKind::KwReturn:           case TokenKind::KwBreak:
+        case TokenKind::KwPanic:            case TokenKind::KwMatch:
+        case TokenKind::KwDefault:          case TokenKind::KwCatch:
+        case TokenKind::KwFinally:          case TokenKind::TkError:
+        case TokenKind::KwIf:               case TokenKind::TkWhitespace:
+        case TokenKind::KwElse:             case TokenKind::TkGenerated:
+        case TokenKind::KwWhile:            case TokenKind::LitNull:
+        case TokenKind::KwFor:              case TokenKind::LitString:
+        case TokenKind::KwAssert:           case TokenKind::LitChar:
+        case TokenKind::KwLoop:             case TokenKind::OpLBrace:
+        case TokenKind::KwVar:              case TokenKind::OpRParen:
+        case TokenKind::KwConst:            case TokenKind::OpBackslash:
+        case TokenKind::KwFn:               case TokenKind::OpPlus:
+        case TokenKind::KwOp:               case TokenKind::OpSlash:
+        case TokenKind::KwClass:            case TokenKind::OpPipe:
+        case TokenKind::KwEnum:             case TokenKind::OpRange:
+        case TokenKind::KwType:             case TokenKind::OpQuestion:
+        case TokenKind::KwStruct:           case TokenKind::OpEqual:
+        case TokenKind::KwInterface:        case TokenKind::OpArrow:
+        case TokenKind::KwExtend:           case TokenKind::OpQuestionArrowStar:
+        case TokenKind::KwModule:           case TokenKind::OpColon:
+        case TokenKind::KwTest:             case TokenKind::OpDot:
+        case TokenKind::KwMacro:            case TokenKind::OpQuestionDot:
+        case TokenKind::KwImport:           case TokenKind::OpExclaimDotStar:
+        case TokenKind::KwOverride:         case TokenKind::OpMinusEqual:
+        case TokenKind::KwFinal:            case TokenKind::OpPercentEqual:
+        case TokenKind::KwFfi:              case TokenKind::OpCaretEqual:
+        case TokenKind::KwImpl:             case TokenKind::OpAtEqual:
+        case TokenKind::KwDerives:          case TokenKind::OpEqualEqual:
+        case TokenKind::KwRequires:         case TokenKind::OpGreaterGreater:
+        case TokenKind::KwPub:              case TokenKind::OpAmpAmp:
+        case TokenKind::KwPriv:             case TokenKind::OpLessPipe:
+        case TokenKind::KwProt:             case TokenKind::KwContinue:
+        case TokenKind::KwEval:             case TokenKind::KwCase:
+        case TokenKind::KwUnsafe:           case TokenKind::KwTry:
+        case TokenKind::AtU128:             case TokenKind::KwStatic:
+        case TokenKind::AtU256:             case TokenKind::KwAsync:
+        case TokenKind::AtI8:               case TokenKind::KwInline:
+        case TokenKind::AtI16:              case TokenKind::KwSelf:
+        case TokenKind::AtI32:              case TokenKind::KwTrue:
+        case TokenKind::AtI64:              case TokenKind::KwFalse:
+        case TokenKind::AtI128:             case TokenKind::KwIn:
+        case TokenKind::AtI256:             case TokenKind::KwAs:
+        case TokenKind::KwAwait:            case TokenKind::KwAnd:
+        case TokenKind::KwThread:           case TokenKind::KwAndEq:
+        case TokenKind::KwSpawn:            case TokenKind::KwBitand:
+        case TokenKind::KwDelete:           case TokenKind::KwBitor:
+        case TokenKind::KwYield:            case TokenKind::KwCompl:
+        case TokenKind::KwSizeOf:           case TokenKind::KwNot:
+        case TokenKind::KwAlignOf:          case TokenKind::KwNotEq:
+        case TokenKind::KwTypeOf:           case TokenKind::KwOr:
+        case TokenKind::BiFile:             case TokenKind::KwOrEq:
+        case TokenKind::BiLine:             case TokenKind::KwXor:
+        case TokenKind::BiColumn:           case TokenKind::KwXorEq:
+        case TokenKind::BiFunction:         case TokenKind::AtVoid:
+        case TokenKind::BiModule:           case TokenKind::AtBool:
+        case TokenKind::BiVolatile:         case TokenKind::AtUsize:
+        case TokenKind::BiPacked:           case TokenKind::AtIsize:
+        case TokenKind::BiUnlikely:         case TokenKind::AtF32:
+        case TokenKind::BiLikely:           case TokenKind::AtF64:
+        case TokenKind::BiInternal:         case TokenKind::AtF80:
+        case TokenKind::BiExperimental:     case TokenKind::AtF128:
+        case TokenKind::BiForceInline:      case TokenKind::AtU8:
+        case TokenKind::BiNoInline:         case TokenKind::AtU16:
+        case TokenKind::BiDeprecated:       case TokenKind::AtU32:
+        case TokenKind::BiMustUse:          case TokenKind::AtU64:
+        case TokenKind::BiAlignAs:
+            return true;
+        default:
+            return false;
+    }
+}
+
+//****************************************************************************//
+//           MAKE SURE TO KEEP THIS IN SYNC WITH THE ENUM ABOVE               //
+//****************************************************************************//
+
+fn token_kind_to_string(kind: TokenKind) -> string {
+    switch kind {
+        case TokenKind::TkUnknown {             return "tk-unknown"; }
+        case TokenKind::TkEof {                 return "tk-eof"; }
+        case TokenKind::TkError {               return "tk-error"; }
+        case TokenKind::AtComment {             return "tk-comment"; }
+        case TokenKind::TkNewLine {             return "tk-new-line"; }
+        case TokenKind::TkWhitespace {          return "tk-whitespace"; }
+        case TokenKind::TkFileStart {           return "tk-file-start"; }
+        case TokenKind::TkFileEnd {             return "tk-file-end"; }
+        case TokenKind::TkGenerated {           return "tk-generated"; }
+        case TokenKind::TkMacroExpand {         return "tk-macro-expand"; }
+        case TokenKind::LitIdentifier {         return "lit-identifier"; }
+        case TokenKind::LitNull {               return "lit-null"; }
+        case TokenKind::LitInt {                return "lit-int"; }
+        case TokenKind::LitFloat {              return "lit-float"; }
+        case TokenKind::LitString {             return "lit-string"; }
+        case TokenKind::LitString_Narrow {      return "lit-string-narrow"; }
+        case TokenKind::LitString_Format {      return "lit-string-format"; }
+        case TokenKind::LitChar {               return "lit-char"; }
+        case TokenKind::LitChar_Narrow {        return "lit-char-narrow"; }
+        case TokenKind::LitChar_Format {        return "lit-char-format"; }
+        case TokenKind::OpLBrace {              return "op-l-brace"; }
+        case TokenKind::OpRBrace {              return "op-r-brace"; }
+        case TokenKind::OpLParen {              return "op-l-paren"; }
+        case TokenKind::OpRParen {              return "op-r-paren"; }
+        case TokenKind::OpLSquare {             return "op-l-square"; }
+        case TokenKind::OpRSquare {             return "op-r-square"; }
+        case TokenKind::OpBackslash {           return "op-backslash"; }
+        case TokenKind::OpLess {                return "op-less"; }
+        case TokenKind::OpGreater {             return "op-greater"; }
+        case TokenKind::OpPlus {                return "op-plus"; }
+        case TokenKind::OpMinus {               return "op-minus"; }
+        case TokenKind::OpStar {                return "op-star"; }
+        case TokenKind::OpSlash {               return "op-slash"; }
+        case TokenKind::OpPercent {             return "op-percent"; }
+        case TokenKind::OpCaret {               return "op-caret"; }
+        case TokenKind::OpPipe {                return "op-pipe"; }
+        case TokenKind::OpAmp {                 return "op-amp"; }
+        case TokenKind::OpCaretCaret {          return "op-caret-caret"; }
+        case TokenKind::OpRange {               return "op-range"; }
+        case TokenKind::OpRangeEqual {          return "op-range-equal"; }
+        case TokenKind::OpTilde {               return "op-tilde"; }
+        case TokenKind::OpQuestion {            return "op-question"; }
+        case TokenKind::OpExclaim {             return "op-exclaim"; }
+        case TokenKind::OpAt {                  return "op-at"; }
+        case TokenKind::OpEqual {               return "op-equal"; }
+        case TokenKind::OpPlusplus {            return "op-plusplus"; }
+        case TokenKind::OpMinusMinus {          return "op-minus-minus"; }
+        case TokenKind::OpArrow {               return "op-arrow"; }
+        case TokenKind::OpArrowStar {           return "op-arrow-star"; }
+        case TokenKind::OpQuestionArrow {       return "op-question-arrow"; }
+        case TokenKind::OpQuestionArrowStar {   return "op-question-arrow-star"; }
+        case TokenKind::OpExclaimArrow {        return "op-exclaim-arrow"; }
+        case TokenKind::OpExclaimArrowStar {    return "op-exclaim-arrow-star"; }
+        case TokenKind::OpColon {               return "op-colon"; }
+        case TokenKind::OpSemicolon {           return "op-semicolon"; }
+        case TokenKind::OpComma {               return "op-comma"; }
+        case TokenKind::OpDot {                 return "op-dot"; }
+        case TokenKind::OpDotStar {             return "op-dot-star"; }
+        case TokenKind::OpColonColon {          return "op-colon-colon"; }
+        case TokenKind::OpQuestionDot {         return "op-question-dot"; }
+        case TokenKind::OpQuestionDotStar {     return "op-question-dot-star"; }
+        case TokenKind::OpExclaimDot {          return "op-exclaim-dot"; }
+        case TokenKind::OpExclaimDotStar {      return "op-exclaim-dot-star"; }
+        case TokenKind::OpEllipsis {            return "op-ellipsis"; }
+        case TokenKind::OpPlusEqual {           return "op-plus-equal"; }
+        case TokenKind::OpMinusEqual {          return "op-minus-equal"; }
+        case TokenKind::OpStarEqual {           return "op-star-equal"; }
+        case TokenKind::OpSlashEqual {          return "op-slash-equal"; }
+        case TokenKind::OpPercentEqual {        return "op-percent-equal"; }
+        case TokenKind::OpAmpEqual {            return "op-amp-equal"; }
+        case TokenKind::OpPipeEqual {           return "op-pipe-equal"; }
+        case TokenKind::OpCaretEqual {          return "op-caret-equal"; }
+        case TokenKind::OpLessLessEqual {       return "op-less-less-equal"; }
+        case TokenKind::OpGreaterGreaterEqual { return "op-greater-greater-equal"; }
+        case TokenKind::OpAtEqual {             return "op-at-equal"; }
+        case TokenKind::OpLessEqualGreater {    return "op-less-equal-greater"; }
+        case TokenKind::OpEqualEqualEqual {     return "op-equal-equal-equal"; }
+        case TokenKind::OpEqualEqual {          return "op-equal-equal"; }
+        case TokenKind::OpExclaimEqual {        return "op-exclaim-equal"; }
+        case TokenKind::OpLessLess {            return "op-less-less"; }
+        case TokenKind::OpGreaterGreater {      return "op-greater-greater"; }
+        case TokenKind::OpLessEqual {           return "op-less-equal"; }
+        case TokenKind::OpGreaterEqual {        return "op-greater-equal"; }
+        case TokenKind::OpAmpAmp {              return "op-amp-amp"; }
+        case TokenKind::OpPipePipe {            return "op-pipe-pipe"; }
+        case TokenKind::OpPipeGreater {         return "op-pipe-greater"; }
+        case TokenKind::OpLessPipe {            return "op-less-pipe"; }
+        case TokenKind::KwReturn {              return "kw-return"; }
+        case TokenKind::KwBreak {               return "kw-break"; }
+        case TokenKind::KwContinue {            return "kw-continue"; }
+        case TokenKind::KwPanic {               return "kw-panic"; }
+        case TokenKind::KwMatch {               return "kw-match"; }
+        case TokenKind::KwCase {                return "kw-case"; }
+        case TokenKind::KwDefault {             return "kw-default"; }
+        case TokenKind::KwCatch {               return "kw-catch"; }
+        case TokenKind::KwTry {                 return "kw-try"; }
+        case TokenKind::KwFinally {             return "kw-finally"; }
+        case TokenKind::KwIf {                  return "kw-if"; }
+        case TokenKind::KwElse {                return "kw-else"; }
+        case TokenKind::KwWhile {               return "kw-while"; }
+        case TokenKind::KwFor {                 return "kw-for"; }
+        case TokenKind::KwAssert {              return "kw-assert"; }
+        case TokenKind::KwLoop {                return "kw-loop"; }
+        case TokenKind::KwVar {                 return "kw-var"; }
+        case TokenKind::KwConst {               return "kw-const"; }
+        case TokenKind::KwFn {                  return "kw-fn"; }
+        case TokenKind::KwOp {                  return "kw-op"; }
+        case TokenKind::KwClass {               return "kw-class"; }
+        case TokenKind::KwEnum {                return "kw-enum"; }
+        case TokenKind::KwType {                return "kw-type"; }
+        case TokenKind::KwStruct {              return "kw-struct"; }
+        case TokenKind::KwInterface {           return "kw-interface"; }
+        case TokenKind::KwExtend {              return "kw-extend"; }
+        case TokenKind::KwModule {              return "kw-module"; }
+        case TokenKind::KwTest {                return "kw-test"; }
+        case TokenKind::KwMacro {               return "kw-macro"; }
+        case TokenKind::KwImport {              return "kw-import"; }
+        case TokenKind::KwOverride {            return "kw-override"; }
+        case TokenKind::KwFinal {               return "kw-final"; }
+        case TokenKind::KwFfi {                 return "kw-ffi"; }
+        case TokenKind::KwImpl {                return "kw-impl"; }
+        case TokenKind::KwDerives {             return "kw-derives"; }
+        case TokenKind::KwRequires {            return "kw-requires"; }
+        case TokenKind::KwPub {                 return "kw-pub"; }
+        case TokenKind::KwPriv {                return "kw-priv"; }
+        case TokenKind::KwProt {                return "kw-prot"; }
+        case TokenKind::KwEval {                return "kw-eval"; }
+        case TokenKind::KwUnsafe {              return "kw-unsafe"; }
+        case TokenKind::KwStatic {              return "kw-static"; }
+        case TokenKind::KwAsync {               return "kw-async"; }
+        case TokenKind::KwInline {              return "kw-inline"; }
+        case TokenKind::KwSelf {                return "kw-self"; }
+        case TokenKind::KwTrue {                return "kw-true"; }
+        case TokenKind::KwFalse {               return "kw-false"; }
+        case TokenKind::KwIn {                  return "kw-in"; }
+        case TokenKind::KwAs {                  return "kw-as"; }
+        case TokenKind::KwAnd {                 return "kw-and"; }
+        case TokenKind::KwAndEq {               return "kw-and-eq"; }
+        case TokenKind::KwBitand {              return "kw-bitand"; }
+        case TokenKind::KwBitor {               return "kw-bitor"; }
+        case TokenKind::KwCompl {               return "kw-compl"; }
+        case TokenKind::KwNot {                 return "kw-not"; }
+        case TokenKind::KwNotEq {               return "kw-not-eq"; }
+        case TokenKind::KwOr {                  return "kw-or"; }
+        case TokenKind::KwOrEq {                return "kw-or-eq"; }
+        case TokenKind::KwXor {                 return "kw-xor"; }
+        case TokenKind::KwXorEq {               return "kw-xor-eq"; }
+        case TokenKind::AtVoid {                return "at-void"; }
+        case TokenKind::AtBool {                return "at-bool"; }
+        case TokenKind::AtUsize {               return "at-usize"; }
+        case TokenKind::AtIsize {               return "at-isize"; }
+        case TokenKind::AtF32 {                 return "at-f32"; }
+        case TokenKind::AtF64 {                 return "at-f64"; }
+        case TokenKind::AtF80 {                 return "at-f80"; }
+        case TokenKind::AtF128 {                return "at-f128"; }
+        case TokenKind::AtU8 {                  return "at-u8"; }
+        case TokenKind::AtU16 {                 return "at-u16"; }
+        case TokenKind::AtU32 {                 return "at-u32"; }
+        case TokenKind::AtU64 {                 return "at-u64"; }
+        case TokenKind::AtU128 {                return "at-u128"; }
+        case TokenKind::AtU256 {                return "at-u256"; }
+        case TokenKind::AtI8 {                  return "at-i8"; }
+        case TokenKind::AtI16 {                 return "at-i16"; }
+        case TokenKind::AtI32 {                 return "at-i32"; }
+        case TokenKind::AtI64 {                 return "at-i64"; }
+        case TokenKind::AtI128 {                return "at-i128"; }
+        case TokenKind::AtI256 {                return "at-i256"; }
+        case TokenKind::KwAwait {               return "kw-await"; }
+        case TokenKind::KwThread {              return "kw-thread"; }
+        case TokenKind::KwSpawn {               return "kw-spawn"; }
+        case TokenKind::KwDelete {              return "kw-delete"; }
+        case TokenKind::KwYield {               return "kw-yield"; }
+        case TokenKind::KwSizeOf {              return "kw-size-of"; }
+        case TokenKind::KwAlignOf {             return "kw-align-of"; }
+        case TokenKind::KwTypeOf {              return "kw-type-of"; }
+        case TokenKind::BiFile {                return "bi-file"; }
+        case TokenKind::BiLine {                return "bi-line"; }
+        case TokenKind::BiColumn {              return "bi-column"; }
+        case TokenKind::BiFunction {            return "bi-function"; }
+        case TokenKind::BiModule {              return "bi-module"; }
+        case TokenKind::BiVolatile {            return "bi-volatile"; }
+        case TokenKind::BiPacked {              return "bi-packed"; }
+        case TokenKind::BiUnlikely {            return "bi-unlikely"; }
+        case TokenKind::BiLikely {              return "bi-likely"; }
+        case TokenKind::BiInternal {            return "bi-internal"; }
+        case TokenKind::BiExperimental {        return "bi-experimental"; }
+        case TokenKind::BiForceInline {         return "bi-force-inline"; }
+        case TokenKind::BiNoInline {            return "bi-no-inline"; }
+        case TokenKind::BiDeprecated {          return "bi-deprecated"; }
+        case TokenKind::BiMustUse {             return "bi-must-use"; }
+        case TokenKind::BiAlignAs {             return "bi-align-as"; }
+    }
+}
+
 fn is_annotation(kind: TokenKind) -> bool {
     switch kind {
         case TokenKind::AtI256:    case TokenKind::AtU16:

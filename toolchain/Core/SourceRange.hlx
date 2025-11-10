@@ -73,10 +73,10 @@ class SourceRange {
     /// \param len   number of bytes to cover.
     /// \return range covering [start, start+len).
     ///
-    eval static fn from_bounds(start: SourceLocation, len: usize) -> SourceRange {
+    eval static fn from_bounds(start: SourceLocation, len: u32) -> SourceRange {
         var range   = SourceRange();
         range.start = start;
-        range.end   = start.with_offset(len);
+        range.end   = start.with_offset(static_cast::<i64>(len));
 
         return range;
     }
