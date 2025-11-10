@@ -85,20 +85,21 @@ class Catalyst{
             while(true){
                 pointer++;
                 switch(sentence[pointer]){
-                    case '-' :                                                   //would be next flag
-                        parsedFlags[parser] = (FlagType) {compute_hash(word)};
-                        pointer--;                                               //so that loop detects dash 
-                        break;
-                    case ' ' :
-                        parsedFlags[parser] = (FlagType) {compute_hash(word)};
-                        break;
-                    case '/' :                                                   //same explanation as '-' case
-                        parsedFlags[parser] = (FlagType) {compute_hash(word)};
-                        pointer--;
-                        break;
+                    case '-' {                                                 //would be next flag
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                        --pointer;                                               //so that loop detects dash 
+                    }
+                    case ' ' {
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                    }
+                    case '/' {                                                  //same explanation as '-' case
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                        --pointer; 
+                    }
 
-                    default :                                                   //flag starts here 
+                    default {                                                   //flag starts here 
                         word+=sentence[pointer];
+                    }
 
 
                 }
@@ -117,7 +118,7 @@ class Catalyst{
             if sentence[i] == ' ' {
                 continue;
             }
-            flag += sentence
+            word += sentence[pointer] ;
 
 
 
