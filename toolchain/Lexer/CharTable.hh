@@ -55,6 +55,7 @@ enum class CharClass : uint8_t {
     Operator,
     String,
     Whitespace,
+    NewLine,
     Illegal
 };
 
@@ -67,10 +68,12 @@ alignas(64) static constexpr array<CharClass, 128> ASCII_CLASS = [] {
         t[i] = CharClass::Whitespace;
     }
 
-    t[' ']  = CharClass::Whitespace;
-    t['\t'] = CharClass::Whitespace;
-    t['\n'] = CharClass::Whitespace;
-    t['\r'] = CharClass::Whitespace;
+    t[' ']  = CharClass::Whitespace; // space
+    t['\t'] = CharClass::Whitespace; // horizontal tab
+    t['\n'] = CharClass::NewLine;    // line feed
+    t['\r'] = CharClass::Whitespace; // carriage return
+    t['\v'] = CharClass::Whitespace; // vertical tab
+    t['\f'] = CharClass::Whitespace; // form feed
 
     // identifiers
     for (int c = 'a'; c <= 'z'; ++c) {
@@ -255,5 +258,4 @@ inline CharClass classify_char32(char32_t raw) noexcept {
 
     return classify_unicode(raw);
 }
-
 }  // namespace helix
