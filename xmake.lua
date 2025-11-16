@@ -1,5 +1,5 @@
 set_project    ("helix-lang")
-set_version    ("0.0.1-beta-1e", { soname = true })
+set_version    ("0.0.1-alpha-9c", { soname = true })
 set_description("The Helix Compiler. Python's Simplicity, Rust inspired Syntax, and C++'s Power")
 
 add_rules("mode.debug", "mode.release")
@@ -40,19 +40,19 @@ function get_abi()
         return "msvc"
     elseif os.host() == "linux"
     then
-        return "gcc"
+        return "gnu"
     elseif os.host() == "macosx"
     then
-        return "llvm"
+        return ""
     end
 	return "" -- error?
 end
 
 function get_runtime(abi)
-	if abi == "llvm"
+	if abi == ""
 	then
 		return "c++_static"
-	elseif abi == "gcc"
+	elseif abi == "gnu"
 	then
 		return "libc++"
 	elseif abi == "msvc"
@@ -63,10 +63,10 @@ function get_runtime(abi)
 end
 
 function get_cxx_standard(abi)
-	if abi == "llvm"
+	if abi == ""
 	then
 		return "c++23"
-	elseif abi == "gcc"
+	elseif abi == "gnu"
 	then
 		return "c++23"
 	elseif abi == "msvc"
@@ -117,12 +117,6 @@ function setup_macos()
 		add_includedirs("/opt/homebrew/include")
 		add_linkdirs("/opt/homebrew/lib")
 	end
-
-    add_ldflags("-mmacosx-version-min=10.15", {force = true})
-    add_cxxflags("-mmacosx-version-min=10.15", {force = true})
-
-    -- also compile with static libc++
-    add_cxxflags("-static", "-lc++", "-lc++abi", {force = true})
 end
 
 function setup_debug()
@@ -141,7 +135,12 @@ function setup_release()
 end
 
 local function setup_build_folder()
-	set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)-" .. abi .. "/bin")
+    if abi == ""
+    then
+        set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)/bin")
+    else
+        set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)-" .. abi .. "/bin")
+    end
 	set_objectdir("$(buildir)/.resolver")
 	set_dependir ("$(buildir)/.shared")
 end
@@ -172,7 +171,7 @@ local function setup_env()
 	set_languages(cxx_standard)
 
     -- Set the runtime
-    if not (abi == "gcc")
+    if not (abi == "gnu")
 	then
         set_runtimes(runtime)
     end
@@ -348,7 +347,7 @@ local function get_sys_llvm_details()
     if not llvm_config then
         package("llvm-clang")
             add_deps("cmake", "ninja") -- , "zlib", "zstd" , "perl"
-            set_sourcedir(path.join(os.scriptdir(), "libs", "llvm-18.1.9-src", "llvm"))
+            set_sourcedir(path.join(os.scriptdir(), "libs", "llvm-18.1.9-src", ""))
             on_install(install_llvm_clang)
         package_end()
         add_packages("llvm-clang")
@@ -590,17 +589,22 @@ target("helix") -- target config defined in the config seciton
         --     hcompiler, vial_inc, vial_driver, vial_output
         -- )
 
-        os.execv(hcompiler, {
-            "-I", vial_inc,
-            vial_driver,
-            "-o", vial_output
-        })
+        -- os.execv(hcompiler, {
+        --     "-I", vial_inc,
+        --     vial_driver,
+        --     "-o", vial_output
+        -- })
     end)
 target_end() -- empty target
 
 target("helix-api")
     set_kind("static")
-    set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)-" .. abi)
+    if abi == ""
+    then
+        set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)")
+    else
+        set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)-" .. abi)
+    end
 
     after_build(function(target) -- make the helix library with all the appropriate header files
         -- determine the target output directory
