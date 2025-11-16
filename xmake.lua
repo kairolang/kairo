@@ -54,7 +54,7 @@ function get_runtime(abi)
 		return "c++_static"
 	elseif abi == "gcc"
 	then
-		return "stdc++_static"
+		return "libc++"
 	elseif abi == "msvc"
 	then
 		return "MT"
@@ -166,12 +166,15 @@ local function setup_env()
 	set_languages(cxx_standard)
 
     -- Set the runtime
-    set_runtimes(runtime)
+    if not (abi == "gcc")
+	then
+        set_runtimes(runtime)
+    end
 end
 
 local function helix_src_setup()
 	-- Include dir
-	add_includedirs("source")
+	add_includedirs("source")   
 
 	-- Add source fikes
 	add_files("source/**.cc") -- add all files in the source directory
