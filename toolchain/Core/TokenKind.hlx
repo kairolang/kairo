@@ -612,6 +612,8 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::BiMustUse {             return "bi-must-use"; }
         case TokenKind::BiAlignAs {             return "bi-align-as"; }
     }
+
+    return "tk-unknown";
 }
 
 fn is_annotation(kind: TokenKind) -> bool {

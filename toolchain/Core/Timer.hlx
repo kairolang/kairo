@@ -61,15 +61,19 @@ class Timer {
         self.stop();
     }
 
-    ///
-    /// \brief returns elapsed time in microseconds without stopping.
-    ///
-    /// \return elapsed microseconds as signed 64-bit integer.
-    ///
-    inline fn elapsed_us(self) -> i64 {
+
+    inline fn elapsed_ns(self) -> i64 {
         var end = libcxx::chrono::steady_clock::now();
-        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
+        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - self._start);
         return dur.count();
+    }
+
+    inline fn elapsed_us(self) -> f64 {
+        return static_cast::<f64>(self.elapsed_ns()) / 1000.0;
+    }
+
+    inline fn elapsed_ms(self) -> f64 {
+        return static_cast::<f64>(self.elapsed_ns()) / 1000000.0;
     }
 
     ///
@@ -79,9 +83,11 @@ class Timer {
     /// stops the timer and prints a formatted line with both µs and ms precision.
     ///
     inline fn stop(self) {
-        var end = libcxx::chrono::steady_clock::now();
-        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(end - self._start);
-        std::print(f"{self._label} elapsed: {dur.count()} µs ({(dur.count()) / 1000.0} ms)\n");
+        var ns = self.elapsed_ns();
+        var us = static_cast::<f64>(ns) / 1000.0;
+        var ms = static_cast::<f64>(ns) / 1000000.0;
+
+        std::print(f"{self._label} elapsed: {ns} ns ({us} µs / {ms} ms)\n");
     }
 
     ///

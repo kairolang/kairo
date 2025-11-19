@@ -3,3 +3,185 @@ Contains the implementation files for the lexical analysis component.
 These files handle tokenizing source code, processing character streams, and managing token types.
 
 ---
+
+```cpp
+    const u8* ptr  = current_position(this->_file_buffer.data());
+    const usize rem = this->remaining_size(this->_file_buffer.size());
+    if (rem == 0) return false;
+
+    // 1. load first 16 bytes safely (source buffers are NUL-terminated)
+    alignas(32) unsigned char buf[32] {};
+    std::memcpy(buf, ptr, std::min(rem, (usize)16));
+
+    //----------------------------------------------------------------------
+    // 2. SIMD classification
+    // Build a 256-bit LUT where each byte set => is_operator_char(c)
+    // ASCII range 0-127 only. Bits correspond to chars 0x00-0x7F.
+    //----------------------------------------------------------------------
+    static constexpr std::array<uint8_t, 32> kAsciiLut = [] {
+        std::array<uint8_t, 32> lut{}; // 256 bits, 8 bytes * 32 = 256 bits
+        auto mark = [&](unsigned char c) {
+            lut[c >> 3] |= (1u << (c & 7));
+        };
+        const char ops[] = "{}()[]+-/*%^|&~<>=!?@;:,.\\";
+        for (unsigned char c : ops) mark(c);
+        return lut;
+    }();
+
+    // load LUT into YMM register
+    __m256i lut = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(kAsciiLut.data()));
+
+    // zero-extend 16 bytes to 32 bytes for lookup
+    __m128i bytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(buf));
+    __m256i bytes32 = _mm256_cvtepu8_epi32(bytes);
+
+    // classify 8 bytes at once
+    alignas(32) uint8_t mask_bytes[8];
+    uint8_t ascii[8];
+    _mm_storel_epi64(reinterpret_cast<__m128i*>(ascii), bytes);
+
+    for (int i = 0; i < 8; ++i) {
+        uint8_t c = ascii[i];
+        // LUT bit test: each byte covers 8 ASCII codes
+        mask_bytes[i] = (kAsciiLut[c >> 3] >> (c & 7)) & 1;
+    }
+
+    // count contiguous operator bytes (max 4)
+    int span = 0;
+    for (; span < 4 && mask_bytes[span]; ++span);
+
+    if (span == 0) return false;
+
+    //----------------------------------------------------------------------
+    // 3. Try longest-match rolling hash (4->1)
+    //----------------------------------------------------------------------
+    u32 match_hash = 0;
+    u32 best_len   = 0;
+
+    for (int len = span; len >= 1; --len) {
+        u32 h = compute_hash(buf, len);
+        if (is_valid_token_kind(h)) {
+            match_hash = h;
+            best_len   = len;
+            break;
+        }
+    }
+
+    if (!best_len) return false;
+
+    //----------------------------------------------------------------------
+    // 4. Emit token
+    //----------------------------------------------------------------------
+    tok->kind = static_cast<TokenKind>(match_hash);
+    tok->loc  = SourceRange::from_bounds(
+        current_source_location(), best_len
+    );
+
+    this->advance_cursor(best_len);
+    return true;
+```
+
+return
+break
+continue
+panic
+match
+case
+default
+catch
+try
+finally
+if
+else
+while
+for
+assert
+loop
+var
+const
+fn
+op
+class
+enum
+type
+struct
+interface
+extend
+module
+test
+macro
+import
+override
+final
+ffi
+impl
+derives
+requires
+pub
+priv
+prot
+eval
+unsafe
+static
+async
+inline
+self
+true
+false
+in
+as
+and
+andeq
+bitand
+bitor
+compl
+not
+noteq
+or
+oreq
+xor
+xoreq
+void
+bool
+usize
+isize
+f32
+f64
+f80
+f128
+u8
+u16
+u32
+u64
+u128
+u256
+i8
+i16
+i32
+i64
+i128
+i256
+await
+thread
+spawn
+delete
+yield
+sizeof
+alignof
+typeof
+file
+line
+column
+function
+module
+volatile
+packed
+unlikely
+likely
+internal
+experimental
+forceinline
+noinline
+deprecated
+mustuse
+alignas
