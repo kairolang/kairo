@@ -89,23 +89,37 @@ class Catalyst{
                         parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
                         --pointer;                                               //so that loop detects dash 
                     }
-                    case ' ' {
+                    case ' ' {                                                         // possible flag separation
                         parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
                     }
                     case '/' {                                                  //same explanation as '-' case
                         parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
                         --pointer; 
                     }
+                    case '=' {                                                //skips equal symbols since its not needed 
+                        continue;
+                    }
 
                     default {                                                   //flag starts here 
                         word+=sentence[pointer];
+                        
+                        if isLong(sentence[pointer]){                //for detection of non single letter flags
+                            while(sentence[pointer] != ' '){
+                                word+=sentence[pointer];
+                            }
+                        } else {
+                            while(sentence[pointer] != ' '){                     //-abc types
+                                parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                                parser++;
+                            }
+                        }
                     }
 
 
                 }
             }
 
-            //TODO : in default , need to add -abc support and add hasDash boolean to check for stuff like -fno-omit-fp
+            
 
             continue ;
 

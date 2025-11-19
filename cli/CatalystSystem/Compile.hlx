@@ -42,3 +42,5 @@ static var aliasMap : map::<string, FlagType> = {
 };
 
 
+// WARNING TO SELF, CHECH FOR HELP AND VERSION BEFORE ANY OTHER ARGUMENTS 
+
