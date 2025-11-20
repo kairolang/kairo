@@ -88,13 +88,16 @@ class Catalyst{
                     case '-' {                                                 //would be next flag
                         parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
                         --pointer;                                               //so that loop detects dash 
+                        break;
                     }
                     case ' ' {                                                         // possible flag separation
                         parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                        break;
                     }
                     case '/' {                                                  //same explanation as '-' case
                         parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
                         --pointer; 
+                        break;
                     }
                     case '=' {                                                //skips equal symbols since its not needed 
                         continue;
@@ -129,16 +132,56 @@ class Catalyst{
 
 
         __inline_cpp("other :");
-            if sentence[i] == ' ' {
-                continue;
+            while(sentence[pointer] != ' '){
+                word += sentence[pointer];
             }
-            word += sentence[pointer] ;
+
+            parsedFlags[parser] = FILE ;
+            
+
+        
+        //TODO : store files somewhere
 
 
 
         //--------------------------------DOUBLE DASH PARSING-------------------------------------------//
 
         __inline_cpp("double_dash :");
+
+            while(true){
+                pointer++;
+                switch(sentence[pointer]){
+                    case ' ' {                                                         // possible flag separation
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                        break;
+                    }
+                    case '/' {                                                  //same explanation as '-' case
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                        --pointer; 
+                        break;
+                    }
+                    case '=' {                                                //skips equal symbols since its not needed 
+                        continue;
+                    }
+
+                    default {                                                   //flag starts here 
+                        word+=sentence[pointer];
+                        
+                        if isLong(sentence[pointer]){                //for detection of non single letter flags
+                            while(sentence[pointer] != ' '){
+                                word+=sentence[pointer];
+                            }
+                        } else {
+                            while(sentence[pointer] != ' '){                     //-abc types
+                                parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                                parser++;
+                            }
+                        }
+                    }
+
+
+                }
+            }
 
 
 
@@ -147,6 +190,58 @@ class Catalyst{
 
 
         __inline_cpp("slash_flag :");
+            if (sentence[(i+1)]) == '-' { 
+                /// brackets around sentence are due to messed up operator precedence
+                /// var a = (tok.token_kind()) as i32
+                /// auto a = tok.as_cast<i32>(token_kind())
+                                           
+                //THROW SOME KIND OF ERROR , /- is not permitted
+            }
+
+            while(true){
+                pointer++;
+                switch(sentence[pointer]){
+                    case '-' {                                                 //would be next flag
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                        --pointer;                                               //so that loop detects dash 
+                        break;
+                    }
+                    case ' ' {                                                         // possible flag separation
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                        break;
+                    }
+                    case '/' {                                                  //same explanation as '-' case
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                        --pointer; 
+                        break;
+                    }
+                    case '=' {                                                //skips equal symbols since its not needed 
+                        continue;
+                    }
+
+                    default {                                                   //flag starts here 
+                        word+=sentence[pointer];
+                        
+                        if isLong(sentence[pointer]){                //for detection of non single letter flags
+                            while(sentence[pointer] != ' '){
+                                word+=sentence[pointer];
+                            }
+                        } else {
+                            while(sentence[pointer] != ' '){                     // '/abc' types
+                                parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
+                                parser++;
+                            }
+                        }
+                    }
+
+
+                }
+            }
+
+            
+
+            continue ;
+
 
 
 
