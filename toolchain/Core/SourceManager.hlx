@@ -330,7 +330,7 @@ class SourceManager {
         var file    = self._files[file_id];
         var buf     = file->buffer->bytes();
 
-        if (offset + length) > buf.size() {
+        if (offset + length) >= buf.size() {
             length = buf.size() - offset;
         }
 
@@ -349,12 +349,12 @@ class SourceManager {
         var mbuf = self.get_view(range);
         var cstr = mbuf.data();
         var str: string;
-        var p = cstr;
+        var p   = cstr;
         var end = cstr + mbuf.size();
 
         str.reserve(mbuf.size());
 
-        while (p < end) {
+        while (p <= end) {
             var res = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
             var codepoint = res.chr;
             var len = res.len;

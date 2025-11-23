@@ -312,7 +312,7 @@ class VirtualFileManager {
             }
         }
 
-        std::crash(std::Error::RuntimeError("VirtualFileManager: Pointer not in mapped region"));
+        std::crash(std::Error::RuntimeError(f"VirtualFileManager: Pointer {ptr as unsafe *void} out of bounds"));
     }
 
     ///
@@ -323,16 +323,19 @@ class VirtualFileManager {
     /// `SourceLocation` value.
     ///
     fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
+        var max_off: usize = 0;
+        
         for i in range::<usize>(fid, _segments.size()) {
             var seg = _segments[i];
+            max_off += seg->size;
             
-            if off < (seg->offset + seg->size) {
-                var local = static_cast::<u32>(off - seg->offset);
+            if off <= (seg->offset + seg->size) {
+                var local = static_cast::<usize>(off - seg->offset);
                 return SourceLocation::from_base(seg->fid, local);
             }
         }
 
-        std::crash(std::Error::RuntimeError("VirtualFileManager: Offset not in mapped region"));
+        std::crash(std::Error::RuntimeError(f"VirtualFileManager: Offset {off} out of bounds for fid {fid}, max idx allowed is {max_off}"));
     }
 
     /// just a pointer should also return a srouce location

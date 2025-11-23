@@ -68,7 +68,7 @@ class SourceLocation {
     ///
     /// \note base + offset is truncated to 32 bits.
     ///
-    eval static fn from_base(base: usize, offset: usize) -> SourceLocation {
+    eval static fn from_base(base: u32, offset: usize) -> SourceLocation {
         var loc = SourceLocation();
         loc.id = static_cast::<u32>(base + offset);
         return loc;
