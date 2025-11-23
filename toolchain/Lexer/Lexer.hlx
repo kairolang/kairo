@@ -194,13 +194,13 @@ class TokenBuffer {
 
 class Lexer {
     /// lowkey this formatting style looks a lot better tbh
-    var _tokens         : TokenBuffer = TokenBuffer();
-    var _last_token     : Token = Token();
-    var _sm             : *SourceManager;
-    var _cursor         : usize = 0; // last pos is always file_size - 1
-    var _fid            : u32 = 0;
-    var _file_buffer    : MemoryBuffer;
-    var _initialized    : bool = false;
+    var _tokens      :  TokenBuffer = TokenBuffer();
+    var _last_token  :  Token = Token();
+    var _sm          : *SourceManager;
+    var _cursor      :  usize = 0; // last pos is always file_size - 1
+    var _fid         :  u32 = 0;
+    var _file_buffer :  MemoryBuffer;
+    var _initialized :  bool = false;
 
     ///========= LEXER API ==========///
 
@@ -238,10 +238,12 @@ class Lexer {
             var start_pos    = self.get_source_location();
             var current_char = self.peek_char32();
             var c: char32_t  = normalize_char32(current_char.chr);
+            var cls = self.classify(c);
             var token: Token;
 
-            switch classify_char32(c) {
+            switch cls {
                 case CharClass::Identifier { // identifier or keyword
+                    std::print(f"Lexing identifier/keyword at {start_pos}, chr: `{static_cast::<char>(c)}`\n");
                     token = self.lex_name(start_pos);
                 } case CharClass::Number { // integer or float literal
                     // NOTE: floats can start with a dot and this does not cover
@@ -249,17 +251,22 @@ class Lexer {
                     //       then we have a float
                     /// right now c constrains the current char but the cursor
                     /// has already advanced, we do not retreat it rather call the parse function with the first char
+                    std::print(f"Lexing number at {start_pos}\n");
                     token = self.lex_number(start_pos);
                 } case CharClass::Operator { // this is either an operator or punctuation
+                    std::print(f"Lexing symbol at {start_pos}\n");
                     token = self.lex_symbol(start_pos);
                 } case CharClass::String { // string or char literal
+                    std::print(f"Lexing text at {start_pos}\n");
                     token = self.lex_text(start_pos);
                 } case CharClass::Illegal { // illegal character
+                    std::print(f"Lexing illegal at {start_pos}\n");
                     token = self.lex_illegal(start_pos);
                 }
                 case CharClass::NewLine:     // newline
                 case CharClass::Whitespace { // whitespace or newline
-                    token = self.lex_whitespace(start_pos);
+                    std::print(f"Lexing whitespace at {start_pos}\n");
+                    token = self.lex_whitespace(start_pos, c, current_char.len, cls);
                 }
             }
 
@@ -307,7 +314,7 @@ class Lexer {
     }
 
     priv fn is_eof(self) -> bool {
-        return self._cursor >= (self.file_size() - 1);
+        return self._cursor > (self.file_size() - 1);
     }
     
     priv fn current_data(self) -> std::const_ptr::<u8> {
@@ -335,13 +342,17 @@ class Lexer {
     }
 
     priv fn advance_cursor(self, count: usize = 1) {
-        /// lets say file size is 100, last valid cursor off is 99
-        /// so if we are at 95 and advance by 10, we should end up at 99
-        /// so, 95 + 10 = 105 >= 100 -> set to 99
-        if (self._cursor + count) >= self.file_size() {
-            self._cursor = self.file_size() - 1;
-            return;
-        }
+        /// NOTE: removing the bounds check for now, since either the
+        ///       clamp or the (self._cursor + count) >= self.file_size() is
+        ///       bugged, we need to re-evaluate this logic later, however
+        ///       I fixed another issue in the VirtualFileManager that was
+        ///       preventing it from reading the last byte in a SourceFile
+        ///       see the commit "fe83937" for the fix.
+
+        // if (self._cursor + count) >= self.file_size() {
+        //     self._cursor = self.file_size() - 1;
+        //     return;
+        // }
 
         self._last_advanced = count;
         self._cursor       += count;
@@ -354,7 +365,7 @@ class Lexer {
         }
 
         self._last_advanced = -count;
-        self._cursor       -= count;
+        self._cursor       -=  count;
     }
 
     priv fn retreat_cursor_to_last(self) {
@@ -389,22 +400,28 @@ class Lexer {
 
     priv fn get_char32(self) -> DecodeResult {
         var result = self.peek_char32();
+
         self.advance_cursor((result.len) if (result.len > 0) else 1);
         return result;
     }
 
     priv fn <const N: usize> get_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
+        var res = self.peek_char32::<N>(max_unicode_len);
+        self.advance_cursor(res.size());
+        return res;
+    }
+
+    priv fn <const N: usize> peek_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
         var res = array::<DecodeResult, N>();
         res.fill(DecodeResult('\0', 0));
 
         var consumed: usize = 0; /// total u8's consumed
         for var i: usize = 0; i < N; ++i {
-            if consumed >= self.remaining_offset() {
+            if consumed > self.remaining_offset() {
                 break;
             }
 
             var decoded: DecodeResult = self.peek_char32(static_cast::<isize>(consumed));
-
             if (decoded.len == 0) || (decoded.len > max_unicode_len) {
                 break;
             }
@@ -413,13 +430,6 @@ class Lexer {
             consumed += decoded.len;
         }
 
-        self.advance_cursor(consumed);
-        return res;
-    }
-
-    priv fn <const N: usize> peek_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
-        var res = self.get_char32::<N>(max_unicode_len);
-        self.retreat_cursor_to_last(); // go back to original position
         return res;
     }
 
@@ -460,49 +470,188 @@ class Lexer {
     ///========= Lexical Parsing Functions ==========///
 
     priv fn lex_name(self, start: SourceLocation) -> Token {
+        /// we have one of 2 few options here
+        /// 1. identifier
+        /// 2. keyword
+        ///
+        /// identifiers are fairly simple since if we have an UTF-8 char that takes
+        /// more than 1 byte we can just include it in the identifier since Helix
+        /// allows UTF-8 identifiers.
+        ///
+        /// keywords must only contain 1 byte chars so we can hash them and check
+        /// against our keyword table. if it doesn't exist or we extend past the
+        /// max length of a keyword (32 u8s) we can just treat it as an identifier.
+        ///
+        /// as much as i would like this to be without a single loop or branch,
+        /// its just not possible given the current constraints. so we will have
+        /// to make do with a loop here.
+
+        const MAX_KEYWORD_LENGTH: usize = 32;
+        /// we have no max length for identifiers since they can be arbitrarily long
+        var chars = self.peek_char32::<MAX_KEYWORD_LENGTH>(); // we set no max unicode len here
+                                                              // since identifiers can have utf-8 chars
+        var hash_state: HashState = HashState();
+        var length: usize = 0; /// FIXME: unused?
+        var is_identifier: bool = false;
+        var token: Token = Token();
+
+        /// our main concern with keywords is overlap like: async & as
+        /// if we did something similar to what we did with symbol parsing
+        /// we would hash get 2 chars into async (as) and immediately return
+        /// the token as kind of AS instead of ASYNC so instead we wait till we
+        /// either hit a \0, or a non A-Za-z0-9_ something like a # valid in ident
+        /// is invalid in a keyword.
+
+        /// this loop is a fall though if we gat past this we are garmented
+        /// in an identifier
+
+        var str = "arr contains: [";
+        for var i: i32 = 0; i < MAX_KEYWORD_LENGTH; ++i {
+            var decoded = chars[i];
+            if decoded.len == 0 || (decoded.chr == '\0') {
+                str += "'?', ";
+                continue;
+            }
+
+            str += f"'{string(static_cast::<char>(decoded.chr), 1)}', ";
+        }
+        str += "]";
+        
+        if self.is_valid_name(chars[0]) == 0 { // we should never hit this branch
+            self.advance_cursor(chars[0].len); // consume invalid char only
+            return create_unrecognized_token(start);
+        }
+
+        if (chars[0].len > 1) && (self.is_valid_name(chars[0]) == 2) {
+            /// in this case we have a utf-8 identifier char
+            /// we can only have 1 utf-8 char per indentifier
+            self.advance_cursor(chars[0].len);
+
+            token.kind  = TokenKind::LitIdentifier;
+            token.range = self.create_source_range(start);
+            return token;
+        } else {
+            /// we have a valid keyword char
+            hash_state.mix(chars[0].chr);
+            length += chars[0].len;
+            self.advance_cursor(chars[0].len);
+        }
+
+        for var i: i32 = 1; i < MAX_KEYWORD_LENGTH; ++i {
+            var decoded = chars[i];
+            if self.is_valid_name(decoded) == 0 { // we have non ident or keyword
+                /// we know what we have stored at this stage is either
+                /// a keyword or an identifier
+                if is_identifier {
+                    /// we return the identifier
+                    token.kind  = TokenKind::LitIdentifier;
+                    token.range = self.create_source_range(start);
+                    return token;
+                }
+
+                /// we finalize the keyword hash and check if its valid
+                var hash: u64 = hash_state.finalize();
+                
+                if is_valid_token_kind(hash) {
+                    token.kind  = static_cast::<TokenKind>(hash);
+                    token.range = self.create_source_range(start);
+                    return token;
+                } else {
+                    token.kind  = TokenKind::LitIdentifier;
+                    token.range = self.create_source_range(start);
+                    return token;
+                }
+
+                return create_unrecognized_token(start);
+            }
+            
+            if self.is_valid_name(decoded) == 2 {
+                /// def an identfier
+                is_identifier = true;
+            }
+
+            /// we don't actually need to see if is_valid_name == 1 here
+            /// since if we hit that case we just continue hashing
+            /// until we hit a non valid char or exceed max keyword length
+            
+            if !is_identifier {
+                hash_state.mix(decoded.chr);
+            }
+
+            length += decoded.len;
+            self.advance_cursor(decoded.len);
+        }
+
+        /// if we get here we have exceeded max keyword length
+        /// so now we keep doing loops of 32 chars until we hit a non valid char
+        is_identifier = true; // definitely an identifier now
+
+        while !self.is_eof() {
+            chars = self.peek_char32::<MAX_KEYWORD_LENGTH>();
+            
+            for var i: i32 = 0; i < MAX_KEYWORD_LENGTH; ++i {
+                var decoded = chars[i];
+                if self.is_valid_name(decoded) == 0 { // we have non ident or keyword
+                    /// we return the identifier
+                    token.kind  = TokenKind::LitIdentifier;
+                    token.range = self.create_source_range(start);
+                    return token;
+                }
+
+                length += decoded.len;
+                self.advance_cursor(decoded.len);
+            }
+        }
+
         self.advance_cursor(); // consume first char
         return create_unrecognized_token(start);
     }
 
-    priv fn lex_number(self, start: SourceLocation) -> Token {
+    priv fn lex_number(self, start: SourceLocation, is_dot: bool = false) -> Token {
+        /// ok so numbers are a bit more complex since we have
+        /// integers and floats, and floats can start with a dot
+        /// so we need to handle that case as well.
+        /// on top of that we have different bases for integers
+        /// 0b, 0o, 0x, and decimal.
+        /// we also have suffixes for integers and floats
+        /// u8, u16, u32, u64, i8, i16, i32, i64, f32, f64
+        /// we also have underscores in numbers for readability
+        /// and we also have to handle exponents and scientific notation
+        /// like 1.23e10 or 1.23E10 / 0x1.23p10 for hex floats.
+        /// this is a lot to handle but we can break it down into manageable parts.
+        /// oh and on top of that we have to handle invalid number formats
+        /// and emit appropriate diagnostics.
+
+
         self.advance_cursor(); // consume first char
         return create_unrecognized_token(start);
     }
 
     priv fn lex_symbol(self, start: SourceLocation) -> Token {
         // we get 4 chars max len of 1 u8
-        const chars: array::<DecodeResult, 4> = self.peek_char32::<4>(1);
-        const c1: DecodeResult = chars[0];
-        const c2: DecodeResult = chars[1];
-        const c3: DecodeResult = chars[2];
-        const c4: DecodeResult = chars[3];
-
-        std::print("char array contains:");
-        for ch: DecodeResult in chars {
-            var c = static_cast::<char>(ch.chr) if static_cast::<char>(ch.chr) != '\0' else '?';
-            std::print(f" '{string(c, 1) i}' (len: {(ch.len) as u64}) ");
-        }
+        const CHARS: array::<DecodeResult, 4> = self.peek_char32::<4>(1);
+        const C1: DecodeResult = CHARS[0];
+        const C2: DecodeResult = CHARS[1];
+        const C3: DecodeResult = CHARS[2];
+        const C4: DecodeResult = CHARS[3];
 
         var token      = Token();
         var hash_state = HashState();
-        var hash_input = array::<char, 4>();
-        hash_input.fill('\0'); // fill them with null chars
 
-        std::print(f"Lexing symbol at cursor: {self._cursor}, '{string(static_cast::<char>(c1.chr), 1)}' ");
-
-        if !self.is_valid_symbol(c1) { // we shouldn't even be in this function
-            self.advance_cursor(c1.len); // consume invalid char
+        if !self.is_valid_symbol(C1) { // we shouldn't even be in this function
+            self.advance_cursor(C1.len); // consume invalid char
             return create_unrecognized_token(start);
         }
 
-        std::print(f"Lexing symbol starting with: '{string(static_cast::<char>(c1.chr), 1)}' ");
+        /// TODO: if we have a '.' here we need to check if next char is a number
+        ///       if it is then we have a float literal not a symbol so we need
+        ///       call lex_number instead of continuing here and pass the is_dot=true flag
 
-        hash_input[0] = c1.chr;
-        hash_state.mix(c1.chr);
+        hash_state.mix(C1.chr);
         self.advance_cursor(); // safe to advance without checking len since
                                // we already know chars only contains 1 u8 size char32's
 
-        if !self.is_valid_symbol(c2) { // 1 char symbol
+        if !self.is_valid_symbol(C2) { // 1 char symbol
             var hash: u64 = hash_state.finalize();
             
             if !is_valid_token_kind(hash) {
@@ -514,11 +663,10 @@ class Lexer {
             return token;
         }
         
-        hash_input[1] = c2.chr;
-        hash_state.mix(c2.chr);
+        hash_state.mix(C2.chr);
         self.advance_cursor();
 
-        if !self.is_valid_symbol(c3) { // 2 char symbol
+        if !self.is_valid_symbol(C3) { // 2 char symbol
             var hash: u64 = hash_state.finalize();
             
             if !is_valid_token_kind(hash) {
@@ -530,11 +678,10 @@ class Lexer {
             return token;
         }
 
-        hash_input[2] = c3.chr;
-        hash_state.mix(c3.chr);
+        hash_state.mix(C3.chr);
         self.advance_cursor();
 
-        if !self.is_valid_symbol(c4) { // 3 char symbol
+        if !self.is_valid_symbol(C4) { // 3 char symbol
             var hash: u64 = hash_state.finalize();
             
             if !is_valid_token_kind(hash) {
@@ -546,12 +693,10 @@ class Lexer {
             return token;
         }
 
-        hash_input[3] = c4.chr;
-        hash_state.mix(c4.chr);
+        hash_state.mix(C4.chr);
         self.advance_cursor();
 
         // 4 char symbol
-
         var hash: u64 = hash_state.finalize();
         if !is_valid_token_kind(hash) {
             return create_error_token(start, static_cast::<TokenKind>(hash));
@@ -572,7 +717,49 @@ class Lexer {
         return create_unrecognized_token(start);
     }
 
-    priv fn lex_whitespace(self, start: SourceLocation) -> Token {
+    priv fn lex_whitespace(self, start: SourceLocation, first_char: char32_t, first_len: usize, first_class: CharClass) -> Token {
+        /// we consume all whitespace and newlines here
+        /// we can batch spaces and newlines into a single new line
+        /// we also batch just spaces into a single space token
+        /// mixing spaces and newlines creates a new line token
+        /// newlines do need to be tracked for line endings since `;` are optional
+        /// at the end of lines in Helix.
+
+        var token: Token = Token();
+
+        switch first_class {
+            case CharClass::Whitespace {
+                token.kind = TokenKind::TkWhitespace;
+            } case CharClass::NewLine {
+                token.kind = TokenKind::TkNewLine;
+            } default {
+                self.advance_cursor(); // consume first char
+                return create_unrecognized_token(start);
+            }
+        }
+
+        self.advance_cursor(first_len);
+
+        while !self.is_eof() {
+            var current_char = self.peek_char32();
+            var c: char32_t  = normalize_char32(current_char.chr);
+
+            switch self.classify(c) {
+                case CharClass::Whitespace {
+                    if token.kind != TokenKind::TkNewLine {
+                        token.kind = TokenKind::TkWhitespace;
+                    }
+                } case CharClass::NewLine {
+                    token.kind = TokenKind::TkNewLine;
+                } default {
+                    token.range = self.create_source_range(start);
+                    return token;
+                }
+            }
+
+            self.advance_cursor(current_char.len);
+        }
+        
         self.advance_cursor(); // consume first char
         return create_unrecognized_token(start);
     }
@@ -582,11 +769,32 @@ class Lexer {
         if (c.len == 0) || (c.len > 1) || (c.chr > 127) || (c.chr == '\0') {
             return false;
         }
+
         switch (c.chr) {
             case MACRO_UNICODE_OPERATOR_CHAR_CASES {
                 return true;
             } default {
                 return false;
+            }
+        }
+    }
+
+    inline static fn is_valid_name(c: DecodeResult) -> u8 { /// 0 = false
+                                                            /// 1 = keyword
+                                                            /// 2 = identifier
+        if (c.len == 0) || (c.chr == '\0') {
+            return 0;
+        }
+
+        if (c.len > 1) || (c.chr == '#') {
+            return 2;
+        }
+        
+        switch (c.chr) {
+            case MACRO_UNICODE_KEYWORD_CASES {
+                return 1;
+            } default {
+                return 0;
             }
         }
     }
@@ -605,7 +813,7 @@ class Lexer {
     }
 
     fn debug(self) {
-        
+        // TODO
     }
 }
 
@@ -620,10 +828,10 @@ class Lexer {
 //     const MAX_SIZE:  usize = 4;
 //     const chars: array::<DecodeResult, MAX_SIZE> = self.peek_char32::<MAX_SIZE>();
 
-//     const c1: DecodeResult = chars[0];
-//     const c2: DecodeResult = chars[1];
-//     const c3: DecodeResult = chars[2];
-//     const c4: DecodeResult = chars[3];
+//     const C1: DecodeResult = chars[0];
+//     const C2: DecodeResult = chars[1];
+//     const C3: DecodeResult = chars[2];
+//     const C4: DecodeResult = chars[3];
 
 //     var hash_state = HashState();
 //     var len: usize = 0;
@@ -631,40 +839,40 @@ class Lexer {
 //         NULL_TERM, NULL_TERM, NULL_TERM, NULL_TERM
 //     }");
 
-//     if !(Helpers::is_char_op_or_punctuation(c1)) {
+//     if !(Helpers::is_char_op_or_punctuation(C1)) {
 //         return 0;
 //     }
 
-//     hash_input[0] = c1.chr;
-//     hash_state.mix(c1.chr);
-//     len += c1.len;
+//     hash_input[0] = C1.chr;
+//     hash_state.mix(C1.chr);
+//     len += C1.len;
 
-//     if !(Helpers::is_char_op_or_punctuation(c2)) {
+//     if !(Helpers::is_char_op_or_punctuation(C2)) {
 //         Helpers::set_kind(tok, &hash_state);
 //         return len;
 //     }
 
-//     hash_input[1] = c2.chr;
-//     hash_state.mix(c2.chr);
-//     len += c2.len;
+//     hash_input[1] = C2.chr;
+//     hash_state.mix(C2.chr);
+//     len += C2.len;
 
-//     if !(Helpers::is_char_op_or_punctuation(c3)) {
+//     if !(Helpers::is_char_op_or_punctuation(C3)) {
 //         Helpers::set_kind(tok, &hash_state);
 //         return len;
 //     }
 
-//     hash_input[2] = c3.chr;
-//     hash_state.mix(c3.chr);
-//     len += c3.len;
+//     hash_input[2] = C3.chr;
+//     hash_state.mix(C3.chr);
+//     len += C3.len;
 
-//     if !(Helpers::is_char_op_or_punctuation(c4)) {
+//     if !(Helpers::is_char_op_or_punctuation(C4)) {
 //         Helpers::set_kind(tok, &hash_state);
 //         return len;
 //     }
 
-//     hash_input[3] = c4.chr;
-//     hash_state.mix(c4.chr);
-//     len += c4.len;
+//     hash_input[3] = C4.chr;
+//     hash_state.mix(C4.chr);
+//     len += C4.len;
 
 //     return len;
 // }

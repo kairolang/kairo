@@ -22,34 +22,51 @@
 
 namespace helix {
 
-#define MACRO_UNICODE_OPERATOR_CHAR_CASES \
-    U'{' : case U'}':                     \
-    case U'(':                            \
-    case U')':                            \
-    case U'[':                            \
-    case U']':                            \
-    case U'-':                            \
-    case U'+':                            \
-    case U'*':                            \
-    case U'/':                            \
-    case U'%':                            \
-    case U'^':                            \
-    case U'|':                            \
-    case U'&':                            \
-    case U'~':                            \
-    case U'<':                            \
-    case U'\\':                           \
-    case U'>':                            \
-    case U'=':                            \
-    case U'!':                            \
-    case U'?':                            \
-    case U'@':                            \
-    case U';':                            \
-    case U':':                            \
-    case U',':                            \
-    case U'.'
+#define MACRO_UNICODE_OPERATOR_CHAR_CASES U'{': \
+    case U'}': case U'~':   \
+    case U'(': case U'<':   \
+    case U')': case U'\\':  \
+    case U'[': case U'>':   \
+    case U']': case U'=':   \
+    case U'-': case U'!':   \
+    case U'+': case U'?':   \
+    case U'*': case U'@':   \
+    case U'/': case U';':   \
+    case U'%': case U':':   \
+    case U'^': case U',':   \
+    case U'|': case U'.':   \
+    case U'&'
+
+#define MACRO_UNICODE_KEYWORD_CASES U'q': \
+               case U'Q': case U'1':   \
+    case U'w': case U'W': case U'2':   \
+    case U'e': case U'E': case U'3':   \
+    case U'r': case U'R': case U'4':   \
+    case U't': case U'T': case U'5':   \
+    case U'y': case U'Y': case U'6':   \
+    case U'u': case U'U': case U'7':   \
+    case U'i': case U'I': case U'8':   \
+    case U'o': case U'O': case U'9':   \
+    case U'p': case U'P': case U'0':   \
+    case U'a': case U'A': case U'_':   \
+    case U's': case U'S':              \
+    case U'd': case U'D':              \
+    case U'f': case U'F':              \
+    case U'g': case U'G':              \
+    case U'h': case U'H':              \
+    case U'j': case U'J':              \
+    case U'k': case U'K':              \
+    case U'l': case U'L':              \
+    case U'z': case U'Z':              \
+    case U'x': case U'X':              \
+    case U'c': case U'C':              \
+    case U'v': case U'V':              \
+    case U'b': case U'B':              \
+    case U'n': case U'N':              \
+    case U'm': case U'M'
 
 enum class CharClass : uint8_t {
+    Unassigned = 0,
     Identifier,
     Number,
     Operator,
@@ -62,28 +79,29 @@ enum class CharClass : uint8_t {
 /// ASCII LUT (fast path: 0x00-0x7F)
 alignas(64) static constexpr array<CharClass, 128> ASCII_CLASS = [] {
     array<CharClass, 128> t{};
+    t.fill(CharClass::Unassigned);
 
-    // control and space
-    for (int i = 0; i <= 32; ++i) {
+    // simple whitespace
+    for (int i = 0; i <= 32; ++i)
         t[i] = CharClass::Whitespace;
-    }
 
-    t[' ']  = CharClass::Whitespace; // space
-    t['\t'] = CharClass::Whitespace; // horizontal tab
-    t['\n'] = CharClass::NewLine;    // line feed
-    t['\r'] = CharClass::Whitespace; // carriage return
-    t['\v'] = CharClass::Whitespace; // vertical tab
-    t['\f'] = CharClass::Whitespace; // form feed
+    t['\n'] = CharClass::NewLine;
+    t['\r'] = CharClass::NewLine;
+    t[' ']  = CharClass::Whitespace;
+    t['\t'] = CharClass::Whitespace;
+    t['\v'] = CharClass::Whitespace;
+    t['\f'] = CharClass::Whitespace;
 
-    // identifiers
+    // a-z, A-Z
     for (int c = 'a'; c <= 'z'; ++c) {
         t[c] = CharClass::Identifier;
     }
-
+    
     for (int c = 'A'; c <= 'Z'; ++c) {
         t[c] = CharClass::Identifier;
     }
 
+    // digits
     for (int c = '0'; c <= '9'; ++c) {
         t[c] = CharClass::Number;
     }
@@ -91,19 +109,18 @@ alignas(64) static constexpr array<CharClass, 128> ASCII_CLASS = [] {
     t['_'] = CharClass::Identifier;
     t['#'] = CharClass::Identifier;
 
-    // operators and punctuation
+    // operators
     constexpr const char ops[] = "{}()[]+-*/%^|&~<>!=?@:;,.\\";
-    for (char c : ops) {
+    for (char c : ops)
         t[static_cast<unsigned char>(c)] = CharClass::Operator;
-    }
 
-    // string delimiters
+    // strings
     t['"']  = CharClass::String;
     t['\''] = CharClass::String;
 
-    // everything else = illegal
+    // fill remaining
     for (int i = 0; i < 128; ++i) {
-        if (t[i] == CharClass{}) {
+        if (t[i] == CharClass::Unassigned) {
             t[i] = CharClass::Illegal;
         }
     }

@@ -42,7 +42,6 @@ enum TokenKind derives u32 {
     //    Special tokens Continued        (Reserved values = 0x24 - 0xFE)
     ///===----------------------------------------------------------------===///
     LitIdentifier    = 0x024,  // <identifier>
-    LitNull          = 0x025,  // "null"
     LitInt           = 0x026,  // e.g. "123", "0xFFF", "0b1010", "0o1298"
     LitFloat         = 0x027,  // e.g. "10.290", "0x1.2p-3",
                                //       ".5",    "3.14e-2" , "1e3"
@@ -55,6 +54,7 @@ enum TokenKind derives u32 {
     LitChar_Narrow   = 0x02c,  // e.g. n'a'
     LitChar_Format   = 0x02d,  // e.g. f'{a}'
 
+    LitNull          = compute_hash::<r"null">(),
     ///===----------------------------------------------------------------===///
     ///   Punctuators
     ///               "#" is valid within identifiers, so we treat it as such
