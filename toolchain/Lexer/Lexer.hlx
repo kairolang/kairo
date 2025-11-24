@@ -66,7 +66,7 @@ class TokenBuffer {
     var _chunk_size:   usize          = 512;   // number of tokens per chunk
 
     default fn TokenBuffer(self);
-    
+
     priv fn grow(self) {
         // allocate a new chunk in the arena
         var new_chunk = self._allocator.create::<Chunk>();
@@ -97,7 +97,7 @@ class TokenBuffer {
                     alignof (Chunk)
                 )
             );
-        
+
             std::Memory::copy(
                 new_table,
                 self._chunks,
@@ -201,6 +201,7 @@ class Lexer {
     var _fid         :  u32 = 0;
     var _file_buffer :  MemoryBuffer;
     var _initialized :  bool = false;
+    var _imm_tbl     :  ImmediateTable;
 
     ///========= LEXER API ==========///
 
@@ -243,7 +244,6 @@ class Lexer {
 
             switch cls {
                 case CharClass::Identifier { // identifier or keyword
-                    std::print(f"Lexing identifier/keyword at {start_pos}, chr: `{static_cast::<char>(c)}`\n");
                     token = self.lex_name(start_pos);
                 } case CharClass::Number { // integer or float literal
                     // NOTE: floats can start with a dot and this does not cover
@@ -251,38 +251,37 @@ class Lexer {
                     //       then we have a float
                     /// right now c constrains the current char but the cursor
                     /// has already advanced, we do not retreat it rather call the parse function with the first char
-                    std::print(f"Lexing number at {start_pos}\n");
                     token = self.lex_number(start_pos);
                 } case CharClass::Operator { // this is either an operator or punctuation
-                    std::print(f"Lexing symbol at {start_pos}\n");
                     token = self.lex_symbol(start_pos);
                 } case CharClass::String { // string or char literal
-                    std::print(f"Lexing text at {start_pos}\n");
                     token = self.lex_text(start_pos);
                 } case CharClass::Illegal { // illegal character
-                    std::print(f"Lexing illegal at {start_pos}\n");
                     token = self.lex_illegal(start_pos);
                 }
                 case CharClass::NewLine:     // newline
                 case CharClass::Whitespace { // whitespace or newline
-                    std::print(f"Lexing whitespace at {start_pos}\n");
                     token = self.lex_whitespace(start_pos, c, current_char.len, cls);
                 }
             }
 
-            self._tokens.append(token);
+            /// we only avoid appending whitespace tokens for NOW
+            if token.kind != TokenKind::TkWhitespace {
+                self._tokens.append(token);
+            }
         }
 
         return true;
     }
 
-    default fn Lexer(self);
+    delete fn Lexer(self);
 
     fn Lexer(self, sm: *SourceManager) {
         self._sm = sm;
+        self._imm_tbl = ImmediateTable(sm);
         self._initialized = false; // we only initialize on lex call
     }
-    
+
     priv fn destroy(self) {
         self._tokens.destroy();
     }
@@ -302,7 +301,7 @@ class Lexer {
         if buffer == null || (!(*buffer).is_valid()) {
             return false;
         }
-        
+
         self._file_buffer = *buffer;
         return true;
     }
@@ -316,7 +315,7 @@ class Lexer {
     priv fn is_eof(self) -> bool {
         return self._cursor > (self.file_size() - 1);
     }
-    
+
     priv fn current_data(self) -> std::const_ptr::<u8> {
         return self.file_data() + self._cursor;
     }
@@ -470,6 +469,7 @@ class Lexer {
     ///========= Lexical Parsing Functions ==========///
 
     priv fn lex_name(self, start: SourceLocation) -> Token {
+        var timer = Timer("Lexer::lex_name");
         /// we have one of 2 few options here
         /// 1. identifier
         /// 2. keyword
@@ -505,18 +505,6 @@ class Lexer {
         /// this loop is a fall though if we gat past this we are garmented
         /// in an identifier
 
-        var str = "arr contains: [";
-        for var i: i32 = 0; i < MAX_KEYWORD_LENGTH; ++i {
-            var decoded = chars[i];
-            if decoded.len == 0 || (decoded.chr == '\0') {
-                str += "'?', ";
-                continue;
-            }
-
-            str += f"'{string(static_cast::<char>(decoded.chr), 1)}', ";
-        }
-        str += "]";
-        
         if self.is_valid_name(chars[0]) == 0 { // we should never hit this branch
             self.advance_cursor(chars[0].len); // consume invalid char only
             return create_unrecognized_token(start);
@@ -551,7 +539,7 @@ class Lexer {
 
                 /// we finalize the keyword hash and check if its valid
                 var hash: u64 = hash_state.finalize();
-                
+
                 if is_valid_token_kind(hash) {
                     token.kind  = static_cast::<TokenKind>(hash);
                     token.range = self.create_source_range(start);
@@ -564,7 +552,7 @@ class Lexer {
 
                 return create_unrecognized_token(start);
             }
-            
+
             if self.is_valid_name(decoded) == 2 {
                 /// def an identfier
                 is_identifier = true;
@@ -573,7 +561,7 @@ class Lexer {
             /// we don't actually need to see if is_valid_name == 1 here
             /// since if we hit that case we just continue hashing
             /// until we hit a non valid char or exceed max keyword length
-            
+
             if !is_identifier {
                 hash_state.mix(decoded.chr);
             }
@@ -588,7 +576,7 @@ class Lexer {
 
         while !self.is_eof() {
             chars = self.peek_char32::<MAX_KEYWORD_LENGTH>();
-            
+
             for var i: i32 = 0; i < MAX_KEYWORD_LENGTH; ++i {
                 var decoded = chars[i];
                 if self.is_valid_name(decoded) == 0 { // we have non ident or keyword
@@ -608,6 +596,7 @@ class Lexer {
     }
 
     priv fn lex_number(self, start: SourceLocation, is_dot: bool = false) -> Token {
+        var timer = Timer("Lexer::lex_number");
         /// ok so numbers are a bit more complex since we have
         /// integers and floats, and floats can start with a dot
         /// so we need to handle that case as well.
@@ -622,12 +611,393 @@ class Lexer {
         /// oh and on top of that we have to handle invalid number formats
         /// and emit appropriate diagnostics.
 
+        /// but for now the lexer will ony consume the number prefix and suffix
+        /// so for something like 0x1.23p10f64 it will consume the entire thing
+        /// and create a single token for it, then when creating an imm it stores
+        /// the ranges for the prefix, main number, and suffix separately.
+        /// then call the appropriate parse function pushing it into the thread pool.
+        /// this will be handled in the parser stage.
 
-        self.advance_cursor(); // consume first char
-        return create_unrecognized_token(start);
+        var chars = self.peek_char32::<2>(); // we set no max unicode len here
+                                               // since numbers can have utf-8 chars in suffixes
+        var suffix_start:  SourceLocation = SourceLocation();
+        var suffix_end:    SourceLocation = SourceLocation();
+        var number_start:  SourceLocation = start;
+        var number_end:    SourceLocation = SourceLocation();
+        var prefix_start:  SourceLocation = SourceLocation();
+        var prefix_end:    SourceLocation = SourceLocation();
+        var has_decimal:   bool = is_dot;
+        var has_exponent:  bool = false;
+        var has_prefix:    bool = false;
+        var base:          u8 = 10; // default base is decimal
+        var token: Token = Token();
+        var consumed: usize = 0; /// total DecodeResult's consumed
+
+        enum LastWasState {
+            None,
+            Digit,
+            Underscore,
+            Dot,
+            Prefix,
+            Exponent
+        }
+    
+        var last_was_state: LastWasState = LastWasState::None;
+
+
+        /// hex is base 16
+        /// octal is base 8
+        /// binary is base 2
+        /// decimal is base 10
+
+        if (!is_dot) && (chars[0].len == 1) && (chars[0].chr == '0') && (chars[1].len == 1) {
+            switch static_cast::<char>(chars[1].chr) {
+                case 'b':
+                case 'B' {
+                    base = 2;
+                    prefix_start = start;
+                    self.advance_cursor(chars[0].len + chars[1].len);
+                    prefix_end   = self.get_source_location();
+                    consumed += 2;
+                    has_prefix = true;
+                    last_was_state = LastWasState::Prefix;
+                }
+
+                case 'o':
+                case 'O' {
+                    base = 8;
+                    prefix_start = start;
+                    self.advance_cursor(chars[0].len + chars[1].len);
+                    prefix_end   = self.get_source_location();
+                    consumed += 2;
+                    has_prefix = true;
+                    last_was_state = LastWasState::Prefix;
+                }
+
+                case 'x':
+                case 'X' {
+                    base = 16;
+                    prefix_start = start;
+                    self.advance_cursor(chars[0].len + chars[1].len);
+                    prefix_end   = self.get_source_location();
+                    consumed += 2;
+                    has_prefix = true;
+                    last_was_state = LastWasState::Prefix;
+                }
+
+                default {
+                    base = 10; // decimal
+                    has_prefix = false;
+                    last_was_state = LastWasState::Digit;
+                }
+            }
+
+            number_start = self.get_source_location();
+        } else if is_dot {
+            has_decimal = true;
+            consumed += 1; // the length we have passed in the chars array
+            number_start = self.get_source_location();
+            self.advance_cursor(chars[0].len); // consume the dot
+            last_was_state = LastWasState::Dot;
+        }
+
+        /// now we get the main number body
+        var allows_sign_next: bool = false;
+        var end_loop: bool = false;
+
+        if base == 2 {
+            while (!self.is_eof()) && (!end_loop) {
+                var decoded = self.peek_char32();
+                var c: char32_t = normalize_char32(decoded.chr);
+
+                switch c {
+                    case '0': case '1' {
+                        last_was_state = LastWasState::Digit;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                    } case '_' {
+                        // we need to kill the loop
+                        if (last_was_state != LastWasState::Digit)
+                        || (last_was_state == LastWasState::Prefix)
+                        || (last_was_state == LastWasState::Dot)
+                        || (last_was_state == LastWasState::Underscore) {
+                            // error multiple underscores in a row
+                            end_loop = true;
+                            break;
+                        }
+                        last_was_state = LastWasState::Underscore;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                    } default {
+                        // end of binary number body next would be suffix
+                        end_loop = true;
+                        break;
+                    }
+                }
+            }
+        } else if base == 8 { // octal
+            while (!self.is_eof()) && (!end_loop) {
+                var decoded = self.peek_char32();
+                var c: char32_t = normalize_char32(decoded.chr);
+
+                switch c {
+                    case '0': case '1': case '2': case '3':
+                    case '4': case '5': case '6': case '7' {
+                        last_was_state = LastWasState::Digit;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                    } case '_' {
+                        if (last_was_state != LastWasState::Digit)
+                        || (last_was_state == LastWasState::Prefix)
+                        || (last_was_state == LastWasState::Dot)
+                        || (last_was_state == LastWasState::Underscore) {
+                            // error multiple underscores in a row
+                            end_loop = true;
+                            break;
+                        }
+                        last_was_state = LastWasState::Underscore;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                    } default {
+                        // end of octal number body next would be suffix
+                        end_loop = true;
+                        break;
+                    }
+                }
+            }
+        } else if base == 10 {
+__inline_cpp("base_10_lex_loop_start:");
+            while (!self.is_eof()) && (!end_loop) {
+                var decoded = self.peek_char32();
+                var c: char32_t = normalize_char32(decoded.chr);
+
+                switch c {
+                    case '0': case '1': case '2': case '3':
+                    case '4': case '5': case '6': case '7':
+                    case '8': case '9' {
+                        last_was_state = LastWasState::Digit;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                    } case '_' {
+                        if (last_was_state != LastWasState::Digit)
+                        || (last_was_state == LastWasState::Prefix)
+                        || (last_was_state == LastWasState::Dot)
+                        || (last_was_state == LastWasState::Underscore) {
+                            // error multiple underscores in a row
+                            end_loop = true;
+                            break;
+                        }
+                        last_was_state = LastWasState::Underscore;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                        allows_sign_next = false;
+                    } case '.' {
+                        if has_decimal {
+                            // error multiple decimals in number
+                            end_loop = true;
+                            break;
+                        }
+
+                        if has_exponent {
+                            // error decimal point preceding exponent
+                            end_loop = true;
+                            break;
+                        }
+
+                        if (last_was_state == LastWasState::Dot)
+                        || (last_was_state == LastWasState::Underscore) {
+                            // error multiple underscores in a row
+                            end_loop = true;
+                            break;
+                        }
+                        last_was_state = LastWasState::Dot;
+
+                        has_decimal = true;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                        allows_sign_next = false;
+                    } case 'e': case 'E' {
+                        if has_exponent {
+                            // error multiple exponents in number it would be like 1.2e3e4 where e4 could just be a suffix
+                            end_loop = true;
+                            break;
+                        }
+
+                        if (last_was_state == LastWasState::Underscore) {
+                            end_loop = true;
+                            break;
+                        }
+                        last_was_state = LastWasState::Exponent;
+
+                        has_exponent = true;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                        allows_sign_next = true;
+                    } case '+': case '-' {
+                        if !allows_sign_next {
+                            // error unexpected sign char
+                            end_loop = true;
+                            break;
+                        }
+
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                        allows_sign_next = false;
+                    } default {
+                        // end of decimal number body next would be suffix
+                        end_loop = true;
+                        break;
+                    }
+                }
+            }
+        } else if base == 16 {
+            while (!self.is_eof()) && (!end_loop) {
+                var decoded = self.peek_char32();
+                var c: char32_t = normalize_char32(decoded.chr);
+
+                switch c {
+                    case '0': case '1': case '2': case '3':
+                    case '4': case '5': case '6': case '7':
+                    case '8': case '9':
+                    case 'A': case 'B': case 'C':
+                    case 'D': case 'E': case 'F':
+                    case 'a': case 'b': case 'c':
+                    case 'd': case 'e': case 'f' {
+                        last_was_state = LastWasState::Digit;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                    } case '_' {
+                        if (last_was_state != LastWasState::Digit)
+                        || (last_was_state == LastWasState::Prefix)
+                        || (last_was_state == LastWasState::Dot)
+                        || (last_was_state == LastWasState::Underscore) {
+                            // error multiple underscores in a row
+                            end_loop = true;
+                            break;
+                        }
+                        last_was_state = LastWasState::Underscore;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                        allows_sign_next = false;
+                    } case '.' {
+                        if has_decimal {
+                            // error multiple decimals in number
+                            end_loop = true;
+                            break;
+                        }
+
+                        if (last_was_state == LastWasState::Dot)
+                        || (last_was_state == LastWasState::Underscore) {
+                            // error multiple underscores in a row
+                            end_loop = true;
+                            break;
+                        }
+                        last_was_state = LastWasState::Dot;
+
+                        has_decimal = true;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                        allows_sign_next = false;
+                    } case 'p': case 'P' {
+                        if has_exponent {
+                            // error multiple exponents in number
+                            end_loop = true;
+                            break;
+                        }
+
+                        if (last_was_state == LastWasState::Underscore) {
+                            end_loop = true;
+                            break;
+                        }
+                        last_was_state = LastWasState::Exponent;
+
+                        has_exponent = true;
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                        allows_sign_next = true;
+                        /// since after a hex exponent we can only have decimal digits
+                        /// we switch to the base 10 lexing loop
+                        __inline_cpp("goto base_10_lex_loop_start;");
+                    } case '+': case '-' {
+                        if !allows_sign_next {
+                            // error unexpected sign char
+                            end_loop = true;
+                            break;
+                        }
+
+                        self.advance_cursor(decoded.len);
+                        consumed += 1;
+                        allows_sign_next = false;
+                    } default {
+                        // end of hex number body next would be suffix
+                        end_loop = true;
+                        break;
+                    }
+                }
+            }
+        } else {
+            self.advance_cursor(); // consume first char
+            return create_unrecognized_token(start);
+        }
+
+        number_end = self.get_source_location();
+
+        /// now we get the suffix if any
+        var decoded = self.peek_char32();
+        var suffix_token: Token;
+
+        if self.is_valid_name(decoded) != 0 {
+            suffix_token = self.lex_name(self.get_source_location());
+        }
+
+        var is_float = has_decimal || has_exponent;
+
+        token.kind  = TokenKind::LitFloat if is_float else TokenKind::LitInt;
+        token.range = self.create_source_range(start);
+
+        var imm_idx: u32 = 0;
+
+        /// now we need to populate the imm with the ranges
+        if is_float {
+            imm_idx = self._imm_tbl.create::<Immediate::FloatData>();
+        } else {
+            imm_idx = self._imm_tbl.create::<Immediate::IntData>();
+        }
+
+        token.imm = imm_idx;
+
+        // now we get the imm and populate it
+        if is_float {
+            var imm = self._imm_tbl.get::<Immediate::FloatData>(imm_idx);
+            imm->base   = base;
+            imm->body   = SourceRange::from_bounds(number_start, number_end);
+            imm->flags  = (imm->flags | 0b00000001) if has_exponent else (imm->flags & 0b11111110);
+            imm->flags  = (imm->flags | 0b00000010) if (base == 16) else (imm->flags & 0b11111101);
+            imm->flags  = (imm->flags | 0b00010000) if (suffix_token.kind != TokenKind::TkUnknown) else (imm->flags & 0b11101111);
+            if has_prefix {
+                imm->prefix = SourceRange::from_bounds(prefix_start, prefix_end);
+            } if suffix_token.kind != TokenKind::TkUnknown {
+                imm->suffix = suffix_token.range;
+            }
+        } else {
+            var imm = self._imm_tbl.get::<Immediate::IntData>(imm_idx);
+            imm->base  = base;
+            imm->body  = SourceRange::from_bounds(number_start, number_end);
+            imm->flags = (imm->flags | 0b00010000) if has_prefix else (imm->flags & 0b11101111);
+            imm->flags = (imm->flags | 0b00001000) if (suffix_token.kind != TokenKind::TkUnknown) else (imm->flags & 0b11110111);
+            if has_prefix {
+                imm->prefix = SourceRange::from_bounds(prefix_start, prefix_end);
+            } if suffix_token.kind != TokenKind::TkUnknown {
+                imm->suffix = suffix_token.range;
+            }
+        }
+
+        return token;
     }
 
     priv fn lex_symbol(self, start: SourceLocation) -> Token {
+        var timer = Timer("Lexer::lex_symbol");
+
         // we get 4 chars max len of 1 u8
         const CHARS: array::<DecodeResult, 4> = self.peek_char32::<4>(1);
         const C1: DecodeResult = CHARS[0];
@@ -647,13 +1017,17 @@ class Lexer {
         ///       if it is then we have a float literal not a symbol so we need
         ///       call lex_number instead of continuing here and pass the is_dot=true flag
 
+        if (C1.chr == '.') && (C2.len == 1) && (C2.chr >= '0') && (C2.chr <= '9') {
+            return self.lex_number(start, true);
+        }
+
         hash_state.mix(C1.chr);
         self.advance_cursor(); // safe to advance without checking len since
                                // we already know chars only contains 1 u8 size char32's
 
         if !self.is_valid_symbol(C2) { // 1 char symbol
             var hash: u64 = hash_state.finalize();
-            
+
             if !is_valid_token_kind(hash) {
                 return create_error_token(start, static_cast::<TokenKind>(hash));
             }
@@ -662,13 +1036,13 @@ class Lexer {
             token.range = self.create_source_range(start);
             return token;
         }
-        
+
         hash_state.mix(C2.chr);
         self.advance_cursor();
 
         if !self.is_valid_symbol(C3) { // 2 char symbol
             var hash: u64 = hash_state.finalize();
-            
+
             if !is_valid_token_kind(hash) {
                 return create_error_token(start, static_cast::<TokenKind>(hash));
             }
@@ -683,7 +1057,7 @@ class Lexer {
 
         if !self.is_valid_symbol(C4) { // 3 char symbol
             var hash: u64 = hash_state.finalize();
-            
+
             if !is_valid_token_kind(hash) {
                 return create_error_token(start, static_cast::<TokenKind>(hash));
             }
@@ -759,7 +1133,7 @@ class Lexer {
 
             self.advance_cursor(current_char.len);
         }
-        
+
         self.advance_cursor(); // consume first char
         return create_unrecognized_token(start);
     }
@@ -789,7 +1163,7 @@ class Lexer {
         if (c.len > 1) || (c.chr == '#') {
             return 2;
         }
-        
+
         switch (c.chr) {
             case MACRO_UNICODE_KEYWORD_CASES {
                 return 1;
@@ -801,7 +1175,7 @@ class Lexer {
 
     inline static fn set_kind(tok: *Token, hash_state: *HashState) {
         var hash: u64 = hash_state->finalize();
-     
+
         if is_valid_token_kind(hash) {
             tok->kind = static_cast::<TokenKind>(hash);
             return;
@@ -812,70 +1186,14 @@ class Lexer {
         }
     }
 
+    fn <T> get_imm(self, imm_idx: u32) -> *T {
+        return self._imm_tbl.get::<T>(imm_idx);
+    }
+
     fn debug(self) {
         // TODO
     }
 }
-
-// fn Lexer::lex_operator_or_punctuation(/* self, */ tok: *Token) -> usize {
-//     var timer2 = Timer("Lex Operator/Punctuation");
-//     if self.is_eof() { /// this logic is definitely broken, needs to be reworked
-//         return 0;
-//     }
-
-//     // we first load in the first 16 char32_t from the current position
-//     const NULL_TERM: char = '\0';
-//     const MAX_SIZE:  usize = 4;
-//     const chars: array::<DecodeResult, MAX_SIZE> = self.peek_char32::<MAX_SIZE>();
-
-//     const C1: DecodeResult = chars[0];
-//     const C2: DecodeResult = chars[1];
-//     const C3: DecodeResult = chars[2];
-//     const C4: DecodeResult = chars[3];
-
-//     var hash_state = HashState();
-//     var len: usize = 0;
-//     var hash_input: std::Memory::buffer::<char, MAX_SIZE> = __inline_cpp("{
-//         NULL_TERM, NULL_TERM, NULL_TERM, NULL_TERM
-//     }");
-
-//     if !(Helpers::is_char_op_or_punctuation(C1)) {
-//         return 0;
-//     }
-
-//     hash_input[0] = C1.chr;
-//     hash_state.mix(C1.chr);
-//     len += C1.len;
-
-//     if !(Helpers::is_char_op_or_punctuation(C2)) {
-//         Helpers::set_kind(tok, &hash_state);
-//         return len;
-//     }
-
-//     hash_input[1] = C2.chr;
-//     hash_state.mix(C2.chr);
-//     len += C2.len;
-
-//     if !(Helpers::is_char_op_or_punctuation(C3)) {
-//         Helpers::set_kind(tok, &hash_state);
-//         return len;
-//     }
-
-//     hash_input[2] = C3.chr;
-//     hash_state.mix(C3.chr);
-//     len += C3.len;
-
-//     if !(Helpers::is_char_op_or_punctuation(C4)) {
-//         Helpers::set_kind(tok, &hash_state);
-//         return len;
-//     }
-
-//     hash_input[3] = C4.chr;
-//     hash_state.mix(C4.chr);
-//     len += C4.len;
-
-//     return len;
-// }
 
 fn Test() -> i32 {
     var pool: *ThreadPool;
@@ -926,6 +1244,15 @@ fn Test() -> i32 {
 
     for t: Token in (*tokens) {
         std::print(f"token: {t} data: {sm->get_text(t.range)}");
+
+        /// now if we have an int or a float we can print the imm data
+        if t.kind == TokenKind::LitInt {
+            var imm = lexer.get_imm::<Immediate::IntData>(t.imm);
+            std::print(f"{imm->to_string(sm)}");
+        } else if t.kind == TokenKind::LitFloat {
+            var imm = lexer.get_imm::<Immediate::FloatData>(t.imm);
+            std::print(f"{imm->to_string(sm)}");
+        }
     }
 
     return 0;
