@@ -105,6 +105,9 @@ class SourceManager {
     /// \brief destructor: cleans up all loaded files.
     ///
     fn op delete (self) {
+        self._line_table.shutdown();
+        // self._pool->wait_all();
+
         for f: *SourceFile in _files {
             if f != &null {
                 delete f;
@@ -140,16 +143,20 @@ class SourceManager {
 
         _line_table.register_file(base_fid, size);
 
-        self._pool->enqueue(fn () {
-            self._line_table.build_index(base_fid, self._vfile_mgr);
-        });
-
         var buf  = _vfile_mgr->get_buffer(base_fid);
         var file = std::create::<SourceFile>(path, buf, self._total_b);
 
         /// FIXME: an overflow can occur here.
         self._total_b += file->size_bytes;
         self._files.push_back(file);
+        
+        
+
+        self._pool->enqueue(__inline_cpp("
+            [fid = base_fid, this]() {
+                this->_line_table.build_index(fid, this->_vfile_mgr);
+            }
+        "));
 
         return base_fid;
     }

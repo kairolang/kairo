@@ -290,23 +290,27 @@ class ThreadPool {
                 var idx  = static_cast::<usize>(pos & self._mask);
                 var cell = &self._buf[idx];
                 var seq  = cell->seq.load(std::MemoryOrder::acquire);
-                var dif  = static_cast::<i64>(seq) - static_cast::<i64>(pos);
+                var dif = static_cast::<i64>(seq) - static_cast::<i64>(pos);
 
                 if dif == 0 {
-                    if self._enqueue_pos.compare_exchange_weak(pos, pos + 1,
-                        std::MemoryOrder::release, std::MemoryOrder::relaxed)
-                    {
+                    if self._enqueue_pos.compare_exchange_weak(
+                            pos, pos + 1,
+                            std::MemoryOrder::acq_rel,
+                            std::MemoryOrder::relaxed)
+                    { // write payload then publish seq
                         cell->val = std::Memory::move(v);
                         cell->seq.store(pos + 1, std::MemoryOrder::release);
-
                         return true;
                     }
+
+                    // CAS failed → retry pos reload
                 } else if dif < 0 {
-                    return false; // full
+                    return false;
                 } else {
                     _thread_pause();
-                    pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
                 }
+
+                pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
             }
         }
 
@@ -410,6 +414,23 @@ class ThreadPool {
         self.shutdown();
     }
 
+    inline static fn fnv1a64_bytes(const tid: ref!(std::Thread::id)) -> u64 {
+        var h: u64 = 0xcbf29ce484222325;
+
+        __inline_cpp("
+            static constexpr size_t TID_SIZE = sizeof(libcxx::thread::id);
+        ");
+
+        var buf: std::Memory::buffer::<u8, TID_SIZE>;
+        libcxx::memcpy(buf, &tid, TID_SIZE);
+
+        for var i: usize = 0; i < TID_SIZE; ++i {
+            h = (h ^ buf[i]) * 0x100000001b3;
+        }
+
+        return h;
+    }
+
     ///
     /// \brief Schedules a callable for asynchronous execution.
     ///
@@ -429,23 +450,42 @@ class ThreadPool {
             return;
         }
 
-        var task = Task();
+        __inline_cpp("
+            thread_local size_t local_qid = static_cast<size_t>(-1);
+        ");
 
+        if local_qid == static_cast::<usize>(-1) {
+            // distribute threads but STICK to one queue after
+            var tid =  libcxx::this_thread::get_id();
+            local_qid = static_cast::<usize>(fnv1a64_bytes(tid) % self._count);
+        }
+
+        var qid = local_qid;
+
+        // --- build task once ---
+        var task = Task();
         task._fn    = std::Memory::move(_fn);
         task._group = group;
 
-        var start  = self._rr.fetch_add(1, std::MemoryOrder::relaxed);
-        var offset = (start * 0x9E3779B97F4A7C15) & 0xFFFFFFFFFFFFFFFF;
-        var qid    = static_cast::<usize>((offset >> 32) % self._count);
-
-        for var k: usize = 0; k < self._count; ++k {
-            var idx = (qid + k) % self._count;
-
-            if (self._queues[idx]->push(std::Memory::move(task))) {
-                self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
-                return;
-            }
+        // --- fast path: push to primary queue ---
+        if (self._queues[qid]->push(std::Memory::move(task))) {
+            self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
+            return;
         }
+
+        // --- one fallback queue only ---
+        var alt = (qid + 1) % self._count;
+        if (self._queues[alt]->push(std::Memory::move(task))) {
+            self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
+            return;
+        }
+
+        // --- final fallback: spin until primary has a slot ---
+        while !self._queues[qid]->push(std::Memory::move(task)) {
+            _thread_pause();
+        }
+
+        self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
     }
 
     ///

@@ -146,6 +146,11 @@ class SourceLineTable {
     /// \brief releases all memory and resets table state.
     ///
     fn shutdown(self) {
+        /// wait for any active builds to finish
+        while self._active.load(std::MemoryOrder::acquire) {
+            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
+        }
+        
         var tbl = self._file_table.load(std::MemoryOrder::acquire);
         if tbl == &null { return; }
 
@@ -197,7 +202,7 @@ class SourceLineTable {
     fn build_index(self, fid: u32, vfm: *VirtualFileManager) {
         var buff = vfm->get_buffer(fid)->bytes();
 
-        if (!buff.data() || buff.size() == 0){
+        if ((!buff.data()) || buff.size() == 0){
             return;
         }
 
@@ -382,35 +387,6 @@ class SourceLineTable {
         var entry = (*tbl)[fid];
         return (entry != &null) && (entry->is_ready());
     }
-
-    /*
-    std::mutex ready_mtx;
-    std::condition_variable ready_cv;
-    bool ready_flag = false;
-
-    // call from producer when the resource becomes ready
-    void mark_ready() {
-        {
-            std::lock_guard<std::mutex> g(ready_mtx);
-            ready_flag = true;
-        }
-        ready_cv.notify_one();
-    }
-
-    // waiter:
-    void wait_until_ready(int fid) {
-        std::unique_lock<std::mutex> lk(ready_mtx);
-        // first do a fast check to avoid acquiring lock unnecessarily
-        if (is_ready(fid)) return;
-
-        // wait until predicate becomes true (spurious wakeups handled)
-        ready_cv.wait(lk, [&]{ return is_ready(fid) || ready_flag; });
-
-        // still optionally re-check
-        return;
-    }
-    // ...existing code...
-    */
 
     ///
     /// \brief busy-waits until the file entry is ready, with backoff.
