@@ -57,13 +57,13 @@ class Catalyst{
         __inline_cpp("
         static void *jump_table[256] = {
             [0 ... 255] = &&other,
-            ['-'] = &&single_dash
+            ['-'] = &&single_dash,
             ['/'] = &&slash_flag,
         }");
 
         
 
-        for pointer : i32 in sentence.length {
+        for pointer : i32 in usize(0)..(sentence.length()) {
             word = "";
             
             __inline_cpp("goto *jump_table[(uint8_t)sentence[pointer]]");
@@ -74,7 +74,7 @@ class Catalyst{
 
         __inline_cpp("single_dash :");
 
-            if (sentence[(i+1)]) == '-' { 
+            if (sentence[(pointer+1)]) == '-' { 
                 /// brackets around sentence are due to messed up operator precedence
                 /// var a = (tok.token_kind()) as i32
                 /// auto a = tok.as_cast<i32>(token_kind())
@@ -190,7 +190,7 @@ class Catalyst{
 
 
         __inline_cpp("slash_flag :");
-            if (sentence[(i+1)]) == '-' { 
+            if (sentence[(pointer+1)]) == '-' { 
                 /// brackets around sentence are due to messed up operator precedence
                 /// var a = (tok.token_kind()) as i32
                 /// auto a = tok.as_cast<i32>(token_kind())
