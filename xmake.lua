@@ -536,6 +536,7 @@ target("helix") -- target config defined in the config seciton
     -- end
 
     set_kind("binary")
+    set_policy("build.optimization.lto", true)
     set_languages(cxx_standard)
 
     -- after build copy all the folders and files from lib-helix to the target directory
