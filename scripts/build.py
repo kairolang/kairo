@@ -212,27 +212,27 @@ class Builder:
 # ---------------------------------- START OF COMPILER COMMANDS ---------------------------------- #
 
 # the helix compiler
-Builder("toolchain/driver/main/helix.hlx", "helix")                             \
+Builder("toolchain/Driver/Main/HBuild.hlx", "helix")                             \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
 
 # the helix code formatter
-Builder("toolchain/driver/main/fmt.hlx", "helix-fmt")                           \
+Builder("toolchain/Driver/Main/Helix.hlx", "helix-fmt")                           \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix ide client for lsp support
-Builder("toolchain/driver/main/analyzer.hlx", "helix-analyzer")                 \
+Builder("toolchain/Driver/Main/HFmt.hlx", "helix-analyzer")                 \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix linker
-Builder("toolchain/driver/main/ld.hlx", "helix-ld")                             \
+Builder("toolchain/Driver/Main/HLd.hlx", "helix-ld")                             \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
 # the helix package manager
-Builder("toolchain/driver/main/vial.hlx", "vial")                               \
+Builder("toolchain/Driver/Main/HLS.hlx", "vial")                               \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
 

@@ -1,4 +1,9 @@
-// REV: Q3-2025-18
+// REV: Q4-2025-11
+// Language Grammar Definition File, right now this does look like a mess, and
+// it is. But this will never be used for a parser generator, this is just to
+// have a formal definition of the language grammar for reference and to help
+// while writing the parser manually.
+
 /* Base */
 delimiter   ::= "\t" | "\n" | "EOF" | ' '  | ','  | ';' ;
 ident       ::= [A-Za-z_][A-Za-z0-9_]*;
