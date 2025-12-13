@@ -23,9 +23,9 @@ enum FlagType derives u32 {
     // --- GENERAL / HELP & VERSION ---
     HELP            = compute_hash::<r"h">(),
     HELP_LONG       = compute_hash::<r"help">(),
-    VERSION         = compute_hash::<r"v">(),
-    VERSION_LONG    = compute_hash::<r"version">(),
+    VERSION         = compute_hash::<r"version">(),
     VERBOSE         = compute_hash::<r"verbose">(),
+    VERBOSE_LONG    = compute_hash::<r"v">(),
     QUIET           = compute_hash::<r"quiet">(),
 
     // --- PROFILES / BUILD MODES ---
