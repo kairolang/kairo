@@ -152,6 +152,40 @@ enum FlagType derives u32 {
 };
 
 
+///-----------------------------------------------
+/// \brief Builds a constexpr lookup table with all
+///        possible 8 bit characters for determining
+///        which characters start long flags in CLI 
+///        arguments.
+/// \return array::<bool, 256> - true for characters that start long flags
+///-----------------------------------------------
+
+fn build_long_flag_table() constexpr -> array::<bool, 256> {      /// 256 for all u8 values
+
+    var table : array::<bool, 256> = array::<bool, 256>() ;
+
+    
+    table['W'] = true ;   
+    table['O'] = true ;   
+    table['f'] = true ;    
+    table['m'] = true ;    
+    table['X'] = true ;    
+    table['t'] = true ;    
+    table['s'] = true ;    
+    table['p'] = true ;    
+    table['E'] = true ;    
+    table['D'] = true ;    
+    table['F'] = true ;    
+
+    return table ;
+}
+
+IS_LONG_FLAG : constexpr array::<bool, 256> = build_long_flag_table() ;
+
+///-----------------------------------------------
+
+
+
 
 fn Tokenize(sentence : string ){
 
@@ -214,7 +248,7 @@ fn Tokenize(sentence : string ){
                 default {                                                   //flag starts here 
                     word+=sentence[pointer];
                     
-                    if isLong(sentence[pointer]){                //for detection of non single letter flags
+                    if IS_LONG_FLAG[u8(sentence[pointer])]{                //for detection of non single letter flags
                         while(sentence[pointer] != ' '){
                             word+=sentence[pointer];
                             pointer++;
@@ -276,18 +310,13 @@ fn Tokenize(sentence : string ){
 
                 default {                                                   //flag starts here 
                     word+=sentence[pointer];
-                    
-                    if isLong(sentence[pointer]){                //for detection of non single letter flags
-                        while(sentence[pointer] != ' '){
+    
+                    while(sentence[pointer] != ' '){
                             word+=sentence[pointer];
-                        }
-                    } else {
-                        while(sentence[pointer] != ' '){                     //-abc types
-                            parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                            parser++;
-                        }
+                            pointer++
                     }
                 }
+            }
 
 
             }
@@ -332,7 +361,7 @@ fn Tokenize(sentence : string ){
                 default {                                                   //flag starts here 
                     word+=sentence[pointer];
                     
-                    if isLong(sentence[pointer]){                //for detection of non single letter flags
+                    if IS_LONG_FLAG[u8(sentence[pointer])]{                //for detection of non single letter flags
                         while(sentence[pointer] != ' '){
                             word+=sentence[pointer];
                             pointer++
