@@ -51,6 +51,7 @@ class Catalyst{
     fn Tokenize(self, sentence : string ){
 
         var parsedFlags : array::<FlagType, 64> = array::<FlagType, 64>() ; 
+        var files : array::<string,64> = array::<string, 10>
         var word : string ;
         var parser : i32 = 0 ;
 
