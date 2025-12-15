@@ -128,42 +128,42 @@ class SourceLocation {
     ///
     /// \brief equality operator.
     ///
-    fn op == (self, other: SourceLocation) -> bool {
+    eval const fn op == (self, other: SourceLocation) -> bool {
         return self.id == other.id;
     }
 
     ///
     /// \brief inequality operator.
     ///
-    fn op != (self, other: SourceLocation) -> bool {
+    eval const fn op != (self, other: SourceLocation) -> bool {
         return self.id != other.id;
     }
 
     ///
     /// \brief less-than comparison.
     ///
-    fn op < (self, other: SourceLocation) -> bool {
+    eval const fn op < (self, other: SourceLocation) -> bool {
         return self.id < other.id;
     }
 
     ///
     /// \brief less-than-or-equal comparison.
     ///
-    fn op <= (self, other: SourceLocation) -> bool {
+    eval const fn op <= (self, other: SourceLocation) -> bool {
         return self.id <= other.id;
     }
 
     ///
     /// \brief greater-than comparison.
     ///
-    fn op > (self, other: SourceLocation) -> bool {
+    eval const fn op > (self, other: SourceLocation) -> bool {
         return self.id > other.id;
     }
 
     ///
     /// \brief greater-than-or-equal comparison.
     ///
-    fn op >= (self, other: SourceLocation) -> bool {
+    eval const fn op >= (self, other: SourceLocation) -> bool {
         return self.id >= other.id;
     }
 
@@ -174,7 +174,7 @@ class SourceLocation {
     /// \details
     /// uses a lightweight FNV-1a-like hash mix to distribute bits of `id`.
     ///
-    eval fn hash(self) -> u32 {
+    eval const fn hash(self) -> u32 {
         var h: u32 = 0x811C9DC5;
 
         h = (h ^ self.id) * 0x01000193;
@@ -202,5 +202,39 @@ class SourceLocation {
     ///
     fn op as (self) -> string {
         return f"SourceLocation(id: {self.id})";
+    }
+
+    ///
+    /// \brief computes the byte distance between two locations.
+    ///
+    /// \param other the location to compute distance to.
+    /// \return absolute difference in raw ids.
+    ///
+    fn distance_to(self, other: SourceLocation) -> usize {
+        if self.id > other.id {
+            return static_cast::<usize>(self.id - other.id);
+        }
+
+        return static_cast::<usize>(other.id - self.id);
+    }
+
+    ///
+    /// \brief advances location by n bytes.
+    ///
+    /// \param n number of bytes to advance.
+    /// \return new location advanced by n.
+    ///
+    fn advance(self, n: usize) -> SourceLocation {
+        return self.with_offset(static_cast::<i64>(n));
+    }
+
+    ///
+    /// \brief retreats location by n bytes.
+    ///
+    /// \param n number of bytes to go back.
+    /// \return new location moved back by n.
+    ///
+    fn retreat(self, n: usize) -> SourceLocation {
+        return self.with_offset(-static_cast::<i64>(n));
     }
 }

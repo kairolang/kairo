@@ -507,4 +507,76 @@ class SourceLineTable {
 
         return out + ")";
     }
+
+    ///
+    /// \brief gets the starting offset of a line.
+    ///
+    /// \param fid file id.
+    /// \param line_num 1-based line number.
+    /// \return byte offset of line start, or 0 if invalid.
+    ///
+    fn get_line_offset(self, fid: u32, line_num: u32) -> u32 {
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if (tbl == &null) || (fid >= tbl->size()) {
+            return 0;
+        }
+
+        var entry = (*tbl)[fid];
+        if (entry == &null) || (!entry->is_ready()) {
+            return 0;
+        }
+
+        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        if lines == &null {
+            return 0;
+        }
+
+        var line_count = entry->line_count.load(std::MemoryOrder::acquire);
+        
+        // line_num is 1-based, but array is 0-indexed
+        if (line_num == 0) || (line_num > line_count) {
+            return 0;
+        }
+
+        return (*lines)[line_num - 1];
+    }
+
+    ///
+    /// \brief gets the ending offset of a line (start of next line or EOF).
+    ///
+    /// \param fid file id.
+    /// \param line_num 1-based line number.
+    /// \return byte offset where line ends (exclusive).
+    ///
+    fn get_line_end_offset(self, fid: u32, line_num: u32) -> u32 {
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if (tbl == &null) || (fid >= tbl->size()) {
+            return 0;
+        }
+
+        var entry = (*tbl)[fid];
+        if (entry == &null) || (!entry->is_ready()) {
+            return 0;
+        }
+
+        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        if lines == &null {
+            return 0;
+        }
+
+        var line_count = entry->line_count.load(std::MemoryOrder::acquire);
+        
+        if (line_num == 0) || (line_num > line_count) {
+            return 0;
+        }
+
+        // if this is the last line, return file size
+        if line_num == line_count {
+            return entry->file_size;
+        }
+
+        // otherwise return start of next line (which is after the newline)
+        // we want the position before the newline
+        return (*lines)[line_num] - 1;
+    }
 }
