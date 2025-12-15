@@ -47,12 +47,7 @@ enum TokenKind derives u32 {
                                //       ".5",    "3.14e-2" , "1e3"
 
     LitString        = 0x028,  // e.g.  "hello"
-    LitString_Narrow = 0x029,  // e.g. n"hello"
-    LitString_Format = 0x02a,  // e.g. f"{name}"
-
     LitChar          = 0x02b,  // e.g.  'a'
-    LitChar_Narrow   = 0x02c,  // e.g. n'a'
-    LitChar_Format   = 0x02d,  // e.g. f'{a}'
 
     LitNull          = compute_hash::<r"null">(),
     ///===----------------------------------------------------------------===///
@@ -317,8 +312,6 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::TkFileStart:        case TokenKind::TkFileEnd:
         case TokenKind::TkMacroExpand:      case TokenKind::LitIdentifier:
         case TokenKind::LitInt:             case TokenKind::LitFloat:
-        case TokenKind::LitString_Narrow:   case TokenKind::LitString_Format:
-        case TokenKind::LitChar_Narrow:     case TokenKind::LitChar_Format:
         case TokenKind::OpRBrace:           case TokenKind::OpLParen:
         case TokenKind::OpLSquare:          case TokenKind::OpRSquare:
         case TokenKind::OpLess:             case TokenKind::OpGreater:
@@ -435,11 +428,7 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::LitInt {                return "lit-int"; }
         case TokenKind::LitFloat {              return "lit-float"; }
         case TokenKind::LitString {             return "lit-string"; }
-        case TokenKind::LitString_Narrow {      return "lit-string-narrow"; }
-        case TokenKind::LitString_Format {      return "lit-string-format"; }
         case TokenKind::LitChar {               return "lit-char"; }
-        case TokenKind::LitChar_Narrow {        return "lit-char-narrow"; }
-        case TokenKind::LitChar_Format {        return "lit-char-format"; }
         case TokenKind::OpLBrace {              return "op-l-brace"; }
         case TokenKind::OpRBrace {              return "op-r-brace"; }
         case TokenKind::OpLParen {              return "op-l-paren"; }
@@ -822,11 +811,7 @@ fn is_literal(kind: TokenKind) -> bool {
         case TokenKind::LitInt:
         case TokenKind::LitFloat:
         case TokenKind::LitString:
-        case TokenKind::LitString_Narrow:
-        case TokenKind::LitString_Format:
         case TokenKind::LitChar:
-        case TokenKind::LitChar_Narrow:
-        case TokenKind::LitChar_Format:
             return true;
         default:
             return false;
