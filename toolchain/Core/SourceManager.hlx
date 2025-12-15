@@ -397,6 +397,133 @@ class SourceManager {
             std::print(f"     base offset: {file->base_offset}");
         }
     }
+
+    ///
+    /// \brief computes byte distance between two source locations.
+    ///
+    /// \param a first location.
+    /// \param b second location.
+    /// \return absolute byte distance.
+    ///
+    /// \warning returns 0 if locations are from different files.
+    ///
+    fn diff(self, a: SourceLocation, b: SourceLocation) -> usize {
+        var res_a = self.resolve(a);
+        var res_b = self.resolve(b);
+        
+        // different files → distance is meaningless
+        if res_a.fid != res_b.fid {
+            return 0;
+        }
+        
+        return a.distance_to(b);
+    }
+
+    ///
+    /// \brief checks if two locations are in the same file.
+    ///
+    fn same_file(self, a: SourceLocation, b: SourceLocation) -> bool {
+        var res_a = self.resolve(a);
+        var res_b = self.resolve(b);
+        return res_a.fid == res_b.fid;
+    }
+
+    ///
+    /// \brief extracts a single character at a location.
+    ///
+    /// \param loc location to read from.
+    /// \return UTF-32 codepoint, or 0 if invalid.
+    ///
+    fn get_char_at(self, loc: SourceLocation) -> u32 {
+        var range = SourceRange::single(loc);
+        var buf   = self.get_view(range);
+        
+        if buf.size() == 0 {
+            return 0;
+        }
+        
+        var res = UTF8View::decode_utf8(buf.data(), buf.size());
+        return res.chr;
+    }
+
+    ///
+    /// \brief checks if a location points to whitespace.
+    ///
+    fn is_whitespace_at(self, loc: SourceLocation) -> bool {
+        var chr = self.get_char_at(loc);
+        return (chr == ' ') || (chr == '\t') || (chr == '\n') || (chr == '\r');
+    }
+
+    ///
+    /// \brief finds start of line containing location.
+    ///
+    /// \param loc location to search from.
+    /// \return location at start of line.
+    ///
+    fn get_line_start(self, loc: SourceLocation) -> SourceLocation {
+        if !loc.is_valid() {
+            return loc;
+        }
+
+        var full_loc = self.get_line_col(loc);
+        var res = self.resolve(loc);
+        
+        // wait for line index if not ready
+        self._line_table.wait_until_ready(res.fid);
+        
+        var line_start_offset = self._line_table.get_line_offset(
+            res.fid,
+            full_loc.line
+        );
+        
+        return self.get_loc(res.fid, static_cast::<usize>(line_start_offset));
+    }
+
+    ///
+    /// \brief finds end of line containing location.
+    ///
+    /// \param loc location to search from.
+    /// \return location at end of line (before newline).
+    ///
+    fn get_line_end(self, loc: SourceLocation) -> SourceLocation {
+        if !loc.is_valid() {
+            return loc;
+        }
+
+        var full_loc = self.get_line_col(loc);
+        var res = self.resolve(loc);
+        
+        // wait for line index if not ready
+        self._line_table.wait_until_ready(res.fid);
+        
+        var line_end_offset = self._line_table.get_line_end_offset(
+            res.fid,
+            full_loc.line
+        );
+        
+        return self.get_loc(res.fid, static_cast::<usize>(line_end_offset));
+    }
+
+    ///
+    /// \brief extracts entire line containing a location.
+    ///
+    /// \param loc any location on the line.
+    /// \return range covering the full line.
+    ///
+    fn get_line_range(self, loc: SourceLocation) -> SourceRange {
+        var start = self.get_line_start(loc);
+        var end   = self.get_line_end(loc);
+        return SourceRange::from_bounds(start, end);
+    }
+
+    ///
+    /// \brief checks if range spans multiple lines.
+    ///
+    fn is_multiline(self, range: SourceRange) -> bool {
+        var start_line = self.get_line_col(range.start).line;
+        var end_line = self.get_line_col(range.end).line;
+        return start_line != end_line;
+    }
 }
 
 fn Test() -> i32 {

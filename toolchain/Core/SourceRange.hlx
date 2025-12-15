@@ -174,14 +174,14 @@ class SourceRange {
     ///
     /// \brief equality operator.
     ///
-    fn op == (self, other: SourceRange) -> bool {
-        return self.start == other.start && self.end == other.end;
+    eval const fn op == (self, other: SourceRange) -> bool {
+        return (self.start == other.start) && (self.end == other.end);
     }
 
     ///
     /// \brief inequality operator.
     ///
-    fn op != (self, other: SourceRange) -> bool {
+    eval const fn op != (self, other: SourceRange) -> bool {
         return !(self == other);
     }
 
@@ -190,10 +190,9 @@ class SourceRange {
     ///
     /// \return formatted string like `SourceRange(start: <start>, end: <end>)`.
     ///
-    fn op as (self) -> string {
-        return f"SourceRange(start: {self.start}, end: {self.end})";
+    eval const fn op as (self) -> string {
+        return f"SourceRange(start: {(self.start) as string}, end: {(self.end) as string})";
     }
-
 
     ///
     /// \brief computes a hash for this range.
@@ -208,5 +207,71 @@ class SourceRange {
         h = (h ^ self.end.raw())   * 0x01000193;
 
         return h;
+    }
+
+    ///
+    /// \brief checks if range is empty (zero-length).
+    ///
+    fn is_empty(self) -> bool {
+        return self.start == self.end;
+    }
+
+    ///
+    /// \brief returns a range expanded by n bytes on both sides.
+    ///
+    /// \param n number of bytes to expand.
+    /// \return expanded range.
+    ///
+    fn expand(self, n: usize) -> SourceRange {
+        var range   = SourceRange();
+        range.start = self.start.retreat(n);
+        range.end   = self.end.advance(n);
+        return range;
+    }
+
+    ///
+    /// \brief returns a range shrunk by n bytes on both sides.
+    ///
+    /// \param n number of bytes to shrink.
+    /// \return shrunk range (or empty if too small).
+    ///
+    fn shrink(self, n: usize) -> SourceRange {
+        var range   = SourceRange();
+        range.start = self.start.advance(n);
+        range.end   = self.end.retreat(n);
+        
+        if range.start > range.end {
+            range.end = range.start;
+        }
+        
+        return range;
+    }
+
+    ///
+    /// \brief returns the intersection of two ranges.
+    ///
+    /// \param other range to intersect with.
+    /// \return intersecting range, or invalid if no overlap.
+    ///
+    fn intersect(self, other: SourceRange) -> SourceRange {
+        if !self.overlaps(other) {
+            return SourceRange(); // invalid
+        }
+        
+        var range   = SourceRange();
+        range.start = (self.start) if (self.start > other.start) else (other.start);
+        range.end   = (self.end)   if (self.end < other.end)     else (other.end);
+        
+        return range;
+    }
+
+    ///
+    /// \brief returns a range from start of this to end of other.
+    ///
+    /// \param other range to union with.
+    /// \return range covering both (may include gap).
+    ///
+    fn union_with(self, other: SourceRange) -> SourceRange {
+        return self.merge(other);
     }
 }
