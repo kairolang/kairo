@@ -13,10 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ HELIX -------///
 
-import Core::SourceLocation::*;
 import Core::SourceRange::*;
-import Core::SourceManager::*;
-import Core::MemoryBuffer::*;
 import Core::TokenKind::*;
 
 /// size = 16 bytes on 64-bit
@@ -32,7 +29,38 @@ struct Token { // size=16B, align=4
     pub var kind:  TokenKind;   ///< token kind
     pub var imm:   u32 = -1;    ///< immediate value index in ImmediateTable, or -1 if none
 
-    fn op as (self) -> string {
+    eval const fn op == (self, other: Token) -> bool {
+        return (self.kind == other.kind) && (self.range == other.range) && (self.imm == other.imm);
+    }
+
+    eval const fn op != (self, other: Token) -> bool {
+        return !(self == other);
+    }
+
+    eval const fn op == (self, other: TokenKind) -> bool {
+        return self.kind == other;
+    }
+
+    eval const fn op != (self, other: TokenKind) -> bool {
+        return self.kind != other;
+    }
+
+    eval fn op = (self, new: TokenKind) -> ref!(Token) {
+        self.kind = new;
+        return self;
+    }
+
+    eval fn op = (self, new: SourceRange) -> ref!(Token) {
+        self.range = new;
+        return self;
+    }
+
+    eval fn op = (self, new: u32) -> ref!(Token) {
+        self.imm = new;
+        return self;
+    }
+
+    eval const fn op as (self) -> string {
         return f"Token(kind: '{token_kind_to_string(self.kind)}', kind[hash]: 0x{to_hex_string(static_cast::<u32>(self.kind))}, range: {self.range}, imm: 0x{to_hex_string((self.imm) as u64)})";
     }
 } //Token end
@@ -46,134 +74,6 @@ eval fn hash_kind_i8(tok: TokenKind) -> i8 {
     );
 }
 
-module Immediate {
-    class IntData {
-        pub var loc:      SourceRange; // the location of the value excluding suffix and prefix
-        pub var suffix:   SourceRange; // thew suffix location (e.g., 'u64', 'i32', etc)
-        pub var value_lo: u64;         // unsigned value
-        pub var value_hi: u64;         // upper bits for >64-bit integers
-        pub var bits:     u16;         // bit-width: 8,16,32,64,128,256,...
-        pub var flags:    u8;          // bit 0 = is_unsigned, bit 1 = is_negative, bit 2-5 = base, bit 6-7 = reserved
-
-        fn set_unsigned(self, is_unsigned: bool) {
-            if is_unsigned {
-                self.flags = self.flags | 0x1;
-            } else {
-                self.flags = self.flags & 0xFE;
-            }
-        }
-
-        fn is_unsigned(self) -> bool {
-            return (self.flags & 0x1) != 0;
-        }
-
-        fn set_base(self, base: u8) {
-            self.flags = (self.flags & 0xC3) | ((base & 0xF) << 2);
-        }
-
-        fn base(self) -> u8 {
-            return (self.flags >> 2) & 0xF;
-        }
-
-        fn set_negative(self, is_negative: bool) {
-            if is_negative {
-                self.flags = self.flags | 0x2;
-            } else {
-                self.flags = self.flags & 0xFD;
-            }
-        }
-
-        fn is_negative(self) -> bool {
-            return (self.flags & 0x2) != 0;
-        }
-
-        fn set_others(self, bit_start: u8, bit_count: u8, value: u8) {
-            var mask: u8 = ((1 << bit_count) - 1) << bit_start;
-            self.flags = (self.flags & (~mask)) | ((value << bit_start) & mask);
-        }
-    }
-
-    class FloatData {
-        pub var value:  f80;         // extended precision float value
-        pub var loc:    SourceRange; // source location + source location.
-        pub var suffix: SourceRange; // source location + source location.
-        pub var bits:   u16;         // bit-width: 16,32,64
-        pub var base:   u8;          // 2 = binary, 10 = decimal, 16 = hexadecimal
-        pub var flags:  u8;          // bit 0 = has_exponent, bit 1 = is_negative, bit 2 = is_hex, bit 3-6 = base, bit 7 = reserved
-    }
-
-    //// ------------------- CHANGE FOR STRING POOLING ------------------- ////
-
-    class StringFragment {
-        pub var expr_table: u32;
-        pub var expr_count: u32;
-        pub var next:       u32;
-    }
-
-    class StringExprPool {
-        pub var strings: vec::<Token>; // pooled string-expr tokens
-
-        fn StringExprPool(self) {
-            self.strings = vec::<Token>();
-            self.strings.reserve(1024); // pre-allocate some space
-        }
-
-        /// \brief Append a vector of tokens and return (start-idx, count).
-        fn emplace(self, str_vec: vec::<Token>) -> (u32, u32) {
-            var idx = self.strings.size();
-
-            if (idx + str_vec.size()) > 0xFFFFFFFF {
-                std::crash(std::Error::RuntimeError("Immediate::StringExprPool::emplace: string expression pool overflow"));
-            }
-
-            for s in str_vec {
-                self.strings.push_back(s);
-            }
-
-            return (idx, str_vec.size());
-        }
-    }
-
-    class StringData {
-        pub var exprs: vec::<Token>; // embedded expressions
-        pub var tok:   Token;        // fragment token
-        pub var len:   u32;          // fragment length (excl. quotes)
-    }
-
-    class CharData {
-        pub var prefix: SourceRange; // source location + source location. (64-bits)
-        pub var value:  char32_t;    // Unicode code point
-        pub var bits:   u8;          // bit-width: 8,16,32
-    }
-
-}
-
-class ImmediateTable {
-    enum StringEncoding derives i8 {
-        Raw    = hash_kind_i8(TokenKind::LitString),
-        Narrow = hash_kind_i8(TokenKind::LitString_Narrow),
-        Format = hash_kind_i8(TokenKind::LitString_Format),
-    }
-
-    pub var int_literals:    vec::<Immediate::IntData>;
-    pub var float_literals:  vec::<Immediate::FloatData>;
-    pub var char_literals:   vec::<Immediate::CharData>;
-    pub var string_literals: vec::<Immediate::StringFragment>;
-    pub var source_manager: *SourceManager = &null;
-
-    fn ImmediateTable(self, sm: *SourceManager) {
-        self.source_manager = sm;
-        self.int_literals    = vec::<Immediate::IntData>();
-        self.float_literals  = vec::<Immediate::FloatData>();
-        self.char_literals   = vec::<Immediate::CharData>();
-        self.string_literals = vec::<Immediate::StringFragment>();
-
-        self.int_literals.reserve(1024);
-        self.float_literals.reserve(512);
-        self.char_literals.reserve(256);
-        self.string_literals.reserve(256);
-    }
-}
 
 // fn Test() -> i32 {
 //     /// we need to do the following:
