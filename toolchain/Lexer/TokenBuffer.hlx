@@ -86,6 +86,16 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
 
     default fn TokenBuffer(self);
 
+    fn emit_errors(self) {
+        for var i: usize = 0; i < self._total_length; ++i {
+            var token = self.get(i);
+
+            if token.kind == TokenKind::TkError {
+                std::print(f"Invalid token found at {token.range} excepted a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(token.imm))}' token\n");
+            }
+        }
+    }
+
     priv fn grow(self) {
         // allocate a new chunk in the arena
         var new_chunk = self._allocator.create::<Chunk>();
