@@ -25,6 +25,8 @@ import Core::ArenaAllocator::*;
 import Core::SourceRange::*;
 import Core::TokenKind::*;
 import Lexer::Token::*;
+import Lexer::TokenBuffer::*;
+import Lexer::Immediate::*;
 
 /// to prevent issues later down the pipeline
 /// we need to be able to detect git conflict markers in the source code.
@@ -37,174 +39,257 @@ enum ConflictMarker derives u8 {
     End       ///< conflict end ">>>>>>>>" marker detected.
 }
 
-class TokenBuffer {
-    struct Chunk; ///< forward declaration
+enum LastTokenKind derives u8 {
+    None,
+    Text,
+    Name,
+    Symbol,
+    Number,
+}
 
-    type TokenPtr  = *Token;
-    type ChunkBuff = *Chunk;
+class HexParser {
+    var value:  usize = 0;
+    var digits: usize = 0;
 
-    /// we allocate tokens in chunks of 512 tokens then store the base
-    /// pointer and the data. this allows us to avoid moving tokens around
-    /// when we need to grow the buffer. while still allowing for contiguous
-    /// storage of tokens in the base (offset by base). lets say we want
-    /// token at index 600, we can find it at:
-    /// chunk_index  = 600 / 512 = 1
-    /// offset_index = 600 % 512 = 88
-    /// token_ptr    = chunks[chunk_index].base + offset_index
-    /// this allows a O(1) access time to any token in the buffer.
-    /// while still allowing for efficient appending of tokens.
-    struct Chunk {
-        var base:     TokenPtr;
-        var capacity: usize;
-        var length:   usize;
-    }
+    __inline_cpp("static constexpr array<u8, 256> hex_lut = [] {
+        array<u8, 256> lut;
+        lut.fill(0xFF);
 
-    var _allocator:    ArenaAllocator = ArenaAllocator(2048 * sizeof (TokenPtr));
-    var _chunks:       ChunkBuff      = &null; // array of chunk descriptors
-    var _chunk_count:  usize          = 0;     // number of allocated chunks
-    var _total_length: usize          = 0;     // number of tokens in all chunks
-    var _chunk_size:   usize          = 512;   // number of tokens per chunk
-
-    default fn TokenBuffer(self);
-
-    priv fn grow(self) {
-        // allocate a new chunk in the arena
-        var new_chunk = self._allocator.create::<Chunk>();
-
-        new_chunk->capacity = self._chunk_size;
-        new_chunk->length   = 0;
-
-        // allocate backing token pointer array for this chunk
-        new_chunk->base = reinterpret_cast::<TokenPtr>(
-            self._allocator.alloc(
-                sizeof  (Token) * self._chunk_size,
-                alignof (Token)
-            )
-        );
-
-        // expand chunk table if this is the first or subsequent chunk
-        if self._chunks == &null {
-            // first chunk array (one pointer)
-            self._chunks = reinterpret_cast::<ChunkBuff>(
-                self._allocator.alloc(sizeof (Chunk), alignof (Chunk))
-            );
-        } else {
-            // append next chunk descriptor (contiguous chunk table)
-            // grows by one entry in arena allocator
-            var new_table = reinterpret_cast::<ChunkBuff>(
-                self._allocator.alloc(
-                    sizeof  (Chunk) * (self._chunk_count + 1),
-                    alignof (Chunk)
-                )
-            );
-
-            std::Memory::copy(
-                new_table,
-                self._chunks,
-                sizeof (Chunk) * self._chunk_count
-            );
-
-            self._chunks = new_table;
+        for (u8 i{}; i <= 9; ++i) lut[static_cast<u8>(U'0') + i] = i;
+        for (u8 i{}; i <= 5; ++i) {
+            lut[static_cast<u8>(U'A') + i] = 10 + i;
+            lut[static_cast<u8>(U'a') + i] = 10 + i;
         }
 
-        self._chunks[self._chunk_count] = *new_chunk;
-        ++self._chunk_count;
+        return lut;
+    }()");
+
+    inline eval fn push_back(self, c: char32) {
+        const v: u8 = hex_lut[static_cast::<u8>(c) & 0xFF];
+        self.value = (self.value << 4) | static_cast::<usize>(v);
+        ++(self.digits);
     }
 
-    fn append(self, token: Token) { // copying is fine since a token is 16-bytes
-        // check if we need to grow the chunk table
-        if (self._chunk_count == 0)
-        || ((self._chunks[self._chunk_count - 1].length)
-            == (self._chunks[self._chunk_count - 1].capacity))
-        {
-            self.grow();
-        }
-
-        var chunk = &self._chunks[self._chunk_count - 1];
-        chunk->base[chunk->length] = token;
-        ++chunk->length;
-
-        ++self._total_length;
+    inline eval fn is_digit(self, c: char32) -> bool {
+        return hex_lut[static_cast::<u8>(c) & 0xFF] != 0xFF;
     }
 
-    fn get(self, index: usize) -> Token {
-        if index >= self._total_length {
-            std::crash(std::Error::RuntimeError(
-                "TokenBuffer::get() - index out of bounds"
-            ));
-        }
-
-        var chunk_index  = index / self._chunk_size;
-        var offset_index = index % self._chunk_size;
-
-        return self._chunks[chunk_index].base[offset_index];
+    inline eval fn get_value(self) -> usize {
+        return self.value;
     }
 
-    fn set_chunk_size(self, size: usize) {
-        if size == 0 {
-            std::crash(std::Error::RuntimeError(
-                "TokenBuffer::set_chunk_size() - chunk size must be > than zero"
-            ));
-        }
+    inline eval fn get_digits(self) -> usize {
+        return self.digits;
+    }
+}
 
-        self._chunk_size = size;
+class OctalParser {
+    var value:  usize = 0;
+    var digits: usize = 0;
+
+    inline eval fn push_back(self, c: char32) {
+        self.value = (self.value << 3) | (static_cast::<usize>(c - '0'));
+        ++(self.digits);
     }
 
-    fn destroy(self) {
-        self._chunk_count  = 0;
-        self._total_length = 0;
-        self._chunks       = &null;
-        self._allocator.destroy();
+    inline eval fn is_digit(self, c: char32) -> bool {
+        return static_cast::<u8>(c - '0') <= 7;
     }
 
-    fn size(self) -> usize {
-        return self._total_length;
+    inline eval fn get_value(self) -> usize {
+        return self.value;
     }
 
-    fn chunk_count(self) -> usize {
-        return self._chunk_count;
-    }
-
-    fn chunk_size(self) -> usize {
-        return self._chunk_size;
-    }
-
-    fn allocator(self) -> *ArenaAllocator {
-        return &self._allocator;
-    }
-
-    fn chunks(self) -> ChunkBuff {
-        return self._chunks;
-    }
-
-    fn op delete (self) {
-        self.destroy();
-    }
-
-    fn op in (self) -> yield Token {
-        for var c: usize = 0; c < self._chunk_count; ++c {
-            var chunk = &self._chunks[c];
-
-            for var i: usize = 0; i < chunk->length; ++i {
-                yield chunk->base[i];
-            }
-        }
+    inline eval fn get_digits(self) -> usize {
+        return self.digits;
     }
 }
 
 class Lexer {
     /// lowkey this formatting style looks a lot better tbh
-    var _tokens      :  TokenBuffer = TokenBuffer();
-    var _last_token  :  Token = Token();
-    var _sm          : *SourceManager;
-    var _cursor      :  usize = 0; // last pos is always file_size - 1
-    var _fid         :  u32 = 0;
+    var _tokens      :  TokenBuffer::<512> = TokenBuffer::<512>();
     var _file_buffer :  MemoryBuffer;
-    var _initialized :  bool = false;
     var _imm_tbl     :  ImmediateTable;
+    var _sm          : *SourceManager;
     var _pool        : *ThreadPool = &null;
+    var _cursor      :  usize = 0; // last pos is always file_size - 1
+    var _last_token  :  usize = 0;
+    var _fid         :  u32   = 0;
+    var _end_pos     :  usize = 0;
+    var _initialized :  bool  = false;
+    var _last_kind   :  LastTokenKind = LastTokenKind::None;
+    var _last_text   : *Token = &null;
+
+    class TextImm {
+        var lexer: *Lexer;
+        var delim: u8;
+        var idx:   u32;
+
+        fn TextImm(self) {
+            self.lexer = &null;
+            self.delim = 0;
+            self.idx   = 0;
+        }
+
+        fn TextImm(self, lexer: *Lexer, delim: u8, idx: u32) {
+            self.lexer = lexer;
+            self.delim = delim;
+            self.idx   = idx;
+        }
+
+        fn get_exprs(self) -> ref!(libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>) {
+            if self.delim == 0x22 {
+                var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
+                return imm->exprs;
+            } else {
+                var imm = lexer->get_imm::<Immediate::CharData>(self.idx);
+                return imm->exprs;
+            }
+        }
+
+        fn get_prefix(self) -> ref!(Token) {
+            if self.delim == 0x22 {
+                var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
+                return imm->prefix;
+            } else {
+                var imm = lexer->get_imm::<Immediate::CharData>(self.idx);
+                return imm->prefix;
+            }
+        }
+
+        fn get_suffix(self) -> ref!(Token) {
+            if self.delim == 0x22 {
+                var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
+                return imm->suffix;
+            } else {
+                var imm = lexer->get_imm::<Immediate::CharData>(self.idx);
+                return imm->suffix;
+            }
+        }
+
+        fn get_body(self) -> ref!(SourceRange) {
+            if self.delim == 0x22 {
+                var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
+                return imm->body;
+            } else {
+                var imm = lexer->get_imm::<Immediate::CharData>(self.idx);
+                return imm->body;
+            }
+        }
+
+        fn get_next(self) -> ref!(u32) {
+            if self.delim == 0x22 {
+                var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
+                return imm->next;
+            } else {
+                var imm = lexer->get_imm::<Immediate::CharData>(self.idx);
+                return imm->next;
+            }
+        }
+
+        fn get_prefix_kind(self) -> ref!(Immediate::TextPrefixKind) {
+            if self.delim == 0x22 {
+                var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
+                return imm->prefix_kind;
+            } else {
+                var imm = lexer->get_imm::<Immediate::CharData>(self.idx);
+                return imm->prefix_kind;
+            }
+        }
+    }
+
+    struct TextCtx {
+        struct FormatSpec {
+            var start: usize;
+            var end: usize;
+        }
+
+        var lexer           : *Lexer;
+        var start           : SourceLocation;
+
+        var delim           : u8;
+        var imm_idx         : u32;
+        var is_format       : bool;
+        var is_bytes        : bool;
+        var imm             : TextImm;
+        var prefix          : Token;
+
+        var body_start      : SourceLocation;
+        var body_end        : SourceLocation;
+
+        var in_format_depth : usize;
+        var terminators     : libcxx::stack::<SourceLocation>;
+        var fstring_specs   : libcxx::deque::<FormatSpec>;
+
+        var has_error       : bool;
+        var error_token     : Token;
+    }
+
+    struct NumberCtx {
+        enum LastWasState derives u8 {
+            None,
+            Digit,
+            Underscore,
+            Dot,
+            Prefix,
+            Exponent
+        }
+
+        var start: SourceLocation;
+
+        var base:         u8;
+        var has_prefix:   bool;
+        var has_decimal:  bool;
+        var has_exponent: bool;
+
+        var number_start: SourceLocation;
+        var number_end:   SourceLocation;
+        var prefix_start: SourceLocation;
+        var prefix_end:   SourceLocation;
+
+        var last: LastWasState;
+        var allows_sign_next: bool;
+    }
 
     ///========= LEXER API ==========///
+
+    inline priv fn get_token(
+        self,
+        const start  : SourceLocation,
+        const decode : DecodeResult
+    ) -> Token {
+        const cls: CharClass = self.classify(decode.chr);
+
+        switch cls {
+            case CharClass::Identifier {
+                // identifier or keyword
+                return self.lex_name(start);
+            } case CharClass::Number {
+                // integer or float literal
+                return self.lex_number(start);
+            } case CharClass::Operator {
+                // this is either an operator or punctuation
+                return self.lex_symbol(start);
+            } case CharClass::String {
+                // string or char literal
+                return self.lex_text(start);
+            } case CharClass::Unassigned: case CharClass::Illegal {
+                // illegal character
+                return self.lex_illegal(start);
+            } case CharClass::NewLine: case CharClass::Whitespace {
+                // whitespace or newline
+                return self.lex_whitespace(
+                    start,
+                    normalize_char32(decode.chr),
+                    decode.len,
+                    cls
+                );
+            }
+        }
+
+        self.advance_cursor(decode.len);
+        return self.create_unrecognized_token(start);
+    }
 
     fn lex(self, fid: u32) -> bool {
         if self._initialized {
@@ -223,8 +308,6 @@ class Lexer {
             return false;
         }
 
-        self.debug();
-
         /// we can now do some immediate math to figure out where does the char fall under
         /// we have the following ranges to consider
         /// identifiers/keywords:
@@ -232,48 +315,91 @@ class Lexer {
         ///  operators/punctuation:
         /// '{' '}' '(' ')' '[' ']' '+' '-' '*' '/' '%' '^' '|' '&' '~' '<' '>' '!' '=' '?' '@' ':' ';' ',' '.' '\'
         /// string literals are a coumpund or single since they can have a prefix or postfix
-        /// '"' "'" '#"' '#"'
+        /// 0x22 "'" '#"' '#"'
 
         while !self.is_eof() {
             /// this is where the main lexing loop will go
             /// our first step is to do 1 operation to figure out which basic range the char falls under
-            var start_pos    = self.get_source_location();
             var current_char = self.peek_char32();
-            var c: char32_t  = normalize_char32(current_char.chr);
-            var cls = self.classify(c);
-            var token: Token;
-
-            switch cls {
-                case CharClass::Identifier { // identifier or keyword
-                    token = self.lex_name(start_pos);
-                } case CharClass::Number { // integer or float literal
-                    // NOTE: floats can start with a dot and this does not cover
-                    //       '.' so if we are in function peek and see a number
-                    //       then we have a float
-                    /// right now c constrains the current char but the cursor
-                    /// has already advanced, we do not retreat it rather call the parse function with the first char
-                    token = self.lex_number(start_pos);
-                } case CharClass::Operator { // this is either an operator or punctuation
-                    token = self.lex_symbol(start_pos);
-                } case CharClass::String { // string or char literal
-                    token = self.lex_text(start_pos);
-                } case CharClass::Illegal { // illegal character
-                    token = self.lex_illegal(start_pos);
-                }
-                case CharClass::NewLine:     // newline
-                case CharClass::Whitespace { // whitespace or newline
-                    token = self.lex_whitespace(start_pos, c, current_char.len, cls);
-                }
-            }
+            var token: Token = get_token(
+                self.get_source_location(),
+                current_char
+            );
 
             /// we only avoid appending whitespace tokens for NOW
-            if token.kind != TokenKind::TkWhitespace {
+            if token != TokenKind::TkWhitespace {
                 self._tokens.append(token);
+                
+                if (token == TokenKind::LitString)
+                || (token == TokenKind::LitChar) {
+                    self._last_text = (self._tokens[self._tokens.size() - 1]);
+                }
             }
         }
 
         return true;
     }
+
+    fn emit_errors(self) {
+        for var i: usize = 0; i < self._tokens.size(); ++i {
+            var token = self._tokens[i];
+            
+            if (token->kind) == TokenKind::TkError {
+                std::print(f"Invalid token found at {self._sm->get_text(token->range)} excepted a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' token\n");
+            }
+        }
+    }
+
+    /// used to lex bits that have not been lexed
+    fn <const N: usize> lex_slice(self, start: usize, end: usize) -> * TokenBuffer::<N> {
+        var tokens = std::create::<TokenBuffer::<N>>();
+
+        /// we first store state info:
+        var last_token  = self._last_token;
+        var last_text   = self._last_text;
+        var last_kind   = self._last_kind;
+        var cursor      = self._cursor;
+
+        self._cursor  = start;
+        self._end_pos = end;
+
+        if self.file_data() == &null {
+            return tokens;
+        }
+
+        while !self.is_eof() {
+            /// this is where the main lexing loop will go
+            /// our first step is to do 1 operation to figure out which basic range the char falls under
+            var current_char = self.peek_char32();
+            var token: Token = get_token(
+                self.get_source_location(),
+                current_char
+            );
+
+            /// we only avoid appending whitespace tokens for NOW
+            if token != TokenKind::TkWhitespace {
+                tokens->append(token);
+
+                if (token == TokenKind::LitString)
+                || (token == TokenKind::LitChar) {
+                    self._last_text = (self._tokens[self._tokens.size() - 1]);
+                }
+            }
+        }
+
+        // emit errors found in this slice
+        tokens->emit_errors();
+
+        // now we restore state
+        self._end_pos    = 0;
+        self._cursor     = cursor;
+        self._last_token = last_token;
+        self._last_text  = last_text;
+        self._last_kind  = last_kind;
+
+        return tokens;
+    }
+
 
     delete fn Lexer(self);
 
@@ -284,7 +410,7 @@ class Lexer {
         self._initialized = false; // we only initialize on lex call
     }
 
-    priv fn destroy(self) {
+    inline priv fn destroy(self) {
         self._tokens.destroy();
     }
 
@@ -292,7 +418,7 @@ class Lexer {
         self.destroy();
     }
 
-    priv fn load_file(self, fid: u32) -> bool {
+    inline priv fn load_file(self, fid: u32) -> bool {
         if self._sm == &null {
             return false;
         }
@@ -314,31 +440,35 @@ class Lexer {
 
     ///========= GETTERS/SETTERS ==========///
 
-    fn tokens(self) -> *TokenBuffer {
+    fn tokens(self) -> *(TokenBuffer::<512>) {
         return &(self._tokens);
     }
 
-    priv fn is_eof(self) -> bool {
+    inline priv fn is_eof(self) -> bool {
         return self._cursor > (self.file_size() - 1);
     }
 
-    priv fn current_data(self) -> std::const_ptr::<u8> {
+    inline priv fn current_data(self) -> std::const_ptr::<u8> {
         return self.file_data() + self._cursor;
     }
 
-    priv fn remaining_offset(self) -> usize {
+    inline priv fn remaining_offset(self) -> usize {
         return self.file_size() - self._cursor - 1;
     }
 
-    priv fn file_size(self) -> usize {
+    inline priv fn file_size(self) -> usize {
         if !self._file_buffer.is_valid() {
             return 0;
+        }
+
+        if self._end_pos > 0 {
+            return self._end_pos;
         }
 
         return self._file_buffer.size();
     }
 
-    priv fn file_data(self) -> std::const_ptr::<u8> {
+    inline priv fn file_data(self) -> std::const_ptr::<u8> {
         if !self._file_buffer.is_valid() {
             return &null;
         }
@@ -346,7 +476,7 @@ class Lexer {
         return self._file_buffer.data();
     }
 
-    priv fn advance_cursor(self, count: usize = 1) {
+    inline priv fn advance_cursor(self, count: usize = 1) {
         /// NOTE: removing the bounds check for now, since either the
         ///       clamp or the (self._cursor + count) >= self.file_size() is
         ///       bugged, we need to re-evaluate this logic later, however
@@ -363,7 +493,7 @@ class Lexer {
         self._cursor       += count;
     }
 
-    priv fn retreat_cursor(self, count: usize = 1) {
+    inline priv fn retreat_cursor(self, count: usize = 1) {
         if count > self._cursor {
             self._cursor = 0;
             return;
@@ -373,7 +503,7 @@ class Lexer {
         self._cursor       -=  count;
     }
 
-    priv fn retreat_cursor_to_last(self) {
+    inline priv fn retreat_cursor_to_last(self) {
         if self._last_advanced > 0 {
             self.retreat_cursor(static_cast::<usize>(self._last_advanced));
         } else if self._last_advanced < 0 {
@@ -384,7 +514,7 @@ class Lexer {
     ///========= LEXER INTERNALS ==========///
 
     /// 1 would be the immediate next char
-    priv fn peek_char32(self, offset: isize = 0) -> DecodeResult {
+    inline priv fn peek_char32(self, offset: isize = 0) -> DecodeResult {
         var data: std::const_ptr::<u8> = self.current_data();
         var size: usize                = self.remaining_offset() + 1;
 
@@ -403,20 +533,20 @@ class Lexer {
         return UTF8View::decode_utf8(data, size); // +1 for null terminator
     }
 
-    priv fn get_char32(self) -> DecodeResult {
+    inline priv fn get_char32(self) -> DecodeResult {
         var result = self.peek_char32();
 
         self.advance_cursor((result.len) if (result.len > 0) else 1);
         return result;
     }
 
-    priv fn <const N: usize> get_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
+    inline priv fn <const N: usize> get_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
         var res = self.peek_char32::<N>(max_unicode_len);
         self.advance_cursor(res.size());
         return res;
     }
 
-    /// priv fn <const N: usize> peek_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
+    /// inline priv fn <const N: usize> peek_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
     ///     var res = array::<DecodeResult, N>();
     ///     res.fill(DecodeResult('\0', 0));
     ///
@@ -438,7 +568,7 @@ class Lexer {
     ///     return res;
     /// }
 
-    priv fn <const N: usize> peek_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
+    inline priv fn <const N: usize> peek_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
         var res = array::<DecodeResult, N>();
         res.fill(DecodeResult('\0', 0));
 
@@ -452,37 +582,26 @@ class Lexer {
         var consumed: usize = 0;
         var out_i: usize = 0;
 
-        //----------------------------------------------------------------------
-        // SIMD ASCII FAST-PATH (only if max_unicode_len == 1)
-        //----------------------------------------------------------------------
-
         if (max_unicode_len == 1) {
-
-            //------------------------------------------------------------------
-            // AVX512
-            //------------------------------------------------------------------
             const eval if defined(__AVX512BW__) && defined(__AVX512VL__) {
-
                 const STRIDE: usize = 64;
 
                 while (out_i < N) {
-
                     var rem = remain - consumed;
-                    if rem < STRIDE { break; }       // <-- HARD BOUNDARY
+                    if rem < STRIDE { break; } // <-- HARD BOUNDARY
 
                     var ptr = data + consumed;
 
                     // fully within mapping?
                     // (only necessary if your MemoryBuffer isn't guaranteed padded)
                     // Here we assume `remain` is correct for mapping.
-                    
+
                     var chunk: __m512i =
                         _mm512_loadu_si512(reinterpret_cast::<const *__m512i>(ptr));
 
                     var mask: __mmask64 = _mm512_movepi8_mask(chunk);
 
-                    if mask == 0 {
-                        // fully ASCII
+                    if mask == 0 { // fully ASCII
                         var limit = STRIDE;
                         if out_i + STRIDE > N {
                             limit = N - out_i;
@@ -495,9 +614,7 @@ class Lexer {
 
                         consumed += limit;
                         continue;
-
-                    } else {
-                        // first non-ASCII stops SIMD processing
+                    } else { // first non-ASCII stops SIMD processing
                         var first = libcxx::countr_zero(mask);
 
                         var limit = first;
@@ -514,13 +631,7 @@ class Lexer {
                         break;
                     }
                 }
-            }
-
-            //------------------------------------------------------------------
-            // AVX2
-            //------------------------------------------------------------------
-            else if defined(__AVX2__) {
-
+            } else if defined(__AVX2__) {
                 const STRIDE: usize = 32;
 
                 while (out_i < N) {
@@ -533,7 +644,6 @@ class Lexer {
                         _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(ptr));
 
                     var hi = _mm256_movemask_epi8(chunk);
-
                     if hi == 0 {
                         var limit = STRIDE;
                         if out_i + STRIDE > N {
@@ -547,7 +657,6 @@ class Lexer {
 
                         consumed += limit;
                         continue;
-
                     } else {
                         var first = libcxx::countr_zero(hi);
 
@@ -565,13 +674,7 @@ class Lexer {
                         break;
                     }
                 }
-            }
-
-            //------------------------------------------------------------------
-            // SSE2
-            //------------------------------------------------------------------
-            else if defined(__SSE2__) {
-
+            } else if defined(__SSE2__) {
                 const STRIDE: usize = 16;
 
                 while (out_i < N) {
@@ -579,12 +682,10 @@ class Lexer {
                     if rem < STRIDE { break; }
 
                     var ptr = data + consumed;
-
                     var chunk: __m128i =
                         _mm_loadu_si128(reinterpret_cast::<const *__m128i>(ptr));
 
                     var hi = _mm_movemask_epi8(chunk);
-
                     if hi == 0 {
                         var limit = STRIDE;
                         if out_i + STRIDE > N {
@@ -598,7 +699,6 @@ class Lexer {
 
                         consumed += limit;
                         continue;
-
                     } else {
                         var first = libcxx::countr_zero(hi);
 
@@ -616,13 +716,7 @@ class Lexer {
                         break;
                     }
                 }
-            }
-
-            //------------------------------------------------------------------
-            // NEON
-            //------------------------------------------------------------------
-            else if defined(__ARM_NEON) {
-
+            } else if defined(__ARM_NEON) {
                 const STRIDE: usize = 16;
                 const hi_mask: uint8x16_t = vdupq_n_u8(0x80);
 
@@ -655,7 +749,6 @@ class Lexer {
 
                         consumed += limit;
                         continue;
-
                     } else {
                         var first = libcxx::countr_zero(bitmask);
 
@@ -674,10 +767,6 @@ class Lexer {
             }
         }
 
-        //----------------------------------------------------------------------
-        // SCALAR UTF-8 PATH (unavoidable for multi-byte sequences)
-        //----------------------------------------------------------------------
-
         while (out_i < N) && (consumed < remain) {
             var d = UTF8View::decode_utf8(data + consumed, remain - consumed);
             if d.len == 0 { break; }
@@ -691,16 +780,29 @@ class Lexer {
     }
 
 
-    priv fn get_source_location(self) -> SourceLocation {
+    inline priv fn get_source_location(self) -> SourceLocation {
         // self._cursor can never be over or equal to file size
         return self._sm->get_loc(self._fid, self._cursor);
     }
 
-    priv fn create_source_range(self, start: SourceLocation) -> SourceRange {
+    inline priv fn get_source_location(self, pos: usize) -> SourceLocation {
+        // self._cursor can never be over or equal to file size
+        return self._sm->get_loc(self._fid, pos);
+    }
+
+    inline priv fn create_source_range(self, start: SourceLocation) -> SourceRange {
         return SourceRange::from_bounds(start, self.get_source_location());
     }
 
-    priv fn create_error_token(self, start: SourceLocation, excepted: TokenKind, kind: TokenKind = TokenKind::TkError) -> Token {
+    inline priv fn create_source_range(self, start: usize, end: usize) -> SourceRange {
+        return SourceRange::from_bounds(
+            self.get_source_location(start),
+            self.get_source_location(end)
+        );
+    }
+
+    inline priv fn create_error_token(self, start: SourceLocation, excepted: TokenKind, kind: TokenKind = TokenKind::TkError) -> Token {
+        self._last_kind = LastTokenKind::None;
         return {
             .range : self.create_source_range(start),
             .kind  : kind,
@@ -708,7 +810,8 @@ class Lexer {
         };
     }
 
-    priv fn create_unrecognized_token(self, start: SourceLocation, kind: TokenKind = TokenKind::TkUnknown) -> Token {
+    inline priv fn create_unrecognized_token(self, start: SourceLocation, kind: TokenKind = TokenKind::TkUnknown) -> Token {
+        self._last_kind = LastTokenKind::None;
         return {
             .range : self.create_source_range(start),
             .kind  : kind,
@@ -719,7 +822,7 @@ class Lexer {
     var _last_advanced: isize = 0;
 
     ///========= Char Classification ==========///
-    static fn classify(chr: char32_t) -> CharClass {
+    static fn classify(chr: char32) -> CharClass {
         return classify_char32(chr);
     }
 
@@ -727,8 +830,8 @@ class Lexer {
 
     ///========= Lexical Parsing Functions ==========///
 
-    priv fn lex_name(self, start: SourceLocation) -> Token {
-        var timer = Timer("Lexer::lex_name");
+    inline priv fn lex_name(self, start: SourceLocation) -> Token {
+        // var timer = Timer("Lexer::lex_name");
         /// we have two options here:
         /// 1. identifier
         /// 2. keyword
@@ -767,8 +870,9 @@ class Lexer {
 
         if (first.len > 1) && (c0 == 2) {
             self.advance_cursor(first.len);
-            token.kind  = TokenKind::LitIdentifier;
-            token.range = self.create_source_range(start);
+            token  = TokenKind::LitIdentifier;
+            token = self.create_source_range(start);
+            self._last_kind = LastTokenKind::Name;
             return token;
         }
 
@@ -802,39 +906,16 @@ class Lexer {
         if length <= MAX_KEYWORD_LENGTH {
             var h = hash.finalize();
             if is_valid_token_kind(h) {
-                token.kind  = static_cast::<TokenKind>(h);
-                token.range = self.create_source_range(start);
+                var kind = static_cast::<TokenKind>(h);
+                var sub  = substitute(kind);
+                token  = sub if (sub != TokenKind::TkUnknown) else kind;
+                token = self.create_source_range(start);
+
+                /// we do also need to do a quick sub check since we support c++
+                /// style word operators (yes its a bad feature, but its only
+                /// sake of c++ devs migrating to helix)
+                self._last_kind = LastTokenKind::Name;
                 return token;
-            }
-
-            /// we also need a quick second check to see if a string
-            /// if we have r f rf or fr before ' or "
-
-            fn is_char_valid_text_prefix(c: char32_t) -> bool {
-                return (c == 'b') || (c == 'f') || (c == 'B') || (c == 'F');
-            }
-
-            if (length < 3) && is_char_valid_text_prefix(first.chr) {
-                /// now we see if the next char is f or r or ' or "
-                /// we first retreat the cursor to re-read the next char
-                self.retreat_cursor(length - 1); // go back to second char
-                var second_dec = self.peek_char32();
-                var third_dec  = self.peek_char32(1);
-
-                if (second_dec.len == 1) && (second_dec.len == 1) {
-                    /// now we know there are 3 valid chars ahead
-                    var second = second_dec.chr;
-                    var third  = third_dec.chr;
-
-                    if (is_char_valid_text_prefix(second))
-                    && ((third  == '"') || (third  == '\''))
-                    || ((second == '"') || (second == '\'')) {
-                        self.retreat_cursor(1); // go back to the start pos
-                        self.lex_text(start);
-                    }
-                }
-                
-                self.advance_cursor(length - 1); // restore cursor
             }
         }
 
@@ -846,11 +927,45 @@ class Lexer {
             self.advance_cursor(dec.len);
         }
 
-        token.kind  = TokenKind::LitIdentifier;
-        token.range = self.create_source_range(start);
+        /// we also need a quick second check to see if a string
+        token  = TokenKind::LitIdentifier;
+        token = self.create_source_range(start);
+
+        var dec = self.peek_char32();
+        if (dec.chr == 0x22) || (dec.chr == 0x27) && (length < 3) {
+            // WE HAVE A STRING HERE
+            // we also now need to see if our prefix is f, b, fb, or bf
+            // and set the imm to 0, for invalid, 1 for format, 2 for bytes, 3 for bytes and format
+            
+            var h = hash.finalize();
+            var ptype: u8 = 0;
+
+            switch h {
+                case compute_hash::<r"f">(): case compute_hash::<r"F">() {
+                    ptype = 1;
+                }
+                
+                case compute_hash::<r"b">(): case compute_hash::<r"B">() {
+                    ptype = 2;
+                }
+
+                case compute_hash::<r"fB">(): case compute_hash::<r"FB">():
+                case compute_hash::<r"Fb">(): case compute_hash::<r"fb">():
+                case compute_hash::<r"Bf">(): case compute_hash::<r"BF">():
+                case compute_hash::<r"bF">(): case compute_hash::<r"bf">() {
+                    ptype = 3;
+                }
+            }
+
+            if ptype != 0 {
+                token.imm = ptype;
+                return self.lex_text(self.get_source_location(), token);
+            }
+        }
+
+        self._last_kind = LastTokenKind::Name;
         return token;
     }
-
 
     /// FIXME:  this number lexer is fine for stage1 but it's not the final
     ///         design. suffix detection is still kinda hacky, exponent rules
@@ -866,8 +981,8 @@ class Lexer {
     /// - a saner state machine instead of this stitched logic
     /// - full separation of lexing vs semantic validation
     ///
-    priv fn lex_number(self, start: SourceLocation, is_dot: bool = false) -> Token {
-        var timer = Timer("Lexer::lex_number");
+    inline priv fn lex_number(self, start: SourceLocation, is_dot: bool = false) -> Token {
+        // var timer = Timer("Lexer::lex_number");
 
         /// ok so numbers are a bit more complex since we have
         /// integers and floats, and floats can start with a dot
@@ -890,17 +1005,8 @@ class Lexer {
         /// then call the appropriate parse function pushing it into the thread pool.
         /// this will be handled in the parser stage.
 
-        enum LastWasState {
-            None,
-            Digit,
-            Underscore,
-            Dot,
-            Prefix,
-            Exponent
-        }
-
         /// returns true if c is a digit allowed for `base` (2, 8, 10, 16)
-        fn is_base_digit(c: char32_t, base: u8) -> bool {
+        fn is_base_digit(c: char32, base: u8) -> bool {
             switch base {
                 case 2  { return (c == '0') || (c == '1'); }
                 case 8  { return (c >= '0') && (c <= '7'); }
@@ -920,13 +1026,13 @@ class Lexer {
         }
 
         /// returns true if `c` starts an exponent for the given base
-        fn is_exponent_char(c: char32_t, base: u8) -> bool {
+        fn is_exponent_char(c: char32, base: u8) -> bool {
             return ((base == 10) && ((c == 'e') || (c == 'E')))
                 || ((base == 16) && ((c == 'p') || (c == 'P')));
         }
 
         /// once inside exponent, decimal digits only
-        fn is_decimal_digit(c: char32_t) -> bool {
+        fn is_decimal_digit(c: char32) -> bool {
             return (c >= '0') && (c <= '9');
         }
 
@@ -987,7 +1093,7 @@ class Lexer {
 
         while !self.is_eof() {
             var decoded = self.peek_char32();
-            var c: char32_t = normalize_char32(decoded.chr);
+            var c: char32 = normalize_char32(decoded.chr);
 
             // after exponent, only decimal digits (and sign just after exponent)
             if has_exponent {
@@ -1078,8 +1184,8 @@ class Lexer {
         var is_float = has_decimal || has_exponent;
 
         var token: Token = Token();
-        token.kind  = TokenKind::LitFloat if is_float else TokenKind::LitInt;
-        token.range = self.create_source_range(start);
+        token  = TokenKind::LitFloat if is_float else TokenKind::LitInt;
+        token = self.create_source_range(start);
 
         var imm_idx: u32 = (
             (self._imm_tbl.create::<Immediate::FloatData>())
@@ -1090,7 +1196,7 @@ class Lexer {
         token.imm = imm_idx;
 
         if is_float {
-            var imm = self._imm_tbl.get::<Immediate::FloatData>(imm_idx);
+            var imm = self.get_imm::<Immediate::FloatData>(imm_idx);
             imm->base   = base;
             imm->body   = SourceRange::from_bounds(number_start, number_end);
             imm->flags  = (imm->flags | 0b00000001) if has_exponent else (imm->flags & 0b11111110);
@@ -1112,7 +1218,7 @@ class Lexer {
                 }"), 0x02
             );
         } else {
-            var imm = self._imm_tbl.get::<Immediate::IntData>(imm_idx);
+            var imm = self.get_imm::<Immediate::IntData>(imm_idx);
             imm->base  = base;
             imm->body  = SourceRange::from_bounds(number_start, number_end);
             imm->flags = (imm->flags | 0b00010000) if has_prefix
@@ -1135,12 +1241,12 @@ class Lexer {
             );
         }
 
+        self._last_kind = LastTokenKind::Number;
         return token;
     }
 
-
-    priv fn lex_symbol(self, start: SourceLocation) -> Token {
-        var timer = Timer("Lexer::lex_symbol");
+    inline priv fn lex_symbol(self, start: SourceLocation) -> Token {
+        // var timer = Timer("Lexer::lex_symbol");
 
         // we get 4 chars max len of 1 u8
         const CHARS: array::<DecodeResult, 4> = self.peek_char32::<4>(1);
@@ -1176,8 +1282,9 @@ class Lexer {
                 return create_error_token(start, static_cast::<TokenKind>(hash));
             }
 
-            token.kind  = static_cast::<TokenKind>(hash);
-            token.range = self.create_source_range(start);
+            token  = static_cast::<TokenKind>(hash);
+            token = self.create_source_range(start);
+            self._last_kind = LastTokenKind::Symbol;
             return token;
         }
 
@@ -1191,8 +1298,9 @@ class Lexer {
                 return create_error_token(start, static_cast::<TokenKind>(hash));
             }
 
-            token.kind  = static_cast::<TokenKind>(hash);
-            token.range = self.create_source_range(start);
+            token  = static_cast::<TokenKind>(hash);
+            token = self.create_source_range(start);
+            self._last_kind = LastTokenKind::Symbol;
             return token;
         }
 
@@ -1206,8 +1314,9 @@ class Lexer {
                 return create_error_token(start, static_cast::<TokenKind>(hash));
             }
 
-            token.kind  = static_cast::<TokenKind>(hash);
-            token.range = self.create_source_range(start);
+            token  = static_cast::<TokenKind>(hash);
+            token = self.create_source_range(start);
+            self._last_kind = LastTokenKind::Symbol;
             return token;
         }
 
@@ -1220,94 +1329,242 @@ class Lexer {
             return create_error_token(start, static_cast::<TokenKind>(hash));
         }
 
-        token.kind  = static_cast::<TokenKind>(hash);
-        token.range = self.create_source_range(start);
+        token  = static_cast::<TokenKind>(hash);
+        token = self.create_source_range(start);
+        self._last_kind = LastTokenKind::Symbol;
         return token;
     }
 
-    priv fn lex_text(self, start: SourceLocation) -> Token {
-        /// so strings will likly be the most complex token to lex
-        /// since we have raw strings, escaped characters, multiline strings
-        /// and we also have f strings, string prefixes and suffixes.
-        /// We also have to handle unterminated strings properly.
-        var timer = Timer("Lexer::lex_text");
 
-        /// id say we can follow the following pipeline:
-        /// 1. determine string prefix helix only supports (f, r, fr, rf)
-        ///    (format, raw, format-raw)
-        /// 2. determine string/char delimiter (", ''') both chars and strings
-        ///    support multiline by default.
-        /// 3. lex until we find the matching delimiter
-        /// 4. handle escaped characters if not a raw string
-        /// 5. now we also need the suffix if any (like u8, u16, etc)
-        /// 6. create the token and return it.
-        /// for opt we also load 64 bytes at a time for fast-path scanning
+    /// TODO: so this is good enough for now but theres a quite a few problems
+    ///       starting with if theres a string and nothing else in the file
+    ///       no tokens get emitted?
+    ///       also error handling is very week here. i have tested a lot of broken
+    ///       strings and escapes/etc.
+    ///
+    inline priv fn lex_text(self, start: SourceLocation, prefix: Token = Token()) -> Token {
+        var ctx = self.init_text_ctx(start, prefix);
+        if ctx.has_error { return ctx.error_token; }
 
-        var token: Token = Token();
-        var maybe_prefix = self.peek_char32::<2>(1); // max prefix len is 2
-        
-        /// 1. determine prefix
-        var is_format: bool = false;
-        var is_raw:    bool = false;
-        var no_prefix: bool = false;
-        var delim:     u8 = 0; // 0 = none 1 = '  2 = "
+        self.scan_text_body(ctx);
 
-        // we already know the lengths are 1 since max_unicode_len=1
-        if (maybe_prefix[0].chr == 'f') || (maybe_prefix[0].chr == 'F') {
-            is_format = true;
-            self.advance_cursor(maybe_prefix[0].len);
-        } else if (maybe_prefix[0].chr == 'b') || (maybe_prefix[0].chr == 'B') {
-            is_raw = true;
-            self.advance_cursor(maybe_prefix[0].len);
-        } else if ((maybe_prefix[0].chr == '"') || (maybe_prefix[0].chr == '\'')) {
-            no_prefix = true;
-            delim = 2 if (maybe_prefix[0].chr == '"') else 1;
-            self.advance_cursor(maybe_prefix[0].len); // move past the delim
-        } else {
-            // invalid prefix
-            std::print(f"Error: Invalid string prefix '{maybe_prefix[0].chr}'");
-            return self.create_error_token(start, TokenKind::TkLitString);
+        if !self.finalize_text(ctx) {
+            return self.create_error_token(start, TokenKind::LitString);
         }
 
-        // now we do the same for the second char
-        if (maybe_prefix[1].chr == 'f') || (maybe_prefix[1].chr == 'F') {
-            if is_format {
-                // we emit an error token since double 'f' is invalid
-                std::print(f"Error: Invalid string prefix 'ff'");
-                return self.create_error_token(start, TokenKind::TkLitString);
+        self.lex_text_suffix(ctx);
+        self.emit_fstring_exprs(ctx);
+
+        return self.make_text_token(ctx);
+    }
+
+    inline priv fn init_text_ctx( self, start: SourceLocation, prefix: Token) -> TextCtx {
+        var ctx: TextCtx;
+        ctx.lexer = &self;
+        ctx.start = start;
+        ctx.has_error = false;
+
+        var d = self.peek_char32();
+        if d.chr != 0x22 && d.chr != 0x27 {
+            ctx.has_error = true;
+            std::print("StringError: Expected string delimiter ' or \"");
+            ctx.error_token = self.create_error_token(start, TokenKind::LitString);
+            return ctx;
+        }
+
+        ctx.delim = d.chr;
+        self.advance_cursor(d.len);
+        ctx.body_start = self.get_source_location();
+
+        if ctx.delim == 0x22 {
+            ctx.imm_idx = self._imm_tbl.create::<Immediate::StringData>();
+            ctx.imm = TextImm(&self, ctx.delim, ctx.imm_idx);
+        } else {
+            ctx.imm_idx = self._imm_tbl.create::<Immediate::CharData>();
+            ctx.imm = TextImm(&self, ctx.delim, ctx.imm_idx);
+        }
+
+        ctx.is_format = false;
+        ctx.is_bytes  = false;
+
+        if prefix == TokenKind::LitIdentifier {
+            switch prefix.imm {
+                case 1 { ctx.is_format = true; }
+                case 2 { ctx.is_bytes  = true; }
+                case 3 {
+                    ctx.is_format = true;
+                    ctx.is_bytes  = true;
+                }
             }
 
-            is_format = true;
-            self.advance_cursor(maybe_prefix[1].len);
-        } else if ((maybe_prefix[1].chr == 'b') || (maybe_prefix[1].chr == 'B')) {
-            if is_raw {
-                // we emit an error token since double 'b' is invalid
-                std::print(f"Error: Invalid string prefix 'bb'");
-                return self.create_error_token(start, TokenKind::TkLitString);
+            ctx.prefix = prefix;
+        }
+
+        ctx.in_format_depth = 0;
+        ctx.terminators     = libcxx::stack::<SourceLocation>();
+        ctx.fstring_specs   = libcxx::deque::<TextCtx::FormatSpec>();
+
+        return ctx;
+    }
+
+    inline priv fn scan_text_body(self, ctx: ref!(TextCtx)) {
+        while !self.is_eof() {
+            var d = self.peek_char32();
+
+            if ctx.in_format_depth > 0 {
+                self.scan_format_expr(ctx, d);
+                continue;
             }
 
-            is_raw = true;
-            self.advance_cursor(maybe_prefix[1].len);
-        } else { /// now either we have no second prefix or its an empty stirng/char
-            if ((maybe_prefix[1].chr == '"') || (maybe_prefix[1].chr == '\'')) {
-                if delim != 0 {
-                    // we have an empty string / char
-                    self.advance_cursor(maybe_prefix[1].len); // move past the delim
-                    /// now we create the token and return keeping the imm
-                    
+            switch d.chr {
+                case 0x22: case 0x27 { // " or '
+                    if d.chr == ctx.delim {
+                        ctx.body_end = self.get_source_location();
+                        self.advance_cursor(d.len);
+                        return;
+                    }
+
+                    self.advance_cursor(d.len); /// just normal char
+                }
+
+                case 0x7b { // {
+                    if ctx.is_format {
+                        ctx.in_format_depth = 1;
+                        ctx.terminators.push(self.get_source_location());
+                        self.advance_cursor(d.len);
+
+                        ctx.fstring_specs.push_back(TextCtx::FormatSpec{
+                            start: self._cursor,
+                            end:   0
+                        });
+                        continue;
+                    }
+
+                    self.advance_cursor(d.len);
+                }
+
+                case 0x7d { // } - this is only called if our format depth is 0
+                    if ctx.is_format {
+                        ctx.has_error = true;
+                        std::print("StringError: Unmatched '}' in string literal");
+                    }
+
+                    self.advance_cursor(d.len);
+                }
+
+                case 0x5c { // escape
+                    var esc_start = self.get_source_location();
+                    self.advance_cursor(d.len);
+                    if !self.is_valid_escape(esc_start, ctx.is_bytes, ctx.is_format) {
+                        ctx.has_error = true;
+                        std::print("StringError: Invalid escape sequence in string literal");
+                    }
+                }
+
+                default {
+                    self.advance_cursor(d.len);
                 }
             }
         }
 
-        /// now we start actually lexing the string body
-
+        ctx.has_error = true;
+        std::print("StringError: Unterminated string literal");
     }
 
-    priv fn lex_illegal(self, start: SourceLocation) -> Token {
+    inline priv fn scan_format_expr(self, ctx: ref!(TextCtx), d: DecodeResult) {
+        switch d.chr {
+            case 0x7b {
+                ++ctx.in_format_depth;
+                ctx.terminators.push(self.get_source_location());
+                self.advance_cursor(d.len);
+            }
+
+            case 0x7d {
+                --ctx.in_format_depth;
+                if ctx.in_format_depth == 0 {
+                    ctx.fstring_specs.back().end = self._cursor;
+                    ctx.terminators.pop();
+                } else {
+                    ctx.terminators.pop();
+                }
+                self.advance_cursor(d.len);
+            }
+
+            case 0x0a {
+                ctx.has_error = true;
+                std::print("StringError: Newline in format string expression");
+                self.advance_cursor(d.len);
+            }
+
+            default {
+                self.advance_cursor(d.len);
+            }
+        }
+    }
+
+    inline priv fn finalize_text(self, ctx: ref!(TextCtx)) -> bool {
+        if ctx.has_error {
+            return false;
+        }
+
+        if !ctx.terminators.empty() {
+            return false;
+        }
+
+        return true;
+    }
+
+    inline priv fn lex_text_suffix(self, ctx: ref!(TextCtx)) {
+        if self.is_valid_name(self.peek_char32()) != 0 {
+            var suffix = self.lex_name(self.get_source_location());
+            if suffix.kind != TokenKind::TkUnknown {
+                ctx.imm.get_suffix() = suffix.range;
+            }
+        }
+    }
+
+    inline priv fn emit_fstring_exprs(self, ctx: ref!(TextCtx)) {
+        if !(ctx.is_format) { return; }
+
+        for spec in ctx.fstring_specs {
+            ctx.imm.get_exprs().push_back((
+                self.lex_slice::<16>(spec.start, spec.end),
+                self.create_source_range(spec.start, spec.end)
+            ));
+        }
+    }
+
+    inline priv fn make_text_token(self, ctx: ref!(TextCtx)) -> Token {
+        var tok: Token;
+        tok = TokenKind::LitString if ctx.delim == 0x22 else TokenKind::LitChar;
+        tok = self.create_source_range(ctx.start);
+        tok.imm = ctx.imm_idx;
+        self._last_kind = LastTokenKind::Text;
+
+        ctx.imm.get_body() = SourceRange::from_bounds(
+            ctx.start,
+            ctx.body_start
+        );
+
+        (ctx.imm.get_prefix()) = ctx.prefix;
+        ctx.imm.get_prefix_kind() = (
+            Immediate::TextPrefixKind::BytesFormat if ctx.is_format && ctx.is_bytes
+            else Immediate::TextPrefixKind::Format if ctx.is_format
+            else Immediate::TextPrefixKind::Bytes  if ctx.is_bytes
+            else Immediate::TextPrefixKind::None
+        );
+
+        return tok;
+    }
+
+
+
+
+    inline priv fn lex_illegal(self, start: SourceLocation) -> Token {
         return self.lex_name(start);
     }
 
-    priv fn lex_whitespace(self, start: SourceLocation, first_char: char32_t, first_len: usize, first_class: CharClass) -> Token {
+    inline priv fn lex_whitespace(self, start: SourceLocation, first_char: char32, first_len: usize, first_class: CharClass) -> Token {
         /// we consume all whitespace and newlines here
         /// we can batch spaces and newlines into a single new line
         /// we also batch just spaces into a single space token
@@ -1319,9 +1576,9 @@ class Lexer {
 
         switch first_class {
             case CharClass::Whitespace {
-                token.kind = TokenKind::TkWhitespace;
+                token = TokenKind::TkWhitespace;
             } case CharClass::NewLine {
-                token.kind = TokenKind::TkNewLine;
+                token = TokenKind::TkNewLine;
             } default {
                 self.advance_cursor(); // consume first char
                 return create_unrecognized_token(start);
@@ -1332,17 +1589,17 @@ class Lexer {
 
         while !self.is_eof() {
             var current_char = self.peek_char32();
-            var c: char32_t  = normalize_char32(current_char.chr);
+            var c: char32  = normalize_char32(current_char.chr);
 
             switch self.classify(c) {
                 case CharClass::Whitespace {
-                    if token.kind != TokenKind::TkNewLine {
-                        token.kind = TokenKind::TkWhitespace;
+                    if token != TokenKind::TkNewLine {
+                        token = TokenKind::TkWhitespace;
                     }
                 } case CharClass::NewLine {
-                    token.kind = TokenKind::TkNewLine;
+                    token = TokenKind::TkNewLine;
                 } default {
-                    token.range = self.create_source_range(start);
+                    token = self.create_source_range(start);
                     return token;
                 }
             }
@@ -1350,7 +1607,7 @@ class Lexer {
             self.advance_cursor(current_char.len);
         }
 
-        token.range = self.create_source_range(start);
+        token = self.create_source_range(start);
         return token;
     }
 
@@ -1387,6 +1644,282 @@ class Lexer {
             }
         }
     }
+    
+    inline inline priv fn is_valid_escape(self, start: SourceLocation, is_byte: bool, is_format: bool) -> bool {
+        var chars = self.peek_char32::<10>();
+
+        // 2 classes one for octal and one for hex
+        // 2 very simple classes contains a is_digit function and a push_back function
+        // both store values in usize internally and have a check(against: usize) -> bool function
+        // and a getter to return the final value along with a digits count
+
+        switch chars[0].chr {
+            /// byte escapes
+            case 'n': case 'r': case 't': case 'v': case 'f': case 'a':
+            case 0x27: case 0x22: case 0x5c { // both
+                self.advance_cursor(chars[0].len);
+            }
+
+            /// standard escapes / both
+            case '{': case '}' { // both
+                self.advance_cursor(chars[0].len);
+
+                if is_format {
+                    return true;
+                }
+
+                var range = SourceRange::from_bounds(
+                    start,
+                    self.get_source_location()
+                );
+
+                std::print(f"Error: invalid escape sequence '{range}' in non-format string\n");
+                return false;
+            }
+
+            case 'x': case 'X' { // both // \xHH (exactly 2 hex digits)
+                var hex_parser = HexParser();
+                self.advance_cursor(chars[0].len);
+
+                for (var i: usize = 1; i <= 2; ++i) {
+                    if !hex_parser.is_digit(chars[i].chr) {
+                        var range = SourceRange::from_bounds(
+                            start,
+                            self.get_source_location()
+                        );
+
+                        self.advance_cursor(chars[i].len);
+                        std::print(f"Error: invalid hex escape sequence '{self._sm->get_text(range)}'\n");
+                        return false;
+                    }
+
+                    hex_parser.push_back(chars[i].chr);
+                    self.advance_cursor(chars[i].len);
+                }
+
+                var value = hex_parser.get_value();
+
+                // explicit byte-range check
+                if value > 0xFF {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: hex escape out of byte range '{self._sm->get_text(range)}'\n");
+                    return false;
+                }
+            }
+            
+            case '0': case '1': case '2': case '3': // \ooo (1-3 octal digits)
+            case '4': case '5': case '6': case '7' { // only byte
+                var octal_parser = OctalParser();
+                
+                // first digit is guaranteed to be valid
+                octal_parser.push_back(chars[0].chr);
+                self.advance_cursor(chars[0].len);
+
+                // we have no loops since we need exactly 1-3 digits
+                if octal_parser.is_digit(chars[1].chr) {
+                    octal_parser.push_back(chars[1].chr);
+                    self.advance_cursor(chars[1].len);
+
+                    if octal_parser.is_digit(chars[2].chr) {
+                        octal_parser.push_back(chars[2].chr);
+                        self.advance_cursor(chars[2].len);
+                    }
+                }
+
+                if !is_byte {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: invalid escape sequence '{self._sm->get_text(range)}' in non-byte string\n");
+                    return false;
+                }
+
+                /// we now validate the value
+                var value = octal_parser.get_value();
+
+                if octal_parser.get_digits() < 1 || octal_parser.get_digits() > 3 {
+                    // defensive: should never happen
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: octal escape must contain 1-3 digits '{self._sm->get_text(range)}'\n");
+                    return false;
+                }
+
+                // explicit byte-range check
+                if value > 0xFF {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: octal escape out of byte range '{self._sm->get_text(range)}'\n");
+                    return false;
+                }
+            }
+
+            case 'u' { // only !byte // \uHHHH (exactly 4 hex digits)
+                var hex_parser = HexParser();
+                self.advance_cursor(chars[0].len);
+
+                for (var i: usize = 1; i <= 4; ++i) {
+                    if !hex_parser.is_digit(chars[i].chr) {
+                        var range = SourceRange::from_bounds(
+                            start,
+                            self.get_source_location()
+                        );
+
+                        self.advance_cursor(chars[i].len);
+                        std::print(f"Error: invalid unicode escape sequence '{self._sm->get_text(range)}'\n");
+                        return false;
+                    }
+
+                    hex_parser.push_back(chars[i].chr);
+                    self.advance_cursor(chars[i].len);
+                }
+
+                if is_byte {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: invalid escape sequence '{self._sm->get_text(range)}' in byte string\n");
+                    return false;
+                }
+
+                var value = hex_parser.get_value();
+
+                // check for valid unicode range
+                if value > 0xFFFF {
+                    // defensive: impossible with 4 hex digits, but documents intent
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: unicode escape out of range '{self._sm->get_text(range)}'\n");
+                    return false;
+                }
+
+                // Surrogate halves are invalid Unicode scalar values
+                if (value >= 0xD800) && (value <= 0xDFFF) {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: unicode escape encodes a surrogate code point '{self._sm->get_text(range)}'\n");
+                    return false;
+                }
+            }
+
+            case 'U' { // only !byte // \UHHHHHHHH (exactly 8 hex digits)
+                var hex_parser = HexParser();
+                self.advance_cursor(chars[0].len);
+
+                // we have no loops since we need exactly 8 digits
+                for (var i: usize = 1; i <= 8; ++i) {
+                    if !hex_parser.is_digit(chars[i].chr) {
+                        var range = SourceRange::from_bounds(
+                            start,
+                            self.get_source_location()
+                        );
+
+                        self.advance_cursor(chars[i].len);
+                        std::print(f"Error: invalid unicode escape sequence '{self._sm->get_text(range)}'\n");
+                        return false;
+                    }
+
+                    hex_parser.push_back(chars[i].chr);
+                    self.advance_cursor(chars[i].len);
+                }
+
+                if is_byte {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: invalid escape sequence '{self._sm->get_text(range)}' in byte string\n");
+                    return false;
+                }
+
+                var value = hex_parser.get_value();
+
+                // check for valid unicode range
+                if value > 0x10FFFF {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: unicode escape out of range '{self._sm->get_text(range)}'\n");
+                    return false;
+                }
+
+                // Surrogate halves are invalid Unicode scalar values
+                if (value >= 0xD800) && (value <= 0xDFFF) {
+                    var range = SourceRange::from_bounds(
+                        start,
+                        self.get_source_location()
+                    );
+
+                    std::print(f"Error: unicode escape encodes a surrogate code point '{self._sm->get_text(range)}'\n");
+                    return false;
+                }
+            }
+
+            case 'b' { // only !byte // \b (backspace)
+                self.advance_cursor(chars[0].len);
+
+                if !is_byte {
+                    return true;
+                }
+                
+                var range = SourceRange::from_bounds(
+                    start,
+                    self.get_source_location()
+                );
+
+                std::print(f"Error: invalid escape sequence '{self._sm->get_text(range)}' in byte string\n");
+                return false;
+
+            }
+
+            default {
+                self.advance_cursor(chars[0].len);
+
+                var range = SourceRange::from_bounds(
+                    start,
+                    self.get_source_location()
+                );
+
+                std::print(f"Error: unknown escape sequence '{self._sm->get_text(range)}'\n");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    inline fn <T> report_error(self, msg: string, loc: SourceLocation, ret: T) -> T {
+        // self._diag.report(Diagnostic(
+        //     DiagnosticLevel::Error,
+        //     msg,
+        //     loc
+        // ));
+
+        return ret;
+    }
 
     inline static fn set_kind(tok: *Token, hash_state: *HashState) {
         var hash: u64 = hash_state->finalize();
@@ -1411,6 +1944,10 @@ class Lexer {
 
     fn wait_for_imm_evaluation(self) {
         self._imm_tbl.wait_for_evaluation();
+    }
+
+    static fn get_text(token: Token, sm: *SourceManager) -> string {
+        return sm->get_text(token.range);
     }
 }
 
@@ -1439,7 +1976,7 @@ fn Test() -> i32 {
     }
 
     __inline_cpp("{");
-        var timer = Timer("Load Test");
+        // var timer = Timer("Load Test");
 
         pool = std::create::<ThreadPool>(4);
         vfm  = std::create::<VirtualFileManager>();
@@ -1460,9 +1997,10 @@ fn Test() -> i32 {
     }
 
     var tokens = lexer.tokens();
+    std::print("\n------------------- MAIN TOKENS -------------------\n");
 
     for t: Token in (*tokens) {
-        std::print(f"token: {t} data: {sm->get_text(t.range)}");
+        std::print(f"token: {t} data: '{sm->get_text(t.range)}' ");
 
         /// now if we have an int or a float we can print the imm data
         if t.kind == TokenKind::LitInt {
@@ -1476,6 +2014,7 @@ fn Test() -> i32 {
 
     // wait for imm evaluation to finish
     lexer.wait_for_imm_evaluation();
+    lexer.emit_errors();
 
     return 0;
 }
