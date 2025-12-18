@@ -186,6 +186,12 @@ IS_LONG_FLAG : constexpr array::<bool, 256> = build_long_flag_table() ;
 
 
 
+///-----------------------------------------------
+/// \brief Tokenizes a command-line string into flags and files.
+///        Supports single-dash flags, double-dash flags, and slash-style flags.
+/// \param sentence - the input command-line string
+///-----------------------------------------------
+
 
 fn Tokenize(sentence : string ){
 
@@ -374,12 +380,8 @@ fn Tokenize(sentence : string ){
                         }
                     }
                 }
-
-
             }
-        }
-
-        
+        }      
 
         continue ;
 }
@@ -389,3 +391,6 @@ fn Tokenize(sentence : string ){
 fn Test() -> i32 {
     return 1;
 }
+
+helix Lexer.hlx -g -fno-unsafe -fconst-overloading -fno-exceptions
+
