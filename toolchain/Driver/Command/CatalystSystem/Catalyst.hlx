@@ -160,7 +160,7 @@ enum FlagType derives u32 {
 /// \return array::<bool, 256> - true for characters that start long flags
 ///-----------------------------------------------
 
-fn build_long_flag_table() constexpr -> array::<bool, 256> {      /// 256 for all u8 values
+eval fn build_long_flag_table() -> array::<bool, 256> {      /// 256 for all u8 values
 
     var table : array::<bool, 256> = array::<bool, 256>() ;
 
@@ -180,7 +180,7 @@ fn build_long_flag_table() constexpr -> array::<bool, 256> {      /// 256 for al
     return table ;
 }
 
-IS_LONG_FLAG : constexpr array::<bool, 256> = build_long_flag_table() ;
+var IS_LONG_FLAG : array::<bool, 256> = build_long_flag_table() ;
 
 ///-----------------------------------------------
 
@@ -198,7 +198,7 @@ fn Tokenize(sentence : string ){
     var pointer : i32;       // lexer cursor
 
     var parsedFlags : array::<FlagType, 64> = array::<FlagType, 64>() ; 
-    var files : array::<string,64> = array::<string, 64>() ;
+    var files : libcxx::deque::<string> = libcxx::deque::<string>() ; 
     var word : string ;
     var parser : i32 = 0 ;
 
@@ -277,9 +277,9 @@ fn Tokenize(sentence : string ){
         continue ;
 
     
-
-    //--------------------------------ARGUMENT PARSING-------------------------------------------//
-
+    //=======================================================================================//
+    //--------------------------------FILE PARSING-------------------------------------------//
+    //=======================================================================================//
 
     __inline_cpp("other :");
         while(sentence[pointer] != ' '){
@@ -287,6 +287,9 @@ fn Tokenize(sentence : string ){
         }
 
         parsedFlags[parser] = FILE ;
+        files.push_back(word);
+
+        continue; 
         
 
     
@@ -294,7 +297,9 @@ fn Tokenize(sentence : string ){
 
 
 
+    //==============================================================================================//
     //--------------------------------DOUBLE DASH PARSING-------------------------------------------//
+    //==============================================================================================//
 
     __inline_cpp("double_dash :");
 
@@ -319,14 +324,15 @@ fn Tokenize(sentence : string ){
     
                     while(sentence[pointer] != ' '){
                             word+=sentence[pointer];
-                            pointer++
+                            pointer++;
                     }
                 }
             }
 
 
-            }
+            
         }
+    continue;
 
 
 
@@ -370,7 +376,7 @@ fn Tokenize(sentence : string ){
                     if IS_LONG_FLAG[u8(sentence[pointer])]{                //for detection of non single letter flags
                         while(sentence[pointer] != ' '){
                             word+=sentence[pointer];
-                            pointer++
+                            pointer++;
                         }
                     } else {
                         while(sentence[pointer] != ' '){                     // '/abc' types
@@ -392,5 +398,5 @@ fn Test() -> i32 {
     return 1;
 }
 
-helix Lexer.hlx -g -fno-unsafe -fconst-overloading -fno-exceptions
+// helix Lexer.hlx -g -fno-unsafe -fconst-overloading -fno-exceptions
 
