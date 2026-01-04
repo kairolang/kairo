@@ -60,7 +60,7 @@ enum TokenKind derives u32 {
     ///    it completely changes.
     ///
     ///===----------------------------------------------------------------===///
-    ///
+
     /// TODO: after the self-hosted compiler can compile the compiler make this
     ///       use compute_hash instead of raw Hexadecimal.
     ///
