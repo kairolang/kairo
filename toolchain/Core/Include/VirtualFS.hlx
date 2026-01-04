@@ -1,0 +1,26 @@
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+
+import Core::VirtualFileManager::*;
+/// Core::VirtualFileManager has: import Core::ThreadPool::*;
+/// Core::VirtualFileManager has: import Core::SourceLocation::*;
+/// Core::VirtualFileManager has: import Core::UTF8View::*;
+/// Core::VirtualFileManager has: import Core::MemoryBuffer::*;
+/// Core::VirtualFileManager has: import Core::Path::*;
+/// Core::VirtualFileManager has: import Core::MMapRegion::*;
+/// Core::VirtualFileManager has: import Core::Timer::*;
+/// Core::VirtualFileManager has: import Core::MappedFileBuffer::*;
+/// Core::VirtualFileManager has: import Core::FileSystem::*;
+/// Core::VirtualFileManager has: import Core::SourceRange::*;

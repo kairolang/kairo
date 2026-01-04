@@ -15,19 +15,14 @@
 
 ffi "c++" import "Lexer/CharTable.hh";
 
-import Core::SourceManager::*;
-import Core::SourceLocation::*;
-import Core::FullSourceLocation::*;
-import Core::MappedFileBuffer::*;
-import Core::MemoryBuffer::*;
-import Core::ThreadPool::*;
-import Core::ArenaAllocator::*;
-import Core::SourceRange::*;
-import Core::TokenKind::*;
 import Lexer::Token::*;
 import Lexer::TokenBuffer::*;
 import Lexer::Immediate::*;
+import Core::Include::SourceManager::*;
 
+/// \brief tracks git merge conflict marker detection state during lexing
+/// \details used to emit clean diagnostics when conflict markers are found
+///
 /// to prevent issues later down the pipeline
 /// we need to be able to detect git conflict markers in the source code.
 /// ignore them and emit clean diagnostics if they are found.
@@ -39,6 +34,8 @@ enum ConflictMarker derives u8 {
     End       ///< conflict end ">>>>>>>>" marker detected.
 }
 
+/// \brief coarse classification of the previously emitted token
+/// \details used for context-sensitive lexing decisions
 enum LastTokenKind derives u8 {
     None,
     Text,
@@ -47,10 +44,14 @@ enum LastTokenKind derives u8 {
     Number,
 }
 
+/// \brief incremental hexadecimal digit parser
+/// \details used for escape sequence decoding (\x, \u, \U)
 class HexParser {
     var value:  usize = 0;
     var digits: usize = 0;
 
+    /// lookup table for hex digit to value conversion
+    /// 0xFF indicates invalid digit
     __inline_cpp("static constexpr array<u8, 256> hex_lut = [] {
         array<u8, 256> lut;
         lut.fill(0xFF);
@@ -64,47 +65,75 @@ class HexParser {
         return lut;
     }()");
 
+    /// \brief appends a hex digit
+    /// \param c hex digit character
+    /// \requires is_digit(c) == true
     inline eval fn push_back(self, c: char32) {
         const v: u8 = hex_lut[static_cast::<u8>(c) & 0xFF];
         self.value = (self.value << 4) | static_cast::<usize>(v);
         ++(self.digits);
     }
 
+    /// \brief checks whether character is a valid hex digit
+    /// \param c input character
+    /// \returns true if valid hex digit
     inline eval fn is_digit(self, c: char32) -> bool {
         return hex_lut[static_cast::<u8>(c) & 0xFF] != 0xFF;
     }
 
+    /// \brief returns accumulated numeric value
+    /// \returns parsed value
     inline eval fn get_value(self) -> usize {
         return self.value;
     }
 
+    /// \brief returns number of digits consumed
+    /// \returns digit count
     inline eval fn get_digits(self) -> usize {
         return self.digits;
     }
 }
 
+/// \brief incremental octal digit parser
+/// \details used for byte escape sequences (\ooo)
 class OctalParser {
     var value:  usize = 0;
     var digits: usize = 0;
 
+    /// \brief appends an octal digit
+    /// \param c octal digit character
+    /// \requires is_digit(c) == true
     inline eval fn push_back(self, c: char32) {
         self.value = (self.value << 3) | (static_cast::<usize>(c - '0'));
         ++(self.digits);
     }
 
+    /// \brief checks whether character is a valid octal digit
+    /// \param c input character
+    /// \returns true if valid octal digit
     inline eval fn is_digit(self, c: char32) -> bool {
         return static_cast::<u8>(c - '0') <= 7;
     }
 
+    /// \brief returns accumulated numeric value
+    /// \returns parsed value
     inline eval fn get_value(self) -> usize {
         return self.value;
     }
 
+    /// \brief returns number of digits consumed
+    /// \returns digit count
     inline eval fn get_digits(self) -> usize {
         return self.digits;
     }
 }
 
+/// \brief utf-8 aware lexer for helix source files
+/// \details
+///  - performs tokenization only
+///  - no semantic validation beyond lexical correctness
+///  - produces immediate nodes for literals
+///  - supports f-strings, byte strings, nested comments, and unicode
 class Lexer {
     /// lowkey this formatting style looks a lot better tbh
     var _tokens      :  TokenBuffer::<512> = TokenBuffer::<512>();
@@ -120,23 +149,32 @@ class Lexer {
     var _last_kind   :  LastTokenKind = LastTokenKind::None;
     var _last_text   : *Token = &null;
 
+    /// \brief lightweight handle over string/char immediates
+    /// \details abstracts over StringData vs CharData
     class TextImm {
         var lexer: *Lexer;
         var delim: u8;
         var idx:   u32;
-
+            
+        /// \brief default constructor
         fn TextImm(self) {
             self.lexer = &null;
             self.delim = 0;
             self.idx   = 0;
         }
 
+        /// \brief constructs handle for an existing immediate
+        /// \param lexer owning lexer
+        /// \param delim string delimiter (' or ")
+        /// \param idx immediate table index
         fn TextImm(self, lexer: *Lexer, delim: u8, idx: u32) {
             self.lexer = lexer;
             self.delim = delim;
             self.idx   = idx;
         }
 
+        /// \brief returns f-string expression list
+        /// \returns deque of token buffers + source ranges
         fn get_exprs(self) -> ref!(libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>) {
             if self.delim == 0x22 {
                 var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
@@ -147,6 +185,8 @@ class Lexer {
             }
         }
 
+        /// \brief returns prefix token
+        /// \returns token reference
         fn get_prefix(self) -> ref!(Token) {
             if self.delim == 0x22 {
                 var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
@@ -157,6 +197,8 @@ class Lexer {
             }
         }
 
+        /// \brief returns suffix token
+        /// \returns token reference
         fn get_suffix(self) -> ref!(Token) {
             if self.delim == 0x22 {
                 var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
@@ -167,6 +209,8 @@ class Lexer {
             }
         }
 
+        /// \brief returns body source range
+        /// \returns source range reference
         fn get_body(self) -> ref!(SourceRange) {
             if self.delim == 0x22 {
                 var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
@@ -177,6 +221,8 @@ class Lexer {
             }
         }
 
+        /// \brief returns next immediate link
+        /// \returns next index reference
         fn get_next(self) -> ref!(u32) {
             if self.delim == 0x22 {
                 var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
@@ -187,6 +233,8 @@ class Lexer {
             }
         }
 
+        /// \brief returns prefix classification
+        /// \returns prefix kind
         fn get_prefix_kind(self) -> ref!(Immediate::TextPrefixKind) {
             if self.delim == 0x22 {
                 var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
@@ -198,8 +246,10 @@ class Lexer {
         }
     }
 
+    /// \brief transient context for string / char lexing
+    /// \details lives only during lex_text
     struct TextCtx {
-        struct FormatSpec {
+        struct FormatSpec { /// f-string format specifier context
             var start: usize;
             var end: usize;
         }
@@ -225,7 +275,9 @@ class Lexer {
         var error_token     : Token;
     }
 
+    /// \brief transient context for number lexing
     struct NumberCtx {
+        /// \brief tracks what was last seen while lexing a number
         enum LastWasState derives u8 {
             None,
             Digit,
@@ -253,7 +305,10 @@ class Lexer {
 
     }
     
-    /// returns true if c is a digit allowed for `base` (2, 8, 10, 16)
+    /// \brief checks if character is a valid digit in the given base
+    /// \param c input character
+    /// \param base numeric base (2, 8, 10, 16)
+    /// \returns true if c is a digit allowed for `base` (2, 8, 10, 16)
     inline static priv fn is_base_digit(c: char32, base: u8) -> bool {
         switch base {
             case 2  { return (c == '0') || (c == '1'); }
@@ -268,24 +323,28 @@ class Lexer {
         }
     }
 
-    /// underscore is only legal after a digit
-    inline static priv fn underscore_allowed(last: NumberCtx::LastWasState) -> bool {
-        return (last == NumberCtx::LastWasState::Digit);
-    }
-
-    /// returns true if `c` starts an exponent for the given base
+    /// \brief checks if character is a valid exponent character for the given base
+    /// \param c input character
+    /// \param base numeric base (10, 16)
+    /// \returns true if `c` starts an exponent for the given base
     inline static priv fn is_exponent_char(c: char32, base: u8) -> bool {
         return ((base == 10) && ((c == 'e') || (c == 'E')))
             || ((base == 16) && ((c == 'p') || (c == 'P')));
     }
 
-    /// once inside exponent, decimal digits only
+    /// \brief checks if character is a decimal digit
+    /// \param c input character
+    /// \returns true if `c` is a decimal digit
     inline static priv fn is_decimal_digit(c: char32) -> bool {
         return (c >= '0') && (c <= '9');
     }
 
     ///========= LEXER API ==========///
 
+    /// \brief gets the next token from the input stream
+    /// \param start starting source location of the token
+    /// \param decode decoded character at the current cursor position
+    /// \returns next token
     inline priv fn get_token(
         self,
         const start  : SourceLocation,
@@ -324,6 +383,9 @@ class Lexer {
         return self.create_unrecognized_token(start);
     }
 
+    /// \brief lexes the entire file associated with the given file ID
+    /// \param fid file ID to lex
+    /// \returns true on success
     fn lex(self, fid: u32) -> bool {
         if self._initialized {
             return false; /// we only have 1 lexer per file
@@ -373,6 +435,8 @@ class Lexer {
         return true;
     }
 
+    /// \brief emits errors for invalid tokens found during lexing
+    /// \details currently only handles TkError tokens
     fn emit_errors(self) {
         for var i: usize = 0; i < self._tokens.size(); ++i {
             var token = self._tokens[i];
@@ -383,7 +447,11 @@ class Lexer {
         }
     }
 
-    /// used to lex bits that have not been lexed
+    /// \brief lexes a slice of the current file between start and end positions
+    /// \param start starting position (inclusive)
+    /// \param end ending position (exclusive)
+    /// \returns token buffer containing lexed tokens
+    /// \template N TokenBuffer chunk size
     fn <const N: usize> lex_slice(self, start: usize, end: usize) -> * TokenBuffer::<N> {
         var tokens = std::create::<TokenBuffer::<N>>();
 
@@ -433,9 +501,14 @@ class Lexer {
         return tokens;
     }
 
-
+    /// \brief a default destructor pretty self-explanatory
     delete fn Lexer(self);
 
+    /// \brief default constructor
+    /// \details initializes lexer with source manager and thread pool
+    /// \param sm source manager pointer
+    /// \param pool thread pool pointer
+    /// \returns initialized lexer
     fn Lexer(self, sm: *SourceManager, pool: *ThreadPool) {
         self._sm = sm;
         self._pool = pool;
@@ -443,14 +516,20 @@ class Lexer {
         self._initialized = false; // we only initialize on lex call
     }
 
+    /// \brief destroys the lexer and its resources
+    /// \details cleans up token buffer and other allocated resources
     inline priv fn destroy(self) {
         self._tokens.destroy();
     }
 
+    /// \brief destructor
     fn op delete (self) {
         self.destroy();
     }
 
+    /// \brief loads the file buffer for the given file ID
+    /// \param fid file ID to load
+    /// \returns true on success
     inline priv fn load_file(self, fid: u32) -> bool {
         if self._sm == &null {
             return false;
@@ -1264,13 +1343,73 @@ class Lexer {
             }
 
             token  = static_cast::<TokenKind>(hash);
-            token = self.create_source_range(start);
+            token  = self.create_source_range(start);
             self._last_kind = LastTokenKind::Symbol;
             return token;
         }
 
         hash_state.mix(C2.chr);
         self.advance_cursor();
+
+        // we do a quick check here to see if its a OpSlashSlash | OpSlashStar | OpStarSlash
+        switch hash_state.finalize() {
+            case (compute_hash::<r"//">()) { // we have an normal comment that goes till eol
+                /// if it is a comment we need to skip till eol
+                while !self.is_eof() {
+                    var d = self.peek_char32();
+                    if d.chr == 0x0A || d.chr == 0x0D { // \n or \r
+                        token.range.end = self.get_source_location();
+                        break;
+                    }
+
+                    self.advance_cursor(d.len);
+                }
+
+                token = TokenKind::AtComment;
+                token = self.create_source_range(start);
+                token = 0;
+                return token;
+            } case (compute_hash::<r"/*">()) { // start of a multiline comment
+                /// we allow nested comments
+                var nest_stack: libcxx::stack::<SourceLocation> = libcxx::stack::<SourceLocation>();
+                nest_stack.push(start);
+                
+                /// scan till we find the end of the comment
+                while !self.is_eof() {
+                    var chars = self.peek_char32::<2>();
+                    if chars[0].len == 1 && chars[1].len == 1 {
+                        if chars[0].chr == '*' && chars[1].chr == '/' {
+                            nest_stack.pop();
+                            if nest_stack.empty() {
+                                token.range.end = self.get_source_location();
+                                self.advance_cursor(2);
+
+                                token = TokenKind::AtComment;
+                                token = self.create_source_range(start);
+                                token = 0;
+                                
+                                return token;
+                            }
+
+                            self.advance_cursor(2);
+                            continue;
+                        } else if chars[0].chr == '/' && chars[1].chr == '*' {
+                            nest_stack.push(self.get_source_location());
+                            self.advance_cursor(2);
+                            continue;
+                        }
+                    }
+
+                    self.advance_cursor(chars[0].len);
+                }
+
+                // if we reach here then we hit eof without closing the comment
+                return self.create_error_token(start, TokenKind::AtComment);
+            } case (compute_hash::<r"*/">()) { // end of a multiline comment
+                /// this is an error
+                return self.create_error_token(start, TokenKind::AtComment);
+            }
+        }
 
         if !self.is_valid_symbol(C3) { // 2 char symbol
             var hash: u64 = hash_state.finalize();
@@ -1282,6 +1421,7 @@ class Lexer {
             token  = static_cast::<TokenKind>(hash);
             token = self.create_source_range(start);
             self._last_kind = LastTokenKind::Symbol;
+
             return token;
         }
 
@@ -1539,9 +1679,6 @@ class Lexer {
 
         return tok;
     }
-
-
-
 
     inline priv fn lex_illegal(self, start: SourceLocation) -> Token {
         return self.lex_name(start);
