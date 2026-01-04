@@ -1,0 +1,114 @@
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+
+/// Macro Preprocessor
+/// ==================
+///
+/// Handles macro definition collection, scope tracking, and token-level expansion
+/// for regular macros (foo!). Proc macros (@foo) are handled later in the AST phase.
+///
+/// Pipeline
+/// --------
+///
+///    ┌──────────────┐
+///    │ Token Stream │
+///    └──────┬───────┘
+///          │
+///          ▼
+///   ┌───────────────────────────┐
+///   │ 1. Collect Definitions    │
+///   │    - Walk tokens          │
+///   │    - Track module scope   │
+///   │    - Register macro!(...) │
+///   │    - Store body tokens    │
+///   └───────────────────────────┘
+///              │
+///              ▼
+///   ┌──────────────────────────┐
+///   │ 2. Track Imports         │
+///   │    - Record use decls    │
+///   │    - Map alias → origin  │
+///   │    - No expansion yet    │
+///   └──────────┬───────────────┘
+///              │
+///              ▼
+///   ┌──────────────────────────┐
+///   │ 3. Resolve Invocations   │
+///   │    - Match foo!(...)     │
+///   │    - Lookup in scope     │
+///   │    - Check imports       │
+///   │    - Validate delimiters │
+///   └──────────┬───────────────┘
+///              │
+///              ▼
+///   ┌──────────────────────────┐
+///   │ 4. Expand Tokens         │
+///   │    - Substitute params   │
+///   │    - Paste body tokens   │
+///   │    - Recurse if nested   │
+///   │    - Detect cycles       │
+///   └──────────┬───────────────┘
+///              │
+///              ▼
+///   ┌──────────────────────────┐
+///   │ 5. Return Expanded       │
+///   │    - Modified stream     │
+///   │    - Preserve locations  │
+///   │    - Report errors       │
+///   └──────────────────────────┘
+///
+/// Scope Rules
+/// -----------
+///
+///   - Macros follow lexical scoping (same as functions/types)
+///   - Fully qualified: module::submodule::foo!(args)
+///   - Imported: use module::foo!; foo!(args)
+///   - Local: defined in current scope, no prefix needed
+///
+/// Delimiter Rules
+/// ---------------
+///
+///   - Invocations use parens: foo!(...)
+///   - Content must have balanced delimiters: (), {}, []
+///   - Unbalanced delimiters inside invoke = compile error
+///   - For literal unbalanced content, use strings
+///
+/// Data Structures
+/// ---------------
+///
+///   MacroDefinition:
+///     - name: identifier
+///     - scope: module path
+///     - params: list of param names (untyped for regular macros)
+///     - body: raw token span (not parsed)
+///
+///   MacroTable:
+///     - definitions: scope path → name → MacroDefinition
+///     - imports: alias → fully qualified path
+///
+///   ExpansionContext:
+///     - call_stack: for cycle detection
+///     - param_bindings: name → token span
+///     - source_loc: for error reporting
+///
+/// Error Cases
+/// -----------
+///
+///   - Undefined macro
+///   - Wrong param count
+///   - Unbalanced delimiters in invoke
+///   - Recursive expansion cycle
+///   - Ambiguous import (same name from multiple modules)
+///
