@@ -246,9 +246,42 @@ class Lexer {
         var number_end:   SourceLocation;
         var prefix_start: SourceLocation;
         var prefix_end:   SourceLocation;
+        var suffix:       Token;
 
         var last: LastWasState;
         var allows_sign_next: bool;
+
+    }
+    
+    /// returns true if c is a digit allowed for `base` (2, 8, 10, 16)
+    inline static priv fn is_base_digit(c: char32, base: u8) -> bool {
+        switch base {
+            case 2  { return (c == '0') || (c == '1'); }
+            case 8  { return (c >= '0') && (c <= '7'); }
+            case 10 { return (c >= '0') && (c <= '9'); }
+            case 16 {
+                return ((c >= '0') && (c <= '9'))
+                    || ((c >= 'A') && (c <= 'F'))
+                    || ((c >= 'a') && (c <= 'f'));
+            }
+            default { return false; }
+        }
+    }
+
+    /// underscore is only legal after a digit
+    inline static priv fn underscore_allowed(last: NumberCtx::LastWasState) -> bool {
+        return (last == NumberCtx::LastWasState::Digit);
+    }
+
+    /// returns true if `c` starts an exponent for the given base
+    inline static priv fn is_exponent_char(c: char32, base: u8) -> bool {
+        return ((base == 10) && ((c == 'e') || (c == 'E')))
+            || ((base == 16) && ((c == 'p') || (c == 'P')));
+    }
+
+    /// once inside exponent, decimal digits only
+    inline static priv fn is_decimal_digit(c: char32) -> bool {
+        return (c >= '0') && (c <= '9');
     }
 
     ///========= LEXER API ==========///
@@ -831,7 +864,7 @@ class Lexer {
     ///========= Lexical Parsing Functions ==========///
 
     inline priv fn lex_name(self, start: SourceLocation) -> Token {
-        // var timer = Timer("Lexer::lex_name");
+        var timer = Timer("Lexer::lex_name");
         /// we have two options here:
         /// 1. identifier
         /// 2. keyword
@@ -982,271 +1015,219 @@ class Lexer {
     /// - full separation of lexing vs semantic validation
     ///
     inline priv fn lex_number(self, start: SourceLocation, is_dot: bool = false) -> Token {
-        // var timer = Timer("Lexer::lex_number");
+        var timer = Timer("Lexer::lex_number");
 
-        /// ok so numbers are a bit more complex since we have
-        /// integers and floats, and floats can start with a dot
-        /// so we need to handle that case as well.
-        /// on top of that we have different bases for integers
-        /// 0b, 0o, 0x, and decimal.
-        /// we also have suffixes for integers and floats
-        /// u8, u16, u32, u64, i8, i16, i32, i64, f32, f64
-        /// we also have underscores in numbers for readability
-        /// and we also have to handle exponents and scientific notation
-        /// like 1.23e10 or 1.23E10 / 0x1.23p10 for hex floats.
-        /// this is a lot to handle but we can break it down into manageable parts.
-        /// oh and on top of that we have to handle invalid number formats
-        /// and emit appropriate diagnostics.
-
-        /// but for now the lexer will ony consume the number prefix and suffix
-        /// so for something like 0x1.23p10f64 it will consume the entire thing
-        /// and create a single token for it, then when creating an imm it stores
-        /// the ranges for the prefix, main number, and suffix separately.
-        /// then call the appropriate parse function pushing it into the thread pool.
-        /// this will be handled in the parser stage.
-
-        /// returns true if c is a digit allowed for `base` (2, 8, 10, 16)
-        fn is_base_digit(c: char32, base: u8) -> bool {
-            switch base {
-                case 2  { return (c == '0') || (c == '1'); }
-                case 8  { return (c >= '0') && (c <= '7'); }
-                case 10 { return (c >= '0') && (c <= '9'); }
-                case 16 {
-                    return ((c >= '0') && (c <= '9'))
-                        || ((c >= 'A') && (c <= 'F'))
-                        || ((c >= 'a') && (c <= 'f'));
-                }
-                default { return false; }
-            }
+        var ctx = self.init_number_ctx(start, is_dot);
+        
+        while (self.scan_number_body(ctx)) && (!self.is_eof()) {
+            0; // keep scanning
         }
 
-        /// underscore is only legal after a digit
-        fn underscore_allowed(last: LastWasState) -> bool {
-            return (last == LastWasState::Digit);
-        }
+        ctx.number_end = self.get_source_location();
 
-        /// returns true if `c` starts an exponent for the given base
-        fn is_exponent_char(c: char32, base: u8) -> bool {
-            return ((base == 10) && ((c == 'e') || (c == 'E')))
-                || ((base == 16) && ((c == 'p') || (c == 'P')));
-        }
+        self.scan_number_suffix(ctx);
+        return self.finalize_number(ctx);
+    }
 
-        /// once inside exponent, decimal digits only
-        fn is_decimal_digit(c: char32) -> bool {
-            return (c >= '0') && (c <= '9');
-        }
+    inline priv fn init_number_ctx(self, start: SourceLocation, is_dot: bool) -> NumberCtx {
+        var ctx: NumberCtx;
 
-        var chars = self.peek_char32::<2>(); // utf-8 suffixes allowed
+        ctx.start            = start;
+        ctx.base             = 10;
+        ctx.has_prefix       = false;
+        ctx.has_decimal      = is_dot;
+        ctx.has_exponent     = false;
+        ctx.allows_sign_next = false;
 
-        var number_start: SourceLocation = start;
-        var number_end:   SourceLocation = SourceLocation();
-        var prefix_start: SourceLocation = SourceLocation();
-        var prefix_end:   SourceLocation = SourceLocation();
+        ctx.prefix_start = SourceLocation();
+        ctx.prefix_end   = SourceLocation();
+        ctx.number_start = start;
+        ctx.last         = NumberCtx::LastWasState::None;
 
-        var has_prefix:   bool = false;
-        var has_decimal:  bool = is_dot;
-        var has_exponent: bool = false;
-
-        var base: u8 = 10; // default decimal
-        // var consumed: usize = 0; // TODO: not used?
-
-        var last: LastWasState = LastWasState::None;
-        var allows_sign_next: bool = false;
+        var chars = self.peek_char32::<2>();
 
         if (!is_dot) && (chars[0].len == 1)
-        && (chars[0].chr == '0') && (chars[1].len == 1) {
+                     && (chars[0].chr == '0')
+                     && (chars[1].len == 1) {
+
             switch static_cast::<char>(chars[1].chr) {
-                case 'b': case 'B' {
-                    base = 2;
-                    has_prefix = true;
-                }
-                case 'o': case 'O' {
-                    base = 8;
-                    has_prefix = true;
-                }
-                case 'x': case 'X' {
-                    base = 16;
-                    has_prefix = true;
-                }
-                default {
-                    base = 10;
-                }
+                case 'b': case 'B' { ctx.base = 2;  ctx.has_prefix = true; }
+                case 'o': case 'O' { ctx.base = 8;  ctx.has_prefix = true; }
+                case 'x': case 'X' { ctx.base = 16; ctx.has_prefix = true; }
             }
 
-            if has_prefix {
-                prefix_start = start;
+            if ctx.has_prefix {
+                ctx.prefix_start  = start;
                 self.advance_cursor(chars[0].len + chars[1].len);
-                prefix_end = self.get_source_location();
-                // consumed += 2;
-                last = LastWasState::Prefix;
-                number_start = prefix_end;
-            } else {
-                last = LastWasState::Digit;
+                ctx.prefix_end    = self.get_source_location();
+                ctx.number_start  = ctx.prefix_end;
+                ctx.last          = NumberCtx::LastWasState::Prefix;
+                return ctx;
             }
-        } else if is_dot {
-            // floats can start with '.'
-            has_decimal = true;
-            self.advance_cursor(chars[0].len);
-            // consumed += 1;
-            last = LastWasState::Dot;
         }
 
-        while !self.is_eof() {
-            var decoded = self.peek_char32();
-            var c: char32 = normalize_char32(decoded.chr);
+        if is_dot {
+            self.advance_cursor(chars[0].len);
+            ctx.last = NumberCtx::LastWasState::Dot;
+        } else {
+            ctx.last = NumberCtx::LastWasState::Digit;
+        }
 
-            // after exponent, only decimal digits (and sign just after exponent)
-            if has_exponent {
-                if allows_sign_next && (c == '+' || c == '-') {
-                    self.advance_cursor(decoded.len);
-                    // consumed += 1;
-                    allows_sign_next = false;
-                    last = LastWasState::Exponent;
+        return ctx;
+    }
+    
+    inline priv fn scan_number_body(self, ctx: ref!(NumberCtx)) -> bool {
+        var chars = self.peek_char32::<16>();
+
+        for var i: usize = 0; i < 16; ++i {
+            var d = chars[i];
+            var c = normalize_char32(d.chr);
+
+            if ctx.has_exponent {
+                if ctx.allows_sign_next && (c == '+' || c == '-') {
+                    self.advance_cursor(d.len);
+                    ctx.allows_sign_next = false;
+                    ctx.last             = NumberCtx::LastWasState::Exponent;
                     continue;
                 }
 
-                if !is_decimal_digit(c) {
-                    break;
+                if !(Lexer::is_decimal_digit(c)) {
+                    return false;
                 }
 
-                self.advance_cursor(decoded.len);
-                // consumed += 1;
-                last = LastWasState::Digit;
+                self.advance_cursor(d.len);
+                ctx.last = NumberCtx::LastWasState::Digit;
                 continue;
             }
 
-            // not in exponent yet
             if c == '_' {
-                if !underscore_allowed(last) {
-                    break;
+                if ctx.last != NumberCtx::LastWasState::Digit {
+                    return false;
                 }
-                last = LastWasState::Underscore;
-                self.advance_cursor(decoded.len);
-                // consumed += 1;
+                ctx.last = NumberCtx::LastWasState::Underscore;
+                self.advance_cursor(d.len);
                 continue;
             }
 
-            if is_base_digit(c, base) {
-                last = LastWasState::Digit;
-                self.advance_cursor(decoded.len);
-                // consumed += 1;
+            if Lexer::is_base_digit(c, ctx.base) {
+                ctx.last = NumberCtx::LastWasState::Digit;
+                self.advance_cursor(d.len);
                 continue;
             }
 
-            // decimal point
-            if c == '.' && base != 2 && base != 8 {
-                if has_decimal || last == LastWasState::Dot || last == LastWasState::Underscore {
-                    break;
+            if c == '.' && ctx.base != 2 && ctx.base != 8 {
+                if ctx.has_decimal
+                || ctx.last == NumberCtx::LastWasState::Dot
+                || ctx.last == NumberCtx::LastWasState::Underscore {
+                    return false;
                 }
-                has_decimal = true;
-                last = LastWasState::Dot;
-                self.advance_cursor(decoded.len);
-                // consumed += 1;
+
+                ctx.has_decimal = true;
+                ctx.last        = NumberCtx::LastWasState::Dot;
+                self.advance_cursor(d.len);
                 continue;
             }
 
-            // exponent marker (e/E for decimal, p/P for hex float)
-            if is_exponent_char(c, base) {
-                if has_exponent || last == LastWasState::Underscore {
-                    break;
+            if Lexer::is_exponent_char(c, ctx.base) {
+                if ctx.has_exponent
+                || ctx.last == NumberCtx::LastWasState::Underscore {
+                    return false;
                 }
-                has_exponent = true;
-                last = LastWasState::Exponent;
-                self.advance_cursor(decoded.len);
-                // consumed += 1;
-                allows_sign_next = true;
 
+                ctx.has_exponent     = true;
+                ctx.allows_sign_next = true;
+                ctx.last             = NumberCtx::LastWasState::Exponent;
+                self.advance_cursor(d.len);
                 continue;
             }
 
-            // sign after exponent
-            if (c == '+' || c == '-') && allows_sign_next {
-                self.advance_cursor(decoded.len);
-                // consumed += 1;
-                allows_sign_next = false;
-                last = LastWasState::Exponent;
-                continue;
-            }
-
-            // anything else terminates number body
-            break;
+            return false;
         }
 
-        number_end = self.get_source_location();
+        return true; // we are not done yet
+    }
 
-        var decoded = self.peek_char32();
-        var suffix_token: Token;
-
-        if self.is_valid_name(decoded) != 0 {
-            suffix_token = self.lex_name(self.get_source_location());
+    inline priv fn scan_number_suffix(self, ctx: ref!(NumberCtx)) {
+        var d = self.peek_char32();
+        
+        if self.is_valid_name(d) != 0 {
+            ctx.suffix = self.lex_name(self.get_source_location());
+        } else {
+            ctx.suffix = Token();
         }
+    }
 
-        var is_float = has_decimal || has_exponent;
+    inline priv fn finalize_number(self, ctx: ref!(NumberCtx)) -> Token {
+        var is_float = ctx.has_decimal || ctx.has_exponent;
 
-        var token: Token = Token();
-        token  = TokenKind::LitFloat if is_float else TokenKind::LitInt;
-        token = self.create_source_range(start);
+        var tok: Token;
+        tok = TokenKind::LitFloat if is_float else TokenKind::LitInt;
+        tok = self.create_source_range(ctx.start);
 
-        var imm_idx: u32 = (
-            (self._imm_tbl.create::<Immediate::FloatData>())
-            if is_float
-            else (self._imm_tbl.create::<Immediate::IntData>())
-        );
+        var   imm_idx: u32 = (self._imm_tbl.create::<Immediate::FloatData>())
+           if is_float else  (self._imm_tbl.create::<Immediate::IntData>());
 
-        token.imm = imm_idx;
+        tok.imm = imm_idx;
 
         if is_float {
             var imm = self.get_imm::<Immediate::FloatData>(imm_idx);
-            imm->base   = base;
-            imm->body   = SourceRange::from_bounds(number_start, number_end);
-            imm->flags  = (imm->flags | 0b00000001) if has_exponent else (imm->flags & 0b11111110);
-            imm->flags  = (imm->flags | 0b00000010) if (base == 16)  else (imm->flags & 0b11111101);
-            imm->flags  = (imm->flags | 0b00010000) if (suffix_token.kind != TokenKind::TkUnknown)
-                        else (imm->flags & 0b11101111);
 
-            if has_prefix {
-                imm->prefix = SourceRange::from_bounds(prefix_start, prefix_end);
+            imm->flags = 0;
+            imm->base = ctx.base;
+            imm->body = SourceRange::from_bounds(ctx.number_start, ctx.number_end);
+
+            // bit0: has_exponent
+            if ctx.has_exponent {
+                imm->flags |= 0b00000001;
             }
 
-            if suffix_token.kind != TokenKind::TkUnknown {
-                imm->suffix = suffix_token.range;
+            // bit2: is_hex_float (0x prefix)
+            if ctx.base == 16 {
+                imm->flags |= 0b00000100;
             }
 
-            self._pool->enqueue(__inline_cpp("
-                [=]() {
-                    imm->evaluate();
-                }"), 0x02
-            );
+            // bit4: has_suffix
+            if ctx.suffix.kind != TokenKind::TkUnknown {
+                imm->flags |= 0b00010000;
+                imm->suffix = ctx.suffix.range;
+            }
+
+            if ctx.has_prefix {
+                imm->prefix = SourceRange::from_bounds(ctx.prefix_start, ctx.prefix_end);
+            }
+
+            self._pool->enqueue(__inline_cpp("[=]() { imm->evaluate(); }"), 0x02);
         } else {
             var imm = self.get_imm::<Immediate::IntData>(imm_idx);
-            imm->base  = base;
-            imm->body  = SourceRange::from_bounds(number_start, number_end);
-            imm->flags = (imm->flags | 0b00010000) if has_prefix
-                        else (imm->flags & 0b11101111);
-            imm->flags = (imm->flags | 0b00001000) if (suffix_token.kind != TokenKind::TkUnknown)
-                        else (imm->flags & 0b11110111);
 
-            if has_prefix {
-                imm->prefix = SourceRange::from_bounds(prefix_start, prefix_end);
+            // lexer fully defines its flag domain
+            imm->flags = 0;
+
+            imm->base = ctx.base;
+            imm->body = SourceRange::from_bounds(ctx.number_start, ctx.number_end);
+
+            // bit4: has_prefix
+            if ctx.has_prefix {
+                imm->flags |= 0b00010000;
+                imm->prefix = SourceRange::from_bounds(ctx.prefix_start, ctx.prefix_end);
             }
 
-            if suffix_token.kind != TokenKind::TkUnknown {
-                imm->suffix = suffix_token.range;
+            // bit3: has_suffix
+            if ctx.suffix.kind != TokenKind::TkUnknown {
+                imm->flags |= 0b00001000;
+                imm->suffix = ctx.suffix.range;
             }
 
-            self._pool->enqueue(__inline_cpp("
-                [=]() {
-                    imm->evaluate();
-                }"), 0x02
-            );
+            self._pool->enqueue(__inline_cpp("[=]() { imm->evaluate(); }"), 0x02);
         }
 
         self._last_kind = LastTokenKind::Number;
-        return token;
+        return tok;
     }
 
+
     inline priv fn lex_symbol(self, start: SourceLocation) -> Token {
-        // var timer = Timer("Lexer::lex_symbol");
+        var timer = Timer("Lexer::lex_symbol");
 
         // we get 4 chars max len of 1 u8
         const CHARS: array::<DecodeResult, 4> = self.peek_char32::<4>(1);
@@ -1343,6 +1324,8 @@ class Lexer {
     ///       strings and escapes/etc.
     ///
     inline priv fn lex_text(self, start: SourceLocation, prefix: Token = Token()) -> Token {
+        var timer = Timer("Lexer::lex_number");
+
         var ctx = self.init_text_ctx(start, prefix);
         if ctx.has_error { return ctx.error_token; }
 
@@ -1984,11 +1967,6 @@ fn Test() -> i32 {
         path = Path("test.hlx");
         fid  = sm->load_file(path);
     __inline_cpp("}");
-
-    // if fid == 0 {
-    //     std::print("Failed to load test.hlx");
-    //     return 1;
-    // }
 
     var lexer = Lexer(sm, pool);
     if !lexer.lex(fid) {
