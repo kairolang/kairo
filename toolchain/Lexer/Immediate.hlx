@@ -212,6 +212,13 @@ class ImmediateTable {
         self.string_literals.reserve(256);
     }
 
+    fn reset(self) {
+        self.int_literals.clear();
+        self.float_literals.clear();
+        self.char_literals.clear();
+        self.string_literals.clear();
+    }
+
     /// we have a 2 functions for each immediate type:
     /// create<Type> that returns the index of the created immediate
     /// get<Type>(idx) that returns a pointer to the immediate data at idx
