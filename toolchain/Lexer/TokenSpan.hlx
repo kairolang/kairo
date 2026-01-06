@@ -1,0 +1,34 @@
+/// read-only span over a TokenBuffer only allows lexed tokens to be span'ed not string parsed tokens since they are 64-bound buffers
+import Lexer::TokenBuffer::*;
+
+class TokenSpan {
+    var _buffer: *TokenBuffer::<512>;
+    var _start:  usize;
+    var _length: usize;
+
+    fn TokenSpan(self) {
+        self._buffer = &null;
+        self._start  = 0;
+        self._length = 0;
+    }
+
+    fn TokenSpan(self, buffer: *TokenBuffer::<512>, start: usize, length: usize) {
+        self._buffer = buffer;
+        self._start  = start;
+        self._length = length;
+    }
+
+    fn size(self) -> usize {
+        return self._length;
+    }
+
+    fn get(self, index: usize) -> Token {
+        if index >= self._length {
+            std::crash(std::Error::RuntimeError(
+                "TokenSpan::get() - index out of bounds"
+            ));
+        }
+
+        return self._buffer->get(self._start + index);
+    }
+}

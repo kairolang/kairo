@@ -13,14 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ HELIX -------///
 
-import Core::SourceManager::*;
-import Core::SourceLocation::*;
-import Core::FullSourceLocation::*;
-import Core::MappedFileBuffer::*;
-import Core::MemoryBuffer::*;
-import Core::ThreadPool::*;
 import Core::ArenaAllocator::*;
-import Core::SourceRange::*;
 import Core::TokenKind::*;
 import Lexer::Token::*;
 
@@ -194,6 +187,13 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
 
     fn chunks(self) -> ChunkBuff {
         return self._chunks;
+    }
+
+    fn clear(self) {
+        self._chunk_count  = 0;
+        self._total_length = 0;
+        self._chunks       = &null;
+        self._allocator.reset();
     }
 
     fn op delete (self) {
