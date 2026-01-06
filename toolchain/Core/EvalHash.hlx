@@ -322,6 +322,14 @@ class HashState {
         self.value = FNV_OFFSET_BASIS;
         self.index = 0;
     }
+
+    fn copy(self) -> HashState {
+        var new_state: HashState;
+        new_state.value = self.value;
+        new_state.index = self.index;
+        
+        return new_state;
+    }
 };
 
 fn Test() -> i32 {

@@ -387,9 +387,9 @@ class Lexer {
     /// \param fid file ID to lex
     /// \returns true on success
     fn lex(self, fid: u32) -> bool {
-        if self._initialized {
-            return false; /// we only have 1 lexer per file
-        }
+        // if self._initialized {
+        //     return false; /// we only have 1 lexer per file
+        // }
 
         if !self.load_file(fid) {
             return false;
@@ -943,8 +943,6 @@ class Lexer {
     ///========= Lexical Parsing Functions ==========///
 
     inline priv fn lex_name(self, start: SourceLocation) -> Token {
-        var timer = Timer("Lexer::lex_name");
-        /// we have two options here:
         /// 1. identifier
         /// 2. keyword
         ///
@@ -1094,8 +1092,6 @@ class Lexer {
     /// - full separation of lexing vs semantic validation
     ///
     inline priv fn lex_number(self, start: SourceLocation, is_dot: bool = false) -> Token {
-        var timer = Timer("Lexer::lex_number");
-
         var ctx = self.init_number_ctx(start, is_dot);
         
         while (self.scan_number_body(ctx)) && (!self.is_eof()) {
@@ -1304,155 +1300,136 @@ class Lexer {
         return tok;
     }
 
-
     inline priv fn lex_symbol(self, start: SourceLocation) -> Token {
-        var timer = Timer("Lexer::lex_symbol");
-
-        // we get 4 chars max len of 1 u8
         const CHARS: array::<DecodeResult, 4> = self.peek_char32::<4>(1);
         const C1: DecodeResult = CHARS[0];
         const C2: DecodeResult = CHARS[1];
         const C3: DecodeResult = CHARS[2];
         const C4: DecodeResult = CHARS[3];
 
-        var token      = Token();
-        var hash_state = HashState();
-
-        if !self.is_valid_symbol(C1) { // we shouldn't even be in this function
-            self.advance_cursor(C1.len); // consume invalid char
+        if !self.is_valid_symbol(C1) {
+            self.advance_cursor(C1.len);
             return create_unrecognized_token(start);
         }
-
-        /// TODO: if we have a '.' here we need to check if next char is a number
-        ///       if it is then we have a float literal not a symbol so we need
-        ///       call lex_number instead of continuing here and pass the is_dot=true flag
 
         if (C1.chr == '.') && (C2.len == 1) && (C2.chr >= '0') && (C2.chr <= '9') {
             return self.lex_number(start, true);
         }
 
+        var hash_state = HashState();
         hash_state.mix(C1.chr);
-        self.advance_cursor(); // safe to advance without checking len since
-                               // we already know chars only contains 1 u8 size char32's
-
-        if !self.is_valid_symbol(C2) { // 1 char symbol
-            var hash: u64 = hash_state.finalize();
-
-            if !is_valid_token_kind(hash) {
-                return create_error_token(start, static_cast::<TokenKind>(hash));
-            }
-
-            token  = static_cast::<TokenKind>(hash);
-            token  = self.create_source_range(start);
-            self._last_kind = LastTokenKind::Symbol;
-            return token;
-        }
-
-        hash_state.mix(C2.chr);
         self.advance_cursor();
 
-        // we do a quick check here to see if its a OpSlashSlash | OpSlashStar | OpStarSlash
-        switch hash_state.finalize() {
-            case (compute_hash::<r"//">()) { // we have an normal comment that goes till eol
-                /// if it is a comment we need to skip till eol
-                while !self.is_eof() {
-                    var d = self.peek_char32();
-                    if d.chr == 0x0A || d.chr == 0x0D { // \n or \r
-                        token.range.end = self.get_source_location();
-                        break;
-                    }
+        if self.is_valid_symbol(C2) {
+            var hash2 = hash_state.copy();
+            hash2.mix(C2.chr);
+            
+            var h2_final = hash2.finalize();
+            if h2_final == compute_hash::<r"//">() {
+                return self.lex_line_comment(start);
+            }
+            if h2_final == compute_hash::<r"/*">() {
+                return self.lex_block_comment(start);
+            }
+            if h2_final == compute_hash::<r"*/">() {
+                return self.create_error_token(start, TokenKind::AtComment);
+            }
 
-                    self.advance_cursor(d.len);
-                }
-
-                token = TokenKind::AtComment;
-                token = self.create_source_range(start);
-                token = 0;
-                return token;
-            } case (compute_hash::<r"/*">()) { // start of a multiline comment
-                /// we allow nested comments
-                var nest_stack: libcxx::stack::<SourceLocation> = libcxx::stack::<SourceLocation>();
-                nest_stack.push(start);
-                
-                /// scan till we find the end of the comment
-                while !self.is_eof() {
-                    var chars = self.peek_char32::<2>();
-                    if chars[0].len == 1 && chars[1].len == 1 {
-                        if chars[0].chr == '*' && chars[1].chr == '/' {
-                            nest_stack.pop();
-                            if nest_stack.empty() {
-                                token.range.end = self.get_source_location();
-                                self.advance_cursor(2);
-
-                                token = TokenKind::AtComment;
-                                token = self.create_source_range(start);
-                                token = 0;
-                                
-                                return token;
+            if is_valid_token_kind(h2_final) {
+            
+                if self.is_valid_symbol(C3) {
+                    var hash3 = hash2.copy();
+                    hash3.mix(C3.chr);
+                    
+                    if is_valid_token_kind(hash3.finalize()) {
+                    
+                        if self.is_valid_symbol(C4) {
+                            var hash4 = hash3.copy();
+                            hash4.mix(C4.chr);
+                            
+                            if is_valid_token_kind(hash4.finalize()) {
+                            
+                                self.advance_cursor(3);
+                                return self.make_symbol_token(hash4.finalize(), start);
                             }
-
-                            self.advance_cursor(2);
-                            continue;
-                        } else if chars[0].chr == '/' && chars[1].chr == '*' {
-                            nest_stack.push(self.get_source_location());
-                            self.advance_cursor(2);
-                            continue;
                         }
+                    
+                        self.advance_cursor(2);
+                        return self.make_symbol_token(hash3.finalize(), start);
                     }
-
-                    self.advance_cursor(chars[0].len);
                 }
-
-                // if we reach here then we hit eof without closing the comment
-                return self.create_error_token(start, TokenKind::AtComment);
-            } case (compute_hash::<r"*/">()) { // end of a multiline comment
-                /// this is an error
-                return self.create_error_token(start, TokenKind::AtComment);
+            
+                self.advance_cursor(1);
+                return self.make_symbol_token(h2_final, start);
             }
         }
 
-        if !self.is_valid_symbol(C3) { // 2 char symbol
-            var hash: u64 = hash_state.finalize();
-
-            if !is_valid_token_kind(hash) {
-                return create_error_token(start, static_cast::<TokenKind>(hash));
-            }
-
-            token  = static_cast::<TokenKind>(hash);
-            token = self.create_source_range(start);
-            self._last_kind = LastTokenKind::Symbol;
-
-            return token;
+        var hash1 = hash_state.finalize();
+        if is_valid_token_kind(hash1) {
+            return self.make_symbol_token(hash1, start);
         }
 
-        hash_state.mix(C3.chr);
-        self.advance_cursor();
+        return create_error_token(start, static_cast::<TokenKind>(hash1));
+    }
 
-        if !self.is_valid_symbol(C4) { // 3 char symbol
-            var hash: u64 = hash_state.finalize();
-
-            if !is_valid_token_kind(hash) {
-                return create_error_token(start, static_cast::<TokenKind>(hash));
-            }
-
-            token  = static_cast::<TokenKind>(hash);
-            token = self.create_source_range(start);
-            self._last_kind = LastTokenKind::Symbol;
-            return token;
-        }
-
-        hash_state.mix(C4.chr);
-        self.advance_cursor();
-
-        // 4 char symbol
-        var hash: u64 = hash_state.finalize();
-        if !is_valid_token_kind(hash) {
-            return create_error_token(start, static_cast::<TokenKind>(hash));
-        }
-
-        token  = static_cast::<TokenKind>(hash);
+    inline priv fn make_symbol_token(self, hash: u64, start: SourceLocation) -> Token {
+        var token = Token();
+        token = static_cast::<TokenKind>(hash);
         token = self.create_source_range(start);
         self._last_kind = LastTokenKind::Symbol;
+        return token;
+    }
+
+    inline priv fn lex_line_comment(self, start: SourceLocation) -> Token {
+        self.advance_cursor();
+        
+        while !self.is_eof() {
+            var d = self.peek_char32();
+            if d.chr == 0x0A || d.chr == 0x0D {
+                break;
+            }
+            self.advance_cursor(d.len);
+        }
+
+        var token = Token();
+        token = TokenKind::AtComment;
+        token = self.create_source_range(start);
+        token = 0;
+        return token;
+    }
+
+    inline priv fn lex_block_comment(self, start: SourceLocation) -> Token {
+        self.advance_cursor();
+        
+        var nest_depth: i32 = 1;
+        
+        while !self.is_eof() && nest_depth > 0 {
+            var chars = self.peek_char32::<2>();
+            
+            if chars[0].len == 1 && chars[1].len == 1 {
+                if chars[0].chr == '*' && chars[1].chr == '/' {
+                    nest_depth -= 1;
+                    self.advance_cursor(2);
+                    continue;
+                }
+                if chars[0].chr == '/' && chars[1].chr == '*' {
+                    nest_depth += 1;
+                    self.advance_cursor(2);
+                    continue;
+                }
+            }
+            
+            self.advance_cursor(chars[0].len);
+        }
+
+        if nest_depth > 0 {
+            return self.create_error_token(start, TokenKind::AtComment);
+        }
+
+        var token = Token();
+        token = TokenKind::AtComment;
+        token = self.create_source_range(start);
+        token = 0;
         return token;
     }
 
@@ -1464,8 +1441,6 @@ class Lexer {
     ///       strings and escapes/etc.
     ///
     inline priv fn lex_text(self, start: SourceLocation, prefix: Token = Token()) -> Token {
-        var timer = Timer("Lexer::lex_number");
-
         var ctx = self.init_text_ctx(start, prefix);
         if ctx.has_error { return ctx.error_token; }
 
@@ -2069,6 +2044,13 @@ class Lexer {
     static fn get_text(token: Token, sm: *SourceManager) -> string {
         return sm->get_text(token.range);
     }
+
+    fn reset(self) {
+        self._cursor = 0;
+        self._last_kind = LastTokenKind::None;
+        self._imm_tbl.reset();
+        self._tokens.clear();
+    }
 }
 
 fn Test() -> i32 {
@@ -2096,8 +2078,6 @@ fn Test() -> i32 {
     }
 
     __inline_cpp("{");
-        // var timer = Timer("Load Test");
-
         pool = std::create::<ThreadPool>(4);
         vfm  = std::create::<VirtualFileManager>();
         sm   = std::create::<SourceManager>(pool, vfm);
@@ -2110,6 +2090,26 @@ fn Test() -> i32 {
         std::print("Failed to lex test.hlx");
         return 1;
     }
+
+    /// now we time the total mb/s lexed
+    var iterations: i32 = 10000;
+    var file_size = sm->get_file_view(fid).size; // size in bytes
+
+    __inline_cpp("{");
+        var timer = Timer("Lexer Performance Test");
+        for var i: i32 = 0; i < iterations; ++i {
+            lexer.reset();
+            if !lexer.lex(fid) {
+                std::print("Failed to lex test.hlx");
+                continue;
+            }
+        }
+
+        var avg_ns = (timer.elapsed_ns()) / iterations;
+        var bytes_per_ns = (file_size as f64) / (avg_ns as f64);
+        var mb_per_s = (bytes_per_ns * __inline_cpp("1e9")) / __inline_cpp("1e6");
+        std::print(f"Average Lex Time: {avg_ns} ns ({mb_per_s} MB/s)");
+    __inline_cpp("}");
 
     var tokens = lexer.tokens();
     std::print("\n------------------- MAIN TOKENS -------------------\n");
