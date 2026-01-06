@@ -22,65 +22,116 @@
 /// Pipeline
 /// --------
 ///
-///    ┌──────────────┐
-///    │ Token Stream │
-///    └──────┬───────┘
-///          │
-///          ▼
-///   ┌───────────────────────────┐
-///   │ 1. Collect Definitions    │
-///   │    - Walk tokens          │
-///   │    - Track module scope   │
-///   │    - Register macro!(...) │
-///   │    - Store body tokens    │
-///   └───────────────────────────┘
-///              │
-///              ▼
-///   ┌──────────────────────────┐
-///   │ 2. Track Imports         │
-///   │    - Record use decls    │
-///   │    - Map alias → origin  │
-///   │    - No expansion yet    │
-///   └──────────┬───────────────┘
-///              │
-///              ▼
-///   ┌──────────────────────────┐
-///   │ 3. Resolve Invocations   │
-///   │    - Match foo!(...)     │
-///   │    - Lookup in scope     │
-///   │    - Check imports       │
-///   │    - Validate delimiters │
-///   └──────────┬───────────────┘
-///              │
-///              ▼
-///   ┌──────────────────────────┐
-///   │ 4. Expand Tokens         │
-///   │    - Substitute params   │
-///   │    - Paste body tokens   │
-///   │    - Recurse if nested   │
-///   │    - Detect cycles       │
-///   └──────────┬───────────────┘
-///              │
-///              ▼
-///   ┌──────────────────────────┐
-///   │ 5. Return Expanded       │
-///   │    - Modified stream     │
-///   │    - Preserve locations  │
-///   │    - Report errors       │
-///   └──────────────────────────┘
+///    ┌──────────────────┐
+///    │ Token Stream     │
+///    └────────┬─────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 1. Collect Definitions      │
+///   │    - Walk tokens            │
+///   │    - Track module scope     │
+///   │    - Register macro!(...){} │
+///   │    - Register macro!{}      │
+///   │    - Store body tokens      │
+///   └─────────────────────────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 2. Track Imports            │
+///   │    - Record use decls       │
+///   │    - Map alias → origin     │
+///   │    - No expansion yet       │
+///   └─────────────────────────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 3. Resolve Invocations      │
+///   │    - Match ident! or ident!(│
+///   │    - Qualified: exact lookup│
+///   │    - Unqualified: scoped    │
+///   │    - Validate delimiters    │
+///   └─────────────────────────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 4. Expand Tokens            │
+///   │    - Substitute params      │
+///   │    - Handle defaults        │
+///   │    - Handle variadics       │
+///   │    - Paste body tokens      │
+///   │    - Recurse if nested      │
+///   │    - Detect cycles          │
+///   └─────────────────────────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 5. Return Expanded          │
+///   │    - Modified stream        │
+///   │    - Preserve locations     │
+///   │    - Report errors          │
+///   └─────────────────────────────┘
 ///
-/// Scope Rules
-/// -----------
+/// Definition Syntax
+/// -----------------
 ///
-///   - Macros follow lexical scoping (same as functions/types)
-///   - Fully qualified: module::submodule::foo!(args)
-///   - Imported: use module::foo!; foo!(args)
-///   - Local: defined in current scope, no prefix needed
+///   Parameterless (no parens allowed at invoke):
+///     macro foo! { body };
+///     Invoke: foo!
+///
+///   With params (parens required at invoke):
+///     macro foo!(a, b) { body };
+///     Invoke: foo!(x, y)
+///
+///   With defaults:
+///     macro foo!(a, b = "default") { body };
+///     Invoke: foo!(x) or foo!(x, y)
+///
+///   Variadic:
+///     macro foo!(a, ...rest) { body };
+///     Invoke: foo!(x), foo!(x, y, z)
+///
+/// Invocation Syntax
+/// -----------------
+///
+///   Parameterless:
+///     foo!                     → no parens, ever
+///
+///   With params:
+///     foo!(args)               → parens required
+///     Foo::Bar::foo!(args)     → qualified
+///
+///   Rule: parens iff macro accepts params
+///
+/// Resolution Rules
+/// ----------------
+///
+///   Qualified invocation (Foo::Bar::mac!):
+///     1. Resolve module path exactly
+///     2. Lookup macro in that module only
+///     3. ERROR if module not found
+///     4. ERROR if macro not in that module
+///     5. NEVER fall back to other scopes
+///
+///   Unqualified invocation (mac!):
+///     1. Current scope
+///     2. Imports (use Foo::Bar::mac!)
+///     3. Global/prelude
+///     4. ERROR if not found
+///
+/// Expansion Rules
+/// ---------------
+///
+///   - Path is for lookup only, consumed after resolution
+///   - Expansion is pure token substitution
+///   - No path prepending to expanded tokens
+///   - Macro author controls qualification in body
+///   - Use module_path! for self-relative expansion
 ///
 /// Delimiter Rules
 /// ---------------
 ///
-///   - Invocations use parens: foo!(...)
+///   - Invocations with params use parens: foo!(...)
 ///   - Content must have balanced delimiters: (), {}, []
 ///   - Unbalanced delimiters inside invoke = compile error
 ///   - For literal unbalanced content, use strings
@@ -91,24 +142,161 @@
 ///   MacroDefinition:
 ///     - name: identifier
 ///     - scope: module path
-///     - params: list of param names (untyped for regular macros)
-///     - body: raw token span (not parsed)
+///     - params: list of (name, default?, variadic?)
+///     - accepts_params: bool (true if defined with parens)
+///     - body: raw token span
 ///
 ///   MacroTable:
 ///     - definitions: scope path → name → MacroDefinition
 ///     - imports: alias → fully qualified path
 ///
 ///   ExpansionContext:
-///     - call_stack: for cycle detection
+///     - call_stack: for cycle detection (depth limit = 256)
 ///     - param_bindings: name → token span
-///     - source_loc: for error reporting
+///     - variadic_bindings: name → list of token spans
+///     - source_loc: invoke site for error reporting
+///     - definition_loc: definition site for error reporting
+///
+/// Built-in Macros
+/// ---------------
+///
+///   Token manipulation:
+///     concat!(a, b)        - join tokens
+///     stringify!(a)        - token → string
+///     unstringify!(s)      - string → tokens (⚠ injection risk)
+///
+///   Variadic helpers:
+///     count!(...args)      - count arguments
+///     first!(...args)      - first argument
+///     last!(...args)       - last argument
+///     rest!(...args)       - all but first
+///     init!(...args)       - all but last
+///
+///   Source location:
+///     file!                - current file path
+///     line!                - current line number
+///     column!              - current column number
+///     module_path!         - current module path
+///
+///   Diagnostics:
+///     error!(msg)          - compile error (optional code param)
+///     warning!(msg)        - compile warning (optional code param)
+///     note!(msg)           - compile note (optional code param)
+///
+///   Code generation:
+///     include!(path)       - paste file as tokens
+///     include_str!(path)   - file as string literal
+///     embed!(path)         - file as byte array
+///     unique_id!           - generate unique identifier
+///     todo!(msg = "")      - runtime error placeholder
+///     unreachable!(msg="") - assert unreachable
+///
+///   Conditional:
+///     defined!(name)       - check if macro exists
+///
+///   Macro hygiene:
+///     undefine!(name)     - remove macro definition
 ///
 /// Error Cases
 /// -----------
 ///
-///   - Undefined macro
-///   - Wrong param count
-///   - Unbalanced delimiters in invoke
-///   - Recursive expansion cycle
-///   - Ambiguous import (same name from multiple modules)
+///   Definition errors:
+///     - Duplicate macro in same scope
+///     - Invalid parameter syntax
+///     - Variadic not last parameter
+///     - Default after variadic
 ///
+///   Resolution errors:
+///     - Undefined macro
+///     - Module not found (qualified)
+///     - Macro not in specified module (qualified)
+///     - Ambiguous import (same name from multiple modules)
+///
+///   Invocation errors:
+///     - Parens on parameterless macro
+///     - No parens on parameterized macro
+///     - Wrong param count
+///     - Missing required param
+///     - Unbalanced delimiters in args
+///
+///   Expansion errors:
+///     - Recursive expansion cycle (depth > 256)
+///     - Built-in macro misuse
+///
+
+
+/// we start with the basic data structres for macro definitions and the macro table
+
+// import Lexer::Token::*;
+// import Lexer::TokenBuffer::*;
+import Lexer::Immediate::*;
+import Core::Include::SourceManager::*;
+import Lexer::Preprocessor::MacroDefinition::*;
+import Lexer::Preprocessor::MacroParameter::*;
+import Lexer::Preprocessor::MacroTable::*;
+import Lexer::Preprocessor::ModulePath::*;
+import Lexer::TokenSpan::*;
+
+enum ImportKind {
+    FullModule,          // import Foo::Bar
+    AliasedModule,       // import Foo::Bar as Baz
+    SpecificMacros,      // import Foo::Bar::{mac1!, mac2!}
+    AliasedMacros,       // import Foo::Bar::{mac1! as m1}
+    Wildcard,            // import Foo::Bar::*
+    DirectoryModule,     // import module Foo::Bar
+    Library              // import some_lib
+}
+
+struct MacroImport {
+    var name: string;       // original name
+    var alias: string;      // alias (same as name if no alias)
+}
+
+module PreDefinedMacros {
+    
+}
+
+/// ok lets think we have a few types of imports we need to handle here
+/// 1. import Foo::Bar;  // imports module Foo::Bar (as Foo::Bar from Foo/Bar.hlx)
+/// 2. import Foo::Bar as Baz; // imports module Foo::Bar as Baz (alias)
+/// 3. import Foo::Bar::{mac1!, mac2!}; // imports specific macros from module (no aliasing the macros are avlailable in current scope as mac1! and mac2!)
+/// 4. import Foo::Bar::{mac1! as m1, mac2! as m2}; // imports specific macros with aliasing
+/// 5. import Foo::Bar::*; // imports all macros from module Foo (wildcard)
+/// 6. import module Foo::Bar; // imports module Foo::Bar (which means we import Foo/Bar/module.hlx)
+/// 7. lib imports are also there we cant forget those (like import some_lib) (imports some_lib.hlib the custom archive format for helix libraries)
+
+/// scope wise we cant forget that we can go up scopes via `module ::SubModule { ... }`
+
+/*
+a few exmaples of macro definitions:
+
+macro foo! { ... }                     // parameterless
+macro foo!(a, b) { ... }               // with parameters
+macro foo!(a, b = "default") { ... }   // with default parameters
+macro foo!(a, ...rest) { ... }         // with variadic parameters
+*/
+
+class MacroProcessorContext {
+    // context for macro expansion (to handle recursion, parameter bindings, etc)
+    // this is created per expansion and holds the state along with the expansion
+    // along with the call stack to detect cycles and prevent infinite recursion
+}
+
+// ok so we need a fairly nice interface to handle imports specifically for macros
+// we pass lets say the module path weather its a wildcard or if they want specific macros along with aliases
+// this is going to be hard to do properly esp cuz we have a lot of edge cases here and a module system to deal with
+// we avoid module imports here and lib imports for now focusing on basic source imports
+// our call should look like:
+// var proc = ImportProcessor(&sm, fid);
+// proc.build_deps_graph(current_module: ModulePath); // builds a dependency graph to detect cycles
+// var imports: vec::<ModulePath> = proc.resolve_imports(); // returns a list of resolved module paths taking into account aliases and wildcard imports leaving us with a clean list of modules to import macros from
+// var macros: vec::<MacroDefinition> = proc.collect_macros(imports); // collects macros from the resolved imports
+// then we can register those macros into the macro table
+
+class MacroProcessor {
+    
+}
+
+class ImportProcessor {
+    // handles import statements and module path resolution
+}

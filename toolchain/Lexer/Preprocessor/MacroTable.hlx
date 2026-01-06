@@ -1,0 +1,46 @@
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+
+import Lexer::Preprocessor::MacroDefinition::*;
+import Lexer::Preprocessor::ModulePath::*;
+
+class MacroTable {
+    var definitions: map::<string, map::<string, MacroDefinition>>; ///< scope path (as string) -> name -> MacroDefinition
+    var imports:     map::<string, ModulePath>;                     ///< alias -> fully qualified module path
+
+    fn register_definition(self, def: MacroDefinition) -> bool {
+        // a map type is a c++ std::map
+        // a vec type is a c++ std::vector
+
+        var scope_key = (def.scope) as string;
+        var def_name  = def.name;
+
+        if (!(self.definitions.contains(scope_key))) {
+            self.definitions[scope_key] = map::<string, MacroDefinition>{};
+        }
+
+        if (self.definitions[scope_key].contains(def_name)) {
+            std::print(f"[Error] Duplicate macro definition for '{def_name}' in scope '{scope_key}' at {def.definition_loc}\n");
+            return false; // duplicate definition
+        }
+
+        self.definitions[scope_key][def_name] = def;
+        return true;
+    }
+
+    fn module_path_to_string(self, path: ModulePath) -> string {
+        return path as string;
+    }
+}
