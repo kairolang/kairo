@@ -228,6 +228,28 @@ class VirtualFileManager {
     }
 
     ///
+    /// \brief registers a virtual (in-memory) file segment.
+    ///
+    /// \details
+    /// creates a new segment that maps to the provided raw data buffer.
+    /// useful for testing or synthetic source inputs.
+    ///
+    /// \param fake_path logical path to associate with the segment.
+    /// \param data pointer to raw byte data.
+    /// \param size size of the data buffer in bytes.
+    /// \return file id assigned to the new segment.
+    ///
+    fn register_virtual(self, fake_path: Path, data: *const u8, size: usize) -> u32 {
+        var fid = (self._next_fid)++;
+        var seg = std::create::<Segment>(fid, fake_path, 0, size);
+        
+        seg->buffer.attach_raw(const_cast::<*u8>(data), size);
+        self._segments.push_back(seg);
+        
+        return fid;
+    }
+
+    ///
     /// \brief retrieves the mapped buffer for a given file id.
     ///
     /// \return pointer to `MappedFileBuffer`, or `&null` if invalid.

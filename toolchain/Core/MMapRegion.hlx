@@ -60,6 +60,12 @@ class MMapRegion {
     ///
     default fn MMapRegion(self);
 
+    fn MMapRegion(self, data: *u8, size: usize, valid: bool) {
+        self._data  = data;
+        self._size  = size;
+        self._valid = valid;
+    }
+
     ///
     /// \brief destructor; automatically unmaps region if valid.
     ///

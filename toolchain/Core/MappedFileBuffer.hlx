@@ -143,6 +143,22 @@ class MappedFileBuffer {
         self._view = MemoryBuffer(self._region.data(), self._region.size());
         self._owns_region = false;
     }
+
+    ///
+    /// \brief attaches raw memory as the buffer (non-owning).
+    ///
+    /// \param data pointer to raw byte data.
+    /// \param size size of the data in bytes.
+    ///
+    /// \details
+    /// used for wrapping non-mapped memory regions.
+    ///
+    fn attach_raw(self, data: *u8, size: usize) {
+        self.close();
+        self._region      = MMapRegion(data, size, (data != &null));
+        self._view        = MemoryBuffer(data as std::const_ptr::<u8>, size);
+        self._owns_region = false;
+    }
 }
 
 fn Test() -> i32 {
