@@ -38,8 +38,8 @@ import Core::FileSystem::*;
 ///
 
 default class Path {
-    var path_data:  FilePath; ///< underlying filesystem path object.
-    var entry_type: FileType; ///< cached type of the path entry.
+    pub var path_data:  FilePath; ///< underlying filesystem path object.
+    pub var entry_type: FileType; ///< cached type of the path entry.
 
     ///
     /// \brief default constructor (creates empty path).
