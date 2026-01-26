@@ -161,12 +161,44 @@ class SourceManager {
     }
 
     ///
+    /// \brief loads a virtual (in-memory) file into the source space.
+    ///
+    /// \param fake_path logical path to assign to the virtual file.
+    /// \param data pointer to raw byte data.
+    /// \param size size of the data in bytes.
+    ///
+    /// \return file id assigned by VirtualFileManager.
+    ///
+    /// \note The caller is responsible for ensuring the data pointer
+    ///       remains valid for the lifetime of the virtual file.
+    ///
+    fn load_virtual(self, fake_path: Path, data: std::const_ptr::<u8>, size: usize) -> u32 {
+        var fid = _vfile_mgr->register_virtual(fake_path, data, size);
+        
+        _line_table.register_file(fid, size);
+        
+        var buf  = _vfile_mgr->get_buffer(fid);
+        var file = std::create::<SourceFile>(fake_path, buf, self._total_b);
+        
+        self._total_b += file->size_bytes;
+        self._files.push_back(file);
+        
+        self._line_table.build_index(fid, self._vfile_mgr);
+        
+        return fid;
+    }
+
+    ///
     /// \brief resolves line and column for a given SourceLocation.
     ///
     fn get_line_col(self, loc: SourceLocation) -> FullSourceLocation {
         var res     = self.resolve(loc);
         var file_id = res.fid;
         var offset  = res.offset;
+
+        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
+            return FullSourceLocation();
+        }
 
         return self._line_table.get_line_col(
             file_id,
@@ -184,6 +216,56 @@ class SourceManager {
             offset,
             self.get_filename(file_id)
         );
+    }
+
+    fn get_full_line(self, loc: SourceLocation) -> string {
+        var range    = self.get_line_range(loc);
+        return self.get_text(range);
+    }
+
+    __inline_cpp("
+        private:
+        struct LineUtil {
+            template <usize N>
+            static inline constexpr usize line_range_size = N * 2 + 1;
+        };
+        public:
+    ");
+
+    /// gets N lines above and below the given locations line
+    fn <N: usize> get_line_range_context(self, loc: SourceLocation) -> array::<string, LineUtil::line_range_size::<N>> {
+        var full_loc = self.get_line_col(loc);
+        var resolve  = self.resolve(loc);
+        var fid      = resolve.fid;
+        var line     = full_loc.line;
+        var context: array::<string, LineUtil::line_range_size::<N>> = array::<string, LineUtil::line_range_size::<N>>();
+
+        for i in range::<isize>(-static_cast::<isize>(N), static_cast::<isize>(N) + 1) {
+            var curr_line = static_cast::<usize>(static_cast::<isize>(line) + i);
+
+            if curr_line < 1 {
+                context[static_cast::<usize>(i + static_cast::<isize>(N))] = "";
+                continue;
+            }
+
+            /// if the line doesnt exist, return empty string
+            var line_start = self._line_table.get_line_offset(fid, curr_line);
+            var line_end   = self._line_table.get_line_end_offset(fid, curr_line);
+            if line_start == line_end {
+                context[static_cast::<usize>(i + static_cast::<isize>(N))] = "";
+                continue;
+            }
+
+            var line_range = self.get_range(
+                fid,
+                static_cast::<usize>(line_start),
+                static_cast::<usize>(line_end - line_start)
+            );
+
+            context[static_cast::<usize>(i + static_cast::<isize>(N))] = self.get_text(line_range);
+        }
+
+        return context;
     }
 
     ///
@@ -522,6 +604,31 @@ class SourceManager {
         var start_line = self.get_line_col(range.start).line;
         var end_line = self.get_line_col(range.end).line;
         return start_line != end_line;
+    }
+
+    ///
+    /// \brief resets the manager to initial state.
+    ///
+    /// \details
+    /// destroys all loaded files, resets byte counter and line table.
+    /// also resets the underlying VirtualFileManager.
+    /// used for test isolation.
+    ///
+    fn reset(self) {
+        self._line_table.shutdown();
+        
+        for f: *SourceFile in _files {
+            if f != &null {
+                delete f;
+            }
+        }
+        _files.clear();
+        
+        self._total_b = 0;
+        self._vfile_mgr->reset();
+        
+        // reinitialize line table if needed
+        self._line_table.reset();
     }
 }
 

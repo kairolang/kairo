@@ -154,10 +154,12 @@ class MappedFileBuffer {
     /// used for wrapping non-mapped memory regions.
     ///
     fn attach_raw(self, data: *u8, size: usize) {
-        self.close();
-        self._region      = MMapRegion(data, size, (data != &null));
-        self._view        = MemoryBuffer(data as std::const_ptr::<u8>, size);
-        self._owns_region = false;
+        self._region._data  = data;
+        self._region._size  = size;
+        self._region._valid = (data != &null);
+        self._region._owns  = false;
+        self._view          = MemoryBuffer(data as std::const_ptr::<u8>, size);
+        self._owns_region   = false;
     }
 }
 

@@ -51,9 +51,10 @@ ffi "c++" import "Core/Types.hh";
 /// `MappedFileBuffer` and the virtual filesystem.
 ///
 class MMapRegion {
-    var _data: *u8    = &null;  ///< pointer to mapped region.
-    var _size:  usize = 0;      ///< mapped region size (in bytes).
-    var _valid: bool  = false;  ///< indicates mapping success.
+    pub var _data: *u8    = &null;  ///< pointer to mapped region.
+    pub var _size:  usize = 0;      ///< mapped region size (in bytes).
+    pub var _valid: bool  = false;  ///< indicates mapping success.
+    pub var _owns:  bool  = true;        ///< true if region owns the mapping.
 
     ///
     /// \brief default constructor.
@@ -204,7 +205,7 @@ class MMapRegion {
     /// - safe to call multiple times.
     ///
     fn close(self) {
-        if (!_valid) || (self._data == &null) {
+        if (!_valid) || (self._data == &null) || (!self._owns) {
             return;
         }
 

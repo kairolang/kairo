@@ -210,7 +210,7 @@ class VirtualFileManager {
 
         var total     = parent->bytes().size();
         var nseg: u32 = static_cast::<u32>((total + 0x100000000 - 1) / 0x100000000);
-        var base_fid  = _next_fid;
+        var base_fid  = (self._next_fid);
 
         _parents.push_back(parent);
 
@@ -239,14 +239,13 @@ class VirtualFileManager {
     /// \param size size of the data buffer in bytes.
     /// \return file id assigned to the new segment.
     ///
-    fn register_virtual(self, fake_path: Path, data: *const u8, size: usize) -> u32 {
-        var fid = (self._next_fid)++;
-        var seg = std::create::<Segment>(fid, fake_path, 0, size);
+    fn register_virtual(self, fake_path: Path, data: std::const_ptr::<u8>, size: usize) -> u32 {
+        var seg = std::create::<Segment>((self._next_fid)++, Path(fake_path.full_path()), 0, size);
         
         seg->buffer.attach_raw(const_cast::<*u8>(data), size);
         self._segments.push_back(seg);
         
-        return fid;
+        return self._next_fid - 1;
     }
 
     ///
@@ -389,5 +388,30 @@ class VirtualFileManager {
 
         result += ")";
         return result;
+    }
+
+    ///
+    /// \brief resets the manager to initial state.
+    ///
+    /// \details
+    /// destroys all segments and parent buffers, resets fid counter.
+    /// used for test isolation.
+    ///
+    fn reset(self) {
+        for seg: *Segment in _segments {
+            if seg != &null {
+                std::destroy(seg);
+            }
+        }
+        _segments.clear();
+
+        for p: *MappedFileBuffer in _parents {
+            if p != &null {
+                std::destroy(p);
+            }
+        }
+        _parents.clear();
+
+        self._next_fid = 0;
     }
 }

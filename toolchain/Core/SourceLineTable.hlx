@@ -21,6 +21,7 @@ import Core::MemoryBuffer::*;
 import Core::VirtualFileManager::*;
 import Core::FullSourceLocation::*;
 import Core::SourceLocation::*;
+import Core::SourceRange::*;
 
 ///
 /// \file Core/SourceLineTable.hlx
@@ -578,5 +579,37 @@ class SourceLineTable {
         // otherwise return start of next line (which is after the newline)
         // we want the position before the newline
         return (*lines)[line_num] - 1;
+    }
+
+    ///
+    /// \brief resets the table to initial state.
+    ///
+    /// \details
+    /// waits for active builds, destroys all entries, reallocates table.
+    ///
+    fn reset(self) {
+        // wait for any active builds
+        while self._active.load(std::MemoryOrder::acquire) {
+            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
+        }
+        
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if tbl != &null {
+            for f: *FileEntry in *tbl {
+                if f != &null {
+                    var lines = f->lines.load(std::MemoryOrder::relaxed);
+                    if lines != &null { delete lines; }
+                    delete f;
+                }
+            }
+            delete tbl;
+        }
+
+        // reallocate fresh table
+        var new_tbl = std::create::<vec::<*FileEntry>>();
+        new_tbl->reserve(256);
+        
+        self._file_table.store(new_tbl, std::MemoryOrder::release);
+        self._file_count.store(0, std::MemoryOrder::release);
     }
 }
