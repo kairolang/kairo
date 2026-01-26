@@ -37,22 +37,29 @@ class GlobalRecycler {
         }
     }
 
+    static void shutdown_allocator_runtime() {
+        GlobalRecycler::instance().clear();
+    }
+
     std::Byte *pop(size_t min_size) noexcept {
         Node *n = head.load(std::MemoryOrder::acquire);
 
-        while (n != nullptr) {
-            if (n->size >= min_size) {
-                if (head.compare_exchange_weak(n,
-                                               n->next,
-                                               std::MemoryOrder::acq_rel,
-                                               std::MemoryOrder::relaxed)) {
-                    std::Byte *blk = n->block;
-                    std::destroy(n);
+        while (n) {
+            if (head.compare_exchange_weak(
+                    n, n->next,
+                    std::MemoryOrder::acq_rel,
+                    std::MemoryOrder::relaxed)) {
 
-                    return blk;
+                std::Byte *blk = nullptr;
+
+                if (n->size >= min_size) {
+                    blk = n->block;
+                } else {
+                    libcxx::free(n->block);
                 }
-            } else {
-                n = n->next;
+
+                libcxx::free(n);
+                return blk;
             }
         }
         return nullptr;
@@ -62,10 +69,10 @@ class GlobalRecycler {
         Node *n = head.exchange(nullptr, std::MemoryOrder::acq_rel);
 
         while (n != nullptr) {
-            std::destroy(n->block);
-
             Node *next = n->next;
-            std::destroy(n);
+
+            libcxx::free(n->block);
+            libcxx::free(n);
 
             n = next;
         }

@@ -79,6 +79,17 @@ class ArenaAllocator {
 
         self.head = &null;
     }
+
+    fn shutdown(self) {
+        var b = self.head;
+        while (b != &null) {
+            var next = b->next;
+            b->destory();
+            libcxx::free(b);
+            b = next;
+        }
+        self.head = &null;
+    }
     
     struct Profile {
         var alloc_calls:     usize;

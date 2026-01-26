@@ -42,6 +42,11 @@ struct alignas(64) ArenaBlock {
         return p;
     }
 
+    void destory() {
+        libcxx::free(ptr);
+        ptr = nullptr;
+    }
+
     void reset() noexcept {
         offset = 0;
 #if _simd_available()
