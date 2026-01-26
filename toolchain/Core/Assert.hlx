@@ -1,0 +1,124 @@
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+
+class Assert {
+    var passes: usize = 0;
+    var fails:  usize = 0;
+    var overhead_ns: i64;
+    var name: string;
+
+    /// we can count the number of tests run by checking passes + fails
+    fn Assert(self, n: string) {
+        self.name = n;
+        self.overhead_ns = self.measure_timer_overhead();
+    }
+
+    // (libcxx::wcout) << f"  \033[90m({(self.passes) + (self.fails) + 1}) ●\033[0m {m}".raw_string() << (libcxx::endl);
+
+    fn summary(self) {
+        var total = (self.passes) + (self.fails);
+        (libcxx::wcout) << f"\n=== Test Summary: {self.name} ===\n".raw_string();
+        (libcxx::wcout) << f"  Passed: \033[32m{self.passes}\033[0m\n".raw_string();
+        (libcxx::wcout) << f"  Failed: \033[31m{self.fails}\033[0m\n".raw_string();
+        (libcxx::wcout) << f"  Total:  {total}\n".raw_string();
+    }
+
+    priv fn test_success(self, m: string, time: string) {
+        ++(self.passes);
+        (libcxx::wcout) << f"\033[32m({(self.passes) + (self.fails)}) [PASS]\033[0m {m} \033[90m({time})\033[0m\n".raw_string();
+    }
+
+    priv fn <T> test_failure(self, m: string, e: T, v: T, time: string) {
+        ++(self.fails);
+        (libcxx::wcout) << f"\033[31m({(self.passes) + (self.fails)}) [FAIL]\033[0m {m} \033[90m({time})\033[0m\n".raw_string();
+        (libcxx::wcout) << f"    \033[90m|>>>\033[0m expected: \033[33m{e}\033[0m\n".raw_string();
+        (libcxx::wcout) << f"    \033[90m|>>>\033[0m actual:   \033[31m{v}\033[0m\n".raw_string();
+    }
+
+    fn measure_timer_overhead(self) -> i64 {
+        const var iterations = 1000;
+        var total = libcxx::chrono::nanoseconds(0);
+        __inline_cpp("volatile i64 dummy = 0");
+
+        for (var i = 0; i < iterations; ++i) {
+            const var s = libcxx::chrono::steady_clock::now();
+            dummy = s.time_since_epoch().count();  // force materialization
+            const var e = libcxx::chrono::steady_clock::now();
+            total += libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(e - s);
+        }
+
+        return total.count() / iterations;
+    }
+
+    priv fn <T> time_and_run(self, c: fn () -> T, iters: usize) -> (T, string) {
+        const var start = libcxx::chrono::steady_clock::now();
+        
+        var v: T;
+        for var i: usize = 0; i < iters; ++i {
+            v = c();
+        }
+
+        const var end =   libcxx::chrono::steady_clock::now();
+        const var dur =   libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(end - start);
+        
+        const var ns  = (((dur.count())) / iters) - (self.overhead_ns);
+        const var us  = (static_cast::<f64>(ns)) / (1000.0);
+        const var ms  = (static_cast::<f64>(ns)) / (1000000.0);
+        const var s   = (static_cast::<f64>(ns)) / (1000000000.0);
+
+        if us < 10.0 {
+            return (v, f"{ns}ns" + ((f" on avg over {iters} iters") if (iters > 1) else ("")));
+        } if ms < 10.0 {
+            return (v, f"{us}us" + ((f" on avg over {iters} iters") if (iters > 1) else ("")));
+        } if s < 10.0 {
+            return (v, f"{ms}ms" + ((f" on avg over {iters} iters") if (iters > 1) else ("")));
+        }
+
+        return (v, f"{s}s" + ((f" on avg over {iters} iters") if (iters > 1) else ("")));
+    }
+
+    fn <T> equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
+        var res      = self.time_and_run::<T>(c, iters);
+        var v        = libcxx::get::<0>(res);
+        var time_str = libcxx::get::<1>(res);
+
+        if e == v {
+            self.test_success(m, time_str);
+        } else {
+            self.test_failure(m, e, v, time_str);
+        }
+    }
+
+    fn <T> not_equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
+        var res      = self.time_and_run::<T>(c, iters);
+        var v        = libcxx::get::<0>(res);
+        var time_str = libcxx::get::<1>(res);
+
+        if e != v {
+            self.test_success(m, time_str);
+        } else {
+            self.test_failure(m, e, v, time_str);
+        }
+    }
+
+    fn op delete (self) {
+        self.summary();
+    }
+
+    fn reset(self) {
+        self.passes = 0;
+        self.fails  = 0;
+    }
+}
