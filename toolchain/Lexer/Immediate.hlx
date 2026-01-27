@@ -20,39 +20,499 @@ import Lexer::TokenBuffer::*;
 /// TODO: change suffixes to Tokens itself rather then SourceRange since we
 ///       don't want to reparse and a Token is smaller (32 bytes vs 64 bytes)
 
-class BigInt {
-    pub var sign:     i8;          // +1 or -1
-    pub var limbs:   *u64;         // pointer to limb array
-    pub var count:    usize;       // number of active limbs
-    pub var capacity: usize;       // allocated limbs
-    pub var bits:     usize;       // requested bit precision (128, 256, 512, ...)
+/// \brief portable 128-bit arithmetic operations
+/// \details uses compiler intrinsics where available, falls back to manual implementation
+module Int128 {
+    /// \brief multiplies a 64-bit value by a factor and adds addend
+    /// \param val 64-bit value (in/out)
+    /// \param factor 64-bit multiplier
+    /// \param addend 64-bit value to add
+    /// \param hi receives the high 64 bits if overflow
+    /// \returns true if result overflows 64 bits
+    inline static fn mul_add_64(val: ref!(u64), factor: u64, addend: u64, hi: ref!(u64)) -> bool {
+        const eval if defined(_MSC_VER) {
+            var result_hi: u64;
+            var result_lo: u64;
+            var carry: u8;
+
+            __inline_cpp("
+                result_lo = _umul128(val, factor, &result_hi);
+                carry = _addcarry_u64(0, result_lo, addend, &result_lo);
+                _addcarry_u64(carry, result_hi, 0, &result_hi);
+            ");
+
+            val = result_lo;
+            hi = result_hi;
+            return result_hi != 0;
+
+        } else if defined(__SIZEOF_INT128__) {
+            var result_lo: u64;
+            var result_hi: u64;
+
+            __inline_cpp("
+                unsigned __int128 prod = (unsigned __int128)val * factor + addend;
+                result_lo = (uint64_t)prod;
+                result_hi = (uint64_t)(prod >> 64);
+            ");
+
+            val = result_lo;
+            hi = result_hi;
+            return result_hi != 0;
+
+        } else {
+            // manual 32-bit multiplication fallback
+            var a0: u64 = val & 0xFFFFFFFF;
+            var a1: u64 = val >> 32;
+            var b0: u64 = factor & 0xFFFFFFFF;
+            var b1: u64 = factor >> 32;
+
+            var p00: u64 = a0 * b0;
+            var p01: u64 = a0 * b1;
+            var p10: u64 = a1 * b0;
+            var p11: u64 = a1 * b1;
+
+            var r0: u64 = p00 & 0xFFFFFFFF;
+            var c:  u64 = p00 >> 32;
+
+            c += (p01 & 0xFFFFFFFF) + (p10 & 0xFFFFFFFF);
+            var r1: u64 = c & 0xFFFFFFFF;
+            c >>= 32;
+
+            c += (p01 >> 32) + (p10 >> 32) + (p11 & 0xFFFFFFFF);
+            var r2: u64 = c & 0xFFFFFFFF;
+            c >>= 32;
+
+            c += (p11 >> 32);
+            var r3: u64 = c;
+
+            var new_lo: u64 = r0 | (r1 << 32);
+            var new_hi: u64 = r2 | (r3 << 32);
+
+            // add addend
+            new_lo += addend;
+            if new_lo < addend {
+                new_hi += 1;
+            }
+
+            val = new_lo;
+            hi = new_hi;
+            return new_hi != 0;
+        }
+    }
+
+    /// \brief multiplies a 128-bit value by a 64-bit factor and adds a 64-bit addend
+    /// \param lo lower 64 bits (in/out)
+    /// \param hi upper 64 bits (in/out)
+    /// \param factor 64-bit multiplier
+    /// \param addend 64-bit value to add
+    /// \returns true if result overflows 128 bits
+    inline static fn mul_add_128(lo: ref!(u64), hi: ref!(u64), factor: u64, addend: u64) -> bool {
+        const eval if defined(_MSC_VER) {
+            var mul_lo: u64;
+            var mul_hi: u64;
+            var carry: u8;
+
+            // step 1: multiply lo * factor -> 128-bit result
+            __inline_cpp("
+                mul_lo = _umul128(lo, factor, &mul_hi);
+            ");
+
+            // step 2: add addend to mul_lo, propagate carry
+            __inline_cpp("
+                carry = _addcarry_u64(0, mul_lo, addend, &mul_lo);
+            ");
+
+            // step 3: propagate carry to mul_hi
+            __inline_cpp("
+                carry = _addcarry_u64(carry, mul_hi, 0, &mul_hi);
+            ");
+
+            // step 4: multiply hi * factor
+            var hi_mul_lo: u64;
+            var hi_mul_hi: u64;
+
+            __inline_cpp("
+                hi_mul_lo = _umul128(hi, factor, &hi_mul_hi);
+            ");
+
+            // step 5: add hi_mul_lo to mul_hi, check overflow
+            var overflow: bool;
+            __inline_cpp("
+                carry = _addcarry_u64(0, mul_hi, hi_mul_lo, &mul_hi);
+                overflow = (carry != 0) || (hi_mul_hi != 0);
+            ");
+
+            lo = mul_lo;
+            hi = mul_hi;
+            return overflow;
+
+        } else if defined(__SIZEOF_INT128__) {
+            var result_lo: u64;
+            var result_hi: u64;
+            var overflow: bool;
+
+            __inline_cpp("
+                unsigned __int128 val = ((unsigned __int128)hi << 64) | lo;
+                unsigned __int128 factor_128 = (unsigned __int128)factor;
+                
+                // check for overflow before multiply
+                unsigned __int128 max_safe = ~(unsigned __int128)0 / factor_128;
+                overflow = (val > max_safe);
+                
+                unsigned __int128 prod = val * factor_128 + (unsigned __int128)addend;
+                result_lo = (uint64_t)prod;
+                result_hi = (uint64_t)(prod >> 64);
+            ");
+
+            lo = result_lo;
+            hi = result_hi;
+            return overflow;
+
+        } else {
+            // manual fallback: split into 32-bit chunks
+            // 128-bit value as (a3:a2:a1:a0) where each is 32-bit
+            var a0: u64 = lo & 0xFFFFFFFF;
+            var a1: u64 = lo >> 32;
+            var a2: u64 = hi & 0xFFFFFFFF;
+            var a3: u64 = hi >> 32;
+
+            var b0: u64 = factor & 0xFFFFFFFF;
+            var b1: u64 = factor >> 32;
+
+            // partial products for lower 128 bits
+            var p00: u64 = a0 * b0;
+            var p01: u64 = a0 * b1;
+            var p10: u64 = a1 * b0;
+            var p11: u64 = a1 * b1;
+            var p20: u64 = a2 * b0;
+            var p21: u64 = a2 * b1;
+            var p30: u64 = a3 * b0;
+            var p31: u64 = a3 * b1; // overflow indicator
+
+            // accumulate
+            var r0: u64 = p00 & 0xFFFFFFFF;
+            var c:  u64 = p00 >> 32;
+
+            c += (p01 & 0xFFFFFFFF) + (p10 & 0xFFFFFFFF);
+            var r1: u64 = c & 0xFFFFFFFF;
+            c >>= 32;
+
+            c += (p01 >> 32) + (p10 >> 32) + (p11 & 0xFFFFFFFF) + (p20 & 0xFFFFFFFF);
+            var r2: u64 = c & 0xFFFFFFFF;
+            c >>= 32;
+
+            c += (p11 >> 32) + (p20 >> 32) + (p21 & 0xFFFFFFFF) + (p30 & 0xFFFFFFFF);
+            var r3: u64 = c & 0xFFFFFFFF;
+            c >>= 32;
+
+            // overflow detection
+            var ov: u64 = c + (p21 >> 32) + (p30 >> 32) + p31;
+
+            // combine results
+            var new_lo: u64 = r0 | (r1 << 32);
+            var new_hi: u64 = r2 | (r3 << 32);
+
+            // add addend
+            var add_carry: u64 = 0;
+            new_lo += addend;
+            if new_lo < addend {
+                add_carry = 1;
+            }
+            new_hi += add_carry;
+            if new_hi < add_carry {
+                ov += 1;
+            }
+
+            lo = new_lo;
+            hi = new_hi;
+            return ov != 0;
+        }
+    }
+
+    /// \brief multiplies a single 64-bit limb by factor and adds carry
+    /// \param limb the limb value (in/out)
+    /// \param factor 64-bit multiplier
+    /// \param carry carry-in value, updated to carry-out
+    inline static fn mul_limb(limb: ref!(u64), factor: u64, carry: ref!(u64)) {
+        const eval if defined(_MSC_VER) {
+            var prod_hi: u64;
+            var prod_lo: u64;
+
+            __inline_cpp("
+                prod_lo = _umul128(limb, factor, &prod_hi);
+                unsigned char c = _addcarry_u64(0, prod_lo, carry, &prod_lo);
+                _addcarry_u64(c, prod_hi, 0, &prod_hi);
+            ");
+
+            limb = prod_lo;
+            carry = prod_hi;
+
+        } else if defined(__SIZEOF_INT128__) {
+            var new_limb: u64;
+            var new_carry: u64;
+
+            __inline_cpp("
+                unsigned __int128 prod = (unsigned __int128)limb * factor + carry;
+                new_limb = (uint64_t)prod;
+                new_carry = (uint64_t)(prod >> 64);
+            ");
+
+            limb = new_limb;
+            carry = new_carry;
+
+        } else {
+            // manual multiplication
+            var a0: u64 = limb & 0xFFFFFFFF;
+            var a1: u64 = limb >> 32;
+            var b0: u64 = factor & 0xFFFFFFFF;
+            var b1: u64 = factor >> 32;
+
+            var p00: u64 = a0 * b0;
+            var p01: u64 = a0 * b1;
+            var p10: u64 = a1 * b0;
+            var p11: u64 = a1 * b1;
+
+            var r0: u64 = p00 & 0xFFFFFFFF;
+            var c:  u64 = p00 >> 32;
+
+            c += (p01 & 0xFFFFFFFF) + (p10 & 0xFFFFFFFF);
+            var r1: u64 = c & 0xFFFFFFFF;
+            c >>= 32;
+
+            c += (p01 >> 32) + (p10 >> 32) + (p11 & 0xFFFFFFFF);
+            var r2: u64 = c & 0xFFFFFFFF;
+            c >>= 32;
+
+            c += (p11 >> 32);
+            var r3: u64 = c;
+
+            var lo: u64 = r0 | (r1 << 32);
+            var hi: u64 = r2 | (r3 << 32);
+
+            // add carry
+            lo += carry;
+            if lo < carry {
+                hi += 1;
+            }
+
+            limb = lo;
+            carry = hi;
+        }
+    }
 }
 
-struct BigFloat {
-    pub var sign:      i8;         // +1 or -1
-    pub var mantissa:  *BigInt;    // arbitrary precision significand
-    pub var exponent:  i64;        // unbiased exponent (base 2 scale)
-    pub var precision: usize;      // target bit precision for final rounding
-    pub var is_hex:    bool;       // hex float?
-};
+/// \brief arbitrary precision integer for literals exceeding 128 bits
+/// \details uses a limb array with least-significant limb first (little-endian)
+class BigInt {
+    pub var sign:  i8;
+    pub var limbs: libcxx::deque::<u64>;
+    pub var bits:  usize;
+
+    fn BigInt(self) {
+        self.sign = 1;
+        self.bits = 0;
+    }
+
+    fn BigInt(self, initial_bits: usize) {
+        self.sign = 1;
+        self.bits = initial_bits;
+        var num_limbs = (initial_bits + 63) / 64;
+        for var i: usize = 0; i < num_limbs; ++i {
+            self.limbs.push_back(0);
+        }
+    }
+
+    /// \brief multiplies the entire BigInt by a small factor and adds a value
+    /// \param factor multiplier (typically the base: 2, 8, 10, 16)
+    /// \param addend value to add after multiplication
+    fn mul_add(self, factor: u64, addend: u64) {
+        var carry: u64 = addend;
+
+        for var i: usize = 0; i < self.limbs.size(); ++i {
+            Int128::mul_limb(self.limbs[i], factor, carry);
+        }
+
+        // extend if carry overflows
+        while carry != 0 {
+            self.limbs.push_back(carry);
+            carry = 0;
+        }
+    }
+
+    /// \brief returns the minimum number of bits needed to represent this value
+    fn bit_width(self) -> usize {
+        if self.limbs.empty() {
+            return 0;
+        }
+
+        var top_idx = self.limbs.size() - 1;
+        while top_idx > 0 && self.limbs[top_idx] == 0 {
+            --top_idx;
+        }
+
+        if self.limbs[top_idx] == 0 {
+            return 0;
+        }
+
+        var top_bits: usize = 64 - static_cast::<usize>(libcxx::countl_zero(self.limbs[top_idx]));
+        return top_idx * 64 + top_bits;
+    }
+
+    /// \brief extracts lower 64 bits
+    fn lo64(self) -> u64 {
+        if self.limbs.empty() { return 0; }
+        return self.limbs[0];
+    }
+
+    /// \brief extracts bits 64-127
+    fn hi64(self) -> u64 {
+        if self.limbs.size() < 2 { return 0; }
+        return self.limbs[1];
+    }
+
+    /// \brief checks if value fits in 128 bits
+    fn fits_in_128(self) -> bool {
+        return self.bit_width() <= 128;
+    }
+
+    /// \brief resets to zero
+    fn reset(self) {
+        for var i: usize = 0; i < self.limbs.size(); ++i {
+            self.limbs[i] = 0;
+        }
+    }
+}
+
+/// \brief arbitrary precision float for literals exceeding native precision
+/// \details stores mantissa as BigInt with separate exponent
+class BigFloat {
+    pub var sign:      i8;
+    pub var mantissa:  BigInt;
+    pub var exponent:  i64;
+    pub var precision: usize;
+    pub var is_hex:    bool;
+
+    fn BigFloat(self) {
+        self.sign      = 1;
+        self.exponent  = 0;
+        self.precision = 64;
+        self.is_hex    = false;
+    }
+}
 
 module Immediate {
+    static var DIGIT_TABLE: array::<u8, 128> = __inline_cpp("{
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0-7
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 8-15
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 16-23
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 24-31
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 32-39
+        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 40-47
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // 48-55 ('0'-'7')
+        0x08, 0x09, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 56-63 ('8'-'9')
+        0xFF, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, // 64-71 ('@', 'A'-'G')
+        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, // 72-79 ('H'-'O')
+        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, // 80-87 ('P'-'W')
+        0x21, 0x22, 0x23, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 88-95 ('X'-'Z', '['-'_')
+        0xFF, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, // 96-103 ('`', 'a'-'g')
+        0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, // 104-111 ('h'-'o')
+        0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, // 112-119 ('p'-'w')
+        0x21, 0x22, 0x23, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF  // 120-127 ('x'-'z', '{'-DEL)
+    }");
+
+    /// \brief fast digit lookup with base validation
+    /// \param c character to look up
+    /// \param base numeric base (2, 8, 10, 16)
+    /// \returns digit value or 0xFF if invalid
+    inline static fn get_digit_value(c: char, base: u8) -> u8 {
+        if c >= 128 { return 0xFF; }
+        var val = DIGIT_TABLE[static_cast::<usize>(c)];
+        if val >= base { return 0xFF; }
+        return val;
+    }
+
+    /// \brief determines bit width and signedness from integer suffix
+    /// \param suffix the suffix text (e.g., "u64", "i32")
+    /// \param is_unsigned output: set to true if unsigned suffix
+    /// \returns bit width, or 0 if no valid suffix
+    static fn parse_int_suffix(suffix: string, is_unsigned: ref!(bool)) -> u16 {
+        var len = suffix.length();
+        if len == 0 { return 0; }
+
+        var data = suffix.raw();
+        var idx: usize = 0;
+
+        is_unsigned = false;
+
+        // check for u/i prefix
+        if data[0] == 'u' || data[0] == 'U' {
+            is_unsigned = true;
+            idx = 1;
+        } else if data[0] == 'i' || data[0] == 'I' {
+            is_unsigned = false;
+            idx = 1;
+        } else {
+            return 0;
+        }
+
+        if idx >= len { return 0; }
+
+        // parse the number part
+        var bits: u64 = 0;
+        while idx < len {
+            var c = data[idx];
+            if c < '0' || c > '9' { return 0; }
+            bits = bits * 10 + static_cast::<u64>(c - '0');
+            if bits > 65535 { return 0; }
+            ++idx;
+        }
+
+        return static_cast::<u16>(bits);
+    }
+
+    /// \brief determines bit width from float suffix
+    /// \param suffix the suffix text (e.g., "f32", "f64", "f128")
+    /// \returns bit width, or 0 if no valid suffix
+    static fn parse_float_suffix(suffix: string) -> u32 {
+        var len = suffix.length();
+        if len == 0 { return 0; }
+
+        var data = suffix.raw();
+
+        // must start with 'f' or 'F'
+        if data[0] != 'f' && data[0] != 'F' { return 0; }
+        if len == 1 { return 0; }
+
+        // parse the number part
+        var bits: u64 = 0;
+        for var idx: usize = 1; idx < len; ++idx {
+            var c = data[idx];
+            if c < '0' || c > '9' { return 0; }
+            bits = bits * 10 + static_cast::<u64>(c - '0');
+            if bits > 0xFFFFFFFF { return 0; }
+        }
+
+        return static_cast::<u32>(bits);
+    }
+
     class IntData {
-        pub var body:       SourceRange;  // literal range excluding prefix & suffix, only digits+underscores
-        pub var prefix:     SourceRange;  // prefix only (0x, 0b, 0o, 0)
-        pub var suffix:     SourceRange;  // suffix only (u64, i32, etc)
+        pub var body:     SourceRange;
+        pub var prefix:   SourceRange;
+        pub var suffix:   SourceRange;
 
-        pub var value_lo:   u64;          // parsed lower 64 bits
-        pub var value_hi:   u64;          // parsed upper 64 bits (supports up to 128-bit)
-        pub var big:        *BigInt = &null; // optional pointer for >128-bit cases
+        pub var value_lo: u64;
+        pub var value_hi: u64;
+        pub var big:      *BigInt = &null;
 
-        pub var bits:       u16;          // 8,16,32,64,128,256,512...
-        pub var base:       u8;           // 2, 8, 10, 16
-        pub var flags:      u8;           // bit 0: unsigned
-                                          // bit 1: negative
-                                          // bit 2: is_big (value >128-bit)
-                                          // bit 3: has_suffix
-                                          // bit 4: has_prefix
+        pub var bits:     u16;
+        pub var base:     u8;
+        pub var flags:    u8;
+        // flags layout:
+        //   bit 0: unsigned
+        //   bit 1: negative
+        //   bit 2: is_big (value >128-bit)
+        //   bit 3: has_suffix
+        //   bit 4: has_prefix
 
         priv var _evaluation_status_cb: fn (bool);
 
@@ -60,14 +520,163 @@ module Immediate {
             self.value_lo = 0;
             self.value_hi = 0;
             self.bits     = 0;
+            self.base     = 10;
+            self.flags    = 0;
             self._evaluation_status_cb = parsing_status_cb;
         }
 
-        fn evaluate(self) {
+        fn evaluate(self, sm: *SourceManager) {
             self._evaluation_status_cb(true);
-            
-            // ... parsing happens ...
-            
+
+            // reset values
+            self.value_lo = 0;
+            self.value_hi = 0;
+
+            if self.big != &null {
+                std::destroy(self.big);
+                self.big = &null;
+            }
+
+            // clear is_big flag, preserve others
+            self.flags &= ~(0b00000100 as u8);
+
+            var body_text = sm->get_text(self.body);
+            var body_len  = body_text.length();
+
+            if body_len == 0 {
+                self._evaluation_status_cb(false);
+                return;
+            }
+
+            var data     = body_text.raw();
+            var base_u64 = static_cast::<u64>(self.base);
+
+            // phase 1: try to fit in 64 bits
+            var overflow_hi: u64 = 0;
+            var overflowed: bool = false;
+            var idx: usize = 0;
+
+            while idx < body_len {
+                var c = data[idx];
+                ++idx;
+
+                // skip underscores
+                if c == '_' { continue; }
+
+                var digit = get_digit_value(c, self.base);
+                if digit == 0xFF { continue; }
+
+                if Int128::mul_add_64(self.value_lo, base_u64, static_cast::<u64>(digit), overflow_hi) {
+                    overflowed = true;
+                    break;
+                }
+            }
+
+            if !overflowed {
+                // fits in 64 bits
+                self.value_hi = 0;
+            } else {
+                // phase 2: try to fit in 128 bits
+                self.value_lo = 0;
+                self.value_hi = 0;
+
+                var in_128: bool = true;
+                idx = 0;
+
+                while idx < body_len {
+                    var c = data[idx];
+                    ++idx;
+
+                    if c == '_' { continue; }
+
+                    var digit = get_digit_value(c, self.base);
+                    if digit == 0xFF { continue; }
+
+                    if Int128::mul_add_128(self.value_lo, self.value_hi, base_u64, static_cast::<u64>(digit)) {
+                        in_128 = false;
+                        break;
+                    }
+                }
+
+                if !in_128 {
+                    // phase 3: use BigInt
+                    self.flags |= 0b00000100; // set is_big flag
+
+                    self.big = std::create::<BigInt>(256);
+                    idx = 0;
+
+                    while idx < body_len {
+                        var c = data[idx];
+                        ++idx;
+
+                        if c == '_' { continue; }
+
+                        var digit = get_digit_value(c, self.base);
+                        if digit == 0xFF { continue; }
+
+                        self.big->mul_add(base_u64, static_cast::<u64>(digit));
+                    }
+
+                    // copy lo/hi from BigInt for convenience
+                    self.value_lo = self.big->lo64();
+                    self.value_hi = self.big->hi64();
+                }
+            }
+
+            // parse suffix to determine bit width and signedness
+            if (self.flags & 0b00001000) != 0 { // has_suffix
+                var suffix_text = sm->get_text(self.suffix);
+                var is_unsigned: bool = false;
+                var suffix_bits = parse_int_suffix(suffix_text, is_unsigned);
+
+                if suffix_bits > 0 {
+                    self.bits = suffix_bits;
+                    if is_unsigned {
+                        self.flags |= 0b00000001; // set unsigned flag
+                    } else {
+                        self.flags &= ~(0b00000001 as u8); // clear unsigned flag
+                    }
+                }
+            }
+
+            // infer minimum bit width if no suffix
+            if self.bits == 0 {
+                if self.big != &null {
+                    var actual_bits = self.big->bit_width();
+                    // round up to next power of 2
+                    if actual_bits <= 128 {
+                        self.bits = 128;
+                    } else if actual_bits <= 256 {
+                        self.bits = 256;
+                    } else if actual_bits <= 512 {
+                        self.bits = 512;
+                    } else if actual_bits <= 1024 {
+                        self.bits = 1024;
+                    } else {
+                        self.bits = static_cast::<u16>((actual_bits + 63) & ~63);
+                    }
+                } else if self.value_hi != 0 {
+                    self.bits = 128;
+                } else {
+                    // calculate actual bit width needed for value_lo
+                    if self.value_lo == 0 {
+                        self.bits = 8;
+                    } else {
+                        var bit_width: usize = 64 - static_cast::<usize>(libcxx::countl_zero(self.value_lo));
+                        
+                        if bit_width <= 8 {
+                            self.bits = 8;
+                        } else if bit_width <= 16 {
+                            self.bits = 16;
+                        } else if bit_width <= 32 {
+                            self.bits = 32;
+                        } else {
+                            self.bits = 64;
+                        }
+                    }
+                }
+            }
+
             self._evaluation_status_cb(false);
         }
 
@@ -76,40 +685,418 @@ module Immediate {
             var prefix_str = sm->get_text(self.prefix);
             var suffix_str = sm->get_text(self.suffix);
 
-            return f"IntData(base={(self.base) as u64}, body='{body_str}', prefix='{prefix_str}', suffix='{suffix_str}', flags=0x{to_hex_string(self.flags)}, bits={self.bits}, value_lo=0x{to_hex_string((self.value_lo) as u64)}, value_hi=0x{to_hex_string((self.value_hi) as u64)})\n";
+            return f"IntData(base={(self.base) as u64}, body='{body_str}', prefix='{prefix_str}', suffix='{suffix_str}', flags=0x{to_hex_string(self.flags)}, bits={self.bits}, value_lo=0x{to_hex_string(self.value_lo)}, value_hi=0x{to_hex_string(self.value_hi)})\n";
+        }
+
+        fn op delete (self) {
+            if self.big != &null {
+                std::destroy(self.big);
+                self.big = &null;
+            }
         }
     }
 
     class FloatData {
-        pub var body:    SourceRange;  // literal range excluding prefix & suffix, only digits+underscores+dot+exponent
-        pub var prefix:  SourceRange;  // 0x for hex floats
-        pub var suffix:  SourceRange;  // f32/f64/f128/f256/... or empty
+        pub var body:   SourceRange;
+        pub var prefix: SourceRange;
+        pub var suffix: SourceRange;
 
-        pub var bits:    u32;   // target bit width, 16/32/64/80/128/256/512/...
-        pub var base:    u8;    // 10 or 16
-        pub var flags:   u8;    // bit0: has_exponent
-                                // bit1: negative
-                                // bit2: is_hex_float - if 0x prefix present
-                                // bit3: use_bigfloat
-                                // bit4: has_suffix
+        pub var bits:   u32;
+        pub var base:   u8;
+        pub var flags:  u8;
+        // flags layout:
+        //   bit 0: has_exponent
+        //   bit 1: negative
+        //   bit 2: is_hex_float
+        //   bit 3: use_bigfloat
+        //   bit 4: has_suffix
 
-        pub var value_ieee: f80 = 0.0;   // used when ≤ 80 bits and no overflow
-        pub var big_float: *BigFloat = &null; // used for arbitrary precision
+        pub var value_ieee: f80 = 0.0;
+        pub var big_float:  *BigFloat = &null;
 
         priv var _evaluation_status_cb: fn (bool);
 
         fn FloatData(self, parsing_status_cb: fn (bool)) {
-            self.bits = 0;
-            self.base = 10;
+            self.bits  = 0;
+            self.base  = 10;
+            self.flags = 0;
             self._evaluation_status_cb = parsing_status_cb;
         }
 
-        fn evaluate(self) {
+        fn evaluate(self, sm: *SourceManager) {
             self._evaluation_status_cb(true);
-            
-            // ... parsing happens ...
-            
+
+            self.value_ieee = 0.0;
+
+            if self.big_float != &null {
+                std::destroy(self.big_float);
+                self.big_float = &null;
+            }
+
+            // clear use_bigfloat flag, preserve others
+            self.flags &= ~(0b00001000 as u8);
+
+            var body_text = sm->get_text(self.body);
+            var body_len  = body_text.length();
+
+            if body_len == 0 {
+                self._evaluation_status_cb(false);
+                return;
+            }
+
+            var data   = body_text.raw();
+            var is_hex = (self.flags & 0b00000100) != 0;
+
+            // parsing state
+            var integer_part:     u64  = 0;
+            var frac_numerator:   u64  = 0;
+            var frac_digits:      i32  = 0;
+            var exp_value:        i64  = 0;
+            var exp_negative:     bool = false;
+            var has_integer:      bool = false;
+            var has_fraction:     bool = false;
+            var integer_overflow: bool = false;
+            var frac_overflow:    bool = false;
+
+            var idx: usize = 0;
+            var base_u64 = static_cast::<u64>(self.base);
+
+            // parse integer part
+            while idx < body_len {
+                var c = data[idx];
+
+                if c == '_' {
+                    ++idx;
+                    continue;
+                }
+
+                if c == '.' {
+                    ++idx;
+                    break;
+                }
+
+                // check for exponent start
+                if is_hex {
+                    if c == 'p' || c == 'P' { break; }
+                } else {
+                    if c == 'e' || c == 'E' { break; }
+                }
+
+                var digit = get_digit_value(c, self.base);
+                if digit == 0xFF { break; }
+
+                has_integer = true;
+
+                if !integer_overflow {
+                    var old = integer_part;
+                    integer_part = integer_part * base_u64 + static_cast::<u64>(digit);
+                    if integer_part < old {
+                        integer_overflow = true;
+                    }
+                }
+
+                ++idx;
+            }
+
+            // check if we just consumed a dot
+            var consumed_dot = (idx > 0) && (data[idx - 1] == '.');
+
+            // parse fractional part
+            if consumed_dot {
+                while idx < body_len {
+                    var c = data[idx];
+
+                    if c == '_' {
+                        ++idx;
+                        continue;
+                    }
+
+                    // check for exponent start
+                    if is_hex {
+                        if c == 'p' || c == 'P' { break; }
+                    } else {
+                        if c == 'e' || c == 'E' { break; }
+                    }
+
+                    var digit = get_digit_value(c, self.base);
+                    if digit == 0xFF { break; }
+
+                    has_fraction = true;
+
+                    if !frac_overflow {
+                        var old = frac_numerator;
+                        frac_numerator = frac_numerator * base_u64 + static_cast::<u64>(digit);
+                        if frac_numerator < old {
+                            frac_overflow = true;
+                        } else {
+                            ++frac_digits;
+                        }
+                    }
+
+                    ++idx;
+                }
+            }
+
+            // parse exponent
+            if idx < body_len {
+                var c = data[idx];
+                var is_exp_char = false;
+
+                if is_hex {
+                    is_exp_char = (c == 'p' || c == 'P');
+                } else {
+                    is_exp_char = (c == 'e' || c == 'E');
+                }
+
+                if is_exp_char {
+                    ++idx;
+
+                    // check for sign
+                    if idx < body_len {
+                        if data[idx] == '-' {
+                            exp_negative = true;
+                            ++idx;
+                        } else if data[idx] == '+' {
+                            ++idx;
+                        }
+                    }
+
+                    // parse exponent digits (always base 10, but allow underscores)
+                    while idx < body_len {
+                        var ec = data[idx];
+
+                        // skip underscores in exponent
+                        if ec == '_' {
+                            ++idx;
+                            continue;
+                        }
+
+                        if ec < '0' || ec > '9' { break; }
+
+                        exp_value = exp_value * 10 + static_cast::<i64>(ec - '0');
+                        ++idx;
+                    }
+
+                    if exp_negative {
+                        exp_value = -exp_value;
+                    }
+                }
+            }
+
+            // determine if we need BigFloat
+            // thresholds: f80 max exponent is ~4932 (base 10) or ~16383 (base 2)
+            var needs_big = integer_overflow || frac_overflow;
+
+            if !needs_big {
+                if is_hex {
+                    needs_big = (exp_value > 16383) || (exp_value < -16494);
+                } else {
+                    needs_big = (exp_value > 4932) || (exp_value < -4951);
+                }
+            }
+
+            if needs_big {
+                self.flags |= 0b00001000; // set use_bigfloat flag
+                self.big_float = std::create::<BigFloat>();
+                self.big_float->is_hex = is_hex;
+                self.big_float->exponent = exp_value;
+
+                // reparse integer part into BigInt mantissa
+                self.big_float->mantissa = BigInt(512);
+                idx = 0;
+
+                var frac_start: usize = 0;
+                var parsing_frac: bool = false;
+
+                while idx < body_len {
+                    var c = data[idx];
+
+                    if c == '_' {
+                        ++idx;
+                        continue;
+                    }
+
+                    if c == '.' {
+                        ++idx;
+                        frac_start = idx;
+                        parsing_frac = true;
+                        continue;
+                    }
+
+                    if is_hex {
+                        if c == 'p' || c == 'P' { break; }
+                    } else {
+                        if c == 'e' || c == 'E' { break; }
+                    }
+
+                    var digit = get_digit_value(c, self.base);
+                    if digit == 0xFF { break; }
+
+                    self.big_float->mantissa.mul_add(base_u64, static_cast::<u64>(digit));
+
+                    if parsing_frac {
+                        // adjust exponent for fractional digits
+                        if is_hex {
+                            self.big_float->exponent -= 4; // each hex digit = 4 bits
+                        } else {
+                            // for decimal, we track separately and convert later
+                        }
+                    }
+
+                    ++idx;
+                }
+
+                // also compute f80 approximation for convenience
+                self.value_ieee = self.compute_f80_approx(
+                    integer_part, frac_numerator, frac_digits,
+                    exp_value, is_hex, base_u64,
+                    integer_overflow, frac_overflow
+                );
+            } else {
+                // compute f80 value directly
+                self.value_ieee = self.compute_f80(
+                    integer_part, frac_numerator, frac_digits,
+                    exp_value, is_hex, base_u64
+                );
+            }
+
+            // parse suffix
+            if (self.flags & 0b00010000) != 0 { // has_suffix
+                var suffix_text = sm->get_text(self.suffix);
+                var suffix_bits = parse_float_suffix(suffix_text);
+
+                if suffix_bits > 0 {
+                    self.bits = suffix_bits;
+                }
+            }
+
+            // default to f64 if no suffix
+            if self.bits == 0 {
+                self.bits = 64;
+            }
+
             self._evaluation_status_cb(false);
+        }
+
+        /// \brief computes f80 value from parsed components
+        /// \details used when value fits in extended precision
+        priv fn compute_f80(
+            self,
+            integer_part:   u64,
+            frac_numerator: u64,
+            frac_digits:    i32,
+            exp_value:      i64,
+            is_hex:         bool,
+            base:           u64
+        ) -> f80 {
+            var result: f80 = static_cast::<f80>(integer_part);
+
+            // add fractional part
+            if frac_digits > 0 {
+                var frac: f80 = static_cast::<f80>(frac_numerator);
+                var divisor: f80 = 1.0;
+
+                for var i: i32 = 0; i < frac_digits; ++i {
+                    divisor *= static_cast::<f80>(base);
+                }
+
+                result += frac / divisor;
+            }
+
+            // apply exponent
+            if exp_value != 0 {
+                // use ldexp for binary exponent (hex floats)
+                // use pow for decimal exponent
+                if is_hex {
+                    // hex float: exponent is base-2
+                    if exp_value > 0 {
+                        for var i: i64 = 0; i < exp_value; ++i {
+                            result *= 2.0;
+                        }
+                    } else {
+                        for var i: i64 = 0; i < -exp_value; ++i {
+                            result /= 2.0;
+                        }
+                    }
+                } else {
+                    // decimal: exponent is base-10
+                    if exp_value > 0 {
+                        for var i: i64 = 0; i < exp_value; ++i {
+                            result *= 10.0;
+                        }
+                    } else {
+                        for var i: i64 = 0; i < -exp_value; ++i {
+                            result /= 10.0;
+                        }
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        /// \brief computes approximate f80 value when BigFloat is used
+        /// \details provides a best-effort approximation even for huge values
+        priv fn compute_f80_approx(
+            self,
+            integer_part:     u64,
+            frac_numerator:   u64,
+            frac_digits:      i32,
+            exp_value:        i64,
+            is_hex:           bool,
+            base:             u64,
+            integer_overflow: bool,
+            frac_overflow:    bool
+        ) -> f80 {
+            // for overflowed values, we can still get a rough approximation
+            // by using the last computed value and scaling
+
+            var result: f80;
+
+            if integer_overflow {
+                // integer_part wrapped, use max u64 as approximation base
+                result = static_cast::<f80>(0xFFFFFFFFFFFFFFFF);
+            } else {
+                result = static_cast::<f80>(integer_part);
+            }
+
+            if frac_digits > 0 && !frac_overflow {
+                var frac: f80 = static_cast::<f80>(frac_numerator);
+                var divisor: f80 = 1.0;
+
+                for var i: i32 = 0; i < frac_digits; ++i {
+                    divisor *= static_cast::<f80>(base);
+                }
+
+                result += frac / divisor;
+            }
+
+            // apply exponent with saturation
+            if exp_value != 0 {
+                var exp_base: f80 = 2.0 if is_hex else 10.0;
+
+                // clamp to avoid infinity in intermediate calcs
+                var clamped_exp = exp_value;
+                if is_hex {
+                    if clamped_exp > 16383 { clamped_exp = 16383; }
+                    if clamped_exp < -16494 { clamped_exp = -16494; }
+                } else {
+                    if clamped_exp > 4932 { clamped_exp = 4932; }
+                    if clamped_exp < -4951 { clamped_exp = -4951; }
+                }
+
+                if clamped_exp > 0 {
+                    for var i: i64 = 0; i < clamped_exp; ++i {
+                        result *= exp_base;
+                    }
+                } else {
+                    for var i: i64 = 0; i < -clamped_exp; ++i {
+                        result /= exp_base;
+                    }
+                }
+            }
+
+            return result;
         }
 
         fn to_string(self, sm: *SourceManager) -> string {
@@ -118,6 +1105,13 @@ module Immediate {
             var suffix_str = sm->get_text(self.suffix);
 
             return f"FloatData(base={(self.base) as u64}, body='{body_str}', prefix='{prefix_str}', suffix='{suffix_str}', flags=0x{to_hex_string(self.flags)}, bits={self.bits}, value_ieee={self.value_ieee})\n";
+        }
+
+        fn op delete (self) {
+            if self.big_float != &null {
+                std::destroy(self.big_float);
+                self.big_float = &null;
+            }
         }
     }
 
