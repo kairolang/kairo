@@ -259,6 +259,228 @@ using const_ptr = const T*;
 template<typename T>
 using restrict_ptr = T* __RESTRICT__;
 
+template <typename T, typename E>
+class Expected {
+    union {
+        T value;
+        E error;
+    };
+    bool has_value;
+
+  public:
+    constexpr Expected(const T &val)
+        : value(val)
+        , has_value(true) {}
+    
+        constexpr Expected(T &&val)
+        : value(libcxx::move(val))
+        , has_value(true) {}
+    
+        constexpr Expected(const E &err)
+        : error(err)
+        , has_value(false) {}
+    
+        constexpr Expected(E &&err)
+        : error(libcxx::move(err))
+        , has_value(false) {}
+
+    
+        constexpr Expected(const Expected &other)
+        : has_value(other.has_value) {
+        if (has_value) {
+            libcxx::construct_at(&value, other.value);
+        } else {
+            libcxx::construct_at(&error, other.error);
+        }
+    }
+
+    constexpr Expected(Expected &&other) noexcept
+        : has_value(other.has_value) {
+        if (has_value) {
+            libcxx::construct_at(&value, libcxx::move(other.value));
+        } else {
+            libcxx::construct_at(&error, libcxx::move(other.error));
+        }
+    }
+
+    constexpr ~Expected() {
+        if (has_value) {
+            libcxx::destroy_at(&value);
+        } else {
+            libcxx::destroy_at(&error);
+        }
+    }
+
+    constexpr Expected &operator=(const Expected &other) {
+        if (this != &other) {
+            this->~Expected();
+            libcxx::construct_at(this, other);
+        }
+        return *this;
+    }
+
+    constexpr Expected &operator=(Expected &&other) noexcept {
+        if (this != &other) {
+            this->~Expected();
+            libcxx::construct_at(this, libcxx::move(other));
+        }
+        return *this;
+    }
+
+    constexpr explicit operator bool() const { return has_value; }
+    constexpr bool     check() const { return has_value; }
+
+    constexpr T       &operator*()       & { return value; }
+    constexpr const T &operator*() const & { return value; }
+    constexpr T      &&operator*()      && { return libcxx::move(value); }
+
+    constexpr T       *operator->()       { return &value; }
+    constexpr const T *operator->() const { return &value; }
+
+    constexpr E       &err()       & { return error; }
+    constexpr const E &err() const & { return error; }
+    constexpr E      &&err()      && { return libcxx::move(error); }
+
+    constexpr T      &value_or(T &default_value) & {
+        return has_value ? value : default_value;
+    }
+    
+    constexpr T      value_or(T &&default_value) && {
+        return has_value ? libcxx::move(value) : libcxx::move(default_value);
+    }
+    
+    constexpr T      value_or(const T &default_value) const & {
+        return has_value ? value : default_value;
+    }
+    
+    constexpr T      value_or(T &&default_value) const & {
+        return has_value ? value : libcxx::move(default_value);
+    }
+    
+    constexpr E      err_or(E &default_error) & {
+        return has_value ? default_error : error;
+    }
+    
+    constexpr E      err_or(E &&default_error) && {
+        return has_value ? libcxx::move(default_error) : libcxx::move(error);
+    }
+    
+    constexpr E      err_or(const E &default_error) const & {
+        return has_value ? default_error : error;
+    }
+    
+    constexpr E      err_or(E &&default_error) const & {
+        return has_value ? default_error : libcxx::move(error);
+    }
+};
+
+template <typename T>
+class Expected<T, std::null_t> {
+    union {
+        T value;
+        char dummy;
+    };
+    bool has_value;
+
+  public:
+    constexpr Expected()
+        : dummy{}
+        , has_value(false) {}
+
+    constexpr Expected(std::null_t)
+        : dummy{}
+        , has_value(false) {}
+
+    constexpr Expected(const T &val)
+        : value(val)
+        , has_value(true) {}
+
+    constexpr Expected(T &&val)
+        : value(libcxx::move(val))
+        , has_value(true) {}
+
+    constexpr Expected(const Expected &other)
+        : dummy{}
+        , has_value(other.has_value) {
+        if (has_value) {
+            libcxx::construct_at(&value, other.value);
+        }
+    }
+
+    constexpr Expected(Expected &&other) noexcept
+        : dummy{}
+        , has_value(other.has_value) {
+        if (has_value) {
+            libcxx::construct_at(&value, libcxx::move(other.value));
+        }
+    }
+
+    constexpr ~Expected() {
+        if (has_value) {
+            libcxx::destroy_at(&value);
+        }
+    }
+
+    constexpr Expected &operator=(const Expected &other) {
+        if (this != &other) {
+            this->~Expected();
+            has_value = other.has_value;
+            if (has_value) {
+                libcxx::construct_at(&value, other.value);
+            }
+        }
+        return *this;
+    }
+
+    constexpr Expected &operator=(Expected &&other) noexcept {
+        if (this != &other) {
+            this->~Expected();
+            has_value = other.has_value;
+            if (has_value) {
+                libcxx::construct_at(&value, libcxx::move(other.value));
+            }
+        }
+        return *this;
+    }
+
+    constexpr Expected &operator=(std::null_t) {
+        this->~Expected();
+        has_value = false;
+        return *this;
+    }
+
+    constexpr explicit operator bool() const { return has_value; }
+    constexpr bool     check() const { return has_value; }
+
+    constexpr T       &operator*()       & { return value; }
+    constexpr const T &operator*() const & { return value; }
+    constexpr T      &&operator*()      && { return libcxx::move(value); }
+
+    constexpr T       *operator->()       { return &value; }
+    constexpr const T *operator->() const { return &value; }
+
+    // No err() methods - there's no error to return
+
+    constexpr T &value_or(T &default_value) & {
+        return has_value ? value : default_value;
+    }
+
+    constexpr T value_or(T &&default_value) && {
+        return has_value ? libcxx::move(value) : libcxx::move(default_value);
+    }
+
+    constexpr T value_or(const T &default_value) const & {
+        return has_value ? value : default_value;
+    }
+
+    constexpr T value_or(T &&default_value) const & {
+        return has_value ? value : libcxx::move(default_value);
+    }
+};
+
+template <typename T>
+using Nullable = Expected<T, std::null_t>;
+
 ///
 /// \note
 /// This header may be expanded to include additional abstractions or
