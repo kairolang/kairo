@@ -83,8 +83,12 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
         for var i: usize = 0; i < self._total_length; ++i {
             var token = self.get(i);
 
-            if token.kind == TokenKind::TkError {
-                std::print(f"Invalid token found at {token.range} excepted a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(token.imm))}' token\n");
+            if token == &null {
+                continue;
+            }
+
+            if (*token) == TokenKind::TkError {
+                std::print(f"Invalid token found at {token->range} excepted a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' token\n");
             }
         }
     }
@@ -143,23 +147,22 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
         }
 
         var chunk = &self._chunks[self._chunk_count - 1];
+    
         chunk->base[chunk->length] = token;
         ++chunk->length;
 
         ++self._total_length;
     }
 
-    fn get(self, index: usize) -> Token {
+    fn get(self, index: usize) -> *Token {
         if index >= self._total_length {
-            std::crash(std::Error::RuntimeError(
-                "TokenBuffer::get() - index out of bounds"
-            ));
+            return &null;
         }
 
         var chunk_index  = index / CHUNK_SIZE;
         var offset_index = index % CHUNK_SIZE;
 
-        return self._chunks[chunk_index].base[offset_index];
+        return &(self._chunks[chunk_index].base[offset_index]);
     }
 
     fn destroy(self) {
@@ -167,6 +170,13 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
         self._total_length = 0;
         self._chunks       = &null;
         self._allocator.destroy();
+    }
+
+    fn shutdown(self) {
+        self._chunk_count  = 0;
+        self._total_length = 0;
+        self._chunks       = &null;
+        self._allocator.shutdown();
     }
 
     fn size(self) -> usize {

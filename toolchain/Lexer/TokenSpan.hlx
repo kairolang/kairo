@@ -22,13 +22,7 @@ class TokenSpan {
         return self._length;
     }
 
-    fn get(self, index: usize) -> Token {
-        if index >= self._length {
-            std::crash(std::Error::RuntimeError(
-                "TokenSpan::get() - index out of bounds"
-            ));
-        }
-
+    fn get(self, index: usize) -> *Token {
         return self._buffer->get(self._start + index);
     }
 }
