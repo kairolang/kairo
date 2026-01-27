@@ -257,9 +257,6 @@ declaration         ::= (proc_macro_invoke* ffi? primary_declaration) | test_dec
 macro      ::= "macro" ident '!' ('(' parameters? ')')? (('{' ... '}') | (':' ...)) ';';
 proc_macro ::= "macro" '@' ident ('(' parameters? ')')? (('{' ... '}') | (':' ...)) ';';
 
-///
-/// These are checked and expanded in the preprocessor not the parser
-///
 proc_macro_invoke ::= '@' function_call?; // @foo(1, 2, 3)
 macro_invoke      ::= scoped_path '!' ('(' argument_seq? ')')?; // foo!(1, 2, 3) | foo!
 

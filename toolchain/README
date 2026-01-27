@@ -1,25 +1,96 @@
-# src/
+# Build Guide
+This directory contains the full compiler toolchain, for devs building from source follow the instructions below.
 
-This directory contains the implementation source files for the Helix Project, organized by component. Each subfolder corresponds to a major component of the language and contains the actual code (implementations) for that component.
+## Prerequisites
+- A c++20 or later compatible compiler (e.g. GCC 11+, Clang 13+, MSVC 19.29+)
+- Python 3.10 or later
+- Perl (on Linux/Mac only)
+- Helix Compiler v0.0.1-beta-26 or later
 
-As you add more components, update this README to reflect the new structure and their purposes.
+## Building the Toolchain
+1. Clone the repository:
+    ```bash
+    git clone https://github.com/kairolang/helix-lang
+    cd helix-lang
+    ```
 
-## Subfolders
+### For just building the toolchain:
+2. Alias the build script for convenience (build.sh on Linux/Mac, build.bat on CMD and build.ps1 on PowerShell)
+    ```bash
+    # if you're on Linux/Mac alias it like this:
+    alias hmake="./build.sh"
 
-### lexer/
-Contains the implementation files for the lexical analysis component.  
-These files handle tokenizing source code, processing character streams, and managing token types.
+    # if you're on Windows CMD:
+    doskey hmake=build.bat $*
 
-### parser/
-Contains the implementation files for the parsing component.  
-These files handle syntactic analysis, grammar rules, and building parse trees from token streams.
+    # if you're on Windows PowerShell:
+    Set-Alias hmake .\build.ps1
+    ```
 
-### ast/
-Contains the implementation files for the Abstract Syntax Tree (AST) component.  
-These files handle representing, traversing, and manipulating the AST for further analysis and code generation.
+3. Run the build script:
+    ```bash
+    hmake
+    ```
+This will compile the toolchain in the `build/{platform}/{release|debug}` directory.
 
-### types/
-Contains the implementation files for type definitions and file system utilities.  
-This includes code for file handling, path manipulation, and other type-related utilities used throughout the project.
+### For testing a specific file that contains a `Test()` function:
+2. Use the test script:
+    ```bash
+    # make sure to alias the build script first as shown above
+    hmake test toolchain/Lexer/Lexer.hlx
+    ```
+This will build and run the specified `fn Test() -> i32` function in the given file. It will error if the function is not found.
 
----
+### If you have weird side effects where the code you've written is not being reflected in the build (using Helix v0.0.1-x):
+2. You can try to view the generated C++ code to debug:
+    ```bash
+    # make sure to alias the build script first as shown above
+    hmake line toolchain/Lexer/Lexer.hlx
+    ```
+
+3. You can also view a specific line or range of lines:
+    ```bash
+    # make sure to alias the build script first as shown above
+    hmake line toolchain/Lexer/Lexer.hlx 42         # view line 42
+    hmake line toolchain/Lexer/Lexer.hlx 10:20      # view lines 10 to 20
+    ```
+
+3. other kinds of issues can be debugged by extracting the compile command itself and then running it manually with a verbose flag:
+    ```bash
+    # make sure to alias the build script first as shown above
+    hmake test toolchain/Lexer/Lexer.hlx
+
+    # outputs like so:
+    [01/26/26 13:20:26] INFO     Copied test file to build/.shared/tests/Lexer.hlx                                       build.py:346
+                        INFO     Compiling build/.shared/tests/Lexer.hlx with command: helix                             build.py:200
+                                 build/.shared/tests/Lexer.hlx -obuild/.gens/test_run
+                                 -I/Volumes/Foundry/helix/helix-lang -I/Volumes/Foundry/helix/helix-lang/toolchain
+warn: variable 'frac_start' set but not used
+   -->  at /Volumes/Foundry/helix/helix-lang/toolchain/Lexer/Immediate.hlx:908:16
+906 |                 idx = 0;
+907 |
+908 |                 var frac_start: usize = 0;
+    :                 ^^^^^^^^^^^^^^^^^^^^^^^^^^
+909 |                 var parsing_frac: bool = false;
+
+warn: private field '_conflict_state' is not used
+   -->  at /Volumes/Foundry/helix/helix-lang/build/.shared/tests/Lexer.hlx:915:4
+913 |     }
+914 |
+915 |     var _conflict_state: ConflictMarker = ConflictMarker::None;
+    :     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+916 |
+917 |     ///========= Lexical Parsing Functions ==========///
+
+success: compilation successful
+[01/26/26 13:20:36] INFO     Compiled build/.shared/tests/Lexer.hlx successfully.                                    build.py:204
+                    INFO     Running test binary build/.gens/test_run                                                build.py:361
+---------------------------------------------------------------------------------------------------------------------------------
+    
+    # extract the command after "with command:" (removing the line breaks and log locations [build.py:XXX])
+    # then run the command with `--verbose` flag like so:
+    helix build/.shared/tests/Lexer.hlx -obuild/.gens/test_run -I/Volumes/Foundry/helix/helix-lang -I/Volumes/Foundry/helix/helix-lang/toolchain --verbose
+    
+    # this may give you more insight into what is going wrong.
+    # NOTE: This command doesn't sync the source files before compiling, so if you've made changes you'll need to re-run the `hmake test <file>` command to sync them first.
+    ```
