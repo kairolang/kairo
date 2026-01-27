@@ -1,0 +1,187 @@
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+
+import Core::Include::Base::*;
+
+class BalanceTracker {
+    __inline_cpp("public:");
+
+    struct Entry {
+        var kind: TokenKind;
+        var loc:  SourceLocation;
+        var is_macro: bool;
+    }
+    
+    enum BalanceErrorKind derives u8 {
+        Unclosed,
+        Unexpected,
+        Mismatched
+    }
+    
+    struct BalanceError {
+        var kind     : BalanceErrorKind;
+        var loc      : SourceLocation;
+        var expected : TokenKind;
+        var found    : TokenKind;
+        var open_loc : SourceLocation;
+        var is_macro : bool;
+    }
+    
+    pub var stack: libcxx::stack::<Entry>;
+    pub var errors: libcxx::deque::<BalanceError>;
+    
+    fn push(self, kind: TokenKind, loc: SourceLocation, is_macro: bool = false) {
+        self.stack.push(Entry{ kind: kind, loc: loc, is_macro: is_macro });
+    }
+    
+    fn pop(self, closer: TokenKind, loc: SourceLocation) -> bool {
+        if self.stack.empty() {
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Unexpected,
+                loc: loc,
+                expected: TokenKind::TkUnknown,
+                found: closer,
+                open_loc: SourceLocation(),
+                is_macro: false
+            });
+            return false;
+        }
+        
+        var top = self.stack.top();
+        var expected_closer = BalanceTracker::get_closer(top.kind);
+        
+        if expected_closer == closer {
+            self.stack.pop();
+            return true;
+        }
+        
+        // Mismatch - search stack for matching opener
+        var matching_opener = BalanceTracker::get_opener(closer);
+        var depth: usize = 0;
+        var found = false;
+        
+        // Copy stack to search (or use a deque instead of stack)
+        var temp: libcxx::stack::<Entry>;
+        while !self.stack.empty() {
+            var entry = self.stack.top();
+            self.stack.pop();
+            temp.push(entry);
+            ++depth;
+            
+            if entry.kind == matching_opener {
+                found = true;
+                break;
+            }
+            
+            // Don't search too deep - likely unrecoverable
+            if depth > 3 {
+                break;
+            }
+        }
+        
+        if found {
+            // Report all unclosed delimiters between top and match
+            while temp.size() > 1 {
+                var unclosed = temp.top();
+                temp.pop();
+                self.errors.push_back(BalanceError{
+                    kind: BalanceErrorKind::Unclosed,
+                    loc: unclosed.loc,
+                    expected: BalanceTracker::get_closer(unclosed.kind),
+                    found: TokenKind::TkUnknown,
+                    open_loc: unclosed.loc,
+                    is_macro: unclosed.is_macro
+                });
+            }
+            // Don't restore the matched opener - it's consumed
+            temp.pop();
+        } else {
+            // No match found - restore stack and report mismatch
+            while !temp.empty() {
+                self.stack.push(temp.top());
+                temp.pop();
+            }
+            
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Mismatched,
+                loc: loc,
+                expected: expected_closer,
+                found: closer,
+                open_loc: top.loc,
+                is_macro: top.is_macro
+            });
+            
+            // Pop the mismatched opener anyway
+            self.stack.pop();
+        }
+        
+        return false;
+    }
+
+    static fn get_opener(closer: TokenKind) -> TokenKind {
+        switch closer {
+            case TokenKind::OpRBrace  { return TokenKind::OpLBrace;  }
+            case TokenKind::OpRParen  { return TokenKind::OpLParen;  }
+            case TokenKind::OpRSquare { return TokenKind::OpLSquare; }
+            default { return TokenKind::TkUnknown; }
+        }
+    }
+    
+    fn finalize(self) {
+        while !self.stack.empty() {
+            var top = self.stack.top();
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Unclosed,
+                loc: top.loc,
+                expected: BalanceTracker::get_closer(top.kind),
+                found: TokenKind::TkUnknown,
+                open_loc: top.loc,
+                is_macro: top.is_macro
+            });
+            
+            self.stack.pop();
+        }
+    }
+    
+    static fn get_closer(opener: TokenKind) -> TokenKind {
+        switch opener {
+            case TokenKind::OpLBrace  { return TokenKind::OpRBrace;  }
+            case TokenKind::OpLParen  { return TokenKind::OpRParen;  }
+            case TokenKind::OpLSquare { return TokenKind::OpRSquare; }
+            default { return TokenKind::TkUnknown; }
+        }
+    }
+    
+    static fn is_opener(kind: TokenKind) -> bool {
+        return (kind == TokenKind::OpLBrace)
+            || (kind == TokenKind::OpLParen)
+            || (kind == TokenKind::OpLSquare);
+    }
+    
+    static fn is_closer(kind: TokenKind) -> bool {
+        return (kind == TokenKind::OpRBrace)
+            || (kind == TokenKind::OpRParen)
+            || (kind == TokenKind::OpRSquare);
+    }
+    
+    fn has_errors(self) -> bool {
+        return !self.errors.empty();
+    }
+    
+    fn clear(self) {
+        while !self.stack.empty() { self.stack.pop(); }
+        self.errors.clear();
+    }
+}
