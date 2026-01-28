@@ -4414,7 +4414,7 @@ fn Test() -> i32 {
         }
 
         return "pass";
-    }, 1);
+    }, 1000);
 
     suite.equal::<string>("lex char with escapes", "pass", fn () -> string {
         var res   = create_lexer_from_string("'\\n' '\\t' '\\'' '\\\\' ", sm, pool);
