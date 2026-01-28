@@ -37,12 +37,12 @@ class Assert {
 
     priv fn test_success(self, m: string, time: string) {
         ++(self.passes);
-        (libcxx::wcout) << f"\033[32m({(self.passes) + (self.fails)}) [PASS]\033[0m {m} \033[90m({time})\033[0m\n".raw_string();
+        (libcxx::wcout) << f"\033[32m({(self.passes) + (self.fails)})\t[PASS]\033[0m\t\033[90m({time})\033[0m\t{m}\n".raw_string();
     }
 
     priv fn <T> test_failure(self, m: string, e: T, v: T, time: string) {
         ++(self.fails);
-        (libcxx::wcout) << f"\033[31m({(self.passes) + (self.fails)}) [FAIL]\033[0m {m} \033[90m({time})\033[0m\n".raw_string();
+        (libcxx::wcout) << f"\033[31m({(self.passes) + (self.fails)}) \t[FAIL]\033[0m \t\033[90m({time})\033[0m \t{m}\n".raw_string();
         (libcxx::wcout) << f"    \033[90m|>>>\033[0m expected: \033[33m{e}\033[0m\n".raw_string();
         (libcxx::wcout) << f"    \033[90m|>>>\033[0m actual:   \033[31m{v}\033[0m\n".raw_string();
     }
@@ -79,14 +79,25 @@ class Assert {
         const var s   = (static_cast::<f64>(ns)) / (1000000000.0);
 
         if us < 10.0 {
-            return (v, f"{ns}ns" + ((f" on avg over {iters} iters") if (iters > 1) else ("")));
+            if (iters > 1) {
+                return (v, f"mean: {ns}ns,\titers: {iters}");
+            }
+            return (v, f"{ns}ns");
         } if ms < 10.0 {
-            return (v, f"{us}us" + ((f" on avg over {iters} iters") if (iters > 1) else ("")));
+            if (iters > 1) {
+                return (v, f"mean: {us}µs,\titers: {iters}");
+            }
+            return (v, f"{us}µs");
         } if s < 10.0 {
-            return (v, f"{ms}ms" + ((f" on avg over {iters} iters") if (iters > 1) else ("")));
+            if (iters > 1) {
+                return (v, f"mean: {ms}ms,\titers: {iters}");
+            }
+            return (v, f"{ms}ms");
         }
-
-        return (v, f"{s}s" + ((f" on avg over {iters} iters") if (iters > 1) else ("")));
+        if (iters > 1) {
+            return (v, f"mean: {s}s,\titers: {iters}");
+        }
+        return (v, f"{s}s");
     }
 
     fn <T> equal(self, m: string, e: T, c: fn () -> T, iters: usize = 1) {
