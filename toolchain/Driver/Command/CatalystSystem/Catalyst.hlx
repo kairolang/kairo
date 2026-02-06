@@ -22,7 +22,7 @@
 /// For more details , Check out Catalyst.md
 
 import Core::EvalHash::*;
-import Driver::Command::CatalystSystem::CatalystMacros::*;
+
 
 
 
@@ -33,7 +33,7 @@ import Driver::Command::CatalystSystem::CatalystMacros::*;
 class CLIArgs {
 
     enum FlagType derives u32 {
-        FILE, // for input/output files
+        FILES, // for input/output files
 
         // --- GENERAL / HELP & VERSION ---
         HELP            = compute_hash::<r"h">(),
@@ -151,7 +151,7 @@ class CLIArgs {
         ENV_IMPORTS         = compute_hash::<r"HELIX_IMPORTS">(),
         ENV_LIBRARIES       = compute_hash::<r"HELIX_LIBRARIES">(),
         ENV_PATH            = compute_hash::<r"HELIX_PATH">(),
-    };
+    }
 
 
     ///-----------------------------------------------
@@ -162,7 +162,7 @@ class CLIArgs {
     /// \return array::<bool, 256> - true for characters that start long flags
     ///-----------------------------------------------
 
-    eval fn build_long_flag_table() -> array::<bool, 256> {      /// 256 for all u8 values
+     eval fn build_long_flag_table(self) -> array::<bool, 256> {      /// 256 for all u8 values
 
         var table : array::<bool, 256> = array::<bool, 256>() ;
 
@@ -195,203 +195,122 @@ class CLIArgs {
     ///-----------------------------------------------
 
 
-    fn Tokenize(sentence : string ){
-
-        var pointer : i32;       // lexer cursor
-
+    fn Tokenize(self , sentence : string ){
+        var pointer : i32 = 0;
         var parsedFlags : array::<FlagType, 64> = array::<FlagType, 64>() ; 
         var files : libcxx::deque::<string> = libcxx::deque::<string>() ; 
-        var word : string ;
-        var parser : i32 = 0 ;
+        var parser : i32 = 0;
 
-        __inline_cpp("
-        static void *jump_table[256] = {
-            [0 ... 255] = &&other,
-            ['-'] = &&single_dash,
-            ['/'] = &&slash_flag,
-        }");
-
-        
-
-        for pointer : i32 in usize(0)..(sentence.length()) {
-            word = "";
+        while pointer < i32(sentence.length()) {
+            var current_char : char = sentence[pointer];
             
-            __inline_cpp("goto *jump_table[(uint8_t)sentence[pointer]]");
-        }
-
-
-        //--------------------------------SINGLE DASH PARSING-------------------------------------------//
-
-        __inline_cpp("single_dash :");
-
-            if (sentence[(pointer+1)]) == '-' { 
-                /// brackets around sentence are due to messed up operator precedence, pay no heed
-                /// var a = (tok.token_kind()) as i32
-                /// auto a = tok.as_cast<i32>(token_kind())
-                                            
-                __inline_cpp("goto double_dash");
-            }
-
-            while(true){
+            if current_char == ' ' {
                 pointer++;
-                switch(sentence[pointer]){
-                    case '-' {                                                 //would be next flag
-                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                        --pointer;                                               //so that loop detects dash 
-                        break;
+                continue;
+            }
+            
+            if current_char == '-' {
+                if pointer + 1 < i32(sentence.length()) && sentence[pointer + 1] == '-' {
+                    // Double dash: --flag
+                    pointer += 2;
+                    var start : i32 = pointer;
+                    
+                    while pointer < i32(sentence.length()) && 
+                        sentence[pointer] != ' ' && 
+                        sentence[pointer] != '=' {
+                        pointer++;
                     }
-                    case ' ' {                                                         // possible flag separation
-                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                        break;
+                    
+                    if pointer > start {
+                        var flag_str : string = sentence.subslice(start, pointer - start);
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
+                        parser++;
                     }
-                    case '/' {                                                  //same explanation as '-' case
-                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                        --pointer; 
-                        break;
+                    
+                    // Skip '=' and value if present
+                    if pointer < i32(sentence.length()) && sentence[pointer] == '=' {
+                        pointer++;
+                        while pointer < i32(sentence.length()) && sentence[pointer] != ' ' {
+                            pointer++;
+                        }
                     }
-                    case '=' {                                                //skips equal symbols since its not needed 
-                        continue;
-                    }
-
-                    default {                                                   //flag starts here 
-                        word+=sentence[pointer];
+                } else {
+                    // Single dash
+                    pointer++;
+                    
+                    if pointer < i32(sentence.length()) && IS_LONG_FLAG[u8(sentence[pointer])] {
+                        // Long flag like -Wall, -O2
+                        var start : i32 = pointer;
+                        while pointer < i32(sentence.length()) && 
+                            sentence[pointer] != ' ' && 
+                            sentence[pointer] != '=' {
+                            pointer++;
+                        }
                         
-                        if IS_LONG_FLAG[u8(sentence[pointer])]{                //for detection of non single letter flags
-                            while(sentence[pointer] != ' '){
-                                word+=sentence[pointer];
-                                pointer++;
-                            }
-                        } else {
-                            while(sentence[pointer] != ' '){                     //-abc types
-                                parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                                parser++;
-                                pointer++;
-                            }
+                        if pointer > start {
+                            var flag_str : string = sentence.subslice(start, pointer - start);
+                            parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
+                            parser++;
+                        }
+                    } else {
+                        // Short flags: -abc means -a -b -c
+                        while pointer < i32(sentence.length()) && 
+                            sentence[pointer] != ' ' && 
+                            sentence[pointer] != '-' {
+                            var flag_str : string = sentence.subslice(pointer, 1);
+                            parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
+                            parser++;
+                            pointer++;
                         }
                     }
-
-
                 }
-            }
-
-            
-
-            continue ;
-
-        
-        //=======================================================================================//
-        //--------------------------------FILE PARSING-------------------------------------------//
-        //=======================================================================================//
-
-        __inline_cpp("other :");
-            while(sentence[pointer] != ' '){
-                word += sentence[pointer];
-            }
-
-            parsedFlags[parser] = FILE ;
-            files.push_back(word);
-
-            continue; 
-            
-
-        
-        //TODO : store files somewhere
-
-
-
-        //==============================================================================================//
-        //--------------------------------DOUBLE DASH PARSING-------------------------------------------//
-        //==============================================================================================//
-
-        __inline_cpp("double_dash :");
-
-            while(true){
+            } else if current_char == '/' {
                 pointer++;
-                switch(sentence[pointer]){
-                    case ' ' {                                                         // possible flag separation
-                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                        break;
-                    }
-                    case '/' {                                                  //same explanation as '-' case
-                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                        --pointer; 
-                        break;
-                    }
-                    case '=' {                                                //skips equal symbols since its not needed 
-                        continue;
-                    }
-
-                    default {                                                   //flag starts here 
-                        word+=sentence[pointer];
-        
-                        while(sentence[pointer] != ' '){
-                                word+=sentence[pointer];
-                                pointer++;
-                        }
-                    }
-                }
-
-
                 
-            }
-        continue;
-
-
-
-
-        //--------------------------------SLASH FLAG PARSING-------------------------------------------//
-
-
-        __inline_cpp("slash_flag :");
-            if (sentence[(pointer+1)]) == '-' { 
-                /// brackets around sentence are due to messed up operator precedence
-                /// var a = (tok.token_kind()) as i32
-                /// auto a = tok.as_cast<i32>(token_kind())
-                0;
-                //THROW SOME KIND OF ERROR , /- is not permitted
-            }
-
-            while(true){
-                pointer++;
-                switch(sentence[pointer]){
-                    case '-' {                                                 //would be next flag
-                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                        --pointer;                                               //so that loop detects dash 
-                        break;
+                if pointer < i32(sentence.length()) && sentence[pointer] == '-' {
+                    // ERROR: /- not permitted
+                    pointer++;
+                    continue;
+                }
+                
+                if pointer < i32(sentence.length()) && IS_LONG_FLAG[u8(sentence[pointer])] {
+                    var start : i32 = pointer;
+                    while pointer < i32(sentence.length()) && 
+                        sentence[pointer] != ' ' && 
+                        sentence[pointer] != '=' {
+                        pointer++;
                     }
-                    case ' ' {                                                         // possible flag separation
-                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                        break;
+                    
+                    if pointer > start {
+                        var flag_str : string = sentence.subslice(start, pointer - start);
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
+                        parser++;
                     }
-                    case '/' {                                                  //same explanation as '-' case
-                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                        --pointer; 
-                        break;
-                    }
-                    case '=' {                                                //skips equal symbols since its not needed 
-                        continue;
-                    }
-
-                    default {                                                   //flag starts here 
-                        word+=sentence[pointer];
-                        
-                        if IS_LONG_FLAG[u8(sentence[pointer])]{                //for detection of non single letter flags
-                            while(sentence[pointer] != ' '){
-                                word+=sentence[pointer];
-                                pointer++;
-                            }
-                        } else {
-                            while(sentence[pointer] != ' '){                     // '/abc' types
-                                parsedFlags[parser] = static_cast::<FlagType>(compute_hash(word)) ;
-                                parser++;
-                                pointer++;
-                            }
-                        }
+                } else {
+                    while pointer < i32(sentence.length()) && 
+                        sentence[pointer] != ' ' && 
+                        sentence[pointer] != '/' {
+                        var flag_str : string = sentence.subslice(pointer, 1);
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
+                        parser++;
+                        pointer++;
                     }
                 }
-            }      
-
-            continue ;
+            } else {
+                // File argument
+                var start : i32 = pointer;
+                while pointer < i32(sentence.length()) && sentence[pointer] != ' ' {
+                    pointer++;
+                }
+                
+                if pointer > start {
+                    var filename : string = sentence.subslice(start, pointer - start);
+                    files.push_back(filename);
+                    parsedFlags[parser] = FlagType::FILES;
+                    parser++;
+                }
+            }
+        }
     }
 }
 
