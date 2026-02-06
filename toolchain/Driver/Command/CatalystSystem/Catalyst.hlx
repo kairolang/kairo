@@ -74,7 +74,7 @@ class CLIArgs {
         OPTIMIZE3       = compute_hash::<r"O3">(),
         OPTIMIZE_S      = compute_hash::<r"Os">(),
         OPTIMIZE_Z      = compute_hash::<r"Oz">(),
-        DEBUG           = compute_hash::<r"g">(),
+        DEBUG_ON           = compute_hash::<r"g">(),
         DEBUG_OFF       = compute_hash::<r"g0">(),
 
         // --- WARNINGS & DIAGNOSTICS ---
