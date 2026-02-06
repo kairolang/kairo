@@ -1,8 +1,0 @@
-import Lexer::TokenSpan::*;
-
-class MacroParameter {
-    pub var name:          string;       ///< parameter name
-    pub var has_default:   bool = false; ///< does this parameter have a default value
-    pub var is_variadic:   bool = false; ///< is this parameter variadic (only last param can be variadic)
-    pub var default_value: TokenSpan;  ///< default value token range (if has_default is true)
-}

@@ -24,6 +24,8 @@ import Core::SourceLineTable::*;
 import Core::ThreadPool::*;
 import Core::VirtualFileManager::*;
 
+type FileID = u32;;
+
 /// FIXME: change the use of string paths in get_line_col to Path objects.
 
 ///
@@ -127,12 +129,12 @@ class SourceManager {
     /// - registers file in the VirtualFileManager and SourceLineTable.
     /// - schedules async line-index build on the thread pool.
     ///
-    fn load_file(self, path: Path) -> u32 /* file_id */ {
+    fn load_file(self, path: Path) -> FileID /* file_id */ {
         for i in range::<usize>(0, self._files.size()) {
             var f = self._files[i];
 
             if (f != &null) && (f->path.full_path() == path.full_path()) {
-                return static_cast::<u32>(i);
+                return static_cast::<FileID>(i);
             }
         }
 
@@ -149,8 +151,6 @@ class SourceManager {
         self._total_b += file->size_bytes;
         self._files.push_back(file);
         
-        
-
         self._pool->enqueue(__inline_cpp("
             [fid = base_fid, this]() {
                 this->_line_table.build_index(fid, this->_vfile_mgr);
@@ -172,7 +172,7 @@ class SourceManager {
     /// \note The caller is responsible for ensuring the data pointer
     ///       remains valid for the lifetime of the virtual file.
     ///
-    fn load_virtual(self, fake_path: Path, data: std::const_ptr::<u8>, size: usize) -> u32 {
+    fn load_virtual(self, fake_path: Path, data: std::const_ptr::<u8>, size: usize) -> FileID {
         var fid = _vfile_mgr->register_virtual(fake_path, data, size);
         
         _line_table.register_file(fid, size);
@@ -210,7 +210,7 @@ class SourceManager {
     ///
     /// \brief resolves line/column directly by file id and offset.
     ///
-    fn get_line_col(self, file_id: u32, offset: usize) -> FullSourceLocation {
+    fn get_line_col(self, file_id: FileID, offset: usize) -> FullSourceLocation {
         return self._line_table.get_line_col(
             file_id,
             offset,
@@ -300,21 +300,21 @@ class SourceManager {
     ///
     /// \brief placeholder for async line index status.
     ///
-    fn is_line_index_ready(self, file_id: u32) -> bool {
+    fn is_line_index_ready(self, file_id: FileID) -> bool {
         return false;
     }
 
     ///
     /// \brief blocks until line index for file is ready.
     ///
-    fn wait_for_line_index(self, file_id: u32) {
+    fn wait_for_line_index(self, file_id: FileID) {
         self._line_table.wait_until_ready(file_id);
     }
 
     ///
     /// \brief retrieves file buffer as MemoryBuffer view.
     ///
-    fn get_buffer(self, file_id: u32) -> MemoryBuffer? {
+    fn get_buffer(self, file_id: FileID) -> MemoryBuffer? {
         if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
             return null;
         }
@@ -325,7 +325,7 @@ class SourceManager {
     ///
     /// \brief returns full path for file id.
     ///
-    fn get_filename(self, file_id: u32) -> string {
+    fn get_filename(self, file_id: FileID) -> string {
         if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
             return "<invalid>";
         }
@@ -336,7 +336,7 @@ class SourceManager {
     ///
     /// \brief returns file extension (if any).
     ///
-    fn get_file_extension(self, file_id: u32) -> string? {
+    fn get_file_extension(self, file_id: FileID) -> string? {
         if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
             return null;
         }
@@ -347,7 +347,7 @@ class SourceManager {
     ///
     /// \brief fetches file view handle from VirtualFileManager.
     ///
-    fn get_file_view(self, fid: u32) -> VirtualFileManager::FileHandle {
+    fn get_file_view(self, fid: FileID) -> VirtualFileManager::FileHandle {
         return _vfile_mgr->get_file_view(fid);
     }
 
@@ -377,7 +377,7 @@ class SourceManager {
     ///
     /// \brief convenience wrapper to get SourceLocation from fid+offset.
     ///
-    fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
+    fn get_loc(self, fid: FileID, off: usize) -> SourceLocation {
         return _vfile_mgr->get_loc(fid, off);
     }
 
@@ -388,7 +388,7 @@ class SourceManager {
     ///
     /// \brief returns SourceRange for file id, offset, and length.
     ///
-    fn get_range(self, fid: u32, off: usize, len: usize) -> SourceRange {
+    fn get_range(self, fid: FileID, off: usize, len: usize) -> SourceRange {
         return _vfile_mgr->get_range(fid, off, len);
     }
 
@@ -515,7 +515,7 @@ class SourceManager {
     /// \param loc location to read from.
     /// \return UTF-32 codepoint, or 0 if invalid.
     ///
-    fn get_char_at(self, loc: SourceLocation) -> u32 {
+    fn get_char_at(self, loc: SourceLocation) -> FileID {
         var range = SourceRange::single(loc);
         var buf   = self.get_view(range);
         
@@ -639,7 +639,7 @@ fn Test() -> i32 {
     var vfm:  *VirtualFileManager;
     var sm:   *SourceManager;
     var path:  Path;
-    var fid:   u32;
+    var fid:   FileID;
 
     finally {
         if sm != &null {
