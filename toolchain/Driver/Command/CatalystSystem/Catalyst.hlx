@@ -317,7 +317,11 @@ class CLIArgs {
 
 
 fn Test() -> i32 {
-    return 1;
+    var args : CLIArgs = CLIArgs();
+    
+    std::print("helix Lexer.hlx -g -fno-unsafe -fconst-checks -fno-exceptions -O2 --verbose");
+    
+    return 0;
 }
 
 // helix Lexer.hlx -g -fno-unsafe -fconst-overloading -fno-exceptions
