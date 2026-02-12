@@ -1,0 +1,827 @@
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+///
+/// \file ImportResolver.hlx
+/// \brief module and file resolution subsystem for the helix compiler frontend
+///
+/// this file implements the import resolution machinery used during semantic
+/// analysis to map qualified import paths (e.g. `Core::Include::FileSystem`)
+/// to concrete filesystem paths. the resolver maintains a priority-ordered
+/// list of search roots and builds a trie-based directory index for fast
+/// lookups.
+///
+/// the indexing operation can be performed asynchronously via a thread pool.
+/// callers must either check `is_index_ready()` or call `wait_for_index()`
+/// before invoking resolution methods. all resolution methods block on index
+/// completion internally, so external synchronization is not strictly
+/// required but may avoid unnecessary spinning.
+///
+/// \note the cache uses a simple string key and does not track filesystem
+///       modifications. call `invalidate_cache()` or `rebuild_all()` after
+///       external changes to the search paths.
+///
+/// \warning ambiguous module resolution (file and directory with same stem)
+///          returns `ResolveError::AmbiguousModule` even though a valid path
+///          is cached. this is intentional—callers should treat ambiguity as
+///          a diagnostic-worthy condition.
+///
+///-----------------------------------------------------------------------------
+
+import Core::Include::FileSystem::*;
+import Core::Include::Concurrency::*;
+
+import Lexer::Preprocessor::FileExtensions::*;
+import Lexer::Preprocessor::DirEntry::*;
+import Lexer::Preprocessor::SearchRoot::*;
+
+/// \enum ResolveError
+/// \brief error conditions returned by resolution methods
+enum ResolveError {
+    NotFound,         ///< no matching file or module found in any search root
+    AmbiguousModule,  ///< both a file and directory match the final segment
+    InvalidLibrary,   ///< reserved
+    PermissionDenied, ///< reserved
+    CyclicImport,     ///< reserved
+}
+
+/// \class ImportResolver
+/// \brief resolves qualified module paths and file names against a set of
+///        indexed search roots
+///
+/// the resolver is constructed via the nested `Builder` class. once built,
+/// the index is populated either synchronously or via a thread pool. all
+/// resolution methods block until indexing completes.
+///
+/// ownership semantics:
+/// - search roots are heap-allocated and owned by this resolver
+/// - the `FileExtensions` config is optionally owned depending on whether
+///   one was provided at construction time
+///
+/// \note the resolver uses raw pointers (`*T`) rather than managed handles.
+///       ensure the resolver outlives any references to returned paths.
+class ImportResolver {
+    priv var _roots:           vec::<*SearchRoot>;       ///< priority-sorted search roots (index 0 = cwd)
+    priv var _cache:           map::<string, Path>;      ///< resolution cache keyed by "prefix:seg1::seg2::..."
+    priv var _ext_cfg:         *FileExtensions;          ///< file extension classification config
+    priv var _owns_ext_cfg:    bool;                     ///< true if destructor should free `_ext_cfg`
+    priv var _index_completed: std::Atomic::<bool>;      ///< set to true when indexing finishes
+
+    __inline_cpp("public:");
+
+    /// \class Builder
+    /// \brief fluent builder for constructing an `ImportResolver`
+    ///
+    /// usage:
+    /// \code
+    ///   var resolver = ImportResolver::Builder()
+    ///       .cwd(my_cwd)
+    ///       .add_include(some_path)
+    ///       .extensions(&ext_cfg)
+    ///       .build(&pool);
+    /// \endcode
+    ///
+    /// if `build()` is called with a non-null thread pool, indexing is
+    /// enqueued and returns immediately. otherwise indexing blocks.
+    pub class Builder {
+        priv var _cwd:           std::Nullable::<Path>;
+        priv var _include_paths: vec::<Path>;
+        priv var _ext_cfg:       *FileExtensions;
+        priv var _pool:          *ThreadPool;
+
+        /// \brief default constructor; initializes all fields to null/empty
+        fn Builder(self) {
+            self._cwd           = null;
+            self._include_paths = vec::<Path>();
+            self._ext_cfg       = &null;
+            self._pool          = &null;
+        }
+
+        /// \brief sets the current working directory as the highest-priority search root
+        /// \param path the directory to use as cwd
+        /// \return pointer to self for chaining
+        fn cwd(self, path: Path) -> ref!(Builder) {
+            self._cwd = path;
+            return self;
+        }
+
+        /// \brief appends a single include path to the search list
+        /// \param path the directory to add
+        /// \return pointer to self for chaining
+        fn add_include(self, path: Path) -> ref!(Builder) {
+            self._include_paths.push_back(path);
+            return self;
+        }
+
+        /// \brief appends multiple include paths to the search list
+        /// \param paths vector of directories to add
+        /// \return pointer to self for chaining
+        fn add_includes(self, paths: vec::<Path>) -> ref!(Builder) {
+            for p: Path in paths {
+                self._include_paths.push_back(p);
+            }
+            return self;
+        }
+
+        /// \brief sets the file extension configuration
+        /// \param cfg pointer to an existing config; if null, a default is created
+        /// \return pointer to self for chaining
+        fn extensions(self, cfg: *FileExtensions) -> ref!(Builder) {
+            self._ext_cfg = cfg;
+            return self;
+        }
+
+        /// \brief constructs the resolver and initiates indexing
+        /// \param pool optional thread pool for async indexing; if null, blocks until done
+        /// \return heap-allocated resolver; caller assumes ownership
+        fn build(self, pool: *ThreadPool = &null) -> *ImportResolver {
+            self._pool = pool;
+
+            var cwd_path = self._cwd.value_or(Path(
+                libcxx::filesystem::current_path().generic_wstring(),
+                false
+            ));
+            var resolver = std::create::<ImportResolver>(self._ext_cfg);
+
+            if pool != &null {
+                pool->enqueue(
+                    fn () {
+                        resolver->build_index(cwd_path, self._include_paths, self._pool);
+                    }
+                );
+            } else {
+                resolver->build_index(cwd_path, self._include_paths, self._pool);
+            }
+
+            return resolver;
+        }
+    }
+
+    /// \brief direct constructor; prefer using `Builder` instead
+    /// \param ext_cfg optional extension config; if null, a default is allocated and owned
+    fn ImportResolver(self, ext_cfg: *FileExtensions = &null) {
+        self._roots = vec::<*SearchRoot>();
+        self._cache = map::<string, Path>();
+
+        if ext_cfg != &null {
+            self._ext_cfg      = ext_cfg;
+            self._owns_ext_cfg = false;
+        } else {
+            self._ext_cfg      = std::create::<FileExtensions>();
+            self._owns_ext_cfg = true;
+        }
+    }
+
+    /// \brief builds the directory index for all search roots
+    /// \param cwd the current working directory (priority 0)
+    /// \param include_paths additional include directories (priority 1+)
+    /// \param pool optional thread pool; currently unused in body but reserved for parallel indexing
+    ///
+    /// sets `_index_completed` to true on exit via `finally` block.
+    fn build_index(self, cwd: Path, include_paths: vec::<Path>, pool: *ThreadPool = &null) {
+        self._index_completed.store(false, std::MemoryOrder::release);
+        finally {
+            self._index_completed.store(true, std::MemoryOrder::release);
+        };
+
+        if cwd.exists() && cwd.is_directory() {
+            var root = std::create::<SearchRoot>(cwd, 0, self._ext_cfg);
+            self._roots.push_back(root);
+            root->build_index();
+        }
+
+        var priority: u32 = 1;
+        for p: Path in include_paths {
+            if p.exists() && p.is_directory() {
+                var root = std::create::<SearchRoot>(p, priority++, self._ext_cfg);
+                self._roots.push_back(root);
+                root->build_index();
+            }
+        }
+    }
+
+    /// \brief destructor; frees all owned search roots and optionally the extension config
+    fn op delete (self) {
+        for root: *SearchRoot in self._roots {
+            if root != &null {
+                std::destroy(root);
+            }
+        }
+        self._roots.clear();
+        self._cache.clear();
+
+        if self._owns_ext_cfg && (self._ext_cfg != &null) {
+            std::destroy(self._ext_cfg);
+        }
+    }
+
+    /// \brief returns the extension configuration in use
+    /// \return non-owning pointer to the extension config
+    fn extensions(self) -> *FileExtensions {
+        return self._ext_cfg;
+    }
+
+    /// \brief spin-waits until indexing is complete
+    ///
+    /// uses `libcxx::this_thread::yield()` to avoid busy-waiting.
+    fn wait_for_index(self) {
+        while !self.is_index_ready() {
+            __inline_cpp("libcxx::this_thread::yield()");
+        }
+    }
+
+    /// \brief checks whether indexing has finished
+    /// \return true if the index is ready for queries
+    fn is_index_ready(self) -> bool {
+        return self._index_completed.load(std::MemoryOrder::acquire);
+    }
+
+    /// \brief resolves a qualified module path to a filesystem path
+    /// \param segments path segments, e.g. ["Core", "Include", "FileSystem"]
+    /// \return the resolved path, or an error
+    ///
+    /// resolution order:
+    /// 1. traverse directories matching segments[0..n-1]
+    /// 2. look for a file with stem matching segments[n-1] and category HelixSource
+    /// 3. if no file, look for a directory with that name containing `module.hlx`
+    ///
+    /// \note returns `AmbiguousModule` if both a file and directory match, but still
+    ///       caches and returns the file path. this is arguably a bug—callers receiving
+    ///       `AmbiguousModule` cannot distinguish success from failure without inspecting
+    ///       the cache manually.
+    fn resolve_module(self, segments: vec::<string>)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        if segments.size() == 0 {
+            return ResolveError::NotFound;
+        }
+
+        var cache_key = self.make_cache_key("mod", segments);
+
+        if self._cache.contains(cache_key) {
+            return self._cache[cache_key];
+        }
+
+        for root: *SearchRoot in self._roots {
+            var node = root->root;
+            for i in range::<usize>(0, segments.size() - 1) {
+                node = node->find_dir(segments[i]);
+                if node == &null {
+                    break;
+                }
+            }
+
+            if node == &null {
+                continue;
+            }
+
+            var last = segments[segments.size() - 1];
+
+            var file_node = node->find_by_stem_and_category(last, FileCategory::HelixSource);
+            if (file_node != &null) && (file_node->file_path) {
+                self._cache[cache_key] = *(file_node->file_path);
+
+                var dir_node = node->find_dir(last);
+                if dir_node != &null {
+                    return ResolveError::AmbiguousModule;
+                }
+
+                return *(file_node->file_path);
+            }
+
+            var dir_node = node->find_dir(last);
+            if dir_node != &null {
+                var mod_node = dir_node->find_by_stem_and_category("module", FileCategory::HelixSource);
+                if (mod_node != &null) && (mod_node->file_path) {
+                    self._cache[cache_key] = *(mod_node->file_path);
+                    return *(mod_node->file_path);
+                }
+            }
+        }
+
+        return ResolveError::NotFound;
+    }
+
+    /// \brief resolves a module directory path and returns its `module.hlx` entry point
+    /// \param segments path segments identifying the directory
+    /// \return path to `module.hlx` inside the directory, or an error
+    fn resolve_module_dir(self, segments: vec::<string>)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        for root: *SearchRoot in self._roots {
+            var node = root->traverse(segments);
+
+            if (node == &null) || (!node->is_dir) {
+                continue;
+            }
+
+            var mod_node = node->find_by_stem_and_category("module", FileCategory::HelixSource);
+
+            if (mod_node != &null) && (mod_node->category == FileCategory::HelixSource) {
+                return (*(mod_node->file_path));
+            }
+        }
+
+        return ResolveError::NotFound;
+    }
+
+    /// \brief resolves a helix library (.hlib) by name
+    /// \param name library stem without extension
+    /// \return the resolved path, or NotFound
+    fn resolve_library(self, name: string)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        for root: *SearchRoot in self._roots {
+            var node = root->root->find_by_stem_and_category(name, FileCategory::HelixLibrary);
+            if (node != &null) && (node->file_path) {
+                return *(node->file_path);
+            }
+        }
+
+        return ResolveError::NotFound;
+    }
+
+    /// \brief collects all exportable module names under a given path
+    /// \param segments path to the directory to scan
+    /// \return vector of file stems (excluding "module")
+    ///
+    /// stops after the first root that yields results.
+    fn collect_exports(self, segments: vec::<string>) -> vec::<string> {
+        var result = vec::<string>();
+
+        for root: *SearchRoot in self._roots {
+            var node = root->traverse(segments);
+
+            if (node == &null) || (!node->is_dir) {
+                continue;
+            }
+
+            var files = node->collect_by_category(FileCategory::HelixSource);
+
+            for f: *DirEntry in files {
+                if f->name != "module" {
+                    result.push_back(f->name);
+                }
+            }
+
+            if result.size() > 0 {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    /// \brief resolves a C++ header by stem
+    /// \param name header stem without extension
+    /// \return the resolved path, or NotFound
+    fn resolve_cxx_header(self, name: string)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        return self.resolve_by_category(name, FileCategory::CxxHeader);
+    }
+
+    /// \brief resolves a C++ source file by stem
+    /// \param name source stem without extension
+    /// \return the resolved path, or NotFound
+    fn resolve_cxx_source(self, name: string)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        return self.resolve_by_category(name, FileCategory::CxxSource);
+    }
+
+    /// \brief resolves a C header by stem
+    /// \param name header stem without extension
+    /// \return the resolved path, or NotFound
+    fn resolve_c_header(self, name: string)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        return self.resolve_by_category(name, FileCategory::CHeader);
+    }
+
+    /// \brief resolves a C source file by stem
+    /// \param name source stem without extension
+    /// \return the resolved path, or NotFound
+    fn resolve_c_source(self, name: string)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        return self.resolve_by_category(name, FileCategory::CSource);
+    }
+
+    /// \brief resolves a C/C++ include path as written in `#include` directives
+    /// \param include_path the path string, e.g. "foo/bar.h" or "baz"
+    /// \return the resolved path, or NotFound
+    ///
+    /// if no extension is provided, tries all known C++ header extensions.
+    fn resolve_cxx_include(self, include_path: string)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        var segments = self.split_path(include_path);
+
+        if segments.size() == 0 {
+            return ResolveError::NotFound;
+        }
+
+        var last = segments[segments.size() - 1];
+        segments.pop_back();
+
+        var dot_pos = last.rfind(".");
+        var stem    = last;
+        var ext     = string();
+
+        if dot_pos != null {
+            stem = last.raw_string().substr(0, (*dot_pos));
+            ext  = last.raw_string().substr((*dot_pos) + 1);
+        }
+
+        for root: *SearchRoot in self._roots {
+            var node = root->traverse(segments);
+
+            if node == &null {
+                node = root->root;
+            }
+
+            if ext.size() > 0 {
+                var file_node = node->find_with_ext(stem, ext);
+                if (file_node != &null) && (file_node->file_path) {
+                    return (*(file_node->file_path));
+                }
+            } else {
+                var header_exts = self._ext_cfg->cxx_header_exts();
+                for hext: string in header_exts {
+                    var file_node = node->find_with_ext(stem, hext);
+                    if (file_node != &null) && (file_node->file_path) {
+                        return (*(file_node->file_path));
+                    }
+                }
+            }
+        }
+
+        return ResolveError::NotFound;
+    }
+
+    /// \brief resolves a file by category in the root directories (non-recursive)
+    /// \param name file stem
+    /// \param cat category to match
+    /// \return the resolved path, or NotFound
+    fn resolve_by_category(self, name: string, cat: FileCategory)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        for root: *SearchRoot in self._roots {
+            var node = root->root->find(name);
+
+            if (node != &null) && (node->category == cat) {
+                return (*(node->file_path));
+            }
+        }
+
+        return ResolveError::NotFound;
+    }
+
+    /// \brief resolves a file by stem and explicit extension
+    /// \param name file stem
+    /// \param ext extension without leading dot
+    /// \return the resolved path, or NotFound
+    fn resolve_by_ext(self, name: string, ext: string)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        for root: *SearchRoot in self._roots {
+            var node = root->root->find_with_ext(name, ext);
+
+            if (node != &null) && (node->file_path) {
+                return (*(node->file_path));
+            }
+        }
+
+        return ResolveError::NotFound;
+    }
+
+    /// \brief resolves an arbitrary file given path segments
+    /// \param segments path components; last element is the filename
+    /// \return the resolved path, or NotFound
+    ///
+    /// if the filename has no extension, attempts to match any file with that stem.
+    fn resolve_file(self, segments: vec::<string>) -> std::Expected::<Path, ResolveError> {
+        self.wait_for_index();
+
+        if segments.size() == 0 {
+            return ResolveError::NotFound;
+        }
+
+        var dir_segments = segments;
+        var file_name    = dir_segments[dir_segments.size() - 1];
+        dir_segments.pop_back();
+
+        for root: *SearchRoot in self._roots {
+            var node = root->root;
+
+            if dir_segments.size() > 0 {
+                node = root->traverse(dir_segments);
+            }
+
+            if node == &null {
+                continue;
+            }
+
+            var file_node = node->find(file_name);
+
+            if (file_node == &null) && (file_name.rfind(".") == null) {
+                for entry in node->children {
+                    var child = entry.second;
+                    if (!child->is_dir) && (child->name == file_name) && (child->ext.size() == 0) {
+                        file_node = child;
+                        break;
+                    }
+                }
+            }
+
+            if (file_node != &null) && (!file_node->is_dir) && (file_node->file_path) {
+                return *(file_node->file_path);
+            }
+        }
+
+        return ResolveError::NotFound;
+    }
+
+    /// \brief resolves a relative path from the location of another file
+    /// \param rel_path the relative path string
+    /// \param from_file the file whose directory is used as the base
+    /// \return the resolved path, or NotFound
+    ///
+    /// falls back to searching search roots if not found relative to `from_file`.
+    fn resolve_path(self, rel_path: string, from_file: Path)
+        -> std::Expected::<Path, ResolveError>
+    {
+        self.wait_for_index();
+
+        var parent_path  = from_file.path_data.parent_path();
+        var candidate_fs = parent_path / libcxx::filesystem::path(rel_path.raw_string());
+
+        if libcxx::filesystem::exists(candidate_fs) {
+            return (
+                Path(candidate_fs.generic_wstring(), false)
+            );
+        }
+
+        for root: *SearchRoot in self._roots {
+            candidate_fs = root->base_path.path_data / libcxx::filesystem::path(rel_path.raw_string());
+
+            if libcxx::filesystem::exists(candidate_fs) {
+                return (
+                    Path(candidate_fs.generic_wstring(), false)
+                );
+            }
+        }
+
+        return ResolveError::NotFound;
+    }
+
+    /// \brief checks if a relative path exists under any search root
+    /// \param rel_path the relative path to check
+    /// \return true if the path exists
+    fn path_exists(self, rel_path: string) -> bool {
+        for root: *SearchRoot in self._roots {
+            var candidate = root->base_path.path_data / libcxx::filesystem::path(rel_path.raw_string());
+
+            if libcxx::filesystem::exists(candidate) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// \brief collects all files matching a category across all roots (recursive)
+    /// \param cat the file category to collect
+    /// \return vector of paths; duplicates are filtered by full path string
+    fn collect_all_by_category(self, cat: FileCategory) -> vec::<Path> {
+        var result = vec::<Path>();
+        var seen   = map::<string, bool>();
+
+        for root: *SearchRoot in self._roots {
+            self.collect_recursive(root->root, cat, &result, &seen);
+        }
+
+        return result;
+    }
+
+    priv fn collect_recursive(
+        self,
+        node:   *DirEntry,
+        cat:    FileCategory,
+        result: *vec::<Path>,
+        seen:   *map::<string, bool>
+    ) {
+        var files = node->collect_by_category(cat);
+
+        for f: *DirEntry in files {
+            var path_str = (*(f->file_path)).full_path();
+            if !(seen->contains(path_str)) {
+                (*seen)[path_str] = true;
+                result->push_back(*(f->file_path));
+            }
+        }
+
+        for entry in node->children {
+            var child = entry.second;
+            if child->is_dir {
+                self.collect_recursive(child, cat, result, seen);
+            }
+        }
+    }
+
+
+    /// \brief clears the resolution cache
+    fn invalidate_cache(self) {
+        self._cache.clear();
+    }
+
+    /// \brief rebuilds a single search root by index
+    /// \param index the root index in `_roots`
+    ///
+    /// destroys and recreates the root, then invalidates the cache.
+    fn rebuild_root(self, index: usize) {
+        if index >= self._roots.size() {
+            return;
+        }
+
+        var old      = self._roots[index];
+        var path     = old->base_path;
+        var priority = old->priority;
+
+        std::destroy(old);
+        self._roots[index] = std::create::<SearchRoot>(path, priority, self._ext_cfg);
+
+        self.invalidate_cache();
+    }
+
+    /// \brief rebuilds all search roots
+    fn rebuild_all(self) {
+        for i in range::<usize>(0, self._roots.size()) {
+            self.rebuild_root(i);
+        }
+    }
+
+    /// \brief returns a human-readable dump of search paths with priorities
+    fn dump_search_paths(self) -> string {
+        var result = "ImportResolver search paths:\n";
+
+        for i in range::<usize>(0, self._roots.size()) {
+            var root = self._roots[i];
+            result += f"  [{root->priority}] {root->base_path.full_path()}\n";
+        }
+
+        return result;
+    }
+
+    /// \brief returns a summary of cache statistics
+    fn cache_stats(self) -> string {
+        return f"ImportResolver cache: {self._cache.size()} entries";
+    }
+
+    /// \brief returns a human-readable dump of all indexed files matching a category
+    /// \param cat the category to dump
+    fn dump_indexed_files(self, cat: FileCategory) -> string {
+        var files  = self.collect_all_by_category(cat);
+        var result = f"Indexed files (category {static_cast::<u32>(cat)}):\n";
+
+        for p: Path in files {
+            result += f"  {p.full_path()}\n";
+        }
+
+        return result;
+    }
+
+    priv fn make_cache_key(self, prefix: string, segments: vec::<string>) -> string {
+        var key = prefix + ":";
+
+        for i in range::<usize>(0, segments.size()) {
+            if i > 0 {
+                key += "::";
+            }
+            key += segments[i];
+        }
+
+        return key;
+    }
+
+    priv fn split_path(self, path: string) -> vec::<string> {
+        var result  = vec::<string>();
+        var current = string();
+
+        for i in range::<usize>(0, path.size()) {
+            var c = path[i];
+
+            if (c == '/') || (c == '\\') {
+                if current.size() > 0 {
+                    result.push_back(current);
+                    current = string();
+                }
+            } else {
+                current += c;
+            }
+        }
+
+        if current.size() > 0 {
+            result.push_back(current);
+        }
+
+        return result;
+    }
+
+    /// \brief returns a complete dump of the entire index structure
+    ///
+    /// includes all roots, directory trees, and cache entries. useful for debugging.
+    fn dump_full_index(self) -> string {
+        var result = "Full ImportResolver Index Dump:\n";
+
+        for i in range::<usize>(0, self._roots.size()) {
+            var root = self._roots[i];
+            result += f"\n[Root {i}] priority={root->priority} path={root->base_path.full_path()}\n";
+            result += self.dump_node(root->root, 1);
+        }
+
+        result += f"\n=== Cache: {self._cache.size()} entries ===\n";
+        for entry in self._cache {
+            result += f"  {entry.first} -> {entry.second.full_path()}\n";
+        }
+
+        return result;
+    }
+
+    priv fn dump_node(self, node: *DirEntry, depth: usize) -> string {
+        var result = string();
+        var indent = string();
+
+        for _ in range::<usize>(0, depth) {
+            indent += "  ";
+        }
+
+        if node->is_dir {
+            result += f"{indent}[DIR] {node->name}/\n";
+        } else {
+            var cat_str = self.category_to_string(node->category);
+            var path_str = "<null>";
+
+            if node->file_path {
+                path_str = (*(node->file_path)).full_path();
+            }
+
+            if node->ext.size() > 0 {
+                result += f"{indent}[FILE] {node->name}.{node->ext} ({cat_str})\n";
+            } else {
+                result += f"{indent}[FILE] {node->name} ({cat_str})\n";
+            }
+
+            result += f"{indent}       -> {path_str}\n";
+        }
+
+        for entry in node->children {
+            result += self.dump_node(entry.second, depth + 1);
+        }
+
+        return result;
+    }
+
+    priv fn category_to_string(self, cat: FileCategory) -> string {
+        if cat == FileCategory::HelixSource  { return "HelixSource"; }
+        if cat == FileCategory::HelixLibrary { return "HelixLibrary"; }
+        if cat == FileCategory::CxxSource    { return "CxxSource"; }
+        if cat == FileCategory::CxxHeader    { return "CxxHeader"; }
+        if cat == FileCategory::CSource      { return "CSource"; }
+        if cat == FileCategory::CHeader      { return "CHeader"; }
+        if cat == FileCategory::Other        { return "Other"; }
+        return "Ignored";
+    }
+}
