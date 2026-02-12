@@ -268,6 +268,9 @@ class Expected {
     bool has_value;
 
   public:
+    constexpr Expected()
+        : has_value(false) {}
+
     constexpr Expected(const T &val)
         : value(val)
         , has_value(true) {}

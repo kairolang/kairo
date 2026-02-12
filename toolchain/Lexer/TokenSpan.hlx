@@ -18,6 +18,12 @@ class TokenSpan {
         self._length = length;
     }
 
+    fn TokenSpan(self, buff: *TokenBuffer::<512>) {
+        self._buffer = buff;
+        self._start  = 0;
+        self._length = buff->size();
+    }
+
     fn size(self) -> usize {
         return self._length;
     }
