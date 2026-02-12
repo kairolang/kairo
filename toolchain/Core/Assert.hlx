@@ -85,9 +85,9 @@ class Assert {
             return (v, f"{ns}ns");
         } if ms < 10.0 {
             if (iters > 1) {
-                return (v, f"mean: {us}µs,\titers: {iters}");
+                return (v, f"mean: {us}us,\titers: {iters}");
             }
-            return (v, f"{us}µs");
+            return (v, f"{us}us");
         } if s < 10.0 {
             if (iters > 1) {
                 return (v, f"mean: {ms}ms,\titers: {iters}");

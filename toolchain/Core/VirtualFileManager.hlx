@@ -344,19 +344,14 @@ class VirtualFileManager {
     /// `SourceLocation` value.
     ///
     fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
-        var max_off: usize = 0;
-        
-        for i in range::<usize>(fid, _segments.size()) {
-            var seg = _segments[i];
-            max_off += seg->size;
-            
-            if off <= (seg->offset + seg->size) {
-                var local = static_cast::<usize>(off - seg->offset);
-                return SourceLocation::from_base(seg->fid, local);
-            }
+        var seg_idx = fid + static_cast::<u32>(off / 0x100000000);
+        var local_off = off % 0x100000000;
+
+        if seg_idx >= (_segments.size()) {
+            std::crash(std::Error::RuntimeError(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})"));
         }
 
-        std::crash(std::Error::RuntimeError(f"VirtualFileManager: Offset {off} out of bounds for fid {fid}, max idx allowed is {max_off}"));
+        return SourceLocation::from_base(_segments[seg_idx]->fid, local_off);
     }
 
     /// just a pointer should also return a srouce location

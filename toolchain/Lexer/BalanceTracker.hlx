@@ -19,9 +19,9 @@ class BalanceTracker {
     __inline_cpp("public:");
 
     struct Entry {
-        var kind: TokenKind;
-        var loc:  SourceLocation;
-        var is_macro: bool;
+        var kind:     TokenKind; // 32
+        var loc:      SourceLocation; // 32
+        var is_macro: bool; // 1
     }
     
     enum BalanceErrorKind derives u8 {
@@ -39,15 +39,34 @@ class BalanceTracker {
         var is_macro : bool;
     }
     
-    pub var stack: libcxx::stack::<Entry>;
-    pub var errors: libcxx::deque::<BalanceError>;
+    const MAX_STACK_SIZE: usize = 512;
+    var stack      : std::Memory::buffer::<Entry, 512>; // static const and initialized in class is not supported in stage(0)
+    var stack_size : usize = 0;
+    pub var errors : libcxx::deque::<BalanceError>;
     
-    fn push(self, kind: TokenKind, loc: SourceLocation, is_macro: bool = false) {
-        self.stack.push(Entry{ kind: kind, loc: loc, is_macro: is_macro });
+    inline fn push(self, kind: TokenKind, loc: SourceLocation, is_macro: bool = false) {
+        if self.stack_size < MAX_STACK_SIZE {
+            self.stack[self.stack_size] = Entry{
+                kind: kind,
+                loc: loc,
+                is_macro: is_macro
+            };
+            ++self.stack_size;
+        } else {
+            // overflow = unrecoverable nesting
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Unclosed,
+                loc: loc,
+                expected: TokenKind::TkUnknown,
+                found: TokenKind::TkUnknown,
+                open_loc: loc,
+                is_macro: is_macro
+            });
+        }
     }
-    
-    fn pop(self, closer: TokenKind, loc: SourceLocation) -> bool {
-        if self.stack.empty() {
+
+    inline fn pop(self, closer: TokenKind, loc: SourceLocation) -> bool {
+        if self.stack_size == 0 {
             self.errors.push_back(BalanceError{
                 kind: BalanceErrorKind::Unexpected,
                 loc: loc,
@@ -58,44 +77,36 @@ class BalanceTracker {
             });
             return false;
         }
-        
-        var top = self.stack.top();
-        var expected_closer = BalanceTracker::get_closer(top.kind);
-        
-        if expected_closer == closer {
-            self.stack.pop();
+
+        var top = self.stack[self.stack_size - 1];
+        var expected = BalanceTracker::get_closer(top.kind);
+
+        if expected == closer {
+            --self.stack_size;
             return true;
         }
-        
-        // Mismatch - search stack for matching opener
+
+        // limited depth recovery (max 3 like before)
         var matching_opener = BalanceTracker::get_opener(closer);
-        var depth: usize = 0;
-        var found = false;
-        
-        // Copy stack to search (or use a deque instead of stack)
-        var temp: libcxx::stack::<Entry>;
-        while !self.stack.empty() {
-            var entry = self.stack.top();
-            self.stack.pop();
-            temp.push(entry);
-            ++depth;
-            
-            if entry.kind == matching_opener {
-                found = true;
-                break;
-            }
-            
-            // Don't search too deep - likely unrecoverable
-            if depth > 3 {
+        var found_index: isize = -1;
+
+        for var i: isize = static_cast::<isize>(self.stack_size) - 1;
+            i >= 0 && (static_cast::<usize>(self.stack_size - 1 - i) <= 3);
+            --i {
+
+            if self.stack[static_cast::<usize>(i)].kind == matching_opener {
+                found_index = i;
                 break;
             }
         }
-        
-        if found {
-            // Report all unclosed delimiters between top and match
-            while temp.size() > 1 {
-                var unclosed = temp.top();
-                temp.pop();
+
+        if found_index >= 0 {
+            // report unclosed between top and match
+            for var i: usize = static_cast::<usize>(found_index) + 1;
+                i < self.stack_size;
+                ++i {
+
+                var unclosed = self.stack[i];
                 self.errors.push_back(BalanceError{
                     kind: BalanceErrorKind::Unclosed,
                     loc: unclosed.loc,
@@ -105,29 +116,41 @@ class BalanceTracker {
                     is_macro: unclosed.is_macro
                 });
             }
-            // Don't restore the matched opener - it's consumed
-            temp.pop();
+
+            // consume everything including matching opener
+            self.stack_size = static_cast::<usize>(found_index);
         } else {
-            // No match found - restore stack and report mismatch
-            while !temp.empty() {
-                self.stack.push(temp.top());
-                temp.pop();
-            }
-            
+            // mismatched
             self.errors.push_back(BalanceError{
                 kind: BalanceErrorKind::Mismatched,
                 loc: loc,
-                expected: expected_closer,
+                expected: expected,
                 found: closer,
                 open_loc: top.loc,
                 is_macro: top.is_macro
             });
-            
-            // Pop the mismatched opener anyway
-            self.stack.pop();
+
+            --self.stack_size;
         }
-        
+
         return false;
+    }
+
+    inline fn finalize(self) {
+        while self.stack_size > 0 {
+            var top = self.stack[self.stack_size - 1];
+
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Unclosed,
+                loc: top.loc,
+                expected: BalanceTracker::get_closer(top.kind),
+                found: TokenKind::TkUnknown,
+                open_loc: top.loc,
+                is_macro: top.is_macro
+            });
+
+            --self.stack_size;
+        }
     }
 
     static fn get_opener(closer: TokenKind) -> TokenKind {
@@ -139,23 +162,7 @@ class BalanceTracker {
         }
     }
     
-    fn finalize(self) {
-        while !self.stack.empty() {
-            var top = self.stack.top();
-            self.errors.push_back(BalanceError{
-                kind: BalanceErrorKind::Unclosed,
-                loc: top.loc,
-                expected: BalanceTracker::get_closer(top.kind),
-                found: TokenKind::TkUnknown,
-                open_loc: top.loc,
-                is_macro: top.is_macro
-            });
-            
-            self.stack.pop();
-        }
-    }
-    
-    static fn get_closer(opener: TokenKind) -> TokenKind {
+    inline static fn get_closer(opener: TokenKind) -> TokenKind {
         switch opener {
             case TokenKind::OpLBrace  { return TokenKind::OpRBrace;  }
             case TokenKind::OpLParen  { return TokenKind::OpRParen;  }
@@ -164,13 +171,13 @@ class BalanceTracker {
         }
     }
     
-    static fn is_opener(kind: TokenKind) -> bool {
+    inline static fn is_opener(kind: TokenKind) -> bool {
         return (kind == TokenKind::OpLBrace)
             || (kind == TokenKind::OpLParen)
             || (kind == TokenKind::OpLSquare);
     }
     
-    static fn is_closer(kind: TokenKind) -> bool {
+    inline static fn is_closer(kind: TokenKind) -> bool {
         return (kind == TokenKind::OpRBrace)
             || (kind == TokenKind::OpRParen)
             || (kind == TokenKind::OpRSquare);
@@ -180,8 +187,8 @@ class BalanceTracker {
         return !self.errors.empty();
     }
     
-    fn clear(self) {
-        while !self.stack.empty() { self.stack.pop(); }
+    inline fn clear(self) {
+        self.stack_size = 0;
         self.errors.clear();
     }
 }

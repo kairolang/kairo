@@ -297,6 +297,20 @@ class SourceManager {
         };
     }
 
+    fn resolve(self, loc: SourceLocation, fid: FileID) -> VirtualFileManager::SegmentResolve {
+        var id = static_cast::<usize>(loc.raw());
+
+        if id > 0 {
+            --id;
+        }
+
+        var f = self._files[fid];
+        return {
+            .fid: fid,
+            .offset: id - f->base_offset
+        };
+    }
+
     ///
     /// \brief placeholder for async line index status.
     ///

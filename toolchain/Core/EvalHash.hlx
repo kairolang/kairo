@@ -287,7 +287,7 @@ class HashState {
     ///
     /// \brief Mix a single character into the hash state.
     ///
-    fn mix(self, chr: char) {
+    inline fn mix(self, chr: char) {
         self.value = mix_char(chr, self.value, self.index - 1);
         ++self.index;
     }
@@ -295,7 +295,7 @@ class HashState {
     ///
     /// \brief Mix a buffer of chars (1-255 chars).
     ///
-    fn mix_buffer(self, const buf: *char, const len: usize) {
+    inline fn mix_buffer(self, const buf: *char, const len: usize) {
         if (len == 0) || (len >= 256) || ((len + self.index) > 256) {
             std::crash(std::Error::RuntimeError("Buffer too long for hashing (max 255 chars)"));
         }
@@ -308,7 +308,7 @@ class HashState {
     ///
     /// \brief Finalize the hash into a folded 32-bit value.
     ///
-    fn finalize(self) -> u64 {
+    inline fn finalize(self) -> u64 {
         return fold_hash((
             (self.value ^ (static_cast::<u64>(self.index - 1) * GOLDEN_RATIO_MIX))
                 + RESERVED_LOW
@@ -318,12 +318,12 @@ class HashState {
     ///
     /// \brief Reset the hash state for reuse.
     ///
-    fn reset(self) {
+    inline fn reset(self) {
         self.value = FNV_OFFSET_BASIS;
         self.index = 0;
     }
 
-    fn copy(self) -> HashState {
+    inline fn copy(self) -> HashState {
         var new_state: HashState;
         new_state.value = self.value;
         new_state.index = self.index;

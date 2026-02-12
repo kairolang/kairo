@@ -70,7 +70,7 @@ class MemoryBuffer {
     ///
     /// \brief assignment operator.
     ///
-    fn op = (self, other: MemoryBuffer) {
+    inline fn op = (self, other: MemoryBuffer) {
         self._data = other._data;
         self._size = other._size;
     }
@@ -78,14 +78,14 @@ class MemoryBuffer {
     ///
     /// \brief returns pointer to underlying byte data.
     ///
-    fn data(self) -> std::const_ptr::<u8> {
+    inline fn data(self) -> std::const_ptr::<u8> {
         return self._data;
     }
 
     ///
     /// \brief returns total size of the buffer in bytes.
     ///
-    fn size(self) -> usize {
+    inline fn size(self) -> usize {
         return self._size;
     }
 
@@ -94,7 +94,7 @@ class MemoryBuffer {
     ///
     /// \return true if `_data` is not null and `_size` > 0.
     ///
-    fn is_valid(self) -> bool {
+    inline fn is_valid(self) -> bool {
         return (self._data != &null) && (self._size > 0);
     }
 
@@ -103,7 +103,7 @@ class MemoryBuffer {
     ///
     /// \return `UTF8View` initialized with buffer data.
     ///
-    fn chars(self) -> UTF8View {
+    inline fn chars(self) -> UTF8View {
         return UTF8View(self._data, self._size);
     }
 }

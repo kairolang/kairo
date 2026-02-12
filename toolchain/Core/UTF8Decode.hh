@@ -161,43 +161,74 @@ static inline DecodeResult decode_utf8_lut(const u8 *s,
         return {.chr = 0xFFFD, .len = 0};
     }
 
-    u8 b0  = s[0];
-    if (b0 >= 0x80 && b0 < 0xC0) {
+    u8 b0 = s[0];
+
+    // ASCII fast path
+    if (b0 < 0x80) {
+        return {.chr = b0, .len = 1};
+    }
+
+    // Invalid continuation byte as start
+    if (b0 < 0xC0) {
         return {.chr = 0xFFFD, .len = 1};
     }
 
     u8 len = Utf8LengthTable[b0];
-    if (len == 1) {
-        return {.chr = b0, .len = 1};
-    }
 
     if (remaining < len) {
         return {.chr = 0xFFFD, .len = 1};
     }
 
-    u8 b1 = (len > 1) ? (s[1]) : 0;
-    u8 b2 = (len > 2) ? (s[2]) : 0;
-    u8 b3 = (len > 3) ? (s[3]) : 0;
+    char32_t cp;
 
-    uint32_t cp = (len == 2) ? (((b0 & 0x1F) << 6) | (b1 & 0x3F))
-                  : (len == 3)
-                      ? (((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F))
-                  : (len == 4) ? (((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) |
-                                  ((b2 & 0x3F) << 6) | (b3 & 0x3F))
-                               : b0;
+    switch (len) {
+        case 2: {
+            u8 b1 = s[1];
 
-    if ((b1 & 0xC0) != 0x80 || (len > 2 && (b2 & 0xC0) != 0x80) ||
-        (len > 3 && (b3 & 0xC0) != 0x80)) {
-        return {.chr = 0xFFFD, .len = 1};
+            if ((b1 & 0xC0) != 0x80) {
+                return {.chr = 0xFFFD, .len = 1};
+            }
+
+            cp = ((b0 & 0x1F) << 6) | (b1 & 0x3F);
+            if (cp < 0x80) {
+                return {.chr = 0xFFFD, .len = 1};
+            }
+            break;
+        } case 3: {
+            u8 b1 = s[1];
+            u8 b2 = s[2];
+
+            if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80) {
+                return {.chr = 0xFFFD, .len = 1};
+            }
+
+            cp = ((b0 & 0x0F) << 12) | ((b1 & 0x3F) << 6) | (b2 & 0x3F);
+            if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF)) {
+                return {.chr = 0xFFFD, .len = 1};
+            }
+            break;
+        } case 4: {
+            u8 b1 = s[1];
+            u8 b2 = s[2];
+            u8 b3 = s[3];
+
+            if ((b1 & 0xC0) != 0x80 || (b2 & 0xC0) != 0x80 ||
+                (b3 & 0xC0) != 0x80) {
+                return {.chr = 0xFFFD, .len = 1};
+            }
+
+            cp = ((b0 & 0x07) << 18) | ((b1 & 0x3F) << 12) |
+                 ((b2 & 0x3F) << 6) | (b3 & 0x3F);
+            if (cp < 0x10000 || cp > 0x10FFFF) {
+                return {.chr = 0xFFFD, .len = 1};
+            }
+
+            break;
+        } default:
+            return {.chr = 0xFFFD, .len = 1};
     }
 
-    if ((len == 2 && cp < 0x80) || (len == 3 && cp < 0x800) ||
-        (len == 4 && (cp < 0x10000 || cp > 0x10FFFF)) ||
-        (cp >= 0xD800 && cp <= 0xDFFF)) {
-        return {.chr = 0xFFFD, .len = 1};
-    }
-
-    return {.chr = static_cast<char32_t>(cp), .len = len};
+    return {.chr = cp, .len = len};
 }
 
 
