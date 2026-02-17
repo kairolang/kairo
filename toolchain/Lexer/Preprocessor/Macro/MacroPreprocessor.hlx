@@ -1,0 +1,1813 @@
+///--- The Helix Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that we give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ HELIX -------///
+
+/// Macro Preprocessor
+/// ==================
+///
+/// Handles macro definition collection, scope tracking, and token-level expansion
+/// for regular macros (foo!). Proc macros (@foo) are handled later in the AST phase.
+///
+/// Pipeline
+/// --------
+///
+///    ┌──────────────────┐
+///    │ Token Stream     │
+///    └────────┬─────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 1. Collect Definitions      │
+///   │    - Walk tokens            │
+///   │    - Track module scope     │
+///   │    - Register macro!(...){} │
+///   │    - Register macro!{}      │
+///   │    - Store body tokens      │
+///   └─────────────────────────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 2. Track Imports            │
+///   │    - Record use decls       │
+///   │    - Map alias → origin     │
+///   │    - No expansion yet       │
+///   └─────────────────────────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 3. Resolve Invocations      │
+///   │    - Match ident! or ident!(│
+///   │    - Qualified: exact lookup│
+///   │    - Unqualified: scoped    │
+///   │    - Validate delimiters    │
+///   └─────────────────────────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 4. Expand Tokens            │
+///   │    - Substitute params      │
+///   │    - Handle defaults        │
+///   │    - Handle variadics       │
+///   │    - Paste body tokens      │
+///   │    - Recurse if nested      │
+///   │    - Detect cycles          │
+///   └─────────────────────────────┘
+///             │
+///             ▼
+///   ┌─────────────────────────────┐
+///   │ 5. Return Expanded          │
+///   │    - Modified stream        │
+///   │    - Preserve locations     │
+///   │    - Report errors          │
+///   └─────────────────────────────┘
+///
+/// Definition Syntax
+/// -----------------
+///
+///   Parameterless (no parens allowed at invoke):
+///     macro foo! { body };
+///     Invoke: foo!
+///
+///   With params (parens required at invoke):
+///     macro foo!(a, b) { body };
+///     Invoke: foo!(x, y)
+///
+///   With defaults:
+///     macro foo!(a, b = "default") { body };
+///     Invoke: foo!(x) or foo!(x, y)
+///
+///   Variadic:
+///     macro foo!(a, ...rest) { body };
+///     Invoke: foo!(x), foo!(x, y, z)
+///
+/// Invocation Syntax
+/// -----------------
+///
+///   Parameterless:
+///     foo!                     → no parens, ever
+///
+///   With params:
+///     foo!(args)               → parens required
+///     Foo::Bar::foo!(args)     → qualified
+///
+///   Rule: parens iff macro accepts params
+///
+/// Resolution Rules
+/// ----------------
+///
+///   Qualified invocation (Foo::Bar::mac!):
+///     1. Resolve module path exactly
+///     2. Lookup macro in that module only
+///     3. ERROR if module not found
+///     4. ERROR if macro not in that module
+///     5. NEVER fall back to other scopes
+///
+///   Unqualified invocation (mac!):
+///     1. Current scope
+///     2. Imports (use Foo::Bar::mac!)
+///     3. Global/prelude
+///     4. ERROR if not found
+///
+/// Expansion Rules
+/// ---------------
+///
+///   - Path is for lookup only, consumed after resolution
+///   - Expansion is pure token substitution
+///   - No path prepending to expanded tokens
+///   - Macro author controls qualification in body
+///   - Use module_path! for self-relative expansion
+///
+/// Delimiter Rules
+/// ---------------
+///
+///   - Invocations with params use parens: foo!(...)
+///   - Content must have balanced delimiters: (), {}, []
+///   - Unbalanced delimiters inside invoke = compile error
+///   - For literal unbalanced content, use strings
+///
+/// Data Structures
+/// ---------------
+///
+///   MacroDefinition:
+///     - name: identifier
+///     - scope: module path
+///     - params: list of (name, default?, variadic?)
+///     - accepts_params: bool (true if defined with parens)
+///     - body: raw token span
+///
+///   MacroTable:
+///     - definitions: scope path → name → MacroDefinition
+///     - imports: alias → fully qualified path
+///
+///   ExpansionContext:
+///     - call_stack: for cycle detection (depth limit = 256)
+///     - param_bindings: name → token span
+///     - variadic_bindings: name → list of token spans
+///     - source_loc: invoke site for error reporting
+///     - definition_loc: definition site for error reporting
+///
+/// Built-in Macros
+/// ---------------
+///
+///   Token manipulation:
+///     concat!(a, b)        - join tokens
+///     stringify!(a)        - token → string
+///     unstringify!(s)      - string → tokens (⚠ injection risk)
+///
+///   Variadic helpers:
+///     count!(...args)      - count arguments
+///     first!(...args)      - first argument
+///     last!(...args)       - last argument
+///     rest!(...args)       - all but first
+///     init!(...args)       - all but last
+///
+///   Source location:
+///     file!                - current file path
+///     line!                - current line number
+///     column!              - current column number
+///     module_path!         - current module path
+///
+///   Diagnostics:
+///     error!(msg)          - compile error (optional code param)
+///     warning!(msg)        - compile warning (optional code param)
+///     note!(msg)           - compile note (optional code param)
+///
+///   Code generation:
+///     include!(path)       - paste file as tokens
+///     include_str!(path)   - file as string literal
+///     embed!(path)         - file as byte array
+///     unique_id!           - generate unique identifier
+///     todo!(msg = "")      - runtime error placeholder
+///     unreachable!(msg="") - assert unreachable
+///
+///   Conditional:
+///     defined!(name)       - check if macro exists
+///
+///   Macro hygiene:
+///     undefine!(name)     - remove macro definition
+///
+/// Error Cases
+/// -----------
+///
+///   Definition errors:
+///     - Duplicate macro in same scope
+///     - Invalid parameter syntax
+///     - Variadic not last parameter
+///     - Default after variadic
+///
+///   Resolution errors:
+///     - Undefined macro
+///     - Module not found (qualified)
+///     - Macro not in specified module (qualified)
+///     - Ambiguous import (same name from multiple modules)
+///
+///   Invocation errors:
+///     - Parens on parameterless macro
+///     - No parens on parameterized macro
+///     - Wrong param count
+///     - Missing required param
+///     - Unbalanced delimiters in args
+///
+///   Expansion errors:
+///     - Recursive expansion cycle (depth > 256)
+///     - Built-in macro misuse
+///
+
+/// goal:
+/// simple api to do sumn  like this:
+/*
+
+// once all is imported
+
+
+var imports = ImportResolver::Builder()
+    .with_standard_library(stdlib_path)
+    .with_project_root(project_root)
+
+for path in CLI::IncludePaths {
+    imports = imports.with_include_path(path);
+}
+
+// tcm = TokenCacheManager
+var macro_pp = MacroPreprocessor(sm, tcm, imports, pool);
+var fid = sm->load_file(path);
+if !tcm->lex_file(fid) {
+    return 1;
+}
+
+if !macro_pp.process_file(fid, ModulePath("test")) {
+    std::print("Macro processing failed!");
+    return 1;
+}
+
+var tokens = tcm->get_tokens(fid);
+if tokens == &null {
+    std::print("No tokens found!");
+    return 1;
+}
+
+/// thats it the macro expanded tokens are in `tokens`
+*/
+
+/// btw metnal note: if we have sum like `import Foo::Bar::SomeClass` we simply look up the full path if it doesnt exist we move on since the import may be for a type or function not a macro
+/// we only care about macros here and we can `import Foo::Bar::SomeMacro!` we only lookup `Foo::Bar` not the full path, then we lex and look for the specific macro in that module
+
+
+import Lexer::Lexer::*;
+import Lexer::TokenSpan::*;
+import Lexer::Preprocessor::ImportResolver::*;
+
+type SymbolID = u32;;
+
+class PreprocessorSymbolTable {
+    var table: map::<string, SymbolID>; ///< identifier name -> symbolId
+    var symbols: vec::<string>;         ///< symbolId -> identifier name
+
+    fn intern(self, name: string) -> SymbolID {
+        var it = table.find(name);
+        if (it != table.end()) {
+            return it->second;
+        }
+
+        var id: SymbolID = symbols.size();
+        symbols.emplace_back(name);
+        table.emplace(symbols.back(), id);
+
+        return id;
+    }
+
+    fn resolve(self, id: SymbolID) -> *string {
+        if id < symbols.size() {
+            return &(symbols[id]);
+        }
+
+        return &null;
+    }
+
+    fn op [](self, id: SymbolID) -> *string {
+        return self.resolve(id);
+    }
+
+    fn op [](self, name: string) -> SymbolID {
+        return self.intern(name);
+    }
+
+    fn op as (self) -> string {
+        var repr = "PreprocessorSymbolTable(\n";
+        for i in usize(0) .. usize(self.symbols.size()) {
+            repr += f"  {i}: '{self.symbols[i]}'\n";
+        }
+        repr += ")";
+        return repr;
+    }
+
+    fn size(self) -> usize {
+        return self.symbols.size();
+    }
+
+    fn clear(self) {
+        self.table.clear();
+        self.symbols.clear();
+    }
+
+    fn op delete (self) {
+        self.clear();
+    }
+}
+
+class IdentifierToken {
+    pub var name:  SymbolID;
+    pub var token: *Token;
+
+    fn IdentifierToken(self, name: SymbolID, token: *Token) {
+        self.name = name;
+        self.token = token;
+    }
+
+    default fn IdentifierToken(self);
+
+    const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
+        var name_str_ptr = sym_table->resolve(self.name);
+        var name_str = "<invalid>" if (name_str_ptr == &null) else *name_str_ptr;
+        return f"IdentifierToken(name: '{name_str}', token: {self.token})";
+    }
+
+    const fn op == (self, other: IdentifierToken) -> bool {
+        return (self.token) == (other.token);
+    }
+
+    const fn op != (self, other: IdentifierToken) -> bool {
+        return !(self == other);
+    }
+
+    const fn op == (self, other: SymbolID) -> bool {
+        return self.name == other;
+    }
+
+    const fn op != (self, other: SymbolID) -> bool {
+        return !(self == other);
+    }
+
+    const fn op < (self, other: IdentifierToken) -> bool {
+        return self.name < other.name;
+    }
+
+    const fn op > (self, other: IdentifierToken) -> bool {
+        return self.name > other.name;
+    }
+}
+
+class ModulePath {
+    pub var segments: vec::<IdentifierToken>; ///< each segment is an identifier token this does not include the "::" tokens
+
+    const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
+        if self.segments.size() == 0 {
+            return "<global>";
+        }
+
+        var result: string = "";
+        var back = self.segments.back();
+
+        result.reserve((segments.size()) * 12);
+
+        for seg in self.segments {
+            result += seg.as_string(sym_table) + ("::" if (seg != back) else "");
+        }
+
+        return result;
+    }
+
+    const fn op < (self, other: ModulePath) -> bool {
+        var n = libcxx::min(self.segments.size(), other.segments.size());
+
+        for i in usize(0)..usize(n) {
+            if self.segments[i].name != other.segments[i].name {
+                return self.segments[i].name < other.segments[i].name;
+            }
+        }
+
+        return self.segments.size() < other.segments.size();
+    }
+}
+
+class MacroParameter {
+    enum VariadicType derives u8 {
+        None,        ///< not variadic
+        Named,       ///< named variadic (e.g., =...rest)
+        Unnamed,     ///< unnamed variadic (e.g., ...rest)
+    }
+
+    pub var name:          IdentifierToken;
+    pub var has_default:   bool = false;
+    pub var is_variadic:   VariadicType = VariadicType::None;
+    pub var default_value: TokenSpan;
+
+    const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
+        var repr = f"MacroParameter(name: '{self.name.as_string(sym_table)}' ";
+        switch self.is_variadic {
+            case VariadicType::Named {
+                repr += ", is_variadic: named";
+            } case VariadicType::Unnamed {
+                repr += ", is_variadic: unnamed";
+            } case VariadicType::None {
+                repr += ", is_variadic: false";
+            }
+        }
+
+        if self.has_default {
+            repr += f", has_default: true, default_value: {self.default_value}";
+        } else {
+            repr += ", has_default: false, default_value: null";
+        }
+
+        return repr + ")";
+    }
+}
+
+class MacroParameterList {
+    pub var params: vec::<MacroParameter>;
+
+    const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
+        var repr = "MacroParameterList(params: [";
+        for param in self.params {
+            repr += param.as_string(sym_table) + ", ";
+        }
+        repr += "])";
+        return repr;
+    }
+}
+
+class MacroDefinition {
+    pub var scope:          ModulePath; ///< module path where this macro is defined (excl the name)
+    pub var params:         MacroParameterList; ///< list of parameters
+    pub var body:           TokenSpan; ///< raw token span for the macro body
+    pub var name:           IdentifierToken; ///< macro name we cant use a token here since a token doesnt store the text only kind range and imm data which is not sufficient
+    pub var definition_loc: SourceRange; ///< source location of the macro definition (for error reporting)
+    pub var accepts_params: bool; ///< does this macro accept parameters (true if defined with parens)
+
+    const fn as_string(self, s: *PreprocessorSymbolTable) -> string {
+        return f"MacroDefinition(name='{self.name.as_string(s)}', scope='{self.scope.as_string(s)}', params={self.params.as_string(s)}, body={self.body}, definition_loc={self.definition_loc}, accepts_params={self.accepts_params})";
+    }
+}
+
+
+class MacroSymbolTable {
+    pub var table: map::<ModulePath, map::<IdentifierToken, MacroDefinition>>; ///< scope path string -> macro name -> MacroDefinition
+    
+    fn insert_macro(self, macro_def: MacroDefinition) -> bool {
+        var scope_map_it = self.table.find(macro_def.scope);
+        if scope_map_it == self.table.end() {
+            // No macros in this scope yet, create new map
+            var new_map = map::<IdentifierToken, MacroDefinition>();
+            new_map[macro_def.name] = macro_def;
+            self.table[macro_def.scope] = new_map;
+            return true;
+        } else {
+            var scope_map = &(scope_map_it->second);
+            if scope_map->contains(macro_def.name) {
+                return false;
+            }
+
+            scope_map->emplace(macro_def.name, macro_def);
+            return true;
+        }
+    }
+
+    fn find_macro(self, scope: ModulePath, name: IdentifierToken) -> *MacroDefinition {
+        var scope_map_it = self.table.find(scope);
+        if scope_map_it != self.table.end() {
+            var scope_map = &(scope_map_it->second);
+            var macro_it  = scope_map->find(name);
+            if  macro_it != scope_map->end() {
+                return &(macro_it->second);
+            }
+        }
+        return &null;
+    }
+
+    const fn as_string(self, s: *PreprocessorSymbolTable) -> string {
+        var repr = "MacroSymbolTable(\n";
+        for scope_pair in self.table {
+            repr += f"  Scope: '{scope_pair.first.as_string(s)}'\n";
+            for macro_pair in scope_pair.second {
+                repr += f"    Macro: '{macro_pair.first.as_string(s)}' => {macro_pair.second.as_string(s)}\n";
+            }
+        }
+        repr += ")";
+        return repr;
+    }
+}
+
+enum ModuleVisibility derives u8 {
+    Public,     ///< pub module or no modifier - exported
+    Private,    ///< priv module - not exported outside file
+    Protected,  ///< prot module - not accessible outside current folder
+}
+
+class ScopeTracker {
+    struct Frame {
+        var path:        ModulePath;        ///< full module path at this frame
+        var brace_depth: i32;               ///< brace depth when frame was pushed
+        var visibility:  ModuleVisibility;  ///< visibility of this module block
+        var is_global:   bool;              ///< true if `module :: { }`
+    }
+
+    priv var _sym_table:   *PreprocessorSymbolTable; ///< for interning identifiers
+    priv var _file_base:   ModulePath;               ///< base path from filename (e.g., Baz from baz.hlx)
+    priv var _stack:       vec::<Frame>;             ///< scope stack
+    priv var _brace_depth: i32;                      ///< current brace nesting level
+    priv var _current:     ModulePath;               ///< cached current scope
+    priv var _sm:         *SourceManager;            ///< source manager for error reporting
+
+    /// \brief constructs tracker with file's base module path
+    /// \param sym_table symbol table for interning identifiers
+    /// \param file_base module path derived from filename
+    fn ScopeTracker(self, sym_table: *PreprocessorSymbolTable, sm: *SourceManager, file_base: ModulePath) {
+        self._stack       = vec::<Frame>();
+        self._sym_table   = sym_table;
+        self._file_base   = file_base;
+        self._current     = file_base;
+        self._sm          = sm;
+        self._brace_depth = 0;
+
+        // push initial frame for file-level scope
+        var initial = Frame();
+        initial.path        = file_base;
+        initial.brace_depth = 0;
+        initial.visibility  = ModuleVisibility::Public;
+        initial.is_global   = false;
+        self._stack.push_back(initial);
+    }
+
+    /// \brief returns current module scope as ModulePath
+    fn current_scope(self) -> ModulePath {
+        return self._current;
+    }
+
+    /// \brief returns current visibility
+    fn current_visibility(self) -> ModuleVisibility {
+        if self._stack.size() == 0 {
+            return ModuleVisibility::Public;
+        }
+        return self._stack.back().visibility;
+    }
+
+    /// \brief returns true if currently in global scope (module :: { })
+    fn is_global_scope(self) -> bool {
+        if self._stack.size() == 0 {
+            return false;
+        }
+        return self._stack.back().is_global;
+    }
+
+    /// \brief returns current brace depth
+    fn brace_depth(self) -> i32 {
+        return self._brace_depth;
+    }
+
+    /// \brief processes a single token, updating scope state
+    /// \param tokens the token span to read from
+    /// \param i current token index
+    /// \return number of additional tokens consumed (0 if just this token)
+    fn update(self, tokens: TokenSpan, i: usize) -> usize {
+        if i >= tokens.size() { return 0; }
+
+        var tok = tokens.get(i);
+
+        // track all braces for scope popping
+        if tok->kind == TokenKind::OpLBrace {
+            ++self._brace_depth;
+            return 0;
+        }
+
+        if tok->kind == TokenKind::OpRBrace {
+            --self._brace_depth;
+            self.maybe_pop_scope();
+            return 0;
+        }
+
+        // check for visibility modifier followed by module
+        if tok->kind == TokenKind::KwPub {
+            if (i + 1) < tokens.size() {
+                var next = tokens.get(i + 1);
+                if next->kind == TokenKind::KwModule {
+                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Public) + 1;
+                }
+            }
+            return 0;
+        }
+
+        if tok->kind == TokenKind::KwPriv {
+            if (i + 1) < tokens.size() {
+                var next = tokens.get(i + 1);
+                if next->kind == TokenKind::KwModule {
+                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Private) + 1;
+                }
+            }
+            return 0;
+        }
+
+        if tok->kind == TokenKind::KwProt {
+            if (i + 1) < tokens.size() {
+                var next = tokens.get(i + 1);
+                if next->kind == TokenKind::KwModule {
+                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Protected) + 1;
+                }
+            }
+            return 0;
+        }
+
+        // check for bare module keyword
+        if tok->kind == TokenKind::KwModule {
+            return self.parse_module_decl(tokens, i, ModuleVisibility::Public);
+        }
+
+        return 0;
+    }
+
+    /// \brief parses module declaration starting at `module` keyword
+    /// \returns number of tokens consumed (not including the visibility modifier)
+    priv fn parse_module_decl(self, tokens: TokenSpan, module_idx: usize,
+                              visibility: ModuleVisibility) -> usize {
+        var j = module_idx + 1;
+        if j >= tokens.size() { return 0; }
+
+        var t = tokens.get(j);
+
+        // case: `module :: { }` - global scope
+        if t->kind == TokenKind::OpColonColon {
+            if (j + 1) < tokens.size() {
+                var next = tokens.get(j + 1);
+                if next->kind == TokenKind::OpLBrace {
+                    self.push_global_scope(visibility);
+                    return 2; // `module` + `::`
+                }
+            }
+            // `module ::Foo::Bar` syntax - parse as global-qualified path
+            var path_result = self.parse_module_path(tokens, j + 1);
+            if path_result.path.segments.size() > 0 {
+                var after_path = j + 1 + path_result.tokens_consumed;
+                if after_path < tokens.size() {
+                    var next_tok = tokens.get(after_path);
+                    if next_tok->kind == TokenKind::OpLBrace {
+                        self.push_absolute_scope(path_result.path, visibility);
+                        return 2 + path_result.tokens_consumed; // `module` + `::` + path
+                    }
+                }
+            }
+            return 0;
+        }
+
+        // case: `module { }` - anonymous visibility block
+        if t->kind == TokenKind::OpLBrace {
+            self.push_visibility_scope(visibility);
+            return 1; // just `module`, brace handled by normal tracking
+        }
+
+        // case: `module Ident...` or `module Foo::Bar...`
+        if t->kind != TokenKind::LitIdentifier { return 0; }
+
+        var path_result = self.parse_module_path(tokens, j);
+        if path_result.path.segments.size() == 0 { return 0; }
+
+        var after_path = j + path_result.tokens_consumed;
+        if after_path >= tokens.size() { return 0; }
+
+        var next_tok = tokens.get(after_path);
+        if next_tok->kind == TokenKind::OpLBrace {
+            self.push_scope(path_result.path, visibility);
+            return 1 + path_result.tokens_consumed; // `module` + path tokens
+        }
+
+        return 0;
+    }
+
+    struct PathParseResult {
+        var path:            ModulePath;
+        var tokens_consumed: usize;
+    }
+
+    /// \brief parses a module path (Foo::Bar::Baz)
+    /// \param tokens token span
+    /// \param start index of first identifier
+    /// \returns PathParseResult with path and token count
+    priv fn parse_module_path(self, tokens: TokenSpan, start: usize) -> PathParseResult {
+        var result = PathParseResult();
+        result.path = ModulePath();
+        result.tokens_consumed = 0;
+
+        var j = start;
+
+        while j < tokens.size() {
+            var t = tokens.get(j);
+            if t->kind != TokenKind::LitIdentifier { break; }
+
+            // create IdentifierToken from the token
+            var ident = IdentifierToken();
+            ident.token = tokens.get(j);
+            ident.name  = self._sym_table->intern(self._sm->get_text(ident.token->range));
+
+            result.path.segments.push_back(ident);
+            result.tokens_consumed += 1;
+
+            // check for ::
+            if (j + 1) >= tokens.size() { break; }
+            var next = tokens.get(j + 1);
+            if next->kind != TokenKind::OpColonColon { break; }
+
+            result.tokens_consumed += 1; // count the ::
+            j += 2; // skip ident and ::
+        }
+
+        return result;
+    }
+
+    /// \brief pushes a new relative scope
+    priv fn push_scope(self, path: ModulePath, visibility: ModuleVisibility) {
+        var frame = Frame();
+
+        // extend current scope with new path
+        frame.path = self._current;
+        for seg in path.segments {
+            frame.path.segments.push_back(seg);
+        }
+
+        frame.brace_depth = self._brace_depth;
+        frame.visibility  = visibility;
+        frame.is_global   = false;
+
+        self._stack.push_back(frame);
+        self.update_current();
+    }
+
+    /// \brief pushes global scope (module :: { })
+    priv fn push_global_scope(self, visibility: ModuleVisibility) {
+        var frame = Frame();
+        frame.path        = ModulePath(); // empty = global
+        frame.brace_depth = self._brace_depth;
+        frame.visibility  = visibility;
+        frame.is_global   = true;
+
+        self._stack.push_back(frame);
+        self.update_current();
+    }
+
+    /// \brief pushes absolute scope (module ::Foo::Bar { })
+    priv fn push_absolute_scope(self, path: ModulePath, visibility: ModuleVisibility) {
+        var frame = Frame();
+        frame.path        = path; // absolute path, replaces current
+        frame.brace_depth = self._brace_depth;
+        frame.visibility  = visibility;
+        frame.is_global   = false;
+
+        self._stack.push_back(frame);
+        self.update_current();
+    }
+
+    /// \brief pushes visibility-only scope (priv module { })
+    priv fn push_visibility_scope(self, visibility: ModuleVisibility) {
+        var frame = Frame();
+        frame.path        = self._current;
+        frame.brace_depth = self._brace_depth;
+        frame.visibility  = visibility;
+        frame.is_global   = false;
+
+        self._stack.push_back(frame);
+        // current scope doesn't change, just visibility
+    }
+
+    /// \brief pops scope if brace depth drops below frame's depth
+    priv fn maybe_pop_scope(self) {
+        // never pop the file-level scope
+        while self._stack.size() > 1 {
+            var top = self._stack.back();
+            if self._brace_depth >= top.brace_depth {
+                break;
+            }
+            self._stack.pop_back();
+        }
+        self.update_current();
+    }
+
+    /// \brief updates cached current scope from stack top
+    priv fn update_current(self) {
+        if self._stack.size() == 0 {
+            self._current = self._file_base;
+            return;
+        }
+
+        var top = self._stack.back();
+        if top.is_global {
+            self._current = ModulePath(); // empty = global
+        } else {
+            self._current = top.path;
+        }
+    }
+
+    /// \brief resets tracker to initial state
+    fn reset(self) {
+        self._stack.clear();
+        self._brace_depth = 0;
+        self._current     = self._file_base;
+
+        var initial = Frame();
+        initial.path        = self._file_base;
+        initial.brace_depth = 0;
+        initial.visibility  = ModuleVisibility::Public;
+        initial.is_global   = false;
+        self._stack.push_back(initial);
+    }
+}
+
+/// \brief represents a single resolved macro import available in a scope
+class MacroImport {
+    pub var macro_name:    IdentifierToken;  ///< the macro name (interned)
+    pub var alias:         IdentifierToken;  ///< alias if renamed, same as macro_name otherwise
+    pub var source_scope:  ModulePath;       ///< the module path where the macro lives
+    pub var source_fid:    u32;              ///< file ID where the macro is defined
+    pub var import_loc:    SourceRange;      ///< source location of the import statement
+    pub var is_wildcard:   bool;             ///< true if this came from a wildcard import
+}
+
+/// \brief per-file import state: what macros are available and from where
+class FileImportState {
+    pub var fid:            u32;                          ///< file ID
+    pub var module_base:    ModulePath;                   ///< base module path derived from filename
+    pub var macro_imports:  vec::<MacroImport>;            ///< resolved macro imports
+    pub var wildcard_fids:  vec::<u32>;                    ///< files imported with *, need full macro table scan
+    pub var scoped_imports: map::<ModulePath, vec::<MacroImport>>; ///< imports grouped by scope they're visible in
+}
+
+/// \brief result of parsing a single import statement from the token stream
+class ParsedImport {
+    /// \brief a single item from a grouped import { A, B as C, Mac! }
+    
+    __inline_cpp("public:");
+    class Item {
+        pub var name:       IdentifierToken;  ///< original name
+        pub var alias:      IdentifierToken;  ///< alias (same as name if no `as`)
+        pub var has_alias:  bool = false;
+        pub var is_macro:   bool = false;      ///< true if name ends with `!`
+    }
+
+    pub var base_path:   ModulePath;       ///< the module path prefix (everything before the last segment or group)
+    pub var items:       vec::<Item>;       ///< individual import items (1 for simple, N for grouped)
+    pub var is_wildcard: bool = false;      ///< true for `import Foo::Bar::*`
+    pub var is_module:   bool = false;      ///< true for `import module Foo::Bar`
+    pub var is_ffi:      bool = false;      ///< true for `ffi "..." import ...`
+    pub var import_loc:  SourceRange;       ///< full source range of the import statement
+    pub var scope:       ModulePath;        ///< scope where this import appears (from ScopeTracker)
+    pub var tokens_consumed: usize = 0;
+    pub var end_index: usize = 0;
+}
+
+class ImportProcessor {
+    priv var _sm:           *SourceManager;
+    priv var _tcm:          *TokenCacheManager;
+    priv var _resolver:     *ImportResolver;
+    priv var _sym_table:    *PreprocessorSymbolTable;
+    priv var _macro_table:  *MacroSymbolTable;
+
+    priv var _processing:   set::<u32>;     ///< files currently being processed (cycle detection)
+    priv var _processed:    set::<u32>;     ///< files fully processed
+
+    priv var _file_states:  map::<u32, FileImportState>; ///< per-file import state
+
+    priv var _diagnostics:  vec::<string>;  ///< accumulated errors/warnings
+
+    /// \brief constructs the import processor
+    /// \param sm source manager
+    /// \param tcm token cache manager (lexes files on demand)
+    /// \param resolver the import resolver (filesystem index)
+    /// \param sym_table preprocessor symbol table for interning
+    /// \param macro_table macro symbol table (populated by macro def collector, read here for wildcard resolution)
+    fn ImportProcessor(
+        self,
+        sm:          *SourceManager,
+        tcm:         *TokenCacheManager,
+        resolver:    *ImportResolver,
+        sym_table:   *PreprocessorSymbolTable,
+        macro_table: *MacroSymbolTable
+    ) {
+        self._sm          = sm;
+        self._tcm         = tcm;
+        self._resolver    = resolver;
+        self._sym_table   = sym_table;
+        self._macro_table = macro_table;
+    }
+
+    /// \brief processes a file: lex it, scan imports, recurse into dependencies
+    /// \param fid file ID (must already be loaded in SourceManager)
+    /// \param module_base the module path this file represents (e.g. "Foo" for Foo.hlx)
+    /// \return true on success, false on error
+    fn process_file(self, fid: u32, module_base: ModulePath) -> bool {
+        // already done
+        if self._processed.contains(fid) {
+            return true;
+        }
+
+        // cycle detection
+        if self._processing.contains(fid) {
+            return true; // not an error — macros from earlier in the cycle are already being collected
+        }
+
+        self._processing.insert(fid);
+
+        // ensure file is lexed
+        if !self._tcm->lex_file(fid) {
+            self._diagnostics.push_back(
+                f"ImportProcessor: failed to lex file ID {fid}"
+            );
+            self._processing.erase(fid);
+            return false;
+        }
+
+        var tokens = self._tcm->get_tokens(fid);
+        if tokens == &null {
+            self._diagnostics.push_back(
+                f"ImportProcessor: no tokens for file ID {fid}"
+            );
+            self._processing.erase(fid);
+            return false;
+        }
+
+        // initialize file state
+        var state = FileImportState();
+        state.fid         = fid;
+        state.module_base = module_base;
+
+        // create scope tracker for this file
+        var tracker = ScopeTracker(self._sym_table, self._sm, module_base);
+
+        // scan tokens: feed scope tracker AND extract import statements
+        var i: usize = 0;
+        while i < tokens->size() {
+            var tok = tokens->get(i);
+
+            // feed scope tracker first
+            var scope_consumed = tracker.update(tokens, i);
+
+            // check for ffi blocks/imports (skip them)
+            if tok->kind == TokenKind::KwFfi {
+                var skip = self.skip_ffi(tokens, i);
+                i += skip;
+                if skip > 0 { continue; }
+            }
+
+            if tok->kind == TokenKind::KwImport {
+                var start_i = i;
+                var parsed = self.parse_import(tokens, i, &tracker);
+
+                if !parsed.is_ffi {
+                    if parsed.items.size() > 0 || parsed.is_wildcard {
+                        self.resolve_import(&parsed, &state, fid);
+                    }
+                }
+
+                i = parsed.end_index;
+                if i <= start_i { i = start_i + 1; }
+                continue;
+            }
+
+            i += scope_consumed + 1;
+        }
+
+        // store the state
+        self._file_states[fid] = state;
+
+        // mark as processed
+        self._processing.erase(fid);
+        self._processed.insert(fid);
+
+        return true;
+    }
+
+    /// \brief returns the import state for a processed file
+    fn get_file_state(self, fid: u32) -> *FileImportState {
+        if self._file_states.contains(fid) {
+            return &(self._file_states[fid]);
+        }
+        return &null;
+    }
+
+    /// \brief returns true if the file has been fully processed
+    fn is_processed(self, fid: u32) -> bool {
+        return self._processed.contains(fid);
+    }
+
+    fn get_diagnostics(self) -> ref!(vec::<string>) {
+        return self._diagnostics;
+    }
+
+    fn has_errors(self) -> bool {
+        return self._diagnostics.size() > 0;
+    }
+
+    // =========================================================================
+    //  FFI SKIPPING
+    // =========================================================================
+
+    /// \brief skips ffi import or ffi block starting at token index i
+    /// \returns number of tokens to skip (0 if not an ffi construct)
+    priv fn skip_ffi(self, tokens: *(TokenBuffer::<512>), start: usize) -> usize {
+        if start >= tokens->size() { return 0; }
+
+        var tok = tokens->get(start);
+        if tok->kind != TokenKind::KwFfi { return 0; }
+
+        var j = start + 1;
+
+        // expect a string literal (the language spec)
+        if j >= tokens->size() { return 1; }
+        var next = tokens->get(j);
+
+        if next->kind != TokenKind::LitString { return 0; }
+        j += 1;
+
+        if j >= tokens->size() { return j - start; }
+        var after_str = tokens->get(j);
+
+        // ffi "c++" import ... ; — skip to semicolon
+        if after_str->kind == TokenKind::KwImport {
+            while j < tokens->size() {
+                if tokens->get(j)->kind == TokenKind::OpSemicolon {
+                    return (j + 1) - start;
+                }
+                j += 1;
+            }
+            return j - start;
+        }
+
+        // ffi "c++" { ... } — skip balanced braces
+        if after_str->kind == TokenKind::OpLBrace {
+            var depth: i32 = 1;
+            j += 1;
+            while j < tokens->size() && depth > 0 {
+                var t = tokens->get(j);
+                if t->kind == TokenKind::OpLBrace { ++depth; }
+                if t->kind == TokenKind::OpRBrace { --depth; }
+                j += 1;
+            }
+            return j - start;
+        }
+
+        return 1;
+    }
+
+    // =========================================================================
+    //  IMPORT PARSING
+    // =========================================================================
+
+    /// \brief parses an import statement starting at the `import` keyword
+    /// \param tokens token buffer
+    /// \param start index of `KwImport` token
+    /// \param tracker scope tracker (for current scope)
+    /// \returns ParsedImport with all extracted info
+    priv fn parse_import(
+        self,
+        tokens:  *(TokenBuffer::<512>),
+        start:   usize,
+        tracker: *ScopeTracker
+    ) -> ParsedImport {
+        var result = ParsedImport();
+        result.scope = tracker->current_scope();
+        result.import_loc = tokens->get(start)->range;
+
+        var j = start + 1; // skip `import`
+
+        if j >= tokens->size() { return result; }
+
+        // check for `import module ...`
+        if tokens->get(j)->kind == TokenKind::KwModule {
+            result.is_module = true;
+            j += 1;
+        }
+
+        // parse the path: Foo::Bar::Baz or Foo::Bar::{...} or Foo::Bar::*
+        // we collect segments until we hit `;`, `as`, `{`, `*`, or `!`
+        var segments = vec::<IdentifierToken>();
+        var last_was_bang = false;
+
+        while j < tokens->size() {
+            var t = tokens->get(j);
+
+            // identifier segment
+            if t->kind == TokenKind::LitIdentifier {
+                var ident = IdentifierToken();
+                ident.token = t;
+                ident.name  = self._sym_table->intern(self._sm->get_text(t->range));
+                segments.push_back(ident);
+                j += 1;
+
+                // check for trailing `!` (macro name)
+                if j < tokens->size() && tokens->get(j)->kind == TokenKind::OpExclaim {
+                    last_was_bang = true;
+                    j += 1;
+                }
+
+                // check for `::`
+                if j < tokens->size() && tokens->get(j)->kind == TokenKind::OpColonColon {
+                    if last_was_bang {
+                        // `Mac!::` doesn't make sense, stop here
+                        break;
+                    }
+                    j += 1; // consume `::`
+                    continue;
+                }
+
+                break; // no `::` follows, done with path
+            }
+
+            // wildcard: `*`
+            if t->kind == TokenKind::OpStar {
+                result.is_wildcard = true;
+                j += 1;
+                break;
+            }
+
+            // grouped import: `{`
+            if t->kind == TokenKind::OpLBrace {
+                j += 1;
+                self.parse_grouped_imports(tokens, &j, &result);
+                break;
+            }
+
+            break; // unexpected token, stop
+        }
+
+        // now split segments into base_path and item(s)
+        if result.is_wildcard {
+            // all segments are the base path
+            result.base_path = ModulePath();
+            for seg in segments {
+                result.base_path.segments.push_back(seg);
+            }
+        } else if result.items.size() > 0 {
+            // grouped import — segments are the base path
+            result.base_path = ModulePath();
+            for seg in segments {
+                result.base_path.segments.push_back(seg);
+            }
+        } else if segments.size() > 0 {
+            // simple import — last segment is the item, rest is base path
+            result.base_path = ModulePath();
+            for i in usize(0) .. usize(segments.size() - 1) {
+                result.base_path.segments.push_back(segments[i]);
+            }
+
+            var item = ParsedImport::Item();
+            item.name     = segments[segments.size() - 1];
+            item.alias    = item.name;
+            item.is_macro = last_was_bang;
+
+            // check for `as` alias
+            if j < tokens->size() && tokens->get(j)->kind == TokenKind::KwAs {
+                j += 1;
+                if j < tokens->size() && tokens->get(j)->kind == TokenKind::LitIdentifier {
+                    var alias_tok = tokens->get(j);
+                    item.alias.token = alias_tok;
+                    item.alias.name  = self._sym_table->intern(self._sm->get_text(alias_tok->range));
+                    item.has_alias = true;
+                    j += 1;
+
+                    // consume trailing `!` on alias if macro
+                    if item.is_macro && j < tokens->size() && tokens->get(j)->kind == TokenKind::OpExclaim {
+                        j += 1;
+                    }
+                }
+            }
+
+            result.items.push_back(item);
+        }
+        
+        // consume optional semicolon
+        if (j < tokens->size()) && ((tokens->get(j)->kind) == TokenKind::OpSemicolon) {
+            j += 1;
+        }
+
+        result.end_index = j;
+        result.tokens_consumed = j - start;
+        return result;
+    }
+
+    /// \brief parses the contents of a grouped import `{ A, B as C, Mac! }`
+    /// \param tokens token buffer
+    /// \param j current index (just past `{`), updated on return
+    /// \param result ParsedImport to populate
+    priv fn parse_grouped_imports(
+        self,
+        tokens: *(TokenBuffer::<512>),
+        j:      *usize,
+        result: *ParsedImport
+    ) {
+        while (*j) < tokens->size() {
+            var t = tokens->get(*j);
+
+            // end of group
+            if t->kind == TokenKind::OpRBrace {
+                (*j) += 1;
+                return;
+            }
+
+            // skip commas
+            if t->kind == TokenKind::OpComma {
+                (*j) += 1;
+                continue;
+            }
+
+            // expect identifier
+            if t->kind != TokenKind::LitIdentifier {
+                (*j) += 1;
+                continue; // skip garbage, let the parser error later
+            }
+
+            var item = ParsedImport::Item();
+            item.name.token = t;
+            item.name.name  = self._sym_table->intern(self._sm->get_text(t->range));
+            item.alias = item.name;
+            (*j) += 1;
+
+            // check for `!`
+            if (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::OpExclaim {
+                item.is_macro = true;
+                (*j) += 1;
+            }
+
+            // check for `as`
+            if (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::KwAs {
+                (*j) += 1;
+                if (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::LitIdentifier {
+                    var alias_tok = tokens->get(*j);
+                    item.alias.token = alias_tok;
+                    item.alias.name  = self._sym_table->intern(self._sm->get_text(alias_tok->range));
+                    item.has_alias = true;
+                    (*j) += 1;
+
+                    // consume trailing `!` on alias
+                    if item.is_macro && (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::OpExclaim {
+                        (*j) += 1;
+                    }
+                }
+            }
+
+            result->items.push_back(item);
+        }
+    }
+
+    // =========================================================================
+    //  IMPORT RESOLUTION
+    // =========================================================================
+
+    /// \brief resolves a parsed import to actual files and records macro imports
+    priv fn resolve_import(
+        self,
+        parsed: *ParsedImport,
+        state:  *FileImportState,
+        src_fid: u32
+    ) {
+        // skip ffi imports
+        if parsed->is_ffi { return; }
+
+        // for non-macro imports with no wildcard, check if any items are macros
+        // if none are macros, skip entirely — the AST phase handles those
+        if !parsed->is_wildcard {
+            var has_macro = false;
+            for item in parsed->items {
+                if item.is_macro {
+                    has_macro = true;
+                    break;
+                }
+            }
+            if !has_macro { return; }
+        }
+
+        // convert base_path segments to strings for ImportResolver
+        var path_strings = vec::<string>();
+        for seg in parsed->base_path.segments {
+            var name_ptr = self._sym_table->resolve(seg.name);
+            if name_ptr != &null {
+                path_strings.push_back(*name_ptr);
+            }
+        }
+
+        if path_strings.size() == 0 && !parsed->is_wildcard {
+            return; // nothing to resolve
+        }
+
+        // try to resolve the module path to a file
+        var resolved = self.resolve_module_greedy(path_strings, parsed->is_module);
+
+        if resolved.fid == 0 && !resolved.found {
+            // not found — not an error at this phase, AST will catch it
+            return;
+        }
+
+        // recursively process the resolved file
+        if resolved.found && !self._processed.contains(resolved.fid) {
+            self.process_file(resolved.fid, resolved.file_module_path);
+        }
+
+        // record imports
+        if parsed->is_wildcard {
+            state->wildcard_fids.push_back(resolved.fid);
+
+            var imp = MacroImport();
+            imp.source_fid  = resolved.fid;
+            imp.source_scope = resolved.file_module_path;
+            imp.import_loc  = parsed->import_loc;
+            imp.is_wildcard = true;
+
+            if state->scoped_imports.contains(parsed->scope) {
+                state->scoped_imports[parsed->scope].push_back(imp);
+            } else {
+                var imports = vec::<MacroImport>();
+                imports.push_back(imp);
+                state->scoped_imports[parsed->scope] = imports;
+            }
+        } else {
+            // record each macro item
+            for item in parsed->items {
+                if !item.is_macro { continue; }
+
+                var imp = MacroImport();
+                imp.macro_name   = item.name;
+                imp.alias        = item.alias;
+                imp.source_fid   = resolved.fid;
+                imp.source_scope = resolved.remaining_path;
+                imp.import_loc   = parsed->import_loc;
+                imp.is_wildcard  = false;
+
+                state->macro_imports.push_back(imp);
+
+                if state->scoped_imports.contains(parsed->scope) {
+                    state->scoped_imports[parsed->scope].push_back(imp);
+                } else {
+                    var imports = vec::<MacroImport>();
+                    imports.push_back(imp);
+                    state->scoped_imports[parsed->scope] = imports;
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    //  GREEDY MODULE RESOLUTION
+    // =========================================================================
+
+    struct ResolveResult {
+        var found:            bool = false;
+        var fid:              u32  = 0;
+        var file_module_path: ModulePath;     ///< module path of the resolved file
+        var remaining_path:   ModulePath;     ///< leftover segments that are in-file module paths
+    }
+
+    /// \brief greedily resolves a module path by consuming segments left-to-right
+    ///
+    /// tries longest match first:
+    ///   ["Foo", "Bar", "Baz"] → try resolve(["Foo", "Bar", "Baz"]),
+    ///                           then resolve(["Foo", "Bar"]),
+    ///                           then resolve(["Foo"])
+    ///
+    /// for `import module` disambiguation, only tries the directory form
+    priv fn resolve_module_greedy(
+        self,
+        segments:  vec::<string>,
+        is_module: bool
+    ) -> ResolveResult {
+        var result = ResolveResult();
+
+        if segments.size() == 0 { return result; }
+
+        // try from longest to shortest prefix
+        var try_len = segments.size();
+
+        while try_len > 0 {
+            var try_segments = vec::<string>();
+            for i in usize(0) .. usize(try_len) {
+                try_segments.push_back(segments[i]);
+            }
+
+            var resolved: std::Expected::<Path, ResolveError>;
+
+            if is_module {
+                resolved = self._resolver->resolve_module_dir(try_segments);
+            } else {
+                resolved = self._resolver->resolve_module(try_segments);
+            }
+
+            if resolved.check() {
+                var path = *resolved;
+
+                // load the file into source manager and get fid
+                var fid = self._sm->load_file(path);
+                if fid != 0 {
+                    result.found = true;
+                    result.fid   = fid;
+
+                    // build the file's module path from consumed segments
+                    result.file_module_path = ModulePath();
+                    for i in usize(0) .. usize(try_len) {
+                        var ident = IdentifierToken();
+                        ident.name = self._sym_table->intern(segments[i]);
+                        // token pointer is null since this is a synthetic path
+                        ident.token = &null;
+                        result.file_module_path.segments.push_back(ident);
+                    }
+
+                    // remaining segments become the in-file path
+                    result.remaining_path = ModulePath();
+                    for i in usize(try_len) .. usize(segments.size()) {
+                        var ident = IdentifierToken();
+                        ident.name = self._sym_table->intern(segments[i]);
+                        ident.token = &null;
+                        result.remaining_path.segments.push_back(ident);
+                    }
+
+                    return result;
+                }
+            }
+
+            // handle AmbiguousModule — the resolver still caches the file path
+            // so we treat it as found but log a warning
+            if (!resolved.check()) && (resolved.err() == ResolveError::AmbiguousModule) {
+                // retry — the path should now be cached
+                var retry = self._resolver->resolve_module(try_segments);
+                if retry.check() {
+                    var path = *retry;
+                    var fid = self._sm->load_file(path);
+                    if fid != 0 {
+                        self._diagnostics.push_back(
+                            f"ImportProcessor: ambiguous module '{self.segments_to_string(try_segments)}' — both file and directory exist"
+                        );
+
+                        result.found = true;
+                        result.fid   = fid;
+
+                        result.file_module_path = ModulePath();
+                        for i in usize(0) .. usize(try_len) {
+                            var ident = IdentifierToken();
+                            ident.name = self._sym_table->intern(segments[i]);
+                            ident.token = &null;
+                            result.file_module_path.segments.push_back(ident);
+                        }
+
+                        result.remaining_path = ModulePath();
+                        for i in usize(try_len) .. usize(segments.size()) {
+                            var ident = IdentifierToken();
+                            ident.name = self._sym_table->intern(segments[i]);
+                            ident.token = &null;
+                            result.remaining_path.segments.push_back(ident);
+                        }
+
+                        return result;
+                    }
+                }
+            }
+
+            try_len -= 1;
+        }
+
+        return result; // not found
+    }
+
+    // =========================================================================
+    //  MACRO LOOKUP (called by the macro expander later)
+    // =========================================================================
+
+    /// \brief checks if a macro is available in the given file at the given scope
+    /// \param fid the file we're expanding in
+    /// \param scope the current module scope
+    /// \param macro_name the macro name to look up
+    /// \returns pointer to MacroDefinition if found, null otherwise
+    ///
+    /// resolution order:
+    ///   1. explicit imports in scope (import Foo::Bar::Mac!)
+    ///   2. wildcard imports in scope (import Foo::Bar::*)
+    ///   3. explicit imports at file level
+    ///   4. wildcard imports at file level
+    fn find_macro_for_file(
+        self,
+        fid:        u32,
+        scope:      ModulePath,
+        macro_name: IdentifierToken
+    ) -> *MacroDefinition {
+        var state = self.get_file_state(fid);
+        if state == &null { return &null; }
+
+        // 1. check explicit imports matching alias in current scope
+        if state->scoped_imports.contains(scope) {
+            var scoped = &(state->scoped_imports[scope]);
+            for imp in (*scoped) {
+                if !imp.is_wildcard && imp.alias == macro_name {
+                    // look up the actual macro in the source file's macro table
+                    return self._macro_table->find_macro(imp.source_scope, imp.macro_name);
+                }
+            }
+        }
+
+        // 2. check wildcard imports in current scope
+        if state->scoped_imports.contains(scope) {
+            var scoped = &(state->scoped_imports[scope]);
+            for imp in (*scoped) {
+                if imp.is_wildcard {
+                    var found = self._macro_table->find_macro(imp.source_scope, macro_name);
+                    if found != &null { return found; }
+                }
+            }
+        }
+
+        // 3. check file-level explicit imports
+        for imp in state->macro_imports {
+            if !imp.is_wildcard && imp.alias == macro_name {
+                return self._macro_table->find_macro(imp.source_scope, imp.macro_name);
+            }
+        }
+
+        // 4. check file-level wildcard imports
+        for wfid in state->wildcard_fids {
+            var dep_state = self.get_file_state(wfid);
+            if dep_state == &null { continue; }
+
+            // search the entire macro table for macros in the dep file's module
+            var found = self._macro_table->find_macro(dep_state->module_base, macro_name);
+            if found != &null { return found; }
+        }
+
+        return &null;
+    }
+
+    /// \brief resolves a fully qualified macro path (Foo::Bar::Mac!)
+    /// \param fid the file we're expanding in
+    /// \param full_path the full qualified path (e.g. Foo::Bar as ModulePath)
+    /// \param macro_name the macro name
+    /// \returns pointer to MacroDefinition if found, null otherwise
+    fn find_qualified_macro(
+        self,
+        fid:        u32,
+        full_path:  ModulePath,
+        macro_name: IdentifierToken
+    ) -> *MacroDefinition {
+        // direct lookup in the macro table — qualified means exact scope match
+        return self._macro_table->find_macro(full_path, macro_name);
+    }
+
+    // =========================================================================
+    //  UTILITIES
+    // =========================================================================
+
+    priv fn segments_to_string(self, segments: vec::<string>) -> string {
+        var result = "";
+        for i in usize(0) .. usize(segments.size()) {
+            if i > 0 { result += "::"; }
+            result += segments[i];
+        }
+        return result;
+    }
+
+    fn dump_state(self) -> string {
+        var out = "=== ImportProcessor State ===\n";
+        out += f"  processed: {self._processed.size()} files\n";
+        out += f"  diagnostics: {self._diagnostics.size()}\n\n";
+
+        for diag in self._diagnostics {
+            out += f"  [DIAG] {diag}\n";
+        }
+
+        for entry in self._file_states {
+            var fid   = entry.first;
+            var state = &(entry.second);
+
+            out += f"--- File ID: {fid} ---\n";
+            out += f"  module_base: {state->module_base.as_string(self._sym_table)}\n";
+            out += f"  macro_imports: {state->macro_imports.size()}\n";
+
+            for imp in state->macro_imports {
+                var name_ptr  = self._sym_table->resolve(imp.macro_name.name);
+                var alias_ptr = self._sym_table->resolve(imp.alias.name);
+                var name_str  = "<invalid>" if (name_ptr == &null) else *name_ptr;
+                var alias_str = "<invalid>" if (alias_ptr == &null) else *alias_ptr;
+
+                out += f"    macro: {name_str}!";
+                if imp.alias.name != imp.macro_name.name {
+                    out += f" as {alias_str}!";
+                }
+                out += f"  (from fid={imp.source_fid}, scope={imp.source_scope.as_string(self._sym_table)})";
+                out += f"  wildcard={imp.is_wildcard}\n";
+            }
+
+            out += f"  wildcard_fids: {state->wildcard_fids.size()}\n";
+            for wfid in state->wildcard_fids {
+                out += f"    * fid={wfid}\n";
+            }
+
+            out += f"  scoped_imports: {state->scoped_imports.size()} scopes\n";
+            for scope_entry in state->scoped_imports {
+                out += f"    scope: {scope_entry.first.as_string(self._sym_table)}\n";
+                for imp in scope_entry.second {
+                    if imp.is_wildcard {
+                        out += f"      * (wildcard from fid={imp.source_fid})\n";
+                    } else {
+                        var name_ptr = self._sym_table->resolve(imp.macro_name.name);
+                        var name_str = "<invalid>" if (name_ptr == &null) else *name_ptr;
+                        out += f"      {name_str}! (from fid={imp.source_fid})\n";
+                    }
+                }
+            }
+
+            out += "\n";
+        }
+
+        out += "=== End ImportProcessor State ===\n";
+        return out;
+    }
+}
+
+
+class MacroProcessor {
+    /// ok so the fundamantals here is quite simple for each file we need to build a symbol table of all the imports
+    /// keeping track of scopes and visibilities so when we go to resolve a macro we can do so correctly
+    /// we also need to handle re-exports but that can be done in the AST phase
+    /// the point of this phase is the build a full map of all available macros in the current file with correct scoping
+    /// so then when we get back to the main file we can resolve the macros correctly
+    /// this is a per start file processor not a global one
+    /// but the tokens are global so we can look up any file we need to process imports later quickly
+    /// we have a few kinds of imports to handle
+    ///
+    ///  1. import Foo::Bar::Baz; - remeber since this isnt a proper import processor we just look up Foo/Bar/Baz to get the path if it doesnt exist we move on (its the ast phase that will error later if its not found)
+    ///  2. import Foo::Bar::Baz as Qux; - same as above but we need to remap Qux to Foo::Bar::Baz
+    ///  3. import Foo::Bar::*; - wildcard import we need to look up the path for Foo::Bar
+    ///  4. import Foo::Bar::{Baz, Qux, Mac!}; - multiple imports from same path we ignore any non macro imports so we still look up Foo::Bar for the file and note we only need Mac! from it
+    ///  5. import Foo::Bar::{Baz as Qux, Mac! as MacAlias!}; - same as above but with aliases
+    ///  6. import module Foo::Bar; - module is a disambiguation keyword to avoid conflict if we have both Foo/Bar/module.hlx and Foo/Bar.hlx (when module is specified we only look for Foo/Bar/module.hlx)
+    ///  7. ffi "..." import Foo::Bar; - ffi imports are ignored by the macro preprocessor since they dont define macros
+    ///  8. ffi "..." { ... } - we ignroe these blocks entirely since they wont have helix code imports in them (THEY might have macro invokes and defs but those are handled in the MacroPreprocessor directly when we scan the tokens)
+    ///
+    /// ofc we also need to track scopes and visibilities so we know what imports are available where and we can error on private/protected imports used out of scope
+    /// like module Foo { import Bar; } // now when the file imports a file that contains that code the import path is techincally Foo::Bar not just Bar and this is handled since now in our main file when we look up `import Foo::Bar::Mac!` we can find it correctly
+    /// the processor would look for Foo::Bar (which would or would not exist as a file/module) where if it doesnt we now look for Foo as the module and Bar as the submodule inside it
+    ///
+
+    var _pp_sym_table: *PreprocessorSymbolTable; ///< for interning identifiers
+    var _macro_table:  *MacroSymbolTable;        ///< macro definitions
+    var _sm:           *SourceManager;           ///< source manager for file/token access
+    var _tcm:          *TokenCacheManager;       ///< token cache manager for lexed tokens
+
+    var _pool:     *ThreadPool;
+    var _resolver: *ImportResolver;
+
+    var _processing:     set::<u32>;               ///< files currently being processed (for cycle detection)
+    var _processed:      set::<u32>;               ///< files fully processed
+
+    fn MacroProcessor(self, sm: *SourceManager,  tcm:  *TokenCacheManager,
+                      resolver: *ImportResolver, pool: *ThreadPool) {
+        self._pp_sym_table = std::create::<PreprocessorSymbolTable>();
+        self._macro_table  = std::create::<MacroSymbolTable>();
+        self._sm           = sm;
+        self._tcm          = tcm;
+        self._resolver     = resolver;
+        self._pool         = pool;
+
+        self._processing   = set::<u32>();
+        self._processed    = set::<u32>();
+    }
+
+    fn get_symbol_table(self) -> *PreprocessorSymbolTable {
+        return self._pp_sym_table;
+    }
+
+    fn get_macro_table(self) -> *MacroSymbolTable {
+        return self._macro_table;
+    }
+
+    fn is_processed(self, fid: u32) -> bool {
+        return self._processed.contains(fid);
+    }
+
+    fn is_processing(self, fid: u32) -> bool {
+        return self._processing.contains(fid);
+    }
+
+    fn op delete (self) {
+        std::destroy(self._pp_sym_table);
+        std::destroy(self._macro_table);
+    }
+
+    fn clear(self) {
+        self._pp_sym_table->clear();
+        self._macro_table->table.clear();
+        self._processing.clear();
+        self._processed.clear();
+    }
+
+    fn preprocess_file(self, fid: u32, module_path: ModulePath) -> bool {
+        /// process the file at fid collecting macro definitions and imports
+        /// returns true on success false on failure
+        // build the import processor — it shares our tables
+        var import_proc = ImportProcessor(
+            self._sm,
+            self._tcm,
+            self._resolver,
+            self._pp_sym_table,
+            self._macro_table
+        );
+
+        // this lexes the file, scans all imports recursively,
+        // resolves them to files, and builds the macro availability map
+        if !import_proc.process_file(fid, module_path) {
+            // dump diagnostics
+            for diag in import_proc.get_diagnostics() {
+                std::print(diag);
+            }
+            return false;
+        }
+
+        std::print(import_proc.dump_state());
+        // now walk the file again to collect macro DEFINITIONS
+        // ...
+
+        var sym_id = self._pp_sym_table->intern("mac");
+        var tmp_token = Token();
+        var macro_name = IdentifierToken(
+            sym_id,
+            &tmp_token
+        );
+
+        var def = import_proc.find_macro_for_file(fid, module_path, macro_name);
+
+        std::print(f"macro def = {def->as_string(self._pp_sym_table)} ");
+
+        
+
+        // now walk the file again to EXPAND macro invocations
+        // when we hit an unqualified `mac!`, resolve it:
+        //   var def = import_proc.find_macro_for_file(fid, tracker.current_scope(), macro_name);
+        //
+        // when we hit a qualified `Foo::Bar::mac!`, resolve it:
+        //   var def = import_proc.find_qualified_macro(fid, path, macro_name);
+
+        return true;
+    }
+
+    class Imports {
+        pub var path:        ModulePath;       ///< module path being imported from
+        pub var alias:       IdentifierToken; ///< alias if any
+        pub var is_wildcard: bool;             ///< true if wildcard import
+        pub var is_module:   bool;             ///< true if `import module Foo::Bar;`
+        pub var source_loc: SourceRange;     ///< source location of the import statement
+        
+    }
+
+    fn process_imports(self, fid: u32, scope: ModulePath, tracker: *ScopeTracker) -> bool {
+        /// process all imports in the file at fid updating the import resolver
+        /// returns true on success false on failure
+
+        /// so we start by looking at the lexed tokens for the main file
+        var tokens = self._tcm->get_tokens(fid);
+        if tokens == &null {
+            std::print("No tokens found for file id {fid}!");
+            return false;
+        }
+
+        return true;
+    }
+}
+
+fn Test() -> i32 {
+    /// we now need to set up the basic test to see if importpocessing works at all — we can build on this with more complex cases later
+    var file = Path("test.hlx");
+    var pool = std::create::<ThreadPool>(4);
+    var vfm  = std::create::<VirtualFileManager>();
+    var sm   = std::create::<SourceManager>(pool, vfm);
+
+    finally {
+        std::destroy(sm);
+        std::destroy(vfm);
+        std::destroy(pool);
+    }
+
+    var fid  = sm->load_file(file);
+    var resolver = ImportResolver::Builder()
+        .cwd(Path(libcxx::filesystem::current_path().generic_wstring()))
+        .build();
+
+    var tcm = TokenCacheManager(sm, pool);
+    var macro_proc = MacroProcessor(sm, &tcm, resolver, pool);
+
+    if !macro_proc.preprocess_file(fid, ModulePath()) {
+        std::print(f"Preprocessing failed for file {file}!");
+        return 1;
+    }
+
+    return 0;
+}
