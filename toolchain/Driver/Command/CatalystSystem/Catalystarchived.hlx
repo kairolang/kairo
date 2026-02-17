@@ -74,7 +74,7 @@ class CLIArgs {
         OPTIMIZE3       = compute_hash::<r"O3">(),
         OPTIMIZE_S      = compute_hash::<r"Os">(),
         OPTIMIZE_Z      = compute_hash::<r"Oz">(),
-        DEBUG_ON           = compute_hash::<r"g">(),
+        DEBUG_ON        = compute_hash::<r"g">(),
         DEBUG_OFF       = compute_hash::<r"g0">(),
 
         // --- WARNINGS & DIAGNOSTICS ---
@@ -197,7 +197,7 @@ class CLIArgs {
 
     fn Tokenize(self , sentence : string ){
         var pointer : i32 = 0;
-        var parsedFlags : array::<FlagType, 64> = array::<FlagType, 64>() ; 
+        var parsedFlags : vec::<FlagType> = vec::<FlagType>() ; 
         var files : libcxx::deque::<string> = libcxx::deque::<string>() ; 
         var parser : i32 = 0;
 
@@ -222,12 +222,8 @@ class CLIArgs {
                     }
                     
                     if pointer > start {
-                        ////var flag_str : string = sentence.subslice(start, pointer - start);
-0;
-
-                        //std::print(flag_str);
-
-;
+                        var flag_str : string = sentence.subslice(start, pointer - start);
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
                         parser++;
                     }
                     
@@ -252,11 +248,8 @@ class CLIArgs {
                         }
                         
                         if pointer > start {
-                            //var flag_str : string = sentence.subslice(start, pointer - start);
-                            0;
-                            //std::print(flag_str);
-
-;
+                            var flag_str : string = sentence.subslice(start, pointer - start);
+                            parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
                             parser++;
                         }
                     } else {
@@ -265,9 +258,7 @@ class CLIArgs {
                             sentence[pointer] != ' ' && 
                             sentence[pointer] != '-' {
                             var flag_str : string = sentence.subslice(pointer, 1);
-                            //std::print(flag_str);
-
-;
+                            parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
                             parser++;
                             pointer++;
                         }
@@ -291,11 +282,8 @@ class CLIArgs {
                     }
                     
                     if pointer > start {
-                        //var flag_str : string = sentence.subslice(start, pointer - start);
-0;
-                        //std::print(flag_str);
-
-;
+                        var flag_str : string = sentence.subslice(start, pointer - start);
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
                         parser++;
                     }
                 } else {
@@ -303,9 +291,7 @@ class CLIArgs {
                         sentence[pointer] != ' ' && 
                         sentence[pointer] != '/' {
                         var flag_str : string = sentence.subslice(pointer, 1);
-                        //std::print(flag_str);
-
-;
+                        parsedFlags[parser] = static_cast::<FlagType>(compute_hash(&flag_str));
                         parser++;
                         pointer++;
                     }
@@ -333,36 +319,9 @@ class CLIArgs {
 fn Test() -> i32 {
     var args : CLIArgs = CLIArgs();
     
-    // Test cases to benchmark
-    var scenarios : array::<string, 5> = __inline_cpp("{
-        \"Lexer.hlx -g -fno-unsafe -fconst-checks -fno-exceptions -O2 --verbose\",
-        \"helix-compiler --verbose -O3 -Wall -Wextra --target=x86_64-unknown-linux-gnu --std=helix20 -I./include -L./lib -lssl -lcrypto --fno-exceptions --fstrict-null --funsafe ./src/main.hlx ./src/parser.hlx ./src/lexer.hlx ./src/codegen.hlx --output=./bin/helix-app --profile=release --save-temps --dump-passes --coverage -DDEBUG_LEVEL=3 --sysroot=/usr/local/helix --prelude=./std/prelude.hlx -fPIC -fPIE -pthread main.hlx util.hlx -O2 -g helper.hlx --verbose\",
-        \"--profile=release -std=helix20 main.hlx\",
-        \"a.hlx-g-O3-Wall-Werror b.hlx\",
-        \"--help--version util.hlx -O2 -g helper.hlx\"
-    }");
-
-    std::print("Starting Helix CLI Benchmarks...\n");
-    std::print("--------------------------------------------------");
-
-    for var i : i32 = 0; i<5; ++i {
-        // --- START TIMER ---
-        var t1 = libcxx::chrono::high_resolution_clock::now();
-        
-        args.Tokenize(scenarios[i]);
-        
-        // --- END TIMER ---
-        var t2 = libcxx::chrono::high_resolution_clock::now();
-        
-        var duration = libcxx::chrono::duration_cast::<libcxx::chrono::nanoseconds>(t2 - t1).count();
-        
-        std::print("Latency:  ", duration, " ns");
-        std::print("--------------------------------------------------");
-    }
-
-    libcxx::this_thread::sleep_for(libcxx::chrono::seconds(10));
+    args.Tokenize("Lexer.hlx -g -fno-unsafe -fconst-checks -fno-exceptions -O2 --verbose");
+    
     return 0;
 }
 
 // helix Lexer.hlx -g -fno-unsafe -fconst-overloading -fno-exceptions
-
