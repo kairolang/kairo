@@ -161,6 +161,18 @@ default class Path {
         return self.entry_type == FileType::character;
     }
 
+    const fn as_qualified_path(self) -> vec::<string> {
+        /// returns a vector of path components from root to leaf.
+        /// like for foo/bar/baz.txt, returns [abs .. "foo", "bar", "baz"].
+        var components = vec::<string>();
+        
+        for component in self.path_data {
+            components.emplace_back(component.generic_wstring());
+        }
+
+        return components;
+    }
+
     ///
     /// \brief implicit conversion to underlying FilePath pointer.
     ///
