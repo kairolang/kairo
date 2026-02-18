@@ -6,22 +6,21 @@
         "request": "launch",
         "cwd": "${workspaceFolder}",
         "preLaunchTask": "build-kairo-current",
-        "console": "integratedTerminal",   // <—— important
         "stopAtEntry": false,
         
         // Defaults (non-Windows → cppdbg)
         "type": "cppdbg",
-        "program": "${workspaceFolder}/build/.gens/dbg_run",
+        "program": "${workspaceFolder}/build/.gen/test_run",
         "MIMode": "gdb",
         "miDebuggerPath": "/usr/bin/gdb",
+        "internalConsoleOptions": "openOnSessionStart",
 
         "osx": {
             "MIMode": "lldb",
             "miDebuggerPath": "/usr/bin/lldb"
         },
         "windows": {
-            "type": "cppvsdbg",
-            "program": "${workspaceFolder}/build/.gens/dbg_run.exe"
+            "program": "${workspaceFolder}/build/.gen/test_run.exe"
         }
     }
   ]

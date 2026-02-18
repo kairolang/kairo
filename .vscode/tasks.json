@@ -4,17 +4,22 @@
     {
       "label": "build-kairo-current",
       "type": "shell",
-      "command": "kairo",
+      "command": "kbld",
       "args": [
+        "test",
         "${file}",
-        "--debug",
-        "-o",
-        "${workspaceFolder}/build/.gens/dbg_run"
+        "--compile-only",
+        "--verbose",
       ],
       "problemMatcher": [],
       "options": {
-        "cwd": "${workspaceFolder}"
-      }
+        "cwd": "${workspaceFolder}",
+        "env": {
+            "PWD": "${workspaceFolder}",
+            "CWD": "${workspaceFolder}",
+        }
+      },
+      "promptOnClose": true,
     }
   ]
 }

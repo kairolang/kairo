@@ -15,7 +15,7 @@ mode     = "release"
 name     = "kairo"
 entry    = "toolchain/Driver/main/kairo.kro"
 type     = "binary"
-includes = [".", "toolchain", "lib-helix/core"]
+includes = ["toolchain", "lib-helix/core"]
 links    = []
 libs     = []
 deps     = []
@@ -28,28 +28,28 @@ cxx_passthrough = []
 name     = "kbld"
 entry    = "toolchain/Driver/main/kbld.kro"
 type     = "binary"
-includes = [".", "toolchain"]
+includes = ["toolchain"]
 
 [[target]]
 name     = "kfmt"
 entry    = "toolchain/Driver/main/kfmt.kro"
 type     = "binary"
-includes = [".", "toolchain"]
+includes = ["toolchain"]
 
 [[target]]
 name     = "kld"
 entry    = "toolchain/Driver/main/kld.kro"
 type     = "binary"
-includes = [".", "toolchain"]
+includes = ["toolchain"]
 
 [[target]]
 name     = "klsp"
 entry    = "toolchain/Driver/main/klsp.kro"
 type     = "binary"
-includes = [".", "toolchain"]
+includes = ["toolchain"]
 
 [[target]]
 name     = "kpkg"
 entry    = "toolchain/Driver/main/kpkg.kro"
 type     = "binary"
-includes = [".", "toolchain"]
+includes = ["toolchain"]
