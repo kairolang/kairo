@@ -1,4 +1,4 @@
-## Helix Programming Language Code of Conduct
+## Kairo Programming Language Code of Conduct
 
 ---
 
@@ -19,7 +19,7 @@
 
 ### Introduction
 
-The Helix community is dedicated to providing a welcoming, inclusive, and constructive environment for everyone. Our goal is to foster a space where individuals of all backgrounds can collaborate, learn, and grow. This Code of Conduct outlines our expectations for participant behavior and the consequences of unacceptable behavior.
+The Kairo community is dedicated to providing a welcoming, inclusive, and constructive environment for everyone. Our goal is to foster a space where individuals of all backgrounds can collaborate, learn, and grow. This Code of Conduct outlines our expectations for participant behavior and the consequences of unacceptable behavior.
 
 ---
 
@@ -29,7 +29,7 @@ The Helix community is dedicated to providing a welcoming, inclusive, and constr
 
 - **Be Kind and Considerate:** Be thoughtful in your interactions with others. Disagreement is natural, but it’s important to engage respectfully and constructively. Avoid personal attacks or insults. Instead, focus on the issue at hand and propose solutions.
 
-- **Be Collaborative:** Collaboration is key to the success of our community. Share knowledge, support each other, and contribute to the common goal of improving Helix. Recognize the work of others, give constructive feedback, and be open to feedback about your own work.
+- **Be Collaborative:** Collaboration is key to the success of our community. Share knowledge, support each other, and contribute to the common goal of improving Kairo. Recognize the work of others, give constructive feedback, and be open to feedback about your own work.
 
 - **Be Mindful of Language:** Avoid using overtly sexual or violent language. Do not post, share, or link to inappropriate content, including but not limited to, sexually explicit material, violent imagery, or hate speech. Ensure that your communication is appropriate for a professional and diverse audience.
 
@@ -39,13 +39,13 @@ The Helix community is dedicated to providing a welcoming, inclusive, and constr
 
 - **Be Concise:** Constructive criticism and suggestions are welcome, but high-traffic forums do not generally have the bandwidth for extensive discourse. Be concise and to the point in your communications. Consider writing a blog post if you feel that you have enough to say on a particular subject.
 
-- **For Researchers:** We welcome the participation of researchers of all kinds in the Helix community. However, please remember that open source development is a social process and that the participants on the other side of any interaction are (obviously) humans. If you are conducting research on the community or its processes, you are expected to abide by the highest standards of ethics and professional practice.
+- **For Researchers:** We welcome the participation of researchers of all kinds in the Kairo community. However, please remember that open source development is a social process and that the participants on the other side of any interaction are (obviously) humans. If you are conducting research on the community or its processes, you are expected to abide by the highest standards of ethics and professional practice.
 
 ---
 
 ### Enforcement
 
-Community members are expected to adhere to these standards. Unacceptable behavior may be addressed by the Helix Conduct Team in the following ways:
+Community members are expected to adhere to these standards. Unacceptable behavior may be addressed by the Kairo Conduct Team in the following ways:
 
 #### Enforcement Actions
 
@@ -61,7 +61,7 @@ Community members are expected to adhere to these standards. Unacceptable behavi
 
 ### Reporting Issues
 
-If you encounter or witness behavior that violates this Code of Conduct, please report it to the Helix Conduct Team at [conduct@helix-lang.com](mailto:conduct@helix-lang.com). Your report will be handled confidentially. 
+If you encounter or witness behavior that violates this Code of Conduct, please report it to the Kairo Conduct Team at [conduct@kairo-lang.com](mailto:conduct@kairo-lang.com). Your report will be handled confidentially. 
 
 #### What to Include in a Report
 
@@ -76,7 +76,7 @@ Please include the following information in your report, if possible:
 
 #### What Happens After Reporting
 
-1. **Acknowledgement:** You will receive a reply from the Helix Conduct Team acknowledging receipt of your report within 1-10 business day.
+1. **Acknowledgement:** You will receive a reply from the Kairo Conduct Team acknowledging receipt of your report within 1-10 business day.
 
 2. **Review:** The Conduct Team will review the incident as soon as possible to determine what happened and who was involved. They will assess whether this event constitutes a Code of Conduct violation and whether it poses any ongoing threat to physical safety.
 
@@ -86,11 +86,11 @@ Please include the following information in your report, if possible:
 
 #### Appeals
 
-If you believe that the enforcement action taken is unfair or inappropriate, you may appeal the decision. Appeals should be directed to the Helix Project Leads at [appeals@helix-lang.com](mailto:appeals@helix-lang.com). Please provide any relevant information or context to support your appeal.
+If you believe that the enforcement action taken is unfair or inappropriate, you may appeal the decision. Appeals should be directed to the Kairo Project Leads at [appeals@kairo-lang.com](mailto:appeals@kairo-lang.com). Please provide any relevant information or context to support your appeal.
 
 #### Special Cases
 
-If a complaint is raised against a member of the Conduct Team or Helix Project Leads, they will be excluded from conduct discussions and decisions, including appeals. Such complaints may lead to a member's responsibilities being revoked to ensure an unbiased review process.
+If a complaint is raised against a member of the Conduct Team or Kairo Project Leads, they will be excluded from conduct discussions and decisions, including appeals. Such complaints may lead to a member's responsibilities being revoked to ensure an unbiased review process.
 
 ---
 

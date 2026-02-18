@@ -1,7 +1,7 @@
 // -*- C++ -*-
 //===------------------------------------------------------------------------------------------===//
 //
-// Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).
+// Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).
 // You are allowed to use, modify, redistribute, and create derivative works, even for commercial
 // purposes, provided that you give appropriate credit, and indicate if changes were made.
 // For more information, please visit: https://creativecommons.org/licenses/by/4.0/
@@ -20,7 +20,7 @@
 #include <optional>
 #include <utility>
 
-namespace helix {
+namespace kairo {
 template <typename Kt, typename Vt, int N>
 struct CompTimeMap {
     using value_type = std::pair<Kt, Vt>;
@@ -85,6 +85,6 @@ struct CompTimeMap {
 };
 
 #define MP std::make_pair
-}  // end namespace helix
+}  // end namespace kairo
 
 #endif  // __ADVANCED_COMPTIME_MAP_H__

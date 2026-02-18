@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -25,33 +25,33 @@
 
 __CONTROLLER_CLI_BEGIN {
     CLIArgs::CLIArgs(int argc, char **argv, const std::string &_version) {
-        args::ArgumentParser parser("Helix Compiler Command Line Interface", R"(
-Helix CLI - The Next-Generation Compiler for Modern Development
+        args::ArgumentParser parser("Kairo Compiler Command Line Interface", R"(
+Kairo CLI - The Next-Generation Compiler for Modern Development
 
 Usage Examples:
-  1. Compile a Helix source file:
-     helix input_file.hlx
+  1. Compile a Kairo source file:
+     kairo input_file.kro
 
   2. Compile with optimization level 2:
-     helix -O2 -o output_file input_file.hlx
+     kairo -O2 -o output_file input_file.kro
 
   3. Generate LLVM Intermediate Representation (IR):
-     helix --emit-llvm -o output.ll input_file.hlx
+     kairo --emit-llvm -o output.ll input_file.kro
 
   4. Cross-compile for a specific target:
-     helix --target x86_64-linux-gnu -o output_file input_file.hlx
+     kairo --target x86_64-linux-gnu -o output_file input_file.kro
 
   5. Compile as a library with Rust ABI:
-     helix --lib --rust -o liboutput.a input_file.hlx
+     kairo --lib --rust -o liboutput.a input_file.kro
 
 For more detailed documentation, visit:
-  https://helix-lang.com/docs
+  https://kairo-lang.com/docs
 
 For support or to report issues, contact:
-  support@helix-lang.com
+  support@kairo-lang.com
 
-Thank you for using Helix!
-DISCLAIMER: All of these options are subject to change in future versions of helix. (until this message is removed)
+Thank you for using Kairo!
+DISCLAIMER: All of these options are subject to change in future versions of kairo. (until this message is removed)
 )");
         args::HelpFlag       help(parser, "help", "Display this help menu", {'h', "help"});
         args::Flag version(parser, "version", "Display the version information", {'v', "version"});
@@ -128,8 +128,8 @@ DISCLAIMER: All of these options are subject to change in future versions of hel
                            "cxx",
                            "Generate C++ header files and compile to a linkable object file",
                             {"cxx", "cxx"});
-        args::Flag  helix_abi(
-            abi_group, "helix", "Generate Helix ABI-compatible library", {"hlx", "helix"});
+        args::Flag  kairo_abi(
+            abi_group, "kairo", "Generate Kairo ABI-compatible library", {"kro", "kairo"});
 
         args::ValueFlagList<std::string> include_dirs(
             parser, "include", "Specify include directories", {'I'});
@@ -138,7 +138,7 @@ DISCLAIMER: All of these options are subject to change in future versions of hel
         args::ValueFlagList<std::string> link_libraries(
             parser, "lib", "Specify libraries to link against", {'l'});
         args::ValueFlagList<std::string> module_dirs(
-            parser, "moddir", "Specify Helix modules directories", {'m'});
+            parser, "moddir", "Specify Kairo modules directories", {'m'});
         args::Positional<std::string> input_file(parser, "file", "Specify input file path");
 
         /// any other flags after -- are treated as compiler flags
@@ -157,16 +157,16 @@ DISCLAIMER: All of these options are subject to change in future versions of hel
                 return;
             }
             if (version) {
-                print("Helix Compiler Version: ", _version);
+                print("Kairo Compiler Version: ", _version);
                 this->exit_   = true;
                 this->exit_co = 0;
                 return;
             }
             if (license) {
                 print(R"(
-Helix Language Project - License Information
+Kairo Language Project - License Information
 
-This software is part of the Helix Language Project and is licensed under the Attribution 4.0 International license (CC BY 4.0).
+This software is part of the Kairo Language Project and is licensed under the Attribution 4.0 International license (CC BY 4.0).
 
 You are permitted to:
   - Use, modify, and redistribute the software
@@ -181,8 +181,8 @@ For more detailed information, please visit: https://creativecommons.org/license
 
 SPDX-License-Identifier: CC-BY-4.0
 
-This software is provided by the creators of Helix. Visit our website at:
-https://helix-lang.com/ for more information.
+This software is provided by the creators of Kairo. Visit our website at:
+https://kairo-lang.com/ for more information.
     )");
                 this->exit_   = true;
                 this->exit_co = 0;
@@ -248,7 +248,7 @@ https://helix-lang.com/ for more information.
                 } else if (cxx_abi) {
                     build_lib = ABI::CXX;
                 } else {
-                    build_lib = ABI::HELIX;
+                    build_lib = ABI::KAIRO;
                 }
             }
 
@@ -304,7 +304,7 @@ https://helix-lang.com/ for more information.
             this->get_all_flags +=
                 "    cxx abi: " + std::to_string(static_cast<int>(cxx_abi)) + ", \n";
             this->get_all_flags +=
-                "    helix abi: " + std::to_string(static_cast<int>(helix_abi)) + ", \n";
+                "    kairo abi: " + std::to_string(static_cast<int>(kairo_abi)) + ", \n";
 
             this->get_all_flags += "    config file: " + config_file.Get() + ", \n";
             this->get_all_flags += "    output file: " + output_file.Get() + ", \n";

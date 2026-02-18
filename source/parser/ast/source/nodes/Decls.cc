@@ -1,6 +1,6 @@
 //===------------------------------------------ C++ ------------------------------------------====//
 //                                                                                                //
-//  Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0). You   //
+//  Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0). You   //
 //  are allowed to use, modify, redistribute, and create derivative works, even for commercial    //
 //  purposes, provided that you give appropriate credit, and indicate if changes                  //
 //  were made. For more information, please visit: https://creativecommons.org/licenses/by/4.0/   //
@@ -1091,7 +1091,7 @@ AST_NODE_IMPL(Declaration,
     /// now we append the following to the params:
     /// const loc: libcxx::source_location = libcxx::source_location::current()
     /// along with the following to elm 0 of the body:
-    /// __REGISTER_HELIX_TRACE_BLOCK__(loc.file_name(), loc.line(), __HELIX_FUNCNAME__);
+    /// __REGISTER_KAIRO_TRACE_BLOCK__(loc.file_name(), loc.line(), __KAIRO_FUNCNAME__);
     
     auto function_name = node->name;
     // if (!(node->is_op) && (function_name != nullptr && !((function_name->get_back_name().value() == "main" ||
@@ -1176,7 +1176,7 @@ AST_NODE_IMPL(Declaration,
     //             PathExpr::PathType::Dot)),
 
     //         make_node<ArgumentExpr>(make_node<IdentExpr>(
-    //             token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__KAIRO_FUNCNAME__", node->marker))),
     //     });
     // } else {
     //     register_trace = make_node<ArgumentListExpr>(NodeV<>{
@@ -1187,7 +1187,7 @@ AST_NODE_IMPL(Declaration,
     //             token::Token(__TOKEN_N::IDENTIFIER, "__LINE__", node->marker))),
 
     //         make_node<ArgumentExpr>(make_node<IdentExpr>(
-    //             token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+    //             token::Token(__TOKEN_N::IDENTIFIER, "__KAIRO_FUNCNAME__", node->marker))),
     //     });
     // }
 
@@ -1199,7 +1199,7 @@ AST_NODE_IMPL(Declaration,
             token::Token(__TOKEN_N::IDENTIFIER, "__LINE__", node->marker))),
 
         make_node<ArgumentExpr>(make_node<IdentExpr>(
-            token::Token(__TOKEN_N::IDENTIFIER, "__HELIX_FUNCNAME__", node->marker))),
+            token::Token(__TOKEN_N::IDENTIFIER, "__KAIRO_FUNCNAME__", node->marker))),
 
         make_node<ArgumentExpr>(make_node<IdentExpr>(
             token::Token(__TOKEN_N::IDENTIFIER, generate_unique_name(), node->marker)))
@@ -1211,7 +1211,7 @@ AST_NODE_IMPL(Declaration,
 
             make_node<FunctionCallExpr>(
                 make_node<PathExpr>(make_node<IdentExpr>(token::Token(
-                    __TOKEN_N::IDENTIFIER, "__REGISTER_HELIX_TRACE_BLOCK__", node->marker))),
+                    __TOKEN_N::IDENTIFIER, "__REGISTER_KAIRO_TRACE_BLOCK__", node->marker))),
 
                 register_trace,
 
@@ -1312,7 +1312,7 @@ AST_NODE_IMPL(Declaration, FFIDecl, const std::shared_ptr<__TOKEN_N::TokenList> 
             NodeT<ScopePathExpr> path = __AST_N::as<ScopePathExpr>(single->path);
             token::Token         tok  = path->get_back_name();
 
-            if (tok.value() == "__/helix$$internal/__") {
+            if (tok.value() == "__/kairo$$internal/__") {
                 /// this is completely disallowed theres no marker for this
                 return std::unexpected(
                     PARSE_ERROR(node->name->value,

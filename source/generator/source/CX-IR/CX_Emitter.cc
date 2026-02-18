@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -51,7 +51,7 @@ void generator::CXIR::CXIR::visit(__AST_NODE::Program &node) {
                      std::filesystem::path(node.get_file_name()).generic_string(),
                      " "));
 
-    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "helix");
+    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "kairo");
     ADD_TOKEN(CXX_LBRACE);
 
     bool trivially_import = contains_trivial_import_directive(node.annotations);
@@ -110,23 +110,23 @@ void generator::CXIR::CXIR::visit(__AST_NODE::Program &node) {
             ADD_TOKEN(CXX_RBRACE);  // end namespace _namespace
         }
 
-        ADD_TOKEN(CXX_RBRACE);  // end namespace helix
+        ADD_TOKEN(CXX_RBRACE);  // end namespace kairo
         // now add the main function with the same signature and name but replace the body to return
-        // helix:: [passing the name and args]
+        // kairo:: [passing the name and args]
 
         main_func->body->body->body.clear();
 
-        {  // this is a function call to the helix::_HX_FN_Vi_Q5_7_helixrt_init_Rv()
+        {  // this is a function call to the kairo::_HX_FN_Vi_Q5_7_kairort_init_Rv()
             auto scope = __AST_N::make_node<__AST_NODE::ScopePathExpr>(true);
 
             scope->path.push_back(__AST_N::make_node<__AST_NODE::IdentExpr>(
                 __TOKEN_N::Token(main_func->name->get_back_name().token_kind(),
-                                 "helix",
+                                 "kairo",
                                  main_func->name->get_back_name())));
 
             scope->access = __AST_N::make_node<__AST_NODE::IdentExpr>(
                 __TOKEN_N::Token(main_func->name->get_back_name().token_kind(),
-                                 "_HX_FN_Vi_Q5_7_helixrt_init_Rv",
+                                 "_HX_FN_Vi_Q5_7_kairort_init_Rv",
                                  main_func->name->get_back_name()));
 
             auto path  = __AST_N::make_node<__AST_NODE::PathExpr>(scope);
@@ -144,7 +144,7 @@ void generator::CXIR::CXIR::visit(__AST_NODE::Program &node) {
 
             scope->path.push_back(__AST_N::make_node<__AST_NODE::IdentExpr>(
                 __TOKEN_N::Token(main_func->name->get_back_name().token_kind(),
-                                 "helix",
+                                 "kairo",
                                  main_func->name->get_back_name())));
 
             if (!trivially_import) {
@@ -171,7 +171,7 @@ void generator::CXIR::CXIR::visit(__AST_NODE::Program &node) {
 
             auto func_call = __AST_N::make_node<__AST_NODE::FunctionCallExpr>(path, args);
             auto ret       = __AST_N::make_node<__AST_NODE::ReturnState>(func_call);
-            main_func->body->body->body.push_back(ret);  // return helix::...::...(..., ...);
+            main_func->body->body->body.push_back(ret);  // return kairo::...::...(..., ...);
         }
 
         main_func->accept(*this);
@@ -180,7 +180,7 @@ void generator::CXIR::CXIR::visit(__AST_NODE::Program &node) {
             ADD_TOKEN(CXX_RBRACE);  // end namespace _namespace
         }
 
-        ADD_TOKEN(CXX_RBRACE);  // end namespace helix
+        ADD_TOKEN(CXX_RBRACE);  // end namespace kairo
     }
 
     ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "#endif");

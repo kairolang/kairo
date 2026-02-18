@@ -1,6 +1,6 @@
 //===------------------------------------------ C++ ------------------------------------------====//
 //                                                                                                //
-//  Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0). You   //
+//  Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0). You   //
 //  are allowed to use, modify, redistribute, and create derivative works, even for commercial    //
 //  purposes, provided that you give appropriate credit, and indicate if changes                  //
 //  were made. For more information, please visit: https://creativecommons.org/licenses/by/4.0/   //
@@ -1713,7 +1713,7 @@ AST_NODE_IMPL(Expression, Type) {  // TODO - REMAKE using the new Modifiers and 
     // if E(2) does not exist, check if its a & | * token, since if it is,
     // then return a unary expression since its a pointer or reference type
 
-    // types are quite complex in helix since this is the gammer:
+    // types are quite complex in kairo since this is the gammer:
     // Type := ('fn' '(' (Type ((',' Type)*)?)? ')' ('->' Type)?)
     //      | (TypePrefixes ((',' TypePrefixes)*)?)? PathExpr GenericInvocationExpr?
 

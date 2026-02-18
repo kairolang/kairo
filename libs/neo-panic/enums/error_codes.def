@@ -1,7 +1,7 @@
 // -*- C++ -*-
 //===------------------------------------------------------------------------------------------===//
 //
-// Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).
+// Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).
 // You are allowed to use, modify, redistribute, and create derivative works, even for commercial
 // purposes, provided that you give appropriate credit, and indicate if changes were made.
 // For more information, please visit: https://creativecommons.org/licenses/by/4.0/
@@ -31,7 +31,7 @@ struct hash<error::Errors> {
 }  // namespace std
 
 namespace error {
-const helix::CompTimeMap<float, Errors, 150> ERROR_MAP({
+const kairo::CompTimeMap<float, Errors, 150> ERROR_MAP({
     // Syntax Errors
     MP(0.0001, Errors{"invalid syntax: {}", "", error::ERR}),
     MP(0.0123, Errors{"invalid import: {}", "", error::ERR}),
@@ -99,7 +99,7 @@ const helix::CompTimeMap<float, Errors, 150> ERROR_MAP({
     MP(0.7004, Errors{"disallowed abi option, abi should only be a string.", "use one of allowed abi options [{}]", error::ERR}),
     MP(0.7005, Errors{"missing required abi identifier", ""}),
     MP(0.7006, Errors{"invalid symbol `#`", "if you meant to invoke a macro or compiler directive. use `#[...]` no spaces in between.", error::FATAL}),
-    MP(0.7007, Errors{"attributes are not supported in this version of helix", "remove usage", error::FATAL}),
+    MP(0.7007, Errors{"attributes are not supported in this version of kairo", "remove usage", error::FATAL}),
     MP(0.7008, Errors{"shorthand scope declaration is not allowed for 'module'", "", error::ERR}),
 
     // Type Handling Errors

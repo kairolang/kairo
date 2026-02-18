@@ -7,16 +7,16 @@
 - [ ] Add support for packing and unpacking functions and destructuring
 - [ ] Parse simple macros and invocations
 - [ ] Parse eval if statements
-- [x] Get CXIR compile messages to convert to helix errors
-- [x] Parse basic helix imports (no symbol resolution)
-- [ ] Codegen C++ headers to allow C++ to call helix code
+- [x] Get CXIR compile messages to convert to kairo errors
+- [x] Parse basic kairo imports (no symbol resolution)
+- [ ] Codegen C++ headers to allow C++ to call kairo code
 - [ ] Parse and codegen catch blocks with no catch type
 - [ ] Make test syntax work for definitions and usages
 - [ ] Make classes immutable by default
 - [x] Get f-strings working
-- [x] Convert clang errors into the helix error msg format.
-- [ ] Convert gcc errors into the helix error msg format.
-- [x] Convert msvc errors into the helix error msg format.
+- [x] Convert clang errors into the kairo error msg format.
+- [ ] Convert gcc errors into the kairo error msg format.
+- [x] Convert msvc errors into the kairo error msg format.
 - [ ] Fix ast error messages, where the message tells a fix to also add a quick fix to the error
 - [x] Add support for global scopes in the parser
 
@@ -83,22 +83,22 @@ Implement parsing for `eval` conditional statements to allow runtime-evaluated c
 
 ---
 
-### **5. Get CXIR Compile Messages to Convert to Helix Errors**
+### **5. Get CXIR Compile Messages to Convert to Kairo Errors**
 **Description:**
-Adapt CXIR compile messages into the Helix error format for consistency and clarity in reporting.
+Adapt CXIR compile messages into the Kairo error format for consistency and clarity in reporting.
 
 **Acceptance Criteria:**
-- CXIR compile errors are converted into Helix-style error messages.
+- CXIR compile errors are converted into Kairo-style error messages.
 - Ensure proper formatting and accurate mapping of error types.
 
 ---
 
-### **6. Codegen C++ Headers to Allow C++ to Call Helix Code**
+### **6. Codegen C++ Headers to Allow C++ to Call Kairo Code**
 **Description:**
-Generate C++ header files for Helix modules, enabling seamless interoperation where C++ code can call Helix functions.
+Generate C++ header files for Kairo modules, enabling seamless interoperation where C++ code can call Kairo functions.
 
 **Acceptance Criteria:**
-- C++ headers are correctly generated with all relevant Helix function prototypes.
+- C++ headers are correctly generated with all relevant Kairo function prototypes.
 - Ensure compatibility with various C++ compilers.
 
 ---
@@ -134,13 +134,13 @@ Change the default behavior of classes to be immutable, ensuring explicit syntax
 
 ---
 
-### **10. Convert GCC Errors into the Helix Error Msg Format**
+### **10. Convert GCC Errors into the Kairo Error Msg Format**
 **Description:**
-Transform GCC errors into the Helix error message format for a consistent user experience across compilers.
+Transform GCC errors into the Kairo error message format for a consistent user experience across compilers.
 
 **Acceptance Criteria:**
 - GCC errors are correctly converted.
-- Ensure proper mapping of GCC-specific errors to Helix equivalents.
+- Ensure proper mapping of GCC-specific errors to Kairo equivalents.
 
 ---
 
@@ -159,7 +159,7 @@ Improve AST error messages by including actionable quick fixes alongside error e
 Implement support for panic unwinding to manage error recovery and cleanup during runtime exceptions.
 
 **Acceptance Criteria:**
-- Panic unwinding works seamlessly with Helix code.
+- Panic unwinding works seamlessly with Kairo code.
 - Tests for error handling and resource cleanup during unwinding.
 
 ---
@@ -196,7 +196,7 @@ Add support for code generation of interfaces, ensuring proper virtual function 
 
 ### **16. Parse and Codegen `extend` Syntax**
 **Description:**
-Implement parsing and code generation for the `extend` syntax, allowing Helix types to extend their functionality.
+Implement parsing and code generation for the `extend` syntax, allowing Kairo types to extend their functionality.
 
 **Acceptance Criteria:**
 - `extend` syntax is fully supported.

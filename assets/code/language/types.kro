@@ -9,12 +9,12 @@ fn main() -> i32 {
     var int_holder = Holder<int>(69)
 
     finally { // The finally block is executed when the scope is exited, even if an error occurs.
-        // Here, theres no need to manually delete the object since it's on the stack. Helix manages
+        // Here, theres no need to manually delete the object since it's on the stack. Kairo manages
         // stack memory. But there's no harm in manually deleting it either.
         delete int_holder
     }
 
-    // Helix impl type inference, so theres no need to specify the type of value. But any modifiers
+    // Kairo impl type inference, so theres no need to specify the type of value. But any modifiers
     // like pointers, questionable, etc. must be specified. (enforced for readability and safety)
     var *value? = int_holder.get(1)
     
@@ -22,7 +22,7 @@ fn main() -> i32 {
         value = Heap::construct<int>(21) // Equivalent to new int(21) in C++
     }
 
-    // Helix impl support for named parameters/default values
+    // Kairo impl support for named parameters/default values
     var *invalid_value? = int_holder.get(index=100) // Attempt to fetch an out-of-bounds value
     
     if invalid_value?:
@@ -37,7 +37,7 @@ fn main() -> i32 {
     return 0
 }
 
-// Structs in Helix are data containers with no methods.
+// Structs in Kairo are data containers with no methods.
 // They can include: operator overloads, nested structs, destructors, enums, and fields.
 // All fields are public by default.
 struct <T> Data {
@@ -45,7 +45,7 @@ struct <T> Data {
     var value: *T?
 }
 
-// Classes in Helix support methods, fields, and constructors.
+// Classes in Kairo support methods, fields, and constructors.
 // Fields are private by default, while methods and constructors are public by default.
 class <T> Holder {
     // Unsafe pointers: nullable, allow pointer arithmetic, and require manual dereferencing.

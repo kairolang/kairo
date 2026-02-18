@@ -13,9 +13,9 @@ name: "CodeQL"
 
 on:
   push:
-    branches: [ "helix-compiler" ]
+    branches: [ "kairo-compiler" ]
   pull_request:
-    branches: [ "helix-compiler" ]
+    branches: [ "kairo-compiler" ]
   schedule:
     - cron: '26 18 * * 4'
 

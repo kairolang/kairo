@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -65,7 +65,7 @@ void process_paths(std::vector<T>                     &paths,
     if (std::filesystem::is_regular_file(base_to)) {
         if (!std::filesystem::exists(base_to.parent_path()) &&
             !std::filesystem::is_directory(base_to.parent_path())) {
-            helix::log<LogLevel::Warning>(
+            kairo::log<LogLevel::Warning>(
                 "specified include dir is not a directory or does not exist: \'" +
                 base_to.parent_path().generic_string() + "\'");
         } else if (base_to.parent_path() != cwd) {
@@ -84,7 +84,7 @@ void process_paths(std::vector<T>                     &paths,
             if (std::filesystem::is_directory(dir)) {
                 add_to.emplace_back(dir);
             } else {
-                helix::log<LogLevel::Warning>(
+                kairo::log<LogLevel::Warning>(
                     "specified include dir is not a directory or does not exist: \'" +
                     dir.generic_string() + "\'");
             }
@@ -97,7 +97,7 @@ void process_paths(std::vector<T>                     &paths,
             auto path = __CONTROLLER_FS_N::resolve_path(dir.generic_string(), false);
 
             if (path.has_value() && !std::filesystem::is_directory(path.value())) {
-                helix::log<LogLevel::Warning>(
+                kairo::log<LogLevel::Warning>(
                     "specified include dir is not a directory or does not exist: \'" +
                     dir.generic_string() + "\'");
 
@@ -110,7 +110,7 @@ void process_paths(std::vector<T>                     &paths,
 }
 
 int CompilationUnit::compile(int argc, char **argv) {
-    __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Helix Compiler v0.0.1-beta-1e");
+    __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Kairo Compiler v0.0.1-beta-1e");
     check_exit(parsed_args);
 
     return compile(parsed_args);
@@ -126,7 +126,7 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
                                    in_file_path.generic_string()};
     __TOKEN_N::TokenList tokens = __TOKEN_N::TokenList(lexer.tokenize());
 
-    helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "tokenized");
+    kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "tokenized");
 
     process_paths(parsed_args.library_dirs,
                   link_dirs,
@@ -139,20 +139,20 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
                   {__CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "pkgs"});
 
     if (parsed_args.verbose) {
-        helix::log_opt<LogLevel::Debug>(enable_logging, "import dirs: [");
+        kairo::log_opt<LogLevel::Debug>(enable_logging, "import dirs: [");
         for (const auto &dir : import_dirs) {
-            helix::log_opt<LogLevel::Debug>(enable_logging, dir.generic_string() + ", ");
+            kairo::log_opt<LogLevel::Debug>(enable_logging, dir.generic_string() + ", ");
         }
-        helix::log_opt<LogLevel::Debug>(enable_logging, "]");
+        kairo::log_opt<LogLevel::Debug>(enable_logging, "]");
 
-        helix::log_opt<LogLevel::Debug>(enable_logging, "link dirs: [");
+        kairo::log_opt<LogLevel::Debug>(enable_logging, "link dirs: [");
         for (const auto &dir : link_dirs) {
-            helix::log_opt<LogLevel::Debug>(enable_logging, dir.generic_string() + ", ");
+            kairo::log_opt<LogLevel::Debug>(enable_logging, dir.generic_string() + ", ");
         }
-        helix::log_opt<LogLevel::Debug>(enable_logging, "]");
+        kairo::log_opt<LogLevel::Debug>(enable_logging, "]");
     }
 
-    helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "preprocessing");
+    kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "preprocessing");
 
     this->import_processor = std::make_shared<__PREPROCESSOR_N::ImportProcessor>(tokens, import_dirs, parsed_args);
             
@@ -163,7 +163,7 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
     if (!CORE_IMPORTED) { // 1 core import per file
         CORE_IMPORTED = true;
 
-        auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "core.hlx";
+        auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "core.kro";
         auto pos = tokens[0];
 
         import_processor->force_import(core, parsed_args);
@@ -180,17 +180,17 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
 
     // we print all the paths of the imported files for debugging purposes
     if (parsed_args.verbose) {
-        helix::log_opt<LogLevel::Debug>(enable_logging, "imported files: [");
+        kairo::log_opt<LogLevel::Debug>(enable_logging, "imported files: [");
         for (const auto &imp : DEPENDENCIES) {
-            helix::log_opt<LogLevel::Debug>(enable_logging, imp.generic_string() + ", ");
+            kairo::log_opt<LogLevel::Debug>(enable_logging, imp.generic_string() + ", ");
         }
-        helix::log_opt<LogLevel::Debug>(enable_logging, "]");
+        kairo::log_opt<LogLevel::Debug>(enable_logging, "]");
     }
 
-    helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "preprocessed");
+    kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "preprocessed");
 
     if (parsed_args.emit_tokens) {
-        helix::log_opt<LogLevel::Debug>(enable_logging, tokens.to_json());
+        kairo::log_opt<LogLevel::Debug>(enable_logging, tokens.to_json());
         print_tokens(tokens);
     }
 
@@ -204,7 +204,7 @@ __AST_N::NodeT<__AST_NODE::Program> CompilationUnit::parse_ast(__TOKEN_N::TokenL
     if (import_processor != nullptr) {
         ast->parse(false, import_processor);
     } else {
-        helix::log<LogLevel::Error>("import processor is null");
+        kairo::log<LogLevel::Error>("import processor is null");
     }
     return ast;
 }
@@ -236,11 +236,11 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
         return {{}, 3};
     }
 
-    helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsing ast...");
+    kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsing ast...");
     
     ast = parse_ast(tokens, in_file_path);
     
-    helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsed: " + in_file_path.generic_string());
+    kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsed: " + in_file_path.generic_string());
 
     if (!ast) {
         return {{}, 1};
@@ -255,7 +255,7 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
             return {{}, 2};
         }
 
-        helix::log<LogLevel::Debug>(json_visitor.json.to_string());
+        kairo::log<LogLevel::Debug>(json_visitor.json.to_string());
     }
 
     if (error::HAS_ERRORED) {
@@ -268,7 +268,7 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
     }
 
     generator::CXIR::CXIR emitter = generate_cxir(false);
-    helix::log_opt<LogLevel::Progress>(parsed_args.verbose, "emitted cx-ir");
+    kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "emitted cx-ir");
 
     if (parsed_args.emit_ir && !parsed_args.lsp_mode) {
         emit_cxir(emitter, parsed_args.verbose);
@@ -291,7 +291,7 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
         action_flags |= flag::CompileFlags(flag::types::CompileFlags::Verbose);
     }
 
-    if (parsed_args.build_lib == __CONTROLLER_CLI_N::CLIArgs::ABI::HELIX) {
+    if (parsed_args.build_lib == __CONTROLLER_CLI_N::CLIArgs::ABI::KAIRO) {
         action_flags |= flag::CompileFlags(flag::types::CompileFlags::Library);
     }
 
@@ -331,11 +331,11 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
             return 3;
         
         default:
-            helix::log<LogLevel::Error>("unknown result code: ", result);
+            kairo::log<LogLevel::Error>("unknown result code: ", result);
             return 1;
     }
     
-    helix::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiling");
+    kairo::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiling");
     
     if (error::HAS_ERRORED || parsed_args.lsp_mode) {
         LSP_MODE = parsed_args.lsp_mode;
@@ -374,14 +374,14 @@ void CompilationUnit::remove_comments(__TOKEN_N::TokenList &tokens) {
  * @param verbose
  */
 void CompilationUnit::emit_cxir /* */ (const generator::CXIR::CXIR &emitter, bool verbose) {
-    helix::log<LogLevel::Info>("emitting cx-ir...");
+    kairo::log<LogLevel::Info>("emitting cx-ir...");
 
     if (verbose) {
         auto cxir = emitter.to_CXIR<true>(); // this should be called so source maps are generated
-        helix::log<LogLevel::Debug>("\n", colors::fg16::yellow, cxir, colors::reset);
-        helix::log<LogLevel::Debug>("\nSourceMap: ", colors::fg16::yellow, emitter.source_map.to_dict(), colors::reset);
+        kairo::log<LogLevel::Debug>("\n", colors::fg16::yellow, cxir, colors::reset);
+        kairo::log<LogLevel::Debug>("\nSourceMap: ", colors::fg16::yellow, emitter.source_map.to_dict(), colors::reset);
     } else {
-        helix::log<LogLevel::Info>("\n", emitter.to_readable_CXIR(), colors::reset);
+        kairo::log<LogLevel::Info>("\n", emitter.to_readable_CXIR(), colors::reset);
     }
 }
 
@@ -394,7 +394,7 @@ CompilationUnit::determine_output_file(const __CONTROLLER_CLI_N::CLIArgs &parsed
                                : std::filesystem::path(in_file_path).stem().generic_string();
 
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
-    out_file += (parsed_args.build_lib == __CONTROLLER_CLI_N::CLIArgs::ABI::HELIX) ? ".obj" : ".exe";
+    out_file += (parsed_args.build_lib == __CONTROLLER_CLI_N::CLIArgs::ABI::KAIRO) ? ".obj" : ".exe";
 #endif
 
     return __CONTROLLER_FS_N::normalize_path_no_check(out_file);
@@ -407,7 +407,7 @@ void CompilationUnit::log_time(const std::chrono::high_resolution_clock::time_po
     std::chrono::duration<double> diff = end - start;
 
     if (verbose) {
-        helix::log<LogLevel::Debug>("time taken: " + std::to_string(diff.count() * 1e+9) + " ns");
-        helix::log<LogLevel::Debug>("            " + std::to_string(diff.count() * 1000) + " ms");
+        kairo::log<LogLevel::Debug>("time taken: " + std::to_string(diff.count() * 1e+9) + " ns");
+        kairo::log<LogLevel::Debug>("            " + std::to_string(diff.count() * 1000) + " ms");
     }
 }

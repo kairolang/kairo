@@ -8,14 +8,14 @@ fn main() -> i32 {
     return 0;
 }
 
-// helix ir
+// kairo ir
 auto main() -> i32 {
     auto this_is_a_lambda = []() -> i32 {
         print(string("uess"));
         return i32(12);
     };
 
-    print(helix::std::stringf(string("lamb = \\{\\}\n, loc = \\{\\}"), (this_is_a_lambda()), ((&(this_is_a_lambda)))));
+    print(kairo::std::stringf(string("lamb = \\{\\}\n, loc = \\{\\}"), (this_is_a_lambda()), ((&(this_is_a_lambda)))));
     return i32(0);
 }
 

@@ -1,4 +1,4 @@
-// test.hlx
+// test.kro
 ffi "c++" import "chrono";
 ffi "c++" import "random";
 

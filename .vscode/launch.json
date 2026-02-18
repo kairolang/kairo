@@ -5,9 +5,9 @@
             "type": "xmake",
             "request": "launch",
             "name": "Launch",
-            "target": "helix",
+            "target": "kairo",
             "args": [
-                "tests/test.hlx"
+                "tests/test.kro"
             ],
             "cwd": "${cwd}",
             "stopAtEntry": true

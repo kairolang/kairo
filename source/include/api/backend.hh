@@ -1,7 +1,7 @@
 #ifndef __BACKEND_H__
 #define __BACKEND_H__
 
-namespace helix::backend {
+namespace kairo::backend {
 // class CodeGen {
 //   public:
 //     enum class BackendAction {
@@ -32,9 +32,9 @@ namespace helix::backend {
 //             FIIStandards               ffi_libs,
 //             bool                       format_out = false);
 // };
-}  // namespace helix::backend
+}  // namespace kairo::backend
 
-namespace helix {
+namespace kairo {
 class RuntimeInitialize;  ///> initialize the JIT process
 class JIT;                ///> invoke the JIT without cli or stdout
 class RuntimeCleanup;     ///> close the JIT process (if this is not done you will be left
@@ -42,6 +42,6 @@ class RuntimeCleanup;     ///> close the JIT process (if this is not done you wi
 
 class Compile;    ///> invoke a raw compile without cli or stdout
 class Toolchain;  ///> invoke the full toolchain with cli args and everything else
-}  // namespace helix
+}  // namespace kairo
 
 #endif  // __BACKEND_H__

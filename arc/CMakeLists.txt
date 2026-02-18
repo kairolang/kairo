@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(helix-lang)
+project(kairo-lang)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 23)
@@ -34,30 +34,30 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 file(GLOB_RECURSE SOURCE_FILES "source/*.cc")
 
 # Define the executable
-add_executable(helix ${SOURCE_FILES})
+add_executable(kairo ${SOURCE_FILES})
 
 # Set runtime output directories
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_definitions(helix PRIVATE DEBUG)
-    target_compile_options(helix PRIVATE -g -O0 -MDd)
+    target_compile_definitions(kairo PRIVATE DEBUG)
+    target_compile_options(kairo PRIVATE -g -O0 -MDd)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin/Debug)
 else()
-    target_compile_definitions(helix PRIVATE NDEBUG)
-    target_compile_options(helix PRIVATE -O3 -MD)
+    target_compile_definitions(kairo PRIVATE NDEBUG)
+    target_compile_options(kairo PRIVATE -O3 -MD)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin/Release)
 endif()
 
 # Platform-specific settings
 if(APPLE)
     # Use the default macOS linker and clang settings
-    # target_link_libraries(helix PRIVATE clang clang-cpp c++ c++abi)
-    target_compile_options(helix PRIVATE -stdlib=libc++)
+    # target_link_libraries(kairo PRIVATE clang clang-cpp c++ c++abi)
+    target_compile_options(kairo PRIVATE -stdlib=libc++)
 else()
     # Use lld for non-Apple platforms
-    # target_compile_options(helix PRIVATE -fuse-ld=lld)
-    # target_link_libraries(helix PRIVATE clang clang-cpp libc++ libc++abi)
-    target_compile_options(helix PRIVATE -stdlib=libc++ -fno-rtti)
-    # target_link_options(helix PRIVATE -stdlib=libc++ -L${LLVM_DIR}/lib -lc++abi -Wl,-rpath,${LLVM_DIR}/lib)
+    # target_compile_options(kairo PRIVATE -fuse-ld=lld)
+    # target_link_libraries(kairo PRIVATE clang clang-cpp libc++ libc++abi)
+    target_compile_options(kairo PRIVATE -stdlib=libc++ -fno-rtti)
+    # target_link_options(kairo PRIVATE -stdlib=libc++ -L${LLVM_DIR}/lib -lc++abi -Wl,-rpath,${LLVM_DIR}/lib)
 endif()
 
 # Find llvm-config and include its directories
@@ -79,13 +79,13 @@ endif()
 # include_directories(${LLVM_DIR}/tools/clang/include)
 
 # Ensure correct paths
-# target_include_directories(helix PRIVATE ${LLVM_SRC_DIR}/clang/include)
-# target_include_directories(helix PRIVATE ${LLVM_SRC_DIR}/llvm/include)
-# target_include_directories(helix PRIVATE ${LLVM_SRC_DIR}/mlir/include)
-# target_include_directories(helix PRIVATE ${LLVM_DIR}/tools/clang/include)
+# target_include_directories(kairo PRIVATE ${LLVM_SRC_DIR}/clang/include)
+# target_include_directories(kairo PRIVATE ${LLVM_SRC_DIR}/llvm/include)
+# target_include_directories(kairo PRIVATE ${LLVM_SRC_DIR}/mlir/include)
+# target_include_directories(kairo PRIVATE ${LLVM_DIR}/tools/clang/include)
 
 # Link necessary Clang libraries explicitly
-# target_link_libraries(helix PRIVATE
+# target_link_libraries(kairo PRIVATE
 #     clang-cpp
 #     clang
 #     clangAST

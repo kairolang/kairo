@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -31,7 +31,7 @@
 #ifndef DEBUG_LOG
 #define DEBUG_LOG(...)                            \
     if (is_verbose) {                             \
-        helix::log<LogLevel::Debug>(__VA_ARGS__); \
+        kairo::log<LogLevel::Debug>(__VA_ARGS__); \
     }
 #endif
 
@@ -63,20 +63,20 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     auto get_cache_root = []() -> std::filesystem::path {
 #ifdef _WIN32
         if (const char *p = std::getenv("LOCALAPPDATA"); p && *p) {
-            return std::filesystem::path(p) / "helix-lang" / "cache";
+            return std::filesystem::path(p) / "kairo-lang" / "cache";
         }
         if (const char *p = std::getenv("USERPROFILE"); p && *p) {
-            return std::filesystem::path(p) / "AppData" / "Local" / "helix-lang" / "cache";
+            return std::filesystem::path(p) / "AppData" / "Local" / "kairo-lang" / "cache";
         }
 #else
         if (const char *p = std::getenv("XDG_CACHE_HOME"); p && *p) {
-            return std::filesystem::path(p) / "helix-lang";
+            return std::filesystem::path(p) / "kairo-lang";
         }
         if (const char *p = std::getenv("HOME"); p && *p) {
-            return std::filesystem::path(p) / ".cache" / "helix-lang";
+            return std::filesystem::path(p) / ".cache" / "kairo-lang";
         }
 #endif
-        return std::filesystem::temp_directory_path() / "helix-lang";
+        return std::filesystem::temp_directory_path() / "kairo-lang";
     };
 
     std::filesystem::path cache_dir = get_cache_root();
@@ -162,7 +162,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
 
         if (!std::filesystem::exists(vswhere_exe)) {
             DEBUG_LOG("vswhere not found at expected location: " + vswhere_exe.generic_string());
-            helix::log<LogLevel::Warning>(
+            kairo::log<LogLevel::Warning>(
                 "visual Studio not found attempting to find any other c++ compiler");
             return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
         }
@@ -190,7 +190,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         msvc_found    = std::filesystem::exists(vs_path);
 
         if (!vswhere_found || !msvc_found) {
-            helix::log<LogLevel::Warning>(
+            kairo::log<LogLevel::Warning>(
                 "visual Studio not found attempting to find any other c++ compiler");
             return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
         }
@@ -200,7 +200,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         msvc_tools_found = std::filesystem::exists(msvc_tools_path);
 
         if (!msvc_tools_found) {
-            helix::log<LogLevel::Warning>(
+            kairo::log<LogLevel::Warning>(
                 "msvc tools not found attempting to find any other c++ compiler");
             return {vs_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
         }
@@ -223,7 +223,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     // auto core_lib_dir = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib";
 
     if (!std::filesystem::exists(core)) {
-        helix::log<LogLevel::Error>("core lib not found, verify the installation");
+        kairo::log<LogLevel::Error>("core lib not found, verify the installation");
         return {compile_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
     }
 
@@ -239,7 +239,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         // core_lib_dir.generic_string(),
 
         // cxx::flags::linkFlag,
-        // "helix",
+        // "kairo",
 
         ((action.flags.contains(flag::types::CompileFlags::Debug))
              ? cxx::flags::debugModeFlag
@@ -294,7 +294,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     DEBUG_LOG("compile command: " + compile_cmd);
 
     if (!std::filesystem::exists(action.cc_source)) {
-        helix::log<LogLevel::Error>(
+        kairo::log<LogLevel::Error>(
             "source file has been removed or does not exist, possible memory corruption");
         return {compile_result, flag::ErrorType(flag::types::ErrorType::Error)};
     }
@@ -315,12 +315,12 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         std::filesystem::remove(obj_p, ec_remove);
 
         if (ec_remove) {
-            helix::log<LogLevel::Warning>("failed to delete obj " + obj_p.generic_string() + ": " +
+            kairo::log<LogLevel::Warning>("failed to delete obj " + obj_p.generic_string() + ": " +
                                           ec_remove.message());
         }
     }
 
-    /// parse the output and show errors after translating them to helix errors
+    /// parse the output and show errors after translating them to kairo errors
     std::vector<std::string> lines;
     std::istringstream       stream(compile_result.output);
 
@@ -403,13 +403,13 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
             std::string f_name =
                 std::filesystem::path(std::get<2>(err)).filename().generic_string();
 
-            if ((f_name.size() == 28 && f_name.substr(9, 19) == "helix-compiler.cxir")) {
+            if ((f_name.size() == 28 && f_name.substr(9, 19) == "kairo-compiler.cxir")) {
                 if (level != error::Level::ERR) {
                     continue;
                 }
 
-                // if it is error rename pof file to helix core
-                pof.set_file_name(pof.file_name() + "$helix.core.lib");
+                // if it is error rename pof file to kairo core
+                pof.set_file_name(pof.file_name() + "$kairo.core.lib");
             }
         } catch (...) {}
 
@@ -432,9 +432,9 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
     DEBUG_LOG("finished parsing output");
 
     if (compile_result.return_code == 0 && !error::HAS_ERRORED) {
-        helix::log_opt<LogLevel::Progress>(
-            is_verbose, "lowered " + action.helix_src.generic_string() + " and compiled cxir");
-        helix::log_opt<LogLevel::Progress>(
+        kairo::log_opt<LogLevel::Progress>(
+            is_verbose, "lowered " + action.kairo_src.generic_string() + " and compiled cxir");
+        kairo::log_opt<LogLevel::Progress>(
             is_verbose, "compiled successfully to " + action.cc_output.generic_string());
 
         return {compile_result, flag::ErrorType(flag::types::ErrorType::Success)};

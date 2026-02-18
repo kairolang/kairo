@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -32,8 +32,8 @@ __CXIR_CODEGEN_BEGIN {
         string cxir;
         SourceMap *source_map{nullptr};
 
-        size_t helix_line{1};
-        size_t helix_col{1};
+        size_t kairo_line{1};
+        size_t kairo_col{1};
 
         // we need a few functions to help us also build the source map
         void add_to_source_map(const CX_Token *token = nullptr) {
@@ -43,19 +43,19 @@ __CXIR_CODEGEN_BEGIN {
 
             if (token == nullptr) {
                 this->source_map->add_loc(SourceLocation{
-                    .helix = {this->helix_line, this->helix_col},
+                    .kairo = {this->kairo_line, this->kairo_col},
                     .cxir  = {this->cxir_line, this->cxir_col}
                 });
             } else {
-                this->helix_line = token->get_line();
-                this->helix_col = token->get_column();
+                this->kairo_line = token->get_line();
+                this->kairo_col = token->get_column();
 
-                if (this->helix_line == 0 || this->helix_col == 0) {
+                if (this->kairo_line == 0 || this->kairo_col == 0) {
                     return;
                 }
 
                 this->source_map->add_loc(SourceLocation{
-                    .helix = {this->helix_line, this->helix_col},
+                    .kairo = {this->kairo_line, this->kairo_col},
                     .cxir  = {this->cxir_line, this->cxir_col}
                 });
             }
@@ -110,7 +110,7 @@ __CXIR_CODEGEN_BEGIN {
             return *this;
         };
         
-        // ONLY add change the helix mapping
+        // ONLY add change the kairo mapping
         CXIRBuilder &add(const string &str) {
             auto lines = (std::count(str.begin(), str.end(), '\n'));
             
@@ -165,7 +165,7 @@ __CXIR_CODEGEN_BEGIN {
                 this->file_name = file_name;
                 source_map->set_file_name(file_name);
             } else if (this->file_name.empty() && !file_macro.empty()) {
-                this->file_name = "_H1HJA9ZLO_17.helix-compiler.cxir";
+                this->file_name = "_H1HJA9ZLO_17.kairo-compiler.cxir";
                 source_map->set_file_name(this->file_name);
             }
 
@@ -216,8 +216,8 @@ __CXIR_CODEGEN_BEGIN {
             return "";
         }
 
-        if (file_name == "_H1HJA9ZLO_17.helix-compiler.cxir" ||
-            file_name == "helix_internal.file") {
+        if (file_name == "_H1HJA9ZLO_17.kairo-compiler.cxir" ||
+            file_name == "kairo_internal.file") {
             file_name.clear();
             file_name = "";
         }

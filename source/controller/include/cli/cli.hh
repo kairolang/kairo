@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -31,7 +31,7 @@
 Helios - package manager / build system
 
 Usage:
-    helios create <project>               Create a new Helix project.
+    helios create <project>               Create a new Kairo project.
     helios build                          Build the current project.
     helios run [-r] -- <args>             Run the current project with optional arguments.
     helios test                           Run tests for the current project.
@@ -49,13 +49,13 @@ Usage:
 */
 
 /*
-helix - command line interface
+kairo - command line interface
 
 Usage:
-    helix [options] <file> [options-2]
-    helix (-h | --help)
-    helix --version
-    helix --license
+    kairo [options] <file> [options-2]
+    kairo (-h | --help)
+    kairo --version
+    kairo --license
 
 options:
     -O1 --optimize1          Optimization level 1.
@@ -91,7 +91,7 @@ options-2:
     -I <dir>                 Include directory.
     -L <dir>                 Library directory.
     -l <lib>                 Link library.
-    -m <mod>                 Helix Modules directory.
+    -m <mod>                 Kairo Modules directory.
 
 options-3:
     --target <triple>        Target triple.
@@ -103,7 +103,7 @@ abi-options:
     -py  --python        Python stub files gen and pylib compile
     -rs  --rust          Rust source files gen and a rust compiler lib
     -cxx --cxx           C++ header files gen and linkable object file
-    -hlx --helix         Helix ABI compatable libary
+    -kro --kairo         Kairo ABI compatable libary
 */
 
 __CONTROLLER_CLI_BEGIN {
@@ -111,7 +111,7 @@ __CONTROLLER_CLI_BEGIN {
       public:
         enum class OPTIMIZATION : u8 { O1 = 1, O2 = 2, O3 = 3, O4 = 4, O5 = 5 };
         enum class MODE : char { RELEASE = 'r', DEBUG_ = 'd' };
-        enum class ABI : char { PYTHON = 'p', RUST = 'r', CXX = 'c', HELIX = 'h' };
+        enum class ABI : char { PYTHON = 'p', RUST = 'r', CXX = 'c', KAIRO = 'h' };
 
         std::string                file;
         std::optional<std::string> output_file;
@@ -147,7 +147,7 @@ __CONTROLLER_CLI_BEGIN {
         std::string config_file;
 
         MODE build_mode;
-        ABI  build_lib;  // if --lib is passed without [-py, -rs, -cx, -hlx] then assume -hlx
+        ABI  build_lib;  // if --lib is passed without [-py, -rs, -cx, -kro] then assume -kro
 
         std::vector<std::string> include_dirs;
         std::vector<std::string> library_dirs;
@@ -166,7 +166,7 @@ __CONTROLLER_CLI_BEGIN {
         }
 
         if (obj.file.empty()) {
-            print("no files provided run \"helix -h\" for help.");
+            print("no files provided run \"kairo -h\" for help.");
             std::exit(0);
         }
     }

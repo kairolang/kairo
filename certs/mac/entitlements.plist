@@ -10,7 +10,7 @@
     <key>com.apple.security.cs.debugger</key>
     <true/>
 
-    <!-- Allow executing other binaries (required since helix does not integrate a c++ compiler internally) -->
+    <!-- Allow executing other binaries (required since kairo does not integrate a c++ compiler internally) -->
     <key>com.apple.security.cs.allow-execution</key>
     <true/>
 

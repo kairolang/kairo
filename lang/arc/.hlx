@@ -1,6 +1,6 @@
-// this is the language definition for helix
-// this is higher level then ebnf and is used to define the syntax of helix
-// this is a sudo code language that defines the syntax and ast structure of helix
+// this is the language definition for kairo
+// this is higher level then ebnf and is used to define the syntax of kairo
+// this is a sudo code language that defines the syntax and ast structure of kairo
 
 
 class Point {

@@ -1,5 +1,5 @@
 // filename: peripherals.hh
-// Helix has full native interoperability with C++.
+// Kairo has full native interoperability with C++.
 
 #ifndef PERIPHERALS_HH
 #define PERIPHERALS_HH

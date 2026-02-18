@@ -1,5 +1,5 @@
-#ifndef __HELIX_LOGGER_H__
-#define __HELIX_LOGGER_H__
+#ifndef __KAIRO_LOGGER_H__
+#define __KAIRO_LOGGER_H__
 
 #include <neo-pprint/include/ansi_colors.hh>
 #include <neo-pprint/include/hxpprint.hh>
@@ -8,7 +8,7 @@ inline bool NO_LOGS = false;
 
 enum class LogLevel { Debug, Info, Warning, Error, Progress };
 
-namespace helix {
+namespace kairo {
 template <LogLevel l, typename... Args>
 void log(Args &&...args) {
     std::string prefix;
@@ -60,6 +60,6 @@ void log_opt(bool enable, Args &&...args) {
 
     print("\r", prefix, std::string(colors::reset), std::forward<Args>(args)..., "\r");
 }
-}  // namespace helix
+}  // namespace kairo
 
-#endif  // __HELIX_LOGGER_H__
+#endif  // __KAIRO_LOGGER_H__

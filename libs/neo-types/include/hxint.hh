@@ -4,7 +4,7 @@
  * readability and compatibility.
  *
  * This file, inttypes.hh, is an improved version of the standard cstdint
- * header file, modified for enhanced readability and compatibility with Helix
+ * header file, modified for enhanced readability and compatibility with Kairo
  * and other projects. It includes standard integer types along with fast and
  * maximum size types, providing a broader range of signed and unsigned integers
  * with specific width guarantees.
@@ -16,12 +16,12 @@
  * (e.g., 32-bit vs. 64-bit).
  *
  * Modifications from the original Visual C++ runtime library include
- * simplifications and adjustments to meet the specific needs of the Helix
+ * simplifications and adjustments to meet the specific needs of the Kairo
  * compiler environment. The copyright belongs to Microsoft Corporation, with
  * the file re-licensed under Apache-2.0 WITH LLVM-exception for broader use
  * within the community.
  *
- * Helix License: CC Attribution 4.0 International
+ * Kairo License: CC Attribution 4.0 International
  * @see http://creativecommons.org/licenses/by/4.0/
  *
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception

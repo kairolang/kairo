@@ -1,6 +1,6 @@
 //===------------------------------------------ C++ ------------------------------------------====//
 //                                                                                                //
-//  Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0). You   //
+//  Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0). You   //
 //  are allowed to use, modify, redistribute, and create derivative works, even for commercial    //
 //  purposes, provided that you give appropriate credit, and indicate if changes                  //
 //  were made. For more information, please visit: https://creativecommons.org/licenses/by/4.0/   //
@@ -349,7 +349,7 @@ parser ::ast ::node ::Statement ::parse(const std::shared_ptr<__TOKEN_N::TokenLi
 
 // ---------------------------------------------------------------------------------------------- //
 
-/** in helix i would extend:
+/** in kairo i would extend:
 macro return_if_empty! {
 if self.iter.remaining_n() == 0:
     return std::unexpected(...);

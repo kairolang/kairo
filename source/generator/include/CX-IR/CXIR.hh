@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -159,7 +159,7 @@ __CXIR_CODEGEN_BEGIN {
         explicit CX_Token(cxir_tokens type)
             : length(1)
             , type(type)
-            , file_name("_H1HJA9ZLO_17.helix-compiler.cxir")
+            , file_name("_H1HJA9ZLO_17.kairo-compiler.cxir")
             , value(cxir_tokens_map.at(type).has_value()
                         ? std::string(cxir_tokens_map.at(type).value())
                         : " /* Unknown Token */ ") {}
@@ -167,7 +167,7 @@ __CXIR_CODEGEN_BEGIN {
         CX_Token(cxir_tokens type, std::string value)
             : length(value.length())
             , type(type)
-            , file_name("_H1HJA9ZLO_17.helix-compiler.cxir")
+            , file_name("_H1HJA9ZLO_17.kairo-compiler.cxir")
             , value(std::move(value)) {}
 
         CX_Token(cxir_tokens type, const token::Token &loc)
@@ -219,18 +219,18 @@ __CXIR_CODEGEN_BEGIN {
     struct SourceLocation {
         using Location = std::pair<size_t, size_t>;
 
-        Location helix;
+        Location kairo;
         Location cxir;
 
         string to_dict() const {
-            // source map of helix pos to cxir pos
-            return "(" + std::to_string(helix.first) + "," + std::to_string(helix.second) + "):(" +
+            // source map of kairo pos to cxir pos
+            return "(" + std::to_string(kairo.first) + "," + std::to_string(kairo.second) + "):(" +
                    std::to_string(cxir.first) + "," + std::to_string(cxir.second) + "),";
         }
     };
 
     struct SourceMap { /* this all a part of the same c++ output object
-        so a couple of things only the helix file and locs change
+        so a couple of things only the kairo file and locs change
         while the c++ source locs keep constant this should be a primary static strcut */
         inline static size_t cxx_line_num{1};
         inline static size_t cxx_column_num{1};
@@ -247,9 +247,9 @@ __CXIR_CODEGEN_BEGIN {
             // finalize everything into the flatend dict
             /* exmaple:
 
-            "helix_file_name" : [
-                (helix_line, helix_col): (cxir_line, cxir_col),
-                (helix_line, helix_col): (cxir_line, cxir_col),
+            "kairo_file_name" : [
+                (kairo_line, kairo_col): (cxir_line, cxir_col),
+                (kairo_line, kairo_col): (cxir_line, cxir_col),
             ],
 
             */

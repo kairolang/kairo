@@ -10,7 +10,7 @@
 ## Table of Contents
 - [Module Imports](#module-imports)
   - [Table of Contents](#table-of-contents)
-    - [Importing Helix Modules](#importing-helix-modules)
+    - [Importing Kairo Modules](#importing-kairo-modules)
     - [Importing Rust](#importing-rust)
     - [Importing C++](#importing-c)
     - [Importing Python](#importing-python)
@@ -19,7 +19,7 @@
     
 ---
 
-### Importing Helix Modules
+### Importing Kairo Modules
 ```go
 import std::io;
 import std::io as io;
@@ -91,6 +91,6 @@ int main() {
     int a = 5;
     int b = 10;
     int c = py_calc.attr("add")(a, b).cast<int>();
-    helix::std::io::print(c);
+    kairo::std::io::print(c);
 }
 ```

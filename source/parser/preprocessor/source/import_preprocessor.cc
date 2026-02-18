@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 ///                                                                                              ///
@@ -630,15 +630,15 @@ leave_loop_has_processable_import:
         /// we first normalize the ... by doing the following: we take the whole scope path replace
         /// the `::` with `/` we dont add anything to the end tho just yet.
 
-        /// if we have `import module ...` then we attach a .hlx to the end of it and then resolve
+        /// if we have `import module ...` then we attach a .kro to the end of it and then resolve
         /// it starting with the cwd then each of the specified import paths, if we have collisions,
         /// we take what we see first then warn saying import also matched in other locations.
 
         /// if we have 'import ...` we first see if the specified dir exists, if so then does it
-        /// contain a .hlx file matching the back of the path name, like lets say `import foo::bar`
-        /// does foo/bar exist as a dir, if so does foo/bar/bar.hlx exist, if so process that as a
+        /// contain a .kro file matching the back of the path name, like lets say `import foo::bar`
+        /// does foo/bar exist as a dir, if so does foo/bar/bar.kro exist, if so process that as a
         /// whole different compile unit entirely since its a lib and follow external linkage
-        /// but if foo/bar is not a dir then check for foo/bar.hlx, if it exists start a new compile
+        /// but if foo/bar is not a dir then check for foo/bar.kro, if it exists start a new compile
         /// action and do internal linkage.
 
         /// NOTE: if we have a spec import, backtrack each path from right to left looking, since
@@ -681,7 +681,7 @@ leave_loop_has_processable_import:
             ///     resolved_namespace(path)`
             /// if the path is a token list join the path and sep with '/' keep backtracking until
             /// we
-            ///     find a match either (a lib if not marked as a module) or a hlx file
+            ///     find a match either (a lib if not marked as a module) or a kro file
             ///     if found and theres a alias present insert 'namespace alis =
             ///     resolved_namespace(path)` if theres a wildcard present, insert `using namespace
             ///     resolved_namespace(path)` if we had to do any backtracking, warn saying symbol
@@ -692,7 +692,7 @@ leave_loop_has_processable_import:
             ///     to the current file with a #ifndef guard, if the file is already included in the
             ///     current and store the output file in a global import vec.
 
-            // NOTE: do not forget to check for .hdlx files since those are tokenized and copied
+            // NOTE: do not forget to check for .kh files since those are tokenized and copied
             // (avoiding duplicates)
             //       they do not go through the rest of the process, they are just inserted into the
             //       current file
@@ -701,7 +701,7 @@ leave_loop_has_processable_import:
 
             if (std::get<0>(_import).index() == 0) {  // path is a string
                 // foo/bar/baz
-                // helix-lang/
+                // kairo-lang/
                 path = std::get<std::filesystem::path>(std::get<0>(_import));
             } else {  // path is a token list
                 __TOKEN_N::TokenList import_path =
@@ -742,12 +742,12 @@ leave_loop_has_processable_import:
 
             if ((resolved_mapping.find(imp) != resolved_mapping.end()) && (rel_to_index != std::numeric_limits<size_t>::max())) {
                 auto [what_was_imported, alias, is_wildcard] = *resolved_mapping[imp];
-                /// so now we know the import is in helix::<namespace_path>
+                /// so now we know the import is in kairo::<namespace_path>
                 /// so lets say:
                 /// what_was_imported = foo::bar | "foo/bar"
-                /// namespace_path = _VOLUME_DEV_WORK_FOO_BAR_HLX_N
-                /// what we do is either insert a using namespace _VOLUME_DEV_WORK_FOO_BAR_HLX_N; if
-                /// wildcard else do namespace alias = _VOLUME_DEV_WORK_FOO_BAR_HLX_N;
+                /// namespace_path = _VOLUME_DEV_WORK_FOO_BAR_KRO_N
+                /// what we do is either insert a using namespace _VOLUME_DEV_WORK_FOO_BAR_KRO_N; if
+                /// wildcard else do namespace alias = _VOLUME_DEV_WORK_FOO_BAR_KRO_N;
 
                 if (alias.empty()) {
                     if (what_was_imported.index() == 0) {
@@ -967,9 +967,9 @@ leave_loop_has_processable_import:
                 auto check_and_emplace = [&](const std::filesystem::path &_path, size_t index) {
                     if (std::filesystem::exists(_path) && std::filesystem::is_regular_file(_path)) {
 
-                        if (path.extension() == ".hlx") {
+                        if (path.extension() == ".kro") {
                             found_paths.emplace_back(_path, index, Type::Module);
-                        } else if (path.extension() == ".hdlx") {
+                        } else if (path.extension() == ".kh") {
                             found_paths.emplace_back(_path, index, Type::Header);
                         }
 
@@ -1007,42 +1007,42 @@ leave_loop_has_processable_import:
             return path.replace_extension(ext);
         };
 
-        std::filesystem::path helix_mod     = add_ext(path, ".hlx");
-        std::filesystem::path helix_hdr     = add_ext(path, ".hdlx");
-        std::filesystem::path helix_mod_lib = add_ext(path / path.stem(), ".hlx");
-        std::filesystem::path helix_hdr_lib = add_ext(path / path.stem(), ".hdlx");
+        std::filesystem::path kairo_mod     = add_ext(path, ".kro");
+        std::filesystem::path kairo_hdr     = add_ext(path, ".kh");
+        std::filesystem::path kairo_mod_lib = add_ext(path / path.stem(), ".kro");
+        std::filesystem::path kairo_hdr_lib = add_ext(path / path.stem(), ".kh");
 
-        bool found_helix_mod     = false;
-        bool found_helix_hdr     = false;
-        bool found_helix_mod_lib = false;
-        bool found_helix_hdr_lib = false;
+        bool found_kairo_mod     = false;
+        bool found_kairo_hdr     = false;
+        bool found_kairo_mod_lib = false;
+        bool found_kairo_hdr_lib = false;
         bool found_any_import    = false;
 
         for (size_t i = 0; i < import_dirs.size(); ++i) {
             /// exmaple path = foo/bar
             /// we check in the following order:
-            /// 1. foo/bar.hlx
-            /// 2. foo/bar.hdlx
-            /// 3. foo/bar/bar.hlx
-            /// 4. foo/bar/bar.hdlx
+            /// 1. foo/bar.kro
+            /// 2. foo/bar.kh
+            /// 3. foo/bar/bar.kro
+            /// 4. foo/bar/bar.kh
 
-            if (std::filesystem::exists(import_dirs[i] / helix_mod) &&
-                std::filesystem::is_regular_file(import_dirs[i] / helix_mod)) {
-                found_helix_mod = true;
+            if (std::filesystem::exists(import_dirs[i] / kairo_mod) &&
+                std::filesystem::is_regular_file(import_dirs[i] / kairo_mod)) {
+                found_kairo_mod = true;
             }
-            if (std::filesystem::exists(import_dirs[i] / helix_mod_lib) &&
-                std::filesystem::is_regular_file(import_dirs[i] / helix_mod_lib)) {
-                found_helix_mod_lib = true;
+            if (std::filesystem::exists(import_dirs[i] / kairo_mod_lib) &&
+                std::filesystem::is_regular_file(import_dirs[i] / kairo_mod_lib)) {
+                found_kairo_mod_lib = true;
             }
 
             if (!is_module) {  // if its explicated as a module, we dont check for headers
-                if (std::filesystem::exists(import_dirs[i] / helix_hdr) &&
-                    std::filesystem::is_regular_file(import_dirs[i] / helix_hdr)) {
-                    found_helix_hdr = true;
+                if (std::filesystem::exists(import_dirs[i] / kairo_hdr) &&
+                    std::filesystem::is_regular_file(import_dirs[i] / kairo_hdr)) {
+                    found_kairo_hdr = true;
                 }
-                if (std::filesystem::exists(import_dirs[i] / helix_hdr_lib) &&
-                    std::filesystem::is_regular_file(import_dirs[i] / helix_hdr_lib)) {
-                    found_helix_hdr_lib = true;
+                if (std::filesystem::exists(import_dirs[i] / kairo_hdr_lib) &&
+                    std::filesystem::is_regular_file(import_dirs[i] / kairo_hdr_lib)) {
+                    found_kairo_hdr_lib = true;
                 }
             }
 
@@ -1052,56 +1052,56 @@ leave_loop_has_processable_import:
             //  headers are second
             //  modules have least priority (UNLESS MARKED `module` then they are first)
             //
-            // main.hlx <- `import foo`
-            // foo.hlx
-            // foo.hdlx
+            // main.kro <- `import foo`
+            // foo.kro
+            // foo.kh
             // foo/
-            //   foo.hlx
-            //   foo.hdlx
+            //   foo.kro
+            //   foo.kh
             //
-            // in this case following our rules we end up with getting foo/foo.hdlx
+            // in this case following our rules we end up with getting foo/foo.kh
             // but how to get the rest?
             // to get:
-            //    ./foo.hlx    <- `import module foo`
-            //    foo/foo.hlx  <- `import module foo::foo`
+            //    ./foo.kro    <- `import module foo`
+            //    foo/foo.kro  <- `import module foo::foo`
             //
-            //    ./foo.hdlx   <- `import foo`
-            //    foo/foo.hdlx <- `import foo::foo`
+            //    ./foo.kh   <- `import foo`
+            //    foo/foo.kh <- `import foo::foo`
             //
-            // see how now we have no idea what to import? theres no way to import the `./foo.hdlx`
+            // see how now we have no idea what to import? theres no way to import the `./foo.kh`
             // first we shall do the non module checks:
 
             // show warnings
             if (!is_module) {
-                if (found_header && found_helix_hdr_lib) {
+                if (found_header && found_kairo_hdr_lib) {
                     WARN_PANIC_FIX("found both libary header and header for the specified path. "
                                    "using the default location: " +
-                                       (import_dirs[i] / helix_hdr).generic_string(),
+                                       (import_dirs[i] / kairo_hdr).generic_string(),
                                    "if your intention was to import the library header, rename "
                                    "one, or consider updating the "
                                    "line to: 'import \"" +
-                                       helix_hdr_lib.generic_string() + "\"'",
+                                       kairo_hdr_lib.generic_string() + "\"'",
                                    &marker);
                 }
             } else {
-                if (found_module && found_helix_mod_lib) {
+                if (found_module && found_kairo_mod_lib) {
                     WARN_PANIC_FIX("found both libary and module for the specified path. using the "
                                    "default location: " +
-                                       (import_dirs[i] / helix_hdr).generic_string(),
+                                       (import_dirs[i] / kairo_hdr).generic_string(),
                                    "if your intention was to import the library module, rename "
                                    "one, or consider updating the "
                                    "line to: 'import \"" +
-                                       helix_hdr_lib.generic_string() + "\"'",
+                                       kairo_hdr_lib.generic_string() + "\"'",
                                    &marker);
                 }
             }
 
             switch (find_import_priority(is_module,
-                                         found_helix_mod,
-                                         found_helix_hdr,
-                                         found_helix_mod_lib,
-                                         found_helix_hdr_lib)) {
-                case 1:                            // helix_hdr
+                                         found_kairo_mod,
+                                         found_kairo_hdr,
+                                         found_kairo_mod_lib,
+                                         found_kairo_hdr_lib)) {
+                case 1:                            // kairo_hdr
                     if (is_module) [[unlikely]] {  // should never get this
                         WARN_PANIC_FIX("found only header when import is marked explicitly as "
                                        "`module` ignoring header",
@@ -1110,10 +1110,10 @@ leave_loop_has_processable_import:
                         break;
                     }
 
-                    found_paths.emplace_back(helix_hdr, i, Type::Header);
+                    found_paths.emplace_back(kairo_hdr, i, Type::Header);
                     break;
 
-                case 2:                            // helix_hdr_lib
+                case 2:                            // kairo_hdr_lib
                     if (is_module) [[unlikely]] {  // should never get this
                         WARN_PANIC_FIX("found only header when import is marked explicitly as "
                                        "`module` ignoring header",
@@ -1122,19 +1122,19 @@ leave_loop_has_processable_import:
                         break;
                     }
 
-                    found_paths.emplace_back(helix_hdr_lib, i, Type::Header);
+                    found_paths.emplace_back(kairo_hdr_lib, i, Type::Header);
                     break;
 
-                case 3:  // helix_mod
-                    found_paths.emplace_back(helix_mod, i, Type::Module);
+                case 3:  // kairo_mod
+                    found_paths.emplace_back(kairo_mod, i, Type::Module);
                     break;
 
-                case 4:  // helix_mod_lib
-                    found_paths.emplace_back(helix_mod_lib, i, Type::Module);
+                case 4:  // kairo_mod_lib
+                    found_paths.emplace_back(kairo_mod_lib, i, Type::Module);
                     break;
             }
 
-            if (found_header || found_helix_hdr || found_helix_mod || found_helix_mod_lib) {
+            if (found_header || found_kairo_hdr || found_kairo_mod || found_kairo_mod_lib) {
                 found_any_import = true;
             }
         }

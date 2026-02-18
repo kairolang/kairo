@@ -1,6 +1,6 @@
 //===------------------------------------------------------------------------------------------===//
 //
-// Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).
+// Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).
 // You are allowed to use, modify, redistribute, and create derivative works, even for commercial
 // purposes, provided that you give appropriate credit, and indicate if changes were made.
 // For more information, please visit: https://creativecommons.org/licenses/by/4.0/
@@ -399,14 +399,14 @@ Panic::Panic(const CodeError &err)
     final_err.color_mode = "16bit";
     final_err.error_type = "code";
 
-    // if filename ends with $helix.core.lib remove it and mark the show error to be as a corelib
+    // if filename ends with $kairo.core.lib remove it and mark the show error to be as a corelib
     // err (DEPRECATED - only here for backwards compatibility)
-    if (err.pof->file_name().ends_with("$helix.core.lib")) {
+    if (err.pof->file_name().ends_with("$kairo.core.lib")) {
         std::string recovered_f_name = err.pof->file_name();
         internal_core_lib_err        = true;
 
-        recovered_f_name.erase(recovered_f_name.size() - std::string("$helix.core.lib").size(),
-                               std::string("$helix.core.lib").size());
+        recovered_f_name.erase(recovered_f_name.size() - std::string("$kairo.core.lib").size(),
+                               std::string("$kairo.core.lib").size());
         final_err.file = recovered_f_name;
     } else {
         final_err.file = err.pof->file_name();
@@ -606,7 +606,7 @@ void Panic::show_error(bool internal_core_lib_err) {
     formatted_error += A_W + final_err.level + ": " + std::string(colors::reset) + final_err.msg +
                        string(colors::reset) + "\n";  // fatal: missing semicolon
     formatted_error += A_W + string(level_len - 1, ' ') + "-->  at " +
-                       format_loc_info((internal_core_lib_err ? "helix.core.lib" : final_err.file),
+                       format_loc_info((internal_core_lib_err ? "kairo.core.lib" : final_err.file),
                                        final_err.line,
                                        final_err.col) +
                        "\n";

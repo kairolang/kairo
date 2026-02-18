@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -142,23 +142,23 @@
     GENERATE(CXX_PP_ERROR,          "#error"            ) \
     GENERATE(CXX_PP_WARNING,        "#warning"          ) \
     GENERATE(CXX_PP_PRAGMA,         "#pragma"           ) \
-    /* helix_prims c++ rep */                             \
-    GENERATE(HELIX_I8,              "char"              ) \
-    GENERATE(HELIX_I16,             "short"             ) \
-    GENERATE(HELIX_I32,             "int"               ) \
-    GENERATE(HELIX_I64,             "long"              ) \
-    GENERATE(HELIX_UI128,           "long long"         ) \
-    GENERATE(HELIX_U8,              "unsigned char"     ) \
-    GENERATE(HELIX_U16,             "unsigned short"    ) \
-    GENERATE(HELIX_U32,             "unsigned int"      ) \
-    GENERATE(HELIX_U64,             "unsigned long"     ) \
-    GENERATE(HELIX_U128,            "unsigned long long") \
-    GENERATE(HELIX_F32,             "float"             ) \
-    GENERATE(HELIX_F64,             "double"            ) \
-    GENERATE(HELIX_F128,            "long double"       ) \
-    GENERATE(HELIX_BOOL,            "bool"              ) \
-    GENERATE(HELIX_VOID,            "void"              ) \
-    GENERATE(HELIX_CHAR,            "char"              ) \
+    /* kairo_prims c++ rep */                             \
+    GENERATE(KAIRO_I8,              "char"              ) \
+    GENERATE(KAIRO_I16,             "short"             ) \
+    GENERATE(KAIRO_I32,             "int"               ) \
+    GENERATE(KAIRO_I64,             "long"              ) \
+    GENERATE(KAIRO_UI128,           "long long"         ) \
+    GENERATE(KAIRO_U8,              "unsigned char"     ) \
+    GENERATE(KAIRO_U16,             "unsigned short"    ) \
+    GENERATE(KAIRO_U32,             "unsigned int"      ) \
+    GENERATE(KAIRO_U64,             "unsigned long"     ) \
+    GENERATE(KAIRO_U128,            "unsigned long long") \
+    GENERATE(KAIRO_F32,             "float"             ) \
+    GENERATE(KAIRO_F64,             "double"            ) \
+    GENERATE(KAIRO_F128,            "long double"       ) \
+    GENERATE(KAIRO_BOOL,            "bool"              ) \
+    GENERATE(KAIRO_VOID,            "void"              ) \
+    GENERATE(KAIRO_CHAR,            "char"              ) \
     /* punctuation */                                    \
     GENERATE(CXX_LPAREN,            "("                 ) \
     GENERATE(CXX_RPAREN,            ")"                 ) \

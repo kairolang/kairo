@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -20,7 +20,7 @@ CX_VISIT_IMPL(Type) {  // TODO Modifiers
     if (node.specifiers.contains(token::tokens::KEYWORD_YIELD)) {
         auto marker = node.specifiers.get(token::tokens::KEYWORD_YIELD);
 
-        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "helix", marker);
+        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "kairo", marker);
         ADD_TOKEN(CXX_SCOPE_RESOLUTION);
 
         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "$generator", marker);
@@ -36,7 +36,7 @@ CX_VISIT_IMPL(Type) {  // TODO Modifiers
             marker = node.nullable_marker;
         }
 
-        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "helix", marker);
+        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "kairo", marker);
         ADD_TOKEN(CXX_SCOPE_RESOLUTION);
 
         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "$question", marker);
@@ -46,7 +46,7 @@ CX_VISIT_IMPL(Type) {  // TODO Modifiers
     }
 
     if (node.is_fn_ptr) {  // $function<rt(prm)>
-        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "helix", node.fn_ptr.marker);
+        ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "kairo", node.fn_ptr.marker);
         ADD_TOKEN(CXX_SCOPE_RESOLUTION);
 
         ADD_TOKEN_AS_VALUE_AT_LOC(CXX_CORE_IDENTIFIER, "$function", node.fn_ptr.marker);

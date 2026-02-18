@@ -1,6 +1,6 @@
 //===------------------------------------------ C++ ------------------------------------------====//
 //                                                                                                //
-//  Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0). You   //
+//  Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0). You   //
 //  are allowed to use, modify, redistribute, and create derivative works, even for commercial    //
 //  purposes, provided that you give appropriate credit, and indicate if changes were made.       //
 //  For more information, please visit: https://creativecommons.org/licenses/by/4.0/              //
@@ -11,12 +11,12 @@
 ///====--------------------------------------------------------------------------------------====///
 ///                                                                                              ///
 ///  @file AST_types.hh                                                                          ///
-///  @brief Defines common types for Abstract Syntax Tree (AST) nodes used throughout the Helix  ///
+///  @brief Defines common types for Abstract Syntax Tree (AST) nodes used throughout the Kairo  ///
 ///         project. This includes types for nodes, parse results, and helpers for creating AST  ///
 ///         nodes.                                                                               ///
 ///                                                                                              ///
 ///  This file provides types and helper functions used in the construction and management of    ///
-///     AST nodes within the Helix parser. It defines `NodeT`, a template for handling AST       ///
+///     AST nodes within the Kairo parser. It defines `NodeT`, a template for handling AST       ///
 ///     nodes, `ParseResult`, for handling parsing results (either a node or an error), and      ///
 ///     `NodeV`, a vector of AST nodes. Additionally, a `make_node` function is provided for     ///
 ///     creating new AST nodes with perfect forwarding of arguments.                             ///

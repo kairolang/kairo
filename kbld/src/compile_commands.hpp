@@ -16,7 +16,7 @@ namespace detail {
         return exts.contains(p.extension().string());
     }
 
-    inline auto is_hlx_file(const fs::path &p) -> bool { return p.extension() == ".hlx"; }
+    inline auto is_kro_file(const fs::path &p) -> bool { return p.extension() == ".kro"; }
 
     inline auto should_skip(const fs::path                 &p,
                             const std::vector<std::string> &skip_dirs,
@@ -44,7 +44,7 @@ inline auto generate_compile_commands(const Config &cfg, const fs::path &root) -
     const auto &first = cfg.targets.front();
 
     std::vector<fs::path> cxx_files;
-    std::vector<fs::path> hlx_non_entry;
+    std::vector<fs::path> kro_non_entry;
 
     std::error_code ec;
     for (auto &de : fs::recursive_directory_iterator(
@@ -62,9 +62,9 @@ inline auto generate_compile_commands(const Config &cfg, const fs::path &root) -
 
         if (detail::is_cxx_file(de.path())) {
             cxx_files.push_back(abs);
-        } else if (detail::is_hlx_file(de.path())) {
+        } else if (detail::is_kro_file(de.path())) {
             if (!entry_paths.contains(abs)) {
-                hlx_non_entry.push_back(abs);
+                kro_non_entry.push_back(abs);
             }
         }
     }
@@ -109,7 +109,7 @@ inline auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(entry));
     }
 
-    for (auto &f : hlx_non_entry) {
+    for (auto &f : kro_non_entry) {
         json args = json::array();
         for (auto &inc : first.includes) {
             args.push_back("-I" + inc);

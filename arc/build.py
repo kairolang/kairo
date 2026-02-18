@@ -206,13 +206,13 @@ def main():
 
     check_prerequisites()
 
-    parser = argparse.ArgumentParser(description="Build script for Helix project")
+    parser = argparse.ArgumentParser(description="Build script for Kairo project")
     parser.add_argument("build_type", choices=["debug", "release"], help="Build type")
     parser.add_argument("--target", required=False, help="Target triple")
     parser.add_argument("--mcpu", required=False, help="MCPU type")
     parser.add_argument("--force", action="store_true", help="Force install")
     parser.add_argument("--threads", help="Number of threads to use")
-    parser.add_argument("--cross", action="store_true", help="Cross Compile Helix")
+    parser.add_argument("--cross", action="store_true", help="Cross Compile Kairo")
 
     parser.add_argument("action", choices=["build", "run"], help="Action to perform")
 
@@ -272,7 +272,7 @@ def main():
     if action == "build":
         compile_project(build_dir)
     elif action == "run":
-        executable = os.path.join(build_dir, "helix")
+        executable = os.path.join(build_dir, "kairo")
         if platform.system() == "Windows":
             executable += ".exe"
         run_command(executable, check=False)

@@ -25,16 +25,16 @@ macro_rules! token_patterns {
                 };
 
                 (first_char) => {
-                    helix_proc::get_first_char_pattern!($pattern)
+                    kairo_proc::get_first_char_pattern!($pattern)
                 };
 
                 (u16$phantom:literal) => {
-                    helix_proc::convert_bytes_to_u16!($pattern)
+                    kairo_proc::convert_bytes_to_u16!($pattern)
                 };
 
                 (contains $ch:expr) => { matches!($ch, $name!()) };
 
-                (raw$phantom:literal) => {helix_proc::raw!($pattern)};
+                (raw$phantom:literal) => {kairo_proc::raw!($pattern)};
                 (contains u16 $ch:expr ) => {
                     matches!($ch, $name!(u16 ""))
                 };

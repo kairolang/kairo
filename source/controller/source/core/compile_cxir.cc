@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -23,7 +23,7 @@
 #ifndef DEBUG_LOG
 #define DEBUG_LOG(...)                            \
     if (is_verbose) {                             \
-        helix::log<LogLevel::Debug>(__VA_ARGS__); \
+        kairo::log<LogLevel::Debug>(__VA_ARGS__); \
     }
 #endif
 
@@ -47,7 +47,7 @@ CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action
             }
 
             error::HAS_ERRORED = true;
-            helix::log<LogLevel::Error>("failed to compile using msvc or clang");
+            kairo::log<LogLevel::Error>("failed to compile using msvc or clang");
         }
     } else {
         ret = CXIR_CXX(action);
@@ -69,7 +69,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
     bool is_verbose = action.flags.contains(EFlags(flag::types::CompileFlags::Verbose));
 
     if (compile_result.return_code != 0) {
-        helix::log<LogLevel::Error>("failed to identify the compiler");
+        kairo::log<LogLevel::Error>("failed to identify the compiler");
         return {compile_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
     }
 
@@ -91,7 +91,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
     //auto core_lib_dir = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "lib";
 
     if (!std::filesystem::exists(core)) {
-        helix::log<LogLevel::Error>("core lib not found, verify the installation");
+        kairo::log<LogLevel::Error>("core lib not found, verify the installation");
         return {compile_result, flag::ErrorType(flag::types::ErrorType::NotFound)};
     }
 
@@ -111,7 +111,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         // core_lib_dir.generic_string(),
 
         // cxx::flags::linkFlag,
-        // "helix",
+        // "kairo",
 
         cxx::flags::includeFlag,
         core.parent_path().parent_path().generic_string(),
@@ -175,11 +175,11 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
     compile_result = exec(compile_cmd);
 
     if (is_verbose) {
-        helix::log<LogLevel::Debug>("compile command: " + compile_cmd);
-        helix::log<LogLevel::Debug>("compiler output:\n" + compile_result.output);
+        kairo::log<LogLevel::Debug>("compile command: " + compile_cmd);
+        kairo::log<LogLevel::Debug>("compiler output:\n" + compile_result.output);
     }
 
-    /// parse the output and show errors after translating them to helix errors
+    /// parse the output and show errors after translating them to kairo errors
     std::vector<std::string> lines;
     std::istringstream       stream(compile_result.output);
 
@@ -203,15 +203,15 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         } else if (compiler == flag::types::Compiler::MSVC) {
             err = CXIRCompiler::parse_msvc_err(line);
         } else {
-            helix::log<LogLevel::Error>("unknown c++ compiler, raw output shown");
-            helix::log<LogLevel::Info>("output ------------>");
-            helix::log<LogLevel::Info>(compile_result.output);
-            helix::log<LogLevel::Info>("<------------ output");
+            kairo::log<LogLevel::Error>("unknown c++ compiler, raw output shown");
+            kairo::log<LogLevel::Info>("output ------------>");
+            kairo::log<LogLevel::Info>(compile_result.output);
+            kairo::log<LogLevel::Info>("<------------ output");
 
             if (compile_result.return_code == 0) {
-                helix::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "lowered " + action.helix_src.generic_string() +
+                kairo::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "lowered " + action.kairo_src.generic_string() +
                                                " and compiled cxir");
-                helix::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiled successfully to " +
+                kairo::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiled successfully to " +
                                                action.cc_output.generic_string());
                 return {compile_result, flag::ErrorType(flag::types::ErrorType::Success)};
             }
@@ -255,9 +255,9 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
     }
 
     if (compile_result.return_code == 0) {
-        helix::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "lowered " + action.helix_src.generic_string() +
+        kairo::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "lowered " + action.kairo_src.generic_string() +
                                        " and compiled cxir");
-        helix::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiled successfully to " +
+        kairo::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiled successfully to " +
                                        action.cc_output.generic_string());
         return {compile_result, flag::ErrorType(flag::types::ErrorType::Success)};
     }

@@ -7,7 +7,7 @@
             "command": "xmake",
             "args": [
                 "build",
-                "helix"
+                "kairo"
             ],
             "group": {
                 "kind": "build",

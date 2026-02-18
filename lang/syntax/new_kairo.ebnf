@@ -190,7 +190,7 @@ InterfaceDeclaration ::= UDTBase  "interface" GenericDeclaration? Identifier (Im
 ExtendsDeclaration   ::= "extend" GenericDeclaration? ScopedPath (ImplDeclaration?) ScopeBlock;
 
 /* Test Declarations */
-// tests run when the following is passed to the helix compiler: --test
+// tests run when the following is passed to the kairo compiler: --test
 TestDeclaration ::= "test" StringLiteral ScopeBlock;
 
 Declaration ::=  VariableDeclaration | TypeDeclaration     | OperatorDeclaration | ProcMacroDeclaration
@@ -216,8 +216,8 @@ Import           ::= FFIBase? 'import' (SingleScopedImport | SingleStringImport)
 GroupImport      ::= FFIBase? 'import' '{' (SingleScopedImport | SingleStringImport ';')* '}';
 
 /* Type System */
-// Helix will not have references instead it has pointers, regular pointers act as references and are not nullable
-// does helix need MemberPointerType? : no
+// Kairo will not have references instead it has pointers, regular pointers act as references and are not nullable
+// does kairo need MemberPointerType? : no
 
 PrimitiveTypes ::= "void" | "bool" | "usize" | "isize" | "f32"  | "f64"  | "f80"
                |   "f128" | "u8"   | "u16"   | "u32"   | "u64"  | "u128" | "u256"
@@ -329,8 +329,8 @@ Literal ::= NumericLiteral | StringLiteral | CharLiteral  | BoolLiteral | SetLit
 
 /* Operators */
 // any of these fill in the other side to make a binary operator with the blank side defaulting to (default initializer)
-// helix will not have -> operator since regular pointers are references the ... is used for unpacking
-// delete is overridable, new does not exist since helix has memory placement semantics also l can't be used for delete
+// kairo will not have -> operator since regular pointers are references the ... is used for unpacking
+// delete is overridable, new does not exist since kairo has memory placement semantics also l can't be used for delete
 
 AssignmentOperators ::= '='  | "**=" | "+=" | "-="  | "<<="  |  "*="
                     |   "/=" | "%="  | "@=" | "|="  | ">>="  |  "^="

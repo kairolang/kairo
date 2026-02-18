@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -39,7 +39,7 @@
 #ifndef DEBUG_LOG
 #define DEBUG_LOG(...)                            \
     if (is_verbose) {                             \
-        helix::log<LogLevel::Debug>(__VA_ARGS__); \
+        kairo::log<LogLevel::Debug>(__VA_ARGS__); \
     }
 #endif
 
@@ -181,7 +181,7 @@ void cleanup_old_files(const std::filesystem::path &dir) {
 CXXCompileAction
 CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags flags, Args cxx_args) {
     std::error_code            ec;
-    std::optional<std::string> helix_src = emitter.get_file_name();
+    std::optional<std::string> kairo_src = emitter.get_file_name();
     Path                       cwd       = __CONTROLLER_FS_N::get_cwd();
     Path                       exe       = __CONTROLLER_FS_N::get_exe().parent_path().parent_path();
 
@@ -189,7 +189,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
     if (!std::filesystem::exists(exe / "cache" / "cxx")) {
         std::filesystem::create_directories(exe / "cache" / "cxx/", ec);
         if (ec) {
-            helix::log<LogLevel::Error>("error creating cache at: ",
+            kairo::log<LogLevel::Error>("error creating cache at: ",
                                         (exe / "cache" / "cxx").generic_string(),
                                         " directory: ",
                                         ec.message());
@@ -198,7 +198,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
     }
 
     if (!std::filesystem::exists(exe / "cache" / "cxx")) {
-        helix::log<LogLevel::Error>("error creating cache directory: ", ec.message());
+        kairo::log<LogLevel::Error>("error creating cache directory: ", ec.message());
         return {};
     }
 
@@ -208,7 +208,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
         cleanup_old_files(exe / "cache" / "cxx");
     }
 
-    Path cc_source = exe / "cache" / "cxx" / ("helixCXIR" + generate_file_name(10) + ".cxx");
+    Path cc_source = exe / "cache" / "cxx" / ("kairoCXIR" + generate_file_name(10) + ".cxx");
 
     bool is_verbose = flags.contains(EFlags(flag::types::CompileFlags::Verbose));
 
@@ -218,7 +218,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
 
     if (flags.contains(EFlags(flag::types::CompileFlags::Verbose)) &&
         flags.contains(EFlags(flag::types::CompileFlags::Debug))) {
-        cc_source = cwd / "IR.temp.debug.verbose.helix-compiler.cxx";
+        cc_source = cwd / "IR.temp.debug.verbose.kairo-compiler.cxx";
     }
 
 
@@ -267,7 +267,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
     cxx_compiler.find();
 
     if (cxx_compiler.compiler.empty()) {
-        helix::log<LogLevel::Error>("no C++ compiler found, please install one");
+        kairo::log<LogLevel::Error>("no C++ compiler found, please install one");
         return {};
     }
 
@@ -275,7 +275,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
         /* working_dir */ cwd,
         /* cc_source   */ cc_source,
         /* cc_output   */ cc_out,
-        /* helix_src   */ helix_src.has_value() ? Path(helix_src.value()) : cc_out,
+        /* kairo_src   */ kairo_src.has_value() ? Path(kairo_src.value()) : cc_out,
         /* cxx_args    */ std::move(cxx_args),
         /* flags       */ flags,
 #if defined(__unix__) || defined(__APPLE__) || defined(__linux__) || defined(__FreeBSD__) ||      \
@@ -290,7 +290,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
     std::ofstream file(action.cc_source);
 
     if (!file) {
-        helix::log<LogLevel::Error>("error creating ", action.cc_source.generic_string(), " file");
+        kairo::log<LogLevel::Error>("error creating ", action.cc_source.generic_string(), " file");
         return action;
     }
 
@@ -302,7 +302,7 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
         DEBUG_LOG("working_dir: ", action.working_dir.generic_string());
         DEBUG_LOG("cc_source: ", action.cc_source.generic_string());
         DEBUG_LOG("cc_output: ", action.cc_output.generic_string());
-        DEBUG_LOG("helix_src: ", action.helix_src.generic_string());
+        DEBUG_LOG("kairo_src: ", action.kairo_src.generic_string());
         DEBUG_LOG("cxx_compiler: ", action.cxx_compiler);
         DEBUG_LOG("cxx_args: ",
                   "[" +

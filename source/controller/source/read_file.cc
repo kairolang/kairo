@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -131,9 +131,9 @@ __CONTROLLER_FS_BEGIN {
     }
 
     // TODO: make all readfiles after the first one be relative to the first one
-    /// Example: readfile("file1.hlx") -> /path/to/file1.hlx
-    ///          readfile("test/file2.hlx") -> /path/to/test/file2.hlx
-    ///          readfile("../file3.hlx") -> /path/to/file3.hlx
+    /// Example: readfile("file1.kro") -> /path/to/file1.kro
+    ///          readfile("test/file2.kro") -> /path/to/test/file2.kro
+    ///          readfile("../file3.kro") -> /path/to/file3.kro
 
     std::string read_file(const std::string &filename) {
         std::optional<fs_path> path = __CONTROLLER_FS_N::resolve_path(filename, true, false);

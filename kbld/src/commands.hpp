@@ -59,7 +59,7 @@ inline auto execute_index(const Config &cfg) -> int {
 
 inline auto execute_deps(const Config &cfg, const CLIOptions &opts) -> int {
     if (opts.positional.empty()) {
-        log::error("Usage: kbld deps <file.hlx>");
+        log::error("Usage: kbld deps <file.kro>");
         return 1;
     }
 
@@ -147,7 +147,7 @@ inline auto execute_install(const Config &cfg, const CLIOptions &opts) -> int {
 
 inline auto execute_test(const Config &cfg, const CLIOptions &opts) -> int {
     if (opts.positional.empty()) {
-        log::error("Usage: kbld test <file.hlx> [--perf] [--compile-only]");
+        log::error("Usage: kbld test <file.kro> [--perf] [--compile-only]");
         return 1;
     }
 
@@ -252,7 +252,7 @@ inline auto execute_test(const Config &cfg, const CLIOptions &opts) -> int {
 
 inline auto execute_line(const Config &cfg, const CLIOptions &opts) -> int {
     if (opts.positional.empty()) {
-        log::error("Usage: kbld line <file.hlx> [start:end]");
+        log::error("Usage: kbld line <file.kro> [start:end]");
         return 1;
     }
 
@@ -291,7 +291,7 @@ inline auto execute_line(const Config &cfg, const CLIOptions &opts) -> int {
         clean += out[i];
     }
 
-    auto last_header = clean.rfind("#define __HELIX_CORE_CXX__");
+    auto last_header = clean.rfind("#define __KAIRO_CORE_CXX__");
     if (last_header != std::string::npos) {
         auto endif_pos = clean.find("#endif", last_header);
         if (endif_pos != std::string::npos) {

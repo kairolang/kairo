@@ -1,14 +1,14 @@
 /// \deprecated THIS FILE IS NOT USED
 ///
-/// \brief since at this stage the helix compiler is not mature enough to have a tooling API in c++
-///        the plan is to rewrite the compiler in helix itself and have the tooling API built from
+/// \brief since at this stage the kairo compiler is not mature enough to have a tooling API in c++
+///        the plan is to rewrite the compiler in kairo itself and have the tooling API built from
 ///        the ground up
 
-#ifndef __HELIX_TOOLING_HH__
-#define __HELIX_TOOLING_HH__
+#ifndef __KAIRO_TOOLING_HH__
+#define __KAIRO_TOOLING_HH__
 
 /// this cant be done in c++ since it needs really big changes to the internals of the
-/// helix compiler, so this will be done when the compiler is rewritten in helix itself
+/// kairo compiler, so this will be done when the compiler is rewritten in kairo itself
 
 #include <filesystem>
 #include <memory>
@@ -36,9 +36,9 @@
 
 | offset | size(B) | field                   | description                                         |
 |--------|---------|-------------------------|-----------------------------------------------------|
-| 0x00   | 8       | Magic Number            | `0x68656C69782D7669616C` ("helix-vial" in ASCII)    |
+| 0x00   | 8       | Magic Number            | `0x68656C69782D7669616C` ("kairo-vial" in ASCII)    |
 | 0x08   | 2       | Vial Version            | Version of the Vial format                          |
-| 0x0A   | 2       | Compiler Version        | Version of the Helix compiler used to generate      |
+| 0x0A   | 2       | Compiler Version        | Version of the Kairo compiler used to generate      |
 | 0x0C   | 4       | Manifest Offset         | Start of the manifest section (metadata in JSON)    |
 | 0x10   | 4       | Data Section Offset     | Start of the data (source code and compiled objects)|
 | 0x14   | 4       | Symbol Table Offset     | Start of the symbol table (functions, symbols)      |
@@ -82,14 +82,14 @@ __CONTROLLER_TOOL_BEGIN {
         /// source is not empty.
         ///
         /// \param src the source code or content to be held by the buffer.
-        /// \param name an optional name for the buffer, defaults to "__/helix$$internal/__".
+        /// \param name an optional name for the buffer, defaults to "__/kairo$$internal/__".
         /// \param rel_to the file path relative to which this buffer's path should be resolved.
         ///        defaults to the current working directory.
         /// \param file_type the type of file this buffer represents, defaults to FileLevel::User.
         template <typename T>
         explicit FileMemoryBuffer(T           src,
                                   Path        rel_to     = __CONTROLLER_FS_N::get_cwd(),
-                                  std::string name       = "__/helix$$internal/__",
+                                  std::string name       = "__/kairo$$internal/__",
                                   FileLevel   file_level = FileLevel::User,
                                   FileType    file_type  = FileType::Source)
             : source(std::move(src))
@@ -266,10 +266,10 @@ __CONTROLLER_TOOL_BEGIN {
 
         void process() override;
     };
-    class CXXProcessor;  // converts a clang C++ SymbolTable to a Helix by-directional
+    class CXXProcessor;  // converts a clang C++ SymbolTable to a Kairo by-directional
                          // SymbolTable
     class SemanticProcessor;
-    class VialProcessor;  // generates a Vial file from a Helix file
+    class VialProcessor;  // generates a Vial file from a Kairo file
 
     // backend processors
     class CXIRGenerator;
@@ -351,4 +351,4 @@ __CONTROLLER_TOOL_BEGIN {
     };
 }
 
-#endif  // __HELIX_TOOLING_HH__
+#endif  // __KAIRO_TOOLING_HH__

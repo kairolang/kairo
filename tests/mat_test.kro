@@ -3,7 +3,7 @@ ffi "c++" import "type_traits";
 ffi "c++" import "memory";
 
 /* ------------------------------------------- helper ------------------------------------------- */
-/// define a basic range method since c++ does not provide one and helix does not have a std (yet)
+/// define a basic range method since c++ does not provide one and kairo does not have a std (yet)
 interface Incrementable {
     fn op ++ (self)[inc] -> Self;
     fn op < (self, other: Self)[lt] -> bool;

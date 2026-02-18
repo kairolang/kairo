@@ -1,0 +1,2590 @@
+[
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "toolchain/Core/UTF8Decode.hh"
+    ],
+    "file": "toolchain/Core/UTF8Decode.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "toolchain/Core/SmallFunction.hh"
+    ],
+    "file": "toolchain/Core/SmallFunction.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "toolchain/Core/Types.hh"
+    ],
+    "file": "toolchain/Core/Types.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "toolchain/Core/ArenaBlock.hh"
+    ],
+    "file": "toolchain/Core/ArenaBlock.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "toolchain/Core/GlobalRecycler.hh"
+    ],
+    "file": "toolchain/Core/GlobalRecycler.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "toolchain/Lexer/CharTable.hh"
+    ],
+    "file": "toolchain/Lexer/CharTable.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "toolchain/Driver/Command/Archive/CLItree.cc"
+    ],
+    "file": "toolchain/Driver/Command/Archive/CLItree.cc"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/core.hh"
+    ],
+    "file": "lib-helix/core/include/core.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/tests/StringsTest.cc"
+    ],
+    "file": "lib-helix/core/tests/StringsTest.cc"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/types.hh"
+    ],
+    "file": "lib-helix/core/include/types/types.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/runtime.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/runtime.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/remove_reference.hh"
+    ],
+    "file": "lib-helix/core/include/meta/remove_reference.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/meta.hh"
+    ],
+    "file": "lib-helix/core/include/meta/meta.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/traits.hh"
+    ],
+    "file": "lib-helix/core/include/meta/traits.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/type_properties.hh"
+    ],
+    "file": "lib-helix/core/include/meta/type_properties.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/const_traits.hh"
+    ],
+    "file": "lib-helix/core/include/meta/const_traits.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/integral_constant.hh"
+    ],
+    "file": "lib-helix/core/include/meta/integral_constant.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/declval.hh"
+    ],
+    "file": "lib-helix/core/include/meta/declval.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/reference_traits.hh"
+    ],
+    "file": "lib-helix/core/include/meta/reference_traits.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/reference_to_pointer.hh"
+    ],
+    "file": "lib-helix/core/include/meta/reference_to_pointer.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/enable_if.hh"
+    ],
+    "file": "lib-helix/core/include/meta/enable_if.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/c++/darwin.hh"
+    ],
+    "file": "lib-helix/core/include/c++/darwin.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/c++/posix.hh"
+    ],
+    "file": "lib-helix/core/include/c++/posix.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/c++/libc++.hh"
+    ],
+    "file": "lib-helix/core/include/c++/libc++.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/c++/windows.hh"
+    ],
+    "file": "lib-helix/core/include/c++/windows.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/c/libc.hh"
+    ],
+    "file": "lib-helix/core/include/c/libc.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/abi/abi.hh"
+    ],
+    "file": "lib-helix/core/include/abi/abi.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/config/config.hh"
+    ],
+    "file": "lib-helix/core/include/config/config.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/__interfaces/interfaces.hh"
+    ],
+    "file": "lib-helix/core/include/meta/__interfaces/interfaces.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/__interfaces/ostream_support.hh"
+    ],
+    "file": "lib-helix/core/include/meta/__interfaces/ostream_support.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/__interfaces/casting.hh"
+    ],
+    "file": "lib-helix/core/include/meta/__interfaces/casting.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/meta/__interfaces/type_traits.hh"
+    ],
+    "file": "lib-helix/core/include/meta/__interfaces/type_traits.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__casting/as_cast.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__casting/as_cast.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__casting/const_cast.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__casting/const_cast.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__casting/unsafe_cast.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__casting/unsafe_cast.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/allocation.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/allocation.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/alignment.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/alignment.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/rot_bounds.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/rot_bounds.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/forwarding.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/forwarding.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/heap_bounds.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/heap_bounds.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/platform_memory.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/platform_memory.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/stack_bounds.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/stack_bounds.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/memory.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/memory.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/c-array.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/c-array.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/exchange.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/exchange.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/conversions.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/conversions.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__memory/address_type.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__memory/address_type.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__io/io.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__io/io.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__io/system.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__io/system.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__function/function_impl.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__function/function_impl.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__function/function.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__function/function.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__finally/finally.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__finally/finally.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__error/runtime_error.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__error/runtime_error.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__error/state_mismatch_error.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__error/state_mismatch_error.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__error/type_mismatch_error.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__error/type_mismatch_error.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__error/error.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__error/error.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__error/error_base.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__error/error_base.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__error/null_value_error.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__error/null_value_error.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__panic/frame_context.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__panic/frame_context.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__panic/panic_fwd.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__panic/panic_fwd.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__panic/stacktrace.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__panic/stacktrace.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__panic/frame.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__panic/frame.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__panic/panic_interfaces.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__panic/panic_interfaces.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__panic/panic.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__panic/panic.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__panic/panic_config.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__panic/panic_config.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__generator/generator_impl.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__generator/generator_impl.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__generator/generator.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__generator/generator.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__io/__print/stringf.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__io/__print/stringf.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__io/__print/endl.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__io/__print/endl.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__io/__print/print.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__io/__print/print.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__io/__input/input.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__io/__input/input.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__io/__input/itoa.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__io/__input/itoa.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/runtime/__io/__input/istream.hh"
+    ],
+    "file": "lib-helix/core/include/runtime/__io/__input/istream.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/set/set.hh"
+    ],
+    "file": "lib-helix/core/include/types/set/set.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/decimal/decimal.hh"
+    ],
+    "file": "lib-helix/core/include/types/decimal/decimal.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/string/basic.hh"
+    ],
+    "file": "lib-helix/core/include/types/string/basic.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/string/c-string.hh"
+    ],
+    "file": "lib-helix/core/include/types/string/c-string.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/string/string.hh"
+    ],
+    "file": "lib-helix/core/include/types/string/string.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/string/char_traits.hh"
+    ],
+    "file": "lib-helix/core/include/types/string/char_traits.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/string/slice.hh"
+    ],
+    "file": "lib-helix/core/include/types/string/slice.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/question/question_fwd.hh"
+    ],
+    "file": "lib-helix/core/include/types/question/question_fwd.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/question/question_impl.hh"
+    ],
+    "file": "lib-helix/core/include/types/question/question_impl.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/question/question.hh"
+    ],
+    "file": "lib-helix/core/include/types/question/question.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/tuple/tuple.hh"
+    ],
+    "file": "lib-helix/core/include/types/tuple/tuple.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/collection/collection.hh"
+    ],
+    "file": "lib-helix/core/include/types/collection/collection.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/array/interface.hh"
+    ],
+    "file": "lib-helix/core/include/types/array/interface.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/array/array.hh"
+    ],
+    "file": "lib-helix/core/include/types/array/array.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/number/number.hh"
+    ],
+    "file": "lib-helix/core/include/types/number/number.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/vector/vector.hh"
+    ],
+    "file": "lib-helix/core/include/types/vector/vector.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/type_erasure/type_erasure.hh"
+    ],
+    "file": "lib-helix/core/include/types/type_erasure/type_erasure.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/type_erasure/erasure_base.hh"
+    ],
+    "file": "lib-helix/core/include/types/type_erasure/erasure_base.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/type_erasure/erasure_impl.hh"
+    ],
+    "file": "lib-helix/core/include/types/type_erasure/erasure_impl.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/maping/maping.hh"
+    ],
+    "file": "lib-helix/core/include/types/maping/maping.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/literals.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/literals.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/bitset.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/bitset.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/f128_bit.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/f128_bit.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/builtins.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/builtins.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/primitives.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/primitives.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/256_bit.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/256_bit.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/size_t.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/size_t.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/num_data.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/num_data.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "clang++",
+      "-std=c++23",
+      "-O3",
+      "-w",
+      "-Isource",
+      "-Ilib-helix/core/include",
+      "-Ilib-helix/core",
+      "-Ilibs",
+      "-DNDEBUG",
+      "lib-helix/core/include/types/builtins/variant.hh"
+    ],
+    "file": "lib-helix/core/include/types/builtins/variant.hh"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/test.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/AST/FullSourceLocation.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/FileSystem.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/UTF8View.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/TokenKind.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/MappedFileBuffer.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/SourceLocation.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/VirtualFileManager.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/ThreadPool.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/EvalHash.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Path.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/SourceLineTable.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/MMapRegion.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/SourceRange.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/ArenaAllocator.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Timer.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/MemoryBuffer.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/SourceFile.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/FullSourceLocation.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/SourceManager.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Assert.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/MacroInvokeResolve.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Lexer.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Immediate.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Token.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/HexParser.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/TokenSpan.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/OctalParser.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/ModuleMap.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/DirctoryMap.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/MacroParser.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/TokenBuffer.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/BalanceTracker.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Preprocessor/DirEntry.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Preprocessor/ImportCollector.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Preprocessor/SearchRoot.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Preprocessor/ImportResolver.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Preprocessor/FileExtensions.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Preprocessor/Macro/ImportProcessor.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Lexer/Preprocessor/Macro/MacroPreprocessor.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/FileSystem.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/Concurrency.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/SourceLocationFull.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/Base.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/Testing.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/VirtualFS.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/Core.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/SourceFile.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/Memory.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Core/Include/SourceManager.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/main/HFmt.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/main/kairo.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/main/HBuild.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/main/HLS.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/main/HLd.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Command/Archive/CLItree.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Command/CatalystSystem/Compile.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Command/CatalystSystem/Catalyst.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Command/CatalystSystem/Catalystarchived.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/compiler/diagnostics/DiagnosticInterface.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/compiler/diagnostics/Level.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/compiler/diagnostics/PrettyDiagnosticHandler.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/compiler/diagnostics/Codes.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/tests/unittests/operator_lexing.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/tests/unittests/numeric_lexing.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/tests/unittests/text_lexing.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/tests/unittests/name_lexing.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/core/handler.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/core/core.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/core/abi.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/core/frame.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/core/range.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/core/frame_context.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/lib/cxxabi_config.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/lib/libcxx_abi.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/AssertionError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/RuntimeError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/ArithmeticError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/NotImplementedError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/ImportError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/IndexError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/TimeoutError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/AttributeError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/RangeError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/RaceConditionError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/DivideByZeroError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/DeadlockError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/ParseError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/NullReferenceError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/NetworkError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/TypeError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/IOError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/ValueError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/FormatError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/UnderflowError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/ConcurrencyError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/Error.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/OverflowError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/KeyError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/FileNotFoundError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/HostNotFoundError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/ConnectionError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/PermissionError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/Error/MemoryError.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/interfaces/lib.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/linked_list.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/build.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/exceptions.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/fs.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/range.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/test.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/types.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/list.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/exmaple.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/alloc.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/lib-helix/pkgs/std/arc/dyn.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [
+      "-I/mnt/linux-dev/projects/kairo-lang",
+      "-I/mnt/linux-dev/projects/kairo-lang/toolchain"
+    ],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Main/HBuild.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Main/Kairo.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Main/HFmt.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Main/HLd.kro"
+  },
+  {
+    "directory": "/mnt/linux-dev/projects/kairo-lang",
+    "arguments": [],
+    "file": "/mnt/linux-dev/projects/kairo-lang/toolchain/Driver/Main/HLS.kro"
+  }
+]

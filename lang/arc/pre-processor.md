@@ -40,7 +40,7 @@ global define PI: 3.14159; // exposed to all namespace equivalent to #define in 
 ### Macro
 ```rs
 macro any_cast(dest: Type!, src: Identifier! | Literal!) {
-    return match (helix::compiler::TARGET) {
+    return match (kairo::compiler::TARGET) {
         compiler::Target::CPP -> compiler::to_string!(unsafe extern "C++" (dest)src);
         compiler::Target::C   -> compiler::to_string!(extern "C" (dest)src);
         _                     -> panic MacroRuntimeError("Unsupported target");
@@ -57,13 +57,13 @@ macro any_cast(dest: Type!, src: Identifier! | Literal!) {
 define PI: 3.14159;
 
 macro any_cast(dest: Type!, src: Identifier! | Literal!) {
-    switch helix::compiler::TARGET {
-        case helix::compiler::Target::CPP {
+    switch kairo::compiler::TARGET {
+        case kairo::compiler::Target::CPP {
             unsafe extern "C++" ($dest)$src;
             break;
         }
 
-        case helix::compiler::Target::C {
+        case kairo::compiler::Target::C {
             extern "C" ($dest)$src; 
             break;
         }

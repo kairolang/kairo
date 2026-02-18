@@ -1,6 +1,6 @@
-set_project    ("helix-lang")
-set_version    ("0.0.1-alpha-9c", { soname = true })
-set_description("The Helix Compiler. Python's Simplicity, Rust inspired Syntax, and C++'s Power")
+set_project    ("kairo-lang")
+set_version    ("kairo-0.0.1.beta-rc.20260220", { soname = true })
+set_description("The Kairo Compiler. Python's Simplicity, Rust inspired Syntax, and C++'s Power")
 
 add_rules("mode.debug", "mode.release")
 
@@ -109,7 +109,7 @@ function setup_linux()
 	-- 	print("The `LD` environment variable must contain the path to the lld executable, it contains: ", ld)
 	-- end
 	-- use with lld os.runv("echo", {"hello", "xmake!"})
-	--setenv({ LD = os.getenv("HELIX_LLD") })
+	--setenv({ LD = os.getenv("KAIRO_LLD") })
 end
 
 function setup_macos()
@@ -177,13 +177,13 @@ local function setup_env()
     end
 end
 
-local function helix_src_setup()
+local function kairo_src_setup()
 	-- Include dir
 	add_includedirs("source")   
 
 	-- Add source fikes
 	add_files("source/**.cc") -- add all files in the source directory
-    -- add_files("source/**.hlx") -- compile all helix files
+    -- add_files("source/**.kro") -- compile all kairo files
 
 	-- Header files
 	add_headerfiles("source/**.hh") -- add all headers in the source directory
@@ -227,21 +227,21 @@ local function print_all_info(target)
 
     if is_mode("release")
     then
-        print(yellow .. "#===--------------------- " .. cyan .. "Welcome to Helix " .. yellow .. "---------------------===#")
+        print(yellow .. "#===--------------------- " .. cyan .. "Welcome to Kairo " .. yellow .. "---------------------===#")
         print(yellow .. "#                                                                  #")
-        print(yellow .. "#  " .. reset .. "Thank you for using Helix, part of the Helix Project!" .. yellow .. "           #")
+        print(yellow .. "#  " .. reset .. "Thank you for using Kairo, part of the Kairo Project!" .. yellow .. "           #")
         print(yellow .. "#                                                                  #")
-        print(yellow .. "#  " .. reset .. "Helix is licensed under the " .. magenta .. "Creative Commons Attribution 4.0" .. yellow .. "    #")
+        print(yellow .. "#  " .. reset .. "Kairo is licensed under the " .. magenta .. "Creative Commons Attribution 4.0" .. yellow .. "    #")
         print(yellow .. "#  " .. magenta .. "International (CC BY 4.0)." .. yellow .. "                                      #")
         print(yellow .. "#                                                                  #")
-        print(yellow .. "#  " .. reset .. "This means you're free to use, modify, and distribute Helix," .. yellow .. "    #")
+        print(yellow .. "#  " .. reset .. "This means you're free to use, modify, and distribute Kairo," .. yellow .. "    #")
         print(yellow .. "#  " .. reset .. "even for commercial purposes, as long as you give proper" .. yellow .. "        #")
         print(yellow .. "#  " .. reset .. "credit and indicate if any changes were made. For more" .. yellow .. "          #")
         print(yellow .. "#  " .. reset .. "information, visit the link below." .. yellow .. "                              #")
         print(yellow .. "#  " .. cyan .. "https://creativecommons.org/licenses/by/4.0/" .. yellow .. "                    #")
         print(yellow .. "#                                                                  #")
         print(yellow .. "#  " .. magenta .. "SPDX-License-Identifier: " .. reset .. "CC-BY-4.0" .. yellow .. "                              #")
-        print(yellow .. "#  " .. reset .. "Copyright (c) 2024 " .. cyan .. "Helix Project" .. yellow .. "                                #")
+        print(yellow .. "#  " .. reset .. "Copyright (c) 2024 " .. cyan .. "Kairo Project" .. yellow .. "                                #")
         print(yellow .. "#                                                                  #")
         print(yellow .. "#===------------------------------------------------------------===#" .. reset)
 
@@ -513,13 +513,23 @@ package_end()
 
 setup_build_folder()
 setup_env()
-helix_src_setup()
 
-target("helix") -- target config defined in the config seciton
+target("kbld")
+    set_kind("binary")
+    set_languages(cxx_standard)
+
+    add_files("kbld/src/main.cpp")
+    add_includedirs("kbld/include")
+
+    set_policy("build.optimization.lto", true)
+target_end()
+
+target("kairo") -- target config defined in the config seciton
     -- before_build(function (target)
         -- print_all_info(target)
     -- end)
 
+    kairo_src_setup()
     add_packages("llvm-clang")
 
     -- if is_llvm_configured then
@@ -569,11 +579,11 @@ target("helix") -- target config defined in the config seciton
         os.rm(path.join(target_dir, "..", "README.md"))
 
 
-        -- we need to compiler vial as well for the helix build tool to work well
-        -- Z:\devolopment\helix\helix-lang\build\release\x64-windows-msvc\bin\helix.exe Z:\devolopment\helix\helix-lang\vial\driver\main.hlx -o Z:\devolopment\helix\helix-lang\build\release\x64-windows-msvc\bin\vial -IZ:\devolopment\helix\helix-lang\
+        -- we need to compiler vial as well for the kairo build tool to work well
+        -- Z:\devolopment\kairo\kairo-lang\build\release\x64-windows-msvc\bin\kairo.exe Z:\devolopment\kairo\kairo-lang\vial\driver\main.kro -o Z:\devolopment\kairo\kairo-lang\build\release\x64-windows-msvc\bin\vial -IZ:\devolopment\kairo\kairo-lang\
         local hcompiler = target:targetfile()
         local vial_inc = path.join(target_dir, "..", "pkgs")
-        local vial_driver = path.join(target_dir, "..", "pkgs", "vial", "driver", "main.hlx")
+        local vial_driver = path.join(target_dir, "..", "pkgs", "vial", "driver", "main.kro")
         local vial_output = path.join(target_dir, "vial")
         -- now that we have the compiler with us we need to move everything from the vial/ folder to pkgs/vial in the build folder (same as core)
         
@@ -598,8 +608,10 @@ target("helix") -- target config defined in the config seciton
     end)
 target_end() -- empty target
 
-target("helix-api")
+target("kairo-api")
     set_kind("static")
+    kairo_src_setup()
+
     if abi == ""
     then
         set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)")
@@ -607,7 +619,7 @@ target("helix-api")
         set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)-" .. abi)
     end
 
-    after_build(function(target) -- make the helix library with all the appropriate header files
+    after_build(function(target) -- make the kairo library with all the appropriate header files
         -- determine the target output directory
         local target_dir = path.directory(target:targetfile())
 
@@ -638,7 +650,7 @@ target("helix-api")
         local file = io.open(include_xmake_lua, "w")
 
         file:write([[
-        target("helix-include")
+        target("kairo-include")
             set_kind("static")
             add_files("lib/*.a")
             add_includedirs("include")

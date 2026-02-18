@@ -1,10 +1,10 @@
-## this file defines all the language features of helix
+## this file defines all the language features of kairo
 # Language Features
 
 ### Interoperability
-Helix has a very powerful interoperability feature that allows you to use anything from other languages like C, C++, Python, and Rust (What we will make). Or even extend the language to work with other languages.
+Kairo has a very powerful interoperability feature that allows you to use anything from other languages like C, C++, Python, and Rust (What we will make). Or even extend the language to work with other languages.
 
-```helix
+```kairo
 ffi "c" import "stdio.h";
 ffi "c++" import "iostream";
 ffi "py" import os;
@@ -12,9 +12,9 @@ ffi "rs" import std::fs;
 ```
 
 ### OOP
-Helix has all of OOP features like classes, interfaces, and inheritance.
+Kairo has all of OOP features like classes, interfaces, and inheritance.
 
-```helix
+```kairo
 interface Animal {
     fn speak(self) -> string;
 }
@@ -49,9 +49,9 @@ fn main() {
 ```
 
 ### Functional Programming
-Helix has all of the functional programming features like higher-order functions, lambdas, closures, generators, and pattern matching.
+Kairo has all of the functional programming features like higher-order functions, lambdas, closures, generators, and pattern matching.
 
-```helix
+```kairo
 fn add(a: int, b: int) -> int {
     return a + b;
 }
@@ -92,9 +92,9 @@ fn main() {
 ```
 
 ### Null Safety
-Helix by default is null safe, and you can use the `?` operator to specify that a value can be null.
+Kairo by default is null safe, and you can use the `?` operator to specify that a value can be null.
 
-```helix
+```kairo
 fn add(a: int?, b: int?) -> int? {
     if a? && b? {
         return a + b;
@@ -105,9 +105,9 @@ fn add(a: int?, b: int?) -> int? {
 ```
 
 ### Generics
-Generics in helix are handled in a way that is complexly unique to the language.
+Generics in kairo are handled in a way that is complexly unique to the language.
 
-```helix
+```kairo
 fn add(a: T, b: T) -> T
   requires <T> if Add in T {
     return a + b;
@@ -134,9 +134,9 @@ Things to note here:
 
 
 ### Pattern Matching
-Pattern matching in helix is very powerful and can be used in a variety of ways.
+Pattern matching in kairo is very powerful and can be used in a variety of ways.
 
-```helix
+```kairo
 fn match_example(a: AST_Node) -> int? {
     match a {
         AST_Node(
@@ -172,9 +172,9 @@ Things to note here:
 7. The `int?` return type specifies that the function can return an integer or null.
 
 ### Types
-Helix has a very powerful type system that allows for easy and safe programming. and closely resembles type annotations in python.
+Kairo has a very powerful type system that allows for easy and safe programming. and closely resembles type annotations in python.
 
-```helix
+```kairo
 fn add(a: int, b: int) -> int | float {
     if a % 2 == 0:
         return a + b;
@@ -188,9 +188,9 @@ Things to note here:
 2. The `as` keyword is used to cast a value to a different type.
 
 ### Finally (== defer)
-Helix has a `finally` keyword that can be used to execute a block of code after the function has completed execution.
+Kairo has a `finally` keyword that can be used to execute a block of code after the function has completed execution.
 
-```helix
+```kairo
 fn example() -> int {
     unsafe let sm_ptr* = malloc(10);
     finally: delete sm_ptr;
@@ -223,9 +223,9 @@ Things to note here:
 3. This is really useful for code readability since you can put all the cleanup code right next to the code that needs to be cleaned up.
 
 ### UDTs (User Defined Types)
-Helix has all of OOP features like classes, interfaces, and inheritance.
+Kairo has all of OOP features like classes, interfaces, and inheritance.
 
-```helix
+```kairo
 interface Animal {
     fn speak() -> string;
 }
@@ -278,12 +278,12 @@ Things to note here:
 8. The `if` keyword is used to specify the condition that the generic type must satisfy.
 
 ### Macros
-Helix has 3 types of macros:
+Kairo has 3 types of macros:
 1. Function-like macros            - untyped
 2. Attribute-like macros           - typed
 3. Procedural Function-like macros - typed
 
-```helix
+```kairo
 // this is a function-like macro
 macro hello_world! {
     print("Hello, World!");
@@ -328,9 +328,9 @@ Things to note here:
 7. if the macro parameters are typed and have a `#` operator, its an attribute-like procedural macro.
 
 ### Casting
-Helix allows for multiple types of casting.
+Kairo allows for multiple types of casting.
 
-```helix
+```kairo
 let a: int = 10;
 
 let const b: int = a as const int;

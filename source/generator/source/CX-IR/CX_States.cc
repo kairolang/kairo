@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -425,7 +425,7 @@ CX_VISIT_IMPL(FinallyState) {
     /// $finally _([&] { free(a); });
 
     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
-    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "helix");
+    ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "kairo");
     ADD_TOKEN(CXX_SCOPE_RESOLUTION);
     ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "$finally");
     ADD_TOKEN_AS_VALUE(CXX_CORE_IDENTIFIER, "_" + generate_unique_name());

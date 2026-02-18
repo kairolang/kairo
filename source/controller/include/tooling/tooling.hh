@@ -24,7 +24,7 @@
 #ifndef VERBOSE_LOG
 #define VERBOSE_LOG(...)                          \
     if (parsed_args.verbose) {                    \
-        helix::log<LogLevel::Debug>(__VA_ARGS__); \
+        kairo::log<LogLevel::Debug>(__VA_ARGS__); \
     }
 #endif
 
@@ -71,7 +71,7 @@ struct CXXCompileAction {  // NOLINT
     Path               working_dir;
     Path               cc_source;
     Path               cc_output;
-    Path               helix_src;
+    Path               kairo_src;
     Args               cxx_args;
     flag::CompileFlags flags;
     std::string        cxx_compiler;
@@ -84,14 +84,14 @@ struct CXXCompileAction {  // NOLINT
     CXXCompileAction(Path               working_dir,
                      Path               cc_source,
                      Path               cc_output,
-                     Path               helix_src,
+                     Path               kairo_src,
                      Args               cxx_args,
                      flag::CompileFlags flags,
                      std::string        cxx_compiler)
         : working_dir(std::move(working_dir))
         , cc_source(std::move(cc_source))
         , cc_output(std::move(cc_output))
-        , helix_src(std::move(helix_src))
+        , kairo_src(std::move(kairo_src))
         , cxx_args(std::move(cxx_args))
         , flags(flags)
         , cxx_compiler(std::move(cxx_compiler)) {}
@@ -103,7 +103,7 @@ struct CXXCompileAction {  // NOLINT
             working_dir  = other.working_dir;
             cc_source    = other.cc_source;
             cc_output    = other.cc_output;
-            helix_src    = other.helix_src;
+            kairo_src    = other.kairo_src;
             cxx_args     = other.cxx_args;
             flags        = other.flags;
             cxx_compiler = other.cxx_compiler;
@@ -115,7 +115,7 @@ struct CXXCompileAction {  // NOLINT
         : working_dir(std::move(other.working_dir))
         , cc_source(std::move(other.cc_source))
         , cc_output(std::move(other.cc_output))
-        , helix_src(std::move(other.helix_src))
+        , kairo_src(std::move(other.kairo_src))
         , cxx_args(std::move(other.cxx_args))
         , flags(other.flags)
         , cxx_compiler(std::move(other.cxx_compiler)) {}
@@ -125,7 +125,7 @@ struct CXXCompileAction {  // NOLINT
             working_dir  = std::move(other.working_dir);
             cc_source    = std::move(other.cc_source);
             cc_output    = std::move(other.cc_output);
-            helix_src    = std::move(other.helix_src);
+            kairo_src    = std::move(other.kairo_src);
             cxx_args     = std::move(other.cxx_args);
             flags        = other.flags;
             cxx_compiler = std::move(other.cxx_compiler);

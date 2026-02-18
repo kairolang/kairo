@@ -1,6 +1,6 @@
-//===----------------------------------------- Helix -----------------------------------------====//
+//===----------------------------------------- Kairo -----------------------------------------====//
 //                                                                                                //
-//  Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).       //
+//  Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).       //
 //  You are allowed to use, modify, redistribute, and create derivative works, even for           //
 //  commercial purposes, provided that you give appropriate credit, and indicate if changes       //
 //   were made. For more information, please visit: https://creativecommons.org/licenses/by/4.0/  //
@@ -10,11 +10,11 @@
 //                                                                                                //
 //====----------------------------------------------------------------------------------------====//
 //                                                                                                //
-// this is the drop in replacement for the entire Helix compiler, this will be used when          //
-// rewriting the compiler in helix itself (self-hosting), the reason this is the entry point is   //
-// helix the compiler can now work with the c++ interop modules rather then having to compile     //
-// only helix files into c++ headers then include them, instead we can now just use bi-directional//
-// ffi to include c++ headers and use them in helix code.                                         //
+// this is the drop in replacement for the entire Kairo compiler, this will be used when          //
+// rewriting the compiler in kairo itself (self-hosting), the reason this is the entry point is   //
+// kairo the compiler can now work with the c++ interop modules rather then having to compile     //
+// only kairo files into c++ headers then include them, instead we can now just use bi-directional//
+// ffi to include c++ headers and use them in kairo code.                                         //
 //                                                                                                //
 //====----------------------------------------------------------------------------------------====//
 
@@ -33,9 +33,9 @@ fn abc() -> i32 {
     return x[0].length() as i32;
     // the really annoying thing is the error message is not helpful at all, it just says
     // "function `length` not found." which is not true. the reason is because the c++ codegen looks
-    // like this: `helix::std::as<i32>(x[0]).length()`, which is not correct and the reason it fails.
+    // like this: `kairo::std::as<i32>(x[0]).length()`, which is not correct and the reason it fails.
     //
-    // couple of notes about helix:
+    // couple of notes about kairo:
     // - the language is still in development and is not stable yet.
     // - the language right now impl a c++ backend, and the self-hosted compiler would initially also
     //   have a c++ backend. but that would be migrated to a llvm backend later on. (the c++ backend
@@ -52,7 +52,7 @@ fn abc() -> i32 {
     // most part, the self-hosted compiler will be able to do much more and be much more flexible.
 }
 
-fn <N: std::size_t> helix_compiler(std::array::<std::string, N> args) -> i32 {
+fn <N: std::size_t> kairo_compiler(std::array::<std::string, N> args) -> i32 {
     var invoke      = InvocationManager(args, true);
     var compile     = CompilationUnit(invoke);
     var diag_handle = PrettyDiagnosticHandler();
@@ -109,14 +109,14 @@ fn <N: std::size_t> helix_compiler(std::array::<std::string, N> args) -> i32 {
     return 0;
 }
 
-/* other.hlx
-```helix
+/* other.kro
+```kairo
 
 import main;
 
 fn run_tests() {
-    test main; // runs all tests defined in main.hlx
-    test main["this is main.hlx"]; // runs the test with the given name
+    test main; // runs all tests defined in main.kro
+    test main["this is main.kro"]; // runs the test with the given name
 }
 
 fn main() -> int {

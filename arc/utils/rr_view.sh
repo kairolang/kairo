@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #-f format | -l | -r | -s | -x] [-t timefmt]
-FILE="source/parser/ast/helix.ebnf"
+FILE="source/parser/ast/kairo.ebnf"
 COMMAND="java -jar temp/utils/railroad/rr.war -width:1500 -html $FILE"
 VIEW_COMMAND="open ./index.html"
 LAST_MODIFIED=$(stat -f "%m" "$FILE")

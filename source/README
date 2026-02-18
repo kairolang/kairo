@@ -1,17 +1,17 @@
-# Helix Programming Language - Source Directory
+# Kairo Programming Language - Source Directory
 
-Welcome to the source directory of the **Helix Programming Language**. This directory contains all the essential components that power the Helix compiler. Below is an overview of each subdirectory and its purpose within the project.
+Welcome to the source directory of the **Kairo Programming Language**. This directory contains all the essential components that power the Kairo compiler. Below is an overview of each subdirectory and its purpose within the project.
 
 ## 1. Directory Structure Overview
 
 ### [source/cli](cli)
-This directory contains the source code for the **Command Line Interface (CLI)** of Helix. It handles user input and serves as the entry point for running the compiler from the command line.
+This directory contains the source code for the **Command Line Interface (CLI)** of Kairo. It handles user input and serves as the entry point for running the compiler from the command line.
 
 - `include`: Header files for CLI functionality.
 - `source`: Implementation of the CLI logic.
 
 ### [source/core](core)
-This directory contains utility functions and classes used across the Helix project. **Note:** This module is planned to be removed in future updates as its functionality is being refactored or replaced.
+This directory contains utility functions and classes used across the Kairo project. **Note:** This module is planned to be removed in future updates as its functionality is being refactored or replaced.
 
 - `utils`: Common utility functions shared across the compiler.
 
@@ -23,26 +23,26 @@ The **driver** manages the compilation process by handling I/O and orchestrating
 - `source`: Core logic of the driver.
 
 ### [source/generator](generator)
-This directory holds the code for **code generation (codegen)** in Helix. It converts Helix AST into intermediate representations (CIR and LLVM-IR) and eventually into optimized machine code.
+This directory holds the code for **code generation (codegen)** in Kairo. It converts Kairo AST into intermediate representations (CIR and LLVM-IR) and eventually into optimized machine code.
 
-- `CXIR`: Code generation to Helix's custom CIR (Compiler Intermediate Representation).
+- `CXIR`: Code generation to Kairo's custom CIR (Compiler Intermediate Representation).
 - `BC:IR`: Normalized IR for borrow checking and safety validation. (**Note:** borrow checking is not imposed on the user, in the sense of the strictness of Rust's borrow checker, but rather as warnings and suggestions.)
 - `LLVM-IR`: Code generation to LLVM-IR for backend compilation.
 - `include`: Header files for the generator.
 
 ### [source/include](include)
-Contains the **public-facing API** for Helix. This interface allows external tools and libraries to interact with Helix's backend and compiler toolchain.
+Contains the **public-facing API** for Kairo. This interface allows external tools and libraries to interact with Kairo's backend and compiler toolchain.
 
 - `api`: Public API headers for integration and extension.
 
 ### [source/lexer](lexer)
-The **lexer** converts source code into a stream of tokens, which serve as the building blocks for the parser. It defines how Helix understands its syntax.
+The **lexer** converts source code into a stream of tokens, which serve as the building blocks for the parser. It defines how Kairo understands its syntax.
 
 - `include`: Lexer-related header files.
 - `source`: Tokenization logic implementation.
 
 ### [source/parser](parser)
-The **parser** transforms tokens into an Abstract Syntax Tree (AST) and Concrete Syntax Tree (CST). It also converts C++ AST symbols into Helix AST symbols using the Clang Frontend.
+The **parser** transforms tokens into an Abstract Syntax Tree (AST) and Concrete Syntax Tree (CST). It also converts C++ AST symbols into Kairo AST symbols using the Clang Frontend.
 
 - `ast`: AST-related code and visitors for node traversal.
 - `cpp`: Integration with C++ AST.
@@ -50,7 +50,7 @@ The **parser** transforms tokens into an Abstract Syntax Tree (AST) and Concrete
 - `preprocessor`: Handles preprocessor logic, such as macro expansion.
 
 ### [source/token](token)
-This directory defines the **token** types used by the lexer. Tokens represent the smallest units of meaning (such as keywords, operators, and literals) in Helix source code.
+This directory defines the **token** types used by the lexer. Tokens represent the smallest units of meaning (such as keywords, operators, and literals) in Kairo source code.
 
 - `enums`: Enumerations for token types.
 - `types`: Definitions of token-related types.

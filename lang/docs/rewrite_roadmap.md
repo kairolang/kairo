@@ -1,4 +1,4 @@
-slowly start rewriting the following in helix itself:
+slowly start rewriting the following in kairo itself:
 - [ ] **Error Handling**
   - [ ] Custom error types
   - [ ] Error propagation
@@ -121,9 +121,9 @@ slowly start rewriting the following in helix itself:
 -- perl must be installed
 -- zlib and zstd are optional
 
-# Enhancing the Helix Compiler Toolchain
+# Enhancing the Kairo Compiler Toolchain
 
-This document outlines the necessary modifications to the Helix compiler toolchain to support the Helix language. These modifications are categorized as follows:
+This document outlines the necessary modifications to the Kairo compiler toolchain to support the Kairo language. These modifications are categorized as follows:
 
 - Lexer
 - Parser
@@ -135,7 +135,7 @@ This document outlines the necessary modifications to the Helix compiler toolcha
 
 ## Lexer
 The lexer must be optimized for performance and designed to store file positions for tokens separately. The proposed structure includes distinct classes for `Location`, `Token`, and `TokenKind`, ensuring clarity and efficiency.
-helix-lang\libs\llvm-18.1.9-src\clang\include\clang\Basic\CharInfo.h
+kairo-lang\libs\llvm-18.1.9-src\clang\include\clang\Basic\CharInfo.h
 
 ### Suggested Structures
 
@@ -248,32 +248,32 @@ class MemoryMappedFile;
 ```
 
 ### Imports
-The imports in helix need a quite major rework, all paths are compile time resolved.
+The imports in kairo need a quite major rework, all paths are compile time resolved.
 default import resolution order:
 1. relative to the file itself.
 2. relative to the cwd.
-3. relative to the helix root/sys root (this is also the path for lib-helix).
+3. relative to the kairo root/sys root (this is also the path for lib-helix).
 4. any path provided through the `-I` flag.
-   if any import is found more then once the first one found is used also rasing a warning saying that the import is ambiguous. (to suppress either pass `-W[no]-ambiguous-imports` or add a `// helix(no-warn): ...` replace the ... to the error code to suppress)
+   if any import is found more then once the first one found is used also rasing a warning saying that the import is ambiguous. (to suppress either pass `-W[no]-ambiguous-imports` or add a `// kairo(no-warn): ...` replace the ... to the error code to suppress)
 
 the import behavior is as follows:
-Helix has 2 kinds of imports both which have an alternative form:
+Kairo has 2 kinds of imports both which have an alternative form:
 string imports and module imports, both can have an ffi form.
 - both imports allow for full path resolution and are used for importing files directly from the filesystem
 - string imports are global unless aliased (like in c++), a full absolute path can be provided but if not the compiler would search in the default import resolution order.
 - module imports are always aliased unless `::*` is used, the alias is the last part of the path.
-- by default the compiler will resolve imports without imports, so if you did `std::io::println` the compiler would look for start by looking for `std/std.hlx` (library), if thats not found, the check for `std/io/io.hlx` (module) and if that is not found it will look for `std/io/println.hlx` (function), if the fucntion specified in the path is not found it will continue too look though all the possible paths, once exhaused or the signature doesnt match then it raises an error.
+- by default the compiler will resolve imports without imports, so if you did `std::io::println` the compiler would look for start by looking for `std/std.kro` (library), if thats not found, the check for `std/io/io.kro` (module) and if that is not found it will look for `std/io/println.kro` (function), if the fucntion specified in the path is not found it will continue too look though all the possible paths, once exhaused or the signature doesnt match then it raises an error.
 - imports only allow for simplification of paths so doing `import std::io::println` just allows you to use `println` instead of `std::io::println`.
 
 ### Compiler CLI Options
-The compiler (helix) CLI will adopt the following options for flexibility and clarity:
+The compiler (kairo) CLI will adopt the following options for flexibility and clarity:
 
 | Option                | Description                                                                                                                                   |
 |-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
 | `-h`, `--help`            | Displays a detailed help message with usage instructions.                                                                                 |
 | `-v`, `--version`         | Prints the current version of the compiler.                                                                                               |
 | `-o`, `--output`          | Specifies the directory for compiler output files.                                                                                        |
-| `-lib`, `--library`       | Builds either a Helix vile format or a static/dynamic library depending on flags.                                                         |
+| `-lib`, `--library`       | Builds either a Kairo vile format or a static/dynamic library depending on flags.                                                         |
 | `-static`, `--static`     | Generates a static binary or library for platform-specific use.                                                                           |
 | `-dyn`, `--dynamic`       | Produces a dynamically linked binary or library.                                                                                          |
 | `-i/I`, `--include`       | Adds a directory to the list of include paths for header files.                                                                           |
@@ -281,21 +281,21 @@ The compiler (helix) CLI will adopt the following options for flexibility and cl
 | `-l`, `--link`            | Links a specified library to the output binary. Syntax: `-l library_name`.                                                                |
 | `-O`, `--optimize`        | Sets the optimization level for the output (0 for none, 5 for maximum).                                                                   |
 | `-d`, `--debug`           | Enables debug symbols in the compiled binary.                                                                                             |
-| `-cfg`, `--config`        | Provides a `helix.toml` configuration file for custom compiler settings.                                                                  |
+| `-cfg`, `--config`        | Provides a `kairo.toml` configuration file for custom compiler settings.                                                                  |
 | `-m/M`, `--macro`         | Injects a macro definition into the compilation process. Syntax: `-M macro_name "macro_value"`.                                           |
 | `-E`, `--error`           | Configures error reporting verbosity. Options: `none`, `warning`, `info`, `debug`, `all`, `hard`.                                         |
 | `-ffi, --ffi`             | Specify the foreign function interface type (e.g., `-ffi c` or `--ffi c` for C headers).                                                  |
 | `-t, --target`            | Define the target ABI in the format `arch-vendor-os` (e.g., `-t x86_64-linux-gnu` or `--target x86_64-linux-gnu`).                        |
-| `-test, --test`           | Compile test blocks into a binary (e.g., `helix -o app.test.exe -test main.hlx` or `--test main.hlx`).                                    |
+| `-test, --test`           | Compile test blocks into a binary (e.g., `kairo -o app.test.exe -test main.kro` or `--test main.kro`).                                    |
 | `-fI, --force-include`    | Force include a file into the compilation process, regardless of its extension or import status.                                          |
-| `-x, --ext`               | Specify file extension(s) for compilation (e.g., `-x hlx` or `--ext hlx`). Supported extensions: `hlx`, `helix`, `hdlx`, `c`, `cpp`, etc. |
+| `-x, --ext`               | Specify file extension(s) for compilation (e.g., `-x kro` or `--ext kro`). Supported extensions: `kro`, `kairo`, `kh`, `c`, `cpp`, etc. |
 | `--ffi-include`           | Add a directory to the FFI generator library search path. *(No short flag for clarity)*                                                   |
 | `--emit`                  | Outputs intermediate results like `tokens`, `ast`, `ir`, `llvm`, `asm`, or `cxx`.                                                         |
 | `--verbose`               | Enables detailed logging of the compilation process.                                                                                      |
 | `--quiet`                 | Suppresses all compiler output except for errors.                                                                                         |
 | `--suppress`              | Outputs only to stderr, leaving stdout empty.                                                                                             |
 | `--sysroot`               | Sets the system root directory for the compiler to search for system libraries.                                                           |
-| `-std`, `--standard`      | Sets the Helix language standard to use for compilation.                                                                                  |
+| `-std`, `--standard`      | Sets the Kairo language standard to use for compilation.                                                                                  |
 | `--prelude`               | Specifies a custom prelude file to include in the compilation process. (avoiding the default prelude)                                     |
 | `--no-prelude`            | Disables the default prelude file from being included in the compilation process.                                                         |
 | `--no-stdlib`             | Disables the standard library from being included in the compilation process.                                                             |
@@ -306,7 +306,7 @@ The compiler (helix) CLI will adopt the following options for flexibility and cl
 
 | **Option**                      | **Description**                                                |
 |---------------------------------|----------------------------------------------------------------|
-| `--f --style <style>`           | Sets output style: (`msvc`, `gcc`, `clang`, `helix`, `json`)   |
+| `--f --style <style>`           | Sets output style: (`msvc`, `gcc`, `clang`, `kairo`, `json`)   |
 | `--f [-no] -ansi`               | Toggles ANSI escape sequences in output.                       |
 | `--f [-no] -color`              | Toggles colored output.                                        |
 | `--f [-no] -utf8`               | Enables or disables UTF-8 encoding support.                    |
@@ -355,10 +355,10 @@ The compiler (helix) CLI will adopt the following options for flexibility and cl
 
 | **Variable**               | **Description**                                                          |
 |----------------------------|--------------------------------------------------------------------------|
-| `HELIX_FLAGS`              | Additional flags to pass into the helix compiler                         |
-| `HELIX_IMPORTS`            | Delimited by `:` compiler searches in these paths for imported files     |
-| `HELIX_LIBRARIES`          | Delimited by `:` compiler searches in these paths for libs               |
-| `HELIX_PATH`               | Path to the Helix Root dir `helix/`                                      |
+| `KAIRO_FLAGS`              | Additional flags to pass into the kairo compiler                         |
+| `KAIRO_IMPORTS`            | Delimited by `:` compiler searches in these paths for imported files     |
+| `KAIRO_LIBRARIES`          | Delimited by `:` compiler searches in these paths for libs               |
+| `KAIRO_PATH`               | Path to the Kairo Root dir `kairo/`                                      |
 
 ## Parser
 Implement a **LALR(1)** parser to handle ambiguous grammars and improve error recovery.

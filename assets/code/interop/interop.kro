@@ -1,4 +1,4 @@
-// filename: peripherals.hlx
+// filename: peripherals.kro
 
 // Optional alias 'as peripherals': This allows you to import the header under a module name.
 // If no alias is provided, the class is imported into the global scope of this file. (like in C++)
@@ -7,7 +7,7 @@ ffi "c++" import "peripherals.hh"
 import libcxx::Ref
 import libcxx::String
 
-// Helix represents C++ references as 'libcxx::Ref<type>' as it doesn't support reference semantics.
+// Kairo represents C++ references as 'libcxx::Ref<type>' as it doesn't support reference semantics.
 fn <ConnectionType> Peripheral<ConnectionType>
   ::Peripheral(self, const name: Ref<String>) {
     self.m_name           = name
@@ -15,9 +15,9 @@ fn <ConnectionType> Peripheral<ConnectionType>
     self.m_connectionType = ConnectionType()
 }
 
-// The C++ 'std' namespace maps to 'libcxx' in Helix, enabling seamless integration with legacy or
+// The C++ 'std' namespace maps to 'libcxx' in Kairo, enabling seamless integration with legacy or
 // external C++ code. If you have the ability to adapting/modify the C++ code, it's recommended to
-// use the Helix standard library in the C++ code.
+// use the Kairo standard library in the C++ code.
 fn WirelessKeyboard
   ::WirelessKeyboard(self, const name: Ref<String>) {
     Peripheral<String>(name)

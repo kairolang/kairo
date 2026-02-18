@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   Part of the Helix Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
+///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
 ///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 
@@ -114,7 +114,7 @@ inline void handle_static_self_fn_decl(__AST_N::NodeT<__AST_NODE::FuncDecl> &fun
             error::Panic(error::CodeError{.pof = &pof, .err_code = 0.3004});
 
             func_decl->modifiers.add(__AST_N::FunctionSpecifier(
-                token::Token(__TOKEN_N::KEYWORD_STATIC, "helix_internal.file")));
+                token::Token(__TOKEN_N::KEYWORD_STATIC, "kairo_internal.file")));
         }
     } else if (has_self) {
         error::Panic(error::CodeError{.pof = &pof, .err_code = 0.3005});
@@ -144,7 +144,7 @@ inline void handle_static_self_fn_decl(__AST_NODE::FuncDecl&func_decl,
             error::Panic(error::CodeError{.pof = &pof, .err_code = 0.3004});
 
             func_decl.modifiers.add(__AST_N::FunctionSpecifier(
-                token::Token(__TOKEN_N::KEYWORD_STATIC, "helix_internal.file")));
+                token::Token(__TOKEN_N::KEYWORD_STATIC, "kairo_internal.file")));
         }
     } else if (has_self) {
         error::Panic(error::CodeError{.pof = &pof, .err_code = 0.3005});
@@ -705,7 +705,7 @@ struct OpType {
 inline void add_func_modifiers(__CXIR_CODEGEN_N::CXIR *self, __AST_N::Modifiers modifiers) {
     /*
 
-    helix          | c++ (eq)
+    kairo          | c++ (eq)
     -------------- | --------
     const          | const
     let eval       | constinit

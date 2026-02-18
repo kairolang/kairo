@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """r
-To execute this script with HELIX_BIN_PATH set dynamically, run:
+To execute this script with KAIRO_BIN_PATH set dynamically, run:
   
 """
 import os
@@ -26,7 +26,7 @@ EMOJI_SEPARATOR = "🔹"
 NEW_LINE_CHAR = '\n'
 
 # Initialize logging
-logger = logging.getLogger("helix_tester")
+logger = logging.getLogger("kairo_tester")
 
 def setup_logging(enable_logging):
     """Set up the logger with console output."""
@@ -39,17 +39,17 @@ def setup_logging(enable_logging):
     logger.info("Logging enabled")
 
 def validate_folder(folder_path):
-    """Validate that the folder exists and contains .hlx files."""
+    """Validate that the folder exists and contains .kro files."""
     logger.debug(f"Validating folder: {folder_path}")
     if not os.path.isdir(folder_path):
         logger.error(f"Provided path '{folder_path}' is not a directory.")
         raise ValueError(f"The provided path '{folder_path}' is not a valid directory.")
-    hlx_files = [f for f in os.listdir(folder_path) if f.endswith('.hlx')]
-    if not hlx_files:
-        logger.error(f"No .hlx files found in the directory '{folder_path}'.")
-        raise ValueError(f"No .hlx files found in the directory '{folder_path}'.")
-    logger.debug(f"Found .hlx files: {hlx_files}")
-    return hlx_files
+    kro_files = [f for f in os.listdir(folder_path) if f.endswith('.kro')]
+    if not kro_files:
+        logger.error(f"No .kro files found in the directory '{folder_path}'.")
+        raise ValueError(f"No .kro files found in the directory '{folder_path}'.")
+    logger.debug(f"Found .kro files: {kro_files}")
+    return kro_files
 
 def parse_expected_output(file_path):
     """Extract the expected output or error expectations from the file."""
@@ -83,7 +83,7 @@ def parse_expected_output(file_path):
         return [], False
 
 def compile_and_execute(compiler_path, file_path, output_path):
-    """Compile and execute the .hlx file."""
+    """Compile and execute the .kro file."""
     logger.debug(f"Compiling file: {file_path}")
     try:
         # Compile the file
@@ -208,7 +208,7 @@ def pretty_print_results(results):
 
 def main():
     if len(sys.argv) < 3 or len(sys.argv) > 4:
-        print("Usage: python test_helix.py <helix-compiler-path> <folder-with-hlx-files> [--log]")
+        print("Usage: python test_kairo.py <kairo-compiler-path> <folder-with-kro-files> [--log]")
         sys.exit(1)
     
     compiler_path = sys.argv[1]
@@ -223,7 +223,7 @@ def main():
         sys.exit(1)
 
     try:
-        hlx_files = validate_folder(folder_path)
+        kro_files = validate_folder(folder_path)
     except ValueError as e:
         logger.error(e)
         print(e)
@@ -233,14 +233,14 @@ def main():
     
     if USE_THREADING:
         with ThreadPoolExecutor() as executor:
-            futures = {executor.submit(run_test, compiler_path, folder_path, file): file for file in hlx_files}
-            with tqdm(total=len(hlx_files), desc="Processing Tests", unit="file") as pbar:
+            futures = {executor.submit(run_test, compiler_path, folder_path, file): file for file in kro_files}
+            with tqdm(total=len(kro_files), desc="Processing Tests", unit="file") as pbar:
                 for future in as_completed(futures):
                     results.append(future.result())
                     pbar.update(1)
     else:
-        with tqdm(total=len(hlx_files), desc="Running Tests", unit="f") as pbar:
-            for file in hlx_files:
+        with tqdm(total=len(kro_files), desc="Running Tests", unit="f") as pbar:
+            for file in kro_files:
                 results.append(run_test(compiler_path, folder_path, file))
                 pbar.update(1)
 

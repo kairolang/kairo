@@ -1,6 +1,6 @@
-///--- The Helix Project ------------------------------------------------------------------------///
+///--- The Kairo Project ------------------------------------------------------------------------///
 ///                                                                                              ///
-///   part of the helix project, under the attribution 4.0 international license (cc by 4.0).    ///
+///   part of the kairo project, under the attribution 4.0 international license (cc by 4.0).    ///
 ///   you are allowed to use, modify, redistribute, and create derivative works, even for        ///
 ///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
 ///   were made.                                                                                 ///
@@ -9,7 +9,7 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   spdx-license-identifier: cc-by-4.0                                                         ///
-///   copyright (c) 2024 the helix project (cc by 4.0)                                           ///
+///   copyright (c) 2024 the kairo project (cc by 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
 

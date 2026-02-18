@@ -1,9 +1,9 @@
-## Helix Security Policy
+## Kairo Security Policy
 
 ---
 
 ## Table of Contents
-- [Helix Security Policy](#helix-security-policy)
+- [Kairo Security Policy](#kairo-security-policy)
 - [Table of Contents](#table-of-contents)
   - [Supported Versions](#supported-versions)
     - [Version Numbering](#version-numbering)
@@ -19,16 +19,16 @@
 
 ### Supported Versions
 
-Helix supports and provides security updates for the following versions:
+Kairo supports and provides security updates for the following versions:
 
-- **Latest Version:** The most recent stable release of Helix.
+- **Latest Version:** The most recent stable release of Kairo.
 - **Previous Version:** The release immediately preceding the latest version.
 
 Security updates for older versions may be provided on a case-by-case basis, depending on the severity of the issue and the feasibility of applying a fix to the older codebase.
 
 #### Version Numbering
 
-Helix compiler uses [semantic versioning](https://semver.org/) for its releases. The version number is formatted as `MAJOR.MINOR.PATCH`, where:
+Kairo compiler uses [semantic versioning](https://semver.org/) for its releases. The version number is formatted as `MAJOR.MINOR.PATCH`, where:
 
 - **MAJOR:** Incremented for incompatible API changes.
 - **MINOR:** Incremented for new features that are backward-compatible.
@@ -38,13 +38,13 @@ We recommend always using the latest stable release to ensure you have the lates
 
 ### Reporting a Vulnerability
 
-At Helix, we take security issues seriously. If you discover a security vulnerability, we appreciate your efforts to responsibly disclose the details to us. Please follow the guidelines below to ensure a smooth and secure disclosure process.
+At Kairo, we take security issues seriously. If you discover a security vulnerability, we appreciate your efforts to responsibly disclose the details to us. Please follow the guidelines below to ensure a smooth and secure disclosure process.
 
 #### Contact Information
 
 Please report security vulnerabilities to our dedicated security team at:
 
-- **Email:** [security@helix-lang.com](mailto:security@helix-lang.com)
+- **Email:** [security@kairo-lang.com](mailto:security@kairo-lang.com)
 
 #### Guidelines for Reporting
 
@@ -105,10 +105,10 @@ While we strive to maintain the highest security standards, we also encourage ou
 
 ### Acknowledgements
 
-We thank all security researchers and community members who help us maintain the security and integrity of Helix. Your efforts are invaluable in keeping our project safe and secure.
+We thank all security researchers and community members who help us maintain the security and integrity of Kairo. Your efforts are invaluable in keeping our project safe and secure.
 
 ---
 
-Thank you for helping us improve the security of Helix. Your responsible disclosure and collaboration are greatly appreciated.
+Thank you for helping us improve the security of Kairo. Your responsible disclosure and collaboration are greatly appreciated.
 
-For any further questions or concerns regarding our security policy, please contact us at [security@helix-lang.com](mailto:security@helix-lang.com).
+For any further questions or concerns regarding our security policy, please contact us at [security@kairo-lang.com](mailto:security@kairo-lang.com).
