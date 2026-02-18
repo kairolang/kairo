@@ -1,7 +1,7 @@
 [project]
 name    = "Kairo"
 version = "kairo-0.0.1+rc.20260220"
-author  = "Dhruvan Kartik"
+author  = "Dhruvan, Ojas and Arnav"
 license = "CC-BY-4.0"
 
 [workspace]
@@ -15,7 +15,7 @@ mode     = "release"
 name     = "kairo"
 entry    = "toolchain/Driver/main/kairo.kro"
 type     = "binary"
-includes = [".", "toolchain", "build/release/x86_64-linux-gnu/core/"]
+includes = [".", "toolchain", "lib-helix/core"]
 links    = []
 libs     = []
 deps     = []
