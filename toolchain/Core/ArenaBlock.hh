@@ -5,7 +5,7 @@
 #include "GlobalRecycler.hh"
 #include "Types.hh"
 
-namespace helix {
+namespace kairo {
 struct alignas(64) ArenaBlock {
     std::Byte  *ptr;
     size_t      offset;
@@ -106,4 +106,4 @@ struct alignas(64) ArenaBlock {
         }
     }
 };
-}  // namespace helix
+}  // namespace kairo
