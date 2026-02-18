@@ -1,9 +1,3 @@
-[submodule "libs/llvm-18.1.9-src"]
-	path = libs/llvm-18.1.9-src
-	url = https://github.com/helixlang/llvm-project
-[submodule "libs/PEGTL"]
-	path = libs/PEGTL
-	url = https://github.com/taocpp/PEGTL
 [submodule "lib-helix"]
 	path = lib-helix
 	url = https://github.com/helixlang/lib-helix
