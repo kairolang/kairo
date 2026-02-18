@@ -1,0 +1,270 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+ffi "c++" import "Core/Types.hh";
+
+///
+/// \file Core/MMapRegion.kro
+/// \brief cross-platform RAII wrapper around memory-mapped file regions.
+///
+/// \details
+/// `MMapRegion` abstracts OS-specific file mapping APIs (`mmap` on POSIX,
+/// `CreateFileMappingW` on Windows) into a consistent interface for read-only
+/// file access without copying data into user space.
+///
+/// the class ensures cleanup through RAII; automatically unmapping memory
+/// when destroyed. it supports direct pointer access to mapped data and
+/// optional subregion attachment.
+///
+/// design goals:
+///   - zero-copy read access to large files.
+///   - deterministic cleanup on scope exit.
+///   - minimal abstraction overhead.
+///   - uniform semantics across platforms.
+///
+/// \note
+/// - always maps in **read-only** mode.
+/// - not thread-safe; external synchronization required.
+/// - includes an implicit null terminator for safety with string-like data.
+///
+/// \see MappedFileBuffer, VirtualFileManager, MemoryBuffer
+///
+
+///
+/// \class MMapRegion
+/// \brief lightweight managed interface for memory-mapped regions.
+///
+/// manages the lifecycle of an OS-level memory mapping, exposing basic
+/// operations like open, close, and attach. primarily used internally by
+/// `MappedFileBuffer` and the virtual filesystem.
+///
+class MMapRegion {
+    pub var _data: *u8    = &null;  ///< pointer to mapped region.
+    pub var _size:  usize = 0;      ///< mapped region size (in bytes).
+    pub var _valid: bool  = false;  ///< indicates mapping success.
+    pub var _owns:  bool  = true;        ///< true if region owns the mapping.
+
+    ///
+    /// \brief default constructor.
+    ///
+    default fn MMapRegion(self);
+
+    fn MMapRegion(self, data: *u8, size: usize, valid: bool) {
+        self._data  = data;
+        self._size  = size;
+        self._valid = valid;
+    }
+
+    ///
+    /// \brief destructor; automatically unmaps region if valid.
+    ///
+    fn op delete (self) {
+        self.close();
+    }
+
+    ///
+    /// \brief opens and memory-maps a file by path.
+    ///
+    /// \param path pointer to string containing the path.
+    /// \return true if successfully mapped, false otherwise.
+    ///
+    /// \details
+    /// - on windows, uses `CreateFileW` and `MapViewOfFile`.
+    /// - on posix, uses `open` + `mmap`.
+    /// - stores mapping pointer and size for later access.
+    /// - closes handles/descriptors after mapping.
+    ///
+    /// \warning
+    /// - only supports read-only access.
+    /// - must not be called on an already-open region (use `close()` first).
+    ///
+    fn open(self, path: *string) -> bool {
+        if path == &null { return false; }
+        self.close();
+
+        const eval if defined(_WIN32) {
+            var hFile: HANDLE = CreateFileW(
+                path->raw_string().c_str(),
+                GENERIC_READ,
+                FILE_SHARE_READ,
+                &null,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                &null
+            );
+
+            if hFile == INVALID_HANDLE_VALUE {
+                return false;
+            }
+
+            var fsize: LARGE_INTEGER;
+            if GetFileSizeEx(hFile, &fsize) == 0 {
+                CloseHandle(hFile);
+                return false;
+            }
+
+            if (((fsize.QuadPart)) as u64) > __inline_cpp("__NumData<usize>::max") {
+                CloseHandle(hFile);
+                return false;
+            }
+
+            if (fsize.QuadPart) == 0 {
+                CloseHandle(hFile);
+                self._region = MMapRegion(&null, 0);
+                return true;
+            }
+
+            var hMap: HANDLE = CreateFileMappingW(
+                hFile,
+                &null,
+                PAGE_READONLY,
+                0,
+                0,
+                &null
+            );
+
+            if hMap == &null {
+                CloseHandle(hFile); return false;
+            }
+
+            var mapping: *u8 = MapViewOfFile(
+                hMap,
+                FILE_MAP_READ,
+                0,
+                0,
+                0
+            ) as unsafe *u8;
+
+            CloseHandle(hMap);
+            CloseHandle(hFile);
+
+            if mapping == &null {
+                return false;
+            }
+
+            self._data = mapping;
+            self._size = (fsize.QuadPart) as usize;
+            self._valid = true;
+        } else {
+            var nstring = std::string_to_nstring(*path);
+            var fd: i32 = __inline_cpp("::open(nstring.raw(), O_RDONLY)");
+            if fd < 0 { return false; }
+
+            __inline_cpp("struct stat st{}");
+
+            if fstat(fd, &st) != 0 {
+                __inline_cpp("::close(fd)");
+                return false;
+            }
+
+            if st.st_size == 0 {
+                __inline_cpp("::close(fd)");
+                self._data = &null; self._size = 0; _valid = true; return true;
+            }
+
+            var mapping: *u8 = mmap(
+                &null,
+                (st.st_size) as usize,
+                PROT_READ,
+                MAP_PRIVATE,
+                fd,
+                0
+            ) as unsafe *u8;
+
+            __inline_cpp("::close(fd)");
+
+            if mapping == MAP_FAILED as unsafe *u8 {
+                return false;
+            }
+
+            self._data = mapping;
+            self._size = (st.st_size) as usize;
+            _valid = true;
+        }
+
+        return true;
+    }
+
+    ///
+    /// \brief unmaps region and resets internal state.
+    ///
+    /// \details
+    /// - no-op if invalid or already unmapped.
+    /// - safe to call multiple times.
+    ///
+    fn close(self) {
+        if (!_valid) || (self._data == &null) || (!self._owns) {
+            return;
+        }
+
+        const eval if defined(_WIN32) {
+            UnmapViewOfFile(self._data);
+        } else {
+            munmap(self._data, self._size);
+        }
+
+        self._data  = &null;
+        self._size  = 0;
+        self._valid = false;
+    }
+
+    ///
+    /// \brief returns pointer to mapped data.
+    ///
+    const fn data(self) -> *u8 {
+        return self._data;
+    }
+
+    ///
+    /// \brief returns size of mapped region (in bytes).
+    ///
+    const fn size(self) -> usize {
+        return self._size;
+    }
+
+    ///
+    /// \brief checks whether the mapping is valid.
+    ///
+    const fn is_valid(self) -> bool {
+        return self._valid;
+    }
+
+    ///
+    /// \brief attaches this region to a subregion of another mapping.
+    ///
+    /// \param parent pointer to valid parent mapping.
+    /// \param offset byte offset into parent region.
+    /// \param length desired subrange length.
+    ///
+    /// \details
+    /// - creates a lightweight view without allocating or remapping.
+    /// - clamps length if it exceeds parent size.
+    /// - if parent invalid or null, marks self invalid.
+    ///
+    fn attach(self, parent: *MMapRegion, offset: usize, length: usize) {
+        if (parent == &null) || (!parent->_valid) {
+            self._valid = false; return;
+        }
+
+        if (offset + length) > (parent->_size) {
+            length = (parent->_size) - (offset);
+        }
+
+        _size = length;
+
+        self._data  = parent->_data + offset;
+        self._valid = true;
+    }
+}

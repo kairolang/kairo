@@ -1,10 +1,10 @@
 # this file does 2 really simple things:
-# 1. finds driver/helix.hlx and compiles it with all the flags
-# 2. finds all the .hlx files and updates the compile_commands.json file
+# 1. finds driver/kairo.kro and compiles it with all the flags
+# 2. finds all the .kro files and updates the compile_commands.json file
 # the command used to compile is: build/release/arm64-llvm-macosx/bin/
 
-# to make an alias to helix use:
-# New-Alias -Name helix -Value .\build\release\x64-msvc-windows\bin\helix.exe
+# to make an alias to kairo use:
+# New-Alias -Name kairo -Value .\build\release\x64-msvc-windows\bin\kairo.exe
 
 import os
 from pathlib import Path
@@ -27,7 +27,7 @@ logging.basicConfig(
     format="%(message)s",
     handlers=[RichHandler(rich_tracebacks=True)]
 )
-log = logging.getLogger("helix-builder")
+log = logging.getLogger("kairo-builder")
 
 arch = platform.machine()
 system = platform.system().lower()
@@ -55,20 +55,20 @@ target_triple = f"{arch}-{system}-{abi}"
 
 MSVC_FLAGS = [
     "cl.exe", "/nologo", "/std:c++latest", "/MT", "/w",
-    "/Isource", "/Ilib-helix\\core\\include", "/Ilib-helix\\core", "/Ilibs",
+    "/Isource", "/Ilib-kairo\\core\\include", "/Ilib-kairo\\core", "/Ilibs",
     "/EHsc", "/DNDEBUG"
 ]
 
 CLANG_FLAGS = [
     "clang++", "-std=c++23", "-O3", "-w",
-    "-Isource", "-Ilib-helix/core/include", "-Ilib-helix/core", "-Ilibs",
+    "-Isource", "-Ilib-kairo/core/include", "-Ilib-kairo/core", "-Ilibs",
     "-DNDEBUG"
 ]
 
 ALL_CPP_EXTS = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp"}
 
-# helix can be run using $$ helix <args>
-COMPILER_PATH = "helix"
+# kairo can be run using $$ kairo <args>
+COMPILER_PATH = "kairo"
 
 class Builder:
     builders: list["Builder"] = []
@@ -211,28 +211,28 @@ class Builder:
 
 # ---------------------------------- START OF COMPILER COMMANDS ---------------------------------- #
 
-# the helix compiler
-Builder("toolchain/Driver/Main/HBuild.hlx", "helix")                             \
+# the kairo compiler
+Builder("toolchain/Driver/Main/HBuild.kro", "kairo")                             \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
 
-# the helix code formatter
-Builder("toolchain/Driver/Main/Helix.hlx", "helix-fmt")                           \
+# the kairo code formatter
+Builder("toolchain/Driver/Main/Kairo.kro", "kairo-fmt")                           \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
-# the helix ide client for lsp support
-Builder("toolchain/Driver/Main/HFmt.hlx", "helix-analyzer")                 \
+# the kairo ide client for lsp support
+Builder("toolchain/Driver/Main/HFmt.kro", "kairo-analyzer")                 \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
-# the helix linker
-Builder("toolchain/Driver/Main/HLd.hlx", "helix-ld")                             \
+# the kairo linker
+Builder("toolchain/Driver/Main/HLd.kro", "kairo-ld")                             \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
     
-# the helix package manager
-Builder("toolchain/Driver/Main/HLS.hlx", "vial")                               \
+# the kairo package manager
+Builder("toolchain/Driver/Main/HLS.kro", "vial")                               \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "toolchain")                                  \
 
@@ -261,13 +261,13 @@ def update_compile_commands():
                 "arguments": args + [str(rel)],
                 "file": str(rel)
             })
-        elif path.suffix.lower() == ".hlx":
+        elif path.suffix.lower() == ".kro":
             all_hlx.append(path)
 
     builder_files_set = {b.file for b in Builder.builders}
     appended_files = [f for f in all_hlx if f not in builder_files_set]
 
-    # Add hlx files
+    # Add kro files
     for file in appended_files:
         new_compile_commands.append({
             "directory": cwd_str,
@@ -374,7 +374,7 @@ def test(test_path: Path, performance: bool = False):
 
 def extract_cpp_from_ir(file: str, line_range: str):
     """
-    Calls Helix to emit IR, strips boilerplate and colors, isolates the emitted C++
+    Calls Kairo to emit IR, strips boilerplate and colors, isolates the emitted C++
     for a given file and line range, then runs clang-format.
     """
     builder0 = Builder.builders[0]
@@ -384,16 +384,16 @@ def extract_cpp_from_ir(file: str, line_range: str):
     for inc in builder0.includes:
         cmd.append(f"-I{inc}")
 
-    log.info(f"Running Helix IR emission for {file}")
+    log.info(f"Running Kairo IR emission for {file}")
     result = subprocess.run(cmd, capture_output=True, text=True)
     output = result.stdout
 
     if not output.strip():
-        log.error("No output received from Helix compiler.")
+        log.error("No output received from Kairo compiler.")
         return
 
     # --- Step 1: Trim header preamble ---
-    hdr_pat = re.compile(r"#define __HELIX_CORE_CXX__.*?#endif", re.DOTALL)
+    hdr_pat = re.compile(r"#define __KAIRO_CORE_CXX__.*?#endif", re.DOTALL)
     m = hdr_pat.search(output)
     if m:
         output = output[m.end():]
@@ -440,7 +440,7 @@ def extract_cpp_from_ir(file: str, line_range: str):
 
             # If the #line belongs to this file macro, reset line base
             if len(parts) == 3 and parts[2] == current_macro:
-                # Helix emits 2 separate "#line 1" blocks for same file.
+                # Kairo emits 2 separate "#line 1" blocks for same file.
                 # The second one (after the #define guards) is actual code.
                 if in_guard_section:
                     # second #line 1 for same file: start fresh (real code)
@@ -536,7 +536,7 @@ def main():
     performance_test = False
     if len(sys.argv) >= 3 and "test" in sys.argv:
         for arg in sys.argv:
-            if arg.endswith(".hlx"):
+            if arg.endswith(".kro"):
                 if test_file is not None:
                     log.error("Only one test file can be specified at a time.")
                     return

@@ -1,0 +1,64 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+/// \brief incremental hexadecimal digit parser
+/// \details used for escape sequence decoding (\x, \u, \U)
+class HexParser {
+    var value:  usize = 0;
+    var digits: usize = 0;
+
+    /// lookup table for hex digit to value conversion
+    /// 0xFF indicates invalid digit
+    __inline_cpp("static constexpr array<u8, 256> hex_lut = [] {
+        array<u8, 256> lut;
+        lut.fill(0xFF);
+
+        for (u8 i{}; i <= 9; ++i) lut[static_cast<u8>(U'0') + i] = i;
+        for (u8 i{}; i <= 5; ++i) {
+            lut[static_cast<u8>(U'A') + i] = 10 + i;
+            lut[static_cast<u8>(U'a') + i] = 10 + i;
+        }
+
+        return lut;
+    }()");
+
+    /// \brief appends a hex digit
+    /// \param c hex digit character
+    /// \requires is_digit(c) == true
+    inline eval fn push_back(self, c: char32) {
+        const v: u8 = hex_lut[static_cast::<u8>(c) & 0xFF];
+        self.value = (self.value << 4) | static_cast::<usize>(v);
+        ++(self.digits);
+    }
+
+    /// \brief checks whether character is a valid hex digit
+    /// \param c input character
+    /// \returns true if valid hex digit
+    inline eval fn is_digit(self, c: char32) -> bool {
+        return hex_lut[static_cast::<u8>(c) & 0xFF] != 0xFF;
+    }
+
+    /// \brief returns accumulated numeric value
+    /// \returns parsed value
+    inline eval fn get_value(self) -> usize {
+        return self.value;
+    }
+
+    /// \brief returns number of digits consumed
+    /// \returns digit count
+    inline eval fn get_digits(self) -> usize {
+        return self.digits;
+    }
+}

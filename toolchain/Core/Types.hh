@@ -1,6 +1,6 @@
-///--- The Helix Project ----------------------------------------------------///
+///--- The Kairo Project ----------------------------------------------------///
 ///                                                                          ///
-///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
 ///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
 ///   and create derivative works, even for commercial purposes, provided    ///
 ///   that you give appropriate credit, and indicate if changes were made.   ///
@@ -9,28 +9,28 @@
 ///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
 ///                                                                          ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                     ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
 ///                                                                          ///
-///------------------------------------------------------------ HELIX -------///
+///------------------------------------------------------------ KAIRO -------///
 
-#ifndef __HELIX_TOOLCHAIN_CORE_TYPES_HH__
-#define __HELIX_TOOLCHAIN_CORE_TYPES_HH__
+#ifndef __KAIRO_TOOLCHAIN_CORE_TYPES_HH__
+#define __KAIRO_TOOLCHAIN_CORE_TYPES_HH__
 
 ///
 /// \file Core/Types.hh
-/// \brief Common type and function aliases for Helix core and standard
+/// \brief Common type and function aliases for Kairo core and standard
 /// interoperability.
 ///
 /// \details
 /// This header provides unified type aliases and helper functions for
 /// threading, synchronization, and memory management primitives used across the
-/// Helix toolchain. It re-exports key C++ standard library types and functions
+/// Kairo toolchain. It re-exports key C++ standard library types and functions
 /// through the `libcxx` namespace, ensuring consistent usage of atomic
 /// operations, smart pointers, and concurrency constructs throughout the
 /// project.
 ///
 /// The intent is to:
-///   - Reduce namespace verbosity across the Helix codebase.
+///   - Reduce namespace verbosity across the Kairo codebase.
 ///   - Provide a centralized alias layer for dependency control.
 ///   - Simplify future migration to custom runtime or allocator
 ///   implementations.
@@ -42,10 +42,10 @@
 ///   - **Synchronization constructs** (locks, promises, futures)
 ///
 /// \note
-/// Part of the Helix Project under the Attribution 4.0 International License
+/// Part of the Kairo Project under the Attribution 4.0 International License
 /// (CC BY 4.0). Redistribution and modification are permitted with attribution.
 ///
-/// \see libcxx, helix::std, helix::ThreadPool
+/// \see libcxx, kairo::std, kairo::ThreadPool
 ///
 
 #include <include/core.hh>
@@ -80,7 +80,7 @@
 #   define _simd_available() 0
 #endif
 
-namespace helix::std {
+namespace kairo::std {
 ///
 /// \brief Byte type alias for low-level memory operations.
 /// \see libcxx::byte
@@ -109,7 +109,7 @@ using MemoryOrder = libcxx::memory_order;
 ///
 /// \detail
 /// Represents a single thread of execution, mirroring `std::thread`
-/// semantics via the Helix `libcxx` backend.
+/// semantics via the Kairo `libcxx` backend.
 ///
 /// \see libcxx::thread
 ///
@@ -204,7 +204,7 @@ using WeakPtr = libcxx::weak_ptr<T>;
 ///
 /// \detail
 /// Wrapper around `libcxx::make_shared`, ensuring consistency within
-/// Helix's type system and avoiding direct dependency on `std`.
+/// Kairo's type system and avoiding direct dependency on `std`.
 ///
 template <typename T, typename... Args>
 constexpr SharedPtr<T> create_shared(Args &&...args) {
@@ -490,6 +490,6 @@ using Nullable = Expected<T, std::null_t>;
 /// cross-platform primitives.
 ///
 
-}  // namespace helix::std
+}  // namespace kairo::std
 
-#endif  // __HELIX_TOOLCHAIN_CORE_TYPES_HH__
+#endif  // __KAIRO_TOOLCHAIN_CORE_TYPES_HH__

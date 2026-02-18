@@ -2,9 +2,9 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "build-helix-current",
+      "label": "build-kairo-current",
       "type": "shell",
-      "command": "helix",
+      "command": "kairo",
       "args": [
         "${file}",
         "--debug",

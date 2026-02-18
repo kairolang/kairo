@@ -1,7 +1,7 @@
 # Kairo Programming Language (formerly Helix)
 
 <div align="center">
-  <img src="assets/helix-logo.svg" alt="Kairo Programming Language Logo" width="60%">
+  <img src="assets/kairo-logo.svg" alt="Kairo Programming Language Logo" width="60%">
 </div>
 
 ---
@@ -9,7 +9,7 @@
 Kairo is a **statically typed  programming language**, built for systems programming and high-performance applications. Designed with interoperability in mind. Kairo aims to combine the power and control of low-level languages with the safety and clarity of high-level design.
 
 > [!NOTE]
-> Kairo is not associated with the [Kairo-Editor](https://github.com/helix-editor/helix), we are in the process or rebranding, by Q1 2026 Kairo-lang will be under a new name!
+> Kairo is not associated with the [Kairo-Editor](https://github.com/kairo-editor/kairo), we are in the process or rebranding, by Q1 2026 Kairo-lang will be under a new name!
 
 ### The goals of Kairo:
 
@@ -21,11 +21,11 @@ Kairo is a **statically typed  programming language**, built for systems program
 - An alternative to C, C++, and Rust or work alongside them.
 
 ### Current Status:
-The **Stage 0 compiler** (written in C++) is functional and can compile Kairo, you can downlaod it from the [release page](https://github.com/helixlang/helix-lang/releases), currently very unstable, and riddled with bugs. Development of the **Stage 1 compiler**, written in Kairo itself, is in progress.
+The **Stage 0 compiler** (written in C++) is functional and can compile Kairo, you can downlaod it from the [release page](https://github.com/kairolang/kairo-lang/releases), currently very unstable, and riddled with bugs. Development of the **Stage 1 compiler**, written in Kairo itself, is in progress.
 > [!WARNING]
 >  Documentation is a work in progress, it doesn't refelct what Stage 0 can compile or do; since most of the code emaples are for stage 1's syntax - and yes, the discriptions are mostly written using AI (LLMs). We will be redoing it incrementally, until stage 1 is stable; We would appreciate any contributions, feedback, or suggestions you may have!
-> 
-> You can find the source on [GitHub](https://github.com/helixlang/helix-site), and the website is at [helix-lang.com](https://www.helix-lang.com). In the meantime if you'd want some reference of helix code that compiles on stage 0 take a look [here](https://github.com/helixlang/helix-lang/tree/canary/helix-0.1.1%2Bbc.251007/toolchain)
+>
+> You can find the source on [GitHub](https://github.com/kairolang/kairo-site), and the website is at [helix-lang.com](https://www.helix-lang.com). In the meantime if you'd want some reference of kairo code that compiles on stage 0 take a look [here](https://github.com/kairolang/kairo-lang/tree/canary/kairo-0.1.1%2Bbc.251007/toolchain)
 
 ### Why Kairo?
 
@@ -49,16 +49,16 @@ The **Stage 0 compiler** (written in C++) is functional and can compile Kairo, y
 Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh syntax and features, without abandoning decades of code.
 
 ### Getting Started:
-To get started with Kairo, please refer to the [Installation Guide](https://www.helix-lang.com/install/) for code refrence (since the docs are inconsistent/incomplete) take a look [here](https://github.com/helixlang/helix-lang/tree/canary/helix-0.1.1%2Bbc.251007/toolchain).
+To get started with Kairo, please refer to the [Installation Guide](https://www.helix-lang.com/install/) for code refrence (since the docs are inconsistent/incomplete) take a look [here](https://github.com/kairolang/kairo-lang/tree/canary/kairo-0.1.1%2Bbc.251007/toolchain).
 
 ### License:
-Kairo is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/helixlang/helix-lang/blob/main/license) for more details.
+Kairo is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/kairolang/kairo-lang/blob/main/license) for more details.
 
 ### Acknowledgements:
 We want to thank all our contributors pushing Kairo forward.
 
 <div align="center">
-  <a href="https://github.com/helixlang/helix-lang/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=helixlang/helix-lang">
+  <a href="https://github.com/kairolang/kairo-lang/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=kairolang/kairo-lang">
 </a>
 </div>

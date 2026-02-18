@@ -1,6 +1,6 @@
-///--- The Helix Project ----------------------------------------------------///
+///--- The Kairo Project ----------------------------------------------------///
 ///                                                                          ///
-///   Part of the Helix Project, under the Attribution 4.0 International     ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
 ///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
 ///   and create derivative works, even for commercial purposes, provided    ///
 ///   that you give appropriate credit, and indicate if changes were made.   ///
@@ -9,19 +9,19 @@
 ///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
 ///                                                                          ///
 ///   SPDX-License-Identifier: CC-BY-4.0                                     ///
-///   Copyright (c) 2024 The Helix Project (CC BY 4.0)                       ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
 ///                                                                          ///
-///------------------------------------------------------------ HELIX -------///
+///------------------------------------------------------------ KAIRO -------///
 
-#ifndef __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
-#define __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
+#ifndef __KAIRO_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
+#define __KAIRO_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
 
 ///
 /// \file Core/SmallFunction.hh
 /// \brief Inline small callable wrapper with zero dynamic allocations.
 ///
 /// \details
-/// This header defines `helix::SmallFunction`, a lightweight, type-erased
+/// This header defines `kairo::SmallFunction`, a lightweight, type-erased
 /// callable container designed to store and invoke small function objects
 /// without heap allocation. It provides deterministic performance, no heap
 /// fragmentation, and lock-free invocation semantics.
@@ -39,7 +39,7 @@
 /// \note The file also defines `_thread_pause()` across architectures for
 /// low-latency busy-waiting.
 ///
-/// \see helix::ThreadPool, std::function
+/// \see kairo::ThreadPool, std::function
 ///
 
 #include <include/core.hh>
@@ -59,7 +59,7 @@
 #include <thread>
 #endif
 
-namespace helix {
+namespace kairo {
 ///
 /// \class SmallFunction
 /// \brief Fixed-capacity callable wrapper for small, move-only lambdas.
@@ -97,7 +97,7 @@ namespace helix {
 ///
 /// \example
 /// ```cpp
-/// helix::SmallFunction<> f = [] { printf("Hello"); };
+/// kairo::SmallFunction<> f = [] { printf("Hello"); };
 /// f(); // prints "Hello"
 /// ```
 ///
@@ -295,6 +295,6 @@ class SmallFunction {
         other._destroy = nullptr;
     }
 };
-}  // namespace helix
+}  // namespace kairo
 
-#endif  // __HELIX_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
+#endif  // __KAIRO_TOOLCHAIN_CORE_SMALLFUNCTION_HH__

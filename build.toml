@@ -8,14 +8,14 @@ license = "CC-BY-4.0"
 skip_dirs = ["build", "libs", "private"]
 
 [build]
-compiler = "build/release/x86_64-linux-gnu/bin/helix"
+compiler = "kairo"
 mode     = "release"
 
 [[target]]
 name     = "kairo"
-entry    = "toolchain/Driver/main/kairo.hlx"
+entry    = "toolchain/Driver/main/kairo.kro"
 type     = "binary"
-includes = [".", "toolchain"]
+includes = [".", "toolchain", "build/release/x86_64-linux-gnu/core/"]
 links    = []
 libs     = []
 deps     = []
@@ -26,30 +26,30 @@ cxx_passthrough = []
 
 [[target]]
 name     = "kbld"
-entry    = "toolchain/Driver/main/kbld.hlx"
+entry    = "toolchain/Driver/main/kbld.kro"
 type     = "binary"
 includes = [".", "toolchain"]
 
 [[target]]
 name     = "kfmt"
-entry    = "toolchain/Driver/main/kfmt.hlx"
+entry    = "toolchain/Driver/main/kfmt.kro"
 type     = "binary"
 includes = [".", "toolchain"]
 
 [[target]]
 name     = "kld"
-entry    = "toolchain/Driver/main/kld.hlx"
+entry    = "toolchain/Driver/main/kld.kro"
 type     = "binary"
 includes = [".", "toolchain"]
 
 [[target]]
 name     = "klsp"
-entry    = "toolchain/Driver/main/klsp.hlx"
+entry    = "toolchain/Driver/main/klsp.kro"
 type     = "binary"
 includes = [".", "toolchain"]
 
 [[target]]
 name     = "kpkg"
-entry    = "toolchain/Driver/main/kpkg.hlx"
+entry    = "toolchain/Driver/main/kpkg.kro"
 type     = "binary"
 includes = [".", "toolchain"]

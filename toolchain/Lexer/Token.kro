@@ -1,0 +1,214 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Core::SourceRange::*;
+import Core::TokenKind::*;
+
+/// size = 16 bytes on 64-bit
+///      sizeof(kind)   = 32 bits
+///      sizeof(range)  = 64 bits </ (start: 32 bits, end: 32 bits)
+///      sizeof(imm)    = 32 bits
+///      alignof(Token) = 4 bytes
+///      total          = 16 bytes + 0 bytes padding
+///
+/// on 32-bit alignment is 4 bytes, total size is still 16 bytes
+struct Token { // size=16B, align=4
+    pub var range: SourceRange; ///< source location range
+    pub var kind:  TokenKind;   ///< token kind
+    pub var imm:   u32 = -1;    ///< immediate value index in ImmediateTable, or -1 if none
+
+    eval const fn op == (self, other: Token) -> bool {
+        return (self.kind == other.kind) && (self.range == other.range) && (self.imm == other.imm);
+    }
+
+    eval const fn op != (self, other: Token) -> bool {
+        return !(self == other);
+    }
+
+    eval const fn op == (self, other: TokenKind) -> bool {
+        return self.kind == other;
+    }
+
+    eval const fn op != (self, other: TokenKind) -> bool {
+        return self.kind != other;
+    }
+
+    eval fn op = (self, new: TokenKind) -> ref!(Token) {
+        self.kind = new;
+        return self;
+    }
+
+    eval fn op = (self, new: SourceRange) -> ref!(Token) {
+        self.range = new;
+        return self;
+    }
+
+    eval fn op = (self, new: u32) -> ref!(Token) {
+        self.imm = new;
+        return self;
+    }
+
+    eval const fn op as (self) -> string {
+        return f"Token(kind: '{token_kind_to_string(self.kind)}', kind[hash]: 0x{to_hex_string(static_cast::<u32>(self.kind))}, range: {self.range}, imm: 0x{to_hex_string((self.imm) as u64)})";
+    }
+} //Token end
+
+///
+/// \brief a class to keep track of immediate values for tokens
+///
+eval fn hash_kind_i8(tok: TokenKind) -> i8 {
+    return static_cast::<i8>(
+        (static_cast::<u32>(tok) >> 1) ^ static_cast::<u32>(tok)
+    );
+}
+
+
+// fn Test() -> i32 {
+//     /// we need to do the following:
+//     var pool: *ThreadPool;
+//     var vfm:  *VirtualFileManager;
+//     var sm:   *SourceManager;
+//     var path:  Path;
+//     var fid:   u32;
+
+//     finally {
+//         if sm != &null {
+//             delete sm;
+//             sm = &null;
+//         }
+
+//         if pool != &null {
+//             delete pool;
+//             pool = &null;
+//         }
+
+//         if vfm != &null {
+//             delete vfm;
+//             vfm = &null;
+//         }
+//     }
+
+//     pool = std::create::<ThreadPool>(4);
+//     vfm  = std::create::<VirtualFileManager>();
+//     sm   = std::create::<SourceManager>(pool, vfm);
+//     path = Path("test.kro");
+//     fid  = sm->load_file(path);
+
+//     var imm_table = ImmediateTable(sm);
+
+//     var run_test = fn (
+//         name:     string,
+//         start:    usize,
+//         len:      usize,
+//         expected: u64,
+//         base:     u8,
+//         unsigned: bool,
+//         bits:     u16
+//     ) {
+//         var range = sm->get_range(fid, start, len);
+
+//         std::print(f"Range: '{range}'\n");
+
+//         var idx      = imm_table.create_int(range);
+//         var int_data = imm_table.int_literals[idx];
+
+//         var got_bits     =  int_data.bits;
+//         var got_val      =  int_data.value_lo;
+//         var got_hi       =  int_data.value_hi;
+//         var got_unsigned = (int_data.flags & 0x1) != 0;
+//         var got_base     = (int_data.flags >> 2) & 0xF;
+
+//         var ok_hi   = got_hi       == 0;
+//         var ok_val  = got_val      == expected;
+//         var ok_bits = got_bits     == bits;
+//         var ok_base = got_base     == base;
+//         var ok_uns  = got_unsigned == unsigned;
+
+//         if !(ok_val && ok_hi && ok_bits && ok_base && ok_uns) {
+//             std::print(f"[FAIL] {name}: value_lo={got_val} expected={expected}, base={got_base}, bits={got_bits}, unsigned={got_unsigned}\n");
+//         } else {
+//             std::print(f"[PASS] {name}: value={got_val}, base={got_base}, bits={got_bits}, unsigned={got_unsigned}\n");
+//         }
+//     };
+
+//     // --- basic decimal ---
+//     run_test("decimal_plain",   0,   6,  128982,             10, false, 64);
+//     run_test("hex_lower",       7,   6,  0x1892,             16, false, 64);
+//     run_test("hex_upper",       14,  6,  0xFFAA,             16, false, 64);
+//     run_test("binary_basic",    21,  8,  0b110010,           2,  false, 64);
+//     run_test("binary_long",     30,  18, 0b1111000011110000, 2,  false, 64);
+//     run_test("octal_basic",     49,  6,  12582,              8,  false, 64);
+//     run_test("decimal_u8",      56,  6,  1828,               10, true,  8);
+//     run_test("decimal_U",       63,  5,  1282,               10, true,  64);
+//     run_test("decimal_i16",     69,  5,  99,                 10, false, 16);
+//     run_test("decimal_I128",    75,  6,  42,                 10, false, 128);
+//     run_test("underscored",     82,  9,  1000000,            10, false, 64);
+//     run_test("hex_underscored", 92,  11, 0xDEADBEEF,         16, false, 64);
+//     run_test("bin_underscored", 104, 21, 0b1010111100001111, 2,  false, 64);
+//     run_test("u64_max",         126, 23, static_cast::<u64>(18446744073709551615), 10, true,  64);
+//     run_test("i64_max",         150, 22, static_cast::<i64>(9223372036854775807),  10, false, 64);
+
+//     // --- overflow case (should trigger hi bits) ---
+//     var overflow_range = SourceRange::from_bounds(
+//         sm->get_loc(fid, 173),
+//         sm->get_loc(fid, 197)
+//     );
+    
+//     var idx  = imm_table.create_int(overflow_range);
+//     var over = imm_table.int_literals[idx];
+
+//     if over.value_hi == 0 {
+//         std::print("[WARN] overflow test did not generate hi bits, verify 256-bit path\n");
+//     } else {
+//         std::print("[PASS] overflow test generated hi bits as expected\n");
+//     }
+
+//     std::print("=== All integer literal tests passed ===\n");
+//     return 0;
+// }
+
+
+/*
+ROADMAP LEXER
+    class Token {
+    var value: string;
+    var kind: TokenKind;
+    var location: Location?;
+
+    enum RemapMode {
+        Location,
+        Value,
+        Kind,
+        KindAndValue,
+        LocationAndKind,
+        ValueAndLocation,
+        All,
+    }
+
+    fn Token(self, kind: TokenKind, value: string, location: Location?);
+
+    fn remap(self, token: &Token, mode: RemapMode) -> bool;
+    fn location(self) -> Location; // Error if location is null
+    fn value(self) -> string?;
+    fn serialize(self) -> map::<string, string>;
+
+    op == fn (self, other: Token) -> bool;
+    op != fn (self, other: Token) -> bool;
+    op == fn (self, other: TokenKind) -> bool;
+    op != fn (self, other: TokenKind) -> bool;
+    op == fn (self, other: string) -> bool;
+    op != fn (self, other: string) -> bool;
+}
+*/

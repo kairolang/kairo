@@ -2,10 +2,10 @@
   "version": "0.2.0",
   "configurations": [
     {
-        "name": "Run Helix File",
+        "name": "Run Kairo File",
         "request": "launch",
         "cwd": "${workspaceFolder}",
-        "preLaunchTask": "build-helix-current",
+        "preLaunchTask": "build-kairo-current",
         "console": "integratedTerminal",   // <—— important
         "stopAtEntry": false,
         

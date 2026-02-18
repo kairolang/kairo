@@ -4,7 +4,7 @@
 
 #include "Types.hh"
 
-namespace helix {
+namespace kairo {
 constexpr bool   PRE_TOUCH  = false;
 constexpr size_t SIMD_WIDTH = 64;
 
@@ -78,4 +78,4 @@ class GlobalRecycler {
         }
     }
 };
-}  // namespace helix
+}  // namespace kairo

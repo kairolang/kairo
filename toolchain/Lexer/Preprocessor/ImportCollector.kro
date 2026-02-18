@@ -1,0 +1,497 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+/// ImportCollector
+/// ===============
+///
+/// Parses and collects import statements from a token stream. Handles all import forms:
+///
+///   import Foo::Bar;                    - module import
+///   import Foo::Bar as Baz;             - aliased module import
+///   import Foo::Bar::{mac1!, mac2!};    - selective macro import
+///   import Foo::Bar::{mac1! as m1};     - selective with alias
+///   import Foo::Bar::*;                 - wildcard import
+///   import module Foo::Bar;             - explicit module import (Foo/Bar/module.kro)
+///   import some_lib;                    - library import (.hlib)
+///
+/// Usage:
+///   var collector = ImportCollector(&tcm);
+///   var imports = collector.collect(tokens, scope_tracker);
+
+import Lexer::Token::*;
+import Lexer::TokenBuffer::*;
+import Lexer::Lexer::*;
+import Lexer::Preprocessor::ModulePath::*;
+import Lexer::Preprocessor::ScopeTracker::*;
+import Core::TokenKind::*;
+import Core::SourceRange::*;
+
+enum ImportKind derives u8 {
+    Module,              ///< import Foo::Bar
+    AliasedModule,       ///< import Foo::Bar as Baz
+    Selective,           ///< import Foo::Bar::{mac1!, mac2!}
+    SelectiveAliased,    ///< import Foo::Bar::{mac1! as m1}
+    Wildcard,            ///< import Foo::Bar::*
+    ModuleDir,           ///< import module Foo::Bar (imports Foo/Bar/module.kro)
+    Library,             ///< import some_lib (.hlib)
+}
+
+/// \brief represents a single macro in a selective import
+struct SelectiveItem {
+    var name:      string;  ///< original macro name (without !)
+    var alias:     string;  ///< alias name (same as name if no alias)
+    var name_tok:  Token;   ///< token for the name (for source location)
+    var alias_tok: Token;   ///< token for the alias (may be same as name_tok)
+    var has_alias: bool;    ///< true if `as alias` was specified
+}
+
+/// \brief represents a complete import statement
+struct ImportStatement {
+    var kind:           ImportKind;           ///< type of import
+    var path:           ModulePath;           ///< the module path (Foo::Bar)
+    var path_tokens:    TokenModulePath;      ///< tokens for path (for source locations)
+    var alias:          string;               ///< alias for module imports (empty if none)
+    var alias_tok:      Token;                ///< token for alias
+    var items:          vec::<SelectiveItem>; ///< items for selective imports
+    var scope:          ModulePath;           ///< scope where this import appears
+    var visibility:     ModuleVisibility;     ///< visibility at import location
+    var location:       SourceRange;          ///< source location of entire import
+    var has_alias:      bool;                 ///< true if `as alias` was specified
+}
+
+class ImportCollector {
+    priv var _tcm: *TokenCacheManager;
+
+    fn ImportCollector(self, tcm: *TokenCacheManager) {
+        self._tcm = tcm;
+    }
+
+    /// \brief collects all imports from a token buffer
+    /// \param tokens the token buffer
+    /// \param tracker scope tracker (will be updated as we iterate)
+    /// \returns vector of parsed import statements
+    fn collect(self, tokens: *TokenBuffer::<512>, tracker: *ScopeTracker) -> vec::<ImportStatement> {
+        var imports = vec::<ImportStatement>();
+
+        var i: usize = 0;
+        while i < tokens->size() {
+            // let scope tracker process this token first
+            var consumed = tracker->update(tokens, i);
+            
+            var tok = tokens->get(i);
+            if tok == &null {
+                ++i;
+                continue;
+            }
+
+            // skip macro definitions
+            if (*tok) == TokenKind::KwMacro {
+                var skip_to = self.skip_macro_def(tokens, i);
+                if skip_to != null {
+                    i = (*skip_to) + 1;
+                    continue;
+                }
+            }
+
+            // skip macro invocations (ident followed by !)
+            if (*tok) == TokenKind::OpExclaim {
+                var skip_to = self.skip_macro_invoke(tokens, i);
+                if skip_to != null {
+                    i = (*skip_to) + 1;
+                    continue;
+                }
+            }
+
+            // check for import keyword
+            if (*tok) == TokenKind::KwImport {
+                var import_stmt = self.parse_import(tokens, i, tracker);
+                if import_stmt != null {
+                    imports.push_back(*import_stmt);
+                    // skip to end of import statement
+                    i = self.find_semicolon(tokens, i) + 1;
+                    continue;
+                }
+            }
+
+            i += consumed + 1;
+        }
+
+        return imports;
+    }
+
+    /// \brief parses a single import statement
+    /// \param tokens token buffer
+    /// \param import_idx index of `import` keyword
+    /// \param tracker scope tracker for current scope info
+    /// \returns parsed import statement, or null if parse fails
+    priv fn parse_import(self, tokens: *TokenBuffer::<512>, import_idx: usize,
+                         tracker: *ScopeTracker) -> ImportStatement? {
+        var start_tok = tokens->get(import_idx);
+        if start_tok == &null { return null; }
+
+        var result = ImportStatement();
+        result.scope      = tracker->current_scope();
+        result.visibility = tracker->current_visibility();
+        result.has_alias  = false;
+
+        var j = import_idx + 1;
+        var t = tokens->get(j);
+        if t == &null { return null; }
+
+        // check for `import module Foo::Bar` form
+        if (*t) == TokenKind::KwModule {
+            result.kind = ImportKind::ModuleDir;
+            ++j;
+            t = tokens->get(j);
+            if t == &null { return null; }
+        }
+
+        // parse the module path
+        if (*t) != TokenKind::LitIdentifier { return null; }
+
+        var path_result = self.parse_path(tokens, j);
+        result.path        = libcxx::get::<0>(path_result);
+        result.path_tokens = libcxx::get::<1>(path_result);
+        j                  = libcxx::get::<2>(path_result);
+
+        if result.path.segments.size() == 0 { return null; }
+
+        // check what follows the path
+        t = tokens->get(j);
+        if t == &null {
+            // end of tokens - bare import
+            result.kind = ImportKind::Module;
+            result.location = SourceRange::from_bounds(start_tok->range.start,
+                                                       tokens->get(j - 1)->range.end);
+            return result;
+        }
+
+        // case: import Foo::Bar::*
+        if (*t) == TokenKind::OpStar {
+            result.kind = ImportKind::Wildcard;
+            result.location = SourceRange::from_bounds(start_tok->range.start, t->range.end);
+            return result;
+        }
+
+        // case: import Foo::Bar::{...}
+        if (*t) == TokenKind::OpLBrace {
+            result.kind = ImportKind::Selective;
+            var items = self.parse_selective_items(tokens, j);
+            result.items = libcxx::get::<0>(items);
+            j            = libcxx::get::<1>(items);
+
+            // check if any item has an alias
+            for item in result.items {
+                if item.has_alias {
+                    result.kind = ImportKind::SelectiveAliased;
+                    break;
+                }
+            }
+
+            t = tokens->get(j - 1);
+            if t != &null {
+                result.location = SourceRange::from_bounds(start_tok->range.start, t->range.end);
+            }
+            return result;
+        }
+
+        // case: import Foo::Bar as Baz
+        if (*t) == TokenKind::KwAs {
+            var alias_tok = tokens->get(j + 1);
+            if (alias_tok != &null) && ((*alias_tok) == TokenKind::LitIdentifier) {
+                result.kind      = ImportKind::AliasedModule;
+                result.alias     = self._tcm->get_text(*alias_tok);
+                result.alias_tok = *alias_tok;
+                result.has_alias = true;
+                result.location  = SourceRange::from_bounds(start_tok->range.start, alias_tok->range.end);
+                return result;
+            }
+            return null;
+        }
+
+        // case: import Foo::Bar; (simple module import)
+        if (*t) == TokenKind::OpSemicolon {
+            // single identifier = library import
+            if result.path.segments.size() == 1 {
+                result.kind = ImportKind::Library;
+            } else {
+                result.kind = ImportKind::Module;
+            }
+            result.location = SourceRange::from_bounds(start_tok->range.start,
+                                                       tokens->get(j - 1)->range.end);
+            return result;
+        }
+
+        // default: simple module import
+        result.kind = ImportKind::Module;
+        result.location = SourceRange::from_bounds(start_tok->range.start,
+                                                   tokens->get(j - 1)->range.end);
+        return result;
+    }
+
+    /// \brief parses a module path and returns both string and token versions
+    /// \returns (ModulePath, TokenModulePath, next_index)
+    priv fn parse_path(self, tokens: *TokenBuffer::<512>, start: usize)
+        -> (ModulePath, TokenModulePath, usize)
+    {
+        var path = ModulePath();
+        var tok_path = TokenModulePath();
+        var j = start;
+
+        // check for leading ::
+        var first = tokens->get(j);
+        if (first != &null) && ((*first) == TokenKind::OpColonColon) {
+            tok_path.has_global = true;
+            ++j;
+        }
+
+        while true {
+            var t = tokens->get(j);
+            if t == &null { break; }
+            if (*t) != TokenKind::LitIdentifier { break; }
+
+            var text = self._tcm->get_text(*t);
+            path.segments.push_back(text);
+            tok_path.segments.push_back(*t);
+
+            var next = tokens->get(j + 1);
+            if next == &null { break; }
+
+            // check for :: followed by { or * (end of path)
+            if (*next) == TokenKind::OpColonColon {
+                var after = tokens->get(j + 2);
+                if after == &null { break; }
+
+                // :: followed by { means selective import
+                if (*after) == TokenKind::OpLBrace {
+                    j += 2;
+                    break;
+                }
+
+                // :: followed by * means wildcard
+                if (*after) == TokenKind::OpStar {
+                    j += 2;
+                    break;
+                }
+
+                // :: followed by identifier means continue path
+                if (*after) == TokenKind::LitIdentifier {
+                    j += 2;
+                    continue;
+                }
+
+                break;
+            }
+
+            break;
+        }
+
+        // if we didn't advance past last identifier, do it now
+        if (j == start) || ((tokens->get(j) != &null) && 
+                           ((*tokens->get(j)) == TokenKind::LitIdentifier)) {
+            ++j;
+        }
+
+        return (path, tok_path, j);
+    }
+
+    /// \brief parses selective import items inside { }
+    /// \returns (items, next_index_after_brace)
+    priv fn parse_selective_items(self, tokens: *TokenBuffer::<512>, brace_idx: usize)
+        -> (vec::<SelectiveItem>, usize)
+    {
+        var items = vec::<SelectiveItem>();
+        var j = brace_idx + 1; // skip opening brace
+
+        while true {
+            var t = tokens->get(j);
+            if t == &null { break; }
+
+            // end of selective list
+            if (*t) == TokenKind::OpRBrace {
+                ++j;
+                break;
+            }
+
+            // skip commas
+            if (*t) == TokenKind::OpComma {
+                ++j;
+                continue;
+            }
+
+            // expect identifier
+            if (*t) != TokenKind::LitIdentifier {
+                ++j;
+                continue;
+            }
+
+            var item = SelectiveItem();
+            item.name     = self._tcm->get_text(*t);
+            item.name_tok = *t;
+            item.alias    = item.name;
+            item.has_alias = false;
+            ++j;
+
+            // check for ! (macro marker)
+            var next = tokens->get(j);
+            if (next != &null) && ((*next) == TokenKind::OpExclaim) {
+                ++j;
+                next = tokens->get(j);
+            }
+
+            // check for `as alias`
+            if (next != &null) && ((*next) == TokenKind::KwAs) {
+                var alias_tok = tokens->get(j + 1);
+                if (alias_tok != &null) && ((*alias_tok) == TokenKind::LitIdentifier) {
+                    item.alias     = self._tcm->get_text(*alias_tok);
+                    item.alias_tok = *alias_tok;
+                    item.has_alias = true;
+                    j += 2;
+
+                    // check for ! after alias
+                    var after_alias = tokens->get(j);
+                    if (after_alias != &null) && ((*after_alias) == TokenKind::OpExclaim) {
+                        ++j;
+                    }
+                }
+            } else {
+                item.alias_tok = item.name_tok;
+            }
+
+            items.push_back(item);
+        }
+
+        return (items, j);
+    }
+
+    /// \brief finds the next semicolon
+    priv fn find_semicolon(self, tokens: *TokenBuffer::<512>, start: usize) -> usize {
+        var j = start;
+        while j < tokens->size() {
+            var t = tokens->get(j);
+            if t == &null { break; }
+            if (*t) == TokenKind::OpSemicolon { return j; }
+            ++j;
+        }
+        return j;
+    }
+
+    /// \brief skips past a macro definition
+    priv fn skip_macro_def(self, tokens: *TokenBuffer::<512>, i: usize) -> usize? {
+        // at KwMacro
+        var j = i + 1;
+        var t = tokens->get(j);
+        if t == &null { return null; }
+
+        // check for proc macro (@)
+        var is_proc = (*t) == TokenKind::OpAt;
+        if is_proc {
+            ++j;
+            t = tokens->get(j);
+            if t == &null { return null; }
+        }
+
+        // expect identifier
+        if (*t) != TokenKind::LitIdentifier { return null; }
+        ++j;
+        t = tokens->get(j);
+        if t == &null { return null; }
+
+        // check for ! (regular macro)
+        if !is_proc {
+            if (*t) != TokenKind::OpExclaim { return null; }
+            ++j;
+            t = tokens->get(j);
+            if t == &null { return null; }
+        }
+
+        // skip optional parameter list
+        if (*t) == TokenKind::OpLParen {
+            var paren_count: i32 = 1;
+            ++j;
+
+            while paren_count > 0 {
+                t = tokens->get(j);
+                if t == &null { return null; }
+
+                if (*t) == TokenKind::OpLParen { ++paren_count; }
+                else if (*t) == TokenKind::OpRParen { --paren_count; }
+                ++j;
+            }
+
+            t = tokens->get(j);
+            if t == &null { return null; }
+        }
+
+        // skip body (brace-delimited or colon-delimited)
+        if (*t) == TokenKind::OpLBrace {
+            var brace_count: i32 = 1;
+            ++j;
+
+            while brace_count > 0 {
+                t = tokens->get(j);
+                if t == &null { return null; }
+
+                if (*t) == TokenKind::OpLBrace { ++brace_count; }
+                else if (*t) == TokenKind::OpRBrace { --brace_count; }
+                ++j;
+            }
+        } else if (*t) == TokenKind::OpColon {
+            ++j;
+            while true {
+                t = tokens->get(j);
+                if t == &null { return null; }
+                if (*t) == TokenKind::OpSemicolon { break; }
+                ++j;
+            }
+            ++j;
+        } else {
+            return null;
+        }
+
+        // skip optional trailing semicolon
+        t = tokens->get(j);
+        if (t != &null) && ((*t) == TokenKind::OpSemicolon) {
+            ++j;
+        }
+
+        return j - 1;
+    }
+
+    /// \brief skips past a macro invocation
+    priv fn skip_macro_invoke(self, tokens: *TokenBuffer::<512>, i: usize) -> usize? {
+        // at OpExclaim, check previous token is identifier
+        if i == 0 { return null; }
+
+        var prev = tokens->get(i - 1);
+        if prev == &null { return null; }
+        if (*prev) != TokenKind::LitIdentifier { return null; }
+
+        var next = tokens->get(i + 1);
+        if next == &null { return i; }
+
+        // parameterless invocation
+        if (*next) != TokenKind::OpLParen {
+            return i;
+        }
+
+        // skip parenthesized arguments
+        var paren_count: i32 = 1;
+        var j = i + 2;
+
+        while paren_count > 0 {
+            var t = tokens->get(j);
+            if t == &null { break; }
+
+            if (*t) == TokenKind::OpLParen { ++paren_count; }
+            else if (*t) == TokenKind::OpRParen { --paren_count; }
+            ++j;
+        }
+
+        return j - 1;
+    }
+}

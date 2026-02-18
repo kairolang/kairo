@@ -1,0 +1,48 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+/// \brief incremental octal digit parser
+/// \details used for byte escape sequences (\ooo)
+class OctalParser {
+    var value:  usize = 0;
+    var digits: usize = 0;
+
+    /// \brief appends an octal digit
+    /// \param c octal digit character
+    /// \requires is_digit(c) == true
+    inline eval fn push_back(self, c: char32) {
+        self.value = (self.value << 3) | (static_cast::<usize>(c - '0'));
+        ++(self.digits);
+    }
+
+    /// \brief checks whether character is a valid octal digit
+    /// \param c input character
+    /// \returns true if valid octal digit
+    inline eval fn is_digit(self, c: char32) -> bool {
+        return static_cast::<u8>(c - '0') <= 7;
+    }
+
+    /// \brief returns accumulated numeric value
+    /// \returns parsed value
+    inline eval fn get_value(self) -> usize {
+        return self.value;
+    }
+
+    /// \brief returns number of digits consumed
+    /// \returns digit count
+    inline eval fn get_digits(self) -> usize {
+        return self.digits;
+    }
+}

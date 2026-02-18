@@ -183,7 +183,7 @@ while_block ::= "while" expr block; // while x { ... }
 for_block   ::= "eval"? "for" (implicit_params | ('(' implicit_params ')')) "in" expr block; // for x in y { ... }
 c_for_block ::= "eval"? "for" '(' (expr | var_decl) ';' expr ';' expr ')' block; // for (x; y; z) { ... }
 
-// match in helix would work like this
+// match in kairo would work like this
 // match x {
 //    case 1: ...
 //    case 2: ...

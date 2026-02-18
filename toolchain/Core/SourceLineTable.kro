@@ -24,7 +24,7 @@ import Core::SourceLocation::*;
 import Core::SourceRange::*;
 
 ///
-/// \file Core/SourceLineTable.kro
+/// \file Core/SourceLineTable.hlx
 /// \brief simd-optimized source line index for fast line/column resolution.
 ///
 /// \details
