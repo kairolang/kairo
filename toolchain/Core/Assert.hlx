@@ -29,22 +29,22 @@ class Assert {
 
     fn summary(self) {
         var total = (self.passes) + (self.fails);
-        (libcxx::wcout) << f"\n=== Test Summary: {self.name} ===\n".raw_string();
-        (libcxx::wcout) << f"  Passed: \033[32m{self.passes}\033[0m\n".raw_string();
-        (libcxx::wcout) << f"  Failed: \033[31m{self.fails}\033[0m\n".raw_string();
-        (libcxx::wcout) << f"  Total:  {total}\n".raw_string();
+        std::print(f"\n=== Test Summary: {self.name} ===");
+        std::print(f"  Passed: \033[32m{self.passes}\033[0m");
+        std::print(f"  Failed: \033[31m{self.fails}\033[0m");
+        std::print(f"  Total:  {total}");
     }
 
     priv fn test_success(self, m: string, time: string) {
         ++(self.passes);
-        (libcxx::wcout) << f"\033[32m({(self.passes) + (self.fails)})\t[PASS]\033[0m\t\033[90m({time})\033[0m\t{m}\n".raw_string();
+        std::print(f"\033[32m({(self.passes) + (self.fails)})\t[PASS]\033[0m\t\033[90m({time})\033[0m\t{m}");
     }
 
     priv fn <T> test_failure(self, m: string, e: T, v: T, time: string) {
         ++(self.fails);
-        (libcxx::wcout) << f"\033[31m({(self.passes) + (self.fails)}) \t[FAIL]\033[0m \t\033[90m({time})\033[0m \t{m}\n".raw_string();
-        (libcxx::wcout) << f"    \033[90m|>>>\033[0m expected: \033[33m{e}\033[0m\n".raw_string();
-        (libcxx::wcout) << f"    \033[90m|>>>\033[0m actual:   \033[31m{v}\033[0m\n".raw_string();
+        std::print(f"\033[31m({(self.passes) + (self.fails)}) \t[FAIL]\033[0m \t\033[90m({time})\033[0m \t{m}");
+        std::print(f"    \033[90m|>>>\033[0m expected: \033[33m{e}\033[0m");
+        std::print(f"    \033[90m|>>>\033[0m actual:   \033[31m{v}\033[0m");
     }
 
     fn measure_timer_overhead(self) -> i64 {

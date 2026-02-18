@@ -47,32 +47,42 @@ struct alignas(64) ArenaBlock {
         ptr = nullptr;
     }
 
+    #if defined(_x86_64_simd)
+    [[gnu::target("avx512f")]] void reset_avx512() noexcept {
+        const __m512i zero = _mm512_setzero_si512();
+        size_t        i    = 0;
+        for (; i + SIMD_WIDTH <= capacity; i += SIMD_WIDTH) {
+            _mm512_stream_si512(reinterpret_cast<__m512i *>(ptr + i), zero);
+        }
+        if (i < capacity) {
+            std::Memory::set(ptr + i, 0, capacity - i);
+        }
+        _mm_sfence();
+    }
+    #endif
+
     void reset() noexcept {
         offset = 0;
-#if _simd_available()
+    #if _simd_available()
         if (capacity < 4096) {
             std::Memory::set(ptr, 0, capacity);
             return;
         }
-#   if defined(_x86_64_simd)
-        const __m512i zero = _mm512_setzero_si512();
-        size_t        i    = 0;
-
-        for (; i + SIMD_WIDTH <= capacity; i += SIMD_WIDTH) {
-            _mm512_stream_si512(reinterpret_cast<__m512i *>(ptr + i), zero);
-        }
-
-        _mm_sfence();
-#   elif defined(_aarch64_simd)
+    #   if defined(_x86_64_simd)
+        reset_avx512();
+    #   elif defined(_aarch64_simd)
         uint8x16_t zero = vdupq_n_u8(0);
-        
-        for (size_t i = 0; i + 16 <= capacity; i += 16) {
+        size_t     i    = 0;
+        for (; i + 16 <= capacity; i += 16) {
             vst1q_u8(reinterpret_cast<uint8_t *>(ptr + i), zero);
         }
-#   endif
-#else
+        if (i < capacity) {
+            std::Memory::set(ptr + i, 0, capacity - i);
+        }
+    #   endif
+    #else
         std::Memory::set(ptr, 0, capacity);
-#endif
+    #endif
     }
 
   private:
