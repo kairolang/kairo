@@ -1,3 +1,3 @@
 [submodule "lib-helix"]
 	path = lib-helix
-	url = https://github.com/helixlang/lib-helix
+	url = https://github.com/kairolang/lib-helix
