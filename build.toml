@@ -1,0 +1,55 @@
+[project]
+name    = "Kairo"
+version = "kairo-0.0.1+rc.20260220"
+author  = "Dhruvan Kartik"
+license = "CC-BY-4.0"
+
+[workspace]
+skip_dirs = ["build", "libs", "private"]
+
+[build]
+compiler = "build/release/x86_64-linux-gnu/bin/helix"
+mode     = "release"
+
+[[target]]
+name     = "kairo"
+entry    = "toolchain/Driver/main/kairo.hlx"
+type     = "binary"
+includes = [".", "toolchain"]
+links    = []
+libs     = []
+deps     = []
+defines  = []
+ld_flags = []
+cxx_sources    = []
+cxx_passthrough = []
+
+[[target]]
+name     = "kbld"
+entry    = "toolchain/Driver/main/kbld.hlx"
+type     = "binary"
+includes = [".", "toolchain"]
+
+[[target]]
+name     = "kfmt"
+entry    = "toolchain/Driver/main/kfmt.hlx"
+type     = "binary"
+includes = [".", "toolchain"]
+
+[[target]]
+name     = "kld"
+entry    = "toolchain/Driver/main/kld.hlx"
+type     = "binary"
+includes = [".", "toolchain"]
+
+[[target]]
+name     = "klsp"
+entry    = "toolchain/Driver/main/klsp.hlx"
+type     = "binary"
+includes = [".", "toolchain"]
+
+[[target]]
+name     = "kpkg"
+entry    = "toolchain/Driver/main/kpkg.hlx"
+type     = "binary"
+includes = [".", "toolchain"]
