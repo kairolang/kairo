@@ -27,6 +27,16 @@
 #include <unordered_set>
 #include <vector>
 
+#include <cstdio>
+
+#ifdef _WIN32
+#  define kbld_popen  _popen
+#  define kbld_pclose _pclose
+#else
+#  define kbld_popen  popen
+#  define kbld_pclose pclose
+#endif
+
 namespace kbld::fmt_detail {
 
 template <typename... Args>
@@ -186,8 +196,19 @@ inline auto file_mtime_ns(const fs::path &p) -> std::int64_t {
     auto            ftime = fs::last_write_time(p, ec);
     if (ec)
         return 0;
+#if defined(_WIN32) && defined(_MSC_VER)
+    // MSVC's file_clock does not expose to_sys(); convert manually.
+    // Windows FILETIME epoch (1601-01-01) vs Unix epoch (1970-01-01)
+    // = 11644473600 seconds difference.
+    auto file_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                       ftime.time_since_epoch())
+                       .count();
+    constexpr std::int64_t kEpochDiffNs = 11644473600LL * 1'000'000'000LL;
+    return file_ns - kEpochDiffNs;
+#else
     auto sctp = std::chrono::file_clock::to_sys(ftime);
     return std::chrono::duration_cast<std::chrono::nanoseconds>(sctp.time_since_epoch()).count();
+#endif
 }
 
 inline auto iso8601_now() -> std::string {
@@ -223,14 +244,14 @@ inline auto run_command(const std::string &cmd) -> int { return std::system(cmd.
 inline auto run_capture(const std::string &cmd, std::string &out) -> int {
     out.clear();
     std::string full = cmd + " 2>/dev/null";
-    FILE       *fp   = popen(full.c_str(), "r");
+    FILE       *fp   = kbld_popen(full.c_str(), "r");
     if (!fp)
         return -1;
     char buf[4096];
     while (auto n = std::fread(buf, 1, sizeof(buf), fp)) {
         out.append(buf, n);
     }
-    int status = pclose(fp);
+    int status = kbld_pclose(fp);
 #ifndef _WIN32
     if (WIFEXITED(status))
         return WEXITSTATUS(status);
@@ -245,14 +266,14 @@ inline auto run_capture_all(const std::string &cmd, std::string &out, std::strin
     auto        tmp  = fs::temp_directory_path() / "kbld_stderr.tmp";
     std::string full = cmd + " 2>" + tmp.string();
 
-    FILE *fp = popen(full.c_str(), "r");
+    FILE *fp = kbld_popen(full.c_str(), "r");
     if (!fp)
         return -1;
     char buf[4096];
     while (auto n = std::fread(buf, 1, sizeof(buf), fp)) {
         out.append(buf, n);
     }
-    int status = pclose(fp);
+    int status = kbld_pclose(fp);
 
     if (std::ifstream ifs(tmp); ifs) {
         std::ostringstream ss;
