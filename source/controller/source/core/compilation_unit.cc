@@ -110,7 +110,11 @@ void process_paths(std::vector<T>                     &paths,
 }
 
 int CompilationUnit::compile(int argc, char **argv) {
-    __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Kairo Compiler v0.0.1-beta-1e");
+    #ifndef KAIRO_VERSION
+        #error "KAIRO_VERSION is not defined"
+    #endif
+
+    __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Kairo Compiler " KAIRO_VERSION);
     check_exit(parsed_args);
 
     return compile(parsed_args);

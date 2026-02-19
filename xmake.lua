@@ -1,5 +1,8 @@
 set_project    ("kairo-lang")
-set_version    ("kairo-0.0.1.beta-rc.20260220", { soname = true })
+
+local KAIRO_VERSION = "0.0.1-beta-rc.20260220"
+
+set_version    (KAIRO_VERSION, { soname = true })
 set_description("The Kairo Compiler. Python's Simplicity, Rust inspired Syntax, and C++'s Power")
 
 add_rules("mode.debug", "mode.release")
@@ -520,6 +523,7 @@ target("kbld")
 
     add_files("kbld/src/main.cpp")
     add_includedirs("kbld/include")
+    add_defines("KAIRO_VERSION=\"" .. KAIRO_VERSION .. "\"")
 
     set_policy("build.optimization.lto", true)
 target_end()
@@ -531,6 +535,8 @@ target("kairo") -- target config defined in the config seciton
 
     kairo_src_setup()
     add_packages("llvm-clang")
+
+    add_defines("KAIRO_VERSION=\"" .. KAIRO_VERSION .. "\"")
 
     -- if is_llvm_configured then
     --     print("\027[1;32m" .. "LLVM/Clang is configured successfully." .. "\027[0m")
@@ -610,6 +616,7 @@ target_end() -- empty target
 
 target("kairo-api")
     set_kind("static")
+    add_defines("KAIRO_VERSION=\"" .. KAIRO_VERSION .. "\"")
     kairo_src_setup()
 
     if abi == ""
