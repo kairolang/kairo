@@ -273,13 +273,20 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         "\"" + action.cc_output.generic_string() + "\""  // output
     );
 
-    if (this->dry_run) {
-        compile_cmd += std::string(cxx::flags::dryRunFlag.msvc) + " ";
-    }
-
+    
     /// add any additional flags passed into the action
     for (auto &flag : action.cxx_args) {
         compile_cmd += flag + " ";
+    }
+
+    this->command = compile_cmd;
+
+    if (this->no_compile) {
+        return {{.output=compile_cmd, .return_code=0}, flag::ErrorType(flag::types::ErrorType::Success)};
+    }
+    
+    if (this->dry_run) {
+        compile_cmd += std::string(cxx::flags::dryRunFlag.msvc) + " ";
     }
 
     if (!COMPILE_ACTIONS.empty()) {

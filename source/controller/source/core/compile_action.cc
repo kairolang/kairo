@@ -351,5 +351,5 @@ std::string CXXCompileAction::generate_file_name(size_t length) {
 
     std::generate_n(std::back_inserter(name), length, [&]() { return chars[dist(gen)]; });
 
-    return name;
+    return "kairoCXIR.cxx";
 }

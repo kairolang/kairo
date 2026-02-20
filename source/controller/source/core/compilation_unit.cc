@@ -383,7 +383,6 @@ void CompilationUnit::emit_cxir /* */ (const generator::CXIR::CXIR &emitter, boo
     if (verbose) {
         auto cxir = emitter.to_CXIR<true>(); // this should be called so source maps are generated
         kairo::log<LogLevel::Debug>("\n", colors::fg16::yellow, cxir, colors::reset);
-        kairo::log<LogLevel::Debug>("\nSourceMap: ", colors::fg16::yellow, emitter.source_map.to_dict(), colors::reset);
     } else {
         kairo::log<LogLevel::Info>("\n", emitter.to_readable_CXIR(), colors::reset);
     }

@@ -147,13 +147,15 @@ class CXIRCompiler {
     };
 
     using CompileResult = std::pair<ExecResult, flag::ErrorType>;
+    mutable std::string command;
 
     [[nodiscard]] static ExecResult exec(const std::string &cmd);
 
-    [[nodiscard]] CXIRCompiler::CompileResult compile_CXIR(CXXCompileAction &&action, bool dry_run = false) const;
+    [[nodiscard]] CXIRCompiler::CompileResult compile_CXIR(CXXCompileAction &&action, bool dry_run = false, bool only_gen_cmd = false) const;
 
   private:
     mutable bool dry_run = false;
+    mutable bool no_compile = false;
     /// (pof, msg, file)
     using ErrorPOFNormalized = std::tuple<token::Token, std::string, std::string>;
 
@@ -176,10 +178,10 @@ class CompilationUnit {
     __AST_N::NodeT<__AST_NODE::Program> parse_ast(__TOKEN_N::TokenList &tokens,
                                                   std::filesystem::path in_file_path);
 
-  private:
     CXIRCompiler                                           compiler;
     __AST_N::NodeT<__AST_NODE::Program>                    ast;
     std::shared_ptr<parser::preprocessor::ImportProcessor> import_processor = nullptr;
+  private:
 
     static void remove_comments(__TOKEN_N::TokenList &tokens);
 

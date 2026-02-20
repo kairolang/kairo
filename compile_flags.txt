@@ -1,4 +1,0 @@
-/std=c++latest
-/Ikairo-lang/lib-helix/core/include
-/Ikairo-lang/lib-helix/core
-/Ikairo-lang/libs

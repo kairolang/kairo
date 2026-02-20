@@ -27,8 +27,9 @@
     }
 #endif
 
-CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
+CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run, bool only_gen_cmd) const {
     this->dry_run = dry_run;
+    this->no_compile = only_gen_cmd;
     CompileResult ret;
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
     // try compiling with msvc first
@@ -163,6 +164,12 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
     /// add any additional flags passed into the action
     for (const auto &flag : action.cxx_args) {
         compile_cmd += flag + " ";
+    }
+
+    this->command = compile_cmd;
+
+    if (this->no_compile) {
+        return {{.output=compile_cmd, .return_code=0}, flag::ErrorType(flag::types::ErrorType::Success)};
     }
 
     /// add the source file in a normalized path format

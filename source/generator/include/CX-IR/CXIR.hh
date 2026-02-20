@@ -137,6 +137,111 @@ UseTab:          Never
 GENERATE_CXIR_TOKENS_ENUM_AND_MAPPING;
 
 __CXIR_CODEGEN_BEGIN {
+    class LSPPositionMapper {
+    public:
+        struct Position {
+            size_t line;
+            size_t col;
+            
+            bool operator<(const Position& other) const {
+                if (line != other.line) return line < other.line;
+                return col < other.col;
+            }
+        };
+        
+    private:
+        // file -> (helix_pos -> cpp_pos)
+        std::map<std::string, std::map<Position, Position>> helix_to_cpp;
+        
+        // file -> (cpp_pos -> helix_pos)
+        std::map<std::string, std::map<Position, Position>> cpp_to_helix;
+        
+    public:
+        LSPPositionMapper() = default;
+        
+        void add_mapping(const std::string& helix_file,
+                        size_t helix_line, size_t helix_col,
+                        size_t cpp_line, size_t cpp_col) {
+            Position h_pos{helix_line, helix_col};
+            Position c_pos{cpp_line, cpp_col};
+            
+            helix_to_cpp[helix_file][h_pos] = c_pos;
+            cpp_to_helix[helix_file][c_pos] = h_pos;  // Assume 1:1 file mapping
+        }
+        
+        std::optional<Position> map_helix_to_cpp(const std::string& helix_file,
+                                                size_t line, size_t col) const {
+            auto file_it = helix_to_cpp.find(helix_file);
+            if (file_it == helix_to_cpp.end()) return std::nullopt;
+            
+            Position query{line, col};
+            const auto& mappings = file_it->second;
+            
+            // Exact match
+            auto exact = mappings.find(query);
+            if (exact != mappings.end()) {
+                return exact->second;
+            }
+            
+            // Find closest mapping before or at this position
+            auto it = mappings.upper_bound(query);
+            if (it == mappings.begin()) return std::nullopt;
+            
+            --it;  // Go to largest mapping <= query
+            
+            // Apply offset
+            size_t line_offset = line - it->first.line;
+            size_t col_offset = (line == it->first.line) ? (col - it->first.col) : col;
+            
+            return Position{it->second.line + line_offset, it->second.col + col_offset};
+        }
+        
+        std::optional<Position> map_cpp_to_helix(const std::string& helix_file,
+                                                size_t line, size_t col) const {
+            auto file_it = cpp_to_helix.find(helix_file);
+            if (file_it == cpp_to_helix.end()) return std::nullopt;
+            
+            Position query{line, col};
+            const auto& mappings = file_it->second;
+            
+            auto exact = mappings.find(query);
+            if (exact != mappings.end()) {
+                return exact->second;
+            }
+            
+            auto it = mappings.upper_bound(query);
+            if (it == mappings.begin()) return std::nullopt;
+            
+            --it;
+            
+            size_t line_offset = line - it->first.line;
+            size_t col_offset = (line == it->first.line) ? (col - it->first.col) : col;
+            
+            return Position{it->second.line + line_offset, it->second.col + col_offset};
+        }
+        
+        std::string dump() const {
+            std::string result = "LSP Position Mappings:\n";
+            
+            for (const auto& [file, mappings] : helix_to_cpp) {
+                result += "File: " + file + "\n";
+                result += "  Helix -> C++:\n";
+                
+                for (const auto& [h_pos, c_pos] : mappings) {
+                    result += "    (" + std::to_string(h_pos.line) + "," + std::to_string(h_pos.col) + 
+                            ") -> (" + std::to_string(c_pos.line) + "," + std::to_string(c_pos.col) + ")\n";
+                }
+            }
+            
+            return result;
+        }
+        
+        void clear() {
+            helix_to_cpp.clear();
+            cpp_to_helix.clear();
+        }
+    };
+
     class CX_Token {
       private:
         u64         line{};
@@ -216,117 +321,6 @@ __CXIR_CODEGEN_BEGIN {
         }
     };
 
-    struct SourceLocation {
-        using Location = std::pair<size_t, size_t>;
-
-        Location kairo;
-        Location cxir;
-
-        string to_dict() const {
-            // source map of kairo pos to cxir pos
-            return "(" + std::to_string(kairo.first) + "," + std::to_string(kairo.second) + "):(" +
-                   std::to_string(cxir.first) + "," + std::to_string(cxir.second) + "),";
-        }
-    };
-
-    struct SourceMap { /* this all a part of the same c++ output object
-        so a couple of things only the kairo file and locs change
-        while the c++ source locs keep constant this should be a primary static strcut */
-        inline static size_t cxx_line_num{1};
-        inline static size_t cxx_column_num{1};
-
-        std::vector<SourceLocation> locs;
-
-        /* {filename : [locs...]}*/
-        std::map<std::string, std::vector<std::string>> full_dict;
-        std::string                                     file_name;
-
-        SourceMap() = default;
-
-        void finalize() {
-            // finalize everything into the flatend dict
-            /* exmaple:
-
-            "kairo_file_name" : [
-                (kairo_line, kairo_col): (cxir_line, cxir_col),
-                (kairo_line, kairo_col): (cxir_line, cxir_col),
-            ],
-
-            */
-
-            // add the file name to the dict
-            auto [key, inserted] =
-                full_dict.insert_or_assign(file_name, std::vector<std::string>{});
-
-            auto &vec = key->second;
-
-            // add the locs to the vector
-            for (const auto &loc : locs) {
-                vec.emplace_back(loc.to_dict());
-            }
-
-            // clear the locs
-            locs.clear();
-        }
-
-        static void inc_line_num(size_t inc = 1) {
-            // increment the line number
-            cxx_line_num += inc;
-            cxx_column_num = 1;
-        }
-
-        [[nodiscard]] static size_t get_line_num() { return cxx_line_num; }
-
-        [[nodiscard]] static size_t get_column_num() { return cxx_column_num; }
-
-        [[nodiscard]] static void inc_column_num(size_t inc = 1) { cxx_column_num += inc; }
-
-        [[nodiscard]] static void reset_line_num() {
-            cxx_line_num   = 1;
-            cxx_column_num = 1;
-        }
-
-        [[nodiscard]] static std::string get_file_name(const CX_Token &token) {
-            return token.get_file_name();
-        }
-
-        void set_file_name(const std::string &file_name) {
-            // if both file names are the same return
-            if (this->file_name == file_name) {
-                return;
-            }
-
-            // everytime we set the file name we need to clear the locs and finalize the previous
-            // locs
-            if (!this->file_name.empty()) {
-                finalize();
-            }
-
-            this->file_name = file_name;
-        }
-
-        void add_loc(const SourceLocation &loc) { locs.emplace_back(loc); }
-
-        [[nodiscard]] string to_dict() const {
-            // convert the locs to a string
-            std::string dict = "{";
-
-            for (const auto &[key, value] : full_dict) {
-                dict += "\"" + key + "\": {";
-
-                for (const auto &loc : value) {
-                    dict += loc;
-                }
-
-                dict += "},";
-            }
-
-            dict += "}";
-
-            return dict;
-        }
-    };
-
     class CXIR : public __AST_VISITOR::Visitor {
       private:
         std::vector<std::unique_ptr<CX_Token>> tokens;
@@ -335,13 +329,13 @@ __CXIR_CODEGEN_BEGIN {
         bool                                   forward_only = false;
 
       public:
-        inline static SourceMap source_map;
+        inline static LSPPositionMapper lsp_position_mapper;
 
         explicit CXIR(bool forward_only = false, std::vector<generator::CXIR::CXIR> imports = {})
             : imports(std::move(imports))
             , forward_only(forward_only) {}
 
-        CXIR(const CXIR &)            = default;
+        CXIR(const CXIR &) = delete;              // Disable copy constructor
         CXIR(CXIR &&)                 = default;
         CXIR &operator=(const CXIR &) = delete;
         CXIR &operator=(CXIR &&)      = delete;
@@ -363,32 +357,33 @@ __CXIR_CODEGEN_BEGIN {
             return std::nullopt;
         }
 
+        static std::string get_file_name(const std::unique_ptr<CX_Token> &token)  {
+            if (!token) {
+                return "";
+            }
+            
+            return token->get_file_name();
+        }
+
         void append(std::unique_ptr<CX_Token> token) { tokens.push_back(std::move(token)); }
         void append(cxir_tokens type) { tokens.push_back(std::make_unique<CX_Token>(type)); }
 
-        std::string generate_CXIR() const;
+        [[nodiscard]] std::string generate_CXIR() const;
 
         template <const bool add_core = true>
         [[nodiscard]] std::string to_CXIR() const {
             std::string cxir;
-            size_t      line_count = 0;
 
             if constexpr (add_core) {
-                string core = get_core();
-                line_count  = std::count(core.begin(), core.end(), '\n');
-                cxir += core + "\n" + get_imports<false>() + "\n";
+                cxir += get_core() + "\n" + get_imports<false>() + "\n";
             } else {
                 cxir += get_imports<false>() + "\n";
             }
 
-            // count number of lines in the CXIR
-
-            generator::CXIR::SourceMap::inc_line_num(line_count);
             cxir += generate_CXIR();
 
             if (cxir.empty()) {
                 print("CXIR is empty after processing tokens.");
-                return cxir;
             }
 
             return cxir;

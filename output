@@ -1,0 +1,173 @@
+================================================================================
+KAIRO LSP TEST SUITE
+================================================================================
+
+[1/7] Starting Kairo LSP server...
+
+[2/7] Initializing...
+
+>>> Sending: initialize
+
+<<< Received (id=1): {
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": {
+    "capabilities": {
+      "astProvider": true,
+      "callHierarchyProvider": true,
+      "clangdInlayHintsProvider": true,
+      "codeActionProvider": true,
+      "compilationDatabase": {
+        "automaticReload": true
+      },
+      "completionProvider": {
+        "resolveProvider": false,
+        "triggerCharacters": [
+          ".",
+          "
+    ...
+✅ Initialize successful — clangd clangd version 21.1.8 linux x86_64-pc-linux-gnu
+
+>>> Sending: initialized
+
+[3/7] Opening test.hlx...
+
+>>> Sending: textDocument/didOpen
+    Waiting for compilation and indexing...
+
+<<< Received textDocument/publishDiagnostics: {
+  "jsonrpc": "2.0",
+  "method": "textDocument/publishDiagnostics",
+  "params": {
+    "diagnostics": [],
+    "uri": "file:///mnt/linux-dev/projects/kairo-lang/.clangd"
+  }
+}
+    Received 1 notification(s) during open
+✅ Document opened
+
+[4/7] Testing hover on 'print' at line 1, col 10...
+
+>>> Sending: textDocument/hover
+
+<<< Received textDocument/publishDiagnostics: {
+  "jsonrpc": "2.0",
+  "method": "textDocument/publishDiagnostics",
+  "params": {
+    "diagnostics": [],
+    "uri": "file:///mnt/linux-dev/projects/kairo-lang/test.hlx",
+    "version": 1
+  }
+}
+⚠️  Hover returned null result (no info at this position)
+
+[5/7] Testing hover on 'std' at line 1, col 4...
+
+>>> Sending: textDocument/hover
+
+<<< Received (id=2): {
+  "id": 2,
+  "jsonrpc": "2.0",
+  "result": null
+}
+⚠️  Hover returned null result
+
+[6/7] Testing completion at line 1, col 15...
+
+>>> Sending: textDocument/completion
+
+<<< Received (id=3): {
+  "id": 3,
+  "jsonrpc": "2.0",
+  "result": null
+}
+⚠️  Completion returned null result
+
+[7/7] Shutting down...
+
+>>> Sending: shutdown
+
+<<< Received (id=4): {
+  "id": 4,
+  "jsonrpc": "2.0",
+  "result": {
+    "isIncomplete": false,
+    "items": []
+  }
+}
+
+>>> Sending: exit
+✅ Shutdown successful
+
+================================================================================
+TEST SUMMARY
+================================================================================
+✅ LSP server started successfully
+✅ Document compilation triggered
+✅ Hover/completion requests handled
+
+Check lsp_stderr.log for detailed server output.
+If you see C++ type info above, the LSP proxy is working!
+
+----------------------------------------
+LSP STDERR LOG:
+----------------------------------------
+[LSP] Starting clangd...
+[LSP] Kairo LSP proxy started
+[LSP] <- initialize (id=1)
+I[19:00:20.777] clangd version 21.1.8
+I[19:00:20.777] Features: linux
+I[19:00:20.777] PID: 52892
+I[19:00:20.777] Working directory: /home/dhruvan/linux-dev/projects/kairo-lang
+I[19:00:20.777] argv[0]: clangd
+I[19:00:20.777] argv[1]: --header-insertion=never
+I[19:00:20.777] argv[2]: --clang-tidy=false
+I[19:00:20.777] Starting LSP over stdin/stdout
+I[19:00:20.777] <-- initialize(1)
+I[19:00:20.778] --> reply:initialize(1) 0 ms
+[LSP] <- initialized (notification)
+I[19:00:20.778] <-- initialized
+[LSP] <- textDocument/didOpen (notification)
+[LSP] Compiling Kairo file: /mnt/linux-dev/projects/kairo-lang/test.hlx
+[LSP] Wrote compile_commands.json: /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/compile_commands.json
+[LSP] Command: clang++ -include "/mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/core/include/core.hh"  -I /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/core -O3  -rdynamic -xc++ -std=c++23 -fexceptions -fno-omit-frame-pointer -fno-color-diagnostics -fno-diagnostics-fixit-info -fdiagnostics-absolute-paths -fno-diagnostics-show-line-numbers -fno-diagnostics-show-option -fcaret-diagnostics-max-lines=0 -fno-elide-type -flto -stdlib=libc++ -lc++ -lc++abi  -Wall -o "/home/dhruvan/linux-dev/projects/kairo-lang/test" 
+[LSP] Compilation succeeded. C++ file: /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx
+[LSP] Rewrote didOpen: file:///mnt/linux-dev/projects/kairo-lang/test.hlx -> file:///mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx
+I[19:00:21.402] <-- textDocument/didOpen
+I[19:00:21.402] Loading config file at /mnt/linux-dev/projects/kairo-lang/.clangd
+I[19:00:21.402] --> textDocument/publishDiagnostics
+I[19:00:21.402] Loaded compilation database from /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/compile_commands.json
+I[19:00:21.402] ASTWorker building file /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx version 1 with command 
+[/mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx]
+/usr/bin/clang++ --driver-mode=g++ -include /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/core/include/core.hh -I /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/core -O3 -rdynamic -xc++ -std=c++23 -fexceptions -fno-omit-frame-pointer -fno-color-diagnostics -fno-diagnostics-fixit-info -fdiagnostics-absolute-paths -fno-diagnostics-show-line-numbers -fno-diagnostics-show-option -fcaret-diagnostics-max-lines=0 -fno-elide-type -flto -stdlib=libc++ -lc++ -lc++abi -Wall -o /home/dhruvan/linux-dev/projects/kairo-lang/test -std=c++2b -D__cpp_concepts=202002L /std:c++latest -resource-dir=/usr/lib/clang/21 -- /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx
+I[19:00:21.402] Enqueueing 1 commands for indexing
+I[19:00:22.490] Built preamble of size 27142760 for file /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx version 1 in 1.09 seconds
+I[19:00:22.491] Indexing c++23 standard library in the context of /std:c++latest
+I[19:00:22.717] --> textDocument/publishDiagnostics
+I[19:00:23.264] Indexed /mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx (13839 symbols, 245404 refs, 1274 files)
+I[19:00:23.280] Loaded compilation database from /mnt/linux-dev/projects/kairo-lang/compile_commands.json
+I[19:00:23.477] Indexed c++23 standard library: 14651 symbols, 3949 filtered
+[LSP] <- textDocument/hover (id=2)
+[LSP] URI: file:///mnt/linux-dev/projects/kairo-lang/test.hlx -> file:///mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx
+[LSP] Position: (1,10) -> (1266,15)
+I[19:00:25.280] <-- textDocument/hover(2)
+I[19:00:25.280] --> reply:textDocument/hover(2) 0 ms
+[LSP] <- textDocument/hover (id=3)
+[LSP] URI: file:///mnt/linux-dev/projects/kairo-lang/test.hlx -> file:///mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx
+[LSP] Position: (1,4) -> (1266,5)
+I[19:00:25.280] <-- textDocument/hover(3)
+I[19:00:25.280] --> reply:textDocument/hover(3) 0 ms
+[LSP] <- textDocument/completion (id=4)
+[LSP] URI: file:///mnt/linux-dev/projects/kairo-lang/test.hlx -> file:///mnt/linux-dev/projects/kairo-lang/build/debug/x86_64-linux-gnu/cache/cxx/kairoCXIR__gooYEk2j9O.cxx
+[LSP] Position: (1,15) -> (1266,49)
+I[19:00:25.281] <-- textDocument/completion(4)
+I[19:00:25.361] Code complete: 0 results from Sema, 0 from Index, 0 matched, 0 from identifiers, 0 returned.
+I[19:00:25.361] --> reply:textDocument/completion(4) 80 ms
+[LSP] <- shutdown (id=5)
+I[19:00:25.361] <-- shutdown(5)
+I[19:00:25.361] --> reply:shutdown(5) 0 ms
+[LSP] <- exit (notification)
+[LSP] Shutting down
+I[19:00:25.362] <-- exit
+I[19:00:25.362] LSP finished, exiting with status 0
+
