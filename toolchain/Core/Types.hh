@@ -48,37 +48,235 @@
 /// \see libcxx, kairo::std, kairo::ThreadPool
 ///
 
-#include <include/core.hh>
-
 #include <bit>
+#include <cwchar>
 #include <execution>
+#include <include/core.hh>
 #include <memory>
 #include <memory_resource>
 #include <mutex>
 #include <new>
-#include <cwchar>
 
-#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
-#   include <immintrin.h>        // SSE, AVX, AVX2, AVX512 intrinsics
-#   include <emmintrin.h>        // SSE2 baseline
-#   include <tmmintrin.h>        // SSSE3
-#   define _thread_pause() _mm_pause()
-#   define _simd_available() 1
-#   define _x86_64_simd
+#include "include/runtime/__function/function.hh"
+
+#if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
+    defined(_M_IX86)
+#include <emmintrin.h>  // SSE2 baseline
+#include <immintrin.h>  // SSE, AVX, AVX2, AVX512 intrinsics
+#include <tmmintrin.h>  // SSSE3
+#define _thread_pause() _mm_pause()
+#define _simd_available() 1
+#define _x86_64_simd
 #elif defined(__aarch64__) || defined(_M_ARM64)
-#   include <arm_acle.h>         // __yield()
-#   include <arm_neon.h>         // NEON intrinsics
-#   define _thread_pause() __yield()
-#   define _simd_available() 1
-#   define _aarch64_simd
+#include <arm_acle.h>  // __yield()
+#include <arm_neon.h>  // NEON intrinsics
+#define _thread_pause() __yield()
+#define _simd_available() 1
+#define _aarch64_simd
 #elif defined(__riscv)
-#   define _thread_pause() asm volatile("pause" ::: "memory")
-#   define _simd_available() 0
+#define _thread_pause() asm volatile("pause" ::: "memory")
+#define _simd_available() 0
 #else
-#   include <thread>
-#   define _thread_pause() ::std::this_thread::yield()
-#   define _simd_available() 0
+#include <thread>
+#define _thread_pause() ::std::this_thread::yield()
+#define _simd_available() 0
 #endif
+
+namespace kairo {
+///
+/// \class SmallFunction
+/// \brief Fixed-capacity callable wrapper for small, move-only lambdas.
+///
+/// \tparam InlineSize Size in bytes of the inline storage buffer (default: 64).
+///
+/// \details
+/// The `SmallFunction` class provides a minimal type-erased wrapper around
+///     small callable objects such as lambdas, functors, or stateless function
+///     objects that fit within an inline buffer of size `InlineSize`.
+///
+/// Unlike `std::function`, this class:
+///     - Avoids heap allocation entirely for supported callables.
+///     - Requires that the stored callable fits in the static buffer.
+///     - Is move-only, ensuring safe ownership transfer in concurrent contexts.
+///
+/// ### Internal Layout
+/// Each instance contains:
+///     - An aligned inline buffer (`_storage`) where the callable is
+///       constructed in place.
+///     - Function pointers `_call` and `_destroy` used for type-erased
+///       invocation and cleanup.
+///
+/// ### Performance Characteristics
+///     - **O(1)** construction, move, destruction, and invocation.
+///     - No virtual dispatch or RTTI.
+///     - No dynamic memory allocation.
+///     - Cache-friendly and trivially relocatable.
+///
+/// \warning
+///     - Not copyable (move-only).
+///     - The callable must fit within `InlineSize` bytes; otherwise, a static
+///       assertion fails.
+///     - Undefined behavior if invoked after move-from or reset.
+///
+/// \example
+/// ```cpp
+/// kairo::SmallFunction<> f = [] { printf("Hello"); };
+/// f(); // prints "Hello"
+/// ```
+///
+/// \see ThreadPool, std::function
+///
+template <size_t InlineSize = 64>
+class SmallFunction {
+  private:
+    /// Forward declaration of internal storage struct.
+    struct Storage;
+
+    /// Type-erased function pointer types for call and destructor.
+    using CallFn = void (*)(const void *);
+    using DtorFn = void (*)(void *);
+
+    Storage _storage{};          ///< Inline storage for callable.
+    CallFn  _call    = nullptr;  ///< Type-erased call function.
+    DtorFn  _destroy = nullptr;  ///< Type-erased destructor function.
+
+    ///
+    /// \struct Storage
+    /// \brief Internal aligned storage buffer for callable placement.
+    ///
+    /// \details
+    /// Provides statically allocated space for storing callable
+    ///     objects of up to `InlineSize` bytes.
+    ///     Aligned to `max_align_t` for safety across platforms.
+    ///
+    struct Storage {
+        alignas(libcxx::max_align_t) libcxx::byte data[InlineSize];
+    };
+
+    ///
+    /// \brief Constructs a callable in the internal buffer.
+    ///
+    /// \tparam F Type of the callable.
+    /// \param f Callable instance to store.
+    ///
+    /// \details
+    ///     Performs placement-new into `_storage.data` and sets up
+    ///     function pointers for later invocation and destruction.
+    ///
+    template <typename F>
+    void emplace(F &&f);
+
+    ///
+    /// \brief Transfers ownership of callable data from another instance.
+    ///
+    /// \param other Source `SmallFunction` to move from.
+    ///
+    /// \details
+    /// Copies raw storage memory, moves function pointers, and clears
+    ///     the source. The move is shallow, as callable contents are already
+    ///     inline.
+    ///
+    void move_from(SmallFunction &&other) noexcept;
+
+  public:
+    ///
+    /// \brief Default constructor (creates an empty callable).
+    ///
+    /// \details
+    /// Initializes an empty `SmallFunction` with no stored callable.
+    ///     Invocation of an empty function is a no-op.
+    ///
+    SmallFunction() noexcept = default;
+
+    ///
+    /// \brief Destructor.
+    ///
+    /// \details
+    /// Destroys any stored callable if one exists, invoking its destructor
+    ///     using the `_destroy` function pointer.
+    ///     After destruction, both `_call` and `_destroy` are reset to null.
+    ///
+    ~SmallFunction();
+
+    ///
+    /// \brief Constructs a `SmallFunction` from any callable object.
+    ///
+    /// \tparam F Type of the callable (deduced automatically).
+    /// \param f Callable object to store.
+    ///
+    /// \details
+    /// Constructs the callable in-place within the inline buffer and
+    ///     generates lightweight, type-erased function pointers for invocation
+    ///     and destruction.
+    ///
+    /// \warning
+    /// If `sizeof(F)` exceeds `InlineSize`, compilation fails.
+    ///
+    template <typename F>
+    SmallFunction(F &&f);
+
+    ///
+    /// \brief Move constructor.
+    ///
+    /// \param other Source `SmallFunction` to move from.
+    ///
+    /// \details
+    /// Transfers ownership of the callable and metadata from another
+    ///     `SmallFunction`, resetting the source to an empty state.
+    ///
+    SmallFunction(SmallFunction &&other) noexcept;
+
+    ///
+    /// \brief Move assignment operator.
+    ///
+    /// \param other Source `SmallFunction` to move from.
+    /// \return Reference to `*this`.
+    ///
+    /// \details
+    /// Clears the current callable (if any) and transfers ownership
+    ///     from another `SmallFunction`.
+    ///
+    SmallFunction &operator=(SmallFunction &&other) noexcept;
+
+    ///
+    /// \brief Copy operations are deleted.
+    ///
+    /// \details
+    /// Copying `SmallFunction` would require duplicating opaque callable
+    ///     state, which is unsafe without dynamic type reconstruction.
+    ///
+    SmallFunction(const SmallFunction &)            = delete;
+    SmallFunction &operator=(const SmallFunction &) = delete;
+
+    ///
+    /// \brief Invokes the stored callable if one exists.
+    ///
+    /// \details
+    /// Performs a direct type-erased call through `_call`.
+    /// If no callable is present, the function returns silently.
+    ///
+    /// \note Invocation is noexcept if the stored callable is noexcept.
+    ///
+    void operator()() const;
+
+    ///
+    /// \brief Resets and destroys the stored callable.
+    ///
+    /// \details
+    /// Calls the stored destructor function (if any) and clears both
+    ///     function pointers. After `reset()`, the instance becomes empty and
+    ///     safe to reuse.
+    ///
+    void reset() noexcept;
+
+    ///
+    /// \brief Checks whether a callable is stored.
+    ///
+    /// \return `true` if callable exists, `false` otherwise.
+    ///
+    [[nodiscard]] bool valid() const noexcept;
+};
+}  // namespace kairo
 
 namespace kairo::std {
 ///
@@ -237,17 +435,17 @@ using nullptr_t = decltype(nullptr);
 /// \tparam T Underlying pointer type.
 ///
 template <typename T>
-using const_ptr = const T*;
+using const_ptr = const T *;
 
 ///
 /// \brief Restrict qualifier macro for pointer optimization.
 ///
 #if defined(__GNUC__) || defined(__clang__)
-#  define __RESTRICT__ __restrict__
+#define __RESTRICT__ __restrict__
 #elif defined(_MSC_VER)
-#  define __RESTRICT__ __restrict
+#define __RESTRICT__ __restrict
 #else
-#  define __RESTRICT__
+#define __RESTRICT__
 #endif
 
 ///
@@ -256,8 +454,8 @@ using const_ptr = const T*;
 /// \tparam T Underlying pointer type.
 /// \see __RESTRICT__
 ///
-template<typename T>
-using restrict_ptr = T* __RESTRICT__;
+template <typename T>
+using restrict_ptr = T *__RESTRICT__;
 
 template <typename T, typename E>
 class Expected {
@@ -274,21 +472,20 @@ class Expected {
     constexpr Expected(const T &val)
         : value(val)
         , has_value(true) {}
-    
-        constexpr Expected(T &&val)
+
+    constexpr Expected(T &&val)
         : value(libcxx::move(val))
         , has_value(true) {}
-    
-        constexpr Expected(const E &err)
+
+    constexpr Expected(const E &err)
         : error(err)
         , has_value(false) {}
-    
-        constexpr Expected(E &&err)
+
+    constexpr Expected(E &&err)
         : error(libcxx::move(err))
         , has_value(false) {}
 
-    
-        constexpr Expected(const Expected &other)
+    constexpr Expected(const Expected &other)
         : has_value(other.has_value) {
         if (has_value) {
             libcxx::construct_at(&value, other.value);
@@ -333,46 +530,46 @@ class Expected {
     constexpr explicit operator bool() const { return has_value; }
     constexpr bool     check() const { return has_value; }
 
-    constexpr T       &operator*()       & { return value; }
+    constexpr T       &operator*()       &{ return value; }
     constexpr const T &operator*() const & { return value; }
-    constexpr T      &&operator*()      && { return libcxx::move(value); }
+    constexpr T      &&operator*()      &&{ return libcxx::move(value); }
 
-    constexpr T       *operator->()       { return &value; }
+    constexpr T       *operator->() { return &value; }
     constexpr const T *operator->() const { return &value; }
 
-    constexpr E       &err()       & { return error; }
+    constexpr E       &err()       &{ return error; }
     constexpr const E &err() const & { return error; }
-    constexpr E      &&err()      && { return libcxx::move(error); }
+    constexpr E      &&err()      &&{ return libcxx::move(error); }
 
-    constexpr T      &value_or(T &default_value) & {
+    constexpr T &value_or(T &default_value) & {
         return has_value ? value : default_value;
     }
-    
-    constexpr T      value_or(T &&default_value) && {
+
+    constexpr T value_or(T &&default_value) && {
         return has_value ? libcxx::move(value) : libcxx::move(default_value);
     }
-    
-    constexpr T      value_or(const T &default_value) const & {
+
+    constexpr T value_or(const T &default_value) const & {
         return has_value ? value : default_value;
     }
-    
-    constexpr T      value_or(T &&default_value) const & {
+
+    constexpr T value_or(T &&default_value) const & {
         return has_value ? value : libcxx::move(default_value);
     }
-    
-    constexpr E      err_or(E &default_error) & {
+
+    constexpr E err_or(E &default_error) & {
         return has_value ? default_error : error;
     }
-    
-    constexpr E      err_or(E &&default_error) && {
+
+    constexpr E err_or(E &&default_error) && {
         return has_value ? libcxx::move(default_error) : libcxx::move(error);
     }
-    
-    constexpr E      err_or(const E &default_error) const & {
+
+    constexpr E err_or(const E &default_error) const & {
         return has_value ? default_error : error;
     }
-    
-    constexpr E      err_or(E &&default_error) const & {
+
+    constexpr E err_or(E &&default_error) const & {
         return has_value ? default_error : libcxx::move(error);
     }
 };
@@ -380,7 +577,7 @@ class Expected {
 template <typename T>
 class Expected<T, std::null_t> {
     union {
-        T value;
+        T    value;
         char dummy;
     };
     bool has_value;
@@ -455,11 +652,11 @@ class Expected<T, std::null_t> {
     constexpr explicit operator bool() const { return has_value; }
     constexpr bool     check() const { return has_value; }
 
-    constexpr T       &operator*()       & { return value; }
+    constexpr T       &operator*()       &{ return value; }
     constexpr const T &operator*() const & { return value; }
-    constexpr T      &&operator*()      && { return libcxx::move(value); }
+    constexpr T      &&operator*()      &&{ return libcxx::move(value); }
 
-    constexpr T       *operator->()       { return &value; }
+    constexpr T       *operator->() { return &value; }
     constexpr const T *operator->() const { return &value; }
 
     // No err() methods - there's no error to return
@@ -483,6 +680,67 @@ class Expected<T, std::null_t> {
 
 template <typename T>
 using Nullable = Expected<T, std::null_t>;
+
+template <typename Rt, typename... Tp>
+inline void sleep_while(std::Function<Rt, Tp...> condition) {
+    for (u16 i = 0; i < 1000 && condition(); ++i) {
+        _thread_pause();
+    }
+
+    if (!condition()) {
+        return;
+    }
+
+    for (u16 i = 0; i < 64 && condition(); ++i) {
+        libcxx::this_thread::yield();
+    }
+
+    if (!condition()) {
+        return;
+    }
+
+    for (u16 i = 0; i < 256 && condition(); ++i) {
+        libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(1));
+    }
+
+    if (!condition()) {
+        return;
+    }
+
+    while (condition()) {
+        libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
+    }
+}
+
+template <typename F>
+inline void sleep_while(F &&condition) // NOLINT(cppcoreguidelines-missing-std-forward)
+    requires(libcxx::is_invocable_r_v<bool, libcxx::decay_t<F>>)
+{
+    for (u16 i = 0; i < 1000 && condition(); ++i) {
+        _thread_pause();
+    }
+    if (!condition()) {
+        return;
+    }
+
+    for (u16 i = 0; i < 64 && condition(); ++i) {
+        libcxx::this_thread::yield();
+    }
+    if (!condition()) {
+        return;
+    }
+
+    for (u16 i = 0; i < 256 && condition(); ++i) {
+        libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(1));
+    }
+    if (!condition()) {
+        return;
+    }
+
+    while (condition()) {
+        libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
+    }
+}
 
 ///
 /// \note
