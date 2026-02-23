@@ -77,6 +77,27 @@ default class Path {
                          .__inline_cpp("type()");
     }
 
+    static fn cwd() -> Path {
+        return Path(libcxx::filesystem::current_path().generic_wstring());
+    }
+
+    static fn home() -> Path {
+        var home_env = libcxx::getenv(r"HOME");
+        if home_env == &null {
+            std::crash(std::Error::RuntimeError("Path::home: HOME environment variable not set"));
+        }
+
+        return Path(libcxx::filesystem::path(home_env).generic_wstring());
+    }
+
+    static fn temp_dir() -> Path {
+        return Path(libcxx::filesystem::temp_directory_path().generic_wstring());
+    }
+
+    static fn root() -> Path {
+        return Path(libcxx::filesystem::path(r"/").generic_wstring());
+    }
+
     ///
     /// \brief checks if path exists.
     ///
@@ -178,6 +199,22 @@ default class Path {
     ///
     fn op as (self) -> *FilePath {
         return &self.path_data;
+    }
+
+    fn op / (self, other: string) -> Path {
+        return Path(
+            (
+                (self.path_data) / (FilePath(other.raw_string()))
+            ).generic_wstring()
+        );
+    }
+
+    fn op / (self, other: Path) -> Path {
+        return Path((self.path_data / other.path_data).generic_wstring());
+    }
+
+    fn op / (self, other: FilePath) -> Path {
+        return Path((self.path_data / other).generic_wstring());
     }
 
     ///
