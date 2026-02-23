@@ -60,9 +60,10 @@ import Core::ThreadPool::*;
 class VirtualFileManager {
     class Segment; ///< forward declaration of Segment class.
     
-    priv var _parents:  vec::<*MappedFileBuffer> = vec::<*MappedFileBuffer>();
-    priv var _segments: vec::<*Segment>          = vec::<*Segment>();
-    priv var _next_fid: u32 = 0;
+    priv var _parents:       vec::<*MappedFileBuffer> = vec::<*MappedFileBuffer>();
+    priv var _segments:      vec::<*Segment>          = vec::<*Segment>();
+    priv var _next_fid:      u32   = 0;
+    priv var _global_offset: usize = 0;
 
     ///
     /// \class Segment
@@ -79,6 +80,7 @@ class VirtualFileManager {
         pub var offset: usize;            ///< byte offset within the file.
         pub var size:   usize;            ///< segment size in bytes.
         pub var buffer: MappedFileBuffer; ///< mapped region buffer.
+        pub var global_base: usize;  ///< cumulative offset in the global source space
 
         ///
         /// \brief default constructor (invalid segment).
@@ -88,6 +90,7 @@ class VirtualFileManager {
             self.offset = 0;
             self.size   = 0;
             self.path   = Path();
+            self.global_base = 0;
         }
 
         ///
@@ -98,6 +101,7 @@ class VirtualFileManager {
             self.path   = path;
             self.offset = offset;
             self.size   = size;
+            self.global_base = 0; // will be set by VirtualFileManager after creation
         }
 
         ///
@@ -164,7 +168,10 @@ class VirtualFileManager {
     ///
     /// \brief default constructor.
     ///
-    default fn VirtualFileManager(self);
+    fn VirtualFileManager(self) {
+        self._next_fid = 0;
+        self._global_offset = 0;
+    }
 
     ///
     /// \brief destructor; releases all mapped segments and parent buffers.
@@ -210,7 +217,7 @@ class VirtualFileManager {
 
         var total     = parent->bytes().size();
         var nseg: u32 = static_cast::<u32>((total + 0x100000000 - 1) / 0x100000000);
-        var base_fid  = (self._next_fid);
+        var base_fid  = self._next_fid;
 
         _parents.push_back(parent);
 
@@ -218,8 +225,13 @@ class VirtualFileManager {
             var start   = (i as usize) * 0x100000000;
             var remain  = total - start;
             var seg_len = (remain if remain < 0x100000000 else 0x100000000);
-            var seg     = std::create::<Segment>(_next_fid++, abs, start, seg_len);
-            
+            var seg_fid = self._next_fid;
+            self._next_fid += 1;
+            var seg     = std::create::<Segment>(seg_fid, abs, start, seg_len);
+
+            seg->global_base = self._global_offset;
+            self._global_offset += seg_len;
+
             seg->attach(parent, start, seg_len);
             _segments.push_back(seg);
         }
@@ -240,11 +252,16 @@ class VirtualFileManager {
     /// \return file id assigned to the new segment.
     ///
     fn register_virtual(self, fake_path: Path, data: std::const_ptr::<u8>, size: usize) -> u32 {
-        var seg = std::create::<Segment>((self._next_fid)++, Path(fake_path.full_path()), 0, size);
-        
+        var seg_fid = self._next_fid;
+        self._next_fid += 1;
+        var seg = std::create::<Segment>(seg_fid, Path(fake_path.full_path()), 0, size);
+
+        seg->global_base = self._global_offset;
+        self._global_offset += size;
+
         seg->buffer.attach_raw(const_cast::<*u8>(data), size);
         self._segments.push_back(seg);
-        
+
         return self._next_fid - 1;
     }
 
@@ -351,7 +368,10 @@ class VirtualFileManager {
             std::crash(std::Error::RuntimeError(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})"));
         }
 
-        return SourceLocation::from_base(_segments[seg_idx]->fid, local_off);
+        // encode as global_base + local_offset + 1 (SourceLocation 0 = invalid)
+        return SourceLocation::from_raw(
+            static_cast::<u32>(self._segments[seg_idx]->global_base + local_off + 1)
+        );
     }
 
     /// just a pointer should also return a srouce location
@@ -368,6 +388,26 @@ class VirtualFileManager {
             self.get_loc(fid, off),
             self.get_loc(fid, off + len)
         );
+    }
+
+
+    fn resolve_loc(self, loc: SourceLocation) -> SegmentResolve {
+        var id = static_cast::<usize>(loc.raw());
+        if id == 0 {
+            return { .fid: static_cast::<usize>(-1), .offset: 0 };
+        }
+        id -= 1; // SourceLocation is 1-based
+
+        for seg: *Segment in _segments {
+            if id >= seg->global_base && id < (seg->global_base + seg->size) {
+                return {
+                    .fid:    seg->fid,
+                    .offset: id - seg->global_base
+                };
+            }
+        }
+
+        return { .fid: static_cast::<usize>(-1), .offset: 0 };
     }
 
     ///

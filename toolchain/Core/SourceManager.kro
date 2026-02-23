@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Core/Types.hh";
 
 import Core::SourceFile::*;
 import Core::SourceLocation::*;
@@ -23,6 +23,7 @@ import Core::MemoryBuffer::*;
 import Core::SourceLineTable::*;
 import Core::ThreadPool::*;
 import Core::VirtualFileManager::*;
+import Core::Assert::*;
 
 type FileID = u32;;
 
@@ -157,6 +158,7 @@ class SourceManager {
             }
         "));
 
+        std::print(f"load_file: path={path.full_path()}, base_fid={base_fid}, _files.size()={self._files.size()}");
         return base_fid;
     }
 
@@ -274,41 +276,7 @@ class SourceManager {
     /// \return segment info `{fid, offset}` or invalid if not found.
     ///
     fn resolve(self, loc: SourceLocation) -> VirtualFileManager::SegmentResolve {
-        var id = static_cast::<usize>(loc.raw());
-
-        if id > 0 {
-            --id;
-        }
-
-        for i in range::<usize>(0, self._files.size()) {
-            var f = self._files[i];
-
-            if id >= f->base_offset && id < f->end_offset() {
-                return {
-                    .fid: i,
-                    .offset: id - f->base_offset
-                };
-            }
-        }
-
-        return {
-            .fid: static_cast::<usize>(-1),
-            .offset: 0
-        };
-    }
-
-    fn resolve(self, loc: SourceLocation, fid: FileID) -> VirtualFileManager::SegmentResolve {
-        var id = static_cast::<usize>(loc.raw());
-
-        if id > 0 {
-            --id;
-        }
-
-        var f = self._files[fid];
-        return {
-            .fid: fid,
-            .offset: id - f->base_offset
-        };
+        return self._vfile_mgr->resolve_loc(loc);
     }
 
     ///
@@ -426,6 +394,13 @@ class SourceManager {
     ///
     fn get_view(self, range: SourceRange) -> MemoryBuffer {
         var res     = self.resolve(range.start);
+        // std::print(f"get_view: range.start.raw()={range.start.raw()}, resolved fid={res.fid}, offset={res.offset}, _files.size()={self._files.size()}");
+        
+        // if res.fid >= self._files.size() {
+        //     std::print(f"get_view: INVALID fid {res.fid} >= {self._files.size()}");
+        //     return MemoryBuffer();
+        // }
+
         var file_id = res.fid;
         var offset  = res.offset;
         var length  = static_cast::<usize>(range.end.raw() - range.start.raw());
@@ -529,7 +504,7 @@ class SourceManager {
     /// \param loc location to read from.
     /// \return UTF-32 codepoint, or 0 if invalid.
     ///
-    fn get_char_at(self, loc: SourceLocation) -> FileID {
+    fn get_char_at(self, loc: SourceLocation) -> char {
         var range = SourceRange::single(loc);
         var buf   = self.get_view(range);
         
@@ -620,6 +595,39 @@ class SourceManager {
         return start_line != end_line;
     }
 
+    fn get_fid(self, loc: SourceLocation) -> FileID {
+        var res = self.resolve(loc);
+        return res.fid;
+    }
+
+    fn get_fid(self, range: SourceRange) -> FileID {
+        var res = self.resolve(range.start);
+        return res.fid;
+    }
+
+    fn get_offset(self, loc: SourceLocation) -> usize {
+        var res = self.resolve(loc);
+        return res.offset;
+    }
+
+    fn get_offset(self, range: SourceRange) -> usize {
+        var res = self.resolve(range.start);
+        return res.offset;
+    }
+
+    fn get_file_size(self, fid: FileID) -> usize {
+        if (fid >= self._files.size()) || (self._files[fid] == &null) {
+            return 0;
+        }
+
+        return self._files[fid]->size_bytes;
+    }
+
+    fn get_file_size(self, loc: SourceLocation) -> usize {
+        var res = self.resolve(loc);
+        return self.get_file_size(res.fid);
+    }
+
     ///
     /// \brief resets the manager to initial state.
     ///
@@ -647,119 +655,245 @@ class SourceManager {
 }
 
 fn Test() -> i32 {
-    std::print("=== SourceManager Test ===");
-
-    var pool: *ThreadPool;
-    var vfm:  *VirtualFileManager;
-    var sm:   *SourceManager;
-    var path:  Path;
-    var fid:   FileID;
+    var pool = std::create::<ThreadPool>(4);
+    var vfm  = std::create::<VirtualFileManager>();
+    var sm   = std::create::<SourceManager>(pool, vfm);
 
     finally {
-        if sm != &null {
-            delete sm;
-            sm = &null;
-        }
-
-        if pool != &null {
-            delete pool;
-            pool = &null;
-        }
-
-        if vfm != &null {
-            delete vfm;
-            vfm = &null;
-        }
+        std::destroy(sm);
+        std::destroy(vfm);
+        std::destroy(pool);
     }
 
-    __inline_cpp("{");
-        var timer = Timer("SourceManager Test");
+    var suite = Assert("SourceManager Multi-File Tests");
 
-        pool = std::create::<ThreadPool>(4);
-        vfm  = std::create::<VirtualFileManager>();
-        sm   = std::create::<SourceManager>(pool, vfm);
-        path = Path("run.ps1");
-        fid  = sm->load_file(path);
-    __inline_cpp("}");
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
 
-    __inline_cpp("{");
-        var timer = Timer("Waiting for line index");
-        sm->wait_for_line_index(fid);
-    __inline_cpp("}");
+    static var data0: libcxx::string;
+    static var data1: libcxx::string;
 
-    std::print(f"file {fid} ready!");
+    var file0_str = "hello world\nline two\n";
+    var file1_str = "module Foo {\n    macro mac! { 10 }\n}\n";
 
-    var view: VirtualFileManager::FileHandle;
+    var nd0 = std::string_to_nstring(file0_str);
+    data0 = libcxx::string(nd0);
+    var nd1 = std::string_to_nstring(file1_str);
+    data1 = libcxx::string(nd1);
 
-    __inline_cpp("{");
-        var timer = Timer("Getting file view");
-        view = sm->get_file_view(fid);
-    __inline_cpp("}");
+    var fid0 = sm->load_virtual(
+        Path("test_file0.kro", false),
+        reinterpret_cast::<std::const_ptr::<u8>>(data0.data()),
+        file0_str.size()
+    );
 
-    var data = view.data;
-    var size = view.size;
+    var fid1 = sm->load_virtual(
+        Path("test_file1.kro", false),
+        reinterpret_cast::<std::const_ptr::<u8>>(data1.data()),
+        file1_str.size()
+    );
 
-    std::print(f"Contiguous view size = {size} bytes");
+    // =========================================================================
+    // FILE REGISTRATION
+    // =========================================================================
 
-    var test_offset: usize = 11000000000;
-    if test_offset >= size {
-        test_offset = size - 1024;
-    }
+    suite.equal::<string>("fid0 is 0", "pass", fn () -> string {
+        if fid0 != 0 { return f"expected fid0=0, got {fid0}"; }
+        return "pass";
+    });
 
-    var loc: SourceLocation;
+    suite.equal::<string>("fid1 is 1", "pass", fn () -> string {
+        if fid1 != 1 { return f"expected fid1=1, got {fid1}"; }
+        return "pass";
+    });
 
-    __inline_cpp("{");
-        var timer = Timer("Resolving location from offset");
-        loc = sm->get_loc(fid, test_offset);
-    __inline_cpp("}");
+    suite.equal::<string>("total bytes = sum of file sizes", "pass", fn () -> string {
+        var expected = file0_str.size() + file1_str.size();
+        var actual = sm->total_bytes();
+        if actual != expected {
+            return f"expected total_bytes={expected}, got {actual}";
+        }
+        return "pass";
+    });
 
-    std::print(f"loc.raw() = {loc.raw()}");
+    // =========================================================================
+    // GET_LOC / RESOLVE ROUND-TRIP: FILE 0
+    // =========================================================================
 
-    var ptr = data + test_offset;
-    var resolved_ptr: VirtualFileManager::SegmentResolve;
+    suite.equal::<string>("file0: get_loc(0) resolves to fid=0 offset=0", "pass", fn () -> string {
+        var loc = sm->get_loc(fid0, 0);
+        var res = sm->resolve(loc);
+        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
+        if res.offset != 0 { return f"offset: expected 0, got {res.offset}"; }
+        return "pass";
+    });
 
-    __inline_cpp("{");
-        var timer = Timer("Resolving pointer → fid/offset");
-        resolved_ptr = sm->resolve_ptr(ptr);
-    __inline_cpp("}");
+    suite.equal::<string>("file0: get_loc(5) resolves to fid=0 offset=5", "pass", fn () -> string {
+        var loc = sm->get_loc(fid0, 5);
+        var res = sm->resolve(loc);
+        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
+        if res.offset != 5 { return f"offset: expected 5, got {res.offset}"; }
+        return "pass";
+    });
 
-    var rid  = resolved_ptr.fid;
-    var roff = resolved_ptr.offset;
+    suite.equal::<string>("file0: last byte resolves correctly", "pass", fn () -> string {
+        var last = file0_str.size() - 1;
+        var loc = sm->get_loc(fid0, last);
+        var res = sm->resolve(loc);
+        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
+        if res.offset != last { return f"offset: expected {last}, got {res.offset}"; }
+        return "pass";
+    });
 
-    std::print(f"Resolved pointer → fid={rid}, local_offset={roff}");
+    // =========================================================================
+    // GET_LOC / RESOLVE ROUND-TRIP: FILE 1
+    // =========================================================================
 
-    var range: SourceRange;
+    suite.equal::<string>("file1: get_loc(0) resolves to fid=1 offset=0", "pass", fn () -> string {
+        var loc = sm->get_loc(fid1, 0);
+        var res = sm->resolve(loc);
+        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
+        if res.offset != 0 { return f"offset: expected 0, got {res.offset}"; }
+        return "pass";
+    });
 
-    __inline_cpp("{");
-        var timer = Timer("Constructing SourceRange");
-        range = sm->get_range(fid, test_offset, 1024 * 1024); // +1MB
-    __inline_cpp("}");
+    suite.equal::<string>("file1: get_loc(7) resolves to fid=1 offset=7", "pass", fn () -> string {
+        var loc = sm->get_loc(fid1, 7);
+        var res = sm->resolve(loc);
+        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
+        if res.offset != 7 { return f"offset: expected 7, got {res.offset}"; }
+        return "pass";
+    });
 
-    std::print(f"SourceRange = [{range.start.raw()} → {range.end.raw()}]");
+    suite.equal::<string>("file1: last byte resolves correctly", "pass", fn () -> string {
+        var last = file1_str.size() - 1;
+        var loc = sm->get_loc(fid1, last);
+        var res = sm->resolve(loc);
+        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
+        if res.offset != last { return f"offset: expected {last}, got {res.offset}"; }
+        return "pass";
+    });
 
-    var full_loc: FullSourceLocation;
+    // =========================================================================
+    // GET_TEXT: FILE 0
+    // =========================================================================
 
-    __inline_cpp("{");
-        var timer = Timer("Getting line/col from loc");
-        full_loc = sm->get_line_col(loc);
-    __inline_cpp("}");
+    suite.equal::<string>("file0: get_text [0,5] = 'hello' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid0, 0, 5));
+        if text != "hello" { return f"expected 'hello', got '{text}' "; }
+        return "pass";
+    });
 
-    var line = full_loc.line;
-    var col  = full_loc.column;
+    suite.equal::<string>("file0: get_text [6,11] = 'world' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid0, 6, 5));
+        if text != "world" { return f"expected 'world', got '{text}' "; }
+        return "pass";
+    });
 
-    std::print(f"Line/Column = {line}:{col}");
+    suite.equal::<string>("file0: get_text [0,11] = 'hello world' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid0, 0, 11));
+        if text != "hello world" { return f"expected 'hello world', got '{text}' "; }
+        return "pass";
+    });
 
-    /// get the string at the sroucerange
-    var mbuf: MemoryBuffer;
-    __inline_cpp("{");
-        var timer = Timer("Getting MemoryBuffer from SourceRange");
-        mbuf = sm->get_view(range);
-    __inline_cpp("}");
+    // =========================================================================
+    // GET_TEXT: FILE 1
+    // =========================================================================
 
-    std::print(f"line table dump: {sm->_line_table}");
-    std::print(f"VFS dump: {*vfm}");
+    suite.equal::<string>("file1: get_text [0,6] = 'module' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid1, 0, 6));
+        if text != "module" { return f"expected 'module', got '{text}' "; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1: get_text [7,10] = 'Foo' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid1, 7, 3));
+        if text != "Foo" { return f"expected 'Foo', got '{text}' "; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1: get_text [17,22] = 'macro' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid1, 17, 5));
+        if text != "macro" { return f"expected 'macro', got '{text}' "; }
+        return "pass";
+    });
+
+    // =========================================================================
+    // GET_VIEW: BUFFER CORRECTNESS
+    // =========================================================================
+
+    suite.equal::<string>("file0: get_view bytes match 'hello' ", "pass", fn () -> string {
+        var view = sm->get_view(sm->get_range(fid0, 0, 5));
+        if view.data() == &null { return "view data is null"; }
+        if view.size() != 5 { return f"expected size 5, got {view.size()}"; }
+        // h=104 e=101 l=108 l=108 o=111
+        if view.data()[0] != 104 { return f"byte 0: expected 104, got {view.data()[0]}"; }
+        if view.data()[1] != 101 { return f"byte 1: expected 101, got {view.data()[1]}"; }
+        if view.data()[4] != 111 { return f"byte 4: expected 111, got {view.data()[4]}"; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1: get_view bytes match 'Foo' ", "pass", fn () -> string {
+        var view = sm->get_view(sm->get_range(fid1, 7, 3));
+        if view.data() == &null { return "view data is null"; }
+        if view.size() != 3 { return f"expected size 3, got {view.size()}"; }
+        // F=70 o=111 o=111
+        if view.data()[0] != 70 { return f"byte 0: expected 70, got {view.data()[0]}"; }
+        if view.data()[1] != 111 { return f"byte 1: expected 111, got {view.data()[1]}"; }
+        return "pass";
+    });
+
+    // =========================================================================
+    // CROSS-FILE ISOLATION
+    // =========================================================================
+
+    suite.equal::<string>("file0 locations never resolve to file1", "pass", fn () -> string {
+        for i in range::<usize>(0, file0_str.size()) {
+            var loc = sm->get_loc(fid0, i);
+            var res = sm->resolve(loc);
+            if res.fid != 0 {
+                return f"offset {i}: resolved to fid={res.fid}, expected 0";
+            }
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1 locations never resolve to file0", "pass", fn () -> string {
+        for i in range::<usize>(0, file1_str.size()) {
+            var loc = sm->get_loc(fid1, i);
+            var res = sm->resolve(loc);
+            if res.fid != 1 {
+                return f"offset {i}: resolved to fid={res.fid}, expected 1";
+            }
+        }
+        return "pass";
+    });
+
+    // =========================================================================
+    // GET_BUFFER
+    // =========================================================================
+
+    suite.equal::<string>("get_buffer(fid0) returns correct size", "pass", fn () -> string {
+        var buf = sm->get_buffer(fid0);
+        if buf == null { return "buffer is null"; }
+        var b = (*buf);
+        if b.size() != file0_str.size() {
+            return f"expected size {file0_str.size()}, got {b.size()}";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("get_buffer(fid1) returns correct size", "pass", fn () -> string {
+        var buf = sm->get_buffer(fid1);
+        if buf == null { return "buffer is null"; }
+        var b = (*buf);
+        if b.size() != file1_str.size() {
+            return f"expected size {file1_str.size()}, got {b.size()}";
+        }
+        return "pass";
+    });
 
     pool->wait_all();
-
     return 0;
 }
