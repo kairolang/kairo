@@ -88,7 +88,7 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
             }
 
             if (*token) == TokenKind::TkError {
-                std::print(f"Invalid token found at {token->range} excepted a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' token\n");
+                std::print(f"Invalid token found at {token->range} expected a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' token\n");
             }
         }
     }
@@ -204,6 +204,23 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
         self._total_length = 0;
         self._chunks       = &null;
         self._allocator.reset();
+    }
+
+    fn swap(self, other: *TokenBuffer::<CHUNK_SIZE>) {
+        var tmp_alloc   = std::Memory::move(self._allocator);
+        var tmp_chunks  = self._chunks;
+        var tmp_cc      = self._chunk_count;
+        var tmp_len     = self._total_length;
+
+        self._allocator    = std::Memory::move(other->_allocator);
+        self._chunks       = other->_chunks;
+        self._chunk_count  = other->_chunk_count;
+        self._total_length = other->_total_length;
+
+        other->_allocator    = std::Memory::move(tmp_alloc);
+        other->_chunks       = tmp_chunks;
+        other->_chunk_count  = tmp_cc;
+        other->_total_length = tmp_len;
     }
 
     fn op delete (self) {
