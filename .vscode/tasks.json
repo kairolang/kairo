@@ -9,7 +9,6 @@
         "test",
         "${file}",
         "--compile-only",
-        "--verbose",
       ],
       "problemMatcher": [],
       "options": {

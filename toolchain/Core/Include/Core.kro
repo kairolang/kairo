@@ -6,7 +6,7 @@ import Core::TokenKind::*;
 /// TokenKind has: import Core::EvalHash::*;
 
 import Core::SourceManager::*;
-/// SourceManager has: ffi "c++" import "Types.hh";
+/// SourceManager has: ffi "c++" import "Core/Types.hh";
 /// SourceManager has: Core::SourceFile::*;
 ///     SourceFile has: import Core::Path::*;
 ///     SourceFile has: import Core::MappedFileBuffer::*;
