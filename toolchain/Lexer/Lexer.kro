@@ -232,6 +232,7 @@ class Lexer {
 
         var base:         u8;
         var has_prefix:   bool;
+        var has_suffix:   bool;
         var has_decimal:  bool;
         var has_exponent: bool;
 
@@ -887,12 +888,12 @@ class Lexer {
         );
     }
 
-    inline priv fn create_error_token(self, start: SourceLocation, excepted: TokenKind, kind: TokenKind = TokenKind::TkError) -> Token {
+    inline priv fn create_error_token(self, start: SourceLocation, expected: TokenKind, kind: TokenKind = TokenKind::TkError) -> Token {
         self._last_kind = LastTokenKind::None;
         return {
             .range : self.create_source_range(start),
             .kind  : kind,
-            .imm   : static_cast::<u32>(excepted)
+            .imm   : static_cast::<u32>(expected)
         };
     }
 
@@ -1215,8 +1216,10 @@ class Lexer {
         
         if self.is_valid_name(d) != 0 {
             ctx.suffix = self.lex_name(self.get_source_location());
+            ctx.has_suffix = true;
         } else {
             ctx.suffix = Token();
+            ctx.has_suffix = false;
         }
     }
 
@@ -1250,7 +1253,7 @@ class Lexer {
             }
 
             // bit4: has_suffix
-            if ctx.suffix.kind != TokenKind::TkUnknown {
+            if ctx.has_suffix {
                 imm->flags |= 0b00010000;
                 imm->suffix = ctx.suffix.range;
             }
@@ -1276,7 +1279,7 @@ class Lexer {
             }
 
             // bit3: has_suffix
-            if ctx.suffix.kind != TokenKind::TkUnknown {
+            if ctx.has_suffix {
                 imm->flags |= 0b00001000;
                 imm->suffix = ctx.suffix.range;
             }
@@ -1359,6 +1362,41 @@ class Lexer {
                         best_len = 4;
                     }
                 }
+            }
+        }
+
+        // ── git conflict marker detection ──────────────────────────────
+        // check for 7+ repeated '<', '=', '>'
+        if (C1.chr == '<') || (C1.chr == '>') || (C1.chr == '=') {
+            var conflict_char = C1.chr;
+            var run_len: usize = 0;
+
+            // count how many in a row (need 7)
+            var scan_offset: isize = 0;
+            while run_len < 7 {
+                var sc = self.peek_char32(scan_offset);
+                if sc.chr != conflict_char || sc.len == 0 { break; }
+                run_len += 1;
+                scan_offset += 1;
+            }
+
+            if run_len >= 7 {
+                // consume to end of line
+                var line_start = start;
+                while !self.is_eof() {
+                    var d = self.peek_char32();
+                    if d.chr == 0x0A || d.chr == 0x0D || d.len == 0 { break; }
+                    self.advance_cursor(d.len);
+                }
+
+                switch conflict_char {
+                    case '<' { self._conflict_state = ConflictMarker::Start; }
+                    case '=' { self._conflict_state = ConflictMarker::Separator; }
+                    case '>' { self._conflict_state = ConflictMarker::End; }
+                }
+
+                // TODO: emit proper conflict diagnostic
+                return self.create_error_token(start, TokenKind::TkError, TokenKind::TkError);
             }
         }
 
@@ -2268,6 +2306,10 @@ class Lexer {
         return self._imm_tbl.get::<T>(imm_idx);
     }
 
+    fn get_imm_tbl(self) -> *ImmediateTable {
+        return &self._imm_tbl;
+    }
+
     fn wait_for_imm_evaluation(self) {
         self._imm_tbl.wait_for_evaluation();
     }
@@ -2326,6 +2368,11 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
         return self._sm->get_text(tok.range);
     }
 
+    fn get_lexer(self, fid: u32) -> *Lexer {
+        if !self._kv_s.contains(fid) { return &null; }
+        return self._kv_s[fid];
+    }
+
     fn reset(self) {
         for k, v in self._kv_s {
             delete v;
@@ -2335,12 +2382,40 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     fn op [] (self, fid: u32) -> *(TokenBuffer::<512>) {
         return self.get_tokens(fid);
     }
+
+    fn replace_tokens(self, fid: u32, new_tokens: *(TokenBuffer::<512>)) {
+        if !self._kv_s.contains(fid) || self._kv_s[fid] == &null {
+            std::destroy(new_tokens);
+            return;
+        }
+
+        // just swap — the old tokens (now in new_tokens) contain data
+        // that MacroDefinition body spans still reference, so we
+        // intentionally leak them. The TCM owns them until shutdown.
+        self._kv_s[fid]->tokens()->swap(new_tokens);
+        // DO NOT destroy new_tokens — it holds the original token data
+        // that macro body TokenSpans still point into
+    }
+
+    /// \brief returns the ImmediateTable for the file that owns this token
+    /// \details resolves via the token's range → fid lookup in the SourceManager
+    fn get_imm_table_for_token(self, tok: Token, sm: *SourceManager) -> *ImmediateTable {
+        var fid = sm->get_fid(tok.range.start);
+        if fid == 0 { return &null; }
+        if !self._kv_s.contains(fid) { return &null; }
+        var lexer = self._kv_s[fid];
+        if lexer == &null { return &null; }
+        return lexer->get_imm_tbl();
+    }
+
+    /// \brief convenience — gets the fid for a token
+    fn get_fid_for_token(self, tok: Token, sm: *SourceManager) -> u32 {
+        return sm->get_fid(tok.range.start);
+    }
 }
 
 fn Test() -> i32 {
-    const var NEWLINE = __inline_cpp("string(L\"\\n\")");
-
-    std::print("=== Lexer Test Suite ===" + NEWLINE);
+    std::print("=== Lexer Test Suite ===\n ");
 
     var pool = std::create::<ThreadPool>(4);
     var vfm  = std::create::<VirtualFileManager>();
@@ -5410,4 +5485,3 @@ fn Test() -> i32 {
 
     return 0;
 }
-// 184.6229533929696
