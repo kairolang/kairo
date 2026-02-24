@@ -1695,7 +1695,7 @@ class Lexer {
             self.advance_cursor(c.len);
         }
 
-        // unterminated — error will be caught by outer f-string termination check
+        // unterminated error will be caught by outer f-string termination check
     }
 
     inline priv fn finalize_text(self, ctx: ref!(TextCtx)) -> bool {
@@ -2389,11 +2389,11 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
             return;
         }
 
-        // just swap — the old tokens (now in new_tokens) contain data
+        // just swap the old tokens (now in new_tokens) contain data
         // that MacroDefinition body spans still reference, so we
         // intentionally leak them. The TCM owns them until shutdown.
         self._kv_s[fid]->tokens()->swap(new_tokens);
-        // DO NOT destroy new_tokens — it holds the original token data
+        // DO NOT destroy new_tokens it holds the original token data
         // that macro body TokenSpans still point into
     }
 
@@ -2408,7 +2408,7 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
         return lexer->get_imm_tbl();
     }
 
-    /// \brief convenience — gets the fid for a token
+    /// \brief convenience gets the fid for a token
     fn get_fid_for_token(self, tok: Token, sm: *SourceManager) -> u32 {
         return sm->get_fid(tok.range.start);
     }
