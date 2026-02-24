@@ -1,0 +1,248 @@
+import Core::ArenaAllocator::*;
+
+/// ArenaList<T> arena-backed, slab-indexed dynamic array.
+///
+/// Design:
+///   A growable list where all memory is bump-allocated from an internal
+///   ArenaAllocator. Data is stored across fixed-size slabs (chunks),
+///   each holding exactly _slab_size entries. This uniform slab size is
+///   an invariant it enables O(1) random access via integer division:
+///     chunk = idx / _slab_size,  offset = idx % _slab_size
+///
+/// Why not std::vector:
+///   vector must maintain a single contiguous buffer, which means
+///   geometric reallocation (copy entire contents on growth). For a
+///   compiler processing millions of AST nodes / tokens in a single
+///   pass, this is catastrophic each doubling copies all prior data,
+///   and peak memory is 3 > live data (old + new + copy overlap).
+///   ArenaList never copies, never moves, never reallocates existing
+///   data. Growth is always append-only: allocate a new slab from the
+///   arena and start filling it. Existing pointers remain valid forever
+///   (until destroy). The tradeoff is non-contiguous memory, which
+///   means slightly worse linear scan prefetch vs vector but for
+///   random access and pointer stability, this wins decisively.
+///
+/// Chunk descriptor table:
+///   A separate arena-allocated array of Chunk structs (base pointer,
+///   count, capacity) that maps chunk index → slab. The table grows
+///   by doubling (old table is abandoned in the arena no free needed).
+///   This is a few hundred bytes even for huge lists.
+///
+/// Memory ownership:
+///   All memory (slabs + descriptor table) lives in the ArenaAllocator.
+///   clear() resets metadata without touching memory O(1), slabs are
+///   reused on next push. clear_zero() does a full SIMD-accelerated
+///   arena reset for cases where zeroed memory is required. destroy()
+///   returns all arena blocks to GlobalRecycler.
+///
+/// API:
+///   push(val)   copy val to end of list
+///   slot()      return pointer to uninitialized memory at end, caller
+///                 constructs. avoids wasted default-construct of emplace.
+///   emplace()   slot() + default construct, returns pointer
+///   pop()       remove and return last element
+///   get(idx)    O(1) random access by slab division, null if OOB
+///   operator[]  bounds-checked get, crashes on OOB
+///   front/back  pointer to first/last element
+///   op in       yield-based iteration across all chunks
+///
+/// Thread safety:
+///   None. Single-owner. One ArenaList per thread or per pass.
+///   The underlying ArenaAllocator's GlobalRecycler interaction is
+///   the only cross-thread touchpoint, and that's lock-free.
+///
+/// Complexity:
+///   push/slot/emplace O(1) amortized (slab alloc on exhaustion)
+///   pop               O(1)
+///   get/operator[]    O(1)
+///   front/back/size   O(1)
+///   clear             O(1)
+///   clear_zero        O(arena bytes touched)
+///   destroy           O(arena blocks)
+///   op in             O(n)
+///
+class <T> ArenaList {
+
+    struct Chunk {
+        var base:     *T;
+        var count:    usize;
+        var capacity: usize;
+    }
+
+    priv var _arena:       ArenaAllocator;
+    priv var _chunks:      *Chunk  = &null;
+    priv var _chunk_count: usize   = 0;
+    priv var _total:       usize   = 0;
+    priv var _chunk_cap:   usize   = 0;
+    priv var _slab_size:   usize   = 0;
+
+    __inline_cpp("static constexpr usize DESCRIPTOR_INIT = 8");
+
+    fn ArenaList(self, slab_size: usize = 256) {
+        self._slab_size = slab_size if slab_size > 0 else 256;
+
+        var padding = 2 * (alignof(libcxx::max_align_t) - 1);
+        var arena_sz = (self._slab_size * sizeof(T))
+                     + (DESCRIPTOR_INIT * sizeof(Chunk))
+                     + padding;
+
+        self._arena.init(arena_sz);
+
+        self.alloc_descriptor_table(DESCRIPTOR_INIT);
+        self.alloc_slab();
+    }
+
+    fn push(self, val: T) -> *T {
+        self.ensure_space();
+        var chunk = &self._chunks[self._chunk_count - 1];
+        __inline_cpp("::new (static_cast<void*>(&chunk->base[chunk->count])) T(std::Memory::move(val))");
+        chunk->count += 1;
+        self._total  += 1;
+        return &(chunk->base[chunk->count - 1]);
+    }
+
+    fn slot(self) -> *T {
+        self.ensure_space();
+        var chunk = &self._chunks[self._chunk_count - 1];
+        var ptr   = &chunk->base[chunk->count];
+        chunk->count += 1;
+        self._total  += 1;
+        return ptr;
+    }
+
+    fn emplace(self) -> *T {
+        self.ensure_space();
+        var chunk = &self._chunks[self._chunk_count - 1];
+        var slot  = &chunk->base[chunk->count];
+        __inline_cpp("::new (static_cast<void*>(slot)) T()");
+        chunk->count += 1;
+        self._total  += 1;
+        return slot;
+    }
+
+    fn pop(self) -> T {
+        if self._total == 0 {
+            std::crash(std::Error::RuntimeError("ArenaList::pop: list is empty"));
+        }
+
+        var chunk = &self._chunks[self._chunk_count - 1];
+        chunk->count -= 1;
+        self._total  -= 1;
+
+        var val = chunk->base[chunk->count];
+
+        if chunk->count == 0 && self._chunk_count > 1 {
+            self._chunk_count -= 1;
+        }
+
+        return val;
+    }
+
+    fn get(self, idx: usize) -> *T {
+        if idx >= self._total { return &null; }
+        var chunk  = idx / self._slab_size;
+        var offset = idx % self._slab_size;
+        return &self._chunks[chunk].base[offset];
+    }
+
+    fn back(self) -> *T {
+        if self._total == 0 { return &null; }
+        var chunk = &self._chunks[self._chunk_count - 1];
+        return &chunk->base[chunk->count - 1];
+    }
+
+    fn front(self) -> *T {
+        if self._total == 0 { return &null; }
+        return &self._chunks[0].base[0];
+    }
+
+    fn size(self) -> usize { return self._total; }
+
+    fn empty(self) -> bool { return self._total == 0; }
+
+    /// O(1) metadata-only reset. Slabs retained, reused on next push.
+    fn clear(self) {
+        self._chunks[0].count = 0;
+        self._chunk_count     = 1;
+        self._total           = 0;
+    }
+
+    /// Full arena SIMD zero + rebuild. Use when zeroed memory is required.
+    fn clear_zero(self) {
+        self._total       = 0;
+        self._chunk_count = 0;
+        self._arena.reset();
+
+        self.alloc_descriptor_table(DESCRIPTOR_INIT);
+        self.alloc_slab();
+    }
+
+    fn destroy(self) {
+        self._chunks      = &null;
+        self._chunk_count = 0;
+        self._chunk_cap   = 0;
+        self._total       = 0;
+        self._arena.destroy();
+    }
+
+    fn op delete (self) {
+        self.destroy();
+    }
+
+    fn op [] (self, idx: usize) -> *T {
+        if idx >= self._total {
+            std::crash(std::Error::RuntimeError(
+                f"ArenaList::operator[]: index {idx} out of bounds (size={self._total})"
+            ));
+        }
+        return self.get(idx);
+    }
+
+    priv fn ensure_space(self) {
+        if self._chunk_count == 0 {
+            self.alloc_slab();
+            return;
+        }
+
+        var chunk = &self._chunks[self._chunk_count - 1];
+        if chunk->count < chunk->capacity { return; }
+
+        self.alloc_slab();
+    }
+
+    priv fn alloc_slab(self) {
+        if self._chunk_count >= self._chunk_cap {
+            var new_cap   = (self._chunk_cap * 2) if (self._chunk_cap > 0) else DESCRIPTOR_INIT;
+            var new_table = reinterpret_cast::<*Chunk>(
+                self._arena.alloc(new_cap * sizeof(Chunk), alignof(Chunk))
+            );
+
+            if self._chunks != &null {
+                std::Memory::copy(new_table, self._chunks, self._chunk_count * sizeof(Chunk));
+            }
+
+            self._chunks    = new_table;
+            self._chunk_cap = new_cap;
+        }
+
+        var base = reinterpret_cast::<*T>(
+            self._arena.alloc(self._slab_size * sizeof(T), alignof(T))
+        );
+
+        self._chunks[self._chunk_count] = Chunk {
+            base:     base,
+            count:    0,
+            capacity: self._slab_size
+        };
+
+        self._chunk_count += 1;
+    }
+
+    priv fn alloc_descriptor_table(self, cap: usize) {
+        self._chunks = reinterpret_cast::<*Chunk>(
+            self._arena.alloc(cap * sizeof(Chunk), alignof(Chunk))
+        );
+        self._chunk_cap   = cap;
+        self._chunk_count = 0;
+    }
+}

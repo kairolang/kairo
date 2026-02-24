@@ -17,6 +17,52 @@ ffi "c++" import "Core/ArenaBlock.hh";
 
 import Core::Timer::*;
 
+/// ArenaAllocator bump-pointer allocator backed by a linked chain of ArenaBlocks.
+///
+/// Design:
+///   Maintains a singly-linked list of ArenaBlocks. Allocation tries the
+///   head block first (single branch + addition); on exhaustion, a new
+///   block is prepended to the chain. Prepend order means head is always
+///   the newest/emptiest block, and destroy()/reset() walk the full chain
+///   from head to tail without losing any blocks.
+///
+/// Block sourcing:
+///   New blocks are requested from GlobalRecycler first (lock-free CAS,
+///   zero syscall on cache hit). On recycler miss, falls back to
+///   aligned_alloc. On destroy(), blocks are returned to the recycler
+///   via ArenaBlock's destructor, not freed to the OS.
+///
+/// Expansion:
+///   When the current head block is full, expand() allocates a new block
+///   of max(block_size, bit_ceil(requested_size)) and prepends it. This
+///   guarantees the new block can satisfy the allocation, and the old
+///   chain remains reachable via head->next.
+///
+/// Reset modes:
+///   reset()      walks the block chain, SIMD-zeroes each block up to
+///                  its high-water mark. Use between compiler passes when
+///                  you need clean memory (e.g., zeroed AST node pools).
+///   reset_fast() walks the block chain, resets metadata only. O(blocks)
+///                  but no memory traffic. Use when the next pass will
+///                  overwrite all slots before reading (the common case).
+///
+/// Lifetime:
+///   destroy() walks the chain and calls std::destroy on each block,
+///   which returns the backing buffer to GlobalRecycler. After destroy(),
+///   the allocator is dead no further allocations permitted.
+///   shutdown() is the hard-teardown path: calls block->destroy() (raw
+///   free, bypasses recycler) + frees the block struct itself.
+///
+/// Thread safety:
+///   None. One allocator per thread. The only cross-thread interaction
+///   is through GlobalRecycler, which is internally lock-free.
+///
+/// Complexity:
+///   alloc()      O(1), single bump or O(1) amortized with expand
+///   reset()      O(total high_water bytes across all blocks)
+///   reset_fast() O(blocks)
+///   destroy()    O(blocks)
+///
 class ArenaAllocator {
     struct Stats {
         var alloc_calls:     usize = 0;
@@ -29,7 +75,55 @@ class ArenaAllocator {
     var block_size: usize;
     var stats:      Stats;
 
-    fn ArenaAllocator(self, blk_sz: usize = (1 << 20)) {
+    fn ArenaAllocator(self) {
+        self.block_size = (1 << 10); // 1 KiB default block size
+        self.head = &null;
+    }
+
+    fn ArenaAllocator(self, blk_sz: usize) {
+        (self.head)       = std::create::<ArenaBlock>(blk_sz);
+        self.block_size = blk_sz;
+    }
+
+    // move and copy constructor
+    fn ArenaAllocator(self, other: ref!(ArenaAllocator)) {
+        self.head       = other.head;
+        self.block_size = other.block_size;
+        self.stats      = other.stats;
+        (other.head) = &null;
+    }
+
+    fn ArenaAllocator(self, other: mref!(ArenaAllocator)) {
+        self.head       = other.head;
+        self.block_size = other.block_size;
+        self.stats      = other.stats;
+        (other.head) = &null;
+    }
+
+    fn op = (self, other: ref!(ArenaAllocator)) {
+        if (&self) != (&other) {
+            self.destroy();
+            self.head       = other.head;
+            self.block_size = other.block_size;
+            self.stats      = other.stats;
+            (other.head) = &null;
+        }
+    }
+
+    fn op = (self, other: mref!(ArenaAllocator)) {
+        if (&self) != (&other) {
+            self.destroy();
+            self.head       = other.head;
+            self.block_size = other.block_size;
+            self.stats      = other.stats;
+            (other.head) = &null;
+        }
+    }
+
+    fn init(self, blk_sz: usize) {
+        if (self.head) != (&null) {
+            self.destroy();
+        }
         self.head       = std::create::<ArenaBlock>(blk_sz);
         self.block_size = blk_sz;
     }
@@ -41,10 +135,10 @@ class ArenaAllocator {
     fn alloc(self, sz: usize, align: usize = alignof(libcxx::max_align_t)) -> *void {
         sz = sz if sz != 0 else 1;
 
-        ++self.stats.alloc_calls;
-        self.stats.bytes_allocated += sz;
-        
-        var p = self.head->try_alloc(sz, align);
+        ++(self.stats.alloc_calls);
+        (self.stats.bytes_allocated) += sz;
+
+        var p = (self.head)->try_alloc(sz, align);
         if (p != &null) {
             return p;
         }
@@ -61,18 +155,27 @@ class ArenaAllocator {
     ");
 
     fn reset(self) {
-        ++self.stats.resets;
+        ++(self.stats.resets);
 
-        for var b = self.head; b != &null; b = b->next {
+        for var b = (self.head); b != &null; b = b->next {
             b->reset();
         }
     }
 
+    fn reset_fast(self) {
+        ++(self.stats.resets);
+
+        for var b = (self.head); b != &null; b = b->next {
+            b->reset_fast();
+        }
+    }
+
     fn destroy(self) {
+        if self.head == &null { return; }
+
         var b = self.head;
         while (b != &null) {
             var next = b->next;
-        
             std::destroy(b);
             b = next;
         }
@@ -81,16 +184,16 @@ class ArenaAllocator {
     }
 
     fn shutdown(self) {
-        var b = self.head;
+        var b = (self.head);
         while (b != &null) {
             var next = b->next;
-            b->destory();
+            b->destroy();
             libcxx::free(b);
             b = next;
         }
-        self.head = &null;
+        (self.head) = &null;
     }
-    
+
     struct Profile {
         var alloc_calls:     usize;
         var bytes_allocated: usize;
@@ -111,87 +214,11 @@ class ArenaAllocator {
         var req = libcxx::max(self.block_size, libcxx::bit_ceil(sz));
         var blk = std::create::<ArenaBlock>(req);
 
-        self.head->next = blk;
-        self.head      = blk;
+        // prepend new block becomes head, old chain reachable via next
+        (blk->next) = (self.head);
+        ((self.head)) = blk;
 
-        ++self.stats.slab_count;
-        return self.head->try_alloc(sz, align);
+        ++(self.stats.slab_count);
+        return (self.head)->try_alloc(sz, align);
     }
-}
-
-fn Test() -> i32 {
-    struct Token {
-        var kind: u32;
-        var value: u32;
-        var loc: u64;
-    }
-
-    fn benchmark_arena(iters: i32) {
-        var stats: ArenaAllocator::Profile;
-
-        __inline_cpp("{");
-            var _timer = Timer("ArenaAllocator Allocator Benchmark");
-            var arena = ArenaAllocator(64 * 1024);
-            
-            for var i: i32 = 0; i < iters; i += 1 {
-                arena.create::<Token>(i % 5, 82, 218);
-            }
-
-            stats = arena.profile();
-            arena.destroy();
-        __inline_cpp("}");
-
-
-        print(f"[ArenaAllocator] alloc_calls={stats.alloc_calls}, bytes={stats.bytes_allocated}, slabs={stats.slab_count}, resets={stats.resets}");
-    }
-
-    fn benchmark_malloc(iters: i32) {
-        __inline_cpp("{");
-            var _timer = Timer("libc++ malloc/free Benchmark");
-            __inline_cpp("volatile usize sink = 0");
-            for (var i = 0; i < iters; ++i) {
-                var ptr = static_cast::<*Token>(libcxx::malloc(sizeof(Token)));
-                if (!ptr) {std::crash(std::Error::RuntimeError("malloc failed"));}
-                ptr->kind  = i % 5;
-                ptr->value = 12879;
-                ptr->loc   = 4096;
-                sink += reinterpret_cast<usize>(ptr); // observable side effect
-                libcxx::free(ptr);
-            }
-            std::print(f"malloc sink checksum={sink}");
-        __inline_cpp("}");
-    }
-
-    fn benchmark_vector(iters: i32) {
-        __inline_cpp("{");
-            var _timer = Timer("libc++ vector<Token> Benchmark");
-            var v = libcxx::vector::<Token>();
-            v.reserve(512 * 1024);
-
-            __inline_cpp("volatile usize sink = 0");
-            
-            for var i: i32 = 0; i < iters; i += 1 {
-                var ptr = static_cast::<*Token>(libcxx::malloc(sizeof(Token)));
-                if (!ptr) {std::crash(std::Error::RuntimeError("malloc failed"));}
-                ptr->kind  = i % 5;
-                ptr->value = 12879;
-                ptr->loc   = 4096;
-                v.push_back(*ptr);
-                sink += reinterpret_cast::<usize>(&v.back()); // observable side effect
-                libcxx::free(ptr);
-            }
-            
-        __inline_cpp("}");
-    }
-
-    var iters: i32 = 1000000;
-
-    print(f"--- Kairo Memory Benchmark ---");
-    benchmark_arena(iters);
-    benchmark_malloc(iters);
-    benchmark_vector(iters);
-
-    print(f"All benchmarks complete.");
-
-    return 0;
 }
