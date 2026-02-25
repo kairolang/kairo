@@ -20,6 +20,7 @@
             "miDebuggerPath": "/usr/bin/lldb"
         },
         "windows": {
+            "type": "cppvsdbg",
             "program": "${workspaceFolder}/build/.gen/test_run.exe"
         }
     }
