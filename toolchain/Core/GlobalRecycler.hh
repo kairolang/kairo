@@ -95,14 +95,22 @@ class GlobalRecycler {
     void push(std::Byte *block, size_t capacity) noexcept {
         if (block == nullptr || capacity < MIN_RECYCLABLE) [[unlikely]] {
             if (block != nullptr) {
-                libcxx::free(block);
+                #ifdef _MSC_VER
+                    _aligned_free(block);
+                #else
+                    libcxx::free(block);
+                #endif
             }
 
             return;
         }
 
         if (capacity < MIN_RECYCLABLE) [[unlikely]] {
-            libcxx::free(block);
+            #ifdef _MSC_VER
+                _aligned_free(block);
+            #else
+                libcxx::free(block);
+            #endif
             return;
         }
 
@@ -152,7 +160,11 @@ class GlobalRecycler {
             Node *node = bin.exchange(nullptr, std::MemoryOrder::acq_rel);
             while (node != nullptr) {
                 Node *next = node->next;
-                libcxx::free(reinterpret_cast<std::Byte *>(node));
+                #ifdef _MSC_VER
+                    _aligned_free(reinterpret_cast<std::Byte *>(node));
+                #else
+                    libcxx::free(reinterpret_cast<std::Byte *>(node));
+                #endif
                 node = next;
             }
         }

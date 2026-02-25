@@ -440,12 +440,16 @@ class SourceManager {
                 break;
             }
 
-            eval if sizeof (char) == 4 {
+            eval if sizeof(char) == 4 {
                 str.push_back(static_cast::<char>(codepoint));
-            } else { // where a char is 2 bytes (windows)
-                codepoint -= 0x10000;
-                str.push_back(static_cast::<char>(0xD800 + (codepoint >> 10)));
-                str.push_back(static_cast::<char>(0xDC00 + (codepoint & 0x3FF)));
+            } else {
+                if codepoint < 0x10000 {
+                    str.push_back(static_cast::<char>(codepoint));
+                } else {
+                    var hi = codepoint - 0x10000;
+                    str.push_back(static_cast::<char>(0xD800 + (hi >> 10)));
+                    str.push_back(static_cast::<char>(0xDC00 + (hi & 0x3FF)));
+                }
             }
 
             p += len;
