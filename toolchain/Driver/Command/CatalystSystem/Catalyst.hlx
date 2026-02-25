@@ -162,7 +162,7 @@ class CLIArgs {
     /// \return array::<bool, 256> - true for characters that start long flags
     ///-----------------------------------------------
 
-     eval fn build_long_flag_table(self) -> array::<bool, 256> {      /// 256 for all u8 values
+    eval fn build_long_flag_table(self) -> array::<bool, 256> {      /// 256 for all u8 values
 
         var table : array::<bool, 256> = array::<bool, 256>() ;
 
@@ -182,10 +182,56 @@ class CLIArgs {
         return table ;
     }
 
+
+    
+
     var IS_LONG_FLAG : array::<bool, 256> = build_long_flag_table() ;
 
     ///-----------------------------------------------
 
+
+    fn flag_value_type(flag: FlagType) -> ValueType {
+        switch flag {
+            case FlagType::OUTPUT,
+            case FlagType::INCLUDE_DIR,
+            case FlagType::LIB_DIR,
+            case FlagType::LINK_LIB,
+            case FlagType::TARGET,
+            case FlagType::HOST,
+            case FlagType::SYSROOT,
+            case FlagType::PRELUDE,
+            case FlagType::STD,
+            case FlagType::FFI,
+            case FlagType::FFI_INCLUDE,
+            case FlagType::PROFILE,
+            case FlagType::EMIT,
+            case FlagType::DIAG_FORMAT,
+            case FlagType::FVISIBILITY,
+            case FlagType::MARCH,
+            case FlagType::MCPU,
+            case FlagType::MABI,
+            case FlagType::MTUNE,
+            case FlagType::FSANITIZE,
+            case FlagType::FSANITIZE_OPTS,
+            case FlagType::XCXX,
+            case FlagType::XLINKER,
+            case FlagType::XASSEMBLER,
+            case FlagType::XTHREADS:
+                return ValueType::STRING ;
+
+            case FlagType::OPTIMIZE0,
+            case FlagType::OPTIMIZE1,
+            case FlagType::OPTIMIZE2,
+            case FlagType::OPTIMIZE3,
+            case FlagType::OPTIMIZE_S,
+            case FlagType::OPTIMIZE_Z,
+            case FlagType::DEBUG_ON:
+                return ValueType::INT ;
+
+            default:
+                return ValueType::FALSE ;
+        }
+    }
 
 
     ///-----------------------------------------------
@@ -195,7 +241,7 @@ class CLIArgs {
     ///-----------------------------------------------
 
 
-    fn Tokenize(self , sentence : string ){
+    fn Tokenize(self , sentence : string ) {
         var pointer : i32 = 0;
         var parsedFlags : array::<FlagType, 64> = array::<FlagType, 64>() ; 
         var files : libcxx::deque::<string> = libcxx::deque::<string>() ; 
@@ -222,12 +268,11 @@ class CLIArgs {
                     }
                     
                     if pointer > start {
-                        ////var flag_str : string = sentence.subslice(start, pointer - start);
-0;
+                        var flag_str : string = sentence.subslice(start, pointer - start);
+                        parsedFlags[parser] = static_cast::<const FlagType>(compute_hash(&flag_str));
+                        std::print(flag_str);
 
-                        //std::print(flag_str);
 
-;
                         parser++;
                     }
                     
@@ -252,11 +297,9 @@ class CLIArgs {
                         }
                         
                         if pointer > start {
-                            //var flag_str : string = sentence.subslice(start, pointer - start);
-                            0;
-                            //std::print(flag_str);
-
-;
+                            var flag_str : string = sentence.subslice(start, pointer - start);
+                            parsedFlags[parser] = static_cast::<const FlagType>(compute_hash(&flag_str));
+                            std::print(flag_str);
                             parser++;
                         }
                     } else {
@@ -265,7 +308,8 @@ class CLIArgs {
                             sentence[pointer] != ' ' && 
                             sentence[pointer] != '-' {
                             var flag_str : string = sentence.subslice(pointer, 1);
-                            //std::print(flag_str);
+                            parsedFlags[parser] = static_cast::<const FlagType>(compute_hash(&flag_str));
+                            std::print(flag_str);
 
 ;
                             parser++;
@@ -291,11 +335,11 @@ class CLIArgs {
                     }
                     
                     if pointer > start {
-                        //var flag_str : string = sentence.subslice(start, pointer - start);
-0;
-                        //std::print(flag_str);
+                        var flag_str : string = sentence.subslice(start, pointer - start);
 
-;
+                        std::print(flag_str);
+
+
                         parser++;
                     }
                 } else {
@@ -360,7 +404,10 @@ fn Test() -> i32 {
         std::print("--------------------------------------------------");
     }
 
-    libcxx::this_thread::sleep_for(libcxx::chrono::seconds(10));
+    args.Tokenize("Lexer.hlx -g -fno-unsafe -fconst-checks -fno-exceptions -O2 --verbose");
+    if(parsedFlags.contains(Flagtype::DEBUG_ON)){
+        std::print("bangers");
+    }
     return 0;
 }
 
