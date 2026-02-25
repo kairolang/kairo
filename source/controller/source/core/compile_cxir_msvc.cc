@@ -257,6 +257,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_MSVC(const CXXCompileAction &acti
         "/std:c++latest",
         "/D_CRT_SECURE_NO_WARNINGS",
         "/D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
+        "/utf-8",
 
         ((action.flags.contains(flag::types::CompileFlags::Debug)) ? "/RTC1" : ""),
         cxx::flags::fullFilePathFlag,
