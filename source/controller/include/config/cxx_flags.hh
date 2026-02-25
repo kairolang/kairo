@@ -100,7 +100,7 @@ constexpr CF noErrorReportingFlag{.gcc="-fno-error-report",
                                   .mingw="-fno-error-report"};
 constexpr CF SanitizeFlag{.gcc="-fsanitize=address,undefined,pointer-subtract",
                                     .clang="-fsanitize=undefined,bounds,function",
-                                    .msvc="/RTCc /RTC1 /sdl /RTCu /RTCsu /RTCs",
+                                    .msvc="/RTC1 /sdl",
                                     .mingw="-fsanitize=address,undefined"};
 constexpr CF None{.gcc="", .clang="", .msvc="", .mingw=""};
 }  // namespace cxx::flags
