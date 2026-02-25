@@ -265,9 +265,9 @@ class SourceLineTable {
         //===--------------------------------------------------------------===//
         else if defined(__AVX2__) {
             const STRIDE: usize = 32;
-            const nl: __m256i = _mm256_set1_epi8(static_cast::<u8>('\n'));
+            const nl: __m256i = _mm256_set1_epi8(static_cast::<std::Legacy::char>('\n'));
             for (; (i + STRIDE * 4) <= size; i += (STRIDE * 4)) {
-                _mm_prefetch(reinterpret_cast::<const *u8>(data + i + 256), _MM_HINT_T0);
+                _mm_prefetch(reinterpret_cast::<const *std::Legacy::char>(data + i + 256), _MM_HINT_T0);
 
                 var c0: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i));
                 var c1: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i + 32));
@@ -302,10 +302,10 @@ class SourceLineTable {
         //===--------------------------------------------------------------===//
         else if defined(__SSE2__) {
             const STRIDE: usize = 16;
-            const nl: __m128i = _mm_set1_epi8(static_cast::<u8>('\n'));
+            const nl: __m128i = _mm_set1_epi8(static_cast::<std::Legacy::char>('\n'));
 
             for (; (i + STRIDE * 4) <= size; i += (STRIDE * 4)) {
-                _mm_prefetch(reinterpret_cast::<std::const_ptr::<u8>>(data + i + 128), _MM_HINT_T0);
+                _mm_prefetch(reinterpret_cast::<std::const_ptr::<std::Legacy::char>>(data + i + 128), _MM_HINT_T0);
 
                 var c0: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i));
                 var c1: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i + 16));

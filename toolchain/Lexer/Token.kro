@@ -47,46 +47,46 @@ struct Token { // size=16B, align=4
 
     }
 
-    eval const fn op == (self, other: Token) -> bool {
+    const fn op == (self, other: Token) -> bool {
         return (self.kind == other.kind) && (self.range == other.range) && (self.imm == other.imm);
     }
 
-    eval const fn op != (self, other: Token) -> bool {
+    const fn op != (self, other: Token) -> bool {
         return !(self == other);
     }
 
-    eval const fn op == (self, other: TokenKind) -> bool {
+    const fn op == (self, other: TokenKind) -> bool {
         return self.kind == other;
     }
 
-    eval const fn op != (self, other: TokenKind) -> bool {
+    const fn op != (self, other: TokenKind) -> bool {
         return self.kind != other;
     }
 
-    eval fn op = (self, new: TokenKind) -> ref!(Token) {
+    fn op = (self, new: TokenKind) -> ref!(Token) {
         self.kind = new;
         return self;
     }
 
-    eval fn op = (self, new: SourceRange) -> ref!(Token) {
+    fn op = (self, new: SourceRange) -> ref!(Token) {
         self.range = new;
         return self;
     }
 
-    eval fn op = (self, new: u32) -> ref!(Token) {
+    fn op = (self, new: u32) -> ref!(Token) {
         self.imm = new;
         return self;
     }
 
-    eval fn op == (self, kinds: set::<TokenKind>) -> bool {
+    fn op == (self, kinds: set::<TokenKind>) -> bool {
         return kinds.contains(self.kind);
     }
 
-    eval fn op != (self, kinds: set::<TokenKind>) -> bool {
+    fn op != (self, kinds: set::<TokenKind>) -> bool {
         return !(kinds.contains(self.kind));
     }
 
-    eval fn op == (self, kinds: vec::<TokenKind>) -> bool {
+    fn op == (self, kinds: vec::<TokenKind>) -> bool {
         for kind in kinds {
             if self.kind == kind {
                 return true;
@@ -95,11 +95,11 @@ struct Token { // size=16B, align=4
         return false;
     }
 
-    eval fn op != (self, kinds: vec::<TokenKind>) -> bool {
+    fn op != (self, kinds: vec::<TokenKind>) -> bool {
         return !(self == kinds);
     }
 
-    eval fn op == (self, const typ: Type) -> bool {
+    fn op == (self, const typ: Type) -> bool {
         switch (typ) {
             case Type::Annotation {
                 return is_annotation(self.kind);
@@ -133,45 +133,45 @@ struct Token { // size=16B, align=4
         }
     }
 
-    eval fn op != (self, const typ: Type) -> bool {
+    fn op != (self, const typ: Type) -> bool {
         return !(self == typ);
     }
 
-    eval const fn op as (self) -> string {
+    const fn op as (self) -> string {
         return f"Token(kind: '{token_kind_to_string(self.kind)}', kind[hash]: 0x{to_hex_string(static_cast::<u32>(self.kind))}, range: {self.range}, imm: 0x{to_hex_string((self.imm) as u64)})";
     }
 } //Token end
 
 module TokenUtils {
-    eval fn has_imm(tok: Token) -> bool {
+    fn has_imm(tok: Token) -> bool {
         return tok.imm != u32(-1);
     }
 
-    eval fn is_valid(tok: Token) -> bool {
+    fn is_valid(tok: Token) -> bool {
         return tok.kind != TokenKind::TkUnknown;
     }
 
-    eval fn is_eof(tok: Token) -> bool {
+    fn is_eof(tok: Token) -> bool {
         return tok.kind == TokenKind::TkEof;
     }
 
-    eval fn is_error(tok: Token) -> bool {
+    fn is_error(tok: Token) -> bool {
         return tok.kind == TokenKind::TkError;
     }
 
-    eval fn error_expected_kind(tok: Token) -> TokenKind {
+    fn error_expected_kind(tok: Token) -> TokenKind {
         return static_cast::<TokenKind>(tok.imm);
     }
 
-    eval fn start_loc(tok: Token) -> SourceLocation {
+    fn start_loc(tok: Token) -> SourceLocation {
         return tok.range.start;
     }
 
-    eval fn end_loc(tok: Token) -> SourceLocation {
+    fn end_loc(tok: Token) -> SourceLocation {
         return tok.range.end;
     }
 
-    eval fn readable_kind(tok: Token) -> string {
+    fn readable_kind(tok: Token) -> string {
         return token_kind_to_readable_string(tok.kind);
     }
 }

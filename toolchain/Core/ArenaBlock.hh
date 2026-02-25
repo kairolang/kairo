@@ -168,7 +168,13 @@ struct alignas(64) ArenaBlock {
             return blk;
         }
 
-        return static_cast<std::Byte *>(libcxx::aligned_alloc(64, cap));
+        return static_cast<std::Byte *>(
+        #ifndef _MSC_VER
+            libcxx::aligned_alloc(64, cap)
+        #else
+            _aligned_malloc(cap, 64)
+        #endif
+        );
     }
 
     void pre_touch() const noexcept {

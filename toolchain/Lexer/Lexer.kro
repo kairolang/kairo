@@ -608,7 +608,7 @@ class Lexer {
             return;
         }
 
-        self._last_advanced = -count;
+        self._last_advanced = -(static_cast::<isize>(count));
         self._cursor       -=  count;
     }
 

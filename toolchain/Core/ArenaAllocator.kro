@@ -211,7 +211,7 @@ class ArenaAllocator {
     }
 
     priv fn expand(self, sz: usize, align: usize) -> *void {
-        var req = libcxx::max(self.block_size, libcxx::bit_ceil(sz));
+        var req = __inline_cpp("(libcxx::max)(this->block_size, (libcxx::bit_ceil)(sz))");
         var blk = std::create::<ArenaBlock>(req);
 
         // prepend new block becomes head, old chain reachable via next
@@ -222,3 +222,4 @@ class ArenaAllocator {
         return (self.head)->try_alloc(sz, align);
     }
 }
+

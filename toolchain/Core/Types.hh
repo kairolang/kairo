@@ -48,16 +48,14 @@
 /// \see libcxx, kairo::std, kairo::ThreadPool
 ///
 
+#include <include/core.hh>
 #include <bit>
 #include <cwchar>
 #include <execution>
-#include <include/core.hh>
 #include <memory>
 #include <memory_resource>
 #include <mutex>
 #include <new>
-
-#include "include/runtime/__function/function.hh"
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
     defined(_M_IX86)

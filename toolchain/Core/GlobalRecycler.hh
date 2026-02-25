@@ -68,7 +68,12 @@ class GlobalRecycler {
                 return i;
             }
         }
-        __builtin_unreachable();
+
+        #ifdef _MSC_VER
+            __assume(false);
+        #else
+            __builtin_unreachable();
+        #endif
     }
 
     static constexpr size_t MIN_RECYCLABLE = 4096;

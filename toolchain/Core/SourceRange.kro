@@ -58,7 +58,7 @@ class SourceRange {
     /// \param stop  end location.
     /// \return range covering [start, stop).
     ///
-    eval static fn from_bounds(start: SourceLocation, stop: SourceLocation) -> SourceRange {
+    static fn from_bounds(start: SourceLocation, stop: SourceLocation) -> SourceRange {
         var range   = SourceRange();
         range.start = start;
         range.end   = stop;
@@ -73,7 +73,7 @@ class SourceRange {
     /// \param len   number of bytes to cover.
     /// \return range covering [start, start+len).
     ///
-    eval static fn from_bounds(start: SourceLocation, len: u32) -> SourceRange {
+    static fn from_bounds(start: SourceLocation, len: u32) -> SourceRange {
         var range   = SourceRange();
         range.start = start;
         range.end   = start.with_offset(static_cast::<i64>(len));
@@ -87,7 +87,7 @@ class SourceRange {
     /// \param loc source location to cover.
     /// \return range covering [loc, loc+1).
     ///
-    eval static fn single(loc: SourceLocation) -> SourceRange {
+    static fn single(loc: SourceLocation) -> SourceRange {
         var range   = SourceRange();
         range.start = loc;
         range.end   = loc.with_offset(1);
@@ -174,14 +174,14 @@ class SourceRange {
     ///
     /// \brief equality operator.
     ///
-    eval const fn op == (self, other: SourceRange) -> bool {
+    const fn op == (self, other: SourceRange) -> bool {
         return (self.start == other.start) && (self.end == other.end);
     }
 
     ///
     /// \brief inequality operator.
     ///
-    eval const fn op != (self, other: SourceRange) -> bool {
+    const fn op != (self, other: SourceRange) -> bool {
         return !(self == other);
     }
 
@@ -190,7 +190,7 @@ class SourceRange {
     ///
     /// \return formatted string like `SourceRange(start: <start>, end: <end>)`.
     ///
-    eval const fn op as (self) -> string {
+    const fn op as (self) -> string {
         return f"SourceRange(start: {(self.start) as string}, end: {(self.end) as string})";
     }
 
@@ -201,7 +201,7 @@ class SourceRange {
     /// mixes both start and end values using FNV-1a-like hashing for
     /// good distribution in hash tables.
     ///
-    eval fn hash(self) -> u32 {
+    fn hash(self) -> u32 {
         var h: u32 = 0x811C9DC5;
         h = (h ^ self.start.raw()) * 0x01000193;
         h = (h ^ self.end.raw())   * 0x01000193;

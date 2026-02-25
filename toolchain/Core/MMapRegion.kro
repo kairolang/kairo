@@ -61,7 +61,7 @@ class MMapRegion {
     ///
     default fn MMapRegion(self);
 
-    fn MMapRegion(self, data: *u8, size: usize, valid: bool) {
+    fn MMapRegion(self, data: *u8, size: usize, valid: bool = true) {
         self._data  = data;
         self._size  = size;
         self._valid = valid;
@@ -120,9 +120,11 @@ class MMapRegion {
                 return false;
             }
 
-            if (fsize.QuadPart) == 0 {
+            if (fsize.QuadPart) == 0 { // empty file, map to a non-null zero-length region
                 CloseHandle(hFile);
-                self._region = MMapRegion(&null, 0);
+                self._data = &null;
+                self._size = 0;
+                _valid = true;
                 return true;
             }
 

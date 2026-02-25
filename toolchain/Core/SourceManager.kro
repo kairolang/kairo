@@ -345,7 +345,7 @@ class SourceManager {
     ///
     /// \brief expands a SourceLocation into a FullSourceLocation.
     ///
-    eval fn get_full_loc(self, loc: SourceLocation) -> FullSourceLocation {
+    fn get_full_loc(self, loc: SourceLocation) -> FullSourceLocation {
         if !loc.is_valid() {
             return FullSourceLocation();
         }
