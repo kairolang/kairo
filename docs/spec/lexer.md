@@ -168,8 +168,8 @@ constraints:
 
 ### 6.3 resolution rules
 
-* if the lexeme matches a keyword hash → keyword token
-* otherwise → `LitIdentifier`
+* if the lexeme matches a keyword hash -> keyword token
+* otherwise -> `LitIdentifier`
 * once a multibyte character is seen, the token **cannot** be a keyword
 
 ### 6.4 invariants

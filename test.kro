@@ -97,6 +97,7 @@ var ini  = init!(10, 20, 30);
 var s    = stringify!(hello_world);
 var uid  = unique_id!;
 var uid2 = unique_id!;
+var foo  = unstringify!("fn foo() -> i32 { return 42 }");
 
 // ── builtin: defined / undef ─────────────────────────────────────────────
 var def_check    = defined!(pi);
@@ -130,4 +131,40 @@ macro boom!() {
 }
 // intentionally NOT called — just defined, cycle only triggers on invocation
 // uncomment to test cycle detection:
-// var bad = boom!();
+var bad = boom!();
+
+
+/// ok lets use these macros to generate a full enum (yes it will be hard)
+
+macro delim_tokens!(gen_mac) {
+    enum_values!(Delimiter_A, 'a')
+    enum_values!(Delimiter_B, 'b')
+    enum_values!(Delimiter_C, 'c')
+}
+
+macro macro_enumurate!(vals...) {
+    enum Delimiters {
+        ...vals
+    }
+
+    var length = count!(...vals);
+}
+
+macro enum_values!(name, char) {
+    name = char,
+}
+
+macro_enumurate!(delim_tokens!(enum_values));
+
+
+macro ping!(x) {
+    pong!(x)
+}
+
+macro pong!(x) {
+    ping!(x)
+}
+
+var mutual = ping!(42);
+
+embed!("build.toml");

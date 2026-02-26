@@ -407,7 +407,7 @@ def extract_cpp_from_ir(file: str, line_range: str):
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     output = ansi_escape.sub('', output)
 
-    # --- Step 3: Build mapping from file → list of lines ---
+    # --- Step 3: Build mapping from file -> list of lines ---
     file_lines: dict[str, list[str]] = {}
     current_file = None
     current_macro = None

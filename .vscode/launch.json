@@ -8,7 +8,7 @@
         "preLaunchTask": "build-kairo-current",
         "stopAtEntry": false,
         
-        // Defaults (non-Windows → cppdbg)
+        // Defaults (non-Windows -> cppdbg)
         "type": "cppdbg",
         "program": "${workspaceFolder}/build/.gen/test_run",
         "MIMode": "gdb",

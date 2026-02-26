@@ -93,11 +93,11 @@ It'll output something like:
 }
 ```
 
-Copy those values into your VSCode settings: either via the UI (`Ctrl+Shift+P` → search `kairo`) or directly in `settings.json` (`Ctrl+Shift+P` → `Preferences: Open Settings (JSON)`).
+Copy those values into your VSCode settings: either via the UI (`Ctrl+Shift+P` -> search `kairo`) or directly in `settings.json` (`Ctrl+Shift+P` -> `Preferences: Open Settings (JSON)`).
 
 ### Install the extension
 
-Extensions tab (`Ctrl+Shift+X`) → three dots → `Install from VSIX...` → select the `.vsix` file you just built.
+Extensions tab (`Ctrl+Shift+X`) -> three dots -> `Install from VSIX...` -> select the `.vsix` file you just built.
 
 Restart VSCode, open a `.kro` file: it should activate automatically.
 

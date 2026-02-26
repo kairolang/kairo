@@ -1,80 +1,59 @@
-import Lexer::Preprocessor::Macro::MacroPreprocessor::*;
+import Lexer::Preprocessor::Preprocessor::*;
 
 fn main() -> i32 {
     var cwd    = Path::cwd();
     var target = Path("test.kro");
 
-    // ── bootstrap infrastructure ────────────────────────────────────────
     var pool     = std::create::<ThreadPool>(4);
     var vfm      = std::create::<VirtualFileManager>();
     var sm       = std::create::<SourceManager>(pool, vfm);
     var tcm      = std::create::<TokenCacheManager>(sm, pool);
 
-    // ── cleanup ─────────────────────────────────────────────────────────
     finally {
         std::destroy(pool);
         std::destroy(sm);
         std::destroy(tcm);
-
-        /// we need to shutdown the global recycler to free any remaining blocks
-        /// before the program exits, otherwise we'll leak memory and ASAN will complain about it
         GlobalRecycler::shutdown_allocator_runtime();
     }
 
-    // ── load the root file ──────────────────────────────────────────────
     var fid = sm->load_file(target);
     if fid == u32(-1) {
         std::print(f"error: could not load '{target.full_path()}'\n");
         return 1;
     }
 
-    // ── lex ─────────────────────────────────────────────────────────────
     if !tcm->lex_file(fid) {
         std::print(f"error: failed to lex '{target.full_path()}'\n");
         return 1;
     }
 
-    // ── derive module base path from filename stem ───────────────────────
-    // filename() returns "test.kro", we strip the extension manually
-    var fname     = target.filename();              // "test.kro"
-    var ext       = target.extension();            // ".kro"
+    var fname     = target.filename();
+    var ext       = target.extension();
     var stem      = fname;
 
-    // strip extension from stem
     if stem.length() > ext.length() {
         stem = stem.raw_string().substr(0, stem.length() - ext.length());
     }
 
     var module_base = ModulePath();
 
-    // ── setup import resolver ─────────────────────────────────────────────
     var resolver = ImportResolver::Builder()
         .cwd(cwd)
         .build();
 
-    // ── run macro processor ─────────────────────────────────────────────
-    var mp = MacroProcessor(sm, tcm, resolver, pool);
-
-    // now intern the stem into mp's sym table
-    var ident  = IdentifierToken();
-    ident.name  = mp.get_symbol_table()->intern(stem);
-    ident.token = &null;
-    // module_base.segments.push_back(ident); - THIS is the global module, we don't push the stem as a segment
- 
-    var ok = mp.preprocess_file(fid, module_base, true);
+    var mp = PreProcessor(sm, tcm, resolver, pool);
+    var ok = mp.preprocess_file(fid, module_base);
 
     if !ok {
         std::print("warning: macro preprocessing reported errors\n");
     }
 
-    // ── dump tokens ─────────────────────────────────────────────────────
     var tokens = tcm->get_tokens(fid);
     if tokens == &null {
         std::print("error: no tokens after preprocessing\n");
         return 1;
     }
 
-    // ── lexer diagnostics ────────────────────────────────────────────────
     var lexer_ptr = tcm->get_lexer(fid);
     if (lexer_ptr != &null) && (lexer_ptr->has_errors()) {
         std::print("=== lexer diagnostics ===\n");
@@ -82,7 +61,6 @@ fn main() -> i32 {
         std::print("=== end lexer diagnostics ===\n\n");
     }
 
-    // ── import processor diagnostics ────────────────────────────────────
     var ip_diags = mp.get_import_processor()->get_diagnostics();
     if ip_diags.size() > 0 {
         std::print("=== import processor diagnostics ===\n");
@@ -92,64 +70,84 @@ fn main() -> i32 {
         std::print("=== end import processor diagnostics ===\n\n");
     }
 
-    // ── readable token dump ──────────────────────────────────────────────
     std::print(f"=== readable token dump: {target.full_path()} ({tokens->size()} tokens) ===\n");
     var code: string;
-    for var i: usize = 0; i < tokens->size(); ++i {
-        var tok  = tokens->get(i);
-        var kind = tok->kind;
-        var imm  = tok->imm;
+    var imm_tbl = (lexer_ptr->get_imm_tbl()) if (lexer_ptr != &null) else (&null);
 
-        // unwrap TkMacroExpand to get effective kind + original imm
-        if kind == TokenKind::TkMacroExpand && imm < static_cast::<u32>(-10) {
-            if lexer_ptr != &null {
-                var info = lexer_ptr->get_imm_tbl()->get::<Immediate::MacroExpansionInfo>(imm);
-                kind = info->original_kind;
-                imm  = info->original_imm;
+    for var i: usize = 0; i < tokens->size(); ++i {
+        var tok       = tokens->get(i);
+        var kind      = tok->kind;
+        var imm       = tok->imm;
+        var tok_range = tok->range;
+
+        if (static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand)) && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
+            if imm_tbl != &null {
+                var info  = imm_tbl->get::<Immediate::MacroExpansionInfo>(imm);
+                kind      = info->original_kind;
+                imm       = info->original_imm;
+                tok_range = info->def_range;
             }
         }
 
-        if kind == TokenKind::TkNewLine {
-            code += "\n";
+        if (tok->kind == TokenKind::TkMacroExpand) && (tok->imm >= static_cast::<u32>(MacroSentinel::Threshold)) {
+            if      tok->imm == static_cast::<u32>(MacroSentinel::Todo)        { code += "<todo> ";        }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Unreachable) { code += "<unreachable> "; }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Include)     { code += "<include> ";     }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::IncludeStr)  { code += "<include_str> "; }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Embed)       { code += "<embed> ";       }
             continue;
         }
 
-        // skip comments and whitespace in readable dump
-        if kind == TokenKind::AtComment    { continue; }
+        if kind == TokenKind::TkNewLine    { code += "\n"; continue; }
         if kind == TokenKind::TkWhitespace { continue; }
 
-        // for synthesized tokens imm holds the value, not source text
+        if kind == TokenKind::OpComma      { code += ", "; continue; }
+        if kind == TokenKind::OpSemicolon  { code += "; "; continue; }
+        if kind == TokenKind::OpLParen     { code += "( "; continue; }
+        if kind == TokenKind::OpRParen     { code += ") "; continue; }
+        if kind == TokenKind::OpLBrace     { code += "{ "; continue; }
+        if kind == TokenKind::OpRBrace     { code += "} "; continue; }
+        if kind == TokenKind::OpLSquare    { code += "[ "; continue; }
+        if kind == TokenKind::OpRSquare    { code += "] "; continue; }
+        if kind == TokenKind::OpExclaim    { code += "! "; continue; }
+        if kind == TokenKind::OpColonColon { code += ":: "; continue; }
+        if kind == TokenKind::OpEllipsis   { code += "... "; continue; }
+        if kind == TokenKind::OpPlus       { code += "+ "; continue; }
+        if kind == TokenKind::OpMinus      { code += "- "; continue; }
+        if kind == TokenKind::OpStar       { code += "* "; continue; }
+        if kind == TokenKind::OpSlash      { code += "/ "; continue; }
+        if kind == TokenKind::OpEqual      { code += "= "; continue; }
+        if kind == TokenKind::OpEqualEqual { code += "== "; continue; }
+        if kind == TokenKind::OpLess       { code += "< "; continue; }
+        if kind == TokenKind::OpGreater    { code += "> "; continue; }
+        if kind == TokenKind::OpArrow      { code += "-> "; continue; }
+
         if kind == TokenKind::LitInt {
-            code += f"{imm} ";
+            if imm_tbl != &null {
+                var int_data = imm_tbl->get::<Immediate::IntData>(imm);
+                code += f"{int_data->value_lo} ";
+            } else {
+                code += sm->get_text(tok_range) + " ";
+            }
             continue;
         }
 
-        if kind == TokenKind::LitIdentifier && imm > 0 && imm < static_cast::<u32>(-10) {
-            // unique_id! synthesized identifier
+
+        if (static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::LitIdentifier)) && (imm > 0) && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
             code += f"__unique_{imm} ";
             continue;
         }
 
-        // sentinel TkMacroExpand tokens
-        if tok->kind == TokenKind::TkMacroExpand {
-            if      tok->imm == static_cast::<u32>(-1) { code += "<todo> ";        continue; }
-            else if tok->imm == static_cast::<u32>(-2) { code += "<unreachable> "; continue; }
-            else if tok->imm == static_cast::<u32>(-3) { code += "<include> ";     continue; }
-            else if tok->imm == static_cast::<u32>(-4) { code += "<include_str> "; continue; }
-            else if tok->imm == static_cast::<u32>(-5) { code += "<embed> ";       continue; }
-        }
-
-        // default: use source text
-        code += sm->get_text(tok->range) + " ";
+        code += sm->get_text(tok_range) + " ";
     }
 
     std::print(code);
     std::print("=== end readable token dump ===\n\n");
 
-    // ── macro table ──────────────────────────────────────────────────────
     std::print("=== macro table ===\n");
     std::print(mp.get_macro_table()->as_string(mp.get_symbol_table()));
     std::print("=== end macro table ===\n\n");
 
+    // libcxx::this_thread::sleep_for(libcxx::chrono::seconds(10));
     return 0 if ok else 1;
 }

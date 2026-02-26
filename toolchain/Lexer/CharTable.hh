@@ -167,7 +167,7 @@ static constexpr UnicodeRange UNICODE_RANGES[] = {
     // illegal range (non-characters)
     {.start = 0, .end = 0, .cls = CharClass::Illegal}};
 
-/// Replacement Table (common confusables → normalized form)
+/// Replacement Table (common confusables -> normalized form)
 inline char32_t normalize_char32(char32_t ch) noexcept {
     if (ch < 128) {
         return ch;
@@ -227,7 +227,7 @@ inline char32_t normalize_char32(char32_t ch) noexcept {
         case U'\u3000':
             return U' ';
 
-        // mathematical alphabets: 𝐀-𝑧 → A-z
+        // mathematical alphabets: 𝐀-𝑧 -> A-z
         default:
             if (ch >= 0x1D400 && ch <= 0x1D419) {
                 return U'A' + (ch - 0x1D400);
