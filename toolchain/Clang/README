@@ -1,0 +1,558 @@
+# Kairo Compiler Architecture
+
+## Overview
+
+Kairo is a statically typed systems programming language with full native bidirectional C++ interoperability. The compiler leverages Clang as a backend — Kairo source is lowered to C++ lexical tokens, fed into Clang's parser/sema/codegen pipeline, and linked via a wrapped LLD.
+
+```
+Kairo Source (.kro)          C++ Headers (.h/.hpp)
+       |                            |
+       v                            v
+#--------------#            #------------------#
+|  Kairo Lexer |            |  Clang parses    |
+|  (SIMD, UTF8)|            |  headers → stubs |
+#------#-------#            #--------#---------#
+       v                             |
+#--------------#                     |
+| Preprocessor |                     |
+| (macros,     |                     |
+|  imports,    |                     |
+|  conditionals|                     |
+|  skip zones) |                     |
+#------#-------#                     |
+       v                             |
+#--------------#                     |
+| Kairo Parser |                     |
+| → Kairo AST  |                     |
+#------#-------#                     |
+       v                             |
+#----------------------#             |
+| Kairo Sema           |◄------------#
+|  - type resolution   |   (C++ symbol stubs inform
+|  - trait checking    |    Kairo sema about available
+|  - generic inst.     |    C++ symbols)
+|  - AMT borrow check  |
+|  - Code expansion    |
+|  - C++ nodes tagged  |
+|    as "deferred"     |
+#------#---------------#
+       v
+#----------------------#
+| Token Emitter        |
+|  - walks Kairo AST   |
+|  - emits clang::Token|
+|    stream            |
+|  - source locs map   |
+|    back to .kro via  |
+|    Clang SourceMgr   |
+|  - C++ imports emit  |
+|    #include tokens   |
+#------#---------------#
+       v
+#----------------------#
+| Clang Parser         |
+|  - parses token      |
+|    stream → Clang AST|
+#------#---------------#
+       v
+#----------------------#
+| Clang Sema           |
+|  - full C++ type     |
+|    checking          |
+|  - overload res.     |
+|  - template inst.    |
+|  - concept checking  |
+|  - ADL, SFINAE, etc. |
+|  - errors remap to   |
+|    Kairo source locs |
+#------#---------------#
+       v
+#----------------------#
+| Clang Codegen        |
+|  → LLVM IR           |
+#------#---------------#
+       v
+#----------------------#
+| LLVM Passes          |
+|  - optimization      |
+|  - debug info (DWARF)|
+#------#---------------#
+       v
+#----------------------#
+| LLD (Kairo wrapper)  |
+|  - Kairo demangling  |
+|  - Kairo diag engine |
+|    integration       |
+#------#---------------#
+       v
+     Binary
+```
+
+---
+
+## Stage Breakdown
+
+### 1. Kairo Lexer
+
+**Status:** Done (Stage 1 self-hosted implementation in progress)
+
+- SIMD-optimized tokenization (40-150ns/token)
+- UTF-8 support with fast validation
+- Arena-allocated token buffers (`TokenBuffer<512>`)
+- Immediate table for literal data (`IntData`, `StringData`, `MacroExpansionInfo`)
+- `TkError` tokens for error recovery (parser can skip bad tokens without cascading)
+- `SourceManager` tracks all files with SIMD line indexing
+
+**Key types:** `Lexer`, `Token`, `TokenBuffer<N>`, `TokenKind`, `ImmediateTable`, `SourceManager`
+
+---
+
+### 2. Preprocessor
+
+**Status:** Done (Stage 1 implementation in progress)
+
+- Macro definition collection (parameterized, variadic, default args)
+- Macro expansion with inside-out argument pre-expansion
+- Rescan loop for nested macro invocations
+- Cycle detection via `_active_macros` global chain (save/restore around arg expansion)
+- Import resolution with trie-based directory indexing
+- Conditional compilation via skip zones (`SkipList`)
+- Scope tracking for module-qualified macros
+- Builtin macros: `file!`, `line!`, `column!`, `count!`, `stringify!`, `unstringify!`, etc.
+- `TkMacroExpand` token wrapping preserves expansion chain for diagnostics
+
+**Key types:** `PreProcessor`, `MacroExpander`, `MacroDefinition`, `ImportProcessor`, `ImportResolver`, `SkipList`, `ScopeTracker`, `ExpansionContext`
+
+---
+
+### 3. Kairo Parser
+
+**Status:** Not started
+
+- Input: expanded token buffer from preprocessor
+- Output: Kairo AST
+- Error recovery: skip to next synchronization point on error (semicolons, braces, keywords)
+- `TkError` tokens from lexer are skipped — don't cascade into parse errors
+- Pratt parsing for expressions (precedence climbing)
+- Reports diagnostics via `DiagEngine`
+
+**AST node categories:**
+- Declarations: `FnDecl`, `ClassDecl`, `StructDecl`, `EnumDecl`, `VarDecl`, `TraitDecl`, `ImplDecl`
+- Statements: `ReturnStmt`, `IfStmt`, `WhileStmt`, `ForStmt`, `MatchStmt`, `BlockStmt`
+- Expressions: `BinaryExpr`, `UnaryExpr`, `CallExpr`, `MemberExpr`, `CastExpr`, `LiteralExpr`
+- Types: `BuiltinType`, `PointerType`, `ReferenceType`, `GenericType`, `CppOpaqueType`
+- Special: `ImportCppDecl`, `DeferredCppExpr`
+
+---
+
+### 4. C++ Header Stub Extraction
+
+**Status:** Not started
+
+When the parser encounters `import cpp "header.h"`:
+
+1. Invoke `libclang` to parse the header
+2. Walk top-level declarations via `clang_visitChildren()`
+3. Extract lightweight stubs — just enough for Kairo sema to not reject valid code
+4. Insert stubs into Kairo symbol table under the appropriate namespace/module
+
+**Stub structure:**
+```
+CppSymbolStub {
+    name:         SymbolID
+    qualified:    ModulePath        // namespace::class::name
+    kind:         CppSymbolKind     // Function, Class, Struct, Union, Enum, Template, Namespace, Typedef, Variable
+    is_template:  bool
+    param_count:  i32               // -1 for overloaded/variadic (skip arity check, defer to Clang)
+    is_pod:       bool              // for structs: safe for value-type semantics
+    clang_type:   clang::QualType   // opaque handle, handed back during token emission
+    source_file:  string            // which header
+}
+```
+
+**Extraction scope (Tier 1):**
+- Free functions
+- POD structs/classes (fields + methods)
+- Enums (with enumerator values)
+- Typedefs/using
+- Namespaces
+- Global variables
+
+**Deferred to Clang (no stub detail needed):**
+- Template internals (just mark `is_template = true`)
+- Overload sets (just mark `param_count = -1`)
+- Operator overloads
+- Multiple inheritance layouts
+- constexpr/consteval evaluation
+
+---
+
+### 5. Kairo Sema
+
+**Status:** Not started
+
+Two responsibilities:
+1. **Full checking** of Kairo-specific features (AMT, traits, generics)
+2. **Stub validation** of C++ interop (symbol exists? roughly right arity? mark as deferred)
+
+**What Kairo sema checks:**
+- Kairo type resolution and inference
+- Trait satisfaction / impl verification
+- Kairo generic instantiation
+- AMT / borrow checking (see §6)
+- Kairo-specific semantic rules (e.g., `finally` blocks, pattern matching exhaustiveness)
+- Basic validation of C++ calls: symbol exists in stub table, isn't wildly wrong
+
+**What Kairo sema defers to Clang:**
+- C++ overload resolution
+- C++ template instantiation
+- C++ concept/requires checking
+- C++ implicit conversions
+- C++ ADL (argument-dependent lookup)
+- Anything involving C++ type internals
+
+**AST annotation after sema:**
+- Every node has a resolved type (Kairo type or `CppOpaqueType` handle)
+- C++ interop nodes tagged with `DeferredCppCall` / `DeferredCppType`
+- AMT annotations attached (borrow kind, lifetime, ownership) — erased during lowering
+
+---
+
+### 6. AMT (Advanced Memory Tracking) — Borrow Checker
+
+**Status:** Not started (design phase)
+
+Runs as a sub-pass of sema, after type resolution, before token emission.
+
+**For pure Kairo code:** full borrow checking
+- Ownership tracking (move semantics)
+- Shared vs exclusive borrows
+- Lifetime inference
+- Dangling reference detection
+
+**At C++ trust boundaries:**
+- Verify Kairo-side borrows are valid at the call point
+- Assume C++ doesn't violate them (can't prove otherwise)
+- After C++ call returns, resume tracking
+- Pointers returned from C++ are "untracked" unless annotated
+
+**Ownership annotations for C++ interop:**
+```
+@cpp_owns      — C++ allocated, C++ frees. Kairo gets a borrow.
+@kairo_owns    — C++ allocated, Kairo must free.
+@shared        — Reference counted, both sides can hold.
+```
+
+**AMT erasure:** after borrow checking passes, all AMT annotations are stripped during token emission. The emitted C++ tokens have raw pointers/references. AMT is purely a compile-time check — zero runtime cost.
+
+---
+
+### 7. Token Emitter (Kairo AST → clang::Token stream)
+
+**Status:** Not started (this is the core lowering layer)
+
+Walks the Kairo AST and emits `clang::Token` objects into a token stream that Clang's parser consumes.
+
+**Source location mapping:**
+```cpp
+// Create virtual file in Clang's SourceManager for each .kro file
+auto &SM = clang_instance.getSourceManager();
+auto fid = SM.createFileID(
+    llvm::MemoryBuffer::getMemBuffer(kairo_source, "module.kro")
+);
+
+// Each emitted token gets a mapped location
+// Kairo line 42, col 10 → clang::SourceLocation pointing into "module.kro"
+auto loc = SM.translateLineCol(fid, 42, 10);
+token.setLocation(loc);
+```
+
+This means Clang's diagnostic output automatically points to `.kro` source files with correct line/column. No error remapping needed for most cases.
+
+**Lowering rules (Kairo construct → C++ tokens):**
+
+```
+Kairo                          C++ tokens
+------------------------------------------------
+fn foo(x: i32) -> i32          int32_t foo ( int32_t x )
+var x: i32 = 5                 int32_t x = 5 ;
+var x = 5                      auto x = 5 ;
+class Foo { ... }              class Foo { ... } ;
+struct Bar { ... }             struct Bar { ... } ;
+if cond { ... }                if ( cond ) { ... }
+if cond { a } else { b }      if ( cond ) { a } else { b }
+for i in 0..10 { ... }        for ( int32_t i = 0 ; i < 10 ; ++ i ) { ... }
+while cond { ... }             while ( cond ) { ... }
+match expr { ... }             switch ( expr ) { ... }  (or if-else chain)
+x as i64                       static_cast < int64_t > ( x )
+ref!(T)                        T &
+*T                             T *
+import cpp "foo.h"             #include "foo.h"
+module Foo { ... }             namespace Foo { ... }
+trait Trait { ... }             (concept or vtable struct — TBD)
+...args splice                 (variadic template expansion — TBD)
+```
+
+**C++ interop nodes:** when the emitter encounters a `DeferredCppCall` or `DeferredCppType`, it emits the original C++ tokens directly. Since the C++ header was `#include`d, Clang already knows about these symbols.
+
+**Estimated size:** 2000-3000 lines for full language coverage. This is the most critical piece of novel engineering in the compiler.
+
+---
+
+### 8. Clang Pipeline (Parser → Sema → Codegen)
+
+**Status:** Provided by Clang — no implementation needed
+
+The emitted token stream is fed into Clang's standard pipeline:
+
+1. **Clang Parser** — parses tokens into `clang::ASTContext`
+2. **Clang Sema** — full C++ semantic analysis including:
+   - Type checking
+   - Overload resolution  
+   - Template instantiation
+   - Concept checking
+   - ADL, SFINAE
+   - Implicit conversions
+3. **Clang Codegen** — lowers Clang AST to LLVM IR
+4. **LLVM Passes** — optimization, debug info
+
+Kairo invokes this by creating a `clang::CompilerInstance`, configuring it with Kairo's flags (mapped to Clang equivalents), and running the pipeline.
+
+**Diagnostic capture:** Clang's `DiagnosticConsumer` is subclassed to intercept diagnostics and route them through Kairo's `DiagEngine`. Since source locations already point to `.kro` files (via the virtual file mapping in the token emitter), most diagnostics display correctly without remapping.
+
+**Error remapping for cascade suppression:** when Clang reports an error on a deferred C++ node, the Kairo diagnostic consumer:
+1. Identifies the `DiagCategory` (from the Clang diagnostic ID)
+2. Poisons that category in the Kairo `DiagEngine` for the relevant scope
+3. Subsequent related errors are suppressed
+
+---
+
+### 9. Linker (LLD Wrapper)
+
+**Status:** Not started
+
+Repackaged LLD with:
+- Kairo symbol demangling in error output
+- Integration with Kairo `DiagEngine` for clean linker error formatting
+- Direct flag mapping from Kairo compiler flags to LLD flags
+
+**Object file generation:** each Kairo source file (after Clang codegen) produces a `.o` file. C++ imports produce their own `.o` files from the included headers. LLD links everything together.
+
+---
+
+## Diagnostic Engine
+
+### Architecture
+
+```
+Call Site (lexer/parser/sema/etc.)
+       |
+       v
+  DiagBuilder (fluent API)
+    .primary(range)
+    .secondary(range)
+    .fix(range, replacement, msg)
+    .note(code, loc, msg)
+    .emit()
+       |
+       v
+  DiagEngine
+    - cascade suppression (poisoned category+scope pairs)
+    - error counting / limits
+    - -Werror support
+       |
+       v
+  DiagConsumer (interface)
+    ├-- BasicDiagConsumer (terminal output)
+    ├-- JSONDiagConsumer  (LSP / tooling)
+    #-- CollectorConsumer (testing)
+```
+
+### Error Code Format
+
+```
+<category><3-digit code><severity>
+
+Categories:
+  S   — Syntax
+  U   — Uncategorized
+  C   — Code Generation
+  M   — Memory
+  R   — Resolution
+  L   — Linker
+  SC  — Semantic
+  P   — Portability/Platform
+  CL  — Lowering
+  OPT — Optimization
+  I   — Internal
+
+Severities:
+  I — Ignored
+  R — Remark
+  V — Verbose
+  N — Note
+  D — Debug
+  W — Warning
+  E — Error
+  F — Fatal
+
+Examples:
+  SC001E — Semantic Error 001
+  S042W  — Syntax Warning 042
+  M003E  — Memory Error 003 (AMT violation)
+```
+
+### Cascade Suppression
+
+Each diagnostic belongs to a `DiagCategory`. When an error fires, its category can be poisoned for a source scope. Subsequent errors in the same category and scope are suppressed. Different categories still fire independently.
+
+Example: lexer error in a string → poisons `Lexical` for that scope → parser errors about malformed tokens in that region are suppressed → but type errors in unrelated code still fire.
+
+---
+
+## Type Mapping (Kairo ↔ C++)
+
+### Primitive Types
+```
+Kairo     C++              Size
+------------------------------
+i8        int8_t           1
+i16       int16_t          2
+i32       int32_t          4
+i64       int64_t          8
+u8        uint8_t          1
+u16       uint16_t         2
+u32       uint32_t         4
+u64       uint64_t         8
+f32       float            4
+f64       double           8
+bool      bool             1
+usize     size_t           platform
+isize     ptrdiff_t        platform
+```
+
+### Pointer/Reference Types
+```
+Kairo              C++
+--------------------------
+*T                 T*
+*const T           const T*
+ref!(T)            T&
+const ref!(T)      const T&
+std::const_ptr<T>  const T*
+```
+
+### Standard Library Bridge
+```
+Kairo              C++                  Conversion
+-------------------------------------------------
+kairo::string      std::string          implicit (thin wrapper constructors)
+kairo::vec<T>      std::vector<T>       implicit
+kairo::map<K,V>    std::unordered_map   implicit
+kairo::set<T>      std::unordered_set   implicit
+```
+
+Bridge types have implicit constructors/conversion operators so cross-language calls work without explicit casting.
+
+### C++ Types in Kairo
+
+User C++ types (anything not in the bridge table) are held as opaque `clang::QualType` handles in the Kairo symbol table. Kairo sema doesn't inspect their internals — it just verifies the symbol exists and defers to Clang for type checking.
+
+---
+
+## Build Order / Implementation Priority
+
+```
+Phase 1 — Foundation (current)
+  ✅ Lexer (Stage 1 in progress)
+  ✅ Preprocessor (Stage 1 in progress)
+  🔨 Diagnostic Engine
+  
+Phase 2 — Frontend
+  ○ Parser → Kairo AST
+  ○ Basic Sema (Kairo-only, no C++ interop)
+  ○ Token Emitter (trivial subset: fn, var, if, while, for)
+  ○ Clang pipeline integration (verify round-trip)
+
+Phase 3 — Language Features
+  ○ Traits / interfaces
+  ○ Generics
+  ○ Pattern matching / match
+  ○ Full expression coverage in token emitter
+
+Phase 4 — C++ Interop
+  ○ libclang stub extraction
+  ○ Deferred sema for C++ symbols
+  ○ import cpp support
+  ○ Std library bridge types (string, vec, map)
+
+Phase 5 — Memory Safety
+  ○ AMT ownership tracking
+  ○ Borrow checking (pure Kairo)
+  ○ Trust boundary annotations for C++ calls
+
+Phase 6 — Tooling
+  ○ LLD wrapper with Kairo demangling
+  ○ LSP server (klsp)
+  ○ Formatter (kfmt)
+  ○ Package manager (kpkg)
+  ○ Build system (kbld)
+```
+
+---
+
+## Directory Structure
+
+```
+toolchain/
+├-- Core/
+|   ├-- Diagnostics/
+|   |   ├-- DiagCode.kro
+|   |   ├-- DiagEngine.kro
+|   |   ├-- DiagBuilder.kro
+|   |   ├-- DiagConsumer.kro
+|   |   #-- BasicDiagConsumer.kro
+|   ├-- SourceManager.kro
+|   ├-- SourceLocation.kro
+|   ├-- SourceRange.kro
+|   ├-- ArenaAllocator.kro
+|   ├-- TokenKind.kro
+|   ├-- Path.kro
+|   ├-- ThreadPool.kro
+|   #-- ...
+├-- Lexer/
+|   ├-- Lexer.kro
+|   ├-- Token.kro
+|   ├-- TokenBuffer.kro
+|   ├-- Immediate.kro
+|   #-- Preprocessor/
+|       ├-- Preprocessor.kro
+|       ├-- MacroExpander (in Preprocessor.kro)
+|       ├-- ImportResolver.kro
+|       #-- ...
+├-- Parser/                          (Phase 2)
+|   ├-- Parser.kro
+|   ├-- KairoAST.kro
+|   #-- ExprParser.kro
+├-- Sema/                            (Phase 2-3)
+|   ├-- Sema.kro
+|   ├-- TypeChecker.kro
+|   ├-- TraitResolver.kro
+|   #-- AMT.kro                     (Phase 5)
+├-- CppInterop/                      (Phase 4)
+|   ├-- StubExtractor.kro
+|   ├-- CppSymbolStub.kro
+|   #-- TypeBridge.kro
+├-- Codegen/                         (Phase 2)
+|   ├-- TokenEmitter.kro
+|   ├-- ClangPipeline.kro
+|   #-- LoweringRules.kro
+├-- Driver/
+|   #-- main/
+|       ├-- kairo.kro                (compiler driver)
+|       ├-- kbld.kro                 (build system)
+|       ├-- kfmt.kro                 (formatter)
+|       ├-- klsp.kro                 (language server)
+|       #-- kpkg.kro                 (package manager)
+#-- README
+```

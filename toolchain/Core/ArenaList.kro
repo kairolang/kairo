@@ -24,7 +24,7 @@ import Core::ArenaAllocator::*;
 ///
 /// Chunk descriptor table:
 ///   A separate arena-allocated array of Chunk structs (base pointer,
-///   count, capacity) that maps chunk index → slab. The table grows
+///   count, capacity) that maps chunk index -> slab. The table grows
 ///   by doubling (old table is abandoned in the arena no free needed).
 ///   This is a few hundred bytes even for huge lists.
 ///
