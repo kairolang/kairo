@@ -2398,7 +2398,7 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     }
 
     /// \brief returns the ImmediateTable for the file that owns this token
-    /// \details resolves via the token's range → fid lookup in the SourceManager
+    /// \details resolves via the token's range -> fid lookup in the SourceManager
     fn get_imm_table_for_token(self, tok: Token, sm: *SourceManager) -> *ImmediateTable {
         var fid = sm->get_fid(tok.range.start);
         if fid == 0 { return &null; }

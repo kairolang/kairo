@@ -158,7 +158,7 @@ class SourceManager {
             }
         "));
 
-        std::print(f"load_file: path={path.full_path()}, base_fid={base_fid}, _files.size()={self._files.size()}");
+        // std::print(f"load_file: path={path.full_path()}, base_fid={base_fid}, _files.size()={self._files.size()}");
         return base_fid;
     }
 
@@ -271,7 +271,7 @@ class SourceManager {
     }
 
     ///
-    /// \brief resolves a SourceLocation → file/offset pair.
+    /// \brief resolves a SourceLocation -> file/offset pair.
     ///
     /// \return segment info `{fid, offset}` or invalid if not found.
     ///
@@ -485,7 +485,7 @@ class SourceManager {
         var res_a = self.resolve(a);
         var res_b = self.resolve(b);
         
-        // different files → distance is meaningless
+        // different files -> distance is meaningless
         if res_a.fid != res_b.fid {
             return 0;
         }

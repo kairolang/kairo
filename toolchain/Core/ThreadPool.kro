@@ -303,7 +303,7 @@ class ThreadPool {
                         return true;
                     }
 
-                    // CAS failed → retry pos reload
+                    // CAS failed -> retry pos reload
                 } else if dif < 0 {
                     return false;
                 } else {
