@@ -16,5 +16,5 @@
 import Core::TokenKind::*;
 /// Core::TokenKind has: import Core::EvalHash::*;
 
-import Core::SourceRange::*;
-/// Core::SourceRange has: import Core::SourceLocation::*;
+import Core::Source::SourceRange::*;
+/// Core::SourceRange has: import Core::Source::SourceLocation::*;

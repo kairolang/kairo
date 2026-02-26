@@ -13,10 +13,10 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::SourceRange::*;
-import Core::SourceManager::*;
+import Core::Source::SourceRange::*;
+import Core::Source::SourceManager::*;
 import Lexer::TokenBuffer::*;
-import Core::ArenaList::*;
+import Core::Memory::ArenaList::*;
 
 /// TODO: change suffixes to Tokens itself rather then SourceRange since we
 ///       don't want to reparse and a Token is smaller (32 bytes vs 64 bytes)

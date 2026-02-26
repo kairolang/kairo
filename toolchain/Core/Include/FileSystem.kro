@@ -17,8 +17,8 @@ import Core::Path::*;
 
 import Core::FileSystem::*;
 
-import Core::MappedFileBuffer::*;
+import Core::Memory::MappedFileBuffer::*;
 /// Core::MappedFileBuffer has: import Core::UTF8View::*;
-/// Core::MappedFileBuffer has: import Core::MemoryBuffer::*;
-/// Core::MappedFileBuffer has: import Core::MMapRegion::*;
+/// Core::MappedFileBuffer has: import Core::Memory::MemoryBuffer::*;
+/// Core::MappedFileBuffer has: import Core::Memory::MMapRegion::*;
 /// Core::MappedFileBuffer has: import Core::Timer::*;

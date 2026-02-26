@@ -14,7 +14,7 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 import Lexer::Preprocessor::MacroSymbolTable::*;
-import Core::SourceManager::*;
+import Core::Source::SourceManager::*;
 
 enum ModuleVisibility derives u8 {
     Public,     ///< pub module or no modifier - exported

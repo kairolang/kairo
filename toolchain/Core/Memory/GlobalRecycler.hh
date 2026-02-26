@@ -1,7 +1,7 @@
 #pragma once
 #include <include/core.hh>
 
-#include "Types.hh"
+#include "../Types.hh"
 
 namespace kairo {
 

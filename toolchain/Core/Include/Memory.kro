@@ -13,9 +13,9 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::ArenaAllocator::*;
+import Core::Memory::ArenaAllocator::*;
 /// Core::ArenaAllocator has: import Core::Timer::*;
 
-import Core::MemoryBuffer::*;
+import Core::Memory::MemoryBuffer::*;
 /// Core::MemoryBuffer has: import Core::UTF8View::*;
-/// Core::MemoryBuffer has: import Core::MMapRegion::*;
+/// Core::MemoryBuffer has: import Core::Memory::MMapRegion::*;

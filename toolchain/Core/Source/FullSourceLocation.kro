@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::SourceLocation::*;
+import Core::Source::SourceLocation::*;
 import Core::Path::*;
 import Core::VirtualFileManager::*;
 

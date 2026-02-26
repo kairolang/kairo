@@ -2,7 +2,7 @@
 #include <include/core.hh>
 
 #include "GlobalRecycler.hh"
-#include "Types.hh"
+#include "../Types.hh"
 
 namespace kairo {
 

@@ -15,7 +15,7 @@
 
 ffi "c++" import "Core/UTF8Decode.hh";
 
-import Core::MMapRegion::*;
+import Core::Memory::MMapRegion::*;
 
 ///
 /// \file Core/UTF8View.kro

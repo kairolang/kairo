@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::ArenaAllocator::*;
+import Core::Memory::ArenaAllocator::*;
 import Core::TokenKind::*;
 import Lexer::Token::*;
 

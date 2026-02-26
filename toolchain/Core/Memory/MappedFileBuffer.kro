@@ -13,8 +13,8 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::MMapRegion::*;
-import Core::MemoryBuffer::*;
+import Core::Memory::MMapRegion::*;
+import Core::Memory::MemoryBuffer::*;
 import Core::UTF8View::*;
 import Core::Timer::*;
 

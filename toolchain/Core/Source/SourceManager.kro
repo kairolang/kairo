@@ -15,12 +15,12 @@
 
 ffi "c++" import "Core/Types.hh";
 
-import Core::SourceFile::*;
-import Core::SourceLocation::*;
-import Core::FullSourceLocation::*;
+import Core::Source::SourceFile::*;
+import Core::Source::SourceLocation::*;
+import Core::Source::FullSourceLocation::*;
 import Core::Path::*;
-import Core::MemoryBuffer::*;
-import Core::SourceLineTable::*;
+import Core::Memory::MemoryBuffer::*;
+import Core::Source::SourceLineTable::*;
 import Core::ThreadPool::*;
 import Core::VirtualFileManager::*;
 import Core::Assert::*;

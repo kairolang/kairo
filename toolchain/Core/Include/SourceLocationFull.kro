@@ -13,15 +13,15 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::FullSourceLocation::*;
+import Core::Source::FullSourceLocation::*;
 /// Core::FullSourceLocation has: import Core::ThreadPool::*;
 /// Core::FullSourceLocation has: import Core::UTF8View::*;
-/// Core::FullSourceLocation has: import Core::MemoryBuffer::*;
+/// Core::FullSourceLocation has: import Core::Memory::MemoryBuffer::*;
 /// Core::FullSourceLocation has: import Core::VirtualFileManager::*;
 /// Core::FullSourceLocation has: import Core::Path::*;
-/// Core::FullSourceLocation has: import Core::SourceLocation::*;
-/// Core::FullSourceLocation has: import Core::MMapRegion::*;
+/// Core::FullSourceLocation has: import Core::Source::SourceLocation::*;
+/// Core::FullSourceLocation has: import Core::Memory::MMapRegion::*;
 /// Core::FullSourceLocation has: import Core::Timer::*;
-/// Core::FullSourceLocation has: import Core::MappedFileBuffer::*;
+/// Core::FullSourceLocation has: import Core::Memory::MappedFileBuffer::*;
 /// Core::FullSourceLocation has: import Core::FileSystem::*;
-/// Core::FullSourceLocation has: import Core::SourceRange::*;
+/// Core::FullSourceLocation has: import Core::Source::SourceRange::*;

@@ -15,12 +15,12 @@
 
 import Core::VirtualFileManager::*;
 /// Core::VirtualFileManager has: import Core::ThreadPool::*;
-/// Core::VirtualFileManager has: import Core::SourceLocation::*;
+/// Core::VirtualFileManager has: import Core::Source::SourceLocation::*;
 /// Core::VirtualFileManager has: import Core::UTF8View::*;
-/// Core::VirtualFileManager has: import Core::MemoryBuffer::*;
+/// Core::VirtualFileManager has: import Core::Memory::MemoryBuffer::*;
 /// Core::VirtualFileManager has: import Core::Path::*;
-/// Core::VirtualFileManager has: import Core::MMapRegion::*;
+/// Core::VirtualFileManager has: import Core::Memory::MMapRegion::*;
 /// Core::VirtualFileManager has: import Core::Timer::*;
-/// Core::VirtualFileManager has: import Core::MappedFileBuffer::*;
+/// Core::VirtualFileManager has: import Core::Memory::MappedFileBuffer::*;
 /// Core::VirtualFileManager has: import Core::FileSystem::*;
-/// Core::VirtualFileManager has: import Core::SourceRange::*;
+/// Core::VirtualFileManager has: import Core::Source::SourceRange::*;

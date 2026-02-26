@@ -14,8 +14,8 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 import Core::Path::*;
-import Core::MappedFileBuffer::*;
-import Core::MemoryBuffer::*;
+import Core::Memory::MappedFileBuffer::*;
+import Core::Memory::MemoryBuffer::*;
 
 ///
 /// \file Core/SourceFile.kro

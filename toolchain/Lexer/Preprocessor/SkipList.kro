@@ -14,7 +14,7 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 import Lexer::TokenBuffer::*;
-import Core::SourceRange::*;
+import Core::Source::SourceRange::*;
 
 // =========================================================================
 //  SKIP LIST

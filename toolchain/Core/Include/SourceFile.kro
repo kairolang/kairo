@@ -13,11 +13,11 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::SourceFile::*;
+import Core::Source::SourceFile::*;
 /// Core::SourceFile has: import Core::UTF8View::*;
-/// Core::SourceFile has: import Core::MemoryBuffer::*;
+/// Core::SourceFile has: import Core::Memory::MemoryBuffer::*;
 /// Core::SourceFile has: import Core::Path::*;
-/// Core::SourceFile has: import Core::MMapRegion::*;
+/// Core::SourceFile has: import Core::Memory::MMapRegion::*;
 /// Core::SourceFile has: import Core::Timer::*;
-/// Core::SourceFile has: import Core::MappedFileBuffer::*;
+/// Core::SourceFile has: import Core::Memory::MappedFileBuffer::*;
 /// Core::SourceFile has: import Core::FileSystem::*;

@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::SourceLocation::*;
+import Core::Source::SourceLocation::*;
 
 ///
 /// \file Core/SourceRange.kro

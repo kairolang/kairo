@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::SourceRange::*;
+import Core::Source::SourceRange::*;
 import Core::TokenKind::*;
 
 /// size = 16 bytes on 64-bit
