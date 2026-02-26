@@ -1,0 +1,60 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that we give appropriate credit, and indicate if changes were made.    ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Lexer::TokenSpan::*;
+
+type SymbolID = u32;;
+
+// =========================================================================
+//  EXPANSION CONTEXT
+// =========================================================================
+
+/// \brief per-expansion state: tracks recursion depth, cycle detection,
+///        and parameter bindings for a single macro invocation.
+class ExpansionContext {
+    pub var call_stack:        vec::<SymbolID>;            ///< macro names on the current expansion stack
+    pub var param_bindings:    map::<SymbolID, TokenSpan>; ///< param name -> argument tokens
+    pub var variadic_bindings: vec::<TokenSpan>;           ///< variadic arguments (one TokenSpan per arg)
+    pub var invoke_loc:        SourceRange;                ///< source location of the invocation site
+    pub var depth:             u32 = 0;                    ///< current recursion depth
+    pub var variadic_name:     SymbolID = 0;               ///< 0 = no named variadic (unnamed ... case)
+
+    fn is_in_cycle(self, name: SymbolID, const max_depth: usize) -> bool {
+        for id in self.call_stack {
+            if id == name {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn push(self, name: SymbolID) {
+        self.call_stack.push_back(name);
+        self.depth += 1;
+    }
+
+    fn pop(self) {
+        if self.call_stack.size() > 0 {
+            self.call_stack.pop_back();
+        }
+        if self.depth > 0 {
+            self.depth -= 1;
+        }
+    }
+
+    fn exceeded_depth(self, const max_depth: usize) -> bool {
+        return self.depth > max_depth;
+    }
+}
