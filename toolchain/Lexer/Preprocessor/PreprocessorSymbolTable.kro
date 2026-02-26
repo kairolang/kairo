@@ -1,0 +1,72 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that we give appropriate credit, and indicate if changes were made.    ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+type SymbolID = u32;;
+
+class PreprocessorSymbolTable {
+    var table: map::<string, SymbolID>; ///< identifier name -> symbolId
+    var symbols: vec::<string>;         ///< symbolId -> identifier name
+
+    fn intern(self, name: string) -> SymbolID {
+        var it = table.find(name);
+        if (it != table.end()) {
+            return it->second;
+        }
+
+        var id: SymbolID = symbols.size();
+        symbols.emplace_back(name);
+        table.emplace(symbols.back(), id);
+
+        return id;
+    }
+
+    fn resolve(self, id: SymbolID) -> *string {
+        if id < symbols.size() {
+            return &(symbols[id]);
+        }
+
+        return &null;
+    }
+
+    fn op [](self, id: SymbolID) -> *string {
+        return self.resolve(id);
+    }
+
+    fn op [](self, name: string) -> SymbolID {
+        return self.intern(name);
+    }
+
+    fn op as (self) -> string {
+        var repr = "PreprocessorSymbolTable(\n";
+        for i in usize(0) .. usize(self.symbols.size()) {
+            repr += f"  {i}: '{self.symbols[i]}'\n";
+        }
+        repr += ")";
+        return repr;
+    }
+
+    fn size(self) -> usize {
+        return self.symbols.size();
+    }
+
+    fn clear(self) {
+        self.table.clear();
+        self.symbols.clear();
+    }
+
+    fn op delete (self) {
+        self.clear();
+    }
+}
