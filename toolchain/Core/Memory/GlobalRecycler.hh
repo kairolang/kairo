@@ -95,6 +95,7 @@ class GlobalRecycler {
     void push(std::Byte *block, size_t capacity) noexcept {
         if (block == nullptr || capacity < MIN_RECYCLABLE) [[unlikely]] {
             if (block != nullptr) {
+                Logger::trace(Logger::Stage::Driver, libcxx::format(L"GlobalRecycler::push: skip recycle cap={}B (below threshold)", capacity));
                 #ifdef _MSC_VER
                     _aligned_free(block);
                 #else
@@ -127,6 +128,8 @@ class GlobalRecycler {
             ;  // spin until we successfully push the node onto the bin's linked
                // list
         }
+
+        Logger::trace(Logger::Stage::Driver, libcxx::format(L"GlobalRecycler::push: recycled cap={}B bin={}", capacity, idx));
     }
 
     std::Byte *pop(size_t min_size) noexcept {
@@ -144,6 +147,7 @@ class GlobalRecycler {
                             node->next,
                             std::MemoryOrder::acq_rel,
                             std::MemoryOrder::relaxed)) {
+                        Logger::trace(Logger::Stage::Driver, libcxx::format(L"GlobalRecycler::pop: reused cap={}B bin={}", node->capacity, idx));
                         return reinterpret_cast<std::Byte *>(node);
                     }
                     continue;
@@ -156,6 +160,7 @@ class GlobalRecycler {
     }
 
     void clear() noexcept {
+        Logger::debug(Logger::Stage::Driver, L"GlobalRecycler::clear: releasing all bins");
         for (auto &bin : bins_) {
             Node *node = bin.exchange(nullptr, std::MemoryOrder::acq_rel);
             while (node != nullptr) {

@@ -394,11 +394,12 @@ class ThreadPool {
         }
 
         for i in range::<usize>(0, n) {
-        __inline_cpp("
+            __inline_cpp("
             _threads.emplace_back([self_ptr, i]() {
                 self_ptr->worker_loop(i);
             })
-        ");
+            ");
+            Logger::info(Logger::Stage::ThreadPool, f"ThreadPool: initialized {self._count} workers");
         }
     }
 
@@ -480,6 +481,8 @@ class ThreadPool {
             return;
         }
 
+        Logger::warn(Logger::Stage::ThreadPool, f"ThreadPool::enqueue: qid={qid} full, spinning (group={group})");
+
         // --- final fallback: spin until primary has a slot ---
         while !self._queues[qid]->push(std::Memory::move(task)) {
             _thread_pause();
@@ -515,6 +518,7 @@ class ThreadPool {
             } else {
                 libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
                 spins = 0; // reset to check more frequently again
+                Logger::warn(Logger::Stage::ThreadPool, f"ThreadPool::wait_group: group={group} stalled pending={self._groups[group].load(std::MemoryOrder::acquire)}");
             }
         }
     }
@@ -550,6 +554,8 @@ class ThreadPool {
             return;
         }
 
+        Logger::info(Logger::Stage::ThreadPool, f"ThreadPool::shutdown: joining {self._count} workers total_pending={self.get_total_pending_tasks()}");
+        
         for t: ref!(Thread) in self._threads {
             if t.joinable() {
                 t.join();
@@ -562,6 +568,7 @@ class ThreadPool {
 
         self._queues.clear();
         self._threads.clear();
+        Logger::info(Logger::Stage::ThreadPool, "ThreadPool::shutdown: complete");
     }
 
     ///
@@ -711,6 +718,7 @@ class ThreadPool {
     ///
     fn warmup(self, spins: i32 = 1000000) {
         var barrier: std::Atomic::<usize> = std::Atomic::<usize>(0);
+        Logger::debug(Logger::Stage::ThreadPool, f"ThreadPool::warmup: {self._count} threads spins={spins}");
 
         fn heat_task(barrier: *std::Atomic::<usize>, spins: i32) {
             var x: i64 = 1;
@@ -740,6 +748,8 @@ class ThreadPool {
         while barrier.load(std::MemoryOrder::acquire) < self._count {
             _thread_pause();
         }
+
+        Logger::debug(Logger::Stage::ThreadPool, "ThreadPool::warmup: complete");
 
         _thread_pause();
     }

@@ -67,6 +67,8 @@ struct alignas(64) ArenaBlock {
         if constexpr (PRE_TOUCH) {
             pre_touch();
         }
+
+        Logger::trace(Logger::Stage::Driver, libcxx::format(L"ArenaBlock::ctor: cap={}B ptr={}", cap, static_cast<void*>(ptr)));
     }
 
     ~ArenaBlock() noexcept { GlobalRecycler::instance().push(ptr, capacity); }
@@ -80,6 +82,7 @@ struct alignas(64) ArenaBlock {
         size_t aligned = align_up(offset, align);
 
         if (aligned + sz > capacity) [[unlikely]] {
+            Logger::trace(Logger::Stage::Driver, libcxx::format(L"ArenaBlock::try_alloc: exhausted offset={} sz={} cap={}", offset, sz, capacity));
             return nullptr;
         }
 
@@ -94,6 +97,7 @@ struct alignas(64) ArenaBlock {
     }
 
     void destroy() noexcept {
+        Logger::debug(Logger::Stage::Driver, libcxx::format(L"ArenaBlock::destroy: hard-free cap={}B", capacity));
         libcxx::free(ptr);
         ptr = nullptr;
     }

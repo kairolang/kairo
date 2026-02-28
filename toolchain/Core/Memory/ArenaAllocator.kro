@@ -83,6 +83,7 @@ class ArenaAllocator {
     fn ArenaAllocator(self, blk_sz: usize) {
         (self.head)       = std::create::<ArenaBlock>(blk_sz);
         self.block_size = blk_sz;
+        Logger::debug(Logger::Stage::Driver, f"ArenaAllocator::ArenaAllocator: block_size={blk_sz}B");
     }
 
     // move and copy constructor
@@ -126,6 +127,7 @@ class ArenaAllocator {
         }
         self.head       = std::create::<ArenaBlock>(blk_sz);
         self.block_size = blk_sz;
+        Logger::debug(Logger::Stage::Driver, f"ArenaAllocator::init: block_size={blk_sz}B");
     }
 
     fn op delete (self) {
@@ -171,7 +173,10 @@ class ArenaAllocator {
     }
 
     fn destroy(self) {
-        if self.head == &null { return; }
+        if self.head == &null {
+            Logger::trace(Logger::Stage::Driver, f"ArenaAllocator::destroy: slabs={self.stats.slab_count} allocs={self.stats.alloc_calls} bytes={self.stats.bytes_allocated}B resets={self.stats.resets}");
+            return;
+        }
 
         var b = self.head;
         while (b != &null) {
@@ -219,6 +224,7 @@ class ArenaAllocator {
         ((self.head)) = blk;
 
         ++(self.stats.slab_count);
+        Logger::trace(Logger::Stage::Driver, f"ArenaAllocator::expand: slab={self.stats.slab_count} req={sz}B block_size={req}B total_allocated={self.stats.bytes_allocated}B");
         return (self.head)->try_alloc(sz, align);
     }
 }

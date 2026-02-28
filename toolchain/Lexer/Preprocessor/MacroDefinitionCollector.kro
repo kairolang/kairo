@@ -79,6 +79,7 @@ class MacroDefinitionCollector {
     fn collect(self, tokens: *(TokenBuffer::<512>), fid: u32, tracker: *ScopeTracker, skip_list: *SkipList) -> bool {
         self._skip_list = skip_list;
         self._current_fid = fid;
+        Logger::info(Logger::Stage::Preprocessor, f"MacroDefinitionCollector::collect: fid={fid} tokens={tokens->size()}");
 
         var had_errors = false;
         var i: usize = 0;
@@ -116,6 +117,7 @@ class MacroDefinitionCollector {
             i += scope_consumed + 1;
         }
 
+        Logger::info(Logger::Stage::Preprocessor, f"MacroDefinitionCollector::collect: fid={fid} done errors={had_errors}");
         return !had_errors;
     }
 
@@ -227,6 +229,7 @@ class MacroDefinitionCollector {
             var name_ptr = self._sym_table->resolve(name_ident.name);
             var name_str = "<unknown>" if (name_ptr == &null) else *name_ptr;
             var scope_str = def.scope.as_string(self._sym_table);
+            Logger::warn(Logger::Stage::Preprocessor, f"MacroDefinitionCollector: duplicate macro '{name_str}!' in scope '{scope_str}' fid={self._current_fid}");
             self.error(name_tok, f"duplicate macro '{name_str}!' in scope '{scope_str}' ");
             return 0;
         }

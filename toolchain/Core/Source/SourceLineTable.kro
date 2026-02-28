@@ -184,12 +184,16 @@ class SourceLineTable {
 
         var existing = (*tbl)[fid];
         if existing != &null {
+            Logger::debug(Logger::Stage::Driver, f"SourceLineTable::register_file: fid={fid} already registered");
+
             return;
         }
 
         var entry = std::create::<FileEntry>(fid, size);
         (*tbl)[fid] = entry;
         self._file_count.fetch_add(1, std::MemoryOrder::relaxed);
+
+        Logger::debug(Logger::Stage::Driver, f"SourceLineTable::register_file: fid={fid} size={size}B total_files={self._file_count.load(std::MemoryOrder::relaxed)}");
     }
 
     ///
@@ -214,6 +218,8 @@ class SourceLineTable {
 
         var entry = (*tbl)[fid];
         if (!entry || entry->is_ready()) {
+            Logger::debug(Logger::Stage::Driver, f"SourceLineTable::build_index: fid={fid} already ready, skipping");
+
             return;
         }
 
@@ -376,6 +382,7 @@ class SourceLineTable {
             }
         }
 
+        Logger::info(Logger::Stage::Driver, f"SourceLineTable::build_index: fid={fid} indexed {count} lines size={size}B");
         entry->publish_lines(lines, count);
     }
 
@@ -401,6 +408,7 @@ class SourceLineTable {
                 libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
                 if count >= 15000 {
                     count = 0;
+                    Logger::warn(Logger::Stage::Driver, f"SourceLineTable::wait_until_ready: fid={fid} stalled, still waiting");
                 }
             } else if count >= 5000 {
                 libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(25));

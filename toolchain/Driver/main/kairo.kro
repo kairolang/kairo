@@ -1,6 +1,7 @@
 import Lexer::Preprocessor::Preprocessor::*;
 
 fn main() -> i32 {
+    Logger::init(Logger::Level::Trace);
     var cwd    = Path::cwd();
     var target = Path("test.kro");
 
@@ -13,7 +14,11 @@ fn main() -> i32 {
         std::destroy(pool);
         std::destroy(sm);
         std::destroy(tcm);
+        
         GlobalRecycler::shutdown_allocator_runtime();
+        
+        Logger::dump(); // guaranteed to always be called before shutdown, to ensure all logs are flushed
+        Logger::shutdown();
     }
 
     var fid = sm->load_file(target);

@@ -1211,6 +1211,7 @@ class ImmediateTable {
         self.char_literals    = std::create::<ArenaList::<Immediate::CharData>>(64);
         self.string_literals  = std::create::<ArenaList::<Immediate::StringData>>(64);
         self.macro_expansions = std::create::<ArenaList::<Immediate::MacroExpansionInfo>>(64);
+        Logger::debug(Logger::Stage::Lexer, "ImmediateTable::initialize: initialized with source manager at {sm}");
     }
 
     fn reset(self) {
@@ -1219,6 +1220,7 @@ class ImmediateTable {
         self.char_literals->clear();
         self.string_literals->clear();
         self.macro_expansions->clear();
+        Logger::debug(Logger::Stage::Lexer, "ImmediateTable::reset: cleared all immediate literals and macro expansions");
     }
 
     fn set_parsing_status(self, is_evaluating: bool) {
@@ -1322,6 +1324,7 @@ class ImmediateTable {
         std::destroy(self.char_literals);
         std::destroy(self.string_literals);
         std::destroy(self.macro_expansions);
+        Logger::debug(Logger::Stage::Lexer, "ImmediateTable::op delete: destroyed all immediate literals and macro expansions");
     }
 
     fn wait_for_evaluation(self) {

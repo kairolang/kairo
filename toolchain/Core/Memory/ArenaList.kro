@@ -90,6 +90,8 @@ class <T> ArenaList {
 
         self.alloc_descriptor_table(DESCRIPTOR_INIT);
         self.alloc_slab();
+
+        Logger::debug(Logger::Stage::Driver, f"ArenaList::ctor: slab_size={self._slab_size} arena_sz={arena_sz}B");
     }
 
     fn push(self, val: T) -> *T {
@@ -122,6 +124,7 @@ class <T> ArenaList {
 
     fn pop(self) -> T {
         if self._total == 0 {
+            Logger::fatal(Logger::Stage::Driver, "ArenaList::pop: underflow on empty list");
             std::crash(std::Error::RuntimeError("ArenaList::pop: list is empty"));
         }
 
@@ -191,6 +194,7 @@ class <T> ArenaList {
 
     fn op [] (self, idx: usize) -> *T {
         if idx >= self._total {
+            Logger::fatal(Logger::Stage::Driver, f"ArenaList::op[]: OOB idx={idx} size={self._total}");
             std::crash(std::Error::RuntimeError(
                 f"ArenaList::operator[]: index {idx} out of bounds (size={self._total})"
             ));
@@ -223,6 +227,7 @@ class <T> ArenaList {
 
             self._chunks    = new_table;
             self._chunk_cap = new_cap;
+            Logger::trace(Logger::Stage::Driver, f"ArenaList::alloc_slab: descriptor table grew cap={new_cap}");
         }
 
         var base = reinterpret_cast::<*T>(

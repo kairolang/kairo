@@ -193,7 +193,9 @@ class ImportResolver {
     /// sets `_index_completed` to true on exit via `finally` block.
     fn build_index(self, cwd: Path, include_paths: vec::<Path>, pool: *ThreadPool = &null) {
         self._index_completed.store(false, std::MemoryOrder::release);
+        Logger::info(Logger::Stage::Preprocessor, f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={include_paths.size() + 1}");
         finally {
+            Logger::info(Logger::Stage::Preprocessor, f"ImportResolver::build_index: complete roots={self._roots.size()}");
             self._index_completed.store(true, std::MemoryOrder::release);
         };
 
@@ -314,6 +316,7 @@ class ImportResolver {
             }
         }
 
+        Logger::debug(Logger::Stage::Preprocessor, f"ImportResolver::resolve_module: not found key='{cache_key}' ");
         return ResolveError::NotFound;
     }
 
@@ -339,6 +342,7 @@ class ImportResolver {
             }
         }
 
+        Logger::debug(Logger::Stage::Preprocessor, f"ImportResolver::resolve_module_dir: not found segments={segments.size()}");
         return ResolveError::NotFound;
     }
 

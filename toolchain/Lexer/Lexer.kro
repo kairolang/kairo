@@ -330,6 +330,7 @@ class Lexer {
     /// \returns true on success
     fn lex(self, fid: u32) -> bool {
         if !self.load_file(fid) {
+            Logger::error(Logger::Stage::Lexer, f"Lexer::lex: failed to load fid={fid}");
             return false;
         }
 
@@ -338,6 +339,7 @@ class Lexer {
         self._initialized = true;
 
         if self.file_data() == &null {
+            Logger::error(Logger::Stage::Lexer, f"Lexer::lex: null file_data for fid={fid}");
             return false;
         }
 
@@ -391,12 +393,14 @@ class Lexer {
         // finalize balance checking
         self._balance.finalize();
 
+        Logger::info(Logger::Stage::Lexer, f"Lexer::lex: fid={fid} tokens={self._tokens.size()} errors={self._diagnostics.size()}");
         return true;
     }
 
     /// \brief emits errors for invalid tokens found during lexing
     /// \details currently only handles TkError tokens
     fn emit_errors(self) {
+        Logger::debug(Logger::Stage::Lexer, f"Lexer::emit_errors: balance_errors={self._balance.errors.size()} diagnostics={self._diagnostics.size()}");
         // balance errors
         for var i: usize = 0; i < self._balance.errors.size(); ++i {
             var err = self._balance.errors[i];
@@ -504,6 +508,7 @@ class Lexer {
         self._pool = pool;
         self._imm_tbl.initialize(sm);
         self._initialized = false; // we only initialize on lex call
+        Logger::info(Logger::Stage::Lexer, "Lexer: initialized");
     }
 
     /// \brief destroys the lexer and its resources
@@ -541,10 +546,12 @@ class Lexer {
         var buffer = self._sm->get_buffer(fid);
 
         if buffer == null || (!(*buffer).is_valid()) {
+            Logger::error(Logger::Stage::Lexer, f"Lexer::load_file: invalid buffer for fid={fid}");
             return false;
         }
 
         self._file_buffer = *buffer;
+        Logger::debug(Logger::Stage::Lexer, f"Lexer::load_file: fid={fid} size={self._file_buffer.size()}B");
         return true;
     }
 
@@ -1396,6 +1403,7 @@ class Lexer {
                 }
 
                 // TODO: emit proper conflict diagnostic
+                Logger::warn(Logger::Stage::Lexer, f"Lexer::lex_symbol: git conflict marker detected ({run_len} chars) at fid={self._fid} cursor={self._cursor}");
                 return self.create_error_token(start, TokenKind::TkError, TokenKind::TkError);
             }
         }
@@ -1455,6 +1463,7 @@ class Lexer {
         }
 
         if nest_depth > 0 {
+            Logger::warn(Logger::Stage::Lexer, f"Lexer::lex_block_comment: unterminated block comment fid={self._fid}");
             return self.create_error_token(start, TokenKind::AtComment);
         }
 
@@ -1496,6 +1505,7 @@ class Lexer {
         var d = self.peek_char32();
         if d.chr != 0x22 && d.chr != 0x27 {
             ctx.has_error = true;
+            Logger::error(Logger::Stage::Lexer, f"Lexer::scan_text_body: unterminated string at fid={self._fid} cursor={self._cursor}");
             ctx.error_token = self.report_error::<Token>(
                 DiagnosticCategory::String,
                 DiagnosticLevel::Error,
@@ -2339,17 +2349,25 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     }
 
     fn lex_file(self, fid: u32) -> bool {
-        if self._kv_s.contains(fid) { return self._kv_s[fid] != &null; }
+        if self._kv_s.contains(fid) {
+            Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: cache hit fid={fid}");
+            return self._kv_s[fid] != &null;
+        }
 
         var lexer = std::create::<Lexer>(self._sm, self._pool);
         var res: bool;
         try { res = lexer->lex(fid);
         } catch { // fallback should never be called
             std::destroy(lexer);
+            Logger::error(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: lex failed fid={fid}");
             return false;
         }
 
-        if res { self._kv_s[fid] = lexer; return true; }
+        if res {
+            Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::reset: releasing {self._kv_s.size()} lexers");
+            self._kv_s[fid] = lexer;
+            return true;
+        }
 
         self._kv_s[fid] = &null;
         std::destroy(lexer);

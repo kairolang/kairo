@@ -236,6 +236,7 @@ class VirtualFileManager {
             _segments.push_back(seg);
         }
 
+        Logger::info(Logger::Stage::Driver, f"VirtualFileManager::register_file: fid={base_fid} path={abs_full} total={total}B nseg={nseg}");
         return base_fid;
     }
 
@@ -350,7 +351,8 @@ class VirtualFileManager {
             }
         }
 
-        std::crash(std::Error::RuntimeError(f"VirtualFileManager: Pointer {ptr as unsafe *void} out of bounds"));
+        Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::resolve_ptr: ptr out of bounds across {self._segments.size()} segments");
+        std::crash(std::Error::RuntimeError(f"VirtualFileManager: Pointer {ptr as unsafe *void} out of bounds")); // TODO: This needs to use the diagnostic system instead of crashing
     }
 
     ///
@@ -365,6 +367,7 @@ class VirtualFileManager {
         var local_off = off % 0x100000000;
 
         if seg_idx >= (_segments.size()) {
+            Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: invalid fid={fid} off={off} seg_count={self._segments.size()}");
             std::crash(std::Error::RuntimeError(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})"));
         }
 
@@ -433,6 +436,8 @@ class VirtualFileManager {
     /// used for test isolation.
     ///
     fn reset(self) {
+        Logger::debug(Logger::Stage::Driver, f"VirtualFileManager::reset: dropping {self._segments.size()} segments");
+
         for seg: *Segment in _segments {
             if seg != &null {
                 std::destroy(seg);

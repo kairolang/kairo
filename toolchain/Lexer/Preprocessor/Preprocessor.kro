@@ -450,6 +450,7 @@ class MacroExpander {
         self._imm_table   = imm_table;
         self._lexer       = lexer;
         self._parent_ex_idx = static_cast::<u32>(MacroSentinel::NoParent);
+        Logger::info(Logger::Stage::Preprocessor, "MacroExpander: initialized");
     }
 
     // =====================================================================
@@ -827,10 +828,10 @@ class MacroExpander {
     ///          caller is responsible for replacing the TCM entry.
     ///          returns &null if no expansions occurred (original is fine).
     fn expand(self, tokens: *(TokenBuffer::<512>), fid: u32, scope: ModulePath) -> *(TokenBuffer::<512>) {
-        // std::print(f"[EXPAND] expanding fid={fid}, token count={tokens->size()}, skip zones={self._skip_list->size()}");
-
         self._fid   = fid;
         self._scope = scope;
+
+        Logger::info(Logger::Stage::Preprocessor, f"MacroExpander::expand: fid={fid} tokens={tokens->size()}");
 
         var tracker = ScopeTracker(self._sym_table, self._sm, scope);
         var ctx     = ExpansionContext();
@@ -882,12 +883,10 @@ class MacroExpander {
                 continue;
             }
 
-            // std::print(f"[EXPAND] detected invocation: '{self.name_str(invoke.name.name)}!' at index {i}, qualified={invoke.is_qualified}, has_args={invoke.has_args}");
             var def = self.resolve_invocation(invoke);
 
             if def != &null {
                 // validate: parens vs no-parens
-                // std::print(f"[EXPAND] def->accepts_params={def->accepts_params}, invoke.has_args={invoke.has_args}");
 
                 if (def->accepts_params) && (!invoke.has_args) {
                     self.error(tok, f"macro '{self.name_str(def->name.name)}!' requires arguments");
@@ -930,9 +929,11 @@ class MacroExpander {
 
         if !changed {
             std::destroy(output);
+            Logger::debug(Logger::Stage::Preprocessor, f"MacroExpander::expand: fid={fid} no expansions");
             return &null;
         }
 
+        Logger::info(Logger::Stage::Preprocessor, f"MacroExpander::expand: fid={fid} output_tokens={output->size()}");
         return output;
     }
 
@@ -1032,7 +1033,6 @@ class MacroExpander {
             result.end_index = bang_idx + 1; // just past `!`
         }
 
-        // std::print(f"[DETECT] found invocation: name='{self._sm->get_text(name_tok->range)}', has_args={result.has_args}, start={result.start_index}, end={result.end_index}");
         return result;
     }
 
@@ -1076,7 +1076,6 @@ class MacroExpander {
         ctx:     *ExpansionContext
     ) -> *(TokenBuffer::<512>) {
         var name_ptr = self._sym_table->resolve(invoke.name.name);
-        // std::print(f"[BUILTIN] name_ptr={(name_ptr != &null)}, name='{("<null>") if (name_ptr == &null) else (*name_ptr)}' ");
         if name_ptr == &null { return &null; }
         var name = *name_ptr;
 
@@ -1150,6 +1149,7 @@ class MacroExpander {
         ctx:    *ExpansionContext
     ) -> *(TokenBuffer::<512>) {
         if self.is_in_active_chain(def->name.name) {
+            Logger::warn(Logger::Stage::Preprocessor, f"MacroExpander::expand_invocation: recursive cycle detected for '{self.name_str(def->name.name)}'!");
             self.error(tokens->get(invoke.start_index),
                 f"recursive expansion cycle detected for macro '{self.name_str(def->name.name)}!' (note: there are some false positives right now, this will be improved in the future)");
             return &null;
@@ -1157,6 +1157,7 @@ class MacroExpander {
 
         if ctx->exceeded_depth(256) {
             var name_str = self.name_str(def->name.name);
+            Logger::warn(Logger::Stage::Preprocessor, f"MacroExpander::expand_invocation: depth limit exceeded for '{self.name_str(def->name.name)}'!");
             self.error(tokens->get(invoke.start_index),
                 f"macro expansion depth limit (256) exceeded for '{name_str}!' ");
             return &null;
@@ -1186,10 +1187,9 @@ class MacroExpander {
         }
 
         // ── re-scan expansion for nested invocations ────────────────────
-        // std::print(f"[EXPAND] expanded '{self.name_str(def->name.name)}!' -> {result->size()} tokens");
 
-        var saved_fid = self._fid;          // ← ADD
-        self._fid = def->source_fid;        // ← ADD: resolve from defining file's perspective
+        var saved_fid = self._fid;
+        self._fid = def->source_fid;
 
         var changed = true;
 
@@ -1199,7 +1199,6 @@ class MacroExpander {
             var k: usize = 0;
 
             while k < result->size() {
-                // std::print(f"[RESCAN] k={k}, token kind={token_kind_to_readable_string(result->get(k)->kind)}, text='{self._sm->get_text(result->get(k)->range)}' ");
                 var nested = self.detect_invocation(result, k);
 
                 if !nested.found {
@@ -1215,7 +1214,7 @@ class MacroExpander {
                         rescan->append(self.wrap_token(
                             *(nested_builtin->get(j)),
                             nested.name.name,
-                            tokens->get(nested.start_index)->range,  // ← but `tokens` here is `result`
+                            tokens->get(nested.start_index)->range,
                             self._parent_ex_idx
                         ));
                     }
@@ -1279,7 +1278,6 @@ class MacroExpander {
         var output = std::create::<TokenBuffer::<512>>();
         var body = def->body;
 
-        // std::print(f"[EXPAND-PL] body.size()={body.size()}, body internal ptr valid={(body.tokens()) != &null}");
         for i in usize(0) .. usize(body.size()) {
             output->append(self.wrap_token(
                 *(body.get(i)),
@@ -1459,19 +1457,15 @@ class MacroExpander {
         var output = std::create::<TokenBuffer::<512>>();
         var body   = def->body;
 
-        // std::print(f"[SUBST] variadic_name={ctx->variadic_name}, variadic_bindings.size()={ctx->variadic_bindings.size()}, param_bindings.size()={ctx->param_bindings.size()}");
-
         var i: usize = 0;
         while i < body.size() {
             var tok  = body.get(i);
             var kind = self.get_effective_kind(tok);
 
             // ── ...vals  (variadic splice) ──────────────────────────────
-            // std::print(f"[SUBST] i={i}, kind={token_kind_to_readable_string(self.get_effective_kind(tok))}, text='{self._sm->get_text(tok->range)}' ");
             if kind == TokenKind::OpEllipsis && (i + 1) < body.size() {
                 var next      = body.get(i + 1);
                 var next_kind = self.get_effective_kind(next);
-                // std::print(f"[SUBST] found ellipsis at i={i}, next kind={token_kind_to_readable_string(self.get_effective_kind(body.get(i + 1)))}");
                 if next_kind == TokenKind::LitIdentifier {
                     var next_name = self._sym_table->intern(self._sm->get_text(next->range));
 
@@ -1522,7 +1516,6 @@ class MacroExpander {
             }
 
             // ── passthrough ─────────────────────────────────────────────
-            // std::print(f"[SUBST] passthrough i={i}, kind={token_kind_to_readable_string(kind)}, text='{self._sm->get_text(tok->range)}' ");
             output->append(self.wrap_token(*tok,
                 def->name.name,
                 ctx->invoke_loc,
@@ -1587,6 +1580,7 @@ class MacroExpander {
         }
         var full_loc = self._sm->get_full_loc(tok->range.start);
         var loc_str  = f"{self._sm->get_filename(full_loc.file_id)}:{full_loc.line}:{full_loc.column}";
+        Logger::error(Logger::Stage::Preprocessor, f"MacroExpander: {loc_str}: {msg}");
         self._diagnostics.push_back(f"MacroExpander: {loc_str}: error: {msg}");
     }
 
@@ -1667,6 +1661,8 @@ class PreProcessor {
             &self._skip_lists,
             &self
         );
+
+        Logger::info(Logger::Stage::Preprocessor, "PreProcessor: initialized");
     }
 
     fn get_symbol_table(self) -> *PreprocessorSymbolTable {
@@ -1703,10 +1699,12 @@ class PreProcessor {
 
     fn preprocess_file(self, fid: u32, module_path: ModulePath, do_expand: bool = true) -> bool {
         if self._processed.contains(fid) {
+            Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} already processed");
             return true;
         }
 
         if self._processing.contains(fid) {
+            Logger::warn(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} cycle detected (already in-flight)");
             return true;
         }
 
@@ -1719,6 +1717,7 @@ class PreProcessor {
         var skip_list = &(self._skip_lists[fid]);
 
         // ── Phase 1: Lex + scan imports ────────────────────────────────
+        Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 1 imports");
         if (!self._import_proc.process_file(fid, module_path)) {
             for diag in self._import_proc.get_diagnostics() {
                 std::print(diag);
@@ -1728,6 +1727,7 @@ class PreProcessor {
         }
 
         // ── Phase 2: Collect macro definitions ─────────────────────────
+        Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 2 macro collection");
         var tokens = self._tcm->get_tokens(fid);
         if tokens != &null {
             var def_tracker = ScopeTracker(self._pp_sym_table, self._sm, module_path);
@@ -1745,6 +1745,7 @@ class PreProcessor {
         }
 
         // ── Phase 3: Expand macro invocations ──────────────────────────
+        Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 3 expansion");
         if do_expand {
             tokens = self._tcm->get_tokens(fid);
             if tokens != &null {
@@ -1766,8 +1767,8 @@ class PreProcessor {
                 var expanded = expander.expand(tokens, fid, module_path);
 
                 if expanded != &null {
-                    // replace tokens in TCM with expanded version
                     self._tcm->replace_tokens(fid, expanded);
+                    Logger::info(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} expansion replaced tokens");
                 }
 
                 if (expander.has_errors()) {
@@ -1782,12 +1783,7 @@ class PreProcessor {
         self._processing.erase(fid);
         self._processed.insert(fid);
 
-        // only dump after the root file finishes (no more files in flight)
-        // if self._processing.size() == 0 {
-        //     std::print(self._import_proc.dump_state());
-        //     std::print(self._macro_table->as_string(self._pp_sym_table));
-        // }
-
+        Logger::info(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} complete");
         return true;
     }
 
@@ -1902,7 +1898,9 @@ class PreProcessor {
 ///       via the back-pointer in resolve_import
 fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
     // ensure file is lexed
+    Logger::info(Logger::Stage::Preprocessor, f"ImportProcessor::process_file: fid={fid}");
     if !self._tcm->lex_file(fid) {
+        Logger::error(Logger::Stage::Preprocessor, f"ImportProcessor::process_file: lex failed fid={fid}");
         self._diagnostics.push_back(
             f"ImportProcessor: failed to lex file ID {fid}"
         );
@@ -1984,6 +1982,7 @@ fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
 
     // store the state
     self._file_states[fid] = state;
+    Logger::info(Logger::Stage::Preprocessor, f"ImportProcessor::process_file: fid={fid} done imports={self._file_states[fid].macro_imports.size()}");
 
     return true;
 }
@@ -2256,7 +2255,8 @@ priv fn ImportProcessor::resolve_import(
     // }
 
     if path_strings.size() == 0 && !parsed->is_wildcard {
-        std::print(
+        Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
+        std::print( // TODO: this should be a diagnostic not a print
             f"resolve_import: failed to resolve path [{self.segments_to_string(path_strings)}] for import in fid {src_fid}"
         );
         return;
@@ -2265,6 +2265,7 @@ priv fn ImportProcessor::resolve_import(
     var resolved = self.resolve_module_greedy(path_strings, parsed->is_module);
 
     if resolved.fid == 0 && !resolved.found {
+        Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
         std::print(
             f"resolve_import: failed to resolve path [{self.segments_to_string(path_strings)}] for import in fid {src_fid}"
         );
@@ -2398,6 +2399,7 @@ priv fn ImportProcessor::resolve_module_greedy(
                 var path = *retry;
                 var fid = self._sm->load_file(path);
                 if fid != 0 {
+                    Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_module_greedy: ambiguous module '{self.segments_to_string(try_segments)}' ");
                     self._diagnostics.push_back(
                         f"ImportProcessor: ambiguous module '{self.segments_to_string(try_segments)}' both file and directory exist"
                     );

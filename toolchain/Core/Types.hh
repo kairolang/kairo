@@ -80,6 +80,8 @@
 #define _simd_available() 0
 #endif
 
+#include "KLog.hh"
+
 namespace kairo {
 ///
 /// \class SmallFunction

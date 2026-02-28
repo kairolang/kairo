@@ -1,0 +1,478 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+class TermRenderer {
+    priv var _color: bool;
+    priv var _width: u32;
+
+    const RESET:     string = "\x1b[0m";
+    const BOLD:      string = "\x1b[1m";
+    const DIM:       string = "\x1b[2m";
+    const UNDERLINE: string = "\x1b[4m";
+    const RED:       string = "\x1b[31m";
+    const YELLOW:    string = "\x1b[33m";
+    const CYAN:      string = "\x1b[36m";
+    const GREEN:     string = "\x1b[32m";
+    const MAGENTA:   string = "\x1b[35m";
+    const WHITE:     string = "\x1b[37m";
+    const BG_GRAY:   string = "\x1b[48;5;236m";
+    
+    struct CodeBlockInfo {
+        var lang: string;
+        var file: string;
+    }
+
+    fn TermRenderer(self, color: bool = true, width: u32 = 80) {
+        self._color = color;
+        self._width = width;
+    }
+
+    fn style(self, code: string) -> string {
+        return (code) if self._color else "";
+    }
+
+    fn render(self, text: string) -> string {
+        var lines = self.split_lines(text);
+        var out = string();
+        var in_code_block = false;
+        var code_block_info = CodeBlockInfo();
+
+        var i: usize = 0;
+        while i < lines.size() {
+            var line = lines[i];
+            var trimmed = self.trim(line);
+
+            // ── fenced code block ───────────────────────────────
+            if self.starts_with(trimmed, "```") {
+                if in_code_block {
+                    // closing fence — draw bottom border
+                    out += self.style(DIM);
+                    out += "  └";
+                    for _ in u32(0) .. self._width - 4 {
+                        out += "─";
+                    }
+                    out += "┘";
+                    out += self.style(RESET);
+                    out += "\n";
+                    in_code_block = false;
+                    i += 1;
+                    continue;
+                }
+                
+                // opening fence
+                var info = self.parse_fence(trimmed);
+                in_code_block = true;
+                code_block_info = info;
+                
+                // draw top border with lang/file
+                out += self.style(DIM);
+                out += "  ┌";
+                
+                var header = string();
+                if info.lang.length() > 0 {
+                    header += " " + info.lang + " ";
+                }
+                if info.file.length() > 0 {
+                    if header.length() > 0 {
+                        header += "· ";
+                    } else {
+                        header += " ";
+                    }
+                    header += info.file + " ";
+                }
+                
+                if header.length() > 0 {
+                    out += "─";
+                    out += self.style(RESET + BOLD);
+                    out += header;
+                    out += self.style(RESET + DIM);
+                    var remaining = self._width - 3 - static_cast::<u32>(header.length()) - 2;
+                    for _ in u32(0) .. remaining {
+                        out += "─";
+                    }
+                } else {
+                    for _ in u32(0) .. self._width - 4 {
+                        out += "─";
+                    }
+                }
+                
+                out += "┐";
+                out += self.style(RESET);
+                out += "\n";
+                i += 1;
+                continue;
+            }
+
+            if in_code_block {
+                out += self.style(DIM);
+                out += "  │ ";
+                out += self.style(RESET);
+                out += line;
+                // pad to box width
+                var content_len = static_cast::<u32>(line.length()) + 4;
+                if content_len < self._width - 1 {
+                    for _ in u32(0) .. self._width - 1 - content_len {
+                        out += " ";
+                    }
+                }
+                out += self.style(DIM);
+                out += "│";
+                out += self.style(RESET);
+                out += "\n";
+                i += 1;
+                continue;
+            }
+
+            /* for highlighting code blocks with background color
+            if in_code_block {
+                out += self.style(DIM);
+                out += "  │";
+                out += self.style(RESET + BG_GRAY);
+                out += " ";
+                out += line;
+                // pad to box width
+                var content_len = static_cast::<u32>(line.length()) + 1;
+                var inner_width = self._width - 5;  // "  │" (3) + "│" (1) + padding
+                if content_len < inner_width {
+                    for j in u32(0) .. inner_width - content_len { out += " "; }
+                }
+                out += self.style(RESET + DIM);
+                out += "│";
+                out += self.style(RESET);
+                out += "\n";
+                i += 1;
+                continue;
+            }
+            */
+
+            if trimmed.length() == 0 {
+                out += "\n";
+                i += 1;
+                continue;
+            }
+
+            var heading_level = self.heading_level(trimmed);
+            if heading_level > 0 {
+                var heading_text = self.trim(self.after_prefix(trimmed, heading_level));
+                switch heading_level {
+                    case 1 {
+                        out += self.style(BOLD + UNDERLINE);
+                        out += heading_text;
+                        out += self.style(RESET);
+                    }
+                    case 2 {
+                        out += self.style(BOLD);
+                        out += heading_text;
+                        out += self.style(RESET);
+                    }
+                    case 3 {
+                        out += self.style(BOLD + DIM);
+                        out += heading_text;
+                        out += self.style(RESET);
+                    }
+                    default {
+                        out += self.style(DIM);
+                        out += heading_text;
+                        out += self.style(RESET);
+                    }
+                }
+                out += "\n";
+                i += 1;
+                continue;
+            }
+
+            if self.starts_with(trimmed, "- ") {
+                var content = trimmed.raw_string().substr(2, trimmed.length() - 2);
+                out += self.wrap_inline(content, 4, "  • ");
+                i += 1;
+                continue;
+            }
+
+            var num_prefix = self.numbered_prefix(trimmed);
+            if num_prefix.length() > 0 {
+                var content = trimmed.raw_string().substr(num_prefix.length(), trimmed.length() - num_prefix.length());
+                var pad = string();
+                for _ in usize(0) .. usize(num_prefix.length() + 2) {
+                    pad += " ";
+                }
+                out += self.wrap_inline(content, static_cast::<u32>(pad.length()), "  " + num_prefix);
+                i += 1;
+                continue;
+            }
+
+            out += self.wrap_inline(trimmed, 2, "  ");
+            i += 1;
+        }
+
+        return out;
+    }
+
+    fn wrap_inline(self, text: string, indent: u32, first_prefix: string) -> string {
+        var out = string();
+        var col: u32 = 0;
+        var pad = string();
+        for _ in u32(0) .. indent {
+            pad += " ";
+        }
+
+        out += first_prefix;
+        col = static_cast::<u32>(first_prefix.length());
+
+        var i: usize = 0;
+        while i < text.length() {
+            if text[i] == '`' {
+                var close = self.find_char(text, '`', i + 1);
+                if close > i {
+                    var code_text = text.raw_string().substr(i + 1, close - i - 1);
+                    var styled = self.style(CYAN) + code_text + self.style(RESET);
+
+                    if col + static_cast::<u32>(code_text.length()) + 2 > self._width && col > indent {
+                        out += "\n" + pad;
+                        col = indent;
+                    }
+
+                    out += styled;
+                    col += static_cast::<u32>(code_text.length());
+                    i = close + 1;
+                    continue;
+                }
+            }
+
+            if text[i] == ' ' {
+                // lookahead for next word length
+                var next_end = self.find_word_end(text, i + 1);
+                var next_len = static_cast::<u32>(next_end - (i + 1));
+
+                if col + 1 + next_len > self._width && col > indent {
+                    out += "\n" + pad;
+                    col = indent;
+                } else {
+                    out += " ";
+                    col += 1;
+                }
+                i += 1;
+                continue;
+            }
+
+            out += text[i];
+            col += 1;
+            i += 1;
+        }
+
+        out += "\n";
+        return out;
+    }
+
+    fn split_lines(self, text: string) -> vec::<string> {
+        var lines = vec::<string>();
+        var start: usize = 0;
+        for i in usize(0) .. usize(text.length()) {
+            if text[i] == '\n' {
+                lines.push_back(text.raw_string().substr(start, i - start));
+                start = i + 1;
+            }
+        }
+        if start <= text.length() {
+            lines.push_back(text.raw_string().substr(start, text.length() - start));
+        }
+        return lines;
+    }
+
+    fn trim(self, s: string) -> string {
+        var start: usize = 0;
+        var end: usize = s.length();
+        while start < end && (s[start] == ' ' || s[start] == '\t') { start += 1; }
+        while end > start && (s[end - 1] == ' ' || s[end - 1] == '\t') { end -= 1; }
+        return s.raw_string().substr(start, end - start);
+    }
+
+    fn starts_with(self, s: string, prefix: string) -> bool {
+        if s.length() < prefix.length() { return false; }
+        for i in usize(0) .. usize(prefix.length()) {
+            if s[i] != prefix[i] { return false; }
+        }
+        return true;
+    }
+
+    fn heading_level(self, line: string) -> u32 {
+        var level: u32 = 0;
+        while level < 4 && static_cast::<usize>(level) < line.length() && line[level] == '#' {
+            level += 1;
+        }
+        if level > 0 && static_cast::<usize>(level) < line.length() && line[level] == ' ' {
+            return level;
+        }
+        return 0;
+    }
+
+    fn after_prefix(self, s: string, skip: u32) -> string {
+        var start = static_cast::<usize>(skip);
+        if start >= s.length() { return ""; }
+        return s.raw_string().substr(start, s.length() - start);
+    }
+
+    fn numbered_prefix(self, line: string) -> string {
+        // matches: "1. ", "12. ", "123. "
+        var i: usize = 0;
+        while i < line.length() && line[i] >= '0' && line[i] <= '9' {
+            i += 1;
+        }
+        if i > 0 && i + 1 < line.length() && line[i] == '.' && line[i + 1] == ' ' {
+            return line.raw_string().substr(0, i + 2);
+        }
+        return "";
+    }
+
+    fn find_char(self, s: string, ch: char, from: usize) -> usize {
+        for i in usize(from) .. usize(s.length()) {
+            if s[i] == ch { return i; }
+        }
+        return from; // not found, return start so caller knows
+    }
+
+    fn find_word_end(self, s: string, from: usize) -> usize {
+        var i = from;
+        while i < s.length() && s[i] != ' ' && s[i] != '`' && s[i] != '\n' {
+            i += 1;
+        }
+        return i;
+    }
+
+    priv fn parse_fence(self, line: string) -> CodeBlockInfo {
+        var info = CodeBlockInfo();
+        var rest = self.trim(line.raw_string().substr(3, line.length() - 3));
+        
+        // split on spaces: ```kairo file=a.kro
+        var i: usize = 0;
+        
+        // language
+        while i < rest.length() && rest[i] != ' ' {
+            i += 1;
+        }
+        info.lang = rest.raw_string().substr(0, i);
+        
+        // remaining key=value pairs
+        while i < rest.length() {
+            while i < rest.length() && rest[i] == ' ' { i += 1; }
+            var kv_start = i;
+            while i < rest.length() && rest[i] != ' ' { i += 1; }
+            var kv = string(rest.raw_string().substr(kv_start, i - kv_start));
+            
+            var eq = self.find_char(kv, '=', 0);
+            if eq > 0 && eq < kv.length() - 1 {
+                var key = string(kv.raw_string().substr(0, eq));
+                var val = string(kv.raw_string().substr(eq + 1, kv.length() - eq - 1));
+                if key == "file" {
+                    info.file = val;
+                }
+            }
+        }
+        
+        return info;
+    }
+}
+
+fn Test() -> i32 {
+    var r = TermRenderer(true, 60);
+
+    var input = string(
+        "# Return Type Mismatch\n"
+        "\n"
+        "The function's declared return type does not match\n"
+        "the expression in the `return` statement.\n"
+        "\n"
+        "## Common causes\n"
+        "\n"
+        "1. The function signature says `void` but the body returns a value\n"
+        "2. The return expression type doesn't match\n"
+        "3. An implicit conversion is not available\n"
+        "\n"
+        "## Example\n"
+        "\n"
+        "```\n"
+        "fn foo() -> void {\n"
+        "    return 42;  // error\n"
+        "}\n"
+        "```\n"
+        "\n"
+        "## Fixes\n"
+        "\n"
+        "- Change the return type to match the expression\n"
+        "- Remove the expression from the `return` statement\n"
+        "- Add an explicit cast\n"
+    );
+
+    var output = r.render(input);
+    std::print(output);
+
+    // --- individual checks ---
+    var errors: i32 = 0;
+
+    // heading detection
+    if r.heading_level("# Foo") != 1   { std::print("FAIL: h1\n"); errors += 1; }
+    if r.heading_level("## Foo") != 2  { std::print("FAIL: h2\n"); errors += 1; }
+    if r.heading_level("### Foo") != 3 { std::print("FAIL: h3\n"); errors += 1; }
+    if r.heading_level("no heading") != 0 { std::print("FAIL: no heading\n"); errors += 1; }
+    if r.heading_level("#nospace") != 0   { std::print("FAIL: no space after #\n"); errors += 1; }
+
+    // trim
+    if r.trim("  hello  ") != "hello"  { std::print("FAIL: trim\n"); errors += 1; }
+    if r.trim("") != ""               { std::print("FAIL: trim empty\n"); errors += 1; }
+
+    // starts_with
+    if !r.starts_with("- foo", "- ")   { std::print("FAIL: starts_with bullet\n"); errors += 1; }
+    if r.starts_with("foo", "- ")      { std::print("FAIL: starts_with negative\n"); errors += 1; }
+
+    // numbered prefix
+    if r.numbered_prefix("1. foo") != "1. "    { std::print("FAIL: num prefix 1\n"); errors += 1; }
+    if r.numbered_prefix("12. foo") != "12. "  { std::print("FAIL: num prefix 12\n"); errors += 1; }
+    if r.numbered_prefix("no number") != ""    { std::print("FAIL: num prefix none\n"); errors += 1; }
+
+    // code block toggle
+    var code_input = string("text before\n```\nvar x = 1;\n```\ntext after\n");
+    var code_output = r.render(code_input);
+    // should contain the code line with dim styling
+    if code_output.raw_string().find("var x = 1;") == string::npos {
+        std::print("FAIL: code block content missing\n");
+        errors += 1;
+    }
+
+    // inline code
+    var inline_input = string("use `foo` here\n");
+    var inline_output = r.render(inline_input);
+    if inline_output.raw_string().find("foo") == string::npos {
+        std::print("FAIL: inline code content missing\n");
+        errors += 1;
+    }
+
+    // word wrap
+    var long_line = string("this is a very long line that should definitely wrap when rendered at sixty columns wide\n");
+    var wrapped = r.render(long_line);
+    var wrap_lines = r.split_lines(wrapped);
+    for line in wrap_lines {
+        if line.length() > 62 {  // small margin for ansi codes
+            std::print(f"FAIL: line too long: {line.length()} chars\n");
+            errors += 1;
+        }
+    }
+
+    if errors == 0 {
+        std::print("\nAll tests passed.\n");
+    } else {
+        std::print(f"\n{errors} test(s) failed.\n");
+    }
+
+    return errors;
+} 

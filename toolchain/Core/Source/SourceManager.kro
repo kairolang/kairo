@@ -101,6 +101,7 @@ class SourceManager {
         self._files     = vec::<*SourceFile>();
         self._total_b   = 0;
         self._vfile_mgr = vfile_mgr;
+        Logger::info(Logger::Stage::Driver, f"SourceManager: initialized");
     }
 
     ///
@@ -135,6 +136,10 @@ class SourceManager {
             var f = self._files[i];
 
             if (f != &null) && (f->path.full_path() == path.full_path()) {
+                Logger::debug(
+                    Logger::Stage::Driver,
+                    f"SourceManager::load_file: cache hit for {path.full_path()}"
+                );
                 return static_cast::<FileID>(i);
             }
         }
@@ -151,6 +156,7 @@ class SourceManager {
         /// FIXME: an overflow can occur here.
         self._total_b += file->size_bytes;
         self._files.push_back(file);
+        Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={file->size_bytes}B total={self._total_b}B");
         
         self._pool->enqueue(__inline_cpp("
             [fid = base_fid, this]() {
@@ -184,6 +190,7 @@ class SourceManager {
         
         self._total_b += file->size_bytes;
         self._files.push_back(file);
+        Logger::info(Logger::Stage::Driver, f"SourceManager::load_virtual: registered fid={fid} path={fake_path.full_path()} size={size}B");
         
         self._line_table.build_index(fid, self._vfile_mgr);
         
@@ -199,6 +206,7 @@ class SourceManager {
         var offset  = res.offset;
 
         if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
+            Logger::warn(Logger::Stage::Driver, f"SourceManager::get_line_col: invalid fid={file_id}");
             return FullSourceLocation();
         }
 
@@ -642,6 +650,7 @@ class SourceManager {
     ///
     fn reset(self) {
         self._line_table.shutdown();
+        Logger::debug(Logger::Stage::Driver, f"SourceManager::reset: releasing {self._files.size()} files, {self._total_b}B total");
         
         for f: *SourceFile in _files {
             if f != &null {

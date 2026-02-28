@@ -120,6 +120,7 @@ class MappedFileBuffer {
         self._owns_region = true;
         self._region.open(path);
         self._view = MemoryBuffer(self._region.data(), self._region.size());
+        Logger::debug(Logger::Stage::Driver, f"MappedFileBuffer::load: mapped {*path} size={self._view.size()}B");
     }
 
     ///
@@ -136,6 +137,7 @@ class MappedFileBuffer {
     fn attach(self, parent: *MappedFileBuffer, offset: usize, length: usize) {
         if (parent == &null) || (!parent->_region.is_valid()) {
             self._region = MMapRegion{};
+            Logger::warn(Logger::Stage::Driver, "MappedFileBuffer::attach: null or invalid parent");
             return;
         }
 
