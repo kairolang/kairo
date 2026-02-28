@@ -303,8 +303,16 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
 }
 
 generator::CXIR::CXIR CompilationUnit::generate_cxir(bool forward_only) {
-
-    std::vector<generator::CXIR::CXIR> imports;
+    std::vector<std::shared_ptr<generator::CXIR::CXIR>> imports;
+    // make a temp set and copy the imports into it to avoid duplicates while maintaining order
+    std::unordered_set<std::shared_ptr<generator::CXIR::CXIR>> import_set;
+    
+    for (const auto &imp : this->import_processor->imports) {
+        if (import_set.find(imp) == import_set.end()) {
+            imports.push_back(imp);
+            import_set.insert(imp);
+        }
+    }
 
     if (import_processor != nullptr) {
         imports = std::move(import_processor->imports);

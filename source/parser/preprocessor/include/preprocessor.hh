@@ -69,6 +69,8 @@
 
 inline std::vector<CXXCompileAction> COMPILE_ACTIONS;
 inline std::unordered_set<std::filesystem::path>  DEPENDENCIES;     // all imported files
+inline std::unordered_map<std::filesystem::path, std::shared_ptr<generator::CXIR::CXIR>> IMPORT_CACHE_MODULE;
+inline std::unordered_set<std::filesystem::path> IMPORT_CACHE_HEADER;
 
 __PREPROCESSOR_BEGIN {
     class ImportProcessor {
@@ -100,7 +102,8 @@ __PREPROCESSOR_BEGIN {
         using InstCXX      = std::variant<std::pair<std::string, std::string>, std::string>;
         using ResolvedPath = std::tuple<std::filesystem::path, size_t, Type>;
 
-        std::vector<generator::CXIR::CXIR> imports;
+        std::vector<std::shared_ptr<generator::CXIR::CXIR>> imports;
+        std::unordered_set<std::filesystem::path>           emitted_imports;
 
         ImportProcessor(__TOKEN_N::TokenList               &tokens,
                         std::vector<std::filesystem::path> &import_dirs,

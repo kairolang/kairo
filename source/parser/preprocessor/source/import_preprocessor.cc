@@ -823,81 +823,89 @@ leave_loop_has_processable_import:
     /// \param path the absolute path to the file
     /// \param parsed_args the parsed cli args
     void ImportProcessor::force_import(const std::filesystem::path           &path,
-                                       __CONTROLLER_CLI_N::CLIArgs /* copy */ parsed_args) {
-        CompilationUnit unit;  // create a new compile unit instance
-        parsed_args.file = path.generic_string();
+                                       __CONTROLLER_CLI_N::CLIArgs            parsed_args) {
+        std::filesystem::path full_path = std::filesystem::absolute(path).lexically_normal();
 
-        // check if the file exists and is a regular file by this point this should always be
-        // true but just in case we check
+        auto it = IMPORT_CACHE_MODULE.find(full_path);
+        if (it != IMPORT_CACHE_MODULE.end()) {
+            this->imports.push_back(it->second);
+            return;
+        }
+
+        CompilationUnit unit;
+        parsed_args.file = full_path.generic_string();
+
         if (!std::filesystem::is_regular_file(parsed_args.file)) [[unlikely]] {
             error::Panic(error::CompilerError{
-                .err_code = 0.0001, .fix_fmt_args = {}, .err_fmt_args = {"could not locate the requsted import of: " + path.generic_string()}});
-        
+                .err_code = 0.0001, .fix_fmt_args = {}, .err_fmt_args = {"could not locate the requested import of: " + path.generic_string()}});
             return;
         }
 
         auto [action, ec] = unit.build_unit(parsed_args, false, true);
 
-        if (ec == 1) {  /// if there was an error, skip this import
+        if (ec == 1) {
             return;
         }
 
         generator::CXIR::CXIR forward_decls = unit.generate_cxir(false);
-        this->imports.push_back(std::move(forward_decls));
+
+        auto cached = std::make_shared<generator::CXIR::CXIR>(std::move(forward_decls));
+        IMPORT_CACHE_MODULE[full_path] = cached;
+        this->imports.push_back(cached);
     }
 
     void ImportProcessor::append(const std::filesystem::path              &path,
-                                 size_t                                    rel_to_index,
-                                 Type                                      type,
-                                 size_t                                    start_pos,
-                                 const std::vector<std::filesystem::path> &import_dirs,
-                                 __CONTROLLER_CLI_N::CLIArgs              &parsed_args,
-                                 __TOKEN_N::Token                         &start) {
-        CompilationUnit unit;  // create a new compile unit instance
-        parsed_args.file =
-            (import_dirs[rel_to_index] / path).generic_string();  // set the file path
-        
-        DEPENDENCIES.insert(import_dirs[rel_to_index] / path);
+                                size_t                                    rel_to_index,
+                                Type                                      type,
+                                size_t                                    start_pos,
+                                const std::vector<std::filesystem::path> &import_dirs,
+                                __CONTROLLER_CLI_N::CLIArgs              &parsed_args,
+                                __TOKEN_N::Token                         &start) {
 
-        // check if the file exists and is a regular file by this point this should always be
-        // true but just in case we check
+        std::filesystem::path raw_path = (rel_to_index == std::numeric_limits<size_t>::max())
+                                       ? path
+                                       : (import_dirs[rel_to_index] / path);
+
+        std::filesystem::path full_path = std::filesystem::absolute(raw_path).lexically_normal();
+
+        // ── dedup ──
+        if (type == Type::Module) {
+            auto it = IMPORT_CACHE_MODULE.find(full_path);
+            if (it != IMPORT_CACHE_MODULE.end()) {
+                this->imports.push_back(it->second);
+                return;
+            }
+        } else if (type == Type::Header) {
+            if (IMPORT_CACHE_HEADER.contains(full_path)) {
+                return;
+            }
+        }
+
+        DEPENDENCIES.insert(full_path);
+
+        CompilationUnit unit;
+        parsed_args.file = full_path.generic_string();
+
         if (!std::filesystem::is_regular_file(parsed_args.file)) [[unlikely]] {
-            // error::Panic(error::CodeError{
-            //     .pof      = &start,
-            //     .err_code = 0.0001,
-            //     .mark_pof = true,
-            //     .fix_fmt_args{},
-            //     .err_fmt_args{"import path could not be resolved"},
-            //     .opt_fixes{},
-            // });
-
             return;
         }
 
         if (type == Type::Module) {
-            /// thing is once the basic ver is done, i need to be able to do cache compilation
-            /// basicly make a lock.json file that stores the hash of the file, the path to the
-            /// compiled file, and the path to the source file, on each compile check the hash
-            /// and if it matches the source file, use the compiled file, if not recompile
-
-            /// this does not work right now since stuff like templates can not be instantiated
-            /// from another file and be defined in another.
-
-            // auto [action, ec] = unit.build_unit(parsed_args, false);
-            // COMPILE_ACTIONS.emplace_back(std::move(action));  /// this needs to be included in
-            /// the final compile action list
-
             auto [action, ec] = unit.build_unit(parsed_args, false, true);
 
-            if (ec == 1) {  /// if there was an error, skip this import
+            if (ec == 1) {
                 return;
             }
 
             generator::CXIR::CXIR forward_decls = unit.generate_cxir(false);
-            this->imports.push_back(std::move(forward_decls));  /// this gets passed as an ptr
-                                                                /// during cxir generation
+
+            auto cached = std::make_shared<generator::CXIR::CXIR>(std::move(forward_decls));
+            IMPORT_CACHE_MODULE[full_path] = cached;
+            this->imports.push_back(cached);
 
         } else if (type == Type::Header) {
+            IMPORT_CACHE_HEADER.insert(full_path);
+
             __TOKEN_N::TokenList import_tokens = unit.pre_process(parsed_args, false);
 
             this->tokens.insert(

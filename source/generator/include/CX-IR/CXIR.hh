@@ -330,18 +330,18 @@ __CXIR_CODEGEN_BEGIN {
     class CXIR : public __AST_VISITOR::Visitor {
       private:
         std::vector<std::unique_ptr<CX_Token>> tokens;
-        std::vector<generator::CXIR::CXIR>     imports;
+        std::vector<std::shared_ptr<generator::CXIR::CXIR>> imports;
         std::filesystem::path                  core_dir;
         bool                                   forward_only = false;
 
       public:
         inline static SourceMap source_map;
 
-        explicit CXIR(bool forward_only = false, std::vector<generator::CXIR::CXIR> imports = {})
+        explicit CXIR(bool forward_only = false, std::vector<std::shared_ptr<generator::CXIR::CXIR>> imports = {})
             : imports(std::move(imports))
             , forward_only(forward_only) {}
 
-        CXIR(const CXIR &)            = default;
+        CXIR(const CXIR &)            = delete;
         CXIR(CXIR &&)                 = default;
         CXIR &operator=(const CXIR &) = delete;
         CXIR &operator=(CXIR &&)      = delete;
@@ -369,19 +369,17 @@ __CXIR_CODEGEN_BEGIN {
         std::string generate_CXIR() const;
 
         template <const bool add_core = true>
-        [[nodiscard]] std::string to_CXIR() const {
+        [[nodiscard]] std::string to_CXIR(std::unordered_set<std::string> *seen = nullptr) const {
             std::string cxir;
             size_t      line_count = 0;
 
             if constexpr (add_core) {
                 string core = get_core();
                 line_count  = std::count(core.begin(), core.end(), '\n');
-                cxir += core + "\n" + get_imports<false>() + "\n";
+                cxir += core + "\n" + get_imports<false>(seen) + "\n";
             } else {
-                cxir += get_imports<false>() + "\n";
+                cxir += get_imports<false>(seen) + "\n";
             }
-
-            // count number of lines in the CXIR
 
             generator::CXIR::SourceMap::inc_line_num(line_count);
             cxir += generate_CXIR();
@@ -394,8 +392,8 @@ __CXIR_CODEGEN_BEGIN {
             return cxir;
         }
 
-        [[nodiscard]] std::string to_readable_CXIR() const {
-            std::string cxir = get_imports<true>() + "\n";
+        [[nodiscard]] std::string to_readable_CXIR(std::unordered_set<std::string> *seen = nullptr) const {
+            std::string cxir = get_imports<true>(seen) + "\n";
             std::string file_name;
 
             // Build the CXIR string from tokens
@@ -429,14 +427,24 @@ __CXIR_CODEGEN_BEGIN {
         static std::string get_core();
 
         template <const bool readable>
-        std::string get_imports() const {
+        std::string get_imports(std::unordered_set<std::string> *seen = nullptr) const {
             std::string cxir;
+            std::unordered_set<std::string> local_seen;
+            
+            if (seen == nullptr) {
+                seen = &local_seen;
+            }
 
             for (const auto &import : this->imports) {
+                auto fname = import->get_file_name();
+                if (fname.has_value() && !seen->insert(fname.value()).second) {
+                    continue;
+                }
+
                 if constexpr (readable) {
-                    cxir += import.to_readable_CXIR();
+                    cxir += import->to_readable_CXIR(seen);
                 } else {
-                    cxir += import.to_CXIR<false>();
+                    cxir += import->template to_CXIR<false>(seen);
                 }
             }
 
