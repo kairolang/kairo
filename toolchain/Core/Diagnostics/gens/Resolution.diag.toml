@@ -1,0 +1,55 @@
+#--- The Kairo Project ----------------------------------------------------#
+#                                                                          #
+#   Part of the Kairo Project, under the Attribution 4.0 International     #
+#   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    #
+#   and create derivative works, even for commercial purposes, provided    #
+#   that you give appropriate credit, and indicate if changes were made.   #
+#                                                                          #
+#   For more information on the license terms and requirements, please     #
+#     visit: https://creativecommons.org/licenses/by/4.0/                  #
+#                                                                          #
+#   SPDX-License-Identifier: CC-BY-4.0                                     #
+#   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       #
+#                                                                          #
+#------------------------------------------------------------ KAIRO -------#
+
+[R001]
+brief = "place holder diagnostics"
+group = "Uncategorized"
+    [R001.W]
+    explain = "This is placeholder diagnostics. (Warning)"
+    [R001.I]
+    explain = "This is placeholder diagnostics. (Info)"
+    [R001.R]
+    explain = "This is placeholder diagnostics. (Remark)"
+    [R001.V]
+    explain = "This is placeholder diagnostics. (Verbose)"
+    [R001.N]
+    explain = "This is placeholder diagnostics. (Note)"
+    [R001.D]
+    explain = "This is placeholder diagnostics. (Debug)"
+    [R001.E]
+    explain = "This is placeholder diagnostics. (Error)"
+    [R001.F]
+    explain = "This is placeholder diagnostics. (Fatal)"
+
+[R003]
+brief = "undefined macro"
+group = "macro"
+
+    [R003.E]
+    explain = """
+    The macro was invoked but no definition was found in the
+    current scope, imported scopes, or global scope.
+    """
+
+    [R003.W]
+    explain = """
+    The macro was invoked but could not be resolved. This may
+    indicate a missing import or a typo in the macro name.
+    Expansion was skipped.
+    """
+
+    [R003.N]
+    explain = "Related to an undefined macro reference above."
+    

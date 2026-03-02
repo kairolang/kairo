@@ -44,7 +44,7 @@
 /// should be built as so (draft v1):
 /// ```hlx
 /// var error = DiagnosticHandler(DiagnosticSpan{...})
-///           . addError("function 'foo' has a 'void' return type but returns 'i32'")
+///           . addError("function 'foo' has a 'void' return type but returns 'i32' ")
 ///           . addFix("change the return type to 'i32'", DiagnosticFix{...})
 ///
 /// var error2 = DiagnosticHandler(DiagnosticSpan{...}, refs: DiagnosticSpan{...})

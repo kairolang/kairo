@@ -100,17 +100,17 @@ const Code: map::<DiagnosticCode, tuple::<string, string>, DiagnosticCodeHasher>
     // category B is parser errors
     // category C is parser simplification errors
     DiagnosticCode(DiagnosticCategory::Syntax, 0x000) : ("Syntax error", ""),
-    DiagnosticCode(DiagnosticCategory::Syntax, 0xA01) : ("Syntax error", "Unexpected token \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA01) : ("Syntax error", "Unexpected token \'{}\' "),
     DiagnosticCode(DiagnosticCategory::Syntax, 0xA02) : ("Syntax error", "Unexpected end of file"),
     DiagnosticCode(DiagnosticCategory::Syntax, 0xA03) : ("Syntax error", "Unexpected end of line"),
     DiagnosticCode(DiagnosticCategory::Syntax, 0xA04) : ("Syntax error", "Character \'{}\' not allowed"),
     DiagnosticCode(DiagnosticCategory::Syntax, 0xA05) : ("Syntax error", "String literal not terminated"),
     DiagnosticCode(DiagnosticCategory::Syntax, 0xA06) : ("Syntax error", "Character literal not terminated"),
     DiagnosticCode(DiagnosticCategory::Syntax, 0xA07) : ("Syntax error", "Block comment not terminated"),
-    DiagnosticCode(DiagnosticCategory::Syntax, 0xA08) : ("Syntax error", "Number is out of range \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Syntax, 0xA09) : ("Syntax error", "Number is too large \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Syntax, 0xA0A) : ("Syntax error", "NaN (Not a Number) \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Syntax, 0xA0B) : ("Syntax error", "Infinity \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA08) : ("Syntax error", "Number is out of range \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA09) : ("Syntax error", "Number is too large \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA0A) : ("Syntax error", "NaN (Not a Number) \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Syntax, 0xA0B) : ("Syntax error", "Infinity \'{}\' "),
     DiagnosticCode(DiagnosticCategory::Syntax, 0xA0C) : ("Syntax error", "String literal is too long"),
     DiagnosticCode(DiagnosticCategory::Syntax, 0xA0D) : ("Syntax error", "Character width does not fit in the type"),
     
@@ -141,15 +141,15 @@ const Code: map::<DiagnosticCode, tuple::<string, string>, DiagnosticCodeHasher>
     // sub category 3 is for file type related errors
     // sub category 0 is for file system related errors
     // sub category F is for helix specific errors
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA01) : ("", "File specified not found: \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA11) : ("", "File is not readable: \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA12) : ("", "File is not writable: \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA13) : ("", "File is not executable: \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA21) : ("", "Specified path is a directory: \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA22) : ("", "Specified path is not a directory: \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA31) : ("", "Not a Helix file: \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA32) : ("", "Not a Helix object file: \'{}\'"),
-    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xAF1) : ("", "Not a Helix Vial: \'{}\'"),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA01) : ("", "File specified not found: \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA11) : ("", "File is not readable: \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA12) : ("", "File is not writable: \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA13) : ("", "File is not executable: \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA21) : ("", "Specified path is a directory: \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA22) : ("", "Specified path is not a directory: \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA31) : ("", "Not a Helix file: \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xA32) : ("", "Not a Helix object file: \'{}\' "),
+    DiagnosticCode(DiagnosticCategory::Uncategorized, 0xAF1) : ("", "Not a Helix Vial: \'{}\' "),
     
     /* ---------- - - - - - - -   L O W E R I N G   - - - - - - - ---------- */
     DiagnosticCode(DiagnosticCategory::Lowering, 0x000) : ("Lowering error", ""),

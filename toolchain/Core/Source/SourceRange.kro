@@ -101,7 +101,7 @@ class SourceRange {
     /// \details
     /// a range is valid if both endpoints are valid and `start <= end`.
     ///
-    fn is_valid(self) -> bool {
+    const fn is_valid(self) -> bool {
         return (self.start.is_valid())
             && (self.end.is_valid())
             && (self.start <= self.end);
@@ -110,7 +110,7 @@ class SourceRange {
     ///
     /// \brief checks if range is invalid.
     ///
-    fn is_invalid(self) -> bool {
+    const fn is_invalid(self) -> bool {
         return !self.is_valid();
     }
 
@@ -119,7 +119,7 @@ class SourceRange {
     ///
     /// \return difference between `end` and `start` ids, or 0 if reversed.
     ///
-    fn size(self) -> u32 {
+    const fn size(self) -> u32 {
         if self.end < self.start {
             return 0;
         }
@@ -133,7 +133,7 @@ class SourceRange {
     /// \param loc location to test.
     /// \return true if `start <= loc < end`.
     ///
-    fn contains(self, loc: SourceLocation) -> bool {
+    const fn contains(self, loc: SourceLocation) -> bool {
         return (loc >= self.start) && (loc < self.end);
     }
 
@@ -143,7 +143,7 @@ class SourceRange {
     /// \param other other range to test.
     /// \return true if intervals intersect.
     ///
-    fn overlaps(self, other: SourceRange) -> bool {
+    const fn overlaps(self, other: SourceRange) -> bool {
         return (self.start < other.end) && (other.start < self.end);
     }
 
@@ -155,7 +155,7 @@ class SourceRange {
     ///
     /// \note if one range is invalid, the other is returned unchanged.
     ///
-    fn merge(self, other: SourceRange) -> SourceRange {
+    const fn merge(self, other: SourceRange) -> SourceRange {
         if self.is_invalid() {
             return other;
         }
@@ -201,7 +201,7 @@ class SourceRange {
     /// mixes both start and end values using FNV-1a-like hashing for
     /// good distribution in hash tables.
     ///
-    fn hash(self) -> u32 {
+    const fn hash(self) -> u32 {
         var h: u32 = 0x811C9DC5;
         h = (h ^ self.start.raw()) * 0x01000193;
         h = (h ^ self.end.raw())   * 0x01000193;
@@ -212,7 +212,7 @@ class SourceRange {
     ///
     /// \brief checks if range is empty (zero-length).
     ///
-    fn is_empty(self) -> bool {
+    const fn is_empty(self) -> bool {
         return self.start == self.end;
     }
 
@@ -222,7 +222,7 @@ class SourceRange {
     /// \param n number of bytes to expand.
     /// \return expanded range.
     ///
-    fn expand(self, n: usize) -> SourceRange {
+    const fn expand(self, n: usize) -> SourceRange {
         var range   = SourceRange();
         range.start = self.start.retreat(n);
         range.end   = self.end.advance(n);
@@ -235,7 +235,7 @@ class SourceRange {
     /// \param n number of bytes to shrink.
     /// \return shrunk range (or empty if too small).
     ///
-    fn shrink(self, n: usize) -> SourceRange {
+    const fn shrink(self, n: usize) -> SourceRange {
         var range   = SourceRange();
         range.start = self.start.advance(n);
         range.end   = self.end.retreat(n);
@@ -253,7 +253,7 @@ class SourceRange {
     /// \param other range to intersect with.
     /// \return intersecting range, or invalid if no overlap.
     ///
-    fn intersect(self, other: SourceRange) -> SourceRange {
+    const fn intersect(self, other: SourceRange) -> SourceRange {
         if !self.overlaps(other) {
             return SourceRange(); // invalid
         }
@@ -271,7 +271,47 @@ class SourceRange {
     /// \param other range to union with.
     /// \return range covering both (may include gap).
     ///
-    fn union_with(self, other: SourceRange) -> SourceRange {
+    const fn op + (self, other: SourceRange) -> SourceRange {
         return self.merge(other);
+    }
+
+    const fn op | (self, other: SourceRange) -> SourceRange {
+        return self.merge(other);
+    }
+
+    const fn op & (self, other: SourceRange) -> SourceRange {
+        return self.intersect(other);
+    }
+
+    const fn op ~ (self) -> SourceRange {
+        return SourceRange::from_bounds(self.start, self.size());
+    }
+
+    const fn op - (self, other: SourceRange) -> SourceRange {
+        return self.shrink(other.size());
+    }
+
+    const fn op << (self, n: usize) -> SourceRange {
+        return self.expand(n);
+    }
+
+    const fn op >> (self, n: usize) -> SourceRange {
+        return self.shrink(n);
+    }
+
+    const fn op < (self, other: SourceRange) -> bool {
+        return self.start < other.start;
+    }
+
+    const fn op <= (self, other: SourceRange) -> bool {
+        return self.start <= other.start;
+    }
+
+    const fn op > (self, other: SourceRange) -> bool {
+        return self.start > other.start;
+    }
+
+    const fn op >= (self, other: SourceRange) -> bool {
+        return self.start >= other.start;
     }
 }

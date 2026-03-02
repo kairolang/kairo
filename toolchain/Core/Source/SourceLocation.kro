@@ -77,7 +77,7 @@ class SourceLocation {
     ///
     /// \brief returns the raw encoded integer value.
     ///
-    fn raw(self) -> u32 {
+    const fn raw(self) -> u32 {
         return self.id;
     }
 
@@ -86,7 +86,7 @@ class SourceLocation {
     ///
     /// \return true if `id != 0`.
     ///
-    fn is_valid(self) -> bool {
+    const fn is_valid(self) -> bool {
         return self.id != 0;
     }
 
@@ -95,7 +95,7 @@ class SourceLocation {
     ///
     /// \return true if `id == 0`.
     ///
-    fn is_invalid(self) -> bool {
+    const fn is_invalid(self) -> bool {
         return self.id == 0;
     }
 
@@ -108,7 +108,7 @@ class SourceLocation {
     /// \warning aborts if underflow or overflow occurs.
     /// FIXME: this is failing for some reason
     ///
-    fn with_offset(self, delta: i64) -> SourceLocation {
+    const fn with_offset(self, delta: i64) -> SourceLocation {
         var new_val = static_cast::<i64>(self.id) + static_cast::<i64>(delta);
         
         if static_cast::<i64>(delta) < 0 {
@@ -200,7 +200,7 @@ class SourceLocation {
     ///
     /// \return formatted string like `SourceLocation(id: 12345)`.
     ///
-    fn op as (self) -> string {
+    const fn op as (self) -> string {
         return f"SourceLocation(id: {self.id})";
     }
 
@@ -210,7 +210,7 @@ class SourceLocation {
     /// \param other the location to compute distance to.
     /// \return absolute difference in raw ids.
     ///
-    fn distance_to(self, other: SourceLocation) -> usize {
+    const fn distance_to(self, other: SourceLocation) -> usize {
         if self.id > other.id {
             return static_cast::<usize>(self.id - other.id);
         }
@@ -224,7 +224,7 @@ class SourceLocation {
     /// \param n number of bytes to advance.
     /// \return new location advanced by n.
     ///
-    fn advance(self, n: usize) -> SourceLocation {
+    const fn advance(self, n: usize) -> SourceLocation {
         return self.with_offset(static_cast::<i64>(n));
     }
 
@@ -234,7 +234,7 @@ class SourceLocation {
     /// \param n number of bytes to go back.
     /// \return new location moved back by n.
     ///
-    fn retreat(self, n: usize) -> SourceLocation {
+    const fn retreat(self, n: usize) -> SourceLocation {
         return self.with_offset(-static_cast::<i64>(n));
     }
 }

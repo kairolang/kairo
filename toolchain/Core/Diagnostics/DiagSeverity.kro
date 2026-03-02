@@ -13,50 +13,14 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::Diagnostics::DiagRegistry::*;
-
-module Diag {
-    eval fn S(num: u16, sev: DiagSeverity)   -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn U(num: u16, sev: DiagSeverity)   -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn C(num: u16, sev: DiagSeverity)   -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn M(num: u16, sev: DiagSeverity)   -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn R(num: u16, sev: DiagSeverity)   -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn L(num: u16, sev: DiagSeverity)   -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn SC(num: u16, sev: DiagSeverity)  -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn P(num: u16, sev: DiagSeverity)   -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn CL(num: u16, sev: DiagSeverity)  -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn OPT(num: u16, sev: DiagSeverity) -> DiagMeta {
-        return diag_meta()
-    }
-
-    eval fn I(num: u16, sev: DiagSeverity)   -> DiagMeta {
-        return diag_meta()
-    }
+enum DiagSeverity derives u8 {
+    Ignored,
+    Remark,
+    Verbose,
+    Note,
+    Debug,
+    Warning,
+    Error,
+    Fatal,
+    Count, /// Total number of severities.  Not a valid severity.
 }

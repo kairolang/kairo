@@ -1,0 +1,294 @@
+#--- The Kairo Project ----------------------------------------------------#
+#                                                                          #
+#   Part of the Kairo Project, under the Attribution 4.0 International     #
+#   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    #
+#   and create derivative works, even for commercial purposes, provided    #
+#   that you give appropriate credit, and indicate if changes were made.   #
+#                                                                          #
+#   For more information on the license terms and requirements, please     #
+#     visit: https://creativecommons.org/licenses/by/4.0/                  #
+#                                                                          #
+#   SPDX-License-Identifier: CC-BY-4.0                                     #
+#   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       #
+#                                                                          #
+#------------------------------------------------------------ KAIRO -------#
+
+[S041]
+brief = "return type mismatch"
+group = "type-check"
+
+    [S041.E]
+    explain = """
+    # return type mismatch error
+
+    this error occurs when the return type of a function does not match the type of the expression in the return statement.
+    the compiler expects the return type to be consistent with the declared return type of the function.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn add(a: i32, b: i32) -> i32 {
+        return a + b; // this is correct, as the return type matches the declared type
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn add(a: i32, b: i32) -> i32 {
+        return "a" + "b"; // this is incorrect, since the return type is a string, not an i32
+    }
+    ```
+
+    ## how to fix
+    ensure that the expression in the return statement matches the declared return type of the function. if necessary,
+    you can change the return type of the function or modify the return expression to match the expected type.
+    """
+    
+    [S041.W]
+    explain = """
+    # return type mismatch warning
+
+    this warning occurs when the return type of a function does not exactly match the type of the expression in the return statement.
+    the compiler will apply an implicit conversion to make the types compatible, but it is recommended to ensure that the return types match exactly to avoid undefined behavior or unexpected behavior.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn add(a: i32, b: i32) -> i32 {
+        return a + b; // this is correct, as the return type matches the declared type
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn add(a: i32, b: i32) -> i32 {
+        return a + b as f32; // this is incorrect, since the return type is f32, not an i32. an implicit conversion will be applied, but it is better to ensure that the return types match exactly. in this case it might round the result to the wrong value which would be unexpected behavior.
+    }
+    ```
+
+    ## tip
+
+    undefined behavior vs unexpected behavior:
+    - undefined behavior: the program may crash or produce unpredictable results. this is usually caused by memory corruption or invalid operation that the compiler cannot detect but can lead to serious issues.
+    - unexpected behavior: the program may run but produce results that are not what the programmer intended
+    - both undefined behavior and unexpected behavior can lead to bugs and security vulnerabilities, so it is important to write code that is well-defined and behaves as expected.
+    """
+    
+
+[S011]
+brief = "invalid token in lexical parsing"
+group = "syntax"
+
+    [S011.E]
+    explain = """
+    # invalid token error
+
+    this error occurs when the lexer encounters a token that is not valid in the current context. this can happen due to typos, missing punctuation, or incorrect syntax.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn main() {
+        let x = 10; // this is correct syntax
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn main() {
+        let x = $129$; // this is incorrect syntax, as the token #129# is invalid in kairo, the lexer does not recognize `$` as a valid token.
+    }
+    ```
+
+    ## how to fix
+    check the syntax of your code and ensure that all tokens are valid and correctly placed. look for typos, missing punctuation, or incorrect syntax that may be causing the error.
+    """
+
+    # no warning, note, remark or tip for this diagnostic, as it is a syntax error that must be fixed before the code can be compiled.
+
+[S012]
+brief = "unterminated string literal"
+group = "syntax"
+
+    [S012.E]
+    explain = """
+    # unterminated string literal error
+
+    this error occurs when the lexer encounters a string literal that is not properly terminated. this can happen if the closing quote is missing or if there is an eSape sequence that is not properly handled.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn main() {
+        let s = "hello world"; // this is correct syntax
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn main() {
+        let s = "hello world; // this is incorrect syntax, as the string literal is not properly terminated with a closing quote.
+    }
+    ```
+
+    ## how to fix
+    ensure that all string literals are properly terminated with matching opening and closing quotes. check for any eSape sequences that may be causing the issue and ensure they are correctly formatted.
+    """
+
+[S013]
+brief = "unterminated character literal"
+group = "syntax"
+
+    [S013.E]
+    explain = """
+    # unterminated character literal error
+
+    this error occurs when the lexer encounters a character literal that is not properly terminated. this can happen if the closing quote is missing or if there is an eSape sequence that is not properly handled.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn main() {
+        let c = 'a'; // this is correct syntax
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn main() {
+        let c = 'a; // this is incorrect syntax, as the character literal is not properly terminated with a closing quote.
+    }
+    ```
+
+    ## how to fix
+    ensure that all character literals are properly terminated with matching opening and closing quotes. check for any eSape sequences that may be causing the issue and ensure they are correctly formatted.
+    """
+
+[S014]
+brief = "unterminated block comment"
+group = "syntax"
+
+    [S014.E]
+    explain = """
+    # unterminated block comment error
+
+    this error occurs when the lexer encounters a block comment that is not properly terminated. this can happen if the closing comment delimiter is missing.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn main() {
+        /* this is a block comment */
+        let x = 10; // this is correct syntax
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn main() {
+        /* this is a block comment
+        let x = 10; // this is incorrect syntax, as the block comment is not properly terminated with a closing delimiter.
+    }
+    ```
+
+    ## how to fix
+    ensure that all block comments are properly terminated with matching opening and closing delimiters. check for any missing closing delimiters that may be causing the issue.
+    """
+
+# we missing a few here
+
+[S019]
+brief = "unclosed parenthesis"
+group = "syntax"
+
+    [S019.E]
+    explain = """
+    # unclosed parenthesis error
+
+    this error occurs when the lexer encounters an opening parenthesis that is not properly closed. this can happen if the closing parenthesis is missing or if there is a mismatch in the number of opening and closing parentheses.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn main() {
+        let x = (10 + 20); // this is correct syntax
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn main() {
+        let x = (10 + 20; // this is incorrect syntax, as the opening parenthesis is not properly closed with a closing parenthesis.
+    }
+    ```
+
+    ## how to fix
+    ensure that all opening parentheses are properly closed with matching closing parentheses. check for any missing closing parentheses that may be causing the issue.
+    """
+
+[S020]
+brief = "unclosed bracket"
+group = "syntax"
+
+    [S020.E]
+    explain = """
+    # unclosed bracket error
+
+    this error occurs when the lexer encounters an opening bracket that is not properly closed. this can happen if the closing bracket is missing or if there is a mismatch in the number of opening and closing brackets.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn main() {
+        let arr = [1, 2, 3]; // this is correct syntax
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn main() {
+        let arr = [1, 2, 3; // this is incorrect syntax, as the opening bracket is not properly closed with a closing bracket.
+    }
+    ```
+
+    ## how to fix
+    ensure that all opening brackets are properly closed with matching closing brackets. check for any missing closing brackets that may be causing the issue.
+    """
+
+[S021]
+brief = "unclosed brace"
+group = "syntax"
+
+    [S021.E]
+    explain = """
+    # unclosed brace error
+
+    this error occurs when the lexer encounters an opening brace that is not properly closed. this can happen if the closing brace is missing or if there is a mismatch in the number of opening and closing braces.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn main() {
+        let obj = { key: "value" }; // this is correct syntax
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn main() {
+        let obj = { key: "value"; // this is incorrect syntax, as the opening brace is not properly closed with a closing brace.
+    }
+    ```
+
+    ## how to fix
+    ensure that all opening braces are properly closed with matching closing braces. check for any missing closing braces that may be causing the issue.
+    """
