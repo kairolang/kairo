@@ -74,7 +74,7 @@ class CLIArgs {
         OPTIMIZE3       = compute_hash::<r"O3">(),
         OPTIMIZE_S      = compute_hash::<r"Os">(),
         OPTIMIZE_Z      = compute_hash::<r"Oz">(),
-        DEBUG_ON           = compute_hash::<r"g">(),
+        DEBUG_ON        = compute_hash::<r"g">(),
         DEBUG_OFF       = compute_hash::<r"g0">(),
 
         // --- WARNINGS & DIAGNOSTICS ---
@@ -192,42 +192,32 @@ class CLIArgs {
 
     fn flag_value_type(flag: FlagType) -> ValueType {
         switch flag {
-            case FlagType::OUTPUT,
-            case FlagType::INCLUDE_DIR,
-            case FlagType::LIB_DIR,
-            case FlagType::LINK_LIB,
-            case FlagType::TARGET,
-            case FlagType::HOST,
-            case FlagType::SYSROOT,
-            case FlagType::PRELUDE,
-            case FlagType::STD,
-            case FlagType::FFI,
-            case FlagType::FFI_INCLUDE,
-            case FlagType::PROFILE,
-            case FlagType::EMIT,
-            case FlagType::DIAG_FORMAT,
-            case FlagType::FVISIBILITY,
-            case FlagType::MARCH,
-            case FlagType::MCPU,
-            case FlagType::MABI,
-            case FlagType::MTUNE,
-            case FlagType::FSANITIZE,
-            case FlagType::FSANITIZE_OPTS,
-            case FlagType::XCXX,
-            case FlagType::XLINKER,
-            case FlagType::XASSEMBLER,
+            case FlagType::OUTPUT:
+            case FlagType::INCLUDE_DIR:
+            case FlagType::LIB_DIR:
+            case FlagType::LINK_LIB:
+            case FlagType::TARGET:
+            case FlagType::HOST:
+            case FlagType::SYSROOT:
+            case FlagType::PRELUDE:
+            case FlagType::STD:
+            case FlagType::FFI:
+            case FlagType::FFI_INCLUDE:
+            case FlagType::PROFILE:
+            case FlagType::EMIT:
+            case FlagType::DIAG_FORMAT:
+            case FlagType::FVISIBILITY:
+            case FlagType::MARCH:
+            case FlagType::MCPU:
+            case FlagType::MABI:
+            case FlagType::MTUNE:
+            case FlagType::FSANITIZE:
+            case FlagType::FSANITIZE_OPTS:
+            case FlagType::XCXX:
+            case FlagType::XLINKER:
+            case FlagType::XASSEMBLER:
             case FlagType::XTHREADS:
-                return ValueType::STRING ;
-
-            case FlagType::OPTIMIZE0,
-            case FlagType::OPTIMIZE1,
-            case FlagType::OPTIMIZE2,
-            case FlagType::OPTIMIZE3,
-            case FlagType::OPTIMIZE_S,
-            case FlagType::OPTIMIZE_Z,
-            case FlagType::DEBUG_ON:
-                return ValueType::INT ;
-
+                return ValueType::FILE ; 
             default:
                 return ValueType::FALSE ;
         }
@@ -249,7 +239,7 @@ class CLIArgs {
 
         while pointer < i32(sentence.length()) {
             var current_char : char = sentence[pointer];
-            
+
             if current_char == ' ' {
                 pointer++;
                 continue;
