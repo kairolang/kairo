@@ -192,8 +192,8 @@ class ArenaAllocator {
         var b = (self.head);
         while (b != &null) {
             var next = b->next;
-            b->destroy();
-            libcxx::free(b);
+            b->destroy();     // free the data buffer directly, sets ptr=null
+            std::destroy(b);  // ~ArenaBlock() sees ptr==null, skips recycler; uses aligned delete for the struct
             b = next;
         }
         (self.head) = &null;

@@ -165,6 +165,16 @@ class <T> ArenaList {
 
     /// O(1) metadata-only reset. Slabs retained, reused on next push.
     fn clear(self) {
+        __inline_cpp("
+            if constexpr (!libcxx::is_trivially_destructible_v<T>) {
+                for (usize c = 0; c < this->_chunk_count; ++c) {
+                    for (usize i = 0; i < this->_chunks[c].count; ++i) {
+                        this->_chunks[c].base[i].~T();
+                    }
+                }
+            }
+        ");
+
         self._chunks[0].count = 0;
         self._chunk_count     = 1;
         self._total           = 0;
@@ -181,6 +191,17 @@ class <T> ArenaList {
     }
 
     fn destroy(self) {
+        // destroy non-trivial elements before nuking the arena
+        __inline_cpp("
+            if constexpr (!libcxx::is_trivially_destructible_v<T>) {
+                for (usize c = 0; c < this->_chunk_count; ++c) {
+                    for (usize i = 0; i < this->_chunks[c].count; ++i) {
+                        this->_chunks[c].base[i].~T();
+                    }
+                }
+            }
+        ");
+
         self._chunks      = &null;
         self._chunk_count = 0;
         self._chunk_cap   = 0;

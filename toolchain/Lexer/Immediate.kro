@@ -1151,7 +1151,7 @@ module Immediate {
 
         fn destroy(self) {
             for var i: usize = 0; i < self.exprs.size(); ++i {
-                libcxx::get::<0>(self.exprs[i])->destroy();
+                std::destroy(libcxx::get::<0>(self.exprs[i]));
             }
         }
     }
@@ -1178,7 +1178,7 @@ module Immediate {
 
         fn destroy(self) {
             for var i: usize = 0; i < self.exprs.size(); ++i {
-                libcxx::get::<0>(self.exprs[i])->destroy();
+                std::destroy(libcxx::get::<0>(self.exprs[i]));
             }
         }
     }
@@ -1318,13 +1318,34 @@ class ImmediateTable {
         }
     }
 
+    fn destroy(self) {
+        if self.int_literals != &null {
+            std::destroy(self.int_literals);
+            self.int_literals = &null;
+        }
+        if self.float_literals != &null {
+            std::destroy(self.float_literals);
+            self.float_literals = &null;
+        }
+        if self.macro_expansions != &null {
+            std::destroy(self.macro_expansions);
+            self.macro_expansions = &null;
+        }
+
+        if self.string_literals != &null {
+            std::destroy(self.string_literals);
+            self.string_literals = &null;
+        }
+        if self.char_literals != &null {
+            std::destroy(self.char_literals);
+            self.char_literals = &null;
+        }
+
+        Logger::debug(Logger::Stage::Lexer, "ImmediateTable::destroy(): destroyed all immediate literals and macro expansions");
+    }
+
     fn op delete (self) {
-        std::destroy(self.int_literals);
-        std::destroy(self.float_literals);
-        std::destroy(self.char_literals);
-        std::destroy(self.string_literals);
-        std::destroy(self.macro_expansions);
-        Logger::debug(Logger::Stage::Lexer, "ImmediateTable::op delete: destroyed all immediate literals and macro expansions");
+        self.destroy();
     }
 
     fn wait_for_evaluation(self) {

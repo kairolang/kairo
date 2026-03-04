@@ -71,7 +71,7 @@ struct alignas(64) ArenaBlock {
         Logger::trace(Logger::Stage::Driver, libcxx::format(L"ArenaBlock::ctor: cap={}B ptr={}", cap, static_cast<void*>(ptr)));
     }
 
-    ~ArenaBlock() noexcept { GlobalRecycler::instance().push(ptr, capacity); }
+    ~ArenaBlock() noexcept { if (ptr != nullptr) { GlobalRecycler::instance().push(ptr, capacity); } }
 
     ArenaBlock(const ArenaBlock &)            = delete;
     ArenaBlock &operator=(const ArenaBlock &) = delete;

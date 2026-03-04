@@ -521,13 +521,13 @@ class Lexer {
 
     inline priv fn shutdown(self) {
         self._tokens.shutdown();
-        self._imm_tbl.reset();
+        self._imm_tbl.destroy();
         self._balance.clear();
     }
 
     /// \brief destructor
     fn op delete (self) {
-        self.destroy();
+        self.shutdown();
     }
 
     /// \brief loads the file buffer for the given file ID
@@ -2339,7 +2339,8 @@ class Lexer {
 }
 
 class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
-    var _kv_s:  map::<u32, *Lexer>;
+    var _kv_s:        map::<u32, *Lexer>;
+    var _old_buffers: vec::<*(TokenBuffer::<512>)>;
     var _pool: *ThreadPool;
     var _sm:   *SourceManager;
 
@@ -2395,6 +2396,14 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
         for k, v in self._kv_s {
             delete v;
         }
+        for buf in self._old_buffers {
+            std::destroy(buf);
+        }
+        self._old_buffers.clear();
+    }
+
+    fn op delete (self) {
+        self.reset();
     }
 
     fn op [] (self, fid: u32) -> *(TokenBuffer::<512>) {
@@ -2411,8 +2420,11 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
         // that MacroDefinition body spans still reference, so we
         // intentionally leak them. The TCM owns them until shutdown.
         self._kv_s[fid]->tokens()->swap(new_tokens);
-        // DO NOT destroy new_tokens it holds the original token data
-        // that macro body TokenSpans still point into
+        self._old_buffers.push_back(new_tokens);
+        // we don't destory the old buffs but rather store them in a old_buffers
+        // vector to be destroyed on shutdown. This is because MacroDefinition
+        // bodies may still reference the old tokens, and we don't want to
+        // invalidate those references.
     }
 
     /// \brief returns the ImmediateTable for the file that owns this token
