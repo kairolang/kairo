@@ -1,33 +1,38 @@
 import Lexer::Preprocessor::Preprocessor::*;
+import Core::Diagnostics::DiagEngine::*;
+import Core::Diagnostics::Consumers::BasicDiagConsumer::*;
 
 fn main() -> i32 {
     Logger::init(Logger::Level::Trace);
-    var cwd    = Path::cwd();
-    var target = Path("test.kro");
 
-    var pool     = std::create::<ThreadPool>(4);
-    var vfm      = std::create::<VirtualFileManager>();
-    var sm       = std::create::<SourceManager>(pool, vfm);
-    var tcm      = std::create::<TokenCacheManager>(sm, pool);
+    var cwd      = Path::cwd();
+    var target   = Path("test.kro");
+    var resolver = ImportResolver::Builder().cwd(cwd).create_ptr();
+    var pool     = ThreadPool(4);
+    var vfm      = VirtualFileManager();
+    var sm       = SourceManager(&pool, &vfm);
+    var tcm      = TokenCacheManager(&sm, &pool);
+    var diag     = DiagEngine();
+    var consumer = BasicDiagConsumer(&sm);
+    var mp       = PreProcessor(&sm, &tcm, resolver, &pool);
 
     finally {
-        std::destroy(pool);
-        std::destroy(sm);
-        std::destroy(tcm);
-        
+        std::destroy(resolver); // since build returns a pointer
         GlobalRecycler::shutdown_allocator_runtime();
         
         Logger::dump(); // guaranteed to always be called before shutdown, to ensure all logs are flushed
         Logger::shutdown();
     }
 
-    var fid = sm->load_file(target);
+    diag.add_consumer(&consumer);
+
+    var fid = sm.load_file(target);
     if fid == u32(-1) {
         std::print(f"error: could not load '{target.full_path()}'\n");
         return 1;
     }
 
-    if !tcm->lex_file(fid) {
+    if !tcm.lex_file(fid) {
         std::print(f"error: failed to lex '{target.full_path()}'\n");
         return 1;
     }
@@ -41,25 +46,19 @@ fn main() -> i32 {
     }
 
     var module_base = ModulePath();
-
-    var resolver = ImportResolver::Builder()
-        .cwd(cwd)
-        .build();
-
-    var mp = PreProcessor(sm, tcm, resolver, pool);
     var ok = mp.preprocess_file(fid, module_base);
 
     if !ok {
         std::print("warning: macro preprocessing reported errors\n");
     }
 
-    var tokens = tcm->get_tokens(fid);
+    var tokens = tcm.get_tokens(fid);
     if tokens == &null {
         std::print("error: no tokens after preprocessing\n");
         return 1;
     }
 
-    var lexer_ptr = tcm->get_lexer(fid);
+    var lexer_ptr = tcm.get_lexer(fid);
     if (lexer_ptr != &null) && (lexer_ptr->has_errors()) {
         std::print("=== lexer diagnostics ===\n");
         lexer_ptr->emit_errors();
@@ -132,7 +131,7 @@ fn main() -> i32 {
                 var int_data = imm_tbl->get::<Immediate::IntData>(imm);
                 code += f"{int_data->value_lo} ";
             } else {
-                code += sm->get_text(tok_range) + " ";
+                code += sm.get_text(tok_range) + " ";
             }
             continue;
         }
@@ -143,7 +142,7 @@ fn main() -> i32 {
             continue;
         }
 
-        code += sm->get_text(tok_range) + " ";
+        code += sm.get_text(tok_range) + " ";
     }
 
     std::print(code);
@@ -153,6 +152,5 @@ fn main() -> i32 {
     std::print(mp.get_macro_table()->as_string(mp.get_symbol_table()));
     std::print("=== end macro table ===\n\n");
 
-    // libcxx::this_thread::sleep_for(libcxx::chrono::seconds(10));
     return 0 if ok else 1;
 }

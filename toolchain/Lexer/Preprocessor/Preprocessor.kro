@@ -2649,7 +2649,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2671,7 +2671,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2695,7 +2695,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
@@ -2727,7 +2727,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2756,7 +2756,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2777,7 +2777,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2801,7 +2801,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2823,7 +2823,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2847,7 +2847,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2872,7 +2872,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
@@ -2894,7 +2894,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
@@ -2913,7 +2913,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
@@ -2933,7 +2933,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
@@ -2953,7 +2953,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2974,7 +2974,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -2995,7 +2995,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
@@ -3015,7 +3015,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -3039,7 +3039,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -3066,7 +3066,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -3088,7 +3088,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -3110,7 +3110,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -3135,7 +3135,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);
@@ -3157,7 +3157,7 @@ fn Test() -> i32 {
 
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
-            .build();
+            .create_ptr();
         var tcm = TokenCacheManager(sm, pool);
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid);

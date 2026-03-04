@@ -146,7 +146,7 @@ class ImportResolver {
         /// \brief constructs the resolver and initiates indexing
         /// \param pool optional thread pool for async indexing; if null, blocks until done
         /// \return heap-allocated resolver; caller assumes ownership
-        fn build(self, pool: *ThreadPool = &null) -> *ImportResolver {
+        fn create_ptr(self, pool: *ThreadPool = &null) -> *ImportResolver {
             self._pool = pool;
 
             var cwd_path = self._cwd.value_or(Path(
@@ -921,7 +921,7 @@ fn Test() -> i32 {
     var resolver = ImportResolver::Builder()
         .cwd(test_path)
         .add_includes(includes)
-        .build();
+        .create_ptr();
 
     finally { // cleanup
         std::destroy(resolver);
