@@ -13,6 +13,27 @@
 #                                                                          #
 #------------------------------------------------------------ KAIRO -------#
 
+[S001]
+brief = "place holder diagnostics"
+group = "Syntax"
+    [S001.W]
+    explain = "This is placeholder diagnostics. (Warning)"
+    [S001.I]
+    explain = "This is placeholder diagnostics. (Info)"
+    [S001.R]
+    explain = "This is placeholder diagnostics. (Remark)"
+    [S001.V]
+    explain = "This is placeholder diagnostics. (Verbose)"
+    [S001.N]
+    explain = "This is placeholder diagnostics. (Note)"
+    [S001.D]
+    explain = "This is placeholder diagnostics. (Debug)"
+    [S001.E]
+    explain = "This is placeholder diagnostics. (Error)"
+    [S001.F]
+    explain = "This is placeholder diagnostics. (Fatal)"
+
+
 [S041]
 brief = "return type mismatch"
 group = "type-check"
