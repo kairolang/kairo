@@ -32,3 +32,65 @@ group = "Uncategorized"
     explain = "This is placeholder diagnostics. (Error)"
     [U001.F]
     explain = "This is placeholder diagnostics. (Fatal)"
+
+[U002]
+brief = "unknown or unrecognized command-line flag"
+group = "cli"
+
+    [U002.E]
+    explain = """
+    # unknown command-line flag
+
+    the driver received a flag that does not match any recognized option. this may be a typo,
+    an unsupported flag, or a flag intended for a different tool.
+
+    ## example
+
+    - incorrect usage:
+    ```
+    kairo --foo-bar main.kro   // --foo-bar is not a known flag
+    ```
+
+    ## how to fix
+    run `kairo --help` to see the list of supported flags and correct the invocation.
+    """
+
+[U003]
+brief = "invalid command-line flag syntax"
+group = "cli"
+
+    [U003.E]
+    explain = """
+    # invalid flag syntax
+
+    the driver encountered a malformed flag in the command-line arguments. common causes include
+    using `/-` (which is not supported), combining flags incorrectly, or providing a flag that
+    begins with an unexpected character sequence.
+
+    ## how to fix
+    use `-flag` for short flags, `--flag` for long flags, or `/flag` for Windows-style flags.
+    the `/-` prefix is not a valid flag introducer.
+    """
+
+[U004]
+brief = "command-line flag requires a value"
+group = "cli"
+
+    [U004.E]
+    explain = """
+    # flag requires a value
+
+    a flag that requires an argument (such as `--output`, `--target`, or `-I`) was provided
+    without a corresponding value.
+
+    ## example
+
+    - incorrect usage:
+    ```
+    kairo --output        // no path provided after --output
+    kairo -I              // no include directory provided
+    ```
+
+    ## how to fix
+    supply the required value immediately after the flag: `--output=./bin/app` or `--output ./bin/app`.
+    """

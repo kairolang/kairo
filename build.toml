@@ -12,16 +12,16 @@ compiler = "kairo"
 mode     = "release"
 
 [[target]]
-name     = "kairo"
-entry    = "toolchain/Driver/main/kairo.kro"
-type     = "binary"
-includes = ["toolchain", "lib-helix/core"]
-links    = []
-libs     = []
-deps     = []
-defines  = []
-ld_flags = []
-cxx_sources    = []
+name            = "kairo"
+entry           = "toolchain/Driver/main/kairo.kro"
+type            = "binary"
+includes        = ["toolchain", "lib-helix/core"]
+links           = []
+libs            = []
+deps            = []
+defines         = ["VERSION=L\"kairo-0.1.1+rc.250306\""]
+ld_flags        = []
+cxx_sources     = []
 cxx_passthrough = []
 
 [[target]]
@@ -29,27 +29,32 @@ name     = "kbld"
 entry    = "toolchain/Driver/main/kbld.kro"
 type     = "binary"
 includes = ["toolchain"]
+defines  = ["VERSION=L\"kbld-0.1.0+rc.250306\""]
 
 [[target]]
 name     = "kfmt"
 entry    = "toolchain/Driver/main/kfmt.kro"
 type     = "binary"
 includes = ["toolchain"]
+defines  = ["VERSION=L\"kfmt-0.1.0+rc.250306\""]
 
 [[target]]
 name     = "kld"
 entry    = "toolchain/Driver/main/kld.kro"
 type     = "binary"
 includes = ["toolchain"]
+defines  = ["VERSION=L\"kld-0.1.0+rc.250306\""]
 
 [[target]]
 name     = "klsp"
 entry    = "toolchain/Driver/main/klsp.kro"
 type     = "binary"
 includes = ["toolchain"]
+defines  = ["VERSION=L\"klsp-0.1.0+rc.250306\""]
 
 [[target]]
 name     = "kpkg"
 entry    = "toolchain/Driver/main/kpkg.kro"
 type     = "binary"
 includes = ["toolchain"]
+defines  = ["VERSION=L\"kpkg-0.1.0+rc.250306\""]

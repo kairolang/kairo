@@ -113,14 +113,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        let x = 10; // this is correct syntax
+        var x = 10; // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        let x = $129$; // this is incorrect syntax, as the token #129# is invalid in kairo, the lexer does not recognize `$` as a valid token.
+        var x = $129$; // this is incorrect syntax, as the token #129# is invalid in kairo, the lexer does not recognize `$` as a valid token.
     }
     ```
 
@@ -145,14 +145,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        let s = "hello world"; // this is correct syntax
+        var s = "hello world"; // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        let s = "hello world; // this is incorrect syntax, as the string literal is not properly terminated with a closing quote.
+        var s = "hello world; // this is incorrect syntax, as the string literal is not properly terminated with a closing quote.
     }
     ```
 
@@ -175,14 +175,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        let c = 'a'; // this is correct syntax
+        var c = 'a'; // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        let c = 'a; // this is incorrect syntax, as the character literal is not properly terminated with a closing quote.
+        var c = 'a; // this is incorrect syntax, as the character literal is not properly terminated with a closing quote.
     }
     ```
 
@@ -206,7 +206,7 @@ group = "syntax"
     ```kairo
     fn main() {
         /* this is a block comment */
-        let x = 10; // this is correct syntax
+        var x = 10; // this is correct syntax
     }
     ```
 
@@ -214,7 +214,7 @@ group = "syntax"
     ```kairo
     fn main() {
         /* this is a block comment
-        let x = 10; // this is incorrect syntax, as the block comment is not properly terminated with a closing delimiter.
+        var x = 10; // this is incorrect syntax, as the block comment is not properly terminated with a closing delimiter.
     }
     ```
 
@@ -239,14 +239,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        let x = (10 + 20); // this is correct syntax
+        var x = (10 + 20); // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        let x = (10 + 20; // this is incorrect syntax, as the opening parenthesis is not properly closed with a closing parenthesis.
+        var x = (10 + 20; // this is incorrect syntax, as the opening parenthesis is not properly closed with a closing parenthesis.
     }
     ```
 
@@ -269,14 +269,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        let arr = [1, 2, 3]; // this is correct syntax
+        var arr = [1, 2, 3]; // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        let arr = [1, 2, 3; // this is incorrect syntax, as the opening bracket is not properly closed with a closing bracket.
+        var arr = [1, 2, 3; // this is incorrect syntax, as the opening bracket is not properly closed with a closing bracket.
     }
     ```
 
@@ -299,17 +299,689 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        let obj = { key: "value" }; // this is correct syntax
+        var obj = { key: "value" }; // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        let obj = { key: "value"; // this is incorrect syntax, as the opening brace is not properly closed with a closing brace.
+        var obj = { key: "value"; // this is incorrect syntax, as the opening brace is not properly closed with a closing brace.
     }
     ```
 
     ## how to fix
     ensure that all opening braces are properly closed with matching closing braces. check for any missing closing braces that may be causing the issue.
+    """
+
+[S015]
+brief = "missing string or character literal delimiter"
+group = "syntax"
+
+    [S015.E]
+    explain = """
+    # missing string or character literal delimiter
+
+    this error occurs when the lexer expected a string delimiter (`"`) or character delimiter (`'`) to begin a literal,
+    but encountered a different character. this usually means a prefix character (such as `f`, `b`, or `r`) was used
+    without being followed by a valid opening quote.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var s = "hello";
+    var c = 'x';
+    var f = f"result: {x}";
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var s = f 42;  // 'f' prefix not followed by a quote
+    ```
+
+    ## how to fix
+    ensure that every string or character prefix is immediately followed by a matching opening delimiter (`"` or `'`).
+    """
+
+[S016]
+brief = "unmatched closing brace in format string"
+group = "syntax"
+
+    [S016.E]
+    explain = """
+    # unmatched `}` in format string literal
+
+    this error occurs when a standalone `}` is found inside an f-string literal but there is no matching opening `{`.
+    in a format string, `{` opens an interpolation expression and `}` closes it. a lone `}` with no corresponding `{`
+    is invalid.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var msg = f"value: {x}";
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var msg = f"value: }x{";  // unmatched `}`
+    ```
+
+    ## how to fix
+    remove the stray `}`, or if you intended a literal brace, escape it as `\\}` (only valid when `\\{`/`\\}` escape is
+    supported) or restructure the interpolation expression.
+    """
+
+[S017]
+brief = "invalid escape sequence in string literal"
+group = "syntax"
+
+    [S017.E]
+    explain = """
+    # invalid escape sequence in string literal
+
+    this error occurs when the lexer encounters a backslash (`\\`) followed by a character that does not form a valid
+    escape sequence in the current string context. the specific problem (unknown character, wrong string type, etc.)
+    is described in the accompanying message.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var s = "line one\\nline two";  // \\n is a valid escape
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var s = "bad \\q here";  // \\q is not a recognized escape sequence
+    ```
+
+    ## how to fix
+    consult the list of valid escape sequences for your string type and correct or remove the invalid escape.
+    """
+
+[S018]
+brief = "newline in format string interpolation expression"
+group = "syntax"
+
+    [S018.E]
+    explain = """
+    # newline inside format string expression
+
+    this error occurs when a raw newline character appears inside the interpolation expression `{...}` of a format
+    string. format string expressions must be on a single line.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var msg = f"result: {compute()}";
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var msg = f"result: {
+        compute()
+    }";  // newline inside { } is not allowed
+    ```
+
+    ## how to fix
+    move the expression to a single line, or assign the value to a temporary variable before the format string.
+    """
+
+[S022]
+brief = "brace escape not valid outside format string"
+group = "syntax"
+
+    [S022.E]
+    explain = """
+    # `\\{` or `\\}` escape invalid in non-format string
+
+    this error occurs when the escape sequences `\\{` or `\\}` are used inside a regular (non-format) string literal.
+    these escapes are only meaningful in format strings (`f"..."`) where `{` and `}` have special interpolation meaning.
+    in a plain string they are unrecognized.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var escaped = f"literal brace: \\{";  // valid in f-string
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var s = "literal brace: \\{";  // invalid; \\{ only works in f-strings
+    ```
+
+    ## how to fix
+    use a format string prefix (`f"..."`) if you need to write a literal brace character via `\\{`/`\\}`, or simply
+    include the brace as a plain character in a regular string.
+    """
+
+[S023]
+brief = "malformed hex escape sequence"
+group = "syntax"
+
+    [S023.E]
+    explain = """
+    # malformed `\\x` hex escape sequence
+
+    this error occurs when a `\\x` escape sequence is not followed by exactly two valid hexadecimal digits.
+    the `\\x` escape requires exactly two hex digits in the range `0`-`9`, `a`-`f`, or `A`-`F`.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var tab = "\\x09";  // horizontal tab (U+0009)
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var bad = "\\xGG";  // G is not a hex digit
+    var bad2 = "\\x9";  // only one digit; two are required
+    ```
+
+    ## how to fix
+    supply exactly two hexadecimal digits after `\\x`, e.g. `\\x0A` for a newline.
+    """
+
+[S024]
+brief = "hex escape value out of byte range"
+group = "syntax"
+
+    [S024.E]
+    explain = """
+    # `\\x` hex escape out of byte range
+
+    this error occurs when the value encoded by a `\\xHH` escape sequence exceeds 0xFF (255). the `\\x` form is
+    limited to single-byte values.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var byte = b"\\xFF";  // maximum valid byte escape
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var bad = b"\\x1FF";  // 0x1FF > 0xFF; too large for a byte escape
+    ```
+
+    ## how to fix
+    use a value in the range `0x00`-`0xFF`, or switch to a unicode escape (`\\u`) for larger codepoints.
+    """
+
+[S025]
+brief = "octal escape sequence in non-byte string"
+group = "syntax"
+
+    [S025.E]
+    explain = """
+    # octal escape only valid in byte strings
+
+    this error occurs when an octal escape sequence (`\\0`-`\\777`) appears in a regular (non-byte) string literal.
+    octal escapes encode raw byte values and are only permitted in byte string literals (`b"..."`).
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var byte_str = b"\\101";  // byte value 0x41 = 'A'
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var s = "\\101";  // octal escapes require a byte string
+    ```
+
+    ## how to fix
+    prefix the string with `b` to make it a byte string, or use a unicode escape (`\\u0041`) in a regular string.
+    """
+
+[S026]
+brief = "octal escape must have 1 to 3 digits"
+group = "syntax"
+
+    [S026.E]
+    explain = """
+    # octal escape has wrong digit count
+
+    this error occurs when an octal escape sequence contains fewer than 1 or more than 3 octal digits.
+    valid octal escapes are `\\0` through `\\377` (1-3 digits in the range `0`-`7`).
+
+    ## how to fix
+    write between 1 and 3 octal digits following the backslash, e.g. `\\7`, `\\07`, or `\\007`.
+    """
+
+[S027]
+brief = "octal escape value out of byte range"
+group = "syntax"
+
+    [S027.E]
+    explain = """
+    # octal escape out of byte range
+
+    this error occurs when the value encoded by an octal escape sequence exceeds 0xFF (255, i.e., octal 377).
+    octal escapes are limited to single-byte values.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    var bad = b"\\400";  // octal 0o400 = 256 > 0xFF
+    ```
+
+    ## how to fix
+    use an octal value in the range `\\0`-`\\377`, or switch to a `\\x` hex escape.
+    """
+
+[S028]
+brief = "malformed unicode escape sequence"
+group = "syntax"
+
+    [S028.E]
+    explain = """
+    # malformed `\\u` or `\\U` unicode escape sequence
+
+    this error occurs when a `\\u` or `\\U` escape sequence is not followed by the required number of valid
+    hexadecimal digits. `\\u` requires exactly 4 hex digits and `\\U` requires exactly 8 hex digits.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var euro = "\\u20AC";    // U+20AC EURO SIGN
+    var emoji = "\\U0001F600"; // U+1F600 GRINNING FACE
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var bad = "\\u20";     // too few digits
+    var bad2 = "\\uXXXX";  // X is not a hex digit
+    ```
+
+    ## how to fix
+    use exactly 4 hex digits for `\\u` or exactly 8 hex digits for `\\U`.
+    """
+
+[S029]
+brief = "unicode escape not valid in byte string"
+group = "syntax"
+
+    [S029.E]
+    explain = """
+    # `\\u` or `\\U` escape invalid in byte string
+
+    this error occurs when a unicode escape sequence (`\\u` or `\\U`) appears inside a byte string literal (`b"..."`).
+    byte strings store raw bytes and do not support multi-byte unicode escapes.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var s = "\\u0041";    // valid in a regular string
+    var b = b"\\x41";    // use byte escapes in byte strings
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var bad = b"\\u0041";  // unicode escape in a byte string
+    ```
+
+    ## how to fix
+    remove the `b` prefix to use a regular string, or replace the unicode escape with an equivalent `\\x` or octal escape.
+    """
+
+[S030]
+brief = "unicode escape value out of valid codepoint range"
+group = "syntax"
+
+    [S030.E]
+    explain = """
+    # unicode escape out of valid codepoint range
+
+    this error occurs when a `\\u` or `\\U` escape encodes a value that exceeds the maximum valid unicode scalar value.
+    the maximum valid unicode codepoint is U+10FFFF.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    var bad = "\\U00200000";  // 0x200000 > 0x10FFFF
+    ```
+
+    ## how to fix
+    use a codepoint in the range U+0000-U+10FFFF.
+    """
+
+[S031]
+brief = "unicode escape encodes a surrogate code point"
+group = "syntax"
+
+    [S031.E]
+    explain = """
+    # unicode escape encodes a surrogate code point
+
+    this error occurs when a `\\u` or `\\U` escape encodes a value in the surrogate range U+D800-U+DFFF.
+    surrogate code points are not valid unicode scalar values and cannot appear in source text or string literals.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    var bad = "\\uD800";  // surrogate half; not a valid scalar value
+    ```
+
+    ## how to fix
+    use a codepoint outside the surrogate range (U+0000-U+D7FF or U+E000-U+10FFFF).
+    """
+
+[S032]
+brief = "backspace escape not valid in byte string"
+group = "syntax"
+
+    [S032.E]
+    explain = """
+    # `\\b` (backspace) escape invalid in byte string
+
+    this error occurs when the `\\b` escape sequence is used inside a byte string literal (`b"..."`). byte strings
+    do not support the `\\b` backspace shorthand.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    var s = "\\b";      // backspace in a regular string
+    var b = b"\\x08";   // use the explicit byte value in a byte string
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var bad = b"\\b";   // \\b not valid in byte string
+    ```
+
+    ## how to fix
+    replace `\\b` with `\\x08` (the byte value for backspace) inside the byte string.
+    """
+
+[S033]
+brief = "unknown or unrecognized escape sequence"
+group = "syntax"
+
+    [S033.E]
+    explain = """
+    # unknown escape sequence
+
+    this error occurs when the lexer encounters a backslash followed by a character that does not form any recognized
+    escape sequence. for example, `\\q`, `\\j`, or `\\m` are not defined escape sequences.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    var bad = "hello \\w world";  // \\w is not a valid escape
+    ```
+
+    ## how to fix
+    replace the unrecognized escape with a valid one, or remove the backslash if it was accidental. see the language
+    reference for the full list of supported escape sequences.
+    """
+
+[S034]
+brief = "unexpected closing delimiter with no matching opener"
+group = "syntax"
+
+    [S034.E]
+    explain = """
+    # unexpected closing delimiter
+
+    this error occurs when the lexer encounters a closing delimiter (`)`, `]`, or `}`) that has no corresponding
+    opening delimiter earlier in the token stream.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    var x = 10);   // `)` has no matching `(`
+    ```
+
+    ## how to fix
+    remove the extraneous closing delimiter, or add the missing opening delimiter at the correct location.
+    """
+
+[S035]
+brief = "mismatched opening and closing delimiters"
+group = "syntax"
+
+    [S035.E]
+    explain = """
+    # mismatched delimiters
+
+    this error occurs when a closing delimiter (`)`, `]`, or `}`) does not match the kind of the most recently opened
+    delimiter. for example, opening with `(` but closing with `]`.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    var arr = [1, 2, 3);  // opened with `[` but closed with `)`
+    ```
+
+    ## how to fix
+    ensure that every closing delimiter matches its corresponding opener: `(` pairs with `)`, `[` with `]`, and `{` with `}`.
+    """
+
+# ── Macro definition errors (S036-S044) ─────────────────────────────────────
+
+[S036]
+brief = "expected macro name or identifier in macro definition"
+group = "syntax"
+
+    [S036.E]
+    explain = """
+    # expected macro name after `macro`
+
+    this error occurs when the lexer/preprocessor encounters the `macro` keyword but no valid identifier follows it.
+    macro definitions must have the form `macro name! { body }`.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    macro greet! { "hello" }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    macro ! { "hello" }  // missing name
+    macro 42! { }        // 42 is not an identifier
+    ```
+
+    ## how to fix
+    provide a valid identifier immediately after the `macro` keyword.
+    """
+
+[S037]
+brief = "expected '!' sigil after macro name"
+group = "syntax"
+
+    [S037.E]
+    explain = """
+    # expected `!` after macro name
+
+    this error occurs when the preprocessor sees `macro <name>` but no `!` follows the name.
+    by convention all macro names end with `!` to distinguish them from functions and variables.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    macro greet! { "hello" }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    macro greet { "hello" }  // missing `!`
+    ```
+
+    ## how to fix
+    add `!` immediately after the macro name.
+    """
+
+[S038]
+brief = "expected opening brace for macro body"
+group = "syntax"
+
+    [S038.E]
+    explain = """
+    # expected `{` for macro body
+
+    this error occurs when the preprocessor starts parsing a macro definition but cannot find the opening
+    brace `{` that begins the macro body. the definition syntax is `macro name! { body }` or
+    `macro name!(params) { body }`.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    macro greet! { "hello" }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    macro greet!  "hello"   // `{` is missing
+    ```
+
+    ## how to fix
+    add `{` after the macro name (and optional parameter list) to open the macro body.
+    """
+
+[S039]
+brief = "unterminated or unmatched brace in macro body"
+group = "syntax"
+
+    [S039.E]
+    explain = """
+    # unmatched `{` in macro body
+
+    this error occurs when the opening brace of a macro body is never closed. the preprocessor
+    reached the end of the token stream without finding the matching `}`.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    macro greet! { "hello"   // missing `}`
+    ```
+
+    ## how to fix
+    close the macro body with a matching `}`.
+    """
+
+[S040]
+brief = "duplicate macro definition in the same scope"
+group = "syntax"
+
+    [S040.E]
+    explain = """
+    # duplicate macro definition
+
+    this error occurs when a macro with the same name is defined more than once in the same module scope.
+    each macro name must be unique within its scope.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    macro greet! { "hello" }
+    macro greet! { "hi" }   // duplicate in same scope
+    ```
+
+    ## how to fix
+    rename one of the macros, or remove the duplicate definition. if you intend overloading, consider
+    using conditional logic inside a single macro body.
+    """
+
+# S041 is reserved (return type mismatch - defined above)
+
+[S042]
+brief = "invalid token or ordering in macro parameter list"
+group = "syntax"
+
+    [S042.E]
+    explain = """
+    # invalid macro parameter
+
+    this error occurs when the preprocessor encounters an unexpected token or an ordering violation in a
+    macro parameter list. common causes:
+    - a non-identifier token where a parameter name is expected
+    - a required parameter placed after a default parameter
+    - a parameter placed after a variadic (`...`) parameter
+    - a variadic parameter placed after a default parameter
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    macro foo!(a, b = 0, ...rest) { }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    macro foo!(...rest, b) { }   // parameter after variadic
+    macro foo!(a = 1, b) { }     // required after default
+    macro foo!(42) { }           // 42 is not a parameter name
+    ```
+
+    ## how to fix
+    reorder parameters so that required parameters come first, default parameters next, and the variadic
+    parameter (if any) last.
+    """
+
+[S043]
+brief = "unterminated macro parameter list"
+group = "syntax"
+
+    [S043.E]
+    explain = """
+    # unterminated macro parameter list
+
+    this error occurs when the preprocessor reaches the end of the token stream (or the macro body `{`)
+    without finding the closing `)` of the parameter list.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    macro foo!(a, b { }   // missing `)` before `{`
+    ```
+
+    ## how to fix
+    add `)` to close the parameter list before the opening `{` of the macro body.
+    """
+
+[S044]
+brief = "empty or missing default value expression in macro parameter"
+group = "syntax"
+
+    [S044.E]
+    explain = """
+    # empty default value in macro parameter
+
+    this error occurs when a macro parameter is declared with `=` for a default value but the expression
+    that follows is empty or missing.
+
+    ## example
+
+    - incorrect usage:
+    ```kairo
+    macro foo!(a = ) { }   // nothing after `=`
+    macro foo!(a =  ) { }  // only whitespace after `=`
+    ```
+
+    ## how to fix
+    provide a valid token expression after `=`, e.g. `a = 0` or `a = "default"`.
     """
