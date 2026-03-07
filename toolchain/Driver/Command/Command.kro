@@ -13,703 +13,2106 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-/// Command — CLI argument tokenizer for the Kairo driver
-/// ======================================================
+/// Command — table-driven, two-level state-machine CLI argument parser
+/// ====================================================================
 ///
-/// Modular, hash-based tokenizer for command-line arguments.
-/// Flags are resolved via compile-time `compute_hash` to avoid
-/// string comparisons at runtime.
+/// Usage (matches rest of compiler)
+/// ---------------------------------
+///   var diag    = DiagEngine();
+///   var cmd     = Command(&diag);        // stack-allocated, like SourceManager
+///   register_test_flags(&cmd);          // the ONE place to add/remove flags
+///   var args    = cmd.parse(argv_vec);   // argv_vec: vec::<string> from main
+///   var &args   = args;                  // pass &args to any subsystem
 ///
-/// Supported flag styles:
-///   -f            short single-character flag
-///   -Wall         long flag with a single dash (IS_LONG_FLAG prefix)
-///   --flag        long flag with double dash
-///   --flag=value  long flag with inline value
-///   /flag         Windows-style flag (short or long)
+/// Adding a flag — the only file you need to touch
+/// ------------------------------------------------
+///   cmd.define(FlagDef::bool_  ("verbose", "v", "verbose", "verbose output",       false));
+///   cmd.define(FlagDef::str_   ("output",  "o", "output",  "output file path")); // required
+///   cmd.define(FlagDef::i32_b  ("opt",     "O", "",        "opt level", 0, 0, 3));
+///   cmd.define(FlagDef::list_  ("include", "I", "include", "add include dir"));
+///   cmd.define(FlagDef::files_ ("files",   "input source files"));
 ///
-/// Errors are dispatched through the provided `DiagEngine`.
+/// Supported flag styles
+/// ---------------------
+///   -f              short bool flag
+///   -abc            short cluster → -a -b -c
+///   -cfoo           short non-bool with joined value
+///   -Wall           long single-dash (IS_LONG_FLAG prefix char)
+///   -O2             long single-dash with joined value → "O" + "2"
+///   -fsanitize=addr long single-dash with = value
+///   --flag          double-dash boolean
+///   --flag=value    inline value
+///   --flag value    space-separated value (AwaitValue global state)
+///   /flag  /Wall    Windows-style
+///   --              end-of-options; everything after is a file
+///   -               bare stdin sentinel; becomes a file path
+///
+/// Input
+/// -----
+///   Takes vec::<string> (libcxx::vector<wstring>) — the shell already
+///   split the command line; the driver builds this from argc/argv once.
 
 import Core::EvalHash::*;
 import Core::Diagnostics::DiagEngine::*;
 import Core::Diagnostics::DiagRegistry::*;
 import Core::Include::Testing::*;
 
-/// \brief indicates whether a flag expects a following value token
-enum ValueType derives u8 {
-    FALSE,  ///< boolean flag — no value expected
-    FILE,   ///< flag expects a file path or string value
+// =============================================================================
+//  FLAG KIND
+// =============================================================================
+
+enum FlagKind derives u8 {
+    Bool,        ///< presence flag; no value             -v / --verbose
+    String,     ///< arbitrary string value              --output=path
+    I32,        ///< signed integer, optional bounds     -O2  --jobs=8
+    F64,        ///< floating-point, optional bounds     --threshold=0.75
+    Path,       ///< single file path                    --prelude=path
+    PathList,   ///< positional files (vec); no flag prefix
+    StringList, ///< repeatable string; each occurrence appends   -I dir
+    Feature,    ///< toggle pair: -f{name} / -fno-{name}  → i32 -1/0/1
 }
 
-/// \brief hashed lookup table for every recognized CLI flag
-///
-/// each variant's numeric value is computed from its string representation
-/// at compile time so that parsed flag strings can be compared in O(1).
+// =============================================================================
+//  FLAG VALUE  (tagged cell — used as default AND as live value in ParsedArgs)
+// =============================================================================
+
+class FlagValue {
+    __inline_cpp("public:");
+
+    pub var kind:        FlagKind = FlagKind::Bool;
+    pub var is_set:      bool     = false; ///< true when supplied on CLI
+    pub var is_required: bool     = false; ///< true when no default (must appear)
+
+    priv var _b:  bool   = false;
+    priv var _s:  string = "";
+    priv var _i:  i32    = 0;
+    priv var _f:  f64    = 0.0;
+    priv var _sv: vec::<string>;
+
+    // ── factories ─────────────────────────────────────────────────────────
+
+    static fn required(k: FlagKind) -> FlagValue {
+        var v = FlagValue(); v.kind = k; v.is_required = true; return v;
+    }
+
+    static fn from_bool(b: bool) -> FlagValue {
+        var v = FlagValue(); v.kind = FlagKind::Bool; v._b = b; return v;
+    }
+
+    static fn from_string(s: string) -> FlagValue {
+        var v = FlagValue(); v.kind = FlagKind::String; v._s = s; return v;
+    }
+
+    static fn from_i32(i: i32) -> FlagValue {
+        var v = FlagValue(); v.kind = FlagKind::I32; v._i = i; return v;
+    }
+
+    static fn from_f64(f: f64) -> FlagValue {
+        var v = FlagValue(); v.kind = FlagKind::F64; v._f = f; return v;
+    }
+
+    static fn from_file(s: string) -> FlagValue {
+        var v = FlagValue(); v.kind = FlagKind::Path; v._s = s; return v;
+    }
+
+    static fn empty_list(k: FlagKind) -> FlagValue {
+        var v = FlagValue(); v.kind = k; return v;
+    }
+
+    /// feature default: -1 = unset, set to 0 or 1 by the parser
+    static fn unset_feature() -> FlagValue {
+        var v = FlagValue(); v.kind = FlagKind::Feature; v._i = -1; return v;
+    }
+
+    /// -1 = unset, 0 = disabled (-fno-…), 1 = enabled (-f…)
+    fn as_feature(self) -> i32 { return self._i; }
+
+    // ── accessors ─────────────────────────────────────────────────────────
+
+    fn as_bool(self)   -> bool                { return self._b;  }
+    fn as_string(self) -> string              { return self._s;  }
+    fn as_i32(self)    -> i32                 { return self._i;  }
+    fn as_f64(self)    -> f64                 { return self._f;  }
+    fn as_list(self)   -> ref!(vec::<string>) { return self._sv; }
+
+    // ── mutators (called by the parser) ───────────────────────────────────
+
+    fn set_bool(self, b: bool)     { self._b = b; self.is_set = true; }
+    fn set_string(self, s: string) { self._s = s; self.is_set = true; }
+    fn set_i32(self, i: i32)       { self._i = i; self.is_set = true; }
+    fn set_f64(self, f: f64)       { self._f = f; self.is_set = true; }
+    fn push(self, s: string)       { self._sv.push_back(s); self.is_set = true; }
+}
+
+// =============================================================================
+//  FLAG DESCRIPTOR  — add one line here to add a flag, nothing else changes
+// =============================================================================
+
+class FlagDef {
+    pub var key:        string;
+    pub var short_:     string;   ///< single-char form e.g. "o"  (empty = none)
+    pub var long_:      string;   ///< long form e.g. "output"    (empty = none)
+    pub var kind:       FlagKind;
+    pub var help:       string;
+    pub var default_:   FlagValue;
+    pub var has_bounds: bool = false;
+    pub var min_i:      i32  = 0;
+    pub var max_i:      i32  = 0;
+    pub var min_f:      f64  = 0.0;
+    pub var max_f:      f64  = 0.0;
+
+    static fn bool_(key: string, short_: string, long_: string,
+                    help: string, dfl: bool) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::Bool; d.help = help;
+        d.default_ = FlagValue::from_bool(dfl);
+        return d;
+    }
+
+    /// string, required (no default)
+    static fn str_(key: string, short_: string, long_: string,
+                   help: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::String; d.help = help;
+        d.default_ = FlagValue::required(FlagKind::String);
+        return d;
+    }
+
+    /// string with default
+    static fn str_d(key: string, short_: string, long_: string,
+                    help: string, dfl: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::String; d.help = help;
+        d.default_ = FlagValue::from_string(dfl);
+        return d;
+    }
+
+    static fn i32_(key: string, short_: string, long_: string,
+                   help: string, dfl: i32) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::I32; d.help = help;
+        d.default_ = FlagValue::from_i32(dfl);
+        return d;
+    }
+
+    static fn i32_b(key: string, short_: string, long_: string,
+                    help: string, dfl: i32, min: i32, max: i32) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::I32; d.help = help;
+        d.default_ = FlagValue::from_i32(dfl);
+        d.has_bounds = true; d.min_i = min; d.max_i = max;
+        return d;
+    }
+
+    static fn f64_(key: string, short_: string, long_: string,
+                   help: string, dfl: f64) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::F64; d.help = help;
+        d.default_ = FlagValue::from_f64(dfl);
+        return d;
+    }
+
+    static fn f64_b(key: string, short_: string, long_: string,
+                    help: string, dfl: f64, min: f64, max: f64) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::F64; d.help = help;
+        d.default_ = FlagValue::from_f64(dfl);
+        d.has_bounds = true; d.min_f = min; d.max_f = max;
+        return d;
+    }
+
+    /// single required file path (flag-style, e.g. --prelude=path)
+    static fn file_(key: string, short_: string, long_: string,
+                    help: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::Path; d.help = help;
+        d.default_ = FlagValue::required(FlagKind::Path);
+        return d;
+    }
+
+    /// repeatable string list, default = empty
+    static fn list_(key: string, short_: string, long_: string,
+                    help: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.short_ = short_; d.long_ = long_;
+        d.kind = FlagKind::StringList; d.help = help;
+        d.default_ = FlagValue::empty_list(FlagKind::StringList);
+        return d;
+    }
+
+    /// positional file arguments (required — at least one)
+    static fn files_(key: string, help: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.kind = FlagKind::PathList; d.help = help;
+        d.default_ = FlagValue::required(FlagKind::PathList);
+        return d;
+    }
+
+    // ── feature toggle  (-f{key} / -fno-{key}) ──────────────────────────────
+
+    /// \brief defines a language feature toggle parsed from -f{key} / -fno-{key}
+    ///        query via ParsedArgs::get_feature(key) → -1 (unset), 0 (off), 1 (on)
+    static fn feature_(key: string, help: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key      = key;
+        d.short_   = "";
+        d.long_    = ""; // matched by _find_feature, not _find
+        d.kind     = FlagKind::Feature;
+        d.help     = help;
+        d.default_ = FlagValue::unset_feature();
+        return d;
+    }
+
+    // ── config flags  (--c{key}=value) ──────────────────────────────────────
+    //   keys are stored internally as "c:{key}" to avoid collisions with
+    //   regular flags.  query via ParsedArgs::get_cfg_*(key).
+
+    static fn cfg_bool_(key: string, help: string, dfl: bool) -> FlagDef {
+        var d = FlagDef{};
+        d.key = f"c:{key}"; d.kind = FlagKind::Bool; d.help = help;
+        d.default_ = FlagValue::from_bool(dfl);
+        return d;
+    }
+    static fn cfg_str_(key: string, help: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = f"c:{key}"; d.kind = FlagKind::String; d.help = help;
+        d.default_ = FlagValue::required(FlagKind::String);
+        return d;
+    }
+    static fn cfg_str_d(key: string, help: string, dfl: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = f"c:{key}"; d.kind = FlagKind::String; d.help = help;
+        d.default_ = FlagValue::from_string(dfl);
+        return d;
+    }
+    static fn cfg_i32_(key: string, help: string, dfl: i32) -> FlagDef {
+        var d = FlagDef{};
+        d.key = f"c:{key}"; d.kind = FlagKind::I32; d.help = help;
+        d.default_ = FlagValue::from_i32(dfl);
+        return d;
+    }
+    static fn cfg_i32_b(key: string, help: string, dfl: i32, min: i32, max: i32) -> FlagDef {
+        var d = FlagDef{};
+        d.key = f"c:{key}"; d.kind = FlagKind::I32; d.help = help;
+        d.default_ = FlagValue::from_i32(dfl);
+        d.has_bounds = true; d.min_i = min; d.max_i = max;
+        return d;
+    }
+    static fn cfg_f64_b(key: string, help: string, dfl: f64, min: f64, max: f64) -> FlagDef {
+        var d = FlagDef{};
+        d.key = f"c:{key}"; d.kind = FlagKind::F64; d.help = help;
+        d.default_ = FlagValue::from_f64(dfl);
+        d.has_bounds = true; d.min_f = min; d.max_f = max;
+        return d;
+    }
+
+    // ── positional files ─────────────────────────────────────────────────────
+
+    /// positional file arguments (optional — zero or more)
+    static fn files_opt(key: string, help: string) -> FlagDef {
+        var d = FlagDef{};
+        d.key = key; d.kind = FlagKind::PathList; d.help = help;
+        d.default_ = FlagValue::empty_list(FlagKind::PathList);
+        return d;
+    }
+}
+
+// =============================================================================
+//  PARSED ARGS  — the value the driver holds and passes as *ParsedArgs
+// =============================================================================
+
+class ParsedArgs {
+    __inline_cpp("public:");
+
+    pub var files: vec::<string>; ///< positional file paths
+    pub var ok:    bool = true;   ///< false if required fields missing / bounds violated
+
+    priv var _map: map::<string, FlagValue>;
+
+    fn has(self, key: string) -> bool {
+        return self._map.contains(key);
+    }
+
+    fn is_set(self, key: string) -> bool {
+        if !self._map.contains(key) { return false; }
+        return self._map[key].is_set;
+    }
+
+    fn get_bool(self, key: string) -> bool {
+        if !self._map.contains(key) { return false; }
+        return self._map[key].as_bool();
+    }
+
+    fn get_string(self, key: string) -> string {
+        if !self._map.contains(key) { return ""; }
+        return self._map[key].as_string();
+    }
+
+    fn get_i32(self, key: string) -> i32 {
+        if !self._map.contains(key) { return 0; }
+        return self._map[key].as_i32();
+    }
+
+    fn get_f64(self, key: string) -> f64 {
+        if !self._map.contains(key) { return 0.0; }
+        return self._map[key].as_f64();
+    }
+
+    fn get_list(self, key: string) -> ref!(vec::<string>) {
+        return self._map[key].as_list();
+    }
+
+    /// \brief returns -1 (unset), 0 (-fno-{key}), or 1 (-f{key})
+    fn get_feature(self, key: string) -> i32 {
+        if !self._map.contains(key) { return -1; }
+        return self._map[key].as_feature();
+    }
+
+    /// \brief config flag getters — key is without the 'c' CLI prefix
+    fn get_cfg_bool(self, key: string) -> bool {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return false; }
+        return self._map[k].as_bool();
+    }
+    fn get_cfg_i32(self, key: string) -> i32 {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return 0; }
+        return self._map[k].as_i32();
+    }
+    fn get_cfg_f64(self, key: string) -> f64 {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return 0.0; }
+        return self._map[k].as_f64();
+    }
+    fn get_cfg_str(self, key: string) -> string {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return ""; }
+        return self._map[k].as_string();
+    }
+    fn cfg_is_set(self, key: string) -> bool {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return false; }
+        return self._map[k].is_set;
+    }
+
+    fn _init(self, key: string, dfl: FlagValue) { self._map[key] = dfl; }
+    fn _cell(self, key: string) -> *FlagValue    { return &(self._map[key]); }
+}
+
+// =============================================================================
+//  COMMAND  — the parser; use like other compiler components
+// =============================================================================
+
 class Command {
     __inline_cpp("public:");
 
-    enum FlagType derives u32 {
-        FILES,   ///< positional file argument (not a flag)
-        UNKNOWN, ///< flag was parsed but not recognized
+    // ── compile-time long-single-dash prefix table ─────────────────────────
+    //
+    // When argv[i] starts with "-X" and IS_LONG_FLAG[X] is true, the parser
+    // collects the entire run of characters as one flag name, then splits for
+    // a joined value.  This is how -Wall, -O2, -fsanitize, -march=… work.
 
-        // ── general / help & version ───────────────────────────────────
-        HELP            = compute_hash::<r"h">(),
-        HELP_LONG       = compute_hash::<r"help">(),
-        VERSION         = compute_hash::<r"version">(),
-        VERBOSE         = compute_hash::<r"verbose">(),
-        VERBOSE_SHORT   = compute_hash::<r"v">(),
-        QUIET           = compute_hash::<r"quiet">(),
+    eval fn _build_long_flag_table(self) -> array::<bool, 256> {
+        var t: array::<bool, 256> = array::<bool, 256>();
 
-        // ── profiles / build modes ─────────────────────────────────────
-        PROFILE         = compute_hash::<r"profile">(),
+        t['W'] = true; // -Wall  -Wextra  -Wno-…         (warnings)
+        t['O'] = true; // -O0  -O1  -O2  -O3  -Os  -Oz   (optimisation)
+        t['f'] = true; // -funsafe  -fno-…  -fPIC  -fPIE  (feature toggles + codegen)
+        t['m'] = true; // -march  -mcpu  -mabi  -mtune    (machine/target)
+        t['X'] = true; // -Xcxx  -Xlinker  -Xassembler    (passthrough)
+        t['s'] = true; // -std=…                           (language standard, single-dash form)
+        t['D'] = true; // -DFOO  -DFOO=BAR                (macro defines)
+        t['A'] = true; // -Afoo                            (allow/silence diagnostic)
+        t['E'] = true; // -Efoo                            (promote diagnostic to error)
+        t['F'] = true; // -Ffoo                            (forbid diagnostic)
+        t['g'] = true; // -g  -g0  -gdwarf-4              (debug info, single-dash long form)
+        t['I'] = true; // -I./include  -I/usr/include      (include paths, inline value)
+        t['L'] = true; // -Lpath/to/lib                   (library search paths, inline value)
+        t['l'] = true; // -lssl  -lcrypto  -l static:foo  (link libraries, inline value)
+        t['Z'] = true; // -Zunstable-flag                  (unstable internal flags)
 
-        // ── input / source / output ────────────────────────────────────
-        OUTPUT          = compute_hash::<r"o">(),
-        COMPILE_ONLY    = compute_hash::<r"c">(),
-        EMIT_ASM        = compute_hash::<r"S">(),
-        PREPROCESS      = compute_hash::<r"E">(),
-        INCLUDE_DIR     = compute_hash::<r"I">(),
-        LIB_DIR         = compute_hash::<r"L">(),
-        LINK_LIB        = compute_hash::<r"l">(),
-        SYSROOT         = compute_hash::<r"sysroot">(),
-        PRELUDE         = compute_hash::<r"prelude">(),
-        NO_PRELUDE      = compute_hash::<r"no-prelude">(),
-        NO_STDLIB       = compute_hash::<r"no-stdlib">(),
-
-        // ── target / cross-compilation ─────────────────────────────────
-        TARGET          = compute_hash::<r"target">(),
-        HOST            = compute_hash::<r"host">(),
-        MARCH           = compute_hash::<r"march">(),
-        MCPU            = compute_hash::<r"mcpu">(),
-        MABI            = compute_hash::<r"mabi">(),
-        MTUNE           = compute_hash::<r"mtune">(),
-
-        // ── optimization & debug ───────────────────────────────────────
-        OPTIMIZE0       = compute_hash::<r"O0">(),
-        OPTIMIZE1       = compute_hash::<r"O1">(),
-        OPTIMIZE2       = compute_hash::<r"O2">(),
-        OPTIMIZE3       = compute_hash::<r"O3">(),
-        OPTIMIZE_S      = compute_hash::<r"Os">(),
-        OPTIMIZE_Z      = compute_hash::<r"Oz">(),
-        DEBUG_ON        = compute_hash::<r"g">(),
-        DEBUG_OFF       = compute_hash::<r"g0">(),
-
-        // ── warnings & diagnostics ─────────────────────────────────────
-        NOWARN          = compute_hash::<r"w">(),
-        WALL            = compute_hash::<r"Wall">(),
-        WEXTRA          = compute_hash::<r"Wextra">(),
-        WERROR          = compute_hash::<r"Werror">(),
-        WNO_PREFIX      = compute_hash::<r"Wno">(),
-        EMIT            = compute_hash::<r"emit">(),
-        DIAG_FORMAT     = compute_hash::<r"fdiagnostics-format">(),
-
-        // ── language / feature flags ───────────────────────────────────
-        FUNSAFE             = compute_hash::<r"funsafe">(),
-        FNO_UNSAFE          = compute_hash::<r"fno-unsafe">(),
-        FEXCEPTIONS         = compute_hash::<r"fexceptions">(),
-        FNO_EXCEPTIONS      = compute_hash::<r"fno-exceptions">(),
-        FIMPLICIT_CONV      = compute_hash::<r"fimplicit-conversions">(),
-        FNO_IMPLICIT_CONV   = compute_hash::<r"fno-implicit-conversions">(),
-        FUNION_INFER        = compute_hash::<r"funion-inference">(),
-        FNO_UNION_INFER     = compute_hash::<r"fno-union-inference">(),
-        FSTRICT_NULL        = compute_hash::<r"fstrict-null">(),
-        FNO_STRICT_NULL     = compute_hash::<r"fno-strict-null">(),
-        FINLINE             = compute_hash::<r"finline">(),
-        FNO_INLINE          = compute_hash::<r"fno-inline">(),
-        FTAIL_CALL          = compute_hash::<r"ftail-call">(),
-        FNO_TAIL_CALL       = compute_hash::<r"fno-tail-call">(),
-        FCONST_CHECKS       = compute_hash::<r"fconst-checks">(),
-        FNO_CONST_CHECKS    = compute_hash::<r"fno-const-checks">(),
-        FSTATIC_CHECKS      = compute_hash::<r"fstatic-checks">(),
-        FNO_STATIC_CHECKS   = compute_hash::<r"fno-static-checks">(),
-        FDEAD_CODE_ELIM     = compute_hash::<r"fdead-code-elim">(),
-        FNO_DEAD_CODE_ELIM  = compute_hash::<r"fno-dead-code-elim">(),
-        FEXPORT             = compute_hash::<r"fexport">(),
-        FNO_EXPORT          = compute_hash::<r"fno-export">(),
-        FMUTABLE            = compute_hash::<r"fmutable">(),
-        FNO_MUTABLE         = compute_hash::<r"fno-mutable">(),
-
-        // ── standards & interop ────────────────────────────────────────
-        STD                 = compute_hash::<r"std">(),
-
-        // ── ffi ────────────────────────────────────────────────────────
-        FFI                 = compute_hash::<r"ffi">(),
-        FFI_INCLUDE         = compute_hash::<r"ffi-include">(),
-
-        // ── pass-through / backend flags ───────────────────────────────
-        XCXX                = compute_hash::<r"Xcxx">(),
-        XLINKER             = compute_hash::<r"Xlinker">(),
-        XASSEMBLER          = compute_hash::<r"Xassembler">(),
-
-        // ── hardening & sanitizers ─────────────────────────────────────
-        FSANITIZE           = compute_hash::<r"fsanitize">(),
-        FNO_OMIT_FP         = compute_hash::<r"fno-omit-frame-pointer">(),
-        FNO_OMIT_FP_SHORT   = compute_hash::<r"fno-omit-fp">(),
-        FSTACK_PROTECTOR    = compute_hash::<r"fstack-protector">(),
-        FPIE                = compute_hash::<r"fPIE">(),
-        FPIE_LOWER          = compute_hash::<r"fpie">(),
-        FPIC                = compute_hash::<r"fPIC">(),
-        FPIC_LOWER          = compute_hash::<r"fpic">(),
-        FNO_RTTI_DATA       = compute_hash::<r"fno-rtti-data">(),
-        FRTTI               = compute_hash::<r"frtti">(),
-        FFAST_MATH          = compute_hash::<r"ffast-math">(),
-        FNO_FAST_MATH       = compute_hash::<r"fno-fast-math">(),
-
-        // ── advanced / other ───────────────────────────────────────────
-        XTHREADS            = compute_hash::<r"Xthreads">(),
-        FVISIBILITY         = compute_hash::<r"fvisibility">(),
-        FSANITIZE_OPTS      = compute_hash::<r"fsanitize-opts">(),
-        SAVE_TEMPS          = compute_hash::<r"save-temps">(),
-        COVERAGE            = compute_hash::<r"coverage">(),
-        DUMP_PASSES         = compute_hash::<r"dump-passes">(),
-
-        // ── environment variables ──────────────────────────────────────
-        ENV_FLAGS           = compute_hash::<r"KAIRO_FLAGS">(),
-        ENV_IMPORTS         = compute_hash::<r"KAIRO_IMPORTS">(),
-        ENV_LIBRARIES       = compute_hash::<r"KAIRO_LIBRARIES">(),
-        ENV_PATH            = compute_hash::<r"KAIRO_PATH">(),
+        return t;
     }
 
-    /// \brief result of tokenizing a command-line string
-    struct ParsedArgs {
-        var flags: vec::<FlagType>;           ///< recognized flags in order
-        var values: map::<FlagType, string>;  ///< inline values (--flag=value)
-        var files: vec::<string>;             ///< positional file arguments
+    var IS_LONG_FLAG: array::<bool, 256> = _build_long_flag_table();
+
+    // ── global state ──────────────────────────────────────────────────────
+
+    enum GlobalState derives u8 {
+        Normal,     ///< nothing pending
+        AwaitValue, ///< last flag needs the next element as its value
+        PathsOnly,  ///< bare `--` seen; everything remaining is a file
     }
 
-    // ── compile-time long-flag prefix table ───────────────────────────────
+    // ── members ───────────────────────────────────────────────────────────
 
-    /// \brief returns true for first characters that begin multi-character flags
-    ///        (i.e. flags that cannot be split into individual single-char flags)
-    eval fn build_long_flag_table(self) -> array::<bool, 256> {
-        var table: array::<bool, 256> = array::<bool, 256>();
-        table['W'] = true;
-        table['O'] = true;
-        table['f'] = true;
-        table['m'] = true;
-        table['X'] = true;
-        table['t'] = true;
-        table['s'] = true;
-        table['p'] = true;
-        table['E'] = true;
-        table['D'] = true;
-        table['F'] = true;
-        return table;
-    }
+    priv var _diag:  *DiagEngine;
+    priv var _table: vec::<FlagDef>;
+    priv var _args:  vec::<string>; ///< copy of argv for parsing (owned by Command)
 
-    var IS_LONG_FLAG: array::<bool, 256> = build_long_flag_table();
+    // ── constructor ───────────────────────────────────────────────────────
 
-    priv var _diag: *DiagEngine;
-
-    fn Command(self, diag: *DiagEngine) {
+    fn Command(self, argc: i32, argv: *(*kairo::std::Legacy::char), diag: *DiagEngine) {
         self._diag = diag;
-    }
-
-    // ── flag metadata ─────────────────────────────────────────────────────
-
-    /// \brief returns whether a flag expects a following value token
-    static fn flag_value_type(flag: FlagType) -> ValueType {
-        switch flag {
-            case FlagType::OUTPUT:
-            case FlagType::INCLUDE_DIR:
-            case FlagType::LIB_DIR:
-            case FlagType::LINK_LIB:
-            case FlagType::TARGET:
-            case FlagType::HOST:
-            case FlagType::SYSROOT:
-            case FlagType::PRELUDE:
-            case FlagType::STD:
-            case FlagType::FFI:
-            case FlagType::FFI_INCLUDE:
-            case FlagType::PROFILE:
-            case FlagType::EMIT:
-            case FlagType::DIAG_FORMAT:
-            case FlagType::FVISIBILITY:
-            case FlagType::MARCH:
-            case FlagType::MCPU:
-            case FlagType::MABI:
-            case FlagType::MTUNE:
-            case FlagType::FSANITIZE:
-            case FlagType::FSANITIZE_OPTS:
-            case FlagType::XCXX:
-            case FlagType::XLINKER:
-            case FlagType::XASSEMBLER:
-            case FlagType::XTHREADS:
-                return ValueType::FILE;
-            default:
-                return ValueType::FALSE;
+        self._table.reserve(64); // typical CLI has ~20 flags, reserve a bit more
+        self._args.reserve(usize(argc));
+        for var i: i32 = 0; i < argc; ++i {
+            self._args.emplace_back(std::nptr_to_string(argv[i], libcxx::strlen(argv[i])));
         }
     }
 
-    /// \brief resolves a flag string to its FlagType, emitting U002E on unknown flags
-    priv fn resolve_flag(self, flag_str: string) -> FlagType {
-        var hash = static_cast::<FlagType>(compute_hash(&flag_str));
+    fn Command(self, diag: *DiagEngine) { // ONLY FOR TESTING
+        __inline_cpp("#warning \"Command::Command(diag) is only for testing; use Command(argc, argv, diag) in production\"");
+        self._diag = diag;
+        self._table.reserve(64);
+    }
 
-        switch hash {
-            case FlagType::HELP:            case FlagType::HELP_LONG:
-            case FlagType::VERSION:         case FlagType::VERBOSE:
-            case FlagType::VERBOSE_SHORT:   case FlagType::QUIET:
-            case FlagType::PROFILE:
-            case FlagType::OUTPUT:          case FlagType::COMPILE_ONLY:
-            case FlagType::EMIT_ASM:        case FlagType::PREPROCESS:
-            case FlagType::INCLUDE_DIR:     case FlagType::LIB_DIR:
-            case FlagType::LINK_LIB:        case FlagType::SYSROOT:
-            case FlagType::PRELUDE:         case FlagType::NO_PRELUDE:
-            case FlagType::NO_STDLIB:
-            case FlagType::TARGET:          case FlagType::HOST:
-            case FlagType::MARCH:           case FlagType::MCPU:
-            case FlagType::MABI:            case FlagType::MTUNE:
-            case FlagType::OPTIMIZE0:       case FlagType::OPTIMIZE1:
-            case FlagType::OPTIMIZE2:       case FlagType::OPTIMIZE3:
-            case FlagType::OPTIMIZE_S:      case FlagType::OPTIMIZE_Z:
-            case FlagType::DEBUG_ON:        case FlagType::DEBUG_OFF:
-            case FlagType::NOWARN:          case FlagType::WALL:
-            case FlagType::WEXTRA:          case FlagType::WERROR:
-            case FlagType::WNO_PREFIX:      case FlagType::EMIT:
-            case FlagType::DIAG_FORMAT:
-            case FlagType::FUNSAFE:         case FlagType::FNO_UNSAFE:
-            case FlagType::FEXCEPTIONS:     case FlagType::FNO_EXCEPTIONS:
-            case FlagType::FIMPLICIT_CONV:  case FlagType::FNO_IMPLICIT_CONV:
-            case FlagType::FUNION_INFER:    case FlagType::FNO_UNION_INFER:
-            case FlagType::FSTRICT_NULL:    case FlagType::FNO_STRICT_NULL:
-            case FlagType::FINLINE:         case FlagType::FNO_INLINE:
-            case FlagType::FTAIL_CALL:      case FlagType::FNO_TAIL_CALL:
-            case FlagType::FCONST_CHECKS:   case FlagType::FNO_CONST_CHECKS:
-            case FlagType::FSTATIC_CHECKS:  case FlagType::FNO_STATIC_CHECKS:
-            case FlagType::FDEAD_CODE_ELIM: case FlagType::FNO_DEAD_CODE_ELIM:
-            case FlagType::FEXPORT:         case FlagType::FNO_EXPORT:
-            case FlagType::FMUTABLE:        case FlagType::FNO_MUTABLE:
-            case FlagType::STD:
-            case FlagType::FFI:             case FlagType::FFI_INCLUDE:
-            case FlagType::XCXX:            case FlagType::XLINKER:
-            case FlagType::XASSEMBLER:
-            case FlagType::FSANITIZE:       case FlagType::FNO_OMIT_FP:
-            case FlagType::FNO_OMIT_FP_SHORT:
-            case FlagType::FSTACK_PROTECTOR:
-            case FlagType::FPIE:            case FlagType::FPIE_LOWER:
-            case FlagType::FPIC:            case FlagType::FPIC_LOWER:
-            case FlagType::FNO_RTTI_DATA:   case FlagType::FRTTI:
-            case FlagType::FFAST_MATH:      case FlagType::FNO_FAST_MATH:
-            case FlagType::XTHREADS:        case FlagType::FVISIBILITY:
-            case FlagType::FSANITIZE_OPTS:  case FlagType::SAVE_TEMPS:
-            case FlagType::COVERAGE:        case FlagType::DUMP_PASSES:
-            case FlagType::ENV_FLAGS:       case FlagType::ENV_IMPORTS:
-            case FlagType::ENV_LIBRARIES:   case FlagType::ENV_PATH: {
-                return hash;
-            }
-            default {
-                self._diag->report(DiagCode(DiagID::U002E),
-                    f"unknown flag '-{flag_str}'; run '--help' to see available options")
-                    .emit();
-                return FlagType::UNKNOWN;
-            }
+    // ── flag table builder ────────────────────────────────────────────────
+
+    fn define(self, def: FlagDef) -> ref!(Command) {
+        self._table.push_back(def);
+        return self;
+    }
+
+    // ── no-default variants ───────────────────────────────────────────────────
+
+    fn <T: FlagKind> define(self, key: string, help: string) -> ref!(Command) {
+        static_assert((T == FlagKind::PathList) || (T == FlagKind::Feature),
+            r"only PathList and Feature can omit short/long/default");
+        eval if (T == FlagKind::PathList) {
+            return self.define(FlagDef::files_(key, help));
+        } else if (T == FlagKind::Feature) {
+            return self.define(FlagDef::feature_(key, help));
         }
     }
 
-    // ── tokenizer ─────────────────────────────────────────────────────────
+    fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string) -> ref!(Command) {
+        static_assert((T == FlagKind::String) || (T == FlagKind::Path) || (T == FlagKind::StringList) || (T == FlagKind::PathList),
+            r"only String, Path, and StringList can omit default");
+        eval if (T == FlagKind::String) {
+            return self.define(FlagDef::str_(key, short_, long_, help));
+        } else if (T == FlagKind::Path) {
+            return self.define(FlagDef::file_(key, short_, long_, help));
+        } else if (T == FlagKind::StringList) {
+            return self.define(FlagDef::list_(key, short_, long_, help));
+        }
+    }
 
-    /// \brief tokenizes a command-line string into recognized flags and file arguments
-    /// \param sentence the raw command-line input string
-    /// \returns ParsedArgs containing flags, inline values, and positional files
-    fn tokenize(self, sentence: string) -> ParsedArgs {
-        var result = ParsedArgs();
-        var pointer: i32 = 0;
+    // ── defaulted variants ────────────────────────────────────────────────────
 
-        while pointer < i32(sentence.length()) {
-            var current_char: char = sentence[pointer];
+    fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string, dfl: bool) -> ref!(Command) {
+        static_assert(T == FlagKind::Bool, r"bool default requires FlagKind::Bool");
+        return self.define(FlagDef::bool_(key, short_, long_, help, dfl));
+    }
 
-            if current_char == ' ' {
-                pointer += 1;
-                continue;
+    fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string, dfl: string) -> ref!(Command) {
+        static_assert(T == FlagKind::String, r"string default requires FlagKind::String");
+        return self.define(FlagDef::str_d(key, short_, long_, help, dfl));
+    }
+
+    fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string, dfl: i32) -> ref!(Command) {
+        static_assert(T == FlagKind::I32, r"i32 default requires FlagKind::I32");
+        return self.define(FlagDef::i32_(key, short_, long_, help, dfl));
+    }
+
+    fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string, dfl: f64) -> ref!(Command) {
+        static_assert(T == FlagKind::F64, r"f64 default requires FlagKind::F64");
+        return self.define(FlagDef::f64_(key, short_, long_, help, dfl));
+    }
+
+    // ── bounded variants ──────────────────────────────────────────────────────
+
+    fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string, dfl: i32, min: i32, max: i32) -> ref!(Command) {
+        static_assert(T == FlagKind::I32, r"i32 bounds requires FlagKind::I32");
+        return self.define(FlagDef::i32_b(key, short_, long_, help, dfl, min, max));
+    }
+
+    fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string, dfl: f64, min: f64, max: f64) -> ref!(Command) {
+        static_assert(T == FlagKind::F64, r"f64 bounds requires FlagKind::F64");
+        return self.define(FlagDef::f64_b(key, short_, long_, help, dfl, min, max));
+    }
+
+    // ── config: no-default ────────────────────────────────────────────────────
+
+    fn <T: FlagKind> define_cfg(self, key: string, help: string) -> ref!(Command) {
+        static_assert(T == FlagKind::String, r"only String can omit default in cfg");
+        return self.define(FlagDef::cfg_str_(key, help));
+    }
+
+    // ── config: defaulted ─────────────────────────────────────────────────────
+
+    fn <T: FlagKind> define_cfg(self, key: string, help: string, dfl: bool) -> ref!(Command) {
+        static_assert(T == FlagKind::Bool, r"bool default requires FlagKind::Bool");
+        return self.define(FlagDef::cfg_bool_(key, help, dfl));
+    }
+
+    fn <T: FlagKind> define_cfg(self, key: string, help: string, dfl: string) -> ref!(Command) {
+        static_assert(T == FlagKind::String, r"string default requires FlagKind::String");
+        return self.define(FlagDef::cfg_str_d(key, help, dfl));
+    }
+
+    fn <T: FlagKind> define_cfg(self, key: string, help: string, dfl: i32) -> ref!(Command) {
+        static_assert(T == FlagKind::I32, r"i32 default requires FlagKind::I32");
+        return self.define(FlagDef::cfg_i32_(key, help, dfl));
+    }
+
+    // ── config: bounded ───────────────────────────────────────────────────────
+
+    fn <T: FlagKind> define_cfg(self, key: string, help: string, dfl: i32, min: i32, max: i32) -> ref!(Command) {
+        static_assert(T == FlagKind::I32, r"i32 bounds requires FlagKind::I32");
+        return self.define(FlagDef::cfg_i32_b(key, help, dfl, min, max));
+    }
+
+    fn <T: FlagKind> define_cfg(self, key: string, help: string, dfl: f64, min: f64, max: f64) -> ref!(Command) {
+        static_assert(T == FlagKind::F64, r"f64 bounds requires FlagKind::F64");
+        return self.define(FlagDef::cfg_f64_b(key, help, dfl, min, max));
+    }
+
+    // ── flag table lookup ─────────────────────────────────────────────────
+
+    /// linear scan by short, long, or key — fine for CLI-sized tables
+    /// key fallback lets --opt=2 find a flag defined with long_=""
+    priv fn _find(self, name: string) -> *FlagDef {
+        for var i: usize = 0; i < self._table.size(); ++i {
+            var def = &(self._table[i]);
+            if def->kind == FlagKind::PathList { continue; }
+            if def->kind == FlagKind::Feature  { continue; } // handled by _find_feature
+            if def->short_ == name { return def; }
+            if def->long_  == name { return def; }
+            if def->long_.length() == 0 && def->key == name { return def; } // key as long fallback
+        }
+        return &null;
+    }
+
+    /// find a Feature flag by feature key (without the 'f' / 'fno-' prefix)
+    priv fn _find_feature(self, name: string) -> *FlagDef {
+        for var i: usize = 0; i < self._table.size(); ++i {
+            var def = &(self._table[i]);
+            if def->kind != FlagKind::Feature { continue; }
+            if def->key == name { return def; }
+        }
+        return &null;
+    }
+
+    /// find a config flag by its bare key (without the 'c' CLI prefix)
+    /// internally these are stored with key = "c:{name}"
+    priv fn _find_cfg(self, name: string) -> *FlagDef {
+        var k = f"c:{name}";
+        for var i: usize = 0; i < self._table.size(); ++i {
+            var def = &(self._table[i]);
+            if def->key == k { return def; }
+        }
+        return &null;
+    }
+
+    /// exact match, then longest-prefix split for joined values like -O2
+    priv fn _find_split(self, name: string, out_value: *string) -> *FlagDef {
+        var exact = self._find(name);
+        if exact != &null { (*out_value) = ""; return exact; }
+
+        var split: i32 = i32(name.length()) - 1;
+        while split >= 1 {
+            var prefix = name.raw_string().substr(usize(0), usize(split));
+            var suffix = name.raw_string().substr(usize(split));
+            var def    = self._find(prefix);
+            if (def != &null) && (def->kind != FlagKind::Bool) {
+                (*out_value) = suffix;
+                return def;
+            }
+            split -= 1;
+        }
+
+        (*out_value) = "";
+        return &null;
+    }
+
+    // ── numeric parsers ───────────────────────────────────────────────────
+
+    priv fn _parse_i32(self, s: string, out: *i32) -> bool {
+        var raw = s.raw_string();
+        var ptr: *char = raw.data();
+
+        var end: *char = &null;
+        var v: i64 = libcxx::wcstoll(ptr, &end, 10);
+
+        if end == ptr { return false; }     // nothing parsed
+        if (*end) != '\0' { return false; }   // trailing garbage
+
+        if (v < __inline_cpp("__NumData<i32>::min")) || (v > __inline_cpp("__NumData<i32>::max")) {
+            return false;
+        }
+
+        (*out) = i32(v);
+        return true;
+    }
+
+    priv fn _parse_f64(self, s: string, out: *f64) -> bool {
+        var raw = s.raw_string();
+        var ptr: *char = raw.data();
+
+        try {
+            var end: *char = &null;
+            var v: f64 = libcxx::wcstod(ptr, &end);
+
+            if end == ptr { return false; }     // nothing parsed
+            if (*end) != '\0' { return false; }   // trailing garbage
+
+            if (v < __inline_cpp("__NumData<f64>::lowest")) || (v > __inline_cpp("__NumData<f64>::max")) {
+                return false;
             }
 
-            if current_char == '-' {
-                if pointer + 1 < i32(sentence.length()) && sentence[pointer + 1] == '-' {
-                    // ── double-dash long flag: --flag or --flag=value ───────────
-                    pointer += 2;
-                    var start: i32 = pointer;
+            (*out) = f64(v);
+        } catch {
+            return false;
+        }
 
-                    while pointer < i32(sentence.length())
-                        && sentence[pointer] != ' '
-                        && sentence[pointer] != '=' {
-                        pointer += 1;
+        return true;
+    }
+
+    // ── value applicator ──────────────────────────────────────────────────
+
+    priv fn _apply(self, def: *FlagDef, raw: string, result: *ParsedArgs) {
+        var cell = result->_cell(def->key);
+
+        switch def->kind {
+            case FlagKind::Bool {
+                cell->set_bool(true);
+            }
+            case FlagKind::String:
+            case FlagKind::Path {
+                cell->set_string(raw);
+            }
+            case FlagKind::StringList {
+                cell->push(raw);
+            }
+            case FlagKind::I32 {
+                var v: i32 = 0;
+                if !self._parse_i32(raw, &v) {
+                    self._diag->report(DiagCode(DiagID::U003E),
+                        f"flag '-{def->short_}' / '--{def->long_}' expects an integer, got '{raw}' ")
+                        .emit();
+                    result->ok = false;
+                    return;
+                }
+                if def->has_bounds && ((v < def->min_i) || (v > def->max_i)) {
+                    self._diag->report(DiagCode(DiagID::U003E),
+                        f"flag '-{def->short_}' value {v} is out of range [{def->min_i}, {def->max_i}]")
+                        .emit();
+                    result->ok = false;
+                    return;
+                }
+                cell->set_i32(v);
+            }
+            case FlagKind::F64 {
+                var v: f64 = 0.0;
+                if !self._parse_f64(raw, &v) {
+                    self._diag->report(DiagCode(DiagID::U003E),
+                        f"flag '--{def->long_}' expects a number, got '{raw}' ")
+                        .emit();
+                    result->ok = false;
+                    return;
+                }
+                if def->has_bounds && ((v < def->min_f) || (v > def->max_f)) {
+                    self._diag->report(DiagCode(DiagID::U003E),
+                        f"flag '--{def->long_}' value {v} is out of range [{def->min_f}, {def->max_f}]")
+                        .emit();
+                    result->ok = false;
+                    return;
+                }
+                cell->set_f64(v);
+            }
+            case FlagKind::Feature {
+                // Feature is always applied via _apply_feature, not _apply.
+                // This branch is a no-op safety guard.
+                0;
+            }
+            default { 0; }
+        }
+    }
+
+    /// \brief set a Feature flag cell to enabled (1) or disabled (0)
+    priv fn _apply_feature(self, def: *FlagDef, enable: bool, result: *ParsedArgs) {
+        var cell = result->_cell(def->key);
+        cell->set_i32(1 if enable else 0);
+    }
+
+    // =========================================================================
+    //  CORE STATE MACHINE  (operates on vec::<string>)
+    // =========================================================================
+
+    priv fn _parse_impl(self, args: ref!(vec::<string>)) -> ParsedArgs {
+        var result  = ParsedArgs();
+        var gstate: GlobalState = GlobalState::Normal;
+        var pending: *FlagDef  = &null;
+
+        // seed result map with flag defaults
+        for var t: usize = 0; t < self._table.size(); ++t {
+            result._init(self._table[t].key, self._table[t].default_);
+        }
+
+        var i: usize = 1; // skip args[0] (program name)
+        while i < args.size() {
+            var elem  = args[i];
+            var elen  = elem.length();
+
+            // ── PathsOnly: bare `--` was seen ─────────────────────────────
+            if gstate == GlobalState::PathsOnly {
+                result.files.push_back(elem);
+                i += 1; continue;
+            }
+
+            // ── AwaitValue: last flag needs this element as its value ──────
+            if gstate == GlobalState::AwaitValue {
+                self._apply(pending, elem, &result);
+                gstate  = GlobalState::Normal;
+                pending = &null;
+                i += 1; continue;
+            }
+
+            if elen == 0 { i += 1; continue; }
+
+            // ── '-' prefix ────────────────────────────────────────────────
+            if elem[0] == '-' {
+
+                // bare '-' → stdin file (POSIX convention)
+                if elen == 1 { result.files.push_back("-"); i += 1; continue; }
+
+                if elem[1] == '-' { // '--'
+                    // bare '--' → end of options
+                    if elen == 2 { gstate = GlobalState::PathsOnly; i += 1; continue; }
+
+                    // '--flag' or '--flag=value'
+                    var j: usize = 2;
+                    while j < elen && elem[j] != '=' { j += 1; }
+
+                    var name = elem.raw_string().substr(2, j - 2);
+                    var def  = self._find(name);
+
+                    // try config flag: --cmax-recursion-depth=128
+                    if (def == &null) && (name.length() > 1) && (name[0] == 'c') {
+                        def = self._find_cfg(name.substr(1));
                     }
 
-                    if pointer > start {
-                        var flag_str: string = sentence.subslice(start, pointer - start);
-                        var flag = self.resolve_flag(flag_str);
-                        result.flags.push_back(flag);
-
-                        // consume inline value (--flag=value)
-                        if pointer < i32(sentence.length()) && sentence[pointer] == '=' {
-                            pointer += 1;
-                            var val_start: i32 = pointer;
-                            while pointer < i32(sentence.length()) && sentence[pointer] != ' ' {
-                                pointer += 1;
-                            }
-                            if flag != FlagType::UNKNOWN {
-                                result.values[flag] = sentence.subslice(val_start, pointer - val_start);
-                            }
-                        } else if flag_value_type(flag) == ValueType::FILE {
-                            // value expected but not found inline — caller must check
-                            self._diag->report(DiagCode(DiagID::U004E),
-                                f"flag '--{flag_str}' requires a value; use '--{flag_str}=<value>' ")
-                                .emit();
-                        }
+                    if def == &null {
+                        self._diag->report(DiagCode(DiagID::U002E),
+                            f"unknown flag '--{name}'; run '--help' to see available options")
+                            .emit();
+                        result.ok = false;
+                        i += 1; continue;
                     }
 
-                } else {
-                    // ── single-dash flag ────────────────────────────────────────
-                    pointer += 1;
-
-                    if pointer < i32(sentence.length()) && IS_LONG_FLAG[u8(sentence[pointer])] {
-                        // long flag form: -Wall, -O2, -fno-unsafe, etc.
-                        var start: i32 = pointer;
-                        while pointer < i32(sentence.length())
-                            && sentence[pointer] != ' '
-                            && sentence[pointer] != '=' {
-                            pointer += 1;
-                        }
-
-                        if pointer > start {
-                            var flag_str: string = sentence.subslice(start, pointer - start);
-                            var flag = self.resolve_flag(flag_str);
-                            result.flags.push_back(flag);
-
-                            if pointer < i32(sentence.length()) && sentence[pointer] == '=' {
-                                pointer += 1;
-                                var val_start: i32 = pointer;
-                                while pointer < i32(sentence.length()) && sentence[pointer] != ' ' {
-                                    pointer += 1;
-                                }
-                                if flag != FlagType::UNKNOWN {
-                                    result.values[flag] = sentence.subslice(val_start, pointer - val_start);
-                                }
-                            }
-                        }
+                    if j < elen { // '--flag=value'
+                        self._apply(def, elem.raw_string().substr(j + 1), &result);
+                    } else if def->kind == FlagKind::Bool {
+                        self._apply(def, "", &result);
                     } else {
-                        // short flags: -abc means -a -b -c
-                        while pointer < i32(sentence.length())
-                            && sentence[pointer] != ' '
-                            && sentence[pointer] != '-' {
-                            var flag_str: string = sentence.subslice(pointer, 1);
-                            var flag = self.resolve_flag(flag_str);
-                            result.flags.push_back(flag);
-                            pointer += 1;
+                        pending = def;
+                        gstate  = GlobalState::AwaitValue;
+                    }
+
+                } else if IS_LONG_FLAG[u8(elem[1])] { // '-Wall' / '-O2' / '-funsafe' / '-fno-unsafe'
+                    var j: usize = 1;
+                    while j < elen && elem[j] != '=' { j += 1; }
+
+                    var name    = elem.raw_string().substr(1, j - 1);
+                    var joined: string;
+                    var def     = self._find_split(name, &joined);
+
+                    // try feature flag: -funsafe  -fno-unsafe
+                    if (def == &null) && (name.length() > 4) && (name.substr(0, 4) == "fno-".raw_string()) {
+                        var feat = self._find_feature(name.substr(4));
+                        if feat != &null {
+                            self._apply_feature(feat, false, &result); // -fno-X → disable
+                            i += 1; continue;
+                        }
+                    }
+                    if (def == &null) && (name.length() > 1) && (name[0] == 'f') {
+                        var feat = self._find_feature(name.substr(1));
+                        if feat != &null {
+                            self._apply_feature(feat, true, &result); // -fX → enable
+                            i += 1; continue;
+                        }
+                    }
+
+                    if def == &null {
+                        self._diag->report(DiagCode(DiagID::U002E),
+                            f"unknown flag '-{name}'; run '--help' to see available options")
+                            .emit();
+                        result.ok = false;
+                        i += 1; continue;
+                    }
+
+                    if j < elen { // explicit '=value' overrides any joined suffix
+                        self._apply(def, elem.raw_string().substr(j + 1), &result);
+                    } else if def->kind == FlagKind::Bool {
+                        self._apply(def, "", &result);
+                    } else if joined.length() > 0 { // joined value from prefix split, e.g. -O2
+                        self._apply(def, joined, &result);
+                    } else {
+                        pending = def;
+                        gstate  = GlobalState::AwaitValue;
+                    }
+
+                } else { // short cluster: '-abc' = -a -b -c
+                    var j: usize = 1;
+                    while j < elen {
+                        var ch  = elem.raw_string().substr(j, 1);
+                        var def = self._find(ch);
+
+                        if def == &null {
+                            self._diag->report(DiagCode(DiagID::U002E),
+                                f"unknown flag '-{ch}'; run '--help' to see available options")
+                                .emit();
+                            result.ok = false;
+                            j += 1; continue;
+                        }
+
+                        if def->kind == FlagKind::Bool {
+                            self._apply(def, "", &result);
+                            j += 1;
+                        } else {
+                            // remaining chars are the inline value, or next element
+                            if j + 1 < elen {
+                                self._apply(def, elem.raw_string().substr(j + 1), &result);
+                            } else {
+                                pending = def;
+                                gstate  = GlobalState::AwaitValue;
+                            }
+                            break;
                         }
                     }
                 }
 
-            } else if current_char == '/' {
-                pointer += 1;
+            // ── '/' prefix (Windows-style) ─────────────────────────────────
+            } else if elem[0] == '/' {
 
-                if pointer < i32(sentence.length()) && sentence[pointer] == '-' {
-                    // /- is not a valid flag prefix
+                if elen == 1 { i += 1; continue; }
+
+                if elem[1] == '-' { // '/-' is invalid
                     self._diag->report(DiagCode(DiagID::U003E),
                         "'/-' is not a valid flag prefix; use '-flag', '--flag', or '/flag' ")
                         .emit();
-                    pointer += 1;
-                    continue;
+                    result.ok = false;
+                    i += 1; continue;
                 }
 
-                if pointer < i32(sentence.length()) && IS_LONG_FLAG[u8(sentence[pointer])] {
-                    // /Wall style long flag
-                    var start: i32 = pointer;
-                    while pointer < i32(sentence.length())
-                        && sentence[pointer] != ' '
-                        && sentence[pointer] != '=' {
-                        pointer += 1;
+                if IS_LONG_FLAG[u8(elem[1])] {
+                    var j: usize = 1;
+                    while j < elen && elem[j] != '=' { j += 1; }
+                    var name    = elem.raw_string().substr(1, j - 1);
+                    var joined: string;
+                    var def     = self._find_split(name, &joined);
+
+                    if def == &null {
+                        self._diag->report(DiagCode(DiagID::U002E),
+                            f"unknown flag '/{name}'; run '--help' to see available options")
+                            .emit();
+                        result.ok = false;
+                    } else if j < elen {
+                        self._apply(def, elem.raw_string().substr(j + 1), &result);
+                    } else if def->kind == FlagKind::Bool {
+                        self._apply(def, "", &result);
+                    } else if joined.length() > 0 {
+                        self._apply(def, joined, &result);
+                    } else {
+                        pending = def;
+                        gstate  = GlobalState::AwaitValue;
                     }
 
-                    if pointer > start {
-                        var flag_str: string = sentence.subslice(start, pointer - start);
-                        var flag = self.resolve_flag(flag_str);
-                        result.flags.push_back(flag);
+                } else { // '/g' '/c' short cluster
+                    var j: usize = 1;
+                    while j < elen {
+                        var ch  = elem.raw_string().substr(j, 1);
+                        var def = self._find(ch);
 
-                        if pointer < i32(sentence.length()) && sentence[pointer] == '=' {
-                            pointer += 1;
-                            var val_start: i32 = pointer;
-                            while pointer < i32(sentence.length()) && sentence[pointer] != ' ' {
-                                pointer += 1;
+                        if def == &null {
+                            self._diag->report(DiagCode(DiagID::U002E),
+                                f"unknown flag '/{ch}' ").emit();
+                            result.ok = false;
+                            j += 1; continue;
+                        }
+
+                        if def->kind == FlagKind::Bool {
+                            self._apply(def, "", &result);
+                            j += 1;
+                        } else {
+                            if j + 1 < elen {
+                                self._apply(def, elem.raw_string().substr(j + 1), &result);
+                            } else {
+                                pending = def;
+                                gstate  = GlobalState::AwaitValue;
                             }
-                            if flag != FlagType::UNKNOWN {
-                                result.values[flag] = sentence.subslice(val_start, pointer - val_start);
-                            }
+                            break;
                         }
                     }
-                } else {
-                    // /a /b style short flags
-                    while pointer < i32(sentence.length())
-                        && sentence[pointer] != ' '
-                        && sentence[pointer] != '/' {
-                        var flag_str: string = sentence.subslice(pointer, 1);
-                        var flag = self.resolve_flag(flag_str);
-                        result.flags.push_back(flag);
-                        pointer += 1;
-                    }
                 }
 
+            // ── positional file ────────────────────────────────────────────
             } else {
-                // ── positional file argument ────────────────────────────────
-                var start: i32 = pointer;
-                while pointer < i32(sentence.length()) && sentence[pointer] != ' ' {
-                    pointer += 1;
-                }
+                result.files.push_back(elem);
+            }
 
-                if pointer > start {
-                    result.files.push_back(sentence.subslice(start, pointer - start));
-                    result.flags.push_back(FlagType::FILES);
+            i += 1;
+        }
+
+        // dangling AwaitValue: ran out before the value arrived
+        if gstate == GlobalState::AwaitValue && pending != &null {
+            self._diag->report(DiagCode(DiagID::U004E),
+                f"flag '-{pending->short_}' / '--{pending->long_}' requires a value but none was provided")
+                .emit();
+            result.ok = false;
+        }
+
+        // ── post-parse: validate required fields ─────────────────────────
+        for var t: usize = 0; t < self._table.size(); ++t {
+            var def = &(self._table[t]);
+            if !def->default_.is_required { continue; }
+
+            if def->kind == FlagKind::PathList {
+                if result.files.size() == 0 {
+                    self._diag->report(DiagCode(DiagID::U004E),
+                        f"at least one input file is required ({def->help})")
+                        .emit();
+                    result.ok = false;
                 }
+            } else if !result.is_set(def->key) {
+                var name = (f"--{def->long_}") if (def->long_.length() > 0)
+                           else (f"-{def->short_}");
+                self._diag->report(DiagCode(DiagID::U004E),
+                    f"required flag '{name}' was not provided")
+                    .emit();
+                result.ok = false;
             }
         }
 
         return result;
     }
 
-    /// \brief checks whether a specific flag was present in the parsed result
-    static fn has_flag(parsed: ref!(ParsedArgs), flag: FlagType) -> bool {
-        for f in parsed.flags {
-            if f == flag { return true; }
+    // =========================================================================
+    //  PUBLIC API
+    // =========================================================================
+
+    /// \brief parse a vec::<string> as received from main's argv
+    ///        args[0] is the program name and is skipped
+    fn parse(self) -> ParsedArgs {
+        if self._args.size() == 0 {
+            self._diag->report(DiagCode(DiagID::U004E),
+                "no command-line arguments were provided to Command::parse()")
+                .emit();
+            var result = ParsedArgs();
+            result.ok = false;
+            return result;
         }
-        return false;
+
+        return self._parse_impl(self._args);
+    }
+    
+    /// \brief split a space-separated string and parse (convenience for tests)
+    fn parse_string(self, cmdline: string) -> ParsedArgs {
+        var args: vec::<string>;
+        args.push_back("prog"); // argv[0] placeholder
+
+        var start: usize = 0;
+        for var i: usize = 0; i <= cmdline.length(); ++i {
+            var at_end = (i == cmdline.length());
+            var is_sep = (!at_end) && (cmdline[i] == ' ');
+            if at_end || is_sep {
+                if i > start {
+                    args.push_back(cmdline.raw_string().substr(start, i - start));
+                }
+                start = i + 1;
+            }
+        }
+
+        return self._parse_impl(args);
     }
 
-    /// \brief returns the inline value for a flag, or an empty string if not set
-    static fn get_value(parsed: ref!(ParsedArgs), flag: FlagType) -> string {
-        if parsed.values.contains(flag) {
-            return parsed.values[flag];
+    // ── help generator ────────────────────────────────────────────────────
+
+    fn print_help(self) {
+        var COL: usize = 36; // column where descriptions start
+
+        var prog = ((self._args[0]) if (self._args.size() > 0) else ("prog"));
+
+        // ── usage line ─────────────────────────────────────────────────────
+        var usage: string = f"USAGE: {prog} [options]";
+        for var t: usize = 0; t < self._table.size(); ++t {
+            if self._table[t].kind == FlagKind::PathList {
+                usage += (" <files...>" if self._table[t].default_.is_required else " [files...]");
+                break;
+            }
         }
-        return "";
+        std::print(usage);
+        std::print("");
+        std::print("OPTIONS:");
+
+        // ── flag lines ─────────────────────────────────────────────────────
+        for var t: usize = 0; t < self._table.size(); ++t {
+            var def = &(self._table[t]);
+            if def->kind == FlagKind::PathList { continue; }
+
+            var lhs: string = "  ";
+
+            if def->kind == FlagKind::Feature {
+                // -f[no-]<key>
+                lhs += f"-f[no-]{def->key}";
+            } else if (def->key.length() > 2) && (def->key[0] == 'c') && (def->key[1] == ':') {
+                // config flag: --c<name>=<type>
+                var name = def->key.raw_string().substr(2);
+                lhs += f"--c{name}";
+                switch def->kind {
+                    case FlagKind::String { lhs += "=<value>"; }
+                    case FlagKind::Bool    { lhs += "=<bool>";  }
+                    case FlagKind::I32 {
+                        lhs += (f"=<{def->min_i}-{def->max_i}>") if def->has_bounds else "=<int>";
+                    }
+                    case FlagKind::F64 {
+                        lhs += (f"=<{def->min_f:.2}-{def->max_f:.2}>") if def->has_bounds else "=<float>";
+                    }
+                    default {}
+                }
+            } else {
+                // regular flag: -s, --long <value>
+                if def->short_.length() > 0 { lhs += f"-{def->short_}"; }
+                if (def->short_.length() > 0) && (def->long_.length() > 0) { lhs += ", "; }
+                if def->long_.length()  > 0  { lhs += f"--{def->long_}"; }
+
+                switch def->kind {
+                    case FlagKind::String:
+                    case FlagKind::Path       { lhs += " <value>";    }
+                    case FlagKind::StringList { lhs += " <value>..."; }
+                    case FlagKind::I32 {
+                        lhs += (f" <{def->min_i}-{def->max_i}>") if def->has_bounds else " <int>";
+                    }
+                    case FlagKind::F64 {
+                        lhs += (f" <{def->min_f:.2}-{def->max_f:.2}>") if def->has_bounds else " <float>";
+                    }
+                    default {}
+                }
+            }
+
+            // ── rhs: description + default ─────────────────────────────
+            var rhs: string = def->help;
+            if def->default_.is_required {
+                rhs += " (required)";
+            } else {
+                switch def->kind {
+                    case FlagKind::Bool {
+                        // only note if default is non-obvious (true)
+                        if def->default_.as_bool() { rhs += " (default: on)"; }
+                    }
+                    case FlagKind::String:
+                    case FlagKind::Path {
+                        var dfl = def->default_.as_string();
+                        if dfl.length() > 0 { rhs += f" (default: {dfl})"; }
+                    }
+                    case FlagKind::I32 { rhs += f" (default: {def->default_.as_i32()})";    }
+                    case FlagKind::F64 { rhs += f" (default: {def->default_.as_f64():.2})"; }
+                    default {} // Feature, StringList — no default shown
+                }
+            }
+
+            // ── emit: wrap if lhs is too long ──────────────────────────
+            if lhs.length() < COL {
+                while lhs.length() < COL { lhs += ' '; }
+                std::print(f"{lhs}{rhs}");
+            } else {
+                var pad: string = "";
+                while pad.length() < COL { pad += ' '; }
+                std::print(lhs);
+                std::print(f"{pad}{rhs}");
+            }
+        }
+
+        // ── positional files ───────────────────────────────────────────────
+        for var t: usize = 0; t < self._table.size(); ++t {
+            var def = &(self._table[t]);
+            if def->kind != FlagKind::PathList { continue; }
+            std::print("");
+            var lhs: string = "  <files...>";
+            while lhs.length() < COL { lhs += ' '; }
+            std::print(f"{lhs}{def->help}{" (required)" if def->default_.is_required else " (optional)"}");
+            break;
+        }
     }
 }
+
+// =============================================================================
+//  KAIRO DRIVER FLAG TABLE  — the single place to add/remove flags
+// =============================================================================
+
+fn register_kairo_flags(cmd: *Command) {
+
+    // =========================================================================
+    //  IDENTITY
+    // =========================================================================
+
+    cmd->define::<FlagKind::Bool>  ("help",               "h", "help",               "show this help message and exit",                                          false);
+    cmd->define::<FlagKind::Bool>  ("version",            "V", "version",             "print compiler version and exit",                                          false);
+    cmd->define::<FlagKind::String>("explain",            "",  "explain",             "print detailed explanation for a diagnostic code (e.g. --explain E0042)",  "");
+    cmd->define::<FlagKind::Bool>  ("print-targets",      "",  "print-targets",       "list all supported target triples and exit",                               false);
+    cmd->define::<FlagKind::Bool>  ("print-cpus",         "",  "print-cpus",          "list supported CPUs for the current or specified --target",                false);
+    cmd->define::<FlagKind::Bool>  ("print-cfg",          "",  "print-cfg",           "print all active --cfg flags for this invocation and exit",                false);
+    cmd->define::<FlagKind::Bool>  ("print-dirs",         "",  "print-dirs",          "print all include/lib search paths and exit",                              false);
+    cmd->define::<FlagKind::Bool>  ("print-clang-args",   "",  "print-clang-args",    "print the exact clang invocation and exit (does not compile)",             false);
+    cmd->define::<FlagKind::Bool>  ("print-ld-args",      "",  "print-ld-args",       "print the exact kld invocation and exit (does not link)",                  false);
+    cmd->define::<FlagKind::Bool>  ("print-target-info",  "",  "print-target-info",   "print target ABI, pointer width, endianness for --target and exit",        false);
+    cmd->define::<FlagKind::Bool>  ("print-pass-pipeline","",  "print-pass-pipeline", "print the full LLVM pass pipeline that would be applied and exit",         false);
+    cmd->define::<FlagKind::Bool>  ("print-stats",        "",  "print-stats",         "print per-phase compilation statistics after compilation",                  false);
+    cmd->define::<FlagKind::String>("stats-file",         "",  "stats-file",          "write compilation statistics to this file instead of stderr",              "");
+
+    // =========================================================================
+    //  INPUT
+    // =========================================================================
+
+    cmd->define::<FlagKind::PathList> ("files",                "input .kro source files");
+    cmd->define::<FlagKind::StringList>("include-dirs",   "I", "include",             "add directory to module/header search path (repeatable)");
+    cmd->define::<FlagKind::StringList>("ffi-include",    "",  "ffi-include",         "add directory to FFI/C++ header search path (repeatable)");
+    cmd->define::<FlagKind::StringList>("cxx-include",    "",  "cxx-include",         "add include path forwarded only to clang for C++ interop headers (repeatable)");
+    cmd->define::<FlagKind::StringList>("macro-search-path","","macro-search-path",   "dedicated search path for macro-only .kro files (repeatable)");
+    cmd->define::<FlagKind::StringList>("force-include",  "",  "force-include",       "force-include a file before all source files (repeatable)");
+    cmd->define::<FlagKind::String>   ("sysroot",         "",  "sysroot",             "override system root directory for both compilation and cross-compilation", "");
+    cmd->define::<FlagKind::String>   ("prelude",         "",  "prelude",             "path to a custom prelude file (replaces the default prelude)",             "");
+    cmd->define::<FlagKind::String>   ("working-dir",     "",  "working-dir",         "override working directory for all relative path resolution",              "");
+    cmd->define::<FlagKind::String>   ("input-encoding",  "",  "input-encoding",      "source file encoding override: utf-8|utf-16|latin-1 (default: utf-8)",    "utf-8");
+    cmd->define::<FlagKind::Bool>     ("no-prelude",      "",  "no-prelude",          "disable the implicit prelude entirely",                                    false);
+    cmd->define::<FlagKind::Bool>     ("no-stdlib",       "",  "no-stdlib",           "do not include or link the standard library",                              false);
+    cmd->define::<FlagKind::Bool>     ("no-default-libs", "",  "no-default-libs",     "do not link default runtime libraries",                                    false);
+    cmd->define::<FlagKind::Bool>     ("no-crt",          "",  "no-crt",              "do not link CRT startup objects (freestanding targets)",                   false);
+    cmd->define::<FlagKind::Bool>     ("freestanding",    "",  "freestanding",        "assert freestanding environment: implies --no-stdlib --no-crt --no-prelude",false);
+
+    // =========================================================================
+    //  OUTPUT
+    // =========================================================================
+
+    cmd->define::<FlagKind::String>("output",         "o", "output",         "write primary output to this path",                                                 "");
+    cmd->define::<FlagKind::String>("out-dir",        "",  "out-dir",        "write outputs to this directory with auto-named files",                             "");
+    cmd->define::<FlagKind::String>("emit",           "",  "emit",           "comma-separated output types: obj,asm,llvm-ir,llvm-bc,tokens,ast,sema,bcir,cxx,dep-info", "obj");
+    cmd->define::<FlagKind::String>("entry",          "",  "entry",          "override entry point symbol name (default: main)",                                  "main");
+    cmd->define::<FlagKind::Bool>  ("compile-only",   "c", "compile-only",   "compile only, do not link (sugar for --emit obj)",                                  false);
+    cmd->define::<FlagKind::Bool>  ("emit-asm",       "S", "emit-asm",       "emit assembly output (sugar for --emit asm)",                                       false);
+    cmd->define::<FlagKind::Bool>  ("preprocess",     "E", "preprocess",     "run preprocessor only and write result, then exit",                                 false);
+    cmd->define::<FlagKind::Bool>  ("dump-preprocessed","","dump-preprocessed","write full preprocessed source to file (like -E but saved, not stdout)",          false);
+    cmd->define::<FlagKind::Bool>  ("syntax-only",    "",  "syntax-only",    "stop after parsing and report only syntax errors, no sema or codegen",             false);
+    cmd->define::<FlagKind::Bool>  ("type-check-only","",  "type-check-only","stop after type checking, no codegen or linking",                                   false);
+    cmd->define::<FlagKind::Bool>  ("shared",         "",  "shared",         "produce a shared library (.so / .dylib / .dll)",                                    false);
+    cmd->define::<FlagKind::Bool>  ("static",         "",  "static",         "produce a statically linked binary or archive",                                     false);
+    cmd->define::<FlagKind::Bool>  ("no-entry",       "",  "no-entry",       "no entry point: library / kernel / raw binary output",                              false);
+    cmd->define::<FlagKind::Bool>  ("save-temps",     "",  "save-temps",     "keep all intermediate files (.ll, .bc, .o, .s)",                                    false);
+
+    // =========================================================================
+    //  TARGET
+    // =========================================================================
+
+    cmd->define::<FlagKind::String>("target",         "",  "target",         "target triple: arch-vendor-os-abi (e.g. x86_64-unknown-linux-gnu)",                 "");
+    cmd->define::<FlagKind::String>("host",           "",  "host",           "host triple (defaults to native)",                                                  "");
+    cmd->define::<FlagKind::String>("march",          "",  "march",          "target architecture (e.g. armv8-a, x86-64-v3)",                                    "");
+    cmd->define::<FlagKind::String>("mcpu",           "",  "mcpu",           "target CPU (e.g. apple-m1, znver3, cortex-a72). use --print-cpus to list",          "");
+    cmd->define::<FlagKind::String>("mtune",          "",  "mtune",          "tune codegen for this CPU without restricting ISA",                                 "");
+    cmd->define::<FlagKind::String>("mabi",           "",  "mabi",           "target ABI (e.g. lp64d, ilp32, eabihf)",                                           "");
+    cmd->define::<FlagKind::String>("mfeatures",      "",  "mfeatures",      "enable/disable target features: +avx2,+bmi2,-sse4.1",                              "");
+    cmd->define::<FlagKind::Bool>  ("m32",            "",  "m32",            "force 32-bit code generation",                                                      false);
+    cmd->define::<FlagKind::Bool>  ("m64",            "",  "m64",            "force 64-bit code generation",                                                      false);
+    cmd->define::<FlagKind::String>("cxx-std",        "",  "cxx-std",        "C++ standard for interop: c++17|c++20|c++23 (default: c++20)",                     "c++20");
+    cmd->define::<FlagKind::String>("cxx-abi",        "",  "cxx-abi",        "C++ ABI for interop: itanium|msvc (default: itanium)",                             "itanium");
+
+    // =========================================================================
+    //  BUILD MODE
+    // =========================================================================
+
+    cmd->define::<FlagKind::String>("profile",        "",  "profile",        "build profile: debug|release|min-size (sets mode defaults)",                       "debug");
+    cmd->define::<FlagKind::String>("borrow-check",   "",  "borrow-check",   "borrow checker severity: warn|error|off (default: warn in debug, error in release)","");
+    cmd->define::<FlagKind::String>("amt-mode",       "",  "amt-mode",       "AMT violation reporting independent of --borrow-check: warn|error|silent",         "");
+    cmd->define::<FlagKind::String>("amt-report-file","",  "amt-report-file","write all AMT decisions and rewrites to this file for auditing",                   "");
+    cmd->define::<FlagKind::String>("lto",            "",  "lto",            "link-time optimisation: off|thin|full (default: off)",                             "off");
+    cmd->define::<FlagKind::String>("panic-handler",  "",  "panic-handler",  "symbol name of a custom panic handler (for --no-stdlib targets)",                  "");
+
+    // =========================================================================
+    //  OPTIMISATION
+    // =========================================================================
+
+    cmd->define::<FlagKind::I32>  ("opt",             "O", "",               "optimisation level: 0 (none), 1 (basic), 2 (standard), 3 (aggressive)",           0, 0, 3);
+    cmd->define::<FlagKind::Bool> ("opt-size",        "",  "Os",             "optimise for binary size",                                                          false);
+    cmd->define::<FlagKind::Bool> ("opt-size-z",      "",  "Oz",             "aggressively optimise for binary size (slower code, smallest output)",             false);
+    cmd->define::<FlagKind::Bool> ("debug-info",      "g", "",               "emit DWARF debug information",                                                      false);
+    cmd->define::<FlagKind::Bool> ("no-debug-info",   "",  "g0",             "explicitly disable debug info emission",                                            false);
+    cmd->define::<FlagKind::I32>  ("dwarf-version",   "",  "dwarf-version",  "DWARF version to emit: 2|3|4|5 (default: 5)",                                      5, 2, 5);
+    cmd->define::<FlagKind::Bool> ("split-dwarf",     "",  "split-dwarf",    "emit DWARF into separate .dwo files (reduces link-time memory usage)",              false);
+    cmd->define::<FlagKind::Bool> ("strip",           "",  "strip",          "strip all symbols from output",                                                     false);
+    cmd->define::<FlagKind::Bool> ("strip-debug",     "",  "strip-debug",    "strip only debug symbols, keep exports",                                            false);
+    cmd->define::<FlagKind::StringList>("pass-plugin",    "",  "pass-plugin",    "load a custom LLVM pass plugin .so/.dylib (repeatable)");
+    cmd->define::<FlagKind::StringList>("disable-llvm-pass","","disable-llvm-pass","disable a specific LLVM pass by name (repeatable)");
+    cmd->define::<FlagKind::StringList>("mllvm",      "",  "mllvm",          "forward flags directly to LLVM's option processor (repeatable)");
+
+    // =========================================================================
+    //  REPRODUCIBLE BUILDS
+    // =========================================================================
+
+    cmd->define::<FlagKind::String>    ("source-date-epoch","","source-date-epoch","clamp all embedded timestamps to this Unix epoch value for reproducible output","");
+    cmd->define::<FlagKind::StringList>("remap-path-prefix","","remap-path-prefix","old=new path prefix remapping applied everywhere: debug info, coverage, macros, errors (repeatable)");
+    cmd->define::<FlagKind::StringList>("debug-prefix-map","", "debug-prefix-map", "old=new path remapping applied only to DWARF debug info (repeatable)");
+    cmd->define::<FlagKind::Bool>      ("no-timestamps","",   "no-timestamps",    "strip all timestamps from output (implies --source-date-epoch=0)",              false);
+
+    // =========================================================================
+    //  LANGUAGE SEMANTICS  (hard on/off switches)
+    // =========================================================================
+
+    cmd->define::<FlagKind::String>("edition",        "",  "edition",        "language edition (e.g. 2025)",                                                      "2025");
+    cmd->define::<FlagKind::Bool>  ("no-assert",      "",  "no-assert",      "disable assert{} block codegen",                                                    false);
+    cmd->define::<FlagKind::Bool>  ("no-finally",     "",  "no-finally",     "disable finally{} codegen (freestanding / embedded targets)",                      false);
+    cmd->define::<FlagKind::Bool>  ("no-exceptions",  "",  "no-exceptions",  "disable exception handling codegen",                                                false);
+    cmd->define::<FlagKind::Bool>  ("no-ffi",         "",  "no-ffi",         "disable all FFI (ffi\"…\" imports become hard errors)",                            false);
+    cmd->define::<FlagKind::Bool>  ("no-cxx",         "",  "no-cxx",         "disable C++ interop entirely",                                                      false);
+    cmd->define::<FlagKind::Bool>  ("no-unsafe",      "",  "no-unsafe",      "treat any unsafe{} block as a compile error",                                       false);
+    cmd->define::<FlagKind::Bool>  ("no-overflow",    "",  "no-overflow",    "trap on integer overflow in all modes (overrides profile default)",                 false);
+    cmd->define::<FlagKind::Bool>  ("strict-const",   "",  "strict-const",   "error when a const/eval expression cannot be fully reduced at compile time",       false);
+    cmd->define::<FlagKind::Bool>  ("no-eval",        "",  "no-eval",        "disable eval compile-time expansion (C++ template pass-through mode)",             false);
+    cmd->define::<FlagKind::Bool>  ("no-yield",       "",  "no-yield",       "disable yield/async codegen (for targets without coroutine support)",              false);
+    cmd->define::<FlagKind::Bool>  ("no-modules",     "",  "no-modules",     "disable module system (single-TU flat compilation mode)",                          false);
+    cmd->define::<FlagKind::Bool>  ("no-generics",    "",  "no-generics",    "disable generic instantiation (useful for analysing uninstantiated IR)",           false);
+    cmd->define::<FlagKind::Bool>  ("no-fp",          "",  "no-fp",          "hard error on any floating-point operation (embedded targets with no FPU)",        false);
+
+    // =========================================================================
+    //  LANGUAGE FEATURE TOGGLES  (-f{name} / -fno-{name})
+    //  query: args.get_feature("name") → -1 unset, 0 disabled, 1 enabled
+    //  items marked (on) default to enabled when unset; driver must check -1 as on
+    // =========================================================================
+
+    // ── language correctness (on by default) ─────────────────────────────────
+    cmd->define::<FlagKind::Feature>("verify-interfaces",  "verify all interface impl T declarations are fully satisfied (on)");
+    cmd->define::<FlagKind::Feature>("const-checks",       "strict const correctness enforcement (on)");
+    cmd->define::<FlagKind::Feature>("overflow-checks",    "integer overflow checking — on in debug, off in release by default");
+    cmd->define::<FlagKind::Feature>("strict-null",        "treat nullable pointer dereference as a hard error");
+    cmd->define::<FlagKind::Feature>("implicit-conv",      "allow implicit type conversions (on)");
+    cmd->define::<FlagKind::Feature>("rtti",               "runtime type information (on)");
+    cmd->define::<FlagKind::Feature>("track-macro-origins","embed origin location for every expanded token for richer errors (on)");
+    cmd->define::<FlagKind::Feature>("union-inference",    "union type inference: x = 1; x = \"s\" → x: i32|string");
+    cmd->define::<FlagKind::Feature>("exceptions",         "C++ style exception handling");
+    cmd->define::<FlagKind::Feature>("unsafe",             "permit unsafe{} blocks");
+
+    // ── codegen / optimisation (off by default unless noted) ─────────────────
+    cmd->define::<FlagKind::Feature>("inline",             "function inlining (on)");
+    cmd->define::<FlagKind::Feature>("force-inline",       "honour @force_inline() directives (on)");
+    cmd->define::<FlagKind::Feature>("tail-call",          "tail call optimisation");
+    cmd->define::<FlagKind::Feature>("dead-code-elim",     "dead code elimination (on)");
+    cmd->define::<FlagKind::Feature>("vectorize",          "auto-vectorisation (loop + SLP)");
+    cmd->define::<FlagKind::Feature>("unroll-loops",       "loop unrolling");
+    cmd->define::<FlagKind::Feature>("merge-functions",    "merge identical functions (ICF)");
+    cmd->define::<FlagKind::Feature>("function-sections",  "place each function in its own section");
+    cmd->define::<FlagKind::Feature>("data-sections",      "place each variable in its own section");
+    cmd->define::<FlagKind::Feature>("omit-frame-pointer", "omit frame pointer in leaf functions");
+    cmd->define::<FlagKind::Feature>("fast-math",          "aggressive floating-point optimisations (may break IEEE754 compliance)");
+    cmd->define::<FlagKind::Feature>("export-all",         "export all top-level symbols by default");
+
+    // ── hardening ─────────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::Feature>("stack-protector",    "stack canary insertion");
+    cmd->define::<FlagKind::Feature>("pic",                "position-independent code");
+    cmd->define::<FlagKind::Feature>("pie",                "position-independent executable");
+    cmd->define::<FlagKind::Feature>("split-stack",        "segmented stack (for green-thread runtimes)");
+    cmd->define::<FlagKind::Feature>("trap-unreachable",   "lower unreachable to a hardware trap instruction rather than UB");
+    cmd->define::<FlagKind::Feature>("soft-float",         "software floating point ABI (for targets without FPU)");
+
+    // ── instrumentation ───────────────────────────────────────────────────────
+    cmd->define::<FlagKind::Feature>("coverage",           "source-level coverage instrumentation");
+    cmd->define::<FlagKind::Feature>("profile-generate",   "PGO instrumentation pass (generates .profraw)");
+    cmd->define::<FlagKind::Feature>("sanitize-address",   "AddressSanitizer");
+    cmd->define::<FlagKind::Feature>("sanitize-thread",    "ThreadSanitizer");
+    cmd->define::<FlagKind::Feature>("sanitize-memory",    "MemorySanitizer");
+    cmd->define::<FlagKind::Feature>("sanitize-ub",        "UndefinedBehaviourSanitizer");
+
+    // ── ELF/Linux specific ────────────────────────────────────────────────────
+    cmd->define::<FlagKind::Feature>("relro",              "mark relocations read-only after startup (ELF RELRO)");
+    cmd->define::<FlagKind::Feature>("eh-frame-hdr",       "emit .eh_frame_hdr section (required for unwinding without frame pointers)");
+    cmd->define::<FlagKind::Feature>("gc-sections",        "enable linker dead section elimination (--gc-sections)");
+
+    // ── macOS/Darwin specific ─────────────────────────────────────────────────
+    cmd->define::<FlagKind::Feature>("dead-strip",         "macOS linker dead stripping (Mach-O equivalent of gc-sections)");
+    cmd->define::<FlagKind::Feature>("bitcode",            "embed LLVM bitcode in Mach-O output");
+
+    // ── Windows/PE specific ───────────────────────────────────────────────────
+    cmd->define::<FlagKind::Feature>("high-entropy-va",    "enable 64-bit ASLR in PE output (HIGHENTROPYVA)");
+    cmd->define::<FlagKind::Feature>("dynamicbase",        "enable ASLR in PE output (DYNAMICBASE, on by default on Windows)");
+    cmd->define::<FlagKind::Feature>("nxcompat",           "mark PE binary as NX compatible (on by default on Windows)");
+    cmd->define::<FlagKind::Feature>("guard-cf",           "enable Windows Control Flow Guard");
+    cmd->define::<FlagKind::Feature>("tsaware",            "mark PE binary as terminal-server aware");
+
+    // ── WASM proposals ────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::Feature>("wasm-bulk-memory",   "enable WASM bulk memory operations proposal");
+    cmd->define::<FlagKind::Feature>("wasm-threads",       "enable WASM threads proposal (shared memory + atomics)");
+    cmd->define::<FlagKind::Feature>("wasm-tail-calls",    "enable WASM tail calls proposal");
+    cmd->define::<FlagKind::Feature>("wasm-simd",          "enable WASM SIMD proposal");
+    cmd->define::<FlagKind::Feature>("wasm-sign-ext",      "enable WASM sign extension operators proposal");
+    cmd->define::<FlagKind::Feature>("wasm-reference-types","enable WASM reference types proposal");
+    cmd->define::<FlagKind::Feature>("wasm-exceptions",    "enable WASM exception handling proposal");
+
+    // =========================================================================
+    //  DEFINES & CONFIG FLAGS
+    // =========================================================================
+
+    cmd->define::<FlagKind::StringList>("define",     "D", "",              "define a compile-time macro: -DNAME or -DNAME=VALUE (repeatable)");
+    cmd->define::<FlagKind::StringList>("cfg",        "",  "cfg",           "set a named config flag for conditional compilation: --cfg name or --cfg name=value (repeatable)");
+    cmd->define::<FlagKind::String>    ("profile-use","",  "profile-use",   "path to .profdata file for PGO-guided optimisation",                                "");
+    cmd->define::<FlagKind::String>    ("coverage-format","","coverage-format","coverage output format: lcov|gcov|llvm (default: llvm)",                         "llvm");
+    cmd->define::<FlagKind::StringList>("coverage-prefix-map","","coverage-prefix-map","remap source paths in coverage output (repeatable)");
+
+    // =========================================================================
+    //  WARNINGS & DIAGNOSTICS
+    // =========================================================================
+
+    cmd->define::<FlagKind::Bool>      ("Wall",               "",  "Wall",               "enable the standard set of useful warnings",                           false);
+    cmd->define::<FlagKind::Bool>      ("Wextra",             "",  "Wextra",             "enable extra warnings not covered by --Wall",                          false);
+    cmd->define::<FlagKind::Bool>      ("Wpedantic",          "",  "Wpedantic",          "strict language-conformance warnings",                                 false);
+    cmd->define::<FlagKind::Bool>      ("Werror",             "",  "Werror",             "treat all warnings as errors",                                         false);
+    cmd->define::<FlagKind::Bool>      ("nowarn",             "w", "",                   "suppress all warnings",                                                false);
+    cmd->define::<FlagKind::StringList>("warn",               "W", "",                   "enable a specific diagnostic warning by name (repeatable)");
+    cmd->define::<FlagKind::StringList>("allow",              "A", "",                   "silence a specific diagnostic by name (repeatable)");
+    cmd->define::<FlagKind::StringList>("deny",               "E", "",                   "promote a specific diagnostic to error (repeatable)");
+    cmd->define::<FlagKind::StringList>("forbid",             "F", "",                   "forbid a diagnostic — error, cannot be overridden downstream (repeatable)");
+    cmd->define::<FlagKind::String>    ("error-format",       "",  "error-format",       "diagnostic output format: pretty|basic|json|msvc (default: pretty)",  "pretty");
+    cmd->define::<FlagKind::Bool>      ("no-color",           "",  "no-color",           "disable ANSI colour in diagnostic output",                             false);
+    cmd->define::<FlagKind::Bool>      ("diag-show-ids",      "",  "diag-show-ids",      "print DiagCode alongside every diagnostic message",                    false);
+    cmd->define::<FlagKind::Bool>      ("diag-cascade",       "",  "diag-cascade",       "enable cascade suppression via poisoned scopes (default: on)",         true);
+    cmd->define::<FlagKind::Bool>      ("diag-absolute-paths","",  "diag-absolute-paths","print absolute paths in diagnostic messages",                          false);
+    cmd->define::<FlagKind::Bool>      ("diag-show-context",  "",  "diag-show-context",  "print surrounding source lines in diagnostics (default: on)",          true);
+    cmd->define::<FlagKind::Bool>      ("dump-type-info",     "",  "dump-type-info",     "dump inferred types for all expressions after sema",                   false);
+
+    // =========================================================================
+    //  BCIR / AMT INTERNALS
+    // =========================================================================
+
+    cmd->define::<FlagKind::Bool>  ("verify-bcir",    "",  "verify-bcir",    "run BCIR integrity verifier pass after borrow-check lowering",                     false);
+    cmd->define::<FlagKind::Bool>  ("bcir-verbose",   "",  "bcir-verbose",   "verbose BCIR output with every AMT decision annotated",                            false);
+    cmd->define::<FlagKind::Bool>  ("bcir-stats",     "",  "bcir-stats",     "print BCIR statistics: borrows tracked, AMT rewrites made, scopes poisoned",      false);
+    cmd->define::<FlagKind::Bool>  ("print-regalloc", "",  "print-regalloc", "dump register allocation decisions from LLVM backend",                             false);
+
+    // =========================================================================
+    //  INCREMENTAL COMPILATION
+    // =========================================================================
+
+    cmd->define::<FlagKind::Bool>  ("incremental",      "",  "incremental",      "enable incremental compilation",                                               false);
+    cmd->define::<FlagKind::String>("incremental-dir",  "",  "incremental-dir",  "directory for incremental compilation cache (default: .kairo-cache)",         ".kairo-cache");
+    cmd->define::<FlagKind::Bool>  ("force-recompile",  "",  "force-recompile",  "ignore incremental cache and recompile everything",                            false);
+
+    // =========================================================================
+    //  MODULE SYSTEM
+    // =========================================================================
+
+    cmd->define::<FlagKind::String>("module-name",       "",  "module-name",       "override the module name for this compilation unit",                          "");
+    cmd->define::<FlagKind::String>("module-cache-dir",  "",  "module-cache-dir",  "directory for compiled module artifacts (default: .kairo-modules)",          ".kairo-modules");
+    cmd->define::<FlagKind::Bool>  ("no-module-cache",   "",  "no-module-cache",   "disable module caching entirely (always recompile imported modules)",         false);
+
+    // =========================================================================
+    //  LINKING
+    // =========================================================================
+
+    cmd->define::<FlagKind::StringList>("lib-dirs",       "L", "lib-dir",          "add directory to library search path (repeatable)");
+    cmd->define::<FlagKind::StringList>("link-libs",      "l", "link",             "link against named library, optionally qualified: -l static:foo or -l dynamic:bar (repeatable)");
+    cmd->define::<FlagKind::StringList>("rpath",          "",  "rpath",            "add runtime library search path (ELF/Mach-O, repeatable)");
+    cmd->define::<FlagKind::StringList>("rpath-link",     "",  "rpath-link",       "link-time-only rpath entries (ELF, repeatable)");
+    cmd->define::<FlagKind::String>    ("linker-script",  "",  "linker-script",    "pass a linker script to kld",                                                 "");
+    cmd->define::<FlagKind::String>    ("version-script", "",  "version-script",   "pass a symbol version script to kld",                                        "");
+    cmd->define::<FlagKind::String>    ("map-file",       "",  "map-file",         "write a linker map file (symbol → section → address) to this path",          "");
+    cmd->define::<FlagKind::String>    ("build-id",       "",  "build-id",         "emit build-id note section: none|fast|sha1|uuid (default: fast)",            "fast");
+    cmd->define::<FlagKind::Bool>      ("export-dynamic", "",  "export-dynamic",   "pass -E to linker: export all dynamic symbols (needed for dlopen/plugins)",  false);
+    cmd->define::<FlagKind::Bool>      ("now",            "",  "now",              "full RELRO: resolve all symbols at load time (-z now, ELF)",                  false);
+    cmd->define::<FlagKind::Bool>      ("z-noexecstack",  "",  "z-noexecstack",    "mark stack non-executable in ELF PT_GNU_STACK note",                          false);
+    cmd->define::<FlagKind::String>    ("hash-style",     "",  "hash-style",       "ELF hash section style: gnu|sysv|both (default: gnu)",                       "gnu");
+    cmd->define::<FlagKind::String>    ("dynamic-linker", "",  "dynamic-linker",   "override path to the dynamic linker (e.g. /lib/ld-musl-x86_64.so.1)",       "");
+    cmd->define::<FlagKind::String>    ("emulation",      "",  "emulation",        "linker emulation: elf_x86_64|elf_i386|aarch64elf|… (default: auto)",         "");
+    cmd->define::<FlagKind::String>    ("compress-debug", "",  "compress-debug",   "compress DWARF debug sections: none|zlib|zstd (default: none)",              "none");
+    cmd->define::<FlagKind::StringList>("ld-flags",       "",  "ld-flags",         "raw flag passthrough to kld (repeatable)");
+    cmd->define::<FlagKind::StringList>("cxx-flags",      "",  "cxx-flags",        "raw flag passthrough to clang for C++ interop compilation (repeatable)");
+
+    // =========================================================================
+    //  PLATFORM: macOS / Darwin
+    // =========================================================================
+
+    cmd->define::<FlagKind::String>    ("macos-version-min","","macos-version-min","minimum macOS deployment target (e.g. 14.0)",                                "");
+    cmd->define::<FlagKind::String>    ("ios-version-min",  "","ios-version-min",  "minimum iOS deployment target (e.g. 17.0)",                                  "");
+    cmd->define::<FlagKind::String>    ("macos-sdk",        "","macos-sdk",        "path to MacOSX.sdk",                                                         "");
+    cmd->define::<FlagKind::String>    ("install-name",     "","install-name",     "dylib install name passed to the linker (-install_name)",                    "");
+    cmd->define::<FlagKind::String>    ("rpath-origin",     "","rpath-origin",     "rpath origin shorthand: @loader_path|@executable_path|@rpath",              "");
+    cmd->define::<FlagKind::StringList>("force-load",       "","force-load",       "force load an archive (all symbols, not just referenced, repeatable)");
+    cmd->define::<FlagKind::I32>       ("headerpad",        "","headerpad",        "minimum padding in bytes for Mach-O load commands",                          0, 0, 65536);
+
+    // =========================================================================
+    //  PLATFORM: Windows / PE-COFF
+    // =========================================================================
+
+    cmd->define::<FlagKind::String>("subsystem",      "",  "subsystem",      "PE subsystem: console|windows|efi|native|posix (default: console)",               "console");
+    cmd->define::<FlagKind::String>("pdb",            "",  "pdb",            "path for PDB debug info output (Windows)",                                          "");
+    cmd->define::<FlagKind::String>("def",            "",  "def",            "path to .def file for DLL exports",                                                 "");
+    cmd->define::<FlagKind::String>("implib",         "",  "implib",         "path for import library output (.lib)",                                             "");
+    cmd->define::<FlagKind::Bool>  ("manifest",       "",  "manifest",       "embed a Windows application manifest",                                             false);
+    cmd->define::<FlagKind::String>("manifest-file",  "",  "manifest-file",  "path to a custom Windows manifest file",                                           "");
+    cmd->define::<FlagKind::Bool>  ("dll",            "",  "dll",            "produce a DLL (alias for --shared on Windows)",                                    false);
+    cmd->define::<FlagKind::Bool>  ("kill-at",        "",  "kill-at",        "remove @ size suffix from stdcall symbol exports",                                 false);
+    cmd->define::<FlagKind::I32>   ("stack-size",     "",  "stack-size",     "override default stack size in PE header (bytes, 0 = linker default)",            0, 0, 2147483647);
+    cmd->define::<FlagKind::I32>   ("heap-size",      "",  "heap-size",      "override default heap size in PE header (bytes, 0 = linker default)",             0, 0, 2147483647);
+
+    // =========================================================================
+    //  PLATFORM: WASM / WASI
+    // =========================================================================
+
+    cmd->define::<FlagKind::StringList>("wasm-export",       "",  "wasm-export",       "explicitly export a WASM symbol by name (repeatable)");
+    cmd->define::<FlagKind::Bool>      ("wasm-import-memory","",  "wasm-import-memory","import linear memory from the host instead of defining it",              false);
+    cmd->define::<FlagKind::Bool>      ("wasm-export-memory","",  "wasm-export-memory","export linear memory to the host",                                       false);
+    cmd->define::<FlagKind::I32>       ("wasm-max-memory",   "",  "wasm-max-memory",   "maximum WASM linear memory in bytes (0 = no limit)",                    0, 0, 2147483647);
+    cmd->define::<FlagKind::I32>       ("wasm-initial-memory","", "wasm-initial-memory","initial WASM linear memory in bytes (default: 65536)",                 65536, 65536, 2147483647);
+    cmd->define::<FlagKind::I32>       ("wasm-stack-size",   "",  "wasm-stack-size",   "WASM operand stack size in bytes (default: 65536)",                     65536, 4096, 2147483647);
+    cmd->define::<FlagKind::Bool>      ("wasi",              "",  "wasi",              "target WASI ABI (sets default imports/exports for WASI runtime)",        false);
+    cmd->define::<FlagKind::String>    ("wasi-version",      "",  "wasi-version",      "WASI ABI version: preview1|preview2 (default: preview1)",               "preview1");
+
+    // =========================================================================
+    //  PLATFORM: Embedded / Bare Metal
+    // =========================================================================
+
+    cmd->define::<FlagKind::I32>  ("pic-level",       "",  "pic-level",      "PIC level for embedded targets: 0|1|2 (default: 0)",                              0, 0, 2);
+    cmd->define::<FlagKind::Bool> ("no-stack-check",  "",  "no-stack-check", "disable stack overflow checking entirely (bare metal)",                            false);
+    cmd->define::<FlagKind::I32>  ("fixed-stack-size","",  "fixed-stack-size","fix stack size at compile time in bytes (for static analysis, 0 = dynamic)",    0, 0, 2147483647);
+
+    // =========================================================================
+    //  TESTING
+    // =========================================================================
+
+    cmd->define::<FlagKind::Bool>  ("test",            "",  "test",           "compile and run all test{} blocks; exit 0 on pass",                              false);
+    cmd->define::<FlagKind::Bool>  ("test-list",       "",  "test-list",      "list all test{} block names without running them",                               false);
+    cmd->define::<FlagKind::String>("test-filter",     "",  "test-filter",    "run only tests whose name matches this pattern (substring or glob)",             "");
+    cmd->define::<FlagKind::String>("test-format",     "",  "test-format",    "test result output format: pretty|json|tap (default: pretty)",                  "pretty");
+    cmd->define::<FlagKind::I32>   ("test-threads",    "",  "test-threads",   "parallelism for test execution (0 = logical CPU count)",                        0, 0, 1024);
+    cmd->define::<FlagKind::Bool>  ("test-no-capture", "",  "test-no-capture","do not capture stdout/stderr from test{} blocks",                               false);
+    cmd->define::<FlagKind::I32>   ("test-timeout",    "",  "test-timeout",   "per-test timeout in milliseconds (0 = no timeout)",                             0, 0, 3600000);
+    cmd->define::<FlagKind::I32>   ("test-exit-code",  "",  "test-exit-code", "override exit code on test failure (default: 1)",                               1, 0, 255);
+
+    // =========================================================================
+    //  OUTPUT VERBOSITY
+    // =========================================================================
+
+    cmd->define::<FlagKind::Bool>  ("verbose",         "v", "verbose",        "print all subprocess invocations and internal pass activity",                    false);
+    cmd->define::<FlagKind::Bool>  ("quiet",           "",  "quiet",          "suppress all output except errors",                                              false);
+    cmd->define::<FlagKind::Bool>  ("suppress",        "",  "suppress",       "route all output to stderr, nothing to stdout",                                  false);
+    cmd->define::<FlagKind::I32>   ("threads",         "",  "threads",        "parallelism for multi-file compilation (0 = logical CPU count)",                0, 0, 1024);
+    cmd->define::<FlagKind::Bool>  ("time-passes",     "",  "time-passes",    "print per-pass timing breakdown after compilation",                              false);
+    cmd->define::<FlagKind::String>("time-trace",      "",  "time-trace",     "emit Chrome-format trace JSON to this path for compilation profiling",           "");
+
+    // =========================================================================
+    //  DEVELOPER / DUMP INTERNALS
+    // =========================================================================
+
+    cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump LLVM IR before and after optimisation passes",                            false);
+    cmd->define::<FlagKind::Bool>  ("print-bcir",       "",  "print-bcir",       "dump BCIR before and after borrow-check lowering",                             false);
+    cmd->define::<FlagKind::Bool>  ("print-ast",        "",  "print-ast",        "dump AST after parsing",                                                       false);
+    cmd->define::<FlagKind::Bool>  ("print-sema",       "",  "print-sema",       "dump IR after semantic analysis",                                              false);
+    cmd->define::<FlagKind::Bool>  ("print-tokens",     "",  "print-tokens",     "dump token stream after preprocessing",                                        false);
+    cmd->define::<FlagKind::Bool>  ("print-macros",     "",  "print-macros",     "dump macro symbol table after preprocessing",                                  false);
+    cmd->define::<FlagKind::Bool>  ("print-imports",    "",  "print-imports",    "dump the full import resolution graph",                                        false);
+    cmd->define::<FlagKind::Bool>  ("print-generics",   "",  "print-generics",   "dump every generic instantiation and its origin site",                        false);
+    cmd->define::<FlagKind::Bool>  ("verify-ir",        "",  "verify-ir",        "run LLVM IR verifier after codegen",                                           false);
+    cmd->define::<FlagKind::Bool>  ("macro-debug",      "",  "macro-debug",      "dump macro expansion trace (ExpansionContext output)",                         false);
+    cmd->define::<FlagKind::String>("macro-debug-filter","",  "macro-debug-filter","limit macro trace to expansions of this macro name",                        "");
+
+    // =========================================================================
+    //  COMPILER LIMITS  (--c prefix, query via get_cfg_*)
+    // =========================================================================
+
+    //  macro system
+    cmd->define_cfg::<FlagKind::I32>("max-macro-depth",           "maximum macro recursion depth",                                             128,     1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-macro-expansions",      "maximum total macro expansion nodes across compilation",                    65536,   1,    16777216);
+    cmd->define_cfg::<FlagKind::I32>("max-macro-backtrace",       "maximum frames shown in macro expansion error backtraces",                  8,       0,    64);
+    cmd->define_cfg::<FlagKind::I32>("macro-trace-depth",         "maximum depth of --macro-debug expansion output (0 = unlimited)",           0,       0,    65536);
+
+    //  generic instantiation
+    cmd->define_cfg::<FlagKind::I32>("max-generic-depth",         "maximum generic instantiation nesting depth",                               256,     1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-generic-instantiations","maximum total generic instantiations across compilation",                   16384,   1,    16777216);
+    cmd->define_cfg::<FlagKind::I32>("max-generic-backtrace",     "maximum frames shown in generic instantiation error backtraces",            16,      0,    64);
+
+    //  const / eval
+    cmd->define_cfg::<FlagKind::I32>("max-const-eval-steps",      "maximum steps in a single const/eval expression evaluation",               1000000, 1,    2147483647);
+    cmd->define_cfg::<FlagKind::I32>("max-const-eval-depth",      "maximum call depth during const/eval evaluation",                          512,     1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-const-backtrace",       "maximum frames shown in const eval error backtraces",                      8,       0,    64);
+    cmd->define_cfg::<FlagKind::I32>("max-for-unroll-count",      "maximum iterations for eval for{} compile-time loop unrolling",            1024,    1,    16777216);
+
+    //  inline / codegen
+    cmd->define_cfg::<FlagKind::I32>("max-inline-depth",          "maximum inlining depth (passed to LLVM inliner)",                          256,     1,    65536);
+    cmd->define_cfg::<FlagKind::F64>("inline-cost-threshold",     "base inliner cost threshold (higher = inline more aggressively)",          225.0,   0.0,  100000.0);
+    cmd->define_cfg::<FlagKind::I32>("max-lambda-capture-size",   "maximum bytes a lambda may capture by value",                              1024,    0,    67108864);
+    cmd->define_cfg::<FlagKind::I32>("max-unroll-count",          "maximum loop unroll count (0 = backend default)",                          0,       0,    4096);
+
+    //  import / module resolution
+    cmd->define_cfg::<FlagKind::I32>("max-import-depth",          "maximum import resolution depth (guards circular import chains)",          512,     1,    65536);
+
+    //  parser / expression
+    cmd->define_cfg::<FlagKind::I32>("max-expr-depth",            "maximum expression nesting depth (guards parser stack overflow)",          512,     1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-scope-depth",           "maximum nested scope depth",                                               512,     1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("tab-width",                 "tab stop width for column numbers in diagnostics",                         4,       1,    16);
+
+    //  type system
+    cmd->define_cfg::<FlagKind::I32>("max-struct-fields",         "maximum fields in a single struct or class (0 = unlimited)",               0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-function-params",       "maximum parameters in a single function declaration (0 = unlimited)",      255,     0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-tuple-arity",           "maximum elements in a tuple type (0 = unlimited)",                         64,      0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-enum-variants",         "maximum variants in a single enum (0 = unlimited)",                        0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-match-arms",            "maximum arms in a single match block (0 = unlimited)",                     0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-union-width",           "maximum number of types in a union type (0 = unlimited)",                  64,      2,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-type-alias-depth",      "maximum type alias chain depth before hard error",                         64,      1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-interface-impls",       "maximum impl T declarations per type (0 = unlimited)",                     0,       0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-extend-chain",          "maximum extend{} chain depth per type",                                    64,      1,    65536);
+
+    //  error / warning budget
+    cmd->define_cfg::<FlagKind::I32>("max-errors",                "stop after N errors (0 = unlimited)",                                      20,      0,    100000);
+    cmd->define_cfg::<FlagKind::I32>("max-warnings",              "suppress warnings after N (0 = unlimited)",                                0,       0,    100000);
+    cmd->define_cfg::<FlagKind::I32>("max-notes",                 "suppress notes after N per diagnostic (0 = unlimited)",                    0,       0,    100000);
+    cmd->define_cfg::<FlagKind::I32>("max-diag-context-lines",    "maximum source lines shown per diagnostic caret (0 = no limit)",           3,       0,    32);
+    cmd->define_cfg::<FlagKind::I32>("max-suggestion-count",      "maximum fix-it suggestions shown per error",                               5,       0,    64);
+
+    //  source / lexer
+    cmd->define_cfg::<FlagKind::I32>("max-file-size-mb",          "reject source files larger than this size in MB (0 = unlimited)",          256,     0,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-token-count",           "reject token streams longer than this count per file (0 = unlimited)",     0,       0,    2147483647);
+    cmd->define_cfg::<FlagKind::I32>("max-string-length",         "maximum allowed string literal length in characters (0 = unlimited)",      0,       0,    2147483647);
+
+    //  codegen
+    cmd->define_cfg::<FlagKind::I32>("max-codegen-passes",        "maximum LLVM optimisation passes to run (0 = pipeline default)",           0,       0,    1024);
+    cmd->define_cfg::<FlagKind::I32>("max-object-size-mb",        "reject object files larger than this size in MB (0 = unlimited)",          512,     0,    65536);
+
+    //  borrow checker / AMT
+    cmd->define_cfg::<FlagKind::I32>("max-borrow-depth",          "maximum simultaneous live borrows tracked per scope",                      512,     1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-amt-smartptr-rewrites", "maximum BCIR invalid-borrow → smart-pointer rewrites per TU (0 = unlimited)", 8192, 0,   2147483647);
+
+    //  threading
+    cmd->define_cfg::<FlagKind::I32>("max-threads",               "hard cap on compilation threads regardless of --threads (0 = no cap)",    0,       0,    1024);
+}
+
+fn register_test_flags(cmd: *Command) {
+    // ── general ──────────────────────────────────────────────────────────────
+    //          Flag Type        Key             Short  Long           Description                                        Default
+    cmd->define::<FlagKind::Bool>("help",       "h", "help",         "show this help and exit",                         false);
+    cmd->define::<FlagKind::Bool>("version",      "",  "version",      "print compiler version and exit",                 false);
+    cmd->define::<FlagKind::Bool>("verbose",      "v", "verbose",      "enable verbose output",                           false);
+    cmd->define::<FlagKind::Bool>("quiet",        "",  "quiet",        "suppress all non-error output",                   false);
+    cmd->define::<FlagKind::String>("explain",       "",  "explain",      "explain a diagnostic code (e.g. U003E)",          "");
+
+    // ── build ─────────────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::String>("profile",       "",  "profile",      "build profile (debug|release|min-size)",          "debug");
+
+    // ── output ────────────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::String>("output",        "o", "output",       "output file path");
+    cmd->define::<FlagKind::Bool>("compile-only",  "c", "compile-only", "compile only, do not link",                       false);
+    cmd->define::<FlagKind::Bool>("emit-asm",      "S", "emit-asm",     "emit assembly output",                            false);
+    cmd->define::<FlagKind::Bool>("preprocess",    "E", "preprocess",   "run preprocessor only",                           false);
+    cmd->define::<FlagKind::String>("emit",          "",  "emit",         "emit IR type (ast|ir|llvm|asm|obj)",              "obj");
+
+    // ── include / link ────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::PathList>("include-dirs",  "I", "include",      "add directory to include search path");
+    cmd->define::<FlagKind::PathList>("lib-dirs",      "L", "lib-dir",      "add directory to library search path");
+    cmd->define::<FlagKind::PathList>("link-libs",     "l", "link",         "link against library");
+    cmd->define::<FlagKind::String>("sysroot",       "",  "sysroot",      "override sysroot",                                "");
+    cmd->define::<FlagKind::String>("prelude",       "",  "prelude",      "path to custom prelude file",                     "");
+    cmd->define::<FlagKind::Bool>("no-prelude",    "",  "no-prelude",   "disable implicit prelude",                        false);
+    cmd->define::<FlagKind::Bool>("no-stdlib",     "",  "no-stdlib",    "disable standard library",                        false);
+
+    // ── target ────────────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::String>("target",        "",  "target",       "target triple (e.g. x86_64-unknown-linux-gnu)",   "");
+    cmd->define::<FlagKind::String>("host",          "",  "host",         "host triple",                                     "");
+    cmd->define::<FlagKind::String>("march",         "",  "march",        "target architecture",                             "");
+    cmd->define::<FlagKind::String>("mcpu",          "",  "mcpu",         "target CPU",                                      "");
+    cmd->define::<FlagKind::String>("mabi",          "",  "mabi",         "target ABI",                                      "");
+    cmd->define::<FlagKind::String>("mtune",         "",  "mtune",        "tune for CPU",                                    "");
+
+    // ── optimisation ──────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::I32>("opt",           "O", "",             "optimisation level",                              0, 0, 3);
+    cmd->define::<FlagKind::Bool>("opt-size",      "",  "Os",           "optimise for size",                               false);
+    cmd->define::<FlagKind::Bool>("opt-size-z",    "",  "Oz",           "aggressively optimise for size",                  false);
+    cmd->define::<FlagKind::Bool>("debug",         "g", "",             "emit debug symbols",                              false);
+    cmd->define::<FlagKind::Bool>("no-debug",      "",  "g0",           "strip debug symbols",                             false);
+
+    // ── warnings ──────────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::Bool>("nowarn",        "w", "",             "suppress all warnings",                           false);
+    cmd->define::<FlagKind::Bool>("wall",          "",  "Wall",         "enable common warnings",                          false);
+    cmd->define::<FlagKind::Bool>("wextra",        "",  "Wextra",       "enable extra warnings",                           false);
+    cmd->define::<FlagKind::Bool>("werror",        "",  "Werror",       "treat warnings as errors",                        false);
+    cmd->define::<FlagKind::String>("diag-format",   "",  "fdiagnostics-format", "diagnostic format (pretty|json|clang)",    "pretty");
+
+    // ── language features  (-f{name} / -fno-{name}, query via get_feature) ────
+    cmd->define::<FlagKind::Feature>("unsafe",          "allow unsafe operations (-funsafe / -fno-unsafe)");
+    cmd->define::<FlagKind::Feature>("exceptions",      "enable C++ style exceptions (-fexceptions / -fno-exceptions)");
+    cmd->define::<FlagKind::Feature>("implicit-conv",   "allow implicit type conversions (-fimplicit-conversions / -fno-…)");
+    cmd->define::<FlagKind::Feature>("strict-null",     "strict null pointer checks (-fstrict-null / -fno-strict-null)");
+    cmd->define::<FlagKind::Feature>("inline",          "function inlining (-finline / -fno-inline)");
+    cmd->define::<FlagKind::Feature>("const-checks",    "const correctness checks (-fconst-checks / -fno-const-checks)");
+    cmd->define::<FlagKind::Feature>("dead-code-elim",  "dead code elimination (-fdead-code-elim / -fno-dead-code-elim)");
+    cmd->define::<FlagKind::Feature>("tail-call",       "tail call optimisation (-ftail-call / -fno-tail-call)");
+    cmd->define::<FlagKind::Feature>("union-inference", "union type inference (-funion-inference / -fno-union-inference)");
+    cmd->define::<FlagKind::Feature>("export",          "module export (-fexport / -fno-export)");
+    cmd->define::<FlagKind::String>("std",             "",  "std", "language standard (e.g. kairo25)",  "");
+
+    // ── hardening ─────────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::StringList>("sanitize",      "",  "fsanitize",             "enable sanitizer (address|thread|ub|…)");
+    cmd->define::<FlagKind::Bool>("no-omit-fp",    "",  "fno-omit-frame-pointer","keep frame pointer",                     false);
+    cmd->define::<FlagKind::Bool>("stack-prot",    "",  "fstack-protector",      "enable stack protector",                 false);
+    cmd->define::<FlagKind::Bool>("pie",           "",  "fPIE",                  "build position-independent executable",  false);
+    cmd->define::<FlagKind::Bool>("pic",           "",  "fPIC",                  "build position-independent code",        false);
+    cmd->define::<FlagKind::Bool>("fast-math",     "",  "ffast-math",            "enable fast-math optimisations",         false);
+    cmd->define::<FlagKind::Bool>("no-rtti",       "",  "fno-rtti-data",         "disable RTTI data",                      false);
+
+    // ── pass-through ──────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::StringList>("xcxx",          "",  "Xcxx",                  "pass flag directly to C++ backend");
+    cmd->define::<FlagKind::StringList>("xlinker",       "",  "Xlinker",               "pass flag directly to linker");
+
+    // ── misc ──────────────────────────────────────────────────────────────────
+    cmd->define::<FlagKind::Bool>("save-temps",    "",  "save-temps",            "keep intermediate files",                false);
+    cmd->define::<FlagKind::Bool>("coverage",      "",  "coverage",              "enable coverage instrumentation",        false);
+    cmd->define::<FlagKind::Bool>("dump-passes",   "",  "dump-passes",           "dump optimisation passes",               false);
+    cmd->define::<FlagKind::F64>("threshold",     "",  "threshold",             "inlining threshold",                     1.0, 0.0, 1.0);
+
+    // ── config flags  (--c{key}=value, query via get_cfg_*) ──────────────────
+    cmd->define_cfg::<FlagKind::I32>("max-recursion-depth",  "maximum macro recursion depth",           256,  1, 4096);
+    cmd->define_cfg::<FlagKind::I32>("max-errors",           "stop after N errors (0 = unlimited)",     50,   0, 10000);
+    cmd->define_cfg::<FlagKind::I32>("max-warnings",         "suppress warnings after N (0 = unlimited)",0,   0, 10000);
+    cmd->define_cfg::<FlagKind::I32>("max-inline-depth",     "inliner recursion depth limit",           8,    1, 64);
+    cmd->define_cfg::<FlagKind::F64>("inline-cost",          "inliner cost threshold",                  1.0,  0.0, 100.0);
+    cmd->define_cfg::<FlagKind::String>("error-format",         "error output format (pretty|json|clang)", "pretty");
+    cmd->define_cfg::<FlagKind::Bool>("color",               "force coloured output",                   true);
+
+    // ── positional files (must be last) ──────────────────────────────────────
+    cmd->define::<FlagKind::PathList>("files", "input .kro source files");
+}
+
+// =============================================================================
+//  TEST SUITE
+// =============================================================================
 
 fn Test() -> i32 {
     std::print("=== Command Test Suite ===\n");
 
-    var diag  = DiagEngine();
     var suite = Assert("Command Tests");
-    var cmd   = Command(&diag);
 
-    // ── helper: tokenize and return ParsedArgs ─────────────────────────────
-    var parse = fn (s: string) -> Command::ParsedArgs {
-        return cmd.tokenize(s);
+    // shared fixture — used by non-error tests
+    var diag = DiagEngine();
+    var cmd  = Command(&diag);
+    register_test_flags(&cmd);
+
+    // isolated fixture for tests that expect errors
+    fn fresh() -> (*DiagEngine, Command) {
+        var d = std::create::<DiagEngine>();
+        var c = Command(d);
+        register_test_flags(&c);
+        return (d, libcxx::move(c));
     };
 
     // =========================================================================
-    // BASIC FLAG PARSING
+    //  BOOL FLAGS
     // =========================================================================
 
-    suite.equal::<string>("short flag -g", "pass", fn () -> string {
-        var r = parse("-g");
-        if !Command::has_flag(r, Command::FlagType::DEBUG_ON) {
-            return "expected DEBUG_ON flag";
-        }
+    suite.equal::<string>("--verbose bool flag", "pass", fn () -> string {
+        var r = cmd.parse_string("--verbose main.kro");
+        if !r.get_bool("verbose") { return "expected verbose=true"; }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("short flag -c", "pass", fn () -> string {
-        var r = parse("-c");
-        if !Command::has_flag(r, Command::FlagType::COMPILE_ONLY) {
-            return "expected COMPILE_ONLY flag";
-        }
+    suite.equal::<string>("-v short form", "pass", fn () -> string {
+        var r = cmd.parse_string("-v main.kro");
+        if !r.get_bool("verbose") { return "expected verbose=true"; }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("combined short flags -gc", "pass", fn () -> string {
-        var r = parse("-gc");
-        if !Command::has_flag(r, Command::FlagType::DEBUG_ON) {
-            return "expected DEBUG_ON";
-        }
-        if !Command::has_flag(r, Command::FlagType::COMPILE_ONLY) {
-            return "expected COMPILE_ONLY";
-        }
+    suite.equal::<string>("bool default = false", "pass", fn () -> string {
+        var r = cmd.parse_string("main.kro");
+        if r.get_bool("verbose") { return "verbose should default to false"; }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("long single-dash flag -Wall", "pass", fn () -> string {
-        var r = parse("-Wall");
-        if !Command::has_flag(r, Command::FlagType::WALL) {
-            return "expected WALL flag";
-        }
-        return "pass";
-    }, 1000);
-
-    suite.equal::<string>("long double-dash flag --verbose", "pass", fn () -> string {
-        var r = parse("--verbose");
-        if !Command::has_flag(r, Command::FlagType::VERBOSE) {
-            return "expected VERBOSE flag";
-        }
-        return "pass";
-    }, 1000);
-
-    suite.equal::<string>("double-dash flag --help", "pass", fn () -> string {
-        var r = parse("--help");
-        if !Command::has_flag(r, Command::FlagType::HELP_LONG) {
-            return "expected HELP_LONG flag";
-        }
+    suite.equal::<string>("-gc short cluster", "pass", fn () -> string {
+        var r = cmd.parse_string("-gc main.kro");
+        if !r.get_bool("debug")        { return "expected debug=true"; }
+        if !r.get_bool("compile-only") { return "expected compile-only=true"; }
         return "pass";
     }, 1000);
 
     // =========================================================================
-    // INLINE VALUES
+    //  STRING FLAGS
     // =========================================================================
 
     suite.equal::<string>("--output=./bin/app", "pass", fn () -> string {
-        var r = parse("--output=./bin/app");
-        if !Command::has_flag(r, Command::FlagType::OUTPUT) {
-            return "expected OUTPUT flag";
-        }
-        if Command::get_value(r, Command::FlagType::OUTPUT) != "./bin/app" {
-            return f"expected './bin/app', got '{Command::get_value(r, Command::FlagType::OUTPUT)}' ";
+        var r = cmd.parse_string("--output=./bin/app main.kro");
+        if r.get_string("output") != "./bin/app" {
+            return f"got '{r.get_string("output")}' ";
         }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("--target=x86_64-unknown-linux-gnu", "pass", fn () -> string {
-        var r = parse("--target=x86_64-unknown-linux-gnu");
-        if Command::get_value(r, Command::FlagType::TARGET) != "x86_64-unknown-linux-gnu" {
-            return f"wrong target value: '{Command::get_value(r, Command::FlagType::TARGET)}' ";
+    suite.equal::<string>("-o space-separated", "pass", fn () -> string {
+        var r = cmd.parse_string("-o ./bin/app main.kro");
+        if r.get_string("output") != "./bin/app" {
+            return f"got '{r.get_string("output")}' ";
         }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("--std=kairo25", "pass", fn () -> string {
-        var r = parse("--std=kairo25");
-        if Command::get_value(r, Command::FlagType::STD) != "kairo25" {
-            return f"wrong std value: '{Command::get_value(r, Command::FlagType::STD)}' ";
+    suite.equal::<string>("-ofoo inline on short", "pass", fn () -> string {
+        var r = cmd.parse_string("-ofoo.kro main.kro");
+        if r.get_string("output") != "foo.kro" {
+            return f"got '{r.get_string("output")}' ";
         }
         return "pass";
     }, 1000);
 
     // =========================================================================
-    // POSITIONAL FILE ARGUMENTS
+    //  I32 WITH BOUNDS  (-O2, -O3, bounds violation)
+    // =========================================================================
+
+    suite.equal::<string>("-O2 joined value", "pass", fn () -> string {
+        var r = cmd.parse_string("-O2 main.kro");
+        if r.get_i32("opt") != 2 { return f"expected 2, got {r.get_i32("opt")}"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("-O3 joined value", "pass", fn () -> string {
+        var r = cmd.parse_string("-O3 main.kro");
+        if r.get_i32("opt") != 3 { return f"expected 3, got {r.get_i32("opt")}"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("-O9 out-of-bounds → error + ok=false", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        var r = c.parse_string("-O9 main.kro");
+        if !d->has_errors() { std::destroy(d); return "expected bounds error for -O9"; }
+        if r.ok            { std::destroy(d); return "expected ok=false"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    suite.equal::<string>("--opt=2 long-form", "pass", fn () -> string {
+        var r = cmd.parse_string("--opt=2 main.kro");
+        if r.get_i32("opt") != 2 { return f"expected 2, got {r.get_i32("opt")}"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("--opt=fast non-numeric → error", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        c.parse_string("--opt=fast main.kro");
+        if !d->has_errors() { std::destroy(d); return "expected parse error for --opt=fast"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    // =========================================================================
+    //  F64 WITH BOUNDS
+    // =========================================================================
+
+    suite.equal::<string>("--threshold=0.5", "pass", fn () -> string {
+        var r = cmd.parse_string("--threshold=0.5 main.kro");
+        var v = r.get_f64("threshold");
+        if (v < 0.49) || (v > 0.51) { return f"expected ~0.5, got {v}"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("--threshold=1.5 out-of-bounds → error", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        c.parse_string("--threshold=1.5 main.kro");
+        if !d->has_errors() { std::destroy(d); return "expected bounds error for threshold=1.5"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    // =========================================================================
+    //  LIST FLAGS  (repeatable)
+    // =========================================================================
+
+    suite.equal::<string>("-I repeatable list", "pass", fn () -> string {
+        var r = cmd.parse_string("-I./include -I/usr/include main.kro");
+        var lst = r.get_list("include-dirs");
+        if lst.size() != 2 { return f"expected 2 entries, got {lst.size()}"; }
+        if lst[0] != "./include"    { return f"entry 0: '{lst[0]}' "; }
+        if lst[1] != "/usr/include" { return f"entry 1: '{lst[1]}' "; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("-Lpath -lssl -lcrypto", "pass", fn () -> string {
+        var r = cmd.parse_string("-Lpath/to/lib -lssl -lcrypto main.kro");
+        if r.get_list("lib-dirs").size()  != 1 { return "expected 1 lib dir"; }
+        if r.get_list("link-libs").size() != 2 { return "expected 2 link libs"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("empty list default", "pass", fn () -> string {
+        var r = cmd.parse_string("main.kro");
+        if r.get_list("include-dirs").size() != 0 { return "expected empty include list"; }
+        return "pass";
+    }, 1000);
+
+    // =========================================================================
+    //  POSITIONAL FILES
     // =========================================================================
 
     suite.equal::<string>("single file", "pass", fn () -> string {
-        var r = parse("main.kro");
-        if r.files.size() != 1 {
-            return f"expected 1 file, got {r.files.size()}";
-        }
-        if r.files[0] != "main.kro" {
-            return f"expected 'main.kro', got '{r.files[0]}' ";
-        }
+        var r = cmd.parse_string("main.kro");
+        if r.files.size() != 1     { return f"expected 1, got {r.files.size()}"; }
+        if r.files[0] != "main.kro" { return f"got '{r.files[0]}' "; }
         return "pass";
     }, 1000);
 
     suite.equal::<string>("multiple files", "pass", fn () -> string {
-        var r = parse("main.kro util.kro helper.kro");
-        if r.files.size() != 3 {
-            return f"expected 3 files, got {r.files.size()}";
-        }
+        var r = cmd.parse_string("main.kro util.kro helper.kro");
+        if r.files.size() != 3 { return f"expected 3, got {r.files.size()}"; }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("files mixed with flags", "pass", fn () -> string {
-        var r = parse("main.kro -g -O2 util.kro");
-        if r.files.size() != 2 {
-            return f"expected 2 files, got {r.files.size()}";
-        }
-        if !Command::has_flag(r, Command::FlagType::DEBUG_ON) {
-            return "expected DEBUG_ON";
-        }
-        if !Command::has_flag(r, Command::FlagType::OPTIMIZE2) {
-            return "expected OPTIMIZE2";
-        }
+    suite.equal::<string>("flags and files interleaved", "pass", fn () -> string {
+        var r = cmd.parse_string("main.kro -g -O2 util.kro");
+        if r.files.size() != 2      { return f"files: {r.files.size()}"; }
+        if !r.get_bool("debug")     { return "debug"; }
+        if r.get_i32("opt") != 2    { return "opt"; }
         return "pass";
     }, 1000);
 
     // =========================================================================
-    // COMPOUND INVOCATIONS
+    //  END-OF-OPTIONS  (--)
     // =========================================================================
 
-    suite.equal::<string>("release build flags", "pass", fn () -> string {
-        var r = parse("--profile=release -O3 -Wall -Wextra main.kro --output=./bin/app");
-        if !Command::has_flag(r, Command::FlagType::OPTIMIZE3)  { return "expected OPTIMIZE3"; }
-        if !Command::has_flag(r, Command::FlagType::WALL)        { return "expected WALL"; }
-        if !Command::has_flag(r, Command::FlagType::WEXTRA)      { return "expected WEXTRA"; }
-        if !Command::has_flag(r, Command::FlagType::OUTPUT)      { return "expected OUTPUT"; }
-        if Command::get_value(r, Command::FlagType::OUTPUT) != "./bin/app" {
-            return "wrong output value";
-        }
-        if r.files.size() != 1 { return f"expected 1 file, got {r.files.size()}"; }
-        return "pass";
-    }, 1000);
-
-    suite.equal::<string>("cross-compilation flags", "pass", fn () -> string {
-        var r = parse("--target=aarch64-linux-gnu --march=armv8-a -O2 main.kro");
-        if !Command::has_flag(r, Command::FlagType::TARGET) { return "expected TARGET"; }
-        if !Command::has_flag(r, Command::FlagType::MARCH)  { return "expected MARCH"; }
-        if !Command::has_flag(r, Command::FlagType::OPTIMIZE2) { return "expected OPTIMIZE2"; }
-        return "pass";
-    }, 1000);
-
-    suite.equal::<string>("sanitizer flags", "pass", fn () -> string {
-        var r = parse("-fsanitize=address -fno-omit-frame-pointer main.kro");
-        if !Command::has_flag(r, Command::FlagType::FSANITIZE)  { return "expected FSANITIZE"; }
-        if !Command::has_flag(r, Command::FlagType::FNO_OMIT_FP) { return "expected FNO_OMIT_FP"; }
+    suite.equal::<string>("-- stops flag parsing", "pass", fn () -> string {
+        var r = cmd.parse_string("--verbose -- --not-a-flag file.kro");
+        if !r.get_bool("verbose")  { return "verbose before --"; }
+        if r.files.size() != 2    { return f"expected 2 files after --, got {r.files.size()}"; }
         return "pass";
     }, 1000);
 
     // =========================================================================
-    // WINDOWS-STYLE / FLAGS
+    //  WINDOWS /flag
     // =========================================================================
 
-    suite.equal::<string>("/Wall windows style flag", "pass", fn () -> string {
-        var r = parse("/Wall");
-        if !Command::has_flag(r, Command::FlagType::WALL) {
-            return "expected WALL from /Wall";
-        }
+    suite.equal::<string>("/Wall", "pass", fn () -> string {
+        var r = cmd.parse_string("/Wall main.kro");
+        if !r.get_bool("wall") { return "expected wall=true from /Wall"; }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("/g windows style short flag", "pass", fn () -> string {
-        var r = parse("/g");
-        if !Command::has_flag(r, Command::FlagType::DEBUG_ON) {
-            return "expected DEBUG_ON from /g";
-        }
+    suite.equal::<string>("/g", "pass", fn () -> string {
+        var r = cmd.parse_string("/g main.kro");
+        if !r.get_bool("debug") { return "expected debug=true from /g"; }
         return "pass";
     }, 1000);
 
     // =========================================================================
-    // ERROR CASES (errors go to DiagEngine, not panics)
+    //  REAL-WORLD INVOCATIONS
     // =========================================================================
 
-    suite.equal::<string>("unknown flag emits U002E", "pass", fn () -> string {
-        var local_diag = DiagEngine();
-        var local_cmd  = Command(&local_diag);
-        local_cmd.tokenize("--foo-bar-unknown main.kro");
-        if !local_diag.has_errors() {
-            return "expected U002E error for unknown flag '--foo-bar-unknown' ";
+    suite.equal::<string>("release build", "pass", fn () -> string {
+        var r = cmd.parse_string("-O3 -Wall -Wextra --output=./app --profile=release main.kro util.kro");
+        if r.get_i32("opt") != 3             { return "opt"; }
+        if !r.get_bool("wall")               { return "wall"; }
+        if !r.get_bool("wextra")             { return "wextra"; }
+        if r.get_string("output") != "./app" { return "output"; }
+        if r.files.size() != 2              { return f"files: {r.files.size()}"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("cross-compile", "pass", fn () -> string {
+        var r = cmd.parse_string("--target=aarch64-linux-gnu --march=armv8-a -O2 -g main.kro");
+        if r.get_string("target") != "aarch64-linux-gnu" { return "target"; }
+        if r.get_string("march")  != "armv8-a"           { return "march"; }
+        if r.get_i32("opt") != 2                          { return "opt"; }
+        if !r.get_bool("debug")                           { return "debug"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("kairo test.kro -I something -Lotherlib", "pass", fn () -> string {
+        var r = cmd.parse_string("test.kro -I something -Lotherlib");
+        if r.files.size() != 1                      { return f"files: {r.files.size()}"; }
+        if r.files[0] != "test.kro"                 { return f"file: '{r.files[0]}' "; }
+        if r.get_list("include-dirs").size() != 1   { return "include-dirs count"; }
+        if r.get_list("include-dirs")[0] != "something" { return "include value"; }
+        if r.get_list("lib-dirs").size() != 1       { return "lib-dirs count"; }
+        if r.get_list("lib-dirs")[0] != "otherlib"  { return "lib value"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("asan build", "pass", fn () -> string {
+        var r = cmd.parse_string("-fsanitize=address -fno-omit-frame-pointer -g main.kro");
+        if r.get_list("sanitize").size() == 0         { return "sanitize list empty"; }
+        if r.get_list("sanitize")[0] != "address"     { return "sanitize value"; }
+        if !r.get_bool("no-omit-fp")                  { return "no-omit-fp"; }
+        if !r.get_bool("debug")                       { return "debug"; }
+        return "pass";
+    }, 1000);
+
+    // =========================================================================
+    //  ERROR CASES
+    // =========================================================================
+
+    suite.equal::<string>("unknown flag → U002E, ok=false", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        var r = c.parse_string("--totally-unknown main.kro");
+        if !d->has_errors() { std::destroy(d); return "expected U002E"; }
+        if r.ok            { std::destroy(d); return "expected ok=false"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    suite.equal::<string>("'/-' prefix → U003E", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        c.parse_string("/-g");
+        if !d->has_errors() { std::destroy(d); return "expected U003E"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    suite.equal::<string>("required --output missing → U004E", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        var r = c.parse_string("main.kro");
+        if !d->has_errors() { std::destroy(d); return "expected required-field error"; }
+        if r.ok            { std::destroy(d); return "expected ok=false"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    suite.equal::<string>("no files → required-file error", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        var r = c.parse_string("-g --output=app");
+        if !d->has_errors() { std::destroy(d); return "expected required-file error"; }
+        if r.ok            { std::destroy(d); return "expected ok=false"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    suite.equal::<string>("known flags only → no errors", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        // suppress the required-field errors by providing required flags
+        c.parse_string("-g -O2 --verbose --output=app main.kro");
+        if d->has_errors() {
+            std::destroy(d); return f"unexpected {d->error_count()} error(s) for valid input";
+        }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    // // =========================================================================
+    // //  HELP GENERATION  (smoke)
+    // =========================================================================
+    //  FEATURE FLAGS  (-f{name} / -fno-{name}  →  get_feature returns -1/0/1)
+    // =========================================================================
+
+    suite.equal::<string>("-funsafe enables feature", "pass", fn () -> string {
+        var r = cmd.parse_string("-funsafe main.kro");
+        if r.get_feature("unsafe") != 1 {
+            return f"expected 1 (enabled), got {r.get_feature("unsafe")}";
         }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("known flags do not error", "pass", fn () -> string {
-        var local_diag = DiagEngine();
-        var local_cmd  = Command(&local_diag);
-        local_cmd.tokenize("-g -O2 --verbose main.kro");
-        if local_diag.has_errors() {
-            return f"unexpected error(s) for valid flags: {local_diag.error_count()} error(s)";
+    suite.equal::<string>("-fno-unsafe disables feature", "pass", fn () -> string {
+        var r = cmd.parse_string("-fno-unsafe main.kro");
+        if r.get_feature("unsafe") != 0 {
+            return f"expected 0 (disabled), got {r.get_feature("unsafe")}";
         }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("invalid /- prefix emits U003E", "pass", fn () -> string {
-        var local_diag = DiagEngine();
-        var local_cmd  = Command(&local_diag);
-        local_cmd.tokenize("/-g");
-        if !local_diag.has_errors() {
-            return "expected U003E error for '/-' prefix";
+    suite.equal::<string>("feature unset = -1", "pass", fn () -> string {
+        var r = cmd.parse_string("main.kro");
+        if r.get_feature("unsafe") != -1 {
+            return f"expected -1 (unset), got {r.get_feature("unsafe")}";
         }
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("empty input produces no flags and no errors", "pass", fn () -> string {
-        var local_diag = DiagEngine();
-        var local_cmd  = Command(&local_diag);
-        var r = local_cmd.tokenize("   ");
-        if r.flags.size() != 0  { return f"expected 0 flags, got {r.flags.size()}"; }
-        if r.files.size() != 0  { return f"expected 0 files, got {r.files.size()}"; }
-        if local_diag.has_errors() { return "unexpected errors on empty input"; }
+    suite.equal::<string>("-finline enable", "pass", fn () -> string {
+        var r = cmd.parse_string("-finline main.kro");
+        if r.get_feature("inline") != 1 { return "expected inline=1"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("-fno-inline disable", "pass", fn () -> string {
+        var r = cmd.parse_string("-fno-inline main.kro");
+        if r.get_feature("inline") != 0 { return "expected inline=0"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("multiple features in one invocation", "pass", fn () -> string {
+        var r = cmd.parse_string("-funsafe -fno-exceptions -fstrict-null main.kro");
+        if r.get_feature("unsafe")     !=  1 { return "unsafe"; }
+        if r.get_feature("exceptions") !=  0 { return "exceptions"; }
+        if r.get_feature("strict-null") != 1 { return "strict-null"; }
+        return "pass";
+    }, 1000);
+
+    // =========================================================================
+    //  CONFIG FLAGS  (--c{key}=value  →  get_cfg_*)
+    // =========================================================================
+
+    suite.equal::<string>("--cmax-recursion-depth=128", "pass", fn () -> string {
+        var r = cmd.parse_string("--cmax-recursion-depth=128 main.kro");
+        if r.get_cfg_i32("max-recursion-depth") != 128 {
+            return f"expected 128, got {r.get_cfg_i32("max-recursion-depth")}";
+        }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("--cmax-errors=0 (unlimited)", "pass", fn () -> string {
+        var r = cmd.parse_string("--cmax-errors=0 main.kro");
+        if r.get_cfg_i32("max-errors") != 0 {
+            return f"expected 0, got {r.get_cfg_i32("max-errors")}";
+        }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("--cinline-cost=2.5", "pass", fn () -> string {
+        var r = cmd.parse_string("--cinline-cost=2.5 main.kro");
+        var v = r.get_cfg_f64("inline-cost");
+        if (v < 2.4) || (v > 2.6) {
+            return f"expected ~2.5, got {v}";
+        }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("--cerror-format=json", "pass", fn () -> string {
+        var r = cmd.parse_string("--cerror-format=json main.kro");
+        if r.get_cfg_str("error-format") != "json" {
+            return f"expected 'json', got '{r.get_cfg_str("error-format")}' ";
+        }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("config i32 out-of-bounds → error", "pass", fn () -> string {
+        var pair = fresh();
+        var d = libcxx::get::<0>(pair);
+        var c = libcxx::get::<1>(pair);
+        c.parse_string("--cmax-recursion-depth=99999 main.kro");
+        if !d->has_errors() { std::destroy(d); return "expected bounds error"; }
+        std::destroy(d); return "pass";
+    }, 1000);
+
+    suite.equal::<string>("config default unchanged when absent", "pass", fn () -> string {
+        var r = cmd.parse_string("main.kro");
+        if r.get_cfg_i32("max-recursion-depth") != 256 {
+            return f"expected default 256, got {r.get_cfg_i32("max-recursion-depth")}";
+        }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("cfg_is_set false when not provided", "pass", fn () -> string {
+        var r = cmd.parse_string("main.kro");
+        if r.cfg_is_set("max-errors") { return "expected cfg not set"; }
+        return "pass";
+    }, 1000);
+
+    suite.equal::<string>("cfg_is_set true when provided", "pass", fn () -> string {
+        var r = cmd.parse_string("--cmax-errors=10 main.kro");
+        if !r.cfg_is_set("max-errors") { return "expected cfg to be set"; }
         return "pass";
     }, 1000);
 
