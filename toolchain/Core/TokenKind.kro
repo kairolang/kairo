@@ -56,7 +56,7 @@ enum TokenKind derives u32 {
     ///               "$" is an illegal token in kairo
     ///
     /// we are using directly what compute_hash would return since the bootstrap
-    ///    compiler does not let use use r"{" and r"}" for some reason, and
+    ///    compiler does not allow us to use r"{" and r"}" for some reason, and
     ///    it completely changes.
     ///
     ///===----------------------------------------------------------------===///

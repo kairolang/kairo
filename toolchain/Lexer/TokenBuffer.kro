@@ -88,6 +88,7 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
             }
 
             if (*token) == TokenKind::TkError {
+                // FIXME: this should be handled by the DiagEngine and not here
                 std::print(f"Invalid token found at {token->range} expected a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' token\n");
             }
         }

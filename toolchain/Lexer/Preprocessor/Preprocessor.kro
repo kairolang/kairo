@@ -274,6 +274,9 @@ import Lexer::TokenSpan::*;
 import Lexer::Preprocessor::ImportResolver::*;
 import Lexer::Preprocessor::MacroDefinitionCollector::*;
 import Lexer::Preprocessor::ExpansionContext::*;
+import Core::Diagnostics::Consumers::BasicDiagConsumer::*;
+import Core::Diagnostics::DiagEngine::*;
+import Core::Diagnostics::DiagRegistry::*;
 
 enum MacroSentinel derives u32 {
     NoParent    = static_cast::<u32>(-1),
@@ -298,7 +301,7 @@ class ImportProcessor {
     priv var _macro_proc:   *PreProcessor;            ///< back-pointer for recursive preprocess_file
     priv var _skip_lists:   *map::<u32, SkipList>;
     priv var _file_states:   map::<u32, FileImportState>; ///< per-file import state
-    priv var _diagnostics:   vec::<string>;               ///< accumulated errors/warnings
+    priv var _diag:          *DiagEngine;                  ///< shared diagnostic engine
 
     default fn ImportProcessor(self);
 
@@ -310,7 +313,8 @@ class ImportProcessor {
         sym_table:   *PreprocessorSymbolTable,
         macro_table: *MacroSymbolTable,
         skip_lists:  *map::<u32, SkipList>,
-        macro_proc:  *PreProcessor
+        macro_proc:  *PreProcessor,
+        diag:        *DiagEngine
     )  {
         self._sm          = sm;
         self._tcm         = tcm;
@@ -319,11 +323,11 @@ class ImportProcessor {
         self._macro_table = macro_table;
         self._macro_proc  = macro_proc;
         self._skip_lists  = skip_lists;
+        self._diag        = diag;
     }
 
     fn process_file(self, fid: u32, module_base: ModulePath) -> bool;
     fn get_file_state(self, fid: u32) -> *FileImportState;
-    fn get_diagnostics(self) -> ref!(vec::<string>);
     fn has_errors(self) -> bool;
 
     priv fn skip_ffi(self, tokens: *(TokenBuffer::<512>), start: usize) -> usize;
@@ -412,7 +416,7 @@ class ImportProcessor {
 ///
 class MacroExpander {
     priv var _scope:          ModulePath; ///< current scope during expansion (updated by scope tracker)
-    priv var _diagnostics:    vec::<string>;
+    priv var _diag:          *DiagEngine;
     priv var _sm:            *SourceManager;
     priv var _sym_table:     *PreprocessorSymbolTable;
     priv var _macro_table:   *MacroSymbolTable;
@@ -424,14 +428,6 @@ class MacroExpander {
     priv var _fid:            u32;
     priv var _unique_counter: u32 = 0;
 
-    struct PendingDiag {
-        var level: DiagnosticLevel;
-        var msg:   string;
-        var range: SourceRange;
-    }
-
-    priv var _pending_diags: vec::<PendingDiag>;
-
     fn MacroExpander(
         self,
         sm:          *SourceManager,
@@ -440,7 +436,8 @@ class MacroExpander {
         import_proc: *ImportProcessor,
         skip_list:   *SkipList,
         imm_table:   *ImmediateTable,
-        lexer:       *Lexer
+        lexer:       *Lexer,
+        diag:        *DiagEngine
     ) {
         self._sm          = sm;
         self._sym_table   = sym_table;
@@ -449,6 +446,7 @@ class MacroExpander {
         self._skip_list   = skip_list;
         self._imm_table   = imm_table;
         self._lexer       = lexer;
+        self._diag        = diag;
         self._parent_ex_idx = static_cast::<u32>(MacroSentinel::NoParent);
         Logger::info(Logger::Stage::Preprocessor, "MacroExpander: initialized");
     }
@@ -545,7 +543,7 @@ class MacroExpander {
         var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
         var out  = std::create::<TokenBuffer::<512>>();
         if args.size() == 0 {
-            self.error(tokens->get(invoke.start_index), "first!() requires at least one argument");
+            self.error(tokens->get(invoke.start_index), "builtin 'first!()' requires at least one argument", DiagID::R009E);
             return out;
         }
         for i in usize(0) .. usize(args[0].size()) {
@@ -558,7 +556,7 @@ class MacroExpander {
         var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
         var out  = std::create::<TokenBuffer::<512>>();
         if args.size() == 0 {
-            self.error(tokens->get(invoke.start_index), "last!() requires at least one argument");
+            self.error(tokens->get(invoke.start_index), "builtin 'last!()' requires at least one argument", DiagID::R009E);
             return out;
         }
         var last = &(args[args.size() - 1]);
@@ -641,20 +639,20 @@ class MacroExpander {
         var out  = std::create::<TokenBuffer::<512>>();
 
         if args.size() != 1 {
-            self.error(tokens->get(invoke.start_index), "unstringify!() requires exactly one string argument");
+            self.error(tokens->get(invoke.start_index), "builtin 'unstringify!()' requires exactly one string argument", DiagID::R009E);
             return out;
         }
 
         // get the string token
         var str_tok = args[0].get(0);
         if self.get_effective_kind(str_tok) != TokenKind::LitString {
-            self.error(str_tok, "unstringify!() argument must be a string literal");
+            self.error(str_tok, "builtin 'unstringify!()' argument must be a string literal", DiagID::R009E);
             return out;
         }
 
         // re-lex the string body into tokens
         if self._lexer == &null {
-            self.error(str_tok, "unstringify!(): could not re-lex string content (no lexer available)");
+            self.error(str_tok, "builtin 'unstringify!()': could not re-lex string content (no lexer available)", DiagID::R009E);
             return out;
         }
         
@@ -672,7 +670,7 @@ class MacroExpander {
                     if t->kind != TokenKind::TkError {
                         out->append(*t);
                     } else {
-                        self.error(str_tok, f"unstringify!(): lex error in string content");
+                        self.error(str_tok, f"builtin 'unstringify!()': lex error in string content", DiagID::R009E);
                     }
                 }
                 std::destroy(lexed);
@@ -681,7 +679,7 @@ class MacroExpander {
         }
 
         // fallback: just pass the string token through
-        self.error(str_tok, "unstringify!(): could not re-lex string content (no lexer available)");
+        self.error(str_tok, "builtin 'unstringify!()': could not re-lex string content (no lexer available)", DiagID::R009E);
         return out;
     }
 
@@ -795,7 +793,7 @@ class MacroExpander {
         self,
         tokens: *(TokenBuffer::<512>),
         invoke: InvocationInfo,
-        level:  DiagnosticLevel
+        level:  DiagSeverity
     ) -> *(TokenBuffer::<512>) {
         var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
         if args.size() > 0 {
@@ -803,11 +801,13 @@ class MacroExpander {
             for i in usize(0) .. usize(args[0].size()) {
                 msg += self._sm->get_text(args[0].get(i)->range);
             }
-            self._pending_diags.push_back(PendingDiag{
-                level:  level,
-                msg:    msg,
-                range:  invoke.name.token->range
-            });
+            var range  = invoke.name.token->range;
+            var code   = DiagCode(DiagID::R010E)
+                if (level == DiagSeverity::Error)
+                else DiagCode(DiagID::R010W)
+                if (level == DiagSeverity::Warning)
+                else DiagCode(DiagID::R010N);
+            self._diag->report(code, range.start, msg).first(range).emit();
         }
         return std::create::<TokenBuffer::<512>>();
     }
@@ -815,10 +815,6 @@ class MacroExpander {
     // =====================================================================
     //  PUBLIC API
     // =====================================================================
-
-    fn get_pending_diags(self) -> ref!(vec::<PendingDiag>) {
-        return self._pending_diags;
-    }
 
     /// \brief expands all macro invocations in the given token buffer.
     /// \param tokens  the token buffer to expand (from TCM)
@@ -889,14 +885,14 @@ class MacroExpander {
                 // validate: parens vs no-parens
 
                 if (def->accepts_params) && (!invoke.has_args) {
-                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' requires arguments");
+                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' requires arguments but was invoked without any; add '(...)' ", DiagID::R006E);
                     output->append(*tok);
                     i += 1;
                     continue;
                 }
 
                 if (!def->accepts_params) && (invoke.has_args) {
-                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' does not accept arguments");
+                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' is parameterless and does not accept arguments; remove the '(...)' ", DiagID::R007E);
                     output->append(*tok);
                     i += 1;
                     continue;
@@ -937,12 +933,8 @@ class MacroExpander {
         return output;
     }
 
-    fn get_diagnostics(self) -> ref!(vec::<string>) {
-        return self._diagnostics;
-    }
-
     fn has_errors(self) -> bool {
-        return self._diagnostics.size() > 0;
+        return self._diag->has_errors();
     }
 
     /// \brief detects if tokens[i] starts a macro invocation.
@@ -1119,9 +1111,9 @@ class MacroExpander {
         if name == "embed"       { return self.builtin_embed(tokens, invoke); }
 
         // ── diagnostics (deferred emit nothing now) ───────────────────────
-        if name == "error"   { return self.builtin_diag(tokens, invoke, DiagnosticLevel::Error); }
-        if name == "warning" { return self.builtin_diag(tokens, invoke, DiagnosticLevel::Warning); }
-        if name == "note"    { return self.builtin_diag(tokens, invoke, DiagnosticLevel::Note); }
+        if name == "error"   { return self.builtin_diag(tokens, invoke, DiagSeverity::Error); }
+        if name == "warning" { return self.builtin_diag(tokens, invoke, DiagSeverity::Warning); }
+        if name == "note"    { return self.builtin_diag(tokens, invoke, DiagSeverity::Note); }
 
         return &null; // not a builtin
     }
@@ -1573,15 +1565,14 @@ class MacroExpander {
     //  DIAGNOSTICS
     // =====================================================================
 
-    priv fn error(self, tok: *Token, msg: string) {
+    priv fn error(self, tok: *Token, msg: string, code: DiagID = DiagID::R008E) {
         if tok == &null {
-            self._diagnostics.push_back(f"MacroExpander: <unknown>: error: {msg}");
+            self._diag->report(DiagCode(code), msg).emit();
             return;
         }
-        var full_loc = self._sm->get_full_loc(tok->range.start);
-        var loc_str  = f"{self._sm->get_filename(full_loc.file_id)}:{full_loc.line}:{full_loc.column}";
-        Logger::error(Logger::Stage::Preprocessor, f"MacroExpander: {loc_str}: {msg}");
-        self._diagnostics.push_back(f"MacroExpander: {loc_str}: error: {msg}");
+        Logger::error(Logger::Stage::Preprocessor, f"MacroExpander: {msg}");
+        self._diag->report(DiagCode(code), tok->range.start, msg)
+            .first(tok->range).emit();
     }
 
     priv fn name_str(self, id: SymbolID) -> string {
@@ -1632,6 +1623,7 @@ class PreProcessor {
     var _macro_table:  *MacroSymbolTable;
     var _sm:           *SourceManager;
     var _tcm:          *TokenCacheManager;
+    var _diag:         *DiagEngine;
 
     var _pool:     *ThreadPool;
     var _resolver: *ImportResolver;
@@ -1641,14 +1633,15 @@ class PreProcessor {
     var _processed:      set::<u32>;                    ///< files fully processed
     var _skip_lists:     map::<u32, SkipList>;
 
-    fn PreProcessor(self, sm: *SourceManager,  tcm:  *TokenCacheManager,
-                      resolver: *ImportResolver, pool: *ThreadPool) {
+    fn PreProcessor(self, sm: *SourceManager, tcm: *TokenCacheManager,
+                    resolver: *ImportResolver, pool: *ThreadPool, diag: *DiagEngine) {
         self._pp_sym_table = std::create::<PreprocessorSymbolTable>();
         self._macro_table  = std::create::<MacroSymbolTable>();
         self._sm           = sm;
         self._tcm          = tcm;
         self._resolver     = resolver;
         self._pool         = pool;
+        self._diag         = diag;
 
         self._processing   = set::<u32>();
         self._processed    = set::<u32>();
@@ -1659,7 +1652,8 @@ class PreProcessor {
             self._pp_sym_table,
             self._macro_table,
             &self._skip_lists,
-            &self
+            &self,
+            diag
         );
 
         Logger::info(Logger::Stage::Preprocessor, "PreProcessor: initialized");
@@ -1719,9 +1713,7 @@ class PreProcessor {
         // ── Phase 1: Lex + scan imports ────────────────────────────────
         Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 1 imports");
         if (!self._import_proc.process_file(fid, module_path)) {
-            for diag in self._import_proc.get_diagnostics() {
-                std::print(diag);
-            }
+            // errors were dispatched to DiagEngine already
             self._processing.erase(fid);
             return false;
         }
@@ -1734,14 +1726,12 @@ class PreProcessor {
             var collector   = MacroDefinitionCollector(
                 self._pp_sym_table,
                 self._macro_table,
-                self._sm
+                self._sm,
+                self._diag
             );
 
-            if (!collector.collect(tokens, fid, &def_tracker, skip_list)) {
-                for diag in collector.get_diagnostics() {
-                    std::print(diag);
-                }
-            }
+            collector.collect(tokens, fid, &def_tracker, skip_list);
+            // errors were dispatched to DiagEngine by the collector
         }
 
         // ── Phase 3: Expand macro invocations ──────────────────────────
@@ -1751,8 +1741,8 @@ class PreProcessor {
             if tokens != &null {
                 skip_list->finalize();  // sort dead zones before expansion
 
-                var lexer_ptr = self._tcm->get_lexer(fid); // need this getter see below
-                var imm_ptr = lexer_ptr->get_imm_tbl();
+                var lexer_ptr = self._tcm->get_lexer(fid);
+                var imm_ptr   = lexer_ptr->get_imm_tbl();
 
                 var expander = MacroExpander(
                     self._sm,
@@ -1761,7 +1751,8 @@ class PreProcessor {
                     &(self._import_proc),
                     skip_list,
                     imm_ptr,
-                    lexer_ptr
+                    lexer_ptr,
+                    self._diag
                 );
 
                 var expanded = expander.expand(tokens, fid, module_path);
@@ -1770,12 +1761,7 @@ class PreProcessor {
                     self._tcm->replace_tokens(fid, expanded);
                     Logger::info(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} expansion replaced tokens");
                 }
-
-                if (expander.has_errors()) {
-                    for diag in expander.get_diagnostics() {
-                        std::print(diag);
-                    }
-                }
+                // errors were dispatched to DiagEngine by the expander
             }
         }
 
@@ -1811,7 +1797,7 @@ class PreProcessor {
 
     static fn get_invoke_range(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager) -> SourceRange {
         var imm_table = tcm->get_imm_table_for_token(tok, sm);
-        if tok.kind != TokenKind::TkMacroExpand || imm_table == &null {
+        if (tok.kind != TokenKind::TkMacroExpand) || (imm_table == &null) {
             return tok.range;
         }
         var info = imm_table->get::<Immediate::MacroExpansionInfo>(tok.imm);
@@ -1820,7 +1806,7 @@ class PreProcessor {
 
     static fn get_def_range(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager) -> SourceRange {
         var imm_table = tcm->get_imm_table_for_token(tok, sm);
-        if tok.kind != TokenKind::TkMacroExpand || imm_table == &null {
+        if (tok.kind != TokenKind::TkMacroExpand) || (imm_table == &null) {
             return tok.range;
         }
 
@@ -1901,17 +1887,15 @@ fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
     Logger::info(Logger::Stage::Preprocessor, f"ImportProcessor::process_file: fid={fid}");
     if !self._tcm->lex_file(fid) {
         Logger::error(Logger::Stage::Preprocessor, f"ImportProcessor::process_file: lex failed fid={fid}");
-        self._diagnostics.push_back(
-            f"ImportProcessor: failed to lex file ID {fid}"
-        );
+        self._diag->report(DiagCode(DiagID::R002E),
+            f"failed to lex imported file ID {fid}; check that the file exists and is well-formed").emit();
         return false;
     }
 
     var tokens = self._tcm->get_tokens(fid);
     if tokens == &null {
-        self._diagnostics.push_back(
-            f"ImportProcessor: no tokens for file ID {fid}"
-        );
+        self._diag->report(DiagCode(DiagID::R004E),
+            f"no tokens available for imported file ID {fid}; the token cache may be corrupted").emit();
         return false;
     }
 
@@ -1994,12 +1978,8 @@ fn ImportProcessor::get_file_state(fid: u32) -> *FileImportState {
     return &null;
 }
 
-fn ImportProcessor::get_diagnostics() -> ref!(vec::<string>) {
-    return self._diagnostics;
-}
-
 fn ImportProcessor::has_errors() -> bool {
-    return self._diagnostics.size() > 0;
+    return self._diag->has_errors();
 }
 
 // =========================================================================
@@ -2256,9 +2236,13 @@ priv fn ImportProcessor::resolve_import(
 
     if path_strings.size() == 0 && !parsed->is_wildcard {
         Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
-        std::print( // TODO: this should be a diagnostic not a print
-            f"resolve_import: failed to resolve path [{self.segments_to_string(path_strings)}] for import in fid {src_fid}"
-        );
+        // q: do we have the import tokens avaliable to us?
+        // a: yes, we have the parsed import statement, which includes the tokens and their source ranges
+        // q: how do we get the soruce range of the import statement? SourceRange has a op | overload for union, so we can use that to get the range of the entire import statement
+        self._diag->report(DiagCode(DiagID::R011E), parsed->import_loc.start,
+            f"failed to resolve import path '[{self.segments_to_string(path_strings)}]' ")
+            .first(parsed->import_loc)
+            .emit();
         return;
     }
 
@@ -2266,9 +2250,10 @@ priv fn ImportProcessor::resolve_import(
 
     if resolved.fid == 0 && !resolved.found {
         Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
-        std::print(
-            f"resolve_import: failed to resolve path [{self.segments_to_string(path_strings)}] for import in fid {src_fid}"
-        );
+        self._diag->report(DiagCode(DiagID::R011E), parsed->import_loc.start,
+            f"failed to resolve import path '[{self.segments_to_string(path_strings)}]' ")
+            .first(parsed->import_loc)
+            .emit();
         return;
     }
 
@@ -2400,9 +2385,8 @@ priv fn ImportProcessor::resolve_module_greedy(
                 var fid = self._sm->load_file(path);
                 if fid != 0 {
                     Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_module_greedy: ambiguous module '{self.segments_to_string(try_segments)}' ");
-                    self._diagnostics.push_back(
-                        f"ImportProcessor: ambiguous module '{self.segments_to_string(try_segments)}' both file and directory exist"
-                    );
+                    self._diag->report(DiagCode(DiagID::R005W),
+                        f"ambiguous module '{self.segments_to_string(try_segments)}': both a file and a directory exist for this path; the file will be used").emit();
 
                     result.found = true;
                     result.fid   = fid;
@@ -2525,11 +2509,7 @@ priv fn ImportProcessor::segments_to_string(segments: vec::<string>) -> string {
 fn ImportProcessor::dump_state() -> string {
     var out = "=== ImportProcessor State ===\n";
     out += f"  processed: {self._file_states.size()} files\n";
-    out += f"  diagnostics: {self._diagnostics.size()}\n\n";
-
-    for diag in self._diagnostics {
-        out += f"  [DIAG] {diag}\n";
-    }
+    out += f"  errors: {self._diag->error_count()}, warnings: {self._diag->warn_count()}\n\n";
 
     for entry in self._file_states {
         var fid   = entry.first;
@@ -2603,8 +2583,8 @@ fn Test() -> i32 {
     }
 
     /// helper: preprocess a root file and return the expanded text (tokens joined)
-    fn expand_to_text(sm: *SourceManager, tcm: *TokenCacheManager, resolver: *ImportResolver, pool: *ThreadPool, fid: u32) -> string {
-        var macro_proc = PreProcessor(sm, tcm, resolver, pool);
+    fn expand_to_text(sm: *SourceManager, tcm: *TokenCacheManager, resolver: *ImportResolver, pool: *ThreadPool, fid: u32, diag: *DiagEngine) -> string {
+        var macro_proc = PreProcessor(sm, tcm, resolver, pool, diag);
         macro_proc.preprocess_file(fid, ModulePath(), true);
 
         var tokens = tcm->get_tokens(fid);
@@ -2650,9 +2630,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // should contain "hello" and NOT contain "greet !"
         if !result.contains("hello") {
@@ -2672,9 +2655,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // no invocation output should be exactly the definition tokens (dead zone copied verbatim)
         if result.contains("macro_body_token") {
@@ -2696,9 +2682,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
+        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
         macro_proc.preprocess_file(fid, ModulePath(), true);
 
         // tokens should be unchanged (expand returns null when nothing changed)
@@ -2728,9 +2717,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // count occurrences of "42"
         var count: i32 = 0;
@@ -2757,9 +2749,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("99") {
             return f"expected '99' from nested expansion, got: '{result}' ";
@@ -2778,9 +2773,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if (!result.contains("[ hello ]")) && (!result.contains("[hello]")) {
             // check individual tokens
@@ -2802,9 +2800,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // should expand to: 10 + 20
         if !result.contains("10") || !result.contains("20") || !result.contains("+") {
@@ -2824,9 +2825,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("hi") {
             return f"expected 'hi' in expansion, got: '{result}' ";
@@ -2848,9 +2852,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if (!result.contains("hi")) || (!result.contains("true")) {
             return f"expected 'hi true' in expansion, got: '{result}' ";
@@ -2873,9 +2880,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
+        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
         macro_proc.preprocess_file(fid, ModulePath(), true);
 
         // should have produced an error diagnostic (too few args)
@@ -2895,9 +2905,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
+        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
         macro_proc.preprocess_file(fid, ModulePath(), true);
 
         return "pass";
@@ -2914,9 +2927,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
+        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
         macro_proc.preprocess_file(fid, ModulePath(), true);
 
         // should produce "does not accept arguments" error
@@ -2934,9 +2950,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
+        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
         macro_proc.preprocess_file(fid, ModulePath(), true);
 
         // should produce "requires arguments" error
@@ -2954,9 +2973,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("scoped_val") {
             return f"expected 'scoped_val' from Foo::bar!, got: '{result}' ";
@@ -2975,9 +2997,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("found_it") {
             return f"expected 'found_it' from A::B::deep!, got: '{result}' ";
@@ -2996,9 +3021,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool);
+        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
         macro_proc.preprocess_file(fid, ModulePath(), true);
 
         // should produce a duplicate macro error
@@ -3016,9 +3044,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("from_A") {
             return f"expected 'from_A' from A::mac!, got: '{result}' ";
@@ -3040,9 +3071,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("expanded") {
             return f"expected 'expanded', got: '{result}' ";
@@ -3067,9 +3101,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // should produce: ( x + y ) * ( x - y )
         if !result.contains("x") || !result.contains("y") || !result.contains("*") {
@@ -3089,9 +3126,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // should still contain "not_a_macro" and "!" as tokens
         if !result.contains("not_a_macro") {
@@ -3111,9 +3151,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // macro definition should be in dead zone but still in output
         if !result.contains("macro") {
@@ -3136,9 +3179,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // should have "var x =" but nothing where empty! was
         if !result.contains("var") {
@@ -3158,9 +3204,12 @@ fn Test() -> i32 {
         var resolver = ImportResolver::Builder()
             .cwd((Path::temp_dir()) / "kro_test_macro_preprocessor")
             .create_ptr();
-        var tcm = TokenCacheManager(sm, pool);
+        var diag     = DiagEngine();
+        var consumer = BasicDiagConsumer(sm);
+        diag.add_consumer(&consumer);
+        var tcm = TokenCacheManager(sm, pool, &diag);
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid);
+        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("var") || !result.contains("1") || !result.contains("2") {
             return f"expected multi-statement expansion, got: '{result}' ";

@@ -24,6 +24,8 @@ import Lexer::OctalParser::*;
 
 import Core::Include::SourceManager::*;
 import Core::Include::Testing::*;
+import Core::Diagnostics::DiagEngine::*;
+import Core::Diagnostics::DiagRegistry::*;
 
 /// \brief tracks git merge conflict marker detection state during lexing
 /// \details used to emit clean diagnostics when conflict markers are found
@@ -49,22 +51,6 @@ enum LastTokenKind derives u8 {
     Number,
 }
 
-enum DiagnosticLevel derives u8 {
-    Error,
-    Warning,
-    Note
-}
-
-/// \brief diagnostic category for grouping related errors
-enum DiagnosticCategory derives u8 {
-    Lexer,
-    String,
-    Number,
-    Escape,
-    Balance,
-    Comment
-}
-
 /// \brief utf-8 aware lexer for kairo source files
 /// \details
 ///  - performs tokenization only
@@ -87,7 +73,7 @@ class Lexer {
     var _last_text     : *Token = &null;
     var _last_was_bang :  bool = false;
     pub var _balance   :  BalanceTracker;
-    var _diagnostics   :  libcxx::deque::<string>; // simply stores all diagnostics
+    var _diag          : *DiagEngine = &null;
     var cached_data    :  std::const_ptr::<u8> = &null; // used for lex_slice to avoid repeated file_data() calls
 
     /// \brief lightweight handle over string/char immediates
@@ -386,52 +372,59 @@ class Lexer {
             }
 
             if token.kind == TokenKind::TkError {
-                self.report_error::<i32>(token);
+                self._diag->report(DiagCode(DiagID::S011E), token.range.start,
+                    f"invalid token '{self._sm->get_text(token.range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token.imm))}' ")
+                    .first(token.range).emit();
             }
         }
 
         // finalize balance checking
         self._balance.finalize();
 
-        Logger::info(Logger::Stage::Lexer, f"Lexer::lex: fid={fid} tokens={self._tokens.size()} errors={self._diagnostics.size()}");
+        Logger::info(Logger::Stage::Lexer, f"Lexer::lex: fid={fid} tokens={self._tokens.size()} errors={self._diag->error_count()}");
         return true;
     }
 
-    /// \brief emits errors for invalid tokens found during lexing
-    /// \details currently only handles TkError tokens
+    /// \brief routes balance-tracker errors through the diagnostic engine
+    /// \details call this after lex() to flush any unclosed/mismatched delimiter errors
     fn emit_errors(self) {
-        Logger::debug(Logger::Stage::Lexer, f"Lexer::emit_errors: balance_errors={self._balance.errors.size()} diagnostics={self._diagnostics.size()}");
-        // balance errors
+        Logger::debug(Logger::Stage::Lexer, f"Lexer::emit_errors: balance_errors={self._balance.errors.size()}");
+
         for var i: usize = 0; i < self._balance.errors.size(); ++i {
-            var err = self._balance.errors[i];
-            
+            var err      = self._balance.errors[i];
+            var open_range = SourceRange::from_bounds(err.open_loc, err.open_loc);
+            var err_range  = SourceRange::from_bounds(err.loc, err.loc);
+
             switch err.kind {
                 case BalanceTracker::BalanceErrorKind::Unclosed {
-                    if err.is_macro {
-                        std::print(f"Error: unclosed macro invocation at {(self._sm->get_line_col(err.open_loc)) as string}, expected '{token_kind_to_readable_string(err.expected)}'\n");
-                        std::print(f">>> {self._sm->get_full_line(err.open_loc)}\n");
-                    } else {
-                        std::print(f"Error: unclosed delimiter at {(self._sm->get_line_col(err.open_loc)) as string}, expected '{token_kind_to_readable_string(err.expected)}'\n");
-                        std::print(f">>> {self._sm->get_full_line(err.open_loc)}\n");
-                    }
+                    var msg = (f"unclosed macro invocation delimiter; expected '{token_kind_to_readable_string(err.expected)}' ")
+                        if err.is_macro
+                        else (f"unclosed delimiter; expected '{token_kind_to_readable_string(err.expected)}' ");
+
+                    var code: DiagID;
+                    if      err.expected == TokenKind::OpRParen  { code = DiagID::S019E; }
+                    else if err.expected == TokenKind::OpRSquare { code = DiagID::S020E; }
+                    else                                          { code = DiagID::S021E; }
+
+                    self._diag->report(DiagCode(code), err.open_loc, msg)
+                        .first(open_range, "opened here").emit();
+
                 } case BalanceTracker::BalanceErrorKind::Unexpected {
-                    std::print(f"Error: unexpected '{token_kind_to_readable_string(err.found)}' at {(self._sm->get_line_col(err.loc)) as string} with no matching opener\n");
-                    std::print(f">>> {self._sm->get_full_line(err.loc)}\n");
+                    self._diag->report(DiagCode(DiagID::S034E), err.loc,
+                        f"unexpected '{token_kind_to_readable_string(err.found)}' with no matching opener")
+                        .first(err_range).emit();
+
                 } case BalanceTracker::BalanceErrorKind::Mismatched {
-                    if err.is_macro {
-                        std::print(f"Error: mismatched delimiter in macro at {(self._sm->get_line_col(err.loc)) as string}: expected '{token_kind_to_readable_string(err.expected)}' to close macro opened at {(self._sm->get_line_col(err.open_loc)) as string}, found '{token_kind_to_readable_string(err.found)}'\n");
-                        std::print(f">>> {self._sm->get_full_line(err.loc)}\n");
-                    } else {
-                        std::print(f"Error: mismatched delimiter at {(self._sm->get_line_col(err.loc)) as string}: expected '{token_kind_to_readable_string(err.expected)}' to close '{(self._sm->get_line_col(err.open_loc)) as string}', found '{token_kind_to_readable_string(err.found)}'\n");
-                        std::print(f">>> {self._sm->get_full_line(err.loc)}\n");
-                    }
+                    var msg = (f"mismatched macro delimiter: expected '{token_kind_to_readable_string(err.expected)}' to close macro, found '{token_kind_to_readable_string(err.found)}' ")
+                        if err.is_macro
+                        else (f"mismatched delimiter: expected '{token_kind_to_readable_string(err.expected)}', found '{token_kind_to_readable_string(err.found)}' ");
+
+                    self._diag->report(DiagCode(DiagID::S035E), err.loc, msg)
+                        .first(err_range)
+                        .second(open_range, "opened here") // TODO: should this be a sub error or a second note?
+                        .emit();
                 }
             }
-        }
-        
-        // other diagnostics
-        for var i: usize = 0; i < self._diagnostics.size(); ++i {
-            std::print(f"{self._diagnostics[i]}\n");
         }
     }
 
@@ -476,12 +469,14 @@ class Lexer {
             }
         }
 
-        // rather then emit the errors we add them to the main lexer's error list
+        // route invalid tokens from the slice through the diagnostic engine
         for var i: usize = 0; i < tokens->size(); ++i {
             var token = tokens->get(i);
 
             if (token->kind) == TokenKind::TkError {
-                self.report_error::<i32>(*token);
+                self._diag->report(DiagCode(DiagID::S011E), token->range.start,
+                    f"invalid token '{self._sm->get_text(token->range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' ")
+                    .first(token->range).emit();
             }
         }
 
@@ -503,9 +498,10 @@ class Lexer {
     /// \param sm source manager pointer
     /// \param pool thread pool pointer
     /// \returns initialized lexer
-    fn Lexer(self, sm: *SourceManager, pool: *ThreadPool) {
-        self._sm = sm;
+    fn Lexer(self, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) {
+        self._sm   = sm;
         self._pool = pool;
+        self._diag = diag;
         self._imm_tbl.initialize(sm);
         self._initialized = false; // we only initialize on lex call
         Logger::info(Logger::Stage::Lexer, "Lexer: initialized");
@@ -1506,13 +1502,11 @@ class Lexer {
         if d.chr != 0x22 && d.chr != 0x27 {
             ctx.has_error = true;
             Logger::error(Logger::Stage::Lexer, f"Lexer::scan_text_body: unterminated string at fid={self._fid} cursor={self._cursor}");
-            ctx.error_token = self.report_error::<Token>(
-                DiagnosticCategory::String,
-                DiagnosticLevel::Error,
-                SourceRange::from_bounds(start, self.get_source_location()),
-                "StringError: Expected string delimiter ' or \"",
-                self.create_error_token(start, TokenKind::LitString)
-            );
+            var _r015 = SourceRange::from_bounds(start, self.get_source_location());
+            self._diag->report(DiagCode(DiagID::S015E), _r015.start,
+                f"expected string or character literal delimiter ('{0x22 as char}' or '{0x27 as char}')")
+                .first(_r015).emit();
+            ctx.error_token = self.create_error_token(start, TokenKind::LitString);
             return ctx;
         }
 
@@ -1590,15 +1584,13 @@ class Lexer {
                 case 0x7d { // } - this is only called if our format depth is 0
                     if ctx.is_format {
                         ctx.has_error = true;
-                        self.report_error::<i32>(
-                            DiagnosticCategory::String,
-                            DiagnosticLevel::Error,
-                            SourceRange::from_bounds(
-                                self.get_source_location(),
-                                self.get_source_location(self._cursor + d.len)
-                            ),
-                            "StringError: Unmatched '}' in string literal"
+                        var _r016 = SourceRange::from_bounds(
+                            self.get_source_location(),
+                            self.get_source_location(self._cursor + d.len)
                         );
+                        self._diag->report(DiagCode(DiagID::S016E), _r016.start,
+                            "unmatched '}' in format string literal; use '\\\\}' for a literal brace")
+                            .first(_r016).emit();
                     }
 
                     self.advance_cursor(d.len);
@@ -1609,15 +1601,7 @@ class Lexer {
                     self.advance_cursor(d.len);
                     if !self.is_valid_escape(esc_start, ctx.is_bytes, ctx.is_format) {
                         ctx.has_error = true;
-                        self.report_error::<i32>(
-                            DiagnosticCategory::Escape,
-                            DiagnosticLevel::Error,
-                            SourceRange::from_bounds(
-                                esc_start,
-                                self.get_source_location()
-                            ),
-                            "StringError: Invalid escape sequence in string literal"
-                        );
+                        // is_valid_escape already emitted the specific diagnostic
                     }
                 }
 
@@ -1628,15 +1612,10 @@ class Lexer {
         }
 
         ctx.has_error = true;
-        self.report_error::<i32>(
-            DiagnosticCategory::String,
-            DiagnosticLevel::Error,
-            SourceRange::from_bounds(
-                ctx.start,
-                self.get_source_location()
-            ),
-            "StringError: Unterminated string literal"
-        );
+        var _r012 = SourceRange::from_bounds(ctx.start, self.get_source_location());
+        self._diag->report(DiagCode(DiagID::S012E), _r012.start,
+            f"unterminated string literal; add a closing '{0x22 as char}' to end the string")
+            .first(_r012).emit();
     }
 
     inline priv fn scan_format_expr(self, ctx: ref!(TextCtx), d: DecodeResult) {
@@ -1663,15 +1642,13 @@ class Lexer {
 
             case 0x0a {  // newline
                 ctx.has_error = true;
-                self.report_error::<i32>(
-                    DiagnosticCategory::String,
-                    DiagnosticLevel::Error,
-                    SourceRange::from_bounds(
-                        self.get_source_location(),
-                        self.get_source_location(self._cursor + d.len)
-                    ),
-                    "StringError: Newline in format string expression"
+                var _r018 = SourceRange::from_bounds(
+                    self.get_source_location(),
+                    self.get_source_location(self._cursor + d.len)
                 );
+                self._diag->report(DiagCode(DiagID::S018E), _r018.start,
+                    "newline inside format string interpolation expression; expressions must be on a single line")
+                    .first(_r018).emit();
                 self.advance_cursor(d.len);
             }
 
@@ -1876,13 +1853,10 @@ class Lexer {
                     self.get_source_location()
                 );
 
-                return self.report_error::<bool>(
-                    DiagnosticCategory::Escape,
-                    DiagnosticLevel::Error,
-                    range,
-                    "StringError: Invalid escape sequence in non-format string",
-                    false
-                );
+                self._diag->report(DiagCode(DiagID::S022E), range.start,
+                    "'\\{' and '\\}' escapes are only valid inside format strings (f\"...\"); remove the backslash or use an f-string prefix")
+                    .first(range).emit();
+                return false;
             }
 
             case 'x': case 'X' { // both // \xHH (exactly 2 hex digits)
@@ -1897,13 +1871,10 @@ class Lexer {
                         );
 
                         self.advance_cursor(chars[i].len);
-                        return self.report_error::<bool>(
-                            DiagnosticCategory::Escape,
-                            DiagnosticLevel::Error,
-                            range,
-                            f"StringError: Invalid hex escape sequence '{self._sm->get_text(range)}' ",
-                            false
-                        );
+                        self._diag->report(DiagCode(DiagID::S023E), range.start,
+                            f"invalid '\\x' hex escape '{self._sm->get_text(range)}': expected exactly 2 hex digits (0-9, a-f, A-F)")
+                            .first(range).emit();
+                        return false;
                     }
 
                     hex_parser.push_back(chars[i].chr);
@@ -1919,13 +1890,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Hex escape out of byte range '{self._sm->get_text(range)}' ",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S024E), range.start,
+                        f"hex escape '{self._sm->get_text(range)}' is out of byte range (0x00-0xFF)")
+                        .first(range).emit();
+                    return false;
                 }
             }
             
@@ -1954,13 +1922,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"Error: invalid escape sequence '{self._sm->get_text(range)}' in non-byte string",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S025E), range.start,
+                        f"octal escape '{self._sm->get_text(range)}' is only valid in byte strings (b\"...\"); use '\\u' for unicode codepoints")
+                        .first(range).emit();
+                    return false;
                 }
 
                 /// we now validate the value
@@ -1973,13 +1938,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Octal escape must contain 1-3 digits '{self._sm->get_text(range)}' ",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S026E), range.start,
+                        f"octal escape '{self._sm->get_text(range)}' must contain 1 to 3 digits")
+                        .first(range).emit();
+                    return false;
                 }
 
                 // explicit byte-range check
@@ -1989,13 +1951,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Octal escape out of byte range '{self._sm->get_text(range)}' ",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S027E), range.start,
+                        f"octal escape '{self._sm->get_text(range)}' is out of byte range (0-255, i.e., \\0-\\377)")
+                        .first(range).emit();
+                    return false;
                 }
             }
 
@@ -2011,13 +1970,10 @@ class Lexer {
                         );
 
                         self.advance_cursor(chars[i].len);
-                        return self.report_error::<bool>(
-                            DiagnosticCategory::Escape,
-                            DiagnosticLevel::Error,
-                            range,
-                            f"StringError: Invalid unicode escape sequence '{self._sm->get_text(range)}' ",
-                            false
-                        );
+                        self._diag->report(DiagCode(DiagID::S028E), range.start,
+                            f"invalid '\\u' unicode escape '{self._sm->get_text(range)}': expected exactly 4 hex digits (0-9, a-f, A-F)")
+                            .first(range).emit();
+                        return false;
                     }
 
                     hex_parser.push_back(chars[i].chr);
@@ -2030,13 +1986,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Invalid escape sequence '{self._sm->get_text(range)}' in byte string",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S029E), range.start,
+                        f"unicode escape '\\u' is not valid in a byte string; use '\\x' for raw byte values")
+                        .first(range).emit();
+                    return false;
                 }
 
                 var value = hex_parser.get_value();
@@ -2049,13 +2002,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Unicode escape out of range '{self._sm->get_text(range)}' ",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S030E), range.start,
+                        f"unicode escape '{self._sm->get_text(range)}' is out of the valid range (U+0000-U+FFFF for '\\u')")
+                        .first(range).emit();
+                    return false;
                 }
 
                 // Surrogate halves are invalid Unicode scalar values
@@ -2065,13 +2015,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Unicode escape encodes a surrogate code point '{self._sm->get_text(range)}' ",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S031E), range.start,
+                        f"unicode escape '{self._sm->get_text(range)}' encodes a surrogate code point (U+D800-U+DFFF), which is not a valid unicode scalar value")
+                        .first(range).emit();
+                    return false;
                 }
             }
 
@@ -2088,13 +2035,10 @@ class Lexer {
                         );
 
                         self.advance_cursor(chars[i].len);
-                        return self.report_error::<bool>(
-                            DiagnosticCategory::Escape,
-                            DiagnosticLevel::Error,
-                            range,
-                            f"StringError: Invalid unicode escape sequence '{self._sm->get_text(range)}' ",
-                            false
-                        );
+                        self._diag->report(DiagCode(DiagID::S028E), range.start,
+                            f"invalid '\\U' unicode escape '{self._sm->get_text(range)}': expected exactly 8 hex digits (0-9, a-f, A-F)")
+                            .first(range).emit();
+                        return false;
                     }
 
                     hex_parser.push_back(chars[i].chr);
@@ -2107,13 +2051,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Invalid escape sequence '{self._sm->get_text(range)}' in byte string",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S029E), range.start,
+                        f"unicode escape '\\U' is not valid in a byte string; use '\\x' for raw byte values")
+                        .first(range).emit();
+                    return false;
                 }
 
                 var value = hex_parser.get_value();
@@ -2125,13 +2066,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Unicode escape out of range '{self._sm->get_text(range)}' ",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S030E), range.start,
+                        f"unicode escape '{self._sm->get_text(range)}' is out of the valid unicode range (U+0000-U+10FFFF)")
+                        .first(range).emit();
+                    return false;
                 }
 
                 // Surrogate halves are invalid Unicode scalar values
@@ -2141,13 +2079,10 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    return self.report_error::<bool>(
-                        DiagnosticCategory::Escape,
-                        DiagnosticLevel::Error,
-                        range,
-                        f"StringError: Unicode escape encodes a surrogate code point '{self._sm->get_text(range)}' ",
-                        false
-                    );
+                    self._diag->report(DiagCode(DiagID::S031E), range.start,
+                        f"unicode escape '{self._sm->get_text(range)}' encodes a surrogate code point (U+D800-U+DFFF), which is not a valid unicode scalar value")
+                        .first(range).emit();
+                    return false;
                 }
             }
 
@@ -2157,20 +2092,16 @@ class Lexer {
                 if !is_byte {
                     return true;
                 }
-                
+
                 var range = SourceRange::from_bounds(
                     start,
                     self.get_source_location()
                 );
 
-                return self.report_error::<bool>(
-                    DiagnosticCategory::Escape,
-                    DiagnosticLevel::Error,
-                    range,
-                    f"StringError: Invalid escape sequence '{self._sm->get_text(range)}' in byte string",
-                    false
-                );
-
+                self._diag->report(DiagCode(DiagID::S032E), range.start,
+                    f"'\\b' (backspace) escape is not valid in a byte string; use '\\x08' instead")
+                    .first(range).emit();
+                return false;
             }
 
             default {
@@ -2181,122 +2112,22 @@ class Lexer {
                     self.get_source_location()
                 );
 
-                return self.report_error::<bool>(
-                    DiagnosticCategory::Escape,
-                    DiagnosticLevel::Error,
-                    range,
-                    f"StringError: Unknown escape sequence '{self._sm->get_text(range)}' ",
-                    false
-                );
+                self._diag->report(DiagCode(DiagID::S033E), range.start,
+                    f"unknown escape sequence '{self._sm->get_text(range)}' ")
+                    .first(range).emit();
+                return false;
             }
         }
 
         return true;
     }
 
-    inline fn <T> report_error(self,
-        category: DiagnosticCategory,
-        severity: DiagnosticLevel,
-        range:    SourceRange,
-        msg:      string,
-        ret:      T = T()
-    ) -> T {
-        const var NEWLINE = __inline_cpp("string(L\"\\n\")");
-        fn get_full_line_range(range: SourceRange, sm: *SourceManager) -> string {
-            var ret: string;
-            var start_line_col = sm->get_line_col(range.start);
-            var end_line_col   = sm->get_line_col(range.end);
-            const var NEWLINE = __inline_cpp("string(L\"\\n\")");
-            ret += f"     --> at {start_line_col as string}" + NEWLINE;
-
-            /// for now we only show the single line with the underline
-            var line = sm->get_full_line(range.start);
-            var prefix = f"    {start_line_col.line}| ";
-            ret += f"{prefix}{line}" + NEWLINE;
-            ret += string(' ', prefix.length());
-            var start_col = start_line_col.column - 1;
-            var end_col   = end_line_col.column - 1;
-
-            for var i: usize = 0; i < line.length(); ++i {
-                if i >= start_col && i < end_col {
-                    ret += '^';
-                } else {
-                    ret += ' ';
-                }
-            }
-
-            ret += NEWLINE;
-
-            return ret;
-        }
-
-        // with colors
-        fn format_severity(severity: DiagnosticLevel, category: DiagnosticCategory) -> string {
-            var format_category = fn (category: DiagnosticCategory) -> string {
-                switch category {
-                case DiagnosticCategory::Lexer {
-                    return "Lexer";
-                } case DiagnosticCategory::String {
-                    return "String";
-                } case DiagnosticCategory::Number {
-                    return "Number";
-                } case DiagnosticCategory::Escape {
-                    return "Escape";
-                } case DiagnosticCategory::Balance {
-                    return "Balance";
-                } case DiagnosticCategory::Comment {
-                    return "Comment";
-                } default {
-                    return "General";
-                }}
-            };
-
-            const var color_reset = __inline_cpp("string(L\"\\x1b[0m\")");
-            const var color_red   = __inline_cpp("string(L\"\\x1b[31m\")");
-            const var color_yellow= __inline_cpp("string(L\"\\x1b[33m\")");
-            const var color_blue  = __inline_cpp("string(L\"\\x1b[34m\")");
-            const var color_red_bg = __inline_cpp("string(L\"\\x1b[41m\")");
-            
-            switch severity {
-            case DiagnosticLevel::Note {
-                return f"{color_blue}info{color_reset}[{format_category(category)}]: "; // blue
-            } case DiagnosticLevel::Warning {
-                return f"{color_yellow}warning{color_reset}[{format_category(category)}]: "; // yellow
-            } case DiagnosticLevel::Error {
-                return f"{color_red}error{color_reset}[{format_category(category)}]: "; // red
-            } default {
-                return f"{color_red_bg}fatal{color_reset}[{format_category(category)}]: "; // red background
-            }}
-        }
-
-        self._diagnostics.emplace_back(format_severity(severity, category) + msg + NEWLINE +
-                          get_full_line_range(range, self._sm));
-
-        return ret;
-    }
-
-    inline fn <T> report_error(self,
-        tok: Token,
-        msg: string = "",
-        ret: T = T()
-    ) -> T {
-        return self.report_error(
-            DiagnosticCategory::Lexer,
-            DiagnosticLevel::Error,
-            tok.range,
-            (msg)
-            if (msg != "")
-            else (f"Invalid token found at {self._sm->get_text(tok.range)} expected a valid '{token_kind_to_readable_string(static_cast::<TokenKind>(tok.imm))}' token"),
-            ret
-        );
-    }
-
     inline fn has_errors(self) -> bool {
-        return !(self._diagnostics.empty());
+        return self._diag->has_errors();
     }
 
-    fn get_diagnostics(self) -> ref!(libcxx::deque::<string>) {
-        return self._diagnostics;
+    inline fn error_count(self) -> u32 {
+        return self._diag->error_count();
     }
 
     inline static fn set_kind(tok: *Token, hash_state: *HashState) {
@@ -2343,10 +2174,12 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     var _old_buffers: vec::<*(TokenBuffer::<512>)>;
     var _pool: *ThreadPool;
     var _sm:   *SourceManager;
+    var _diag: *DiagEngine;
 
-    fn TokenCacheManager(self, sm: *SourceManager, pool: *ThreadPool) {
+    fn TokenCacheManager(self, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) {
         self._sm   = sm;
         self._pool = pool;
+        self._diag = diag;
     }
 
     fn lex_file(self, fid: u32) -> bool {
@@ -2355,7 +2188,7 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
             return self._kv_s[fid] != &null;
         }
 
-        var lexer = std::create::<Lexer>(self._sm, self._pool);
+        var lexer = std::create::<Lexer>(self._sm, self._pool, self._diag);
         var res: bool;
         try { res = lexer->lex(fid);
         } catch { // fallback should never be called
@@ -2450,6 +2283,7 @@ fn Test() -> i32 {
     var pool = std::create::<ThreadPool>(4);
     var vfm  = std::create::<VirtualFileManager>();
     var sm   = std::create::<SourceManager>(pool, vfm);
+    var test_diag = DiagEngine();
 
     finally {
         std::destroy(sm);
@@ -2465,17 +2299,17 @@ fn Test() -> i32 {
 
     static var data: libcxx::string;
     
-    var create_lexer_from_string = fn (content: string, sm: *SourceManager, pool: *ThreadPool) -> (*Lexer, u32) {
+    var create_lexer_from_string_with_diag = fn (content: string, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) -> (*Lexer, u32) {
         var temp_path = (libcxx::filesystem::temp_directory_path()) / (libcxx::filesystem::path(r"hlx_lexer_test.kro"));
         sm->reset();
         var temp_data = std::string_to_nstring(content);
         data = libcxx::string(temp_data);
-        
+
         var path  = Path(temp_path.generic_wstring(), false);
         var ptr   = reinterpret_cast::<std::const_ptr::<u8>>(data.data());
         var fid   = sm->load_virtual(path, ptr, data.size());
-        var lexer = std::create::<Lexer>(sm, pool);
-        
+        var lexer = std::create::<Lexer>(sm, pool, diag);
+
         return (lexer, fid);
     };
 
@@ -2497,7 +2331,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex empty file", "pass", fn () -> string {
-        var res = create_lexer_from_string(" ", sm, pool);
+        var res = create_lexer_from_string_with_diag(" ", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2513,18 +2347,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex single identifier", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2546,18 +2376,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex keywords", "pass", fn () -> string {
-        var res = create_lexer_from_string("fn var const class if else while for return", sm, pool);
+        var res = create_lexer_from_string_with_diag("fn var const class if else while for return", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2588,18 +2414,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex all primitive types", "pass", fn () -> string {
-        var res = create_lexer_from_string("void bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 usize isize", sm, pool);
+        var res = create_lexer_from_string_with_diag("void bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 usize isize", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2637,18 +2459,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex identifier with hash", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo#bar my#ident", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo#bar my#ident", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2669,11 +2487,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -2684,7 +2498,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex single-char operators", "pass", fn () -> string {
-        var res = create_lexer_from_string("+ - * / % ^ | & ~ < > ! = ? @ : ; , .", sm, pool);
+        var res = create_lexer_from_string_with_diag("+ - * / % ^ | & ~ < > ! = ? @ : ; , .", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2725,18 +2539,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex multi-char operators", "pass", fn () -> string {
-        var res = create_lexer_from_string("++ -- -> :: .. ... == != <= >= && || << >> += -= *= /= <=>", sm, pool);
+        var res = create_lexer_from_string_with_diag("++ -- -> :: .. ... == != <= >= && || << >> += -= *= /= <=>", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2777,18 +2587,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex brackets", "pass", fn () -> string {
-        var res = create_lexer_from_string("{ } ( ) [ ]", sm, pool);
+        var res = create_lexer_from_string_with_diag("{ } ( ) [ ]", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2821,18 +2627,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex arrow variants", "pass", fn () -> string {
-        var res = create_lexer_from_string("-> ->* ?-> ?->* !-> !->*", sm, pool);
+        var res = create_lexer_from_string_with_diag("-> ->* ?-> ?->* !-> !->*", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2865,18 +2667,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 100);
 
     suite.equal::<string>("lex dot variants", "pass", fn () -> string {
-        var res = create_lexer_from_string(". .* ?. ?.* !. !.*", sm, pool);
+        var res = create_lexer_from_string_with_diag(". .* ?. ?.* !. !.*", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2909,18 +2707,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex pipe operators", "pass", fn () -> string {
-        var res = create_lexer_from_string("|> <|", sm, pool);
+        var res = create_lexer_from_string_with_diag("|> <|", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2941,11 +2735,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -2956,7 +2746,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex decimal integers", "pass", fn () -> string {
-        var res = create_lexer_from_string("0 1 42 12345 999999", sm, pool);
+        var res = create_lexer_from_string_with_diag("0 1 42 12345 999999", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -2999,18 +2789,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex hex integers", "pass", fn () -> string {
-        var res = create_lexer_from_string("0x0 0xFF 0xDEADBEEF 0X123ABC", sm, pool);
+        var res = create_lexer_from_string_with_diag("0x0 0xFF 0xDEADBEEF 0X123ABC", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3051,18 +2837,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex binary integers", "pass", fn () -> string {
-        var res = create_lexer_from_string("0b0 0b1 0b1010 0B11110000", sm, pool);
+        var res = create_lexer_from_string_with_diag("0b0 0b1 0b1010 0B11110000", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3099,18 +2881,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex octal integers", "pass", fn () -> string {
-        var res = create_lexer_from_string("0o0 0o7 0o755 0O1234567", sm, pool);
+        var res = create_lexer_from_string_with_diag("0o0 0o7 0o755 0O1234567", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3147,18 +2925,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex integers with underscores", "pass", fn () -> string {
-        var res = create_lexer_from_string("1_000 1_000_000 0xFF_FF 0b1010_1010", sm, pool);
+        var res = create_lexer_from_string_with_diag("1_000 1_000_000 0xFF_FF 0b1010_1010", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3200,18 +2974,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex integers with suffixes", "pass", fn () -> string {
-        var res = create_lexer_from_string("42u8 100i32 0xFFu64", sm, pool);
+        var res = create_lexer_from_string_with_diag("42u8 100i32 0xFFu64", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3268,18 +3038,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex large 64-bit integer", "pass", fn () -> string {
-        var res = create_lexer_from_string("18446744073709551615", sm, pool); // u64 max
+        var res = create_lexer_from_string_with_diag("18446744073709551615", sm, pool, &test_diag); // u64 max
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3310,11 +3076,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -3322,7 +3084,7 @@ fn Test() -> i32 {
 
     suite.equal::<string>("lex 128-bit integer", "pass", fn () -> string {
         // 0x1_00000000_00000000 = 2^64 (requires 128 bits)
-        var res = create_lexer_from_string("0x1_00000000_00000000", sm, pool);
+        var res = create_lexer_from_string_with_diag("0x1_00000000_00000000", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3353,11 +3115,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -3365,7 +3123,7 @@ fn Test() -> i32 {
 
     suite.equal::<string>("lex 128-bit max integer", "pass", fn () -> string {
         // 0xFFFFFFFFFFFFFFFF_FFFFFFFFFFFFFFFF = 2^128 - 1
-        var res = create_lexer_from_string("0xFFFFFFFFFFFFFFFF_FFFFFFFFFFFFFFFF", sm, pool);
+        var res = create_lexer_from_string_with_diag("0xFFFFFFFFFFFFFFFF_FFFFFFFFFFFFFFFF", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3395,11 +3153,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -3407,7 +3161,7 @@ fn Test() -> i32 {
 
     suite.equal::<string>("lex BigInt integer (>128 bits)", "pass", fn () -> string {
         // 0x1_00000000_00000000_00000000_00000000 = 2^128 (requires BigInt)
-        var res = create_lexer_from_string("0x1_00000000_00000000_00000000_00000000", sm, pool);
+        var res = create_lexer_from_string_with_diag("0x1_00000000_00000000_00000000_00000000", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3464,18 +3218,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex integer bit width inference", "pass", fn () -> string {
-        var res = create_lexer_from_string("255 256 65535 65536 0xFFFFFFFF 0x100000000", sm, pool);
+        var res = create_lexer_from_string_with_diag("255 256 65535 65536 0xFFFFFFFF 0x100000000", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3507,11 +3257,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -3522,7 +3268,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex decimal floats", "pass", fn () -> string {
-        var res = create_lexer_from_string("0.0 1.5 3.14159 123.456", sm, pool);
+        var res = create_lexer_from_string_with_diag("0.0 1.5 3.14159 123.456", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3572,18 +3318,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex float with leading dot", "pass", fn () -> string {
-        var res = create_lexer_from_string(".5 .123 .0", sm, pool);
+        var res = create_lexer_from_string_with_diag(".5 .123 .0", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3620,18 +3362,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex floats with exponent", "pass", fn () -> string {
-        var res = create_lexer_from_string("1e10 1E10 1.5e-3 2.0E+5 1e3", sm, pool);
+        var res = create_lexer_from_string_with_diag("1e10 1E10 1.5e-3 2.0E+5 1e3", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3676,18 +3414,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex hex floats", "pass", fn () -> string {
-        var res = create_lexer_from_string("0x1.0p0 0x1.0p4 0x1.0p-4", sm, pool);
+        var res = create_lexer_from_string_with_diag("0x1.0p0 0x1.0p4 0x1.0p-4", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3737,18 +3471,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex hex floats complex", "pass", fn () -> string {
-        var res = create_lexer_from_string("0xA.Bp+2 0xC.8p-1", sm, pool);
+        var res = create_lexer_from_string_with_diag("0xA.Bp+2 0xC.8p-1", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3782,18 +3512,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex floats with suffixes", "pass", fn () -> string {
-        var res = create_lexer_from_string("1.0f32 2.5f64 3.14f128", sm, pool);
+        var res = create_lexer_from_string_with_diag("1.0f32 2.5f64 3.14f128", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3844,18 +3570,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex floats with underscores", "pass", fn () -> string {
-        var res = create_lexer_from_string("1_000.0 1.234_567 1_2_3.4_5_6e78", sm, pool);
+        var res = create_lexer_from_string_with_diag("1_000.0 1.234_567 1_2_3.4_5_6e78", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3886,18 +3608,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
     
         return "pass";
     }, 1000);
 
     suite.equal::<string>("distinguish dot from float", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo.bar .5", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo.bar .5", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3938,18 +3656,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex float scientific notation edge cases", "pass", fn () -> string {
-        var res = create_lexer_from_string("1e0 1e+0 1e-0 0e0", sm, pool);
+        var res = create_lexer_from_string_with_diag("1e0 1e+0 1e-0 0e0", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3984,18 +3698,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex range vs float disambiguation", "pass", fn () -> string {
-        var res = create_lexer_from_string("0..10 0.5 1..2", sm, pool);
+        var res = create_lexer_from_string_with_diag("0..10 0.5 1..2", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4061,18 +3771,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex extreme float values", "pass", fn () -> string {
-        var res = create_lexer_from_string("1e308 1e-308", sm, pool);
+        var res = create_lexer_from_string_with_diag("1e308 1e-308", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4115,11 +3821,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -4130,7 +3832,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex simple string", "pass", fn () -> string {
-        var res = create_lexer_from_string("\"hello world\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("\"hello world\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4147,18 +3849,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex empty string", "pass", fn () -> string {
-        var res = create_lexer_from_string("\"\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("\"\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4175,18 +3873,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex string with escapes", "pass", fn () -> string {
-        var res = create_lexer_from_string("\"hello\\nworld\\t!\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("\"hello\\nworld\\t!\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4203,18 +3897,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex string with hex escape", "pass", fn () -> string {
-        var res = create_lexer_from_string("\"\\x41\\x42\\x43\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("\"\\x41\\x42\\x43\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4231,18 +3921,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex string with unicode escape", "pass", fn () -> string {
-        var res = create_lexer_from_string("\"\\u0041\\u03B1\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("\"\\u0041\\u03B1\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4259,18 +3945,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex string with large unicode escape", "pass", fn () -> string {
-        var res = create_lexer_from_string("\"\\U0001F600\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("\"\\U0001F600\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4287,18 +3969,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex f-string simple", "pass", fn () -> string {
-        var res = create_lexer_from_string("f\"hello {name}\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("f\"hello {name}\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4320,18 +3998,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex f-string with expression", "pass", fn () -> string {
-        var res = create_lexer_from_string("f\"result: {1 + 2}\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("f\"result: {1 + 2}\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4353,18 +4027,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex f-string with nested braces", "pass", fn () -> string {
-        var res = create_lexer_from_string("f\"value: {map[key]}\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("f\"value: {map[key]}\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4381,18 +4051,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex byte string", "pass", fn () -> string {
-        var res = create_lexer_from_string("b\"hello\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("b\"hello\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4414,18 +4080,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex byte string with octal", "pass", fn () -> string {
-        var res = create_lexer_from_string("b\"\\101\\102\\103\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("b\"\\101\\102\\103\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4442,18 +4104,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex fb-string (format + bytes)", "pass", fn () -> string {
-        var res = create_lexer_from_string("fb\"value: {x}\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("fb\"value: {x}\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4475,11 +4133,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -4490,7 +4144,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex simple char", "pass", fn () -> string {
-        var res = create_lexer_from_string("'a' 'Z' '0' ", sm, pool);
+        var res = create_lexer_from_string_with_diag("'a' 'Z' '0' ", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4510,18 +4164,14 @@ fn Test() -> i32 {
         }
 
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex char with escapes", "pass", fn () -> string {
-        var res   = create_lexer_from_string("'\\n' '\\t' '\\'' '\\\\' ", sm, pool);
+        var res   = create_lexer_from_string_with_diag("'\\n' '\\t' '\\'' '\\\\' ", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid   = libcxx::get::<1>(res);
         
@@ -4541,11 +4191,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -4556,7 +4202,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex line comment", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo // this is a comment\nbar", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo // this is a comment\nbar", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4591,18 +4237,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex block comment", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo /* block comment */ bar", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo /* block comment */ bar", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4637,18 +4279,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex nested block comments", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo /* outer /* inner */ still outer */ bar", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo /* outer /* inner */ still outer */ bar", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4683,18 +4321,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("error on unmatched block comment end", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo */ bar", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo */ bar", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4724,7 +4358,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("balance tracker - matched braces", "pass", fn () -> string {
-        var res = create_lexer_from_string("{ { } }", sm, pool);
+        var res = create_lexer_from_string_with_diag("{ { } }", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4737,18 +4371,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("balance tracker - matched parens", "pass", fn () -> string {
-        var res = create_lexer_from_string("((()))", sm, pool);
+        var res = create_lexer_from_string_with_diag("((()))", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4761,18 +4391,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("balance tracker - matched brackets", "pass", fn () -> string {
-        var res = create_lexer_from_string("[[[]]]", sm, pool);
+        var res = create_lexer_from_string_with_diag("[[[]]]", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4785,18 +4411,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("balance tracker - mixed matched", "pass", fn () -> string {
-        var res = create_lexer_from_string("fn foo() { arr[0] = (x + y); }", sm, pool);
+        var res = create_lexer_from_string_with_diag("fn foo() { arr[0] = (x + y); }", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4809,18 +4431,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("balance tracker - unclosed brace", "pass", fn () -> string {
-        var res = create_lexer_from_string("{ foo", sm, pool);
+        var res = create_lexer_from_string_with_diag("{ foo", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4840,18 +4458,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("balance tracker - unexpected closer", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo }", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo }", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4871,18 +4485,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("balance tracker - mismatched", "pass", fn () -> string {
-        var res = create_lexer_from_string("{ foo )", sm, pool);
+        var res = create_lexer_from_string_with_diag("{ foo )", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4895,18 +4505,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("balance tracker - macro invocation", "pass", fn () -> string {
-        var res = create_lexer_from_string("foo!(bar)", sm, pool);
+        var res = create_lexer_from_string_with_diag("foo!(bar)", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4919,11 +4525,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -4934,7 +4536,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex unicode identifier", "pass", fn () -> string {
-        var res = create_lexer_from_string("café αβγ 日本語", sm, pool);
+        var res = create_lexer_from_string_with_diag("café αβγ 日本語", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4954,18 +4556,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex consecutive operators", "pass", fn () -> string {
-        var res = create_lexer_from_string("a+-b", sm, pool);
+        var res = create_lexer_from_string_with_diag("a+-b", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4992,18 +4590,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex generics syntax", "pass", fn () -> string {
-        var res = create_lexer_from_string("Vec::<i32>", sm, pool);
+        var res = create_lexer_from_string_with_diag("Vec::<i32>", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5033,18 +4627,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex range expressions", "pass", fn () -> string {
-        var res = create_lexer_from_string("0..10 0..=10", sm, pool);
+        var res = create_lexer_from_string_with_diag("0..10 0..=10", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5077,18 +4667,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex exponentiation operator", "pass", fn () -> string {
-        var res = create_lexer_from_string("2^^8", sm, pool);
+        var res = create_lexer_from_string_with_diag("2^^8", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5112,18 +4698,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex spaceship operator", "pass", fn () -> string {
-        var res = create_lexer_from_string("a <=> b", sm, pool);
+        var res = create_lexer_from_string_with_diag("a <=> b", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5141,18 +4723,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex triple equals", "pass", fn () -> string {
-        var res = create_lexer_from_string("a === b", sm, pool);
+        var res = create_lexer_from_string_with_diag("a === b", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5170,18 +4748,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex C++ word operators", "pass", fn () -> string {
-        var res = create_lexer_from_string("and or not xor bitand bitor compl", sm, pool);
+        var res = create_lexer_from_string_with_diag("and or not xor bitand bitor compl", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5217,18 +4791,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex builtins", "pass", fn () -> string {
-        var res = create_lexer_from_string("__file__ __line__ __column__ __function__ __module__", sm, pool);
+        var res = create_lexer_from_string_with_diag("__file__ __line__ __column__ __function__ __module__", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5258,18 +4828,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex null literal", "pass", fn () -> string {
-        var res = create_lexer_from_string("null", sm, pool);
+        var res = create_lexer_from_string_with_diag("null", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5287,18 +4853,14 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
     }, 1000);
 
     suite.equal::<string>("lex boolean literals", "pass", fn () -> string {
-        var res = create_lexer_from_string("true false", sm, pool);
+        var res = create_lexer_from_string_with_diag("true false", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5319,11 +4881,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -5334,7 +4892,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("error on invalid escape in string", "pass", fn () -> string {
-        var res = create_lexer_from_string("\"hello\\qworld\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("\"hello\\qworld\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5355,7 +4913,7 @@ fn Test() -> i32 {
     }, 10);
 
     suite.equal::<string>("error on unicode in byte string", "pass", fn () -> string {
-        var res = create_lexer_from_string("b\"\\u0041\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("b\"\\u0041\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5371,7 +4929,7 @@ fn Test() -> i32 {
     }, 10);
 
     suite.equal::<string>("error on surrogate in unicode escape", "pass", fn () -> string {
-        var res = create_lexer_from_string("\"\\uD800\"", sm, pool);
+        var res = create_lexer_from_string_with_diag("\"\\uD800\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -5422,7 +4980,7 @@ fn Test() -> i32 {
         + "    return 0;\n"
         + "}\n";
         
-        var res   = create_lexer_from_string(code, sm, pool);
+        var res   = create_lexer_from_string_with_diag(code, sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid   = libcxx::get::<1>(res);
         
@@ -5442,11 +5000,7 @@ fn Test() -> i32 {
         }
         
         if lexer->has_errors() {
-            var ret = f"lexer reported:\n";
-            for diag in lexer->get_diagnostics() {
-                ret += diag;
-            }
-            return ret;
+            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
 
         return "pass";
@@ -5488,7 +5042,7 @@ fn Test() -> i32 {
         + "}\n";
     }
     
-    var bench_res   = create_lexer_from_string(benchmark_code, sm, pool);
+    var bench_res   = create_lexer_from_string_with_diag(benchmark_code, sm, pool, &test_diag);
     var bench_lexer = libcxx::get::<0>(bench_res);
     var bench_fid   = libcxx::get::<1>(bench_res);
     

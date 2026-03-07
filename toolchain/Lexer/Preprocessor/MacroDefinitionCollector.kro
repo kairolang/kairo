@@ -17,6 +17,8 @@ import Lexer::Preprocessor::ScopeTracker::*;
 import Lexer::Preprocessor::FileImportState::*;
 import Lexer::Preprocessor::ParsedImport::*;
 import Lexer::Preprocessor::SkipList::*;
+import Core::Diagnostics::DiagEngine::*;
+import Core::Diagnostics::DiagRegistry::*;
 
 /// Macro Definition Collector
 /// ==========================
@@ -58,17 +60,19 @@ class MacroDefinitionCollector {
     priv var _sm:          *SourceManager;
     priv var _skip_list:   *SkipList;
     priv var _current_fid: u32;
-    priv var _diagnostics: vec::<string>;
+    priv var _diag:        *DiagEngine;
 
     fn MacroDefinitionCollector(
         self,
         sym_table:   *PreprocessorSymbolTable,
         macro_table: *MacroSymbolTable,
-        sm:          *SourceManager
+        sm:          *SourceManager,
+        diag:        *DiagEngine
     ) {
         self._sym_table   = sym_table;
         self._macro_table = macro_table;
         self._sm          = sm;
+        self._diag        = diag;
     }
 
     /// \brief collects all macro definitions from a token stream for a given file
@@ -153,13 +157,13 @@ class MacroDefinitionCollector {
 
         // ── expect: `!` ────────────────────────────────────────────────────
         if j >= tokens->size() {
-            self.error(name_tok, "expected '!' after macro name");
+            self.error(name_tok, "expected '!' after macro name", DiagID::S037E);
             return 0;
         }
 
         var bang_tok = tokens->get(j);
         if bang_tok->kind != TokenKind::OpExclaim {
-            self.error(bang_tok, "expected '!' after macro name");
+            self.error(bang_tok, "expected '!' after macro name", DiagID::S037E);
             return 0;
         }
         j += 1;
@@ -185,13 +189,13 @@ class MacroDefinitionCollector {
 
         // ── expect: `{` body `}` ───────────────────────────────────────────
         if j >= tokens->size() {
-            self.error(name_tok, "expected '{' for macro body");
+            self.error(name_tok, "expected '{' for macro body", DiagID::S038E);
             return 0;
         }
 
         var lbrace = tokens->get(j);
         if lbrace->kind != TokenKind::OpLBrace {
-            self.error(lbrace, f"expected an opening brace for macro body, got {lbrace->kind}");
+            self.error(lbrace, f"expected an opening brace for macro body, got {lbrace->kind}", DiagID::S038E);
             return 0;
         }
 
@@ -208,7 +212,7 @@ class MacroDefinitionCollector {
         }
 
         if depth != 0 {
-            self.error(lbrace, "unmatched '{' in macro body");
+            self.error(lbrace, "unmatched '{' in macro body; add a matching '}' to close it", DiagID::S039E);
             return 0;
         }
 
@@ -230,7 +234,7 @@ class MacroDefinitionCollector {
             var name_str = "<unknown>" if (name_ptr == &null) else *name_ptr;
             var scope_str = def.scope.as_string(self._sym_table);
             Logger::warn(Logger::Stage::Preprocessor, f"MacroDefinitionCollector: duplicate macro '{name_str}!' in scope '{scope_str}' fid={self._current_fid}");
-            self.error(name_tok, f"duplicate macro '{name_str}!' in scope '{scope_str}' ");
+            self.error(name_tok, f"duplicate macro '{name_str}!' in scope '{scope_str}'; each macro name must be unique within its scope", DiagID::S040E);
             return 0;
         }
 
@@ -292,7 +296,7 @@ class MacroDefinitionCollector {
 
             // ── check for errors after variadic ─────────────────────────────
             if seen_variadic {
-                self.error(t, "no parameters allowed after variadic");
+                self.error(t, "no parameters allowed after a variadic (`...`) parameter", DiagID::S042E);
                 return result;
             }
 
@@ -311,7 +315,7 @@ class MacroDefinitionCollector {
 
             // ── expect identifier ───────────────────────────────────────────
             if t->kind != TokenKind::LitIdentifier {
-                self.error(t, f"expected parameter name, got {t->kind}");
+                self.error(t, f"expected a parameter name (identifier), got '{t->kind}' ", DiagID::S042E);
                 return result;
             }
 
@@ -322,7 +326,7 @@ class MacroDefinitionCollector {
 
             // ── check what follows the identifier ───────────────────────────
             if (*j) >= tokens->size() {
-                self.error(t, "unexpected end of tokens in macro parameter list");
+                self.error(t, "unexpected end of tokens in macro parameter list; expected a parameter name or ')' ", DiagID::S043E);
                 return result;
             }
 
@@ -331,7 +335,7 @@ class MacroDefinitionCollector {
             // named variadic: `ident...`
             if next->kind == TokenKind::OpEllipsis {
                 if seen_default {
-                    self.error(next, "variadic parameter cannot follow default parameters");
+                    self.error(next, "variadic parameter cannot follow default parameters; place `...` after all required parameters", DiagID::S042E);
                     return result;
                 }
                 param.is_variadic = MacroParameter::VariadicType::Named;
@@ -359,7 +363,7 @@ class MacroDefinitionCollector {
 
             // plain required parameter
             if seen_default {
-                self.error(t, "required parameter cannot follow default parameters");
+                self.error(t, "required parameter cannot follow a parameter with a default value; reorder parameters so defaults come last", DiagID::S042E);
                 return result;
             }
 
@@ -367,7 +371,7 @@ class MacroDefinitionCollector {
         }
 
         // ran out of tokens without finding `)`
-        self.error(tokens->get((*j) - 1), "unterminated macro parameter list, expected ')' ");
+        self.error(tokens->get((*j) - 1), "unterminated macro parameter list; expected ')' to close the parameter list", DiagID::S043E);
         return result;
     }
 
@@ -396,7 +400,7 @@ class MacroDefinitionCollector {
         var result = DefaultParseResult();
 
         if (*j) >= tokens->size() {
-            self.error(tokens->get((*j) - 1), "expected default value expression");
+            self.error(tokens->get((*j) - 1), "expected a default value expression after '=' ", DiagID::S044E);
             return result;
         }
 
@@ -431,7 +435,7 @@ class MacroDefinitionCollector {
         }
 
         if (*j) == span_start {
-            self.error(tokens->get(span_start), "empty default value expression");
+            self.error(tokens->get(span_start), "empty default value expression; provide at least one token after '=' ", DiagID::S044E);
             return result;
         }
 
@@ -491,22 +495,17 @@ class MacroDefinitionCollector {
     //  DIAGNOSTICS
     // =========================================================================
 
-    priv fn error(self, tok: *Token, msg: string) {
+    priv fn error(self, tok: *Token, msg: string, code: DiagID = DiagID::S036E) {
         if tok == &null {
-            self._diagnostics.push_back(f"MacroDefinitionCollector: <unknown location>: error: {msg}");
+            self._diag->report(DiagCode(code), msg).emit();
             return;
         }
-        var full_src_loc = self._sm->get_full_loc(tok->range.start);
-        var loc_str = f"{self._sm->get_filename(full_src_loc.file_id)}:{full_src_loc.line}:{full_src_loc.column}";
-        self._diagnostics.push_back(f"MacroDefinitionCollector: {loc_str}: error: {msg}");
-    }
-
-    fn get_diagnostics(self) -> ref!(vec::<string>) {
-        return self._diagnostics;
+        self._diag->report(DiagCode(code), tok->range.start, msg)
+            .first(tok->range).emit();
     }
 
     fn has_errors(self) -> bool {
-        return self._diagnostics.size() > 0;
+        return self._diag->has_errors();
     }
 
     fn dump(self) -> string {
