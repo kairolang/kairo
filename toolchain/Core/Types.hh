@@ -48,14 +48,24 @@
 /// \see libcxx, kairo::std, kairo::ThreadPool
 ///
 
-#include <include/core.hh>
 #include <bit>
 #include <cwchar>
 #include <execution>
+#include <include/core.hh>
 #include <memory>
 #include <memory_resource>
 #include <mutex>
 #include <new>
+
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+#include <sys/sysctl.h>
+#endif
 
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || \
     defined(_M_IX86)
@@ -713,7 +723,8 @@ inline void sleep_while(std::Function<Rt, Tp...> condition) {
 }
 
 template <typename F>
-inline void sleep_while(F &&condition) // NOLINT(cppcoreguidelines-missing-std-forward)
+inline void
+sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
     requires(libcxx::is_invocable_r_v<bool, libcxx::decay_t<F>>)
 {
     for (u16 i = 0; i < 1000 && condition(); ++i) {
@@ -740,6 +751,119 @@ inline void sleep_while(F &&condition) // NOLINT(cppcoreguidelines-missing-std-f
     while (condition()) {
         libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
     }
+}
+
+template <typename... Args>
+void eprint(Args &&...t) {
+    if constexpr (sizeof...(t) == 0) {
+        fwprintf(stderr, L"\n");
+        return;
+    }
+
+    ((fwprintf(stderr,
+               L"%ls",
+               [&]() -> const string {
+                   auto str = std::to_string(t);
+                   return str;
+               }()
+                            .raw())),
+     ...);
+
+    if constexpr (sizeof...(t) > 0) {
+        using LastArg =
+            libcxx::tuple_element_t<sizeof...(t) - 1, tuple<Args...>>;
+        if constexpr (!std::Meta::same_as<
+                          std::Meta::const_volatile_removed<LastArg>,
+                          std::endl>) {
+            fwprintf(stderr, L"\n");
+        }
+    }
+}
+
+inline libcxx::filesystem::path get_exe_path() noexcept {
+#if defined(_WIN32)
+    wchar_t buf[32768];
+    DWORD   len = GetModuleFileNameW(nullptr, buf, 32768);
+    if (len == 0 || len == 32768) {
+        return {};
+    }
+    return libcxx::filesystem::path(buf);
+
+#elif defined(__APPLE__)
+    char     buf[4096];
+    uint32_t size = sizeof(buf);
+    if (_NSGetExecutablePath(buf, &size) != 0) {
+        return {};
+    }
+    return libcxx::filesystem::canonical(buf);
+
+#elif defined(__linux__)
+    char buf[4096];
+    auto len = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len == -1) {
+        return {};
+    }
+    buf[len] = '\0';
+    return libcxx::filesystem::path(buf);
+
+#elif defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+    char   buf[4096];
+    int    mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, -1};
+    size_t size   = sizeof(buf);
+    if (sysctl(mib, 4, buf, &size, nullptr, 0) == -1) {
+        return {};
+    }
+    return libcxx::filesystem::path(buf);
+
+#else
+    return {};
+#endif
+}
+
+inline string get_default_target_triple() noexcept {
+#if defined(__aarch64__) || defined(_M_ARM64)
+#   if defined(__APPLE__)
+        return L"aarch64-apple-macosx11.0.0";
+#   elif defined(__linux__)
+        return L"aarch64-unknown-linux-gnu";
+#   elif defined(_WIN32)
+        return L"aarch64-pc-windows-msvc";
+#   else
+        return L"aarch64-unknown-unknown";
+#   endif
+#elif defined(__x86_64__) || defined(_M_X64)
+#   if defined(__APPLE__)
+        return L"x86_64-apple-macosx10.15.0";
+#   elif defined(__linux__)
+        return L"x86_64-unknown-linux-gnu";
+#   elif defined(_WIN32)
+        return L"x86_64-pc-windows-msvc";
+#   else
+        return L"x86_64-unknown-unknown";
+#   endif
+#elif defined(__riscv)
+#   if defined(__riscv_xlen) && (__riscv_xlen == 64)
+        return L"riscv64-unknown-linux-gnu";
+#   else
+        return L"riscv32-unknown-linux-gnu";
+#   endif
+#elif defined(__wasm32__)
+    return L"wasm32-unknown-unknown";
+#elif defined(__wasm64__)
+    return L"wasm64-unknown-unknown";
+#else
+    return L"unknown-unknown-unknown";
+#endif
+}
+
+inline string get_thread_model() noexcept {
+#if defined(_WIN32)
+    return L"win32";
+#elif defined(__wasm32__) || defined(__wasm64__)
+    return L"single";
+#else
+    return L"posix";
+#endif
 }
 
 ///

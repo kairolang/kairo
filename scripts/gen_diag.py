@@ -96,6 +96,7 @@ def main():
         "import Core::Diagnostics::DiagMeta::*;",
         "",
         "enum DiagID derives u32 {",
+        "  Invalid = 0,"
     ]
     for code, *_ in diags:
         lines.append(f'  {code} = compute_hash::<r"{code}">(),')
@@ -104,13 +105,15 @@ def main():
 
     lines.append("eval fn diag_meta(id: DiagID) -> DiagMeta {")
     lines.append("  switch id {")
+    lines.append("    case DiagID::Invalid { return DiagMeta{}; }")
     for code, cat, num, sev, brief, group, _ in diags:
         brief_esc = brief.replace('"', '\\"')
         lines.append(f"    case DiagID::{code} {{")
         lines.append(f"      return DiagMeta{{")
         lines.append(f"        category: DiagCategory::{cat},")
-        lines.append(f"        number: {num},")
         lines.append(f"        severity: DiagSeverity::{sev},")
+        lines.append(f"        number: {num},")
+        lines.append(f"        hash: static_cast::<u32>(compute_hash::<r\"{code}\">()),")
         lines.append(f'        brief: "{brief_esc}",')
         lines.append(f'        group: "{group}"')
         lines.append(f"      }};")
@@ -147,12 +150,14 @@ def main():
             lines.append(f"        switch num {{")
             for code, c, n, s, _, _, _ in diags:
                 if c == cat and s == sev_name:
-                    lines.append(f"          case {n:03} {{ return DiagID::{code}; }}")
-            lines.append(f"          default {{ static_assert(false, \"invalid diag number for {prefix} and severity {sev_name}\"); }}")
+                    lines.append(f"          case {n} {{ return DiagID::{code}; }}")
+            lines.append(f"          default {{ std::crash(std::Error::RuntimeError(\"invalid diag number for {prefix} and severity {sev_name}\")); }}")
             lines.append(f"        }}")
             lines.append(f"      }}")
-        lines.append(f"      default {{ static_assert(false, \"invalid diag severity\"); }}")
+        lines.append(f"      default {{ std::crash(std::Error::RuntimeError(\"invalid diag severity\")); }}")
         lines.append(f"    }}")
+        lines.append(f"    std::crash(std::Error::RuntimeError(\"reached unreachable code in Diag::{prefix}\"));")
+        lines.append(f"    return DiagID::Invalid; // unreachable")
         lines.append(f"  }}")
     lines.append("}")
 
