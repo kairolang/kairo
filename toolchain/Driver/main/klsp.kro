@@ -1,3 +1,162 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+///
+/// KLSP — Kairo Language Server Protocol Driver THIS is everything thats needed to run the LSP server:
+/// ==============================================
+///
+/// Transport: JSON-RPC 2.0 over stdio (Content-Length framed)
+///
+///   stdin  ← editor sends requests/notifications
+///   stdout → klsp sends responses/notifications
+///   stderr → internal diagnostics/logging only (never touches LSP stream)
+///
+/// Wire Format
+/// -----------
+///   Request (editor → klsp):
+///     Content-Length: <n>\r\n
+///     \r\n
+///     {"jsonrpc":"2.0","id":1,"method":"textDocument/hover","params":{...}}
+///
+///   Response (klsp → editor):
+///     Content-Length: <n>\r\n
+///     \r\n
+///     {"jsonrpc":"2.0","id":1,"result":{...}}
+///
+///   Notification (no id, no response expected):
+///     Content-Length: <n>\r\n
+///     \r\n
+///     {"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{...}}
+///
+///   Error response:
+///     Content-Length: <n>\r\n
+///     \r\n
+///     {"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"method not found"}}
+///
+/// Lifecycle
+/// ---------
+///   initialize → initialized → [requests] → shutdown → exit
+///
+///   initialize params:  { processId, clientInfo, capabilities, rootUri }
+///   initialize result:  { capabilities: { textDocumentSync, hoverProvider,
+///                           definitionProvider, completionProvider, ... } }
+///
+/// Document Sync
+/// -------------
+///   textDocument/didOpen
+///     in:  { textDocument: { uri, languageId, version, text } }
+///
+///   textDocument/didChange
+///     in:  { textDocument: { uri, version },
+///            contentChanges: [{ range?, text }] }
+///
+///   textDocument/didClose
+///     in:  { textDocument: { uri } }
+///
+/// Language Features
+/// -----------------
+///   textDocument/publishDiagnostics  (klsp → editor, notification)
+///     out: { uri, diagnostics: [{ range, severity, code, message, source }] }
+///
+///   textDocument/hover
+///     in:  { textDocument: { uri }, position: { line, character } }
+///     out: { contents: { kind: "markdown", value: "..." }, range }
+///
+///   textDocument/definition
+///     in:  { textDocument: { uri }, position: { line, character } }
+///     out: { uri, range } | [{ uri, range }]
+///
+///   textDocument/references
+///     in:  { textDocument: { uri }, position, context: { includeDeclaration } }
+///     out: [{ uri, range }]
+///
+///   textDocument/rename
+///     in:  { textDocument: { uri }, position, newName }
+///     out: { changes: { <uri>: [{ range, newText }] } }
+///
+///   textDocument/prepareRename
+///     in:  { textDocument: { uri }, position }
+///     out: { range, placeholder }
+///
+///   textDocument/completion
+///     in:  { textDocument: { uri }, position,
+///            context: { triggerKind, triggerCharacter } }
+///     out: { isIncomplete, items: [{ label, kind, detail, insertText, ... }] }
+///
+///   completionItem/resolve
+///     in:  { ...completionItem }
+///     out: { ...completionItem, documentation }
+///
+///   textDocument/signatureHelp
+///     in:  { textDocument: { uri }, position,
+///            context: { triggerKind, triggerCharacter, activeSignatureHelp } }
+///     out: { signatures: [{ label, parameters: [{ label }] }],
+///            activeSignature, activeParameter }
+///
+///   textDocument/documentHighlight
+///     in:  { textDocument: { uri }, position }
+///     out: [{ range, kind }]   // kind: 1=text 2=read 3=write
+///
+///   textDocument/documentSymbol
+///     in:  { textDocument: { uri } }
+///     out: [{ name, kind, range, selectionRange, children }]
+///
+///   textDocument/inlayHint
+///     in:  { textDocument: { uri }, range }
+///     out: [{ position, label, kind }]  // kind: 1=type 2=parameter
+///
+///   textDocument/semanticTokens/full
+///     in:  { textDocument: { uri } }
+///     out: { data: [deltaLine, deltaChar, length, tokenType, tokenModifiers] }
+///
+///   textDocument/codeAction
+///     in:  { textDocument: { uri }, range,
+///            context: { diagnostics, only? } }
+///     out: [{ title, kind, diagnostics, edit: { changes } }]
+///
+///   textDocument/formatting
+///     in:  { textDocument: { uri }, options: { tabSize, insertSpaces } }
+///     out: [{ range, newText }]
+///
+///   textDocument/rangeFormatting
+///     in:  { textDocument: { uri }, range, options }
+///     out: [{ range, newText }]
+///
+///   textDocument/codeLens
+///     in:  { textDocument: { uri } }
+///     out: [{ range, command?: { title, command, arguments } }]
+///
+/// Workspace
+/// ---------
+///   workspace/symbol
+///     in:  { query }
+///     out: [{ name, kind, location: { uri, range } }]
+///
+///   workspace/didChangeWatchedFiles
+///     in:  { changes: [{ uri, type }] }  // type: 1=created 2=changed 3=deleted
+///
+/// Plumbing
+/// --------
+///   $/cancelRequest
+///     in:  { id }
+///
+///   window/showMessage
+///     out: { type, message }  // type: 1=error 2=warn 3=info 4=log
+///
+///   window/logMessage
+///     out: { type, message }
+
 fn main() -> i32 {
     std::print("Kairo Language Server!");
     return 0;

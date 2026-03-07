@@ -1,30 +1,105 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
 import Lexer::Preprocessor::Preprocessor::*;
 import Core::Diagnostics::DiagEngine::*;
-import Core::Diagnostics::Consumers::BasicDiagConsumer::*;
+import Core::Diagnostics::Consumers::PrettyDiagConsumer::*;
+import Driver::Command::Command::*;
+import Core::TermRenderer::*;
 
-fn main() -> i32 {
+fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     Logger::init(Logger::Level::Trace);
-
+    
+    var diag     = DiagEngine();
+    var cmd      = Command(argc, argv, &diag);
     var cwd      = Path::cwd();
-    var target   = Path("test.kro");
-    var resolver = ImportResolver::Builder().cwd(cwd).create_ptr();
     var pool     = ThreadPool(4);
     var vfm      = VirtualFileManager();
     var sm       = SourceManager(&pool, &vfm);
-    var tcm      = TokenCacheManager(&sm, &pool);
-    var diag     = DiagEngine();
-    var consumer = BasicDiagConsumer(&sm);
-    var mp       = PreProcessor(&sm, &tcm, resolver, &pool);
+    var tcm      = TokenCacheManager(&sm, &pool, &diag);
+    var consumer = PrettyDiagConsumer(&sm);
 
     finally {
-        std::destroy(resolver); // since build returns a pointer
         GlobalRecycler::shutdown_allocator_runtime();
         
-        Logger::dump(); // guaranteed to always be called before shutdown, to ensure all logs are flushed
+        Logger::set_dump_path((((std::get_exe_path()).parent_path()) / r"kairo.log").generic_wstring());
+        Logger::dump_to_file();
         Logger::shutdown();
     }
 
     diag.add_consumer(&consumer);
+
+    register_kairo_flags(&cmd); /// register the flags for the Kairo compiler driver
+    var args = cmd.parse();
+
+    if args.get_bool("help") {
+        cmd.print_help();
+        return 0;
+    }
+
+    if args.get_bool("version") {
+        std::print(f"kairo version 0.1.1+rc.250306");
+        std::print(f"target triple: {std::get_default_target_triple()}");
+        std::print(f"thread model: {std::get_thread_model()}");
+        std::print(f"installed at: {((std::get_exe_path()).parent_path()).generic_wstring()}");
+        return 0;
+    }
+
+    if !(args.get_string("explain").empty()) {
+        var code = args.get_string("explain");
+        var first: usize = code.raw_string().find_first_not_of(" \t\n\r\f\v".raw());
+        if !(string::npos == first) {
+            var last: usize = code.raw_string().find_last_not_of(" \t\n\r\f\v".raw());
+            code = code.raw_string().substr(first, (last - first + 1));
+        }
+
+        var diag_id = diag_from_string(code);
+        var explain = diag_explain(diag_id);
+        if explain.empty() {
+            std::print(f"error: could not explain diagnostic code '{code}' ");
+            return 1;
+        }
+
+        var r = TermRenderer(true, 80);
+        var o = r.render(explain);
+        std::print(o);
+
+        return 0;
+    }
+
+    if !args.ok {
+        consumer.finalize_to_stderr();
+        return 1;
+    }
+
+    var target = Path(args.files[0]); // the first file, ideally we compile multiple files at once
+                                      // but for testing one file is enough for now
+
+    /// this is seprate from the rest of the toolchain init since
+    /// the this specific call to import resolver (esp the create_ptr() call)
+    /// builds the file index and caches the file system state,
+    /// if this is called with a broken cmd args state we have no file to go off
+    /// and the resolver will fail to build, so we need to ensure that the args
+    /// are valid before we call this. (or we can init until .cwd(cwd) and
+    /// then call .create_ptr() after the args are validated)
+    var resolver = ImportResolver::Builder().cwd(cwd).create_ptr();
+    var mp       = PreProcessor(&sm, &tcm, resolver, &pool, &diag);
+
+    finally {
+        std::destroy(resolver); // since build returns a pointer
+    }
 
     var fid = sm.load_file(target);
     if fid == u32(-1) {
@@ -59,20 +134,17 @@ fn main() -> i32 {
     }
 
     var lexer_ptr = tcm.get_lexer(fid);
-    if (lexer_ptr != &null) && (lexer_ptr->has_errors()) {
+    if lexer_ptr != &null {
+        lexer_ptr->emit_errors(); // flush balance-tracker errors into the DiagEngine
+    }
+
+    if diag.has_errors() {
         std::print("=== lexer diagnostics ===\n");
-        lexer_ptr->emit_errors();
+        consumer.finalize_to_stderr();
         std::print("=== end lexer diagnostics ===\n\n");
     }
 
-    var ip_diags = mp.get_import_processor()->get_diagnostics();
-    if ip_diags.size() > 0 {
-        std::print("=== import processor diagnostics ===\n");
-        for d in ip_diags {
-            std::print(f"  {d}\n");
-        }
-        std::print("=== end import processor diagnostics ===\n\n");
-    }
+    // all preprocessor diagnostics are now dispatched through the DiagEngine consumer
 
     std::print(f"=== readable token dump: {target.full_path()} ({tokens->size()} tokens) ===\n");
     var code: string;
