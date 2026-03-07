@@ -16,7 +16,7 @@
 import Lexer::Preprocessor::Preprocessor::*;
 import Core::Diagnostics::DiagEngine::*;
 import Core::Diagnostics::Consumers::PrettyDiagConsumer::*;
-import Driver::Command::Command::*;
+import Driver::Command::FlagsRegister::*;
 import Core::TermRenderer::*;
 
 fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {

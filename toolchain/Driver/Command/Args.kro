@@ -1,0 +1,98 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+// =============================================================================
+//  PARSED ARGS  — the value the driver holds and passes as *ParsedArgs
+// =============================================================================
+
+import Driver::Command::Flags::*;
+
+class ParsedArgs {
+    __inline_cpp("public:");
+
+    pub var files: vec::<string>; ///< positional file paths
+    pub var ok:    bool = true;   ///< false if required fields missing / bounds violated
+
+    priv var _map: map::<string, FlagValue>;
+
+    fn has(self, key: string) -> bool {
+        return self._map.contains(key);
+    }
+
+    fn is_set(self, key: string) -> bool {
+        if !self._map.contains(key) { return false; }
+        return self._map[key].is_set;
+    }
+
+    fn get_bool(self, key: string) -> bool {
+        if !self._map.contains(key) { return false; }
+        return self._map[key].as_bool();
+    }
+
+    fn get_string(self, key: string) -> string {
+        if !self._map.contains(key) { return ""; }
+        return self._map[key].as_string();
+    }
+
+    fn get_i32(self, key: string) -> i32 {
+        if !self._map.contains(key) { return 0; }
+        return self._map[key].as_i32();
+    }
+
+    fn get_f64(self, key: string) -> f64 {
+        if !self._map.contains(key) { return 0.0; }
+        return self._map[key].as_f64();
+    }
+
+    fn get_list(self, key: string) -> ref!(vec::<string>) {
+        return self._map[key].as_list();
+    }
+
+    /// \brief returns -1 (unset), 0 (-fno-{key}), or 1 (-f{key})
+    fn get_feature(self, key: string) -> i32 {
+        if !self._map.contains(key) { return -1; }
+        return self._map[key].as_feature();
+    }
+
+    /// \brief config flag getters — key is without the 'c' CLI prefix
+    fn get_cfg_bool(self, key: string) -> bool {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return false; }
+        return self._map[k].as_bool();
+    }
+    fn get_cfg_i32(self, key: string) -> i32 {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return 0; }
+        return self._map[k].as_i32();
+    }
+    fn get_cfg_f64(self, key: string) -> f64 {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return 0.0; }
+        return self._map[k].as_f64();
+    }
+    fn get_cfg_str(self, key: string) -> string {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return ""; }
+        return self._map[k].as_string();
+    }
+    fn cfg_is_set(self, key: string) -> bool {
+        var k = f"c:{key}";
+        if !self._map.contains(k) { return false; }
+        return self._map[k].is_set;
+    }
+
+    fn _init(self, key: string, dfl: FlagValue) { self._map[key] = dfl; }
+    fn _cell(self, key: string) -> *FlagValue    { return &(self._map[key]); }
+}
