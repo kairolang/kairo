@@ -40,8 +40,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     }
 
     diag.add_consumer(&consumer);
-
-    register_kairo_flags(&cmd); /// register the flags for the Kairo compiler driver
+    register_kairo_flags(&cmd);
     var args = cmd.parse();
 
     if args.get_bool("help") {
