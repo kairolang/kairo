@@ -324,6 +324,22 @@ class SourceManager {
     }
 
     ///
+    /// \brief returns logical path for SourceLocation
+    ///
+    fn get_filename(self, loc: SourceLocation) -> string {
+        var res = self.resolve(loc);
+        return self.get_filename(res.fid);
+    }
+
+    ///
+    /// \brief returns logical path for SourceRange
+    ///
+    fn get_filename(self, range: SourceRange) -> string {
+        var res = self.resolve(range.start);
+        return self.get_filename(res.fid);
+    }
+
+    ///
     /// \brief returns file extension (if any).
     ///
     fn get_file_extension(self, file_id: FileID) -> string? {

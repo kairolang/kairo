@@ -28,12 +28,23 @@ git submodule update --init --recursive
 cd lib-helix && git checkout main && cd ..
 ```
 
-### 2. Build the Stage 0 compiler
+### 2. Build the Stage 0 compiler (this bracnh is for the Stage 1 compiler, which is still in development)
 
 ```bash
 git checkout beta/helix-0.0.1
 xmake
 ```
+
+### 2.1 Optional: Build the Stage 1 compiler (in development)
+
+```bash
+git checkout canary/helix-0.1.1+bc.251007
+kbld
+
+# you can also test files that contain `fn Test() -> i32 { ... }` as the entry point, but note that this is not the standard entry point for Kairo programs.
+kbld test toolchain/Lexer/Lexer.kro
+```
+
 
 Output lands in `./build/release/<platform>/bin/`: `kairo` and `kbld`.
 

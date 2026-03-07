@@ -3,17 +3,7 @@
 if you want to regenerate the diagnostics file (toolchain/Core/Diagnostics/DiagRegistry.kro) you can run the following command from the root of the repo:
 
 ```bash
-./scripts/diag_codegen.py toolchain/Core/Diagnostics/gens/CodeGen.diag.toml \
-    toolchain/Core/Diagnostics/gens/Internal.diag.toml      \
-    toolchain/Core/Diagnostics/gens/Linker.diag.toml        \
-    toolchain/Core/Diagnostics/gens/Lowering.diag.toml      \
-    toolchain/Core/Diagnostics/gens/Memory.diag.toml        \
-    toolchain/Core/Diagnostics/gens/Optimization.diag.toml  \
-    toolchain/Core/Diagnostics/gens/Portability.diag.toml   \
-    toolchain/Core/Diagnostics/gens/Resolution.diag.toml    \
-    toolchain/Core/Diagnostics/gens/Semantic.diag.toml      \
-    toolchain/Core/Diagnostics/gens/Syntax.diag.toml        \
-    toolchain/Core/Diagnostics/gens/Uncategorized.diag.toml > toolchain/Core/Diagnostics/DiagRegistry.kro
+./scripts/gen_diag.py toolchain/Core/Diagnostics/DiagGen/*.diag.toml > toolchain/Core/Diagnostics/DiagRegistry.kro
 ```
 
 the following categories are used:
