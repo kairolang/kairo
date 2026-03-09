@@ -297,7 +297,7 @@ class Command {
         if end == ptr { return false; }     // nothing parsed
         if (*end) != '\0' { return false; }   // trailing garbage
 
-        if (v < __inline_cpp("libcxx::numeric_limits<i32>::min()")) || (v > __inline_cpp("libcxx::numeric_limits<i32>::max()")) {
+        if (v < __inline_cpp("(libcxx::numeric_limits<i32>::min)()")) || (v > __inline_cpp("(libcxx::numeric_limits<i32>::max)()")) {
             return false;
         }
 
@@ -316,7 +316,7 @@ class Command {
             if end == ptr { return false; }     // nothing parsed
             if (*end) != '\0' { return false; }   // trailing garbage
 
-            if (v < __inline_cpp("libcxx::numeric_limits<f64>::lowest()")) || (v > __inline_cpp("libcxx::numeric_limits<f64>::max()")) {
+            if (v < __inline_cpp("libcxx::numeric_limits<f64>::lowest()")) || (v > __inline_cpp("(libcxx::numeric_limits<f64>::max)()")) {
                 return false;
             }
 
