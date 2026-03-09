@@ -145,13 +145,45 @@ inline auto build_target(const Target     &target,
         auto rc_file = gen_dir / (target.name + ".rc");
         if (fs::exists(rc_file)) {
             auto res_file = gen_dir / (target.name + ".res");
-            auto rc_cmd =
-                fmt("rc.exe /nologo /fo\"{}\" \"{}\"", res_file.string(), rc_file.string());
+            
+            // locate rc.exe via vswhere
+            std::string rc_exe = "rc.exe"; // fallback
+            {
+                std::string vswhere_out;
+                run_capture(
+                    "\"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe\""
+                    " -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+                    " -property installationPath",
+                    vswhere_out);
+                // trim whitespace
+                while (!vswhere_out.empty() && (vswhere_out.back() == '\n' ||
+                                                vswhere_out.back() == '\r' ||
+                                                vswhere_out.back() == ' '))
+                    vswhere_out.pop_back();
+                if (!vswhere_out.empty()) {
+                    // try Windows SDK rc.exe via VS dev env — but easiest is MSVC bin
+                    fs::path vs_rc = fs::path(vswhere_out)
+                        / "VC" / "Tools" / "MSVC";
+                    if (fs::exists(vs_rc)) {
+                        // pick the first (only) MSVC version dir
+                        for (auto &entry : fs::directory_iterator(vs_rc)) {
+                            auto candidate = entry.path()
+                                / "bin" / "Hostx64" / "x64" / "rc.exe";
+                            if (fs::exists(candidate)) {
+                                rc_exe = candidate.string();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            auto rc_cmd = fmt("\"{}\" /nologo /fo\"{}\" \"{}\"",
+                            rc_exe, res_file.string(), rc_file.string());
             if (!opts.dry_run) {
                 int rc = run_command(rc_cmd);
-                if (rc != 0) {
+                if (rc != 0)
                     log::warn(fmt("RC compilation failed for '{}', continuing", target.name));
-                }
             }
         }
     }
@@ -169,6 +201,7 @@ inline auto build_target(const Target     &target,
     std::string out, err;
     int         rc = run_capture_all(cmd, out, err);
 
+    // Replace the output printing block after run_capture_all:
     if (rc != 0) {
         log::error(fmt("Target '{}' failed (exit {})", target.name, rc));
         if (!out.empty())
@@ -178,8 +211,11 @@ inline auto build_target(const Target     &target,
         return rc;
     }
 
-    if (!out.empty() && opts.verbose)
+    // Always print kairo output — it contains diagnostics
+    if (!out.empty())
         puts_out(fmt("{}", out));
+    if (!err.empty() && opts.verbose)
+        puts_err(fmt("{}", err));
 
     if (!target.post_build.empty()) {
         log::info(fmt("'{}' post-build: {}", target.name, target.post_build));

@@ -214,6 +214,26 @@ inline auto file_mtime_ns(const fs::path &p) -> std::int64_t {
 #endif
 }
 
+inline auto run_capture_stdout_only(const std::string &cmd, std::string &out) -> int {
+    out.clear();
+#ifdef _WIN32
+    // redirect stderr to NUL on Windows
+    std::string full = "cmd.exe /c \"" + cmd + " 2>NUL\"";
+#else
+    std::string full = cmd + " 2>/dev/null";
+#endif
+    FILE *fp = kbld_popen(full.c_str(), "r");
+    if (!fp) return -1;
+    char buf[4096];
+    while (auto n = std::fread(buf, 1, sizeof(buf), fp))
+        out.append(buf, n);
+    int status = kbld_pclose(fp);
+#ifndef _WIN32
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+#endif
+    return status;
+}
+
 inline auto iso8601_now() -> std::string {
     auto    now = std::chrono::system_clock::now();
     auto    tt  = std::chrono::system_clock::to_time_t(now);
