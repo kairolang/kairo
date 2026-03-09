@@ -161,8 +161,6 @@ class CXIRCompiler {
     [[nodiscard]] static ErrorPOFNormalized parse_gcc_err(std::string gcc_out);
     [[nodiscard]] static ErrorPOFNormalized parse_msvc_err(std::string msvc_out);
 
-    [[nodiscard]] CompileResult CXIR_MSVC(const CXXCompileAction &action) const;
-
     [[nodiscard]] CompileResult CXIR_CXX(const CXXCompileAction &action) const;
 };
 

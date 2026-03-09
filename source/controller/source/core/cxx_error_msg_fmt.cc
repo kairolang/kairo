@@ -77,22 +77,85 @@ CXIRCompiler::ErrorPOFNormalized CXIRCompiler::parse_clang_err(std::string clang
     size_t      column_number = 0;
     std::string message;
 
-    std::istringstream stream(clang_out);
-    std::getline(stream, file_path, ':');  // Extract file path
-    stream >> line_number;                 // Extract line number
-    stream.ignore();                       // Ignore the next colon
-    stream >> column_number;               // Extract column number
-    stream.ignore();                       // Ignore the next colon
-    std::getline(stream, message);         // Extract the message
+    if (clang_out.empty()) return {token::Token(), "", ""};
 
-    // see if filepath is in std::unordered_map<std::string, SourceMap> SOURCE_MAPS
-    // if it is, call SOURCE_MAPS[file_path].get_pof(line_number, column_number, length)
+    // On Windows, paths start with a drive letter: "C:\..." or "Z:/..."
+    // Format: <path>(<line>,<col>): <severity>: <message>  [clang-cl]
+    // Format: <path>:<line>:<col>: <severity>: <message>   [clang/gcc]
+    //
+    // Detect which format by checking if char at index 1 is ':'
+    // (drive letter colon), then find the NEXT structural delimiter.
 
-    if (file_path.empty()) {
+    size_t path_end = std::string::npos;
+
+    // Check for Windows drive letter prefix (e.g. "C:" or "Z:")
+    bool has_drive_prefix = (clang_out.size() >= 2 &&
+                              std::isalpha((unsigned char)clang_out[0]) &&
+                              clang_out[1] == ':');
+
+    // clang-cl emits: path(line,col): message
+    // clang emits:    path:line:col: message
+    // Find the opening '(' for clang-cl style, or ':' after the drive prefix for clang style
+
+    if (has_drive_prefix) {
+        // search for '(' starting after the drive colon
+        size_t paren_pos = clang_out.find('(', 2);
+        size_t colon_pos = clang_out.find(':', 2);
+
+        if (paren_pos != std::string::npos &&
+            (colon_pos == std::string::npos || paren_pos < colon_pos)) {
+            // clang-cl format: Z:\path\file.hh(line,col): severity: message
+            path_end  = paren_pos;
+            file_path = clang_out.substr(0, path_end);
+
+            // parse (line,col):
+            size_t close_paren = clang_out.find(')', path_end);
+            if (close_paren == std::string::npos) return {token::Token(), "", ""};
+
+            std::string loc = clang_out.substr(path_end + 1, close_paren - path_end - 1);
+            auto comma = loc.find(',');
+            if (comma != std::string::npos) {
+                line_number   = std::stoul(loc.substr(0, comma));
+                column_number = std::stoul(loc.substr(comma + 1));
+            } else {
+                line_number = std::stoul(loc);
+            }
+
+            // rest is ": severity: message"
+            size_t msg_start = clang_out.find(':', close_paren);
+            if (msg_start == std::string::npos) return {token::Token(), "", ""};
+            message = clang_out.substr(msg_start + 1);
+            if (!message.empty() && message[0] == ' ') message = message.substr(1);
+
+        } else if (colon_pos != std::string::npos) {
+            // clang format on Windows: Z:/path/file.hh:line:col: message
+            path_end  = colon_pos;
+            file_path = clang_out.substr(0, path_end);
+
+            std::istringstream stream(clang_out.substr(path_end + 1));
+            stream >> line_number;
+            stream.ignore(); // ':'
+            stream >> column_number;
+            stream.ignore(); // ':'
+            std::getline(stream, message);
+        } else {
+            return {token::Token(), "", ""};
+        }
+    } else {
+        // POSIX format: /path/file.hh:line:col: message
+        std::istringstream stream(clang_out);
+        std::getline(stream, file_path, ':');
+        stream >> line_number;
+        stream.ignore();
+        stream >> column_number;
+        stream.ignore();
+        std::getline(stream, message);
+    }
+
+    if (file_path.empty() || line_number == 0) {
         return {token::Token(), "", ""};
     }
 
-    // open the cached file jump to the line and get the length and col
     auto meta = get_meta(file_path, line_number);
 
     token::Token pof = token::Token(line_number,
