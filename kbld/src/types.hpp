@@ -1,5 +1,8 @@
 #pragma once
 
+#include <windows.h>
+#include <consoleapi2.h>
+#include <winbase.h>
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -351,3 +354,30 @@ namespace log {
 }  // namespace log
 
 }  // namespace kbld
+
+inline auto terminal_width() -> int {
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi))
+        return csbi.srWindow.Right - csbi.srWindow.Left + 1;
+#else
+    struct winsize w;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) == 0)
+        return w.ws_col;
+#endif
+    return 80;
+}
+
+inline auto iso8601_now() -> std::string {
+    auto now = std::chrono::system_clock::now();
+    auto t   = std::chrono::system_clock::to_time_t(now);
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &t);
+#else
+    gmtime_r(&t, &tm);
+#endif
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+    return buf;
+}

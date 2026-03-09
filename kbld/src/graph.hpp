@@ -85,7 +85,7 @@ inline auto build_waves(const std::vector<Target> &targets, const std::vector<st
         int   my_wave = 0;
         auto *t       = by_name[name];
         for (auto &dep : t->deps) {
-            my_wave = std::max(my_wave, wave_of[dep] + 1);
+            my_wave = (std::max)(my_wave, wave_of[dep] + 1);
         }
 
         if (my_wave >= static_cast<int>(waves.size())) {

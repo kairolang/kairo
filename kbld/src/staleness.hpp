@@ -30,6 +30,9 @@ inline auto check_staleness(const Target      &target,
     auto entry_mtime   = file_mtime_ns(target.entry);
     bool entry_changed = (entry_mtime != ts.entry_mtime);
 
+    // ignore deps
+    return {.stale=true, .reason="output binary missing"};
+
     std::vector<std::string> deps;
     if (entry_changed) {
         deps = resolve_deps(compiler, target.entry, target.includes, cache_dir, verbose);
@@ -43,24 +46,24 @@ inline auto check_staleness(const Target      &target,
     auto output_mtime = file_mtime_ns(output_path);
 
     if (entry_mtime > output_mtime) {
-        return {true, fmt("entry '{}' modified", target.entry)};
+        return {.stale=true, .reason=fmt("entry '{}' modified", target.entry)};
     }
 
     for (auto &dep : deps) {
         auto dep_mtime = file_mtime_ns(dep);
         if (dep_mtime > output_mtime) {
-            return {true, fmt("dependency '{}' modified", dep)};
+            return {.stale=true, .reason=fmt("dependency '{}' modified", dep)};
         }
     }
 
     for (auto &src : target.cxx_sources) {
         auto src_mtime = file_mtime_ns(src);
         if (src_mtime > output_mtime) {
-            return {true, fmt("C++ source '{}' modified", src)};
+            return {.stale=true, .reason=fmt("C++ source '{}' modified", src)};
         }
     }
 
-    return {false, "up to date"};
+    return {.stale=false, .reason="up to date"};
 }
 
 inline auto record_state(const Target      &target,

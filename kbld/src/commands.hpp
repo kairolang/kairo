@@ -411,8 +411,8 @@ inline auto execute_line(const Config &cfg, const CLIOptions &opts) -> int {
         }
     }
 
-    start = std::max(1, start);
-    end   = std::min(end, static_cast<int>(lines_vec.size()));
+    start = (std::max)(1, start);
+    end   = (std::min)(end, static_cast<int>(lines_vec.size()));
 
     std::vector<std::string> extracted;
     for (int i = start - 1; i < end; ++i) {
