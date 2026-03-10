@@ -81,8 +81,9 @@ contains_self_static(const __AST_N::NodeT<__AST_NODE::FuncDecl> &func_decl) {
         self_arg = func_decl->params[0];
         if (self_arg->var->path->name.value() == "self") {
             if (self_arg->var->type != nullptr || self_arg->value != nullptr) {
-                throw error::Panic(
+                error::Panic(
                     error::CodeError{.pof = &self_arg->var->path->name, .err_code = 0.3006});
+                return found_self_static;
             }
             found_self_static.first = true;  // found 'self'
         }
@@ -378,10 +379,9 @@ class Int {
             else if (c >= 'A' && c <= 'F')
                 value = c - 'A' + 10;
             else
-                throw std::invalid_argument("Invalid character in numeric string");
-
+                return;  // Invalid character, stop parsing
             if (value >= base)
-                throw std::invalid_argument("Digit exceeds base");
+                return;  // Invalid digit for the base, stop parsing
 
             multiplyByBase(base);
             addDigit(value);

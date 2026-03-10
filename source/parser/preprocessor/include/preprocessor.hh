@@ -44,7 +44,7 @@
 
 #ifndef THROW_PANIC
 #define THROW_PANIC(msg, marker)         \
-    throw error::Panic(error::CodeError{ \
+    error::Panic(error::CodeError{ \
         .pof      = marker,              \
         .err_code = 0.0123,              \
         .mark_pof = true,                \

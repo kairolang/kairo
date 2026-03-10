@@ -145,8 +145,10 @@ inline __TOKEN_N::Token Lexer::process_multi_line_comment() {
 
     if (comment_depth != 0) {
         auto bad_token = __TOKEN_N::Token{start_line, start_col, 2, offset, "", file_name};
-        throw error::Panic(error::create_old_CodeError(
+        error::Panic(error::create_old_CodeError(
             &bad_token, 2.1002, {}, std::vector<string>{"block comment"}));
+        
+        return {start_line, start_col, 2, offset, "", file_name, "/* unclosed comment"};
     }
 
     return {line,
@@ -197,8 +199,9 @@ inline __TOKEN_N::Token Lexer::next_token() {
     auto bad_token =
         __TOKEN_N::Token{line, column, 1, offset, std::string(1, current()), file_name};
 
-    throw error::Panic(error::create_old_CodeError(
+    error::Panic(error::create_old_CodeError(
         &bad_token, 1.0011, {}, std::vector<string>{std::string(1, current())}));
+    return bad_token;
 }
 
 inline __TOKEN_N::Token Lexer::parse_compiler_directive() {
@@ -209,7 +212,8 @@ inline __TOKEN_N::Token Lexer::parse_compiler_directive() {
     if (peek_forward() != '[') {
         __TOKEN_N::Token bad_token = {line, column, 1, offset, source.substr(start, 1), file_name};
 
-        throw error::Panic(error::CodeError{.pof = &bad_token, .err_code = 0.7006 /* NOLINT */});
+        error::Panic(error::CodeError{.pof = &bad_token, .err_code = 0.7006 /* NOLINT */});
+        return bad_token;
     }
 
     while (!end_loop && !is_eof()) {
@@ -345,7 +349,8 @@ inline __TOKEN_N::Token Lexer::parse_numeric() {
                                               file_name,
                                               "/* float */"};
 
-            throw error::Panic(error::create_old_CodeError(&bad_token, 0.0003));
+            error::Panic(error::create_old_CodeError(&bad_token, 0.0003));
+            return bad_token;
         }
         return {line,
                 column - (currentPos - start),
@@ -432,14 +437,16 @@ inline __TOKEN_N::Token Lexer::parse_string() {
 
     if (brace_nesting > 0) {
         auto bad_token = __TOKEN_N::Token{start_line, start_column, 1, offset, "\"", file_name};
-        throw error::Panic(error::create_old_CodeError(
+        error::Panic(error::create_old_CodeError(
             &bad_token, 2.1002, {}, std::vector<string>{"'{' in f-string"}));
+        return bad_token;
     }
 
     if (is_eof()) {
         auto bad_token = __TOKEN_N::Token{start_line, start_column, 1, offset, "\"", file_name};
-        throw error::Panic(
+        error::Panic(
             error::create_old_CodeError(&bad_token, 2.1002, {}, std::vector<string>{"string"}));
+        return bad_token;
     }
 
     switch (quote) {
@@ -504,8 +511,9 @@ check_if_invalid_tok:
             file_name};
 
         if (current_token.length() == 0) {
-            throw error::Panic(error::create_old_CodeError(
+            error::Panic(error::create_old_CodeError(
                 &tok, 1.0011, {}, std::vector<string>{std::string(1, current())}));
+            return tok;
         }
 
         goto check_if_invalid_tok; // if the token is still invalid
