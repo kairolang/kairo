@@ -1,5 +1,9 @@
 #pragma once
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 #include "compile_commands.hpp"
 #include "graph.hpp"
 #include "metadata.hpp"
@@ -92,6 +96,38 @@ inline auto target_output_path(const Target &target, BuildMode mode) -> fs::path
     return fs::path("build") / triple / mode_str / "bin" / target.name;
 }
 
+#ifdef _WIN32
+inline auto find_windows_sdk_bin() -> fs::path {
+    HKEY hkey;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+                      "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots",
+                      0,
+                      KEY_READ | KEY_WOW64_32KEY,
+                      &hkey) != ERROR_SUCCESS) {
+        // try without WOW64 flag
+        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+                          "SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots",
+                          0,
+                          KEY_READ,
+                          &hkey) != ERROR_SUCCESS)
+            return {};
+    }
+
+    char  buf[MAX_PATH];
+    DWORD buf_size = sizeof(buf);
+    DWORD type     = 0;
+    if (RegQueryValueExA(
+            hkey, "KitsRoot10", nullptr, &type, reinterpret_cast<LPBYTE>(buf), &buf_size) !=
+        ERROR_SUCCESS) {
+        RegCloseKey(hkey);
+        return {};
+    }
+    RegCloseKey(hkey);
+
+    return fs::path(buf) / "bin";
+}
+#endif
+
 inline auto build_target(const Target     &target,
                          const Config     &cfg,
                          BuildMode         mode,
@@ -145,45 +181,77 @@ inline auto build_target(const Target     &target,
         auto rc_file = gen_dir / (target.name + ".rc");
         if (fs::exists(rc_file)) {
             auto res_file = gen_dir / (target.name + ".res");
-            
+
             // locate rc.exe via vswhere
-            std::string rc_exe = "rc.exe"; // fallback
+            std::string rc_exe = "rc.exe";  // fallback
             {
                 std::string vswhere_out;
-                run_capture(
-                    "\"C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe\""
-                    " -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
-                    " -property installationPath",
-                    vswhere_out);
-                // trim whitespace
-                while (!vswhere_out.empty() && (vswhere_out.back() == '\n' ||
-                                                vswhere_out.back() == '\r' ||
-                                                vswhere_out.back() == ' '))
+                run_capture_stdout_only("\"C:\\Program Files (x86)\\Microsoft Visual "
+                                        "Studio\\Installer\\vswhere.exe\""
+                                        " -latest -products *"
+                                        " -requires "
+                                        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+                                        " -property installationPath",
+                                        vswhere_out);
+
+                log::verbose(fmt("vswhere raw output: '{}'", vswhere_out), opts.verbose);
+
+                // trim all trailing whitespace
+                while (!vswhere_out.empty() &&
+                       (vswhere_out.back() == '\n' || vswhere_out.back() == '\r' ||
+                        vswhere_out.back() == ' ' || vswhere_out.back() == '\t'))
                     vswhere_out.pop_back();
+
+                log::verbose(fmt("vswhere trimmed: '{}'", vswhere_out), opts.verbose);
+
                 if (!vswhere_out.empty()) {
-                    // try Windows SDK rc.exe via VS dev env — but easiest is MSVC bin
-                    fs::path vs_rc = fs::path(vswhere_out)
-                        / "VC" / "Tools" / "MSVC";
-                    if (fs::exists(vs_rc)) {
-                        // pick the first (only) MSVC version dir
-                        for (auto &entry : fs::directory_iterator(vs_rc)) {
-                            auto candidate = entry.path()
-                                / "bin" / "Hostx64" / "x64" / "rc.exe";
-                            if (fs::exists(candidate)) {
-                                rc_exe = candidate.string();
-                                break;
+#ifdef _WIN32
+                    fs::path winsdk_bin = find_windows_sdk_bin();
+#endif
+                    if (winsdk_bin.empty()) {
+                        // last resort fallback — this path is correct on 99% of systems
+                        winsdk_bin = "C:\\Program Files (x86)\\Windows Kits\\10\\bin";
+                    }
+                    if (fs::exists(winsdk_bin)) {
+                        fs::path    best_rc;
+                        std::string best_ver;
+                        for (auto &sdk_ver : fs::directory_iterator(winsdk_bin)) {
+                            if (!sdk_ver.is_directory())
+                                continue;
+                            std::string ver = sdk_ver.path().filename().string();
+                            if (ver.find("10.0.") == std::string::npos)
+                                continue;
+                            // prefer x64, fall back to x86
+                            for (auto &arch : {"x64", "x86"}) {
+                                auto candidate = sdk_ver.path() / arch / "rc.exe";
+                                if (fs::exists(candidate)) {
+                                    if (ver > best_ver) {
+                                        best_ver = ver;
+                                        best_rc  = candidate;
+                                    }
+                                    break;  // found arch for this version, don't keep checking
+                                }
                             }
+                        }
+                        if (!best_rc.empty()) {
+                            rc_exe = best_rc.string();
+                            log::verbose(fmt("found rc.exe (SDK {}): '{}'", best_ver, rc_exe),
+                                         opts.verbose);
                         }
                     }
                 }
+
+                if (rc_exe.empty()) {
+                    log::warn("rc.exe not found in Windows SDK, skipping .rc compilation");
+                }
             }
 
-            auto rc_cmd = fmt("\"{}\" /nologo /fo\"{}\" \"{}\"",
-                            rc_exe, res_file.string(), rc_file.string());
+            std::string rc_cmd = "\"" + rc_exe + "\" /nologo /fo\"" + res_file.string() + "\" \"" + rc_file.string() + "\"";
             if (!opts.dry_run) {
-                int rc = run_command(rc_cmd);
+                std::string rc_out;
+                int rc = exec_capture(rc_cmd, rc_out);
                 if (rc != 0)
-                    log::warn(fmt("RC compilation failed for '{}', continuing", target.name));
+                    log::warn(fmt("RC compilation failed for '{}' (exit {}), continuing", target.name, rc));
             }
         }
     }
