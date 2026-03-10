@@ -23,7 +23,7 @@ data_to_write = (
 ///   For more information on the license terms and requirements, please visit:                  ///
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
-///   SPDX-License-Identifier: CC-BY-4.0                                                         ///
+///   SPDX-License-Identifier: Apache-2.0                                                        ///
 ///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///

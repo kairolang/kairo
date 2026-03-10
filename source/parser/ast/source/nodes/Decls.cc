@@ -5,7 +5,7 @@
 //  purposes, provided that you give appropriate credit, and indicate if changes                  //
 //  were made. For more information, please visit: https://creativecommons.org/licenses/by/4.0/   //
 //                                                                                                //
-//  SPDX-License-Identifier: CC-BY-4.0 // Copyright (c) 2024 (CC BY 4.0)                          //
+//  SPDX-License-Identifier: Apache-2.0// Copyright (c) 2024 (CC BY 4.0)                          //
 //                                                                                                //
 //====----------------------------------------------------------------------------------------====//
 ///                                                                                              ///
