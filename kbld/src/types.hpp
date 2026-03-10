@@ -1,8 +1,10 @@
 #pragma once
 
+#if defined(_WIN32)
 #include <windows.h>
 #include <consoleapi2.h>
 #include <winbase.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -214,24 +216,64 @@ inline auto file_mtime_ns(const fs::path &p) -> std::int64_t {
 #endif
 }
 
+#ifdef _WIN32
+inline auto exec_capture(const std::string &cmd, std::string &out) -> int {
+    SECURITY_ATTRIBUTES sa        = {sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+    HANDLE              hRead     = nullptr;
+    HANDLE              hWrite    = nullptr;
+
+    if (!CreatePipe(&hRead, &hWrite, &sa, 0)) return -1;
+    SetHandleInformation(hRead, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA        si = {};
+    PROCESS_INFORMATION pi = {};
+    si.cb          = sizeof(si);
+    si.hStdOutput  = hWrite;
+    si.hStdError   = hWrite;
+    si.dwFlags    |= STARTF_USESTDHANDLES;
+
+    std::string mut_cmd = cmd;
+    if (!CreateProcessA(nullptr, mut_cmd.data(), nullptr, nullptr,
+                        TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        CloseHandle(hRead);
+        CloseHandle(hWrite);
+        return -1;
+    }
+    CloseHandle(hWrite);
+
+    char  buf[4096];
+    DWORD n = 0;
+    while (ReadFile(hRead, buf, sizeof(buf), &n, nullptr) && n > 0)
+        out.append(buf, n);
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    DWORD rc = 0;
+    GetExitCodeProcess(pi.hProcess, &rc);
+
+    CloseHandle(hRead);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return static_cast<int>(rc);
+}
+#endif
+
 inline auto run_capture_stdout_only(const std::string &cmd, std::string &out) -> int {
     out.clear();
 #ifdef _WIN32
-    // redirect stderr to NUL on Windows
-    std::string full = "cmd.exe /c \"" + cmd + " 2>NUL\"";
+    return exec_capture(cmd, out);
 #else
     std::string full = cmd + " 2>/dev/null";
-#endif
     FILE *fp = kbld_popen(full.c_str(), "r");
     if (!fp) return -1;
     char buf[4096];
     while (auto n = std::fread(buf, 1, sizeof(buf), fp))
         out.append(buf, n);
     int status = kbld_pclose(fp);
-#ifndef _WIN32
     if (WIFEXITED(status)) return WEXITSTATUS(status);
-#endif
     return status;
+#endif
 }
 
 inline auto iso8601_now() -> std::string {

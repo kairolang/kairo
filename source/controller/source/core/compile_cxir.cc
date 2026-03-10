@@ -353,12 +353,20 @@ CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
 
     try {
         ret = CXIR_CXX(action);
-    } catch (...) {
+    } catch (const std::exception &e) {
         if (!error::HAS_ERRORED) {
             error::HAS_ERRORED = true;
             kairo::log<LogLevel::Error>("failed to compile: unhandled exception in compilation pipeline");
         }
-        return {};
+        DEBUG_LOG("exception in CXIR_CXX: " + std::string(e.what()));
+        throw; // re-throw so it surfaces properly
+    } catch (...) {
+        if (!error::HAS_ERRORED) {
+            error::HAS_ERRORED = true;
+            kairo::log<LogLevel::Error>("failed to compile: unhandled unknown in compilation pipeline");
+        }
+        DEBUG_LOG("unknown exception in CXIR_CXX");
+        throw;
     }
 
     action.cleanup();

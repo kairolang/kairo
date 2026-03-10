@@ -65,33 +65,44 @@ CXIRCompiler::ExecResult CXIRCompiler::exec(const std::string &cmd) {
 
     std::string           result;
     std::array<char, 128> buffer{};
-
-    DWORD bytesRead = 0;
+    DWORD                 bytesRead  = 0;
+    std::exception_ptr    reader_exc = nullptr;
 
     std::thread readerThread([&]() {
-        while (true) {
-            if (ReadFile(hReadPipe, buffer.data(), buffer.size(), &bytesRead, nullptr) == 0) {
-                if (GetLastError() == ERROR_BROKEN_PIPE) {
-                    break;
+        try {
+            while (true) {
+                if (ReadFile(hReadPipe, buffer.data(), buffer.size(), &bytesRead, nullptr) == 0) {
+                    if (GetLastError() == ERROR_BROKEN_PIPE) {
+                        break;
+                    }
+                    throw std::runtime_error("ReadFile failed! Error: " +
+                                             std::to_string(GetLastError()));
                 }
-                throw std::runtime_error("ReadFile failed! Error: " +
-                                         std::to_string(GetLastError()));
+                result.append(buffer.data(), bytesRead);
             }
-            result.append(buffer.data(), bytesRead);
+        } catch (...) {
+            reader_exc = std::current_exception();
         }
     });
 
-    DWORD waitResult = WaitForSingleObject(pi.hProcess, 10000);  // 10 sec timeout
-    if (waitResult == WAIT_TIMEOUT) {
-        TerminateProcess(pi.hProcess, 1);
-        readerThread.join();
+    DWORD waitResult = WaitForSingleObject(pi.hProcess, INFINITE);
+
+    readerThread.join();
+
+    if (waitResult == WAIT_FAILED) {
         CloseHandle(hReadPipe);
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
-        throw std::runtime_error("Process timed out!");
+        throw std::runtime_error("WaitForSingleObject failed! Error: " +
+                                 std::to_string(GetLastError()));
     }
 
-    readerThread.join();
+    if (reader_exc) {
+        CloseHandle(hReadPipe);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        std::rethrow_exception(reader_exc);
+    }
 
     DWORD exitCode = 0;
     if (GetExitCodeProcess(pi.hProcess, &exitCode) == 0) {
@@ -106,7 +117,7 @@ CXIRCompiler::ExecResult CXIRCompiler::exec(const std::string &cmd) {
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
-    return {result, static_cast<int>(exitCode)};
+    return {.output=result, .return_code=static_cast<int>(exitCode)};
 }
 
 #endif

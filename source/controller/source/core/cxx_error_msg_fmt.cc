@@ -72,84 +72,99 @@ std::tuple<size_t, size_t> get_meta(const std::string &file_name, size_t line_nu
 }
 
 CXIRCompiler::ErrorPOFNormalized CXIRCompiler::parse_clang_err(std::string clang_out) {
+    if (clang_out.empty()) return {token::Token(), "", ""};
+
     std::string file_path;
     size_t      line_number   = 0;
     size_t      column_number = 0;
     std::string message;
 
-    if (clang_out.empty()) return {token::Token(), "", ""};
-
-    // On Windows, paths start with a drive letter: "C:\..." or "Z:/..."
-    // Format: <path>(<line>,<col>): <severity>: <message>  [clang-cl]
-    // Format: <path>:<line>:<col>: <severity>: <message>   [clang/gcc]
-    //
-    // Detect which format by checking if char at index 1 is ':'
-    // (drive letter colon), then find the NEXT structural delimiter.
-
-    size_t path_end = std::string::npos;
-
-    // Check for Windows drive letter prefix (e.g. "C:" or "Z:")
+    // Detect Windows drive prefix: line starts with a letter followed by ':'
+    // e.g. "C:\...", "Z:/..."
     bool has_drive_prefix = (clang_out.size() >= 2 &&
                               std::isalpha((unsigned char)clang_out[0]) &&
                               clang_out[1] == ':');
 
-    // clang-cl emits: path(line,col): message
-    // clang emits:    path:line:col: message
-    // Find the opening '(' for clang-cl style, or ':' after the drive prefix for clang style
-
     if (has_drive_prefix) {
-        // search for '(' starting after the drive colon
+        // Two possible formats on Windows:
+        //
+        //   clang-cl: Z:\path\file.hh(line,col): severity: message
+        //   clang:    Z:/path/file.hh:line:col: severity: message
+        //
+        // Disambiguate by searching for '(' starting after the drive colon (index 2).
+        // If found, it's clang-cl format. Otherwise it's clang-on-Windows format.
+        //
+        // We do NOT compare paren_pos vs colon_pos because Windows paths contain
+        // colons in places like "10.0.26100.0" and "VC\Tools\MSVC\14.50.35717",
+        // which would cause colon_pos to land inside the path rather than after it.
+
         size_t paren_pos = clang_out.find('(', 2);
-        size_t colon_pos = clang_out.find(':', 2);
 
-        if (paren_pos != std::string::npos &&
-            (colon_pos == std::string::npos || paren_pos < colon_pos)) {
-            // clang-cl format: Z:\path\file.hh(line,col): severity: message
-            path_end  = paren_pos;
-            file_path = clang_out.substr(0, path_end);
+        if (paren_pos != std::string::npos) {
+            // ── clang-cl format: path(line,col): severity: message ──────────
+            file_path = clang_out.substr(0, paren_pos);
 
-            // parse (line,col):
-            size_t close_paren = clang_out.find(')', path_end);
+            size_t close_paren = clang_out.find(')', paren_pos);
             if (close_paren == std::string::npos) return {token::Token(), "", ""};
 
-            std::string loc = clang_out.substr(path_end + 1, close_paren - path_end - 1);
+            std::string loc = clang_out.substr(paren_pos + 1, close_paren - paren_pos - 1);
             auto comma = loc.find(',');
-            if (comma != std::string::npos) {
-                line_number   = std::stoul(loc.substr(0, comma));
-                column_number = std::stoul(loc.substr(comma + 1));
-            } else {
-                line_number = std::stoul(loc);
+            try {
+                if (comma != std::string::npos) {
+                    line_number   = std::stoul(loc.substr(0, comma));
+                    column_number = std::stoul(loc.substr(comma + 1));
+                } else {
+                    if (loc.empty()) return {token::Token(), "", ""};
+                    line_number = std::stoul(loc);
+                }
+            } catch (...) {
+                return {token::Token(), "", ""};
             }
 
-            // rest is ": severity: message"
+            // after close_paren expect ": severity: message"
             size_t msg_start = clang_out.find(':', close_paren);
             if (msg_start == std::string::npos) return {token::Token(), "", ""};
             message = clang_out.substr(msg_start + 1);
             if (!message.empty() && message[0] == ' ') message = message.substr(1);
 
-        } else if (colon_pos != std::string::npos) {
-            // clang format on Windows: Z:/path/file.hh:line:col: message
-            path_end  = colon_pos;
-            file_path = clang_out.substr(0, path_end);
-
-            std::istringstream stream(clang_out.substr(path_end + 1));
-            stream >> line_number;
-            stream.ignore(); // ':'
-            stream >> column_number;
-            stream.ignore(); // ':'
-            std::getline(stream, message);
         } else {
-            return {token::Token(), "", ""};
+            // ── clang-on-Windows format: Z:/path/file.hh:line:col: message ──
+            // Find the colon that separates path from line number.
+            // Skip the drive colon at index 1, then find the next ':'.
+            size_t path_colon = clang_out.find(':', 2);
+            if (path_colon == std::string::npos) return {token::Token(), "", ""};
+
+            file_path = clang_out.substr(0, path_colon);
+
+            std::istringstream stream(clang_out.substr(path_colon + 1));
+            try {
+                if (!(stream >> line_number)) return {token::Token(), "", ""};
+                char sep = 0;
+                stream >> sep; // ':'
+                if (!(stream >> column_number)) return {token::Token(), "", ""};
+                stream >> sep; // ':'
+            } catch (...) {
+                return {token::Token(), "", ""};
+            }
+            std::getline(stream, message);
+            if (!message.empty() && message[0] == ' ') message = message.substr(1);
         }
+
     } else {
-        // POSIX format: /path/file.hh:line:col: message
+        // ── POSIX format: /path/file.hh:line:col: severity: message ─────────
         std::istringstream stream(clang_out);
         std::getline(stream, file_path, ':');
-        stream >> line_number;
-        stream.ignore();
-        stream >> column_number;
-        stream.ignore();
+        try {
+            if (!(stream >> line_number)) return {token::Token(), "", ""};
+            char sep = 0;
+            stream >> sep; // ':'
+            if (!(stream >> column_number)) return {token::Token(), "", ""};
+            stream >> sep; // ':'
+        } catch (...) {
+            return {token::Token(), "", ""};
+        }
         std::getline(stream, message);
+        if (!message.empty() && message[0] == ' ') message = message.substr(1);
     }
 
     if (file_path.empty() || line_number == 0) {
@@ -161,7 +176,7 @@ CXIRCompiler::ErrorPOFNormalized CXIRCompiler::parse_clang_err(std::string clang
     token::Token pof = token::Token(line_number,
                                     std::get<0>(meta),
                                     std::get<1>(meta),
-                                    (std::get<0>(meta) + line_number),
+                                    std::get<0>(meta) + line_number,
                                     "/*error*/",
                                     file_path,
                                     "<other>");
