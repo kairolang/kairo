@@ -57,7 +57,7 @@ end
 function setup_windows()
 	add_rules("plugin.vsxmake.autoupdate")
 
-	add_syslinks("ntdll", "version")
+	add_syslinks("ntdll", "version", "Advapi32")
     -- add /EHsc and /RTC1 flags
     set_policy("check.auto_ignore_flags", false)
 
@@ -331,6 +331,9 @@ target("kairo") -- target config defined in the config seciton
     -- before_build(function (target)
         -- print_all_info(target)
     -- end)
+
+    -- remove the Advapi32 link for the main compiler target
+    
 
     kairo_src_setup()
 
