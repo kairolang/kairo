@@ -17,7 +17,7 @@
 //  PARSED ARGS  — the value the driver holds and passes as *ParsedArgs
 // =============================================================================
 
-import Driver::Command::Flags::*;
+import Driver::Command::FlagUtils::*;
 
 class ParsedArgs {
     __inline_cpp("public:");
