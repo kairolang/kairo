@@ -551,7 +551,7 @@ fn register_test_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::Bool>("color",               "force coloured output",                   true);
 
     // ── positional files (must be last) ──────────────────────────────────────
-    cmd->define::<FlagKind::PathList>("files", "input .kro source files");
+    cmd->define::<FlagKind::PathList>("files", "or run command with --help to see usage");
 }
 
 fn Test() -> i32 {
