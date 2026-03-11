@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 ///
-/// KLSP — Kairo Language Server Protocol Driver THIS is everything thats needed to run the LSP server:
+/// KLSP - Kairo Language Server Protocol Driver THIS is everything thats needed to run the LSP server:
 /// ==============================================
 ///
 /// Transport: JSON-RPC 2.0 over stdio (Content-Length framed)

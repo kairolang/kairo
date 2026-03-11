@@ -16,7 +16,7 @@
 
 import Driver::Command::Command::*;
 // =============================================================================
-//  KAIRO DRIVER FLAG TABLE  — the single place to add/remove flags
+//  KAIRO DRIVER FLAG TABLE  - the single place to add/remove flags
 // =============================================================================
 
 fn register_kairo_flags(cmd: *Command) {
@@ -159,7 +159,7 @@ fn register_kairo_flags(cmd: *Command) {
     // ── language correctness (on by default) ─────────────────────────────────
     cmd->define::<FlagKind::Feature>("verify-interfaces",  "verify all interface impl T declarations are fully satisfied (on)");
     cmd->define::<FlagKind::Feature>("const-checks",       "strict const correctness enforcement (on)");
-    cmd->define::<FlagKind::Feature>("overflow-checks",    "integer overflow checking — on in debug, off in release by default");
+    cmd->define::<FlagKind::Feature>("overflow-checks",    "integer overflow checking - on in debug, off in release by default");
     cmd->define::<FlagKind::Feature>("strict-null",        "treat nullable pointer dereference as a hard error");
     cmd->define::<FlagKind::Feature>("implicit-conv",      "allow implicit type conversions (on)");
     cmd->define::<FlagKind::Feature>("rtti",               "runtime type information (on)");
@@ -245,7 +245,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::StringList>("warn",               "W", "",                   "enable a specific diagnostic warning by name (repeatable)");
     cmd->define::<FlagKind::StringList>("allow",              "A", "",                   "silence a specific diagnostic by name (repeatable)");
     cmd->define::<FlagKind::StringList>("deny",               "E", "",                   "promote a specific diagnostic to error (repeatable)");
-    cmd->define::<FlagKind::StringList>("forbid",             "F", "",                   "forbid a diagnostic — error, cannot be overridden downstream (repeatable)");
+    cmd->define::<FlagKind::StringList>("forbid",             "F", "",                   "forbid a diagnostic - error, cannot be overridden downstream (repeatable)");
     cmd->define::<FlagKind::String>    ("error-format",       "",  "error-format",       "diagnostic output format: pretty|basic|json|msvc (default: pretty)",  "pretty");
     cmd->define::<FlagKind::Bool>      ("no-color",           "",  "no-color",           "disable ANSI colour in diagnostic output",                             false);
     cmd->define::<FlagKind::Bool>      ("diag-show-ids",      "",  "diag-show-ids",      "print DiagCode alongside every diagnostic message",                    false);
@@ -559,7 +559,7 @@ fn Test() -> i32 {
 
     var suite = Assert("Command Tests");
 
-    // shared fixture — used by non-error tests
+    // shared fixture - used by non-error tests
     var diag = DiagEngine();
     var cmd  = Command(&diag);
     register_test_flags(&cmd);

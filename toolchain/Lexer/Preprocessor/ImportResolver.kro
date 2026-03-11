@@ -34,7 +34,7 @@
 ///
 /// \warning ambiguous module resolution (file and directory with same stem)
 ///          returns `ResolveError::AmbiguousModule` even though a valid path
-///          is cached. this is intentional—callers should treat ambiguity as
+///          is cached. this is intentional-callers should treat ambiguity as
 ///          a diagnostic-worthy condition.
 ///
 ///-----------------------------------------------------------------------------
@@ -261,7 +261,7 @@ class ImportResolver {
     /// 3. if no file, look for a directory with that name containing `module.kro`
     ///
     /// \note returns `AmbiguousModule` if both a file and directory match, but still
-    ///       caches and returns the file path. this is arguably a bug—callers receiving
+    ///       caches and returns the file path. this is arguably a bug-callers receiving
     ///       `AmbiguousModule` cannot distinguish success from failure without inspecting
     ///       the cache manually.
     fn resolve_module(self, segments: vec::<string>)

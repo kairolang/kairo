@@ -57,7 +57,7 @@ class TermRenderer {
             // ── fenced code block ───────────────────────────────
             if self.starts_with(trimmed, "```") {
                 if in_code_block {
-                    // closing fence — draw bottom border
+                    // closing fence - draw bottom border
                     out += self.style(DIM);
                     out += "  └";
                     for _ in u32(0) .. self._width - 4 {

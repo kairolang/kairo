@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-/// Command — CLI argument tokenizer for the Kairo driver
+/// Command - CLI argument tokenizer for the Kairo driver
 /// ======================================================
 ///
 /// Modular, hash-based tokenizer for command-line arguments.
@@ -36,7 +36,7 @@ import Core::Include::Testing::*;
 
 /// \brief indicates whether a flag expects a following value token
 enum ValueType derives u8 {
-    FALSE,  ///< boolean flag — no value expected
+    FALSE,  ///< boolean flag - no value expected
     FILE,   ///< flag expects a file path or string value
 }
 
@@ -350,7 +350,7 @@ class Command {
                                 result.values[flag] = sentence.subslice(val_start, pointer - val_start);
                             }
                         } else if flag_value_type(flag) == ValueType::FILE {
-                            // value expected but not found inline — caller must check
+                            // value expected but not found inline - caller must check
                             self._diag->report(DiagCode(DiagID::U004E),
                                 f"flag '--{flag_str}' requires a value; use '--{flag_str}=<value>' ")
                                 .emit();

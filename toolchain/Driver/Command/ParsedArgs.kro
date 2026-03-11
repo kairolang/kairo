@@ -14,7 +14,7 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 // =============================================================================
-//  PARSED ARGS  — the value the driver holds and passes as *ParsedArgs
+//  PARSED ARGS  - the value the driver holds and passes as *ParsedArgs
 // =============================================================================
 
 import Driver::Command::FlagUtils::*;
@@ -66,7 +66,7 @@ class ParsedArgs {
         return self._map[key].as_feature();
     }
 
-    /// \brief config flag getters — key is without the 'c' CLI prefix
+    /// \brief config flag getters - key is without the 'c' CLI prefix
     fn get_cfg_bool(self, key: string) -> bool {
         var k = f"c:{key}";
         if !self._map.contains(k) { return false; }

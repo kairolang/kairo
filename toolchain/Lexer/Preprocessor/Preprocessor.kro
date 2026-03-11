@@ -269,7 +269,7 @@ if tokens == &null {
 /// btw metnal note: if we have sum like `import Foo::Bar::SomeClass` we simply look up the full path if it doesnt exist we move on since the import may be for a type or function not a macro
 /// we only care about macros here and we can `import Foo::Bar::SomeMacro!` we only lookup `Foo::Bar` not the full path, then we lex and look for the specific macro in that module
 
-import Lexer::Lexer::*;
+import Lexer::TokenCacheManager::*;
 import Lexer::TokenSpan::*;
 import Lexer::Preprocessor::ImportResolver::*;
 import Lexer::Preprocessor::MacroDefinitionCollector::*;

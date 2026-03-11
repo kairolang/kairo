@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-/// Command — table-driven, two-level state-machine CLI argument parser
+/// Command - table-driven, two-level state-machine CLI argument parser
 /// ====================================================================
 ///
 /// Usage (matches rest of compiler)
@@ -24,7 +24,7 @@
 ///   var args    = cmd.parse(argv_vec);   // argv_vec: vec::<string> from main
 ///   var &args   = args;                  // pass &args to any subsystem
 ///
-/// Adding a flag — the only file you need to touch
+/// Adding a flag - the only file you need to touch
 /// ------------------------------------------------
 ///   cmd.define(FlagDef::bool_  ("verbose", "v", "verbose", "verbose output",       false));
 ///   cmd.define(FlagDef::str_   ("output",  "o", "output",  "output file path")); // required
@@ -49,7 +49,7 @@
 ///
 /// Input
 /// -----
-///   Takes vec::<string> (libcxx::vector<wstring>) — the shell already
+///   Takes vec::<string> (libcxx::vector<wstring>) - the shell already
 ///   split the command line; the driver builds this from argc/argv once.
 
 import Core::EvalHash::*;
@@ -73,7 +73,7 @@ enum FlagKind derives u8 {
 }
 
 // =============================================================================
-//  FLAG VALUE  (tagged cell — used as default AND as live value in ParsedArgs)
+//  FLAG VALUE  (tagged cell - used as default AND as live value in ParsedArgs)
 // =============================================================================
 
 class FlagValue {
@@ -145,7 +145,7 @@ class FlagValue {
 }
 
 // =============================================================================
-//  FLAG DESCRIPTOR  — add one line here to add a flag, nothing else changes
+//  FLAG DESCRIPTOR  - add one line here to add a flag, nothing else changes
 // =============================================================================
 
 class FlagDef {
@@ -248,7 +248,7 @@ class FlagDef {
         return d;
     }
 
-    /// positional file arguments (required — at least one)
+    /// positional file arguments (required - at least one)
     static fn files_(key: string, help: string) -> FlagDef {
         var d = FlagDef{};
         d.key = key; d.kind = FlagKind::PathList; d.help = help;
@@ -316,7 +316,7 @@ class FlagDef {
 
     // ── positional files ─────────────────────────────────────────────────────
 
-    /// positional file arguments (optional — zero or more)
+    /// positional file arguments (optional - zero or more)
     static fn files_opt(key: string, help: string) -> FlagDef {
         var d = FlagDef{};
         d.key = key; d.kind = FlagKind::PathList; d.help = help;
@@ -326,7 +326,7 @@ class FlagDef {
 }
 
 // =============================================================================
-//  PARSED ARGS  — the value the driver holds and passes as *ParsedArgs
+//  PARSED ARGS  - the value the driver holds and passes as *ParsedArgs
 // =============================================================================
 
 class ParsedArgs {
@@ -376,7 +376,7 @@ class ParsedArgs {
         return self._map[key].as_feature();
     }
 
-    /// \brief config flag getters — key is without the 'c' CLI prefix
+    /// \brief config flag getters - key is without the 'c' CLI prefix
     fn get_cfg_bool(self, key: string) -> bool {
         var k = f"c:{key}";
         if !self._map.contains(k) { return false; }
@@ -408,7 +408,7 @@ class ParsedArgs {
 }
 
 // =============================================================================
-//  COMMAND  — the parser; use like other compiler components
+//  COMMAND  - the parser; use like other compiler components
 // =============================================================================
 
 class Command {
@@ -582,7 +582,7 @@ class Command {
 
     // ── flag table lookup ─────────────────────────────────────────────────
 
-    /// linear scan by short, long, or key — fine for CLI-sized tables
+    /// linear scan by short, long, or key - fine for CLI-sized tables
     /// key fallback lets --opt=2 find a flag defined with long_=""
     priv fn _find(self, name: string) -> *FlagDef {
         for var i: usize = 0; i < self._table.size(); ++i {
@@ -1120,7 +1120,7 @@ class Command {
                     }
                     case FlagKind::I32 { rhs += f" (default: {def->default_.as_i32()})";    }
                     case FlagKind::F64 { rhs += f" (default: {def->default_.as_f64():.2})"; }
-                    default {} // Feature, StringList — no default shown
+                    default {} // Feature, StringList - no default shown
                 }
             }
 
@@ -1150,7 +1150,7 @@ class Command {
 }
 
 // =============================================================================
-//  KAIRO DRIVER FLAG TABLE  — the single place to add/remove flags
+//  KAIRO DRIVER FLAG TABLE  - the single place to add/remove flags
 // =============================================================================
 
 fn register_kairo_flags(cmd: *Command) {
@@ -1293,7 +1293,7 @@ fn register_kairo_flags(cmd: *Command) {
     // ── language correctness (on by default) ─────────────────────────────────
     cmd->define::<FlagKind::Feature>("verify-interfaces",  "verify all interface impl T declarations are fully satisfied (on)");
     cmd->define::<FlagKind::Feature>("const-checks",       "strict const correctness enforcement (on)");
-    cmd->define::<FlagKind::Feature>("overflow-checks",    "integer overflow checking — on in debug, off in release by default");
+    cmd->define::<FlagKind::Feature>("overflow-checks",    "integer overflow checking - on in debug, off in release by default");
     cmd->define::<FlagKind::Feature>("strict-null",        "treat nullable pointer dereference as a hard error");
     cmd->define::<FlagKind::Feature>("implicit-conv",      "allow implicit type conversions (on)");
     cmd->define::<FlagKind::Feature>("rtti",               "runtime type information (on)");
@@ -1379,7 +1379,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::StringList>("warn",               "W", "",                   "enable a specific diagnostic warning by name (repeatable)");
     cmd->define::<FlagKind::StringList>("allow",              "A", "",                   "silence a specific diagnostic by name (repeatable)");
     cmd->define::<FlagKind::StringList>("deny",               "E", "",                   "promote a specific diagnostic to error (repeatable)");
-    cmd->define::<FlagKind::StringList>("forbid",             "F", "",                   "forbid a diagnostic — error, cannot be overridden downstream (repeatable)");
+    cmd->define::<FlagKind::StringList>("forbid",             "F", "",                   "forbid a diagnostic - error, cannot be overridden downstream (repeatable)");
     cmd->define::<FlagKind::String>    ("error-format",       "",  "error-format",       "diagnostic output format: pretty|basic|json|msvc (default: pretty)",  "pretty");
     cmd->define::<FlagKind::Bool>      ("no-color",           "",  "no-color",           "disable ANSI colour in diagnostic output",                             false);
     cmd->define::<FlagKind::Bool>      ("diag-show-ids",      "",  "diag-show-ids",      "print DiagCode alongside every diagnostic message",                    false);
@@ -1697,7 +1697,7 @@ fn Test() -> i32 {
 
     var suite = Assert("Command Tests");
 
-    // shared fixture — used by non-error tests
+    // shared fixture - used by non-error tests
     var diag = DiagEngine();
     var cmd  = Command(&diag);
     register_test_flags(&cmd);

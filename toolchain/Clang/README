@@ -2,7 +2,7 @@
 
 ## Overview
 
-Kairo is a statically typed systems programming language with full native bidirectional C++ interoperability. The compiler leverages Clang as a backend — Kairo source is lowered to C++ lexical tokens, fed into Clang's parser/sema/codegen pipeline, and linked via a wrapped LLD.
+Kairo is a statically typed systems programming language with full native bidirectional C++ interoperability. The compiler leverages Clang as a backend - Kairo source is lowered to C++ lexical tokens, fed into Clang's parser/sema/codegen pipeline, and linked via a wrapped LLD.
 
 ```
 Kairo Source (.kro)          C++ Headers (.h/.hpp)
@@ -132,7 +132,7 @@ Kairo Source (.kro)          C++ Headers (.h/.hpp)
 - Input: expanded token buffer from preprocessor
 - Output: Kairo AST
 - Error recovery: skip to next synchronization point on error (semicolons, braces, keywords)
-- `TkError` tokens from lexer are skipped — don't cascade into parse errors
+- `TkError` tokens from lexer are skipped - don't cascade into parse errors
 - Pratt parsing for expressions (precedence climbing)
 - Reports diagnostics via `DiagEngine`
 
@@ -153,7 +153,7 @@ When the parser encounters `import cpp "header.h"`:
 
 1. Invoke `libclang` to parse the header
 2. Walk top-level declarations via `clang_visitChildren()`
-3. Extract lightweight stubs — just enough for Kairo sema to not reject valid code
+3. Extract lightweight stubs - just enough for Kairo sema to not reject valid code
 4. Insert stubs into Kairo symbol table under the appropriate namespace/module
 
 **Stub structure:**
@@ -214,11 +214,11 @@ Two responsibilities:
 **AST annotation after sema:**
 - Every node has a resolved type (Kairo type or `CppOpaqueType` handle)
 - C++ interop nodes tagged with `DeferredCppCall` / `DeferredCppType`
-- AMT annotations attached (borrow kind, lifetime, ownership) — erased during lowering
+- AMT annotations attached (borrow kind, lifetime, ownership) - erased during lowering
 
 ---
 
-### 6. AMT (Advanced Memory Tracking) — Borrow Checker
+### 6. AMT (Advanced Memory Tracking) - Borrow Checker
 
 **Status:** Not started (design phase)
 
@@ -238,12 +238,12 @@ Runs as a sub-pass of sema, after type resolution, before token emission.
 
 **Ownership annotations for C++ interop:**
 ```
-@cpp_owns      — C++ allocated, C++ frees. Kairo gets a borrow.
-@kairo_owns    — C++ allocated, Kairo must free.
-@shared        — Reference counted, both sides can hold.
+@cpp_owns      - C++ allocated, C++ frees. Kairo gets a borrow.
+@kairo_owns    - C++ allocated, Kairo must free.
+@shared        - Reference counted, both sides can hold.
 ```
 
-**AMT erasure:** after borrow checking passes, all AMT annotations are stripped during token emission. The emitted C++ tokens have raw pointers/references. AMT is purely a compile-time check — zero runtime cost.
+**AMT erasure:** after borrow checking passes, all AMT annotations are stripped during token emission. The emitted C++ tokens have raw pointers/references. AMT is purely a compile-time check - zero runtime cost.
 
 ---
 
@@ -289,8 +289,8 @@ ref!(T)                        T &
 *T                             T *
 import cpp "foo.h"             #include "foo.h"
 module Foo { ... }             namespace Foo { ... }
-trait Trait { ... }             (concept or vtable struct — TBD)
-...args splice                 (variadic template expansion — TBD)
+trait Trait { ... }             (concept or vtable struct - TBD)
+...args splice                 (variadic template expansion - TBD)
 ```
 
 **C++ interop nodes:** when the emitter encounters a `DeferredCppCall` or `DeferredCppType`, it emits the original C++ tokens directly. Since the C++ header was `#include`d, Clang already knows about these symbols.
@@ -301,20 +301,20 @@ trait Trait { ... }             (concept or vtable struct — TBD)
 
 ### 8. Clang Pipeline (Parser → Sema → Codegen)
 
-**Status:** Provided by Clang — no implementation needed
+**Status:** Provided by Clang - no implementation needed
 
 The emitted token stream is fed into Clang's standard pipeline:
 
-1. **Clang Parser** — parses tokens into `clang::ASTContext`
-2. **Clang Sema** — full C++ semantic analysis including:
+1. **Clang Parser** - parses tokens into `clang::ASTContext`
+2. **Clang Sema** - full C++ semantic analysis including:
    - Type checking
    - Overload resolution  
    - Template instantiation
    - Concept checking
    - ADL, SFINAE
    - Implicit conversions
-3. **Clang Codegen** — lowers Clang AST to LLVM IR
-4. **LLVM Passes** — optimization, debug info
+3. **Clang Codegen** - lowers Clang AST to LLVM IR
+4. **LLVM Passes** - optimization, debug info
 
 Kairo invokes this by creating a `clang::CompilerInstance`, configuring it with Kairo's flags (mapped to Clang equivalents), and running the pipeline.
 
@@ -374,32 +374,32 @@ Call Site (lexer/parser/sema/etc.)
 <category><3-digit code><severity>
 
 Categories:
-  S   — Syntax
-  U   — Uncategorized
-  C   — Code Generation
-  M   — Memory
-  R   — Resolution
-  L   — Linker
-  SC  — Semantic
-  P   — Portability/Platform
-  CL  — Lowering
-  OPT — Optimization
-  I   — Internal
+  S   - Syntax
+  U   - Uncategorized
+  C   - Code Generation
+  M   - Memory
+  R   - Resolution
+  L   - Linker
+  SC  - Semantic
+  P   - Portability/Platform
+  CL  - Lowering
+  OPT - Optimization
+  I   - Internal
 
 Severities:
-  I — Ignored
-  R — Remark
-  V — Verbose
-  N — Note
-  D — Debug
-  W — Warning
-  E — Error
-  F — Fatal
+  I - Ignored
+  R - Remark
+  V - Verbose
+  N - Note
+  D - Debug
+  W - Warning
+  E - Error
+  F - Fatal
 
 Examples:
-  SC001E — Semantic Error 001
-  S042W  — Syntax Warning 042
-  M003E  — Memory Error 003 (AMT violation)
+  SC001E - Semantic Error 001
+  S042W  - Syntax Warning 042
+  M003E  - Memory Error 003 (AMT violation)
 ```
 
 ### Cascade Suppression
@@ -456,42 +456,42 @@ Bridge types have implicit constructors/conversion operators so cross-language c
 
 ### C++ Types in Kairo
 
-User C++ types (anything not in the bridge table) are held as opaque `clang::QualType` handles in the Kairo symbol table. Kairo sema doesn't inspect their internals — it just verifies the symbol exists and defers to Clang for type checking.
+User C++ types (anything not in the bridge table) are held as opaque `clang::QualType` handles in the Kairo symbol table. Kairo sema doesn't inspect their internals - it just verifies the symbol exists and defers to Clang for type checking.
 
 ---
 
 ## Build Order / Implementation Priority
 
 ```
-Phase 1 — Foundation (current)
+Phase 1 - Foundation (current)
   ✅ Lexer (Stage 1 in progress)
   ✅ Preprocessor (Stage 1 in progress)
   🔨 Diagnostic Engine
   
-Phase 2 — Frontend
+Phase 2 - Frontend
   ○ Parser → Kairo AST
   ○ Basic Sema (Kairo-only, no C++ interop)
   ○ Token Emitter (trivial subset: fn, var, if, while, for)
   ○ Clang pipeline integration (verify round-trip)
 
-Phase 3 — Language Features
+Phase 3 - Language Features
   ○ Traits / interfaces
   ○ Generics
   ○ Pattern matching / match
   ○ Full expression coverage in token emitter
 
-Phase 4 — C++ Interop
+Phase 4 - C++ Interop
   ○ libclang stub extraction
   ○ Deferred sema for C++ symbols
   ○ import cpp support
   ○ Std library bridge types (string, vec, map)
 
-Phase 5 — Memory Safety
+Phase 5 - Memory Safety
   ○ AMT ownership tracking
   ○ Borrow checking (pure Kairo)
   ○ Trust boundary annotations for C++ calls
 
-Phase 6 — Tooling
+Phase 6 - Tooling
   ○ LLD wrapper with Kairo demangling
   ○ LSP server (klsp)
   ○ Formatter (kfmt)

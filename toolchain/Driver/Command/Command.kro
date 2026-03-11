@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-/// Command — table-driven, two-level state-machine CLI argument parser
+/// Command - table-driven, two-level state-machine CLI argument parser
 /// ====================================================================
 ///
 /// Usage (matches rest of compiler)
@@ -24,7 +24,7 @@
 ///   var args    = cmd.parse(argv_vec);   // argv_vec: vec::<string> from main
 ///   var &args   = args;                  // pass &args to any subsystem
 ///
-/// Adding a flag — the only file you need to touch
+/// Adding a flag - the only file you need to touch
 /// ------------------------------------------------
 ///   cmd.define(FlagDef::bool_  ("verbose", "v", "verbose", "verbose output",       false));
 ///   cmd.define(FlagDef::str_   ("output",  "o", "output",  "output file path")); // required
@@ -49,15 +49,15 @@
 ///
 /// Input
 /// -----
-///   Takes vec::<string> (libcxx::vector<wstring>) — the shell already
+///   Takes vec::<string> (libcxx::vector<wstring>) - the shell already
 ///   split the command line; the driver builds this from argc/argv once.
 
 import Core::Include::Testing::*;
 import Core::Diagnostics::DiagEngine::*;
-import Driver::Command::Args::*;
+import Driver::Command::ParsedArgs::*;
 
 // =============================================================================
-//  COMMAND  — the parser; use like other compiler components
+//  COMMAND  - the parser; use like other compiler components
 // =============================================================================
 
 class Command {
@@ -229,7 +229,7 @@ class Command {
 
     // ── flag table lookup ─────────────────────────────────────────────────
 
-    /// linear scan by short, long, or key — fine for CLI-sized tables
+    /// linear scan by short, long, or key - fine for CLI-sized tables
     /// key fallback lets --opt=2 find a flag defined with long_=""
     priv fn _find(self, name: string) -> *FlagDef {
         for var i: usize = 0; i < self._table.size(); ++i {
@@ -767,7 +767,7 @@ class Command {
                     }
                     case FlagKind::I32 { rhs += f" (default: {def->default_.as_i32()})";    }
                     case FlagKind::F64 { rhs += f" (default: {def->default_.as_f64():.2})"; }
-                    default {} // Feature, StringList — no default shown
+                    default {} // Feature, StringList - no default shown
                 }
             }
 

@@ -2,7 +2,7 @@
 : '
 #!/usr/bin/env bash
 # ============================================================
-#  Kairo Installer — Unix (bash/zsh)
+#  Kairo Installer - Unix (bash/zsh)
 #  Usage: curl -fsSL https://raw.githubusercontent.com/kairolang/kairo-lang/main/install.ps1 | bash
 # ============================================================
 set -e
@@ -100,10 +100,10 @@ info "Checking write access..."
 
 if [ -w "$SYMLINK_TARGET" ]; then
     CAN_SYMLINK=true
-    ok "Write access to $SYMLINK_TARGET confirmed — no sudo needed."
+    ok "Write access to $SYMLINK_TARGET confirmed - no sudo needed."
 elif sudo -v 2>/dev/null; then
     CAN_SYMLINK=true
-    ok "sudo access confirmed — will use sudo when symlinking binaries."
+    ok "sudo access confirmed - will use sudo when symlinking binaries."
 else
     warn "No write access to $SYMLINK_TARGET and sudo isn't available or was declined."
     warn "Skipping global symlink. After install, add this line to your ~/.bashrc or ~/.zshrc:"
@@ -127,7 +127,7 @@ fi
 # ---- clone / update kairo-lang ----
 section "Fetching kairo-lang"
 if [ -d "$KAIRO_DIR/.git" ]; then
-    log "Repo already present — fetching latest..."
+    log "Repo already present - fetching latest..."
     info "  git -C $KAIRO_DIR fetch --all"
     git -C "$KAIRO_DIR" fetch --all -q
     ok "Fetch done."
@@ -154,14 +154,14 @@ ok "On $KAIRO_BRANCH."
 section "Building stage 0 compiler"
 log "Running xmake..."
 info "  xmake -y  (in $KAIRO_DIR)"
-info "  Compiling ~20k lines of C++ — expect 1–3 minutes depending on your machine."
+info "  Compiling ~20k lines of C++ - expect 1–3 minutes depending on your machine."
 echo ""
 cd "$KAIRO_DIR"
 xmake -y
 echo ""
 
 if [ ! -f "$KAIRO_BIN/kairo" ]; then
-    die "Expected binary not found at $KAIRO_BIN/kairo — build may have failed. Check xmake output above."
+    die "Expected binary not found at $KAIRO_BIN/kairo - build may have failed. Check xmake output above."
 fi
 ok "Binary verified: $KAIRO_BIN/kairo"
 
@@ -190,9 +190,9 @@ command -v code >/dev/null 2>&1 && HAS_CODE=true
 command -v npm  >/dev/null 2>&1 && HAS_NPM=true
 
 if ! $HAS_CODE; then
-    warn "'code' CLI not found — skipping. Install VSCode + shell integration and re-run if you want it."
+    warn "'code' CLI not found - skipping. Install VSCode + shell integration and re-run if you want it."
 elif ! $HAS_NPM; then
-    warn "'npm' not found — skipping. Install Node.js and re-run if you want it."
+    warn "'npm' not found - skipping. Install Node.js and re-run if you want it."
 else
     info "Provides syntax highlighting and LSP support for .kro files in VSCode."
     info "Will clone kairo-lsp to: $LSP_DIR"
@@ -203,7 +203,7 @@ else
 
         section "Fetching kairo-lsp"
         if [ -d "$LSP_DIR/.git" ]; then
-            log "Repo already present — pulling..."
+            log "Repo already present - pulling..."
             git -C "$LSP_DIR" pull -q
             ok "Updated."
         else
@@ -272,7 +272,7 @@ exit 0
 #>
 
 # ============================================================
-#  Kairo Installer — Windows (PowerShell)
+#  Kairo Installer - Windows (PowerShell)
 #  Usage: iwr https://raw.githubusercontent.com/kairolang/kairo-lang/main/install.ps1 | iex
 # ============================================================
 
@@ -342,10 +342,10 @@ Section "Checking permissions"
 $IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")
 
 if ($IsAdmin) {
-    Ok "Running as Administrator — will add to system-wide PATH."
+    Ok "Running as Administrator - will add to system-wide PATH."
 } else {
     Warn "Not running as Administrator."
-    Info "That's fine — binaries will be added to your user-level PATH instead."
+    Info "That's fine - binaries will be added to your user-level PATH instead."
     Info "If you want a system-wide install later, re-run PowerShell as Administrator."
     Write-Host ""
     $Continue = Read-Host "  Continue with user-level PATH? [Y/n]"
@@ -366,7 +366,7 @@ if (Test-Path $InstallDir) {
 # ---- clone / update kairo-lang ----
 Section "Fetching kairo-lang"
 if (Test-Path "$KairoDir\.git") {
-    Log "Repo already present — fetching latest..."
+    Log "Repo already present - fetching latest..."
     Info "  git -C $KairoDir fetch --all"
     git -C $KairoDir fetch --all -q
     Ok "Fetch done."

@@ -97,7 +97,7 @@ class FlagValue {
 }
 
 // =============================================================================
-//  FLAG DESCRIPTOR  — add one line here to add a flag, nothing else changes
+//  FLAG DESCRIPTOR  - add one line here to add a flag, nothing else changes
 // =============================================================================
 
 class FlagDef {
@@ -200,7 +200,7 @@ class FlagDef {
         return d;
     }
 
-    /// positional file arguments (required — at least one)
+    /// positional file arguments (required - at least one)
     static fn files_(key: string, help: string) -> FlagDef {
         var d = FlagDef{};
         d.key = key; d.kind = FlagKind::PathList; d.help = help;
@@ -268,7 +268,7 @@ class FlagDef {
 
     // ── positional files ─────────────────────────────────────────────────────
 
-    /// positional file arguments (optional — zero or more)
+    /// positional file arguments (optional - zero or more)
     static fn files_opt(key: string, help: string) -> FlagDef {
         var d = FlagDef{};
         d.key = key; d.kind = FlagKind::PathList; d.help = help;
