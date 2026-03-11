@@ -24,16 +24,16 @@ class PrettyDiagConsumer derives DiagConsumer {
     priv var _sm:    *SourceManager;
 
     // ANSI codes
-    priv const var RESET:    string = "\x1b[0m";
-    priv const var BOLD:     string = "\x1b[1m";
-    priv const var DIM:      string = "\x1b[2;37m";
-    priv const var BOLD_RED: string = "\x1b[1;31m";
-    priv const var RED:      string = "\x1b[31m";
-    priv const var YELLOW:   string = "\x1b[33m";
-    priv const var CYAN:     string = "\x1b[36m";
-    priv const var BLUE:     string = "\x1b[34m";
-    priv const var MAGENTA:  string = "\x1b[35m";
-    priv const var WHITE:    string = "\x1b[37m";
+    priv var RESET:    string = "\x1b[0m";
+    priv var BOLD:     string = "\x1b[1m";
+    priv var DIM:      string = "\x1b[2;37m";
+    priv var BOLD_RED: string = "\x1b[1;31m";
+    priv var RED:      string = "\x1b[31m";
+    priv var YELLOW:   string = "\x1b[33m";
+    priv var CYAN:     string = "\x1b[36m";
+    priv var BLUE:     string = "\x1b[34m";
+    priv var MAGENTA:  string = "\x1b[35m";
+    priv var WHITE:    string = "\x1b[37m";
 
     fn PrettyDiagConsumer(self, sm: *SourceManager) {
         self._diags.reserve(32);
@@ -79,6 +79,23 @@ class PrettyDiagConsumer derives DiagConsumer {
             out += self.render(self._diags[i], self._sm, false);
         }
         return out;
+    }
+
+    fn set_color(self, enable: bool) {
+        if !enable {
+            (self.RESET) = "";
+            (self.BOLD) = "";
+            (self.DIM) = "";
+            (self.BOLD_RED) = "";
+            (self.RED) = "";
+            (self.YELLOW) = "";
+            (self.CYAN) = "";
+            (self.BLUE) = "";
+            (self.MAGENTA) = "";
+            (self.WHITE) = "";
+        }
+
+        return;
     }
 
     priv fn render(self, diag: *Diagnostic, sm: *SourceManager, color: bool) -> string {
@@ -203,7 +220,7 @@ class PrettyDiagConsumer derives DiagConsumer {
 
             out += prefix_vis + line_text + NL;
 
-            // underline row — pad by raw prefix length (no ANSI codes)
+            // underline row - pad by raw prefix length (no ANSI codes)
             var pad       = string(' ', prefix_raw.length());
             var start_col = start_lc.column;
             var end_col   = end_lc.column;

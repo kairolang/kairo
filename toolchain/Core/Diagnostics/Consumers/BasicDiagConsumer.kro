@@ -133,7 +133,7 @@ class BasicDiagConsumer derives DiagConsumer {
             order.push_back(i);
         }
 
-        // insertion sort — label counts are tiny, no need for anything heavier
+        // insertion sort - label counts are tiny, no need for anything heavier
         for var i: usize = 1; i < order.size(); ++i {
             var key = order[i];
             var key_line = sm->get_line_col(labels[key].range.start).line;

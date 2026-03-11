@@ -231,6 +231,23 @@ class DiagEngine {
         self._consumers.push_back(consumer);
     }
 
+    fn remove_consumer(self, consumer: *DiagConsumer) {
+        var j: usize = 0;
+        for var i: usize = 0; i < self._consumers.size(); ++i {
+            if self._consumers[i] != consumer {
+                if i != j {
+                    self._consumers[j] = self._consumers[i];
+                }
+                j += 1;
+            }
+        }
+
+        
+        while self._consumers.size() > j {
+            self._consumers.pop_back();
+        }
+    }
+
     fn report(self, code: DiagCode, loc: SourceLocation, msg: string) -> DiagBuilder {
         return DiagBuilder(&self, code, loc, msg);
     }
