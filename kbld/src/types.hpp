@@ -4,6 +4,8 @@
 #include <windows.h>
 #include <consoleapi2.h>
 #include <winbase.h>
+#else
+#include <sys/ioctl.h>
 #endif
 #include <algorithm>
 #include <array>

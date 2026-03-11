@@ -207,7 +207,6 @@ inline auto build_target(const Target     &target,
                 if (!vswhere_out.empty()) {
 #ifdef _WIN32
                     fs::path winsdk_bin = find_windows_sdk_bin();
-#endif
                     if (winsdk_bin.empty()) {
                         // last resort fallback — this path is correct on 99% of systems
                         winsdk_bin = "C:\\Program Files (x86)\\Windows Kits\\10\\bin";
@@ -236,23 +235,29 @@ inline auto build_target(const Target     &target,
                         if (!best_rc.empty()) {
                             rc_exe = best_rc.string();
                             log::verbose(fmt("found rc.exe (SDK {}): '{}'", best_ver, rc_exe),
-                                         opts.verbose);
+                            opts.verbose);
                         }
                     }
+    #endif
                 }
 
                 if (rc_exe.empty()) {
                     log::warn("rc.exe not found in Windows SDK, skipping .rc compilation");
                 }
             }
-
-            std::string rc_cmd = "\"" + rc_exe + "\" /nologo /fo\"" + res_file.string() + "\" \"" + rc_file.string() + "\"";
+#ifdef _WIN32
+            std::string rc_cmd = "\"" + rc_exe + "\" /nologo /fo\"" + res_file.string() + "\" \"" +
+                                 rc_file.string() + "\"";
             if (!opts.dry_run) {
                 std::string rc_out;
-                int rc = exec_capture(rc_cmd, rc_out);
+                int         rc = exec_capture(rc_cmd, rc_out);
                 if (rc != 0)
-                    log::warn(fmt("RC compilation failed for '{}' (exit {}), continuing", target.name, rc));
+                    log::warn(fmt(
+                        "RC compilation failed for '{}' (exit {}), continuing", target.name, rc));
             }
+#else
+            log::warn("rc.exe not supported on non-Windows platforms, skipping .rc compilation");
+#endif
         }
     }
 
