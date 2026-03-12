@@ -1,7 +1,7 @@
 # Kairo Programming Language (formerly Helix)
 
 <div align="center">
-  <img src="assets/kairo-logo.svg" alt="Kairo Programming Language Logo" width="60%">
+  <img src="assets/kairo-logo.svg" alt="Kairo Programming Language Logo" width="100%">
 </div>
 
 ---
