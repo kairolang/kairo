@@ -1,12 +1,12 @@
 # Kairo Programming Language (formerly Helix)
 
 <div align="center">
-  <img src="assets/kairo-logo.svg" alt="Kairo Programming Language Logo" width="100%">
+  <img src="assets/kairo-logo.svg" alt="Kairo Programming Language Logo" width="60%">
 </div>
 
 ---
 
-Kairo is a **statically typed  programming language**, built for systems programming and high-performance applications. Designed with interoperability in mind. Kairo aims to combine the power and control of low-level languages with the safety and clarity of high-level design.
+Kairo is a **statically typed compiled language**, built for systems programming and high-performance applications. Designed with native bi-directional C++ interoperability in mind. Kairo aims to combine the power and control of low-level languages with the safety and clarity of high-level design.
 
 ### The goals of Kairo:
 
