@@ -8,9 +8,6 @@
 
 Kairo is a **statically typed  programming language**, built for systems programming and high-performance applications. Designed with interoperability in mind. Kairo aims to combine the power and control of low-level languages with the safety and clarity of high-level design.
 
-> [!NOTE]
-> Kairo is not associated with the [Kairo-Editor](https://github.com/kairo-editor/kairo), we are in the process or rebranding, by Q1 2026 Kairo-lang will be under a new name!
-
 ### The goals of Kairo:
 
 - Safe, and productive programming language.
