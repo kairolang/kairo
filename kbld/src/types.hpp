@@ -6,6 +6,7 @@
 #include <winbase.h>
 #else
 #include <sys/ioctl.h>
+#include <unistd.h>
 #endif
 #include <algorithm>
 #include <array>
