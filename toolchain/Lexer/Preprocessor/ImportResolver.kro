@@ -39,6 +39,16 @@
 ///
 ///-----------------------------------------------------------------------------
 
+// FIXME(permission-denied): filesystem::directory_iterator throws
+//      std::filesystem::filesystem_error when it hits an unreadable directory,
+//      which currently unwinds to std::terminate. SearchRoot::build_index needs
+//      a try/catch around each directory traversal step so partial indexing can
+//      continue on accessible siblings. Denied roots should be flagged with a
+//      `permission_denied` bool so resolution skips traversal but still returns
+//      ResolveError::PermissionDenied (not NotFound) when a lookup targets a
+//      denied root giving the preprocessor enough signal to emit a useful
+//      diagnostic rather than a silent "module not found".
+
 import Core::Include::FileSystem::*;
 import Core::Include::Concurrency::*;
 import Core::Include::Testing::*;
@@ -147,25 +157,19 @@ class ImportResolver {
         /// \param pool optional thread pool for async indexing; if null, blocks until done
         /// \return heap-allocated resolver; caller assumes ownership
         fn create_ptr(self, pool: *ThreadPool = &null) -> *ImportResolver {
-            self._pool = pool;
-
             var cwd_path = self._cwd.value_or(Path(
                 libcxx::filesystem::current_path().generic_wstring(),
                 false
             ));
             var resolver = std::create::<ImportResolver>(self._ext_cfg);
 
-            if pool == &null {
-                resolver->build_index(cwd_path, self._include_paths, self._pool);
-                return resolver;
-            }
-
-            pool->enqueue(
-                fn () {
-                    resolver->build_index(cwd_path, self._include_paths, self._pool);
-                }
-            );
-
+            // Always index synchronously on the calling (main) thread.
+            // libcxx::filesystem::directory_iterator touches locale on first use
+            // and throws std::runtime_error on worker threads where libc++ locale
+            // state is uninitialised. Async indexing bought nothing anyway since
+            // CompilationBatch::run() calls wait_for_index() before dispatching
+            // any TU tasks - the spin was immediate and free-threaded for zero gain.
+            resolver->build_index(cwd_path, self._include_paths, &null);
             return resolver;
         }
     }

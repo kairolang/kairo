@@ -1,4 +1,4 @@
-/// test.kro — macro processor test harness
+/// test.kro - macro processor test harness
 
 // ── 1. parameterless macro ───────────────────────────────────────────────
 macro pi! {
@@ -129,7 +129,7 @@ var shadow = and_also!(1, 2);
 macro boom!() {
     boom!()
 }
-// intentionally NOT called — just defined, cycle only triggers on invocation
+// intentionally NOT called - just defined, cycle only triggers on invocation
 // uncomment to test cycle detection:
 var bad = boom!();
 

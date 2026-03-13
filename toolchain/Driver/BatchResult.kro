@@ -1,0 +1,42 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::TUResult::*;
+
+class BatchResult {
+    __inline_cpp("public:");
+
+    pub var tu_results:    vec::<TUResult>; ///< one entry per input file
+    pub var total_errors:  u32 = 0;
+    pub var total_warnings:u32 = 0;
+    pub var aborted:       bool = false;    ///< true if a fatal triggered early exit
+    pub var elapsed_ms:    f64  = 0.0;
+
+    fn BatchResult(self) {
+        self.tu_results.reserve(8);
+    }
+
+    fn ok(self) -> bool {
+        return !self.aborted && (self.total_errors == 0);
+    }
+
+    fn summary(self) -> string {
+        var s = f"{self.tu_results.size()} file(s): ";
+        s += f"{self.total_errors} error(s), {self.total_warnings} warning(s)";
+        if self.aborted { s += " [ABORTED - fatal error]"; }
+        s += f" ({self.elapsed_ms:.1}ms)";
+        return s;
+    }
+}

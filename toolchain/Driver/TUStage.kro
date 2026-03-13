@@ -1,0 +1,36 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+///
+/// \enum TUStage
+///
+/// \brief Tracks the lifecycle stage of a TranslationUnit.
+///
+/// Stages are strictly ordered. A TU may only advance forward. Any
+/// stage that sets _failed or triggers a fatal on the shared DiagEngine
+/// causes the TU to halt at its current stage and the batch to abort.
+///
+enum TUStage derives u8 {
+    Pending,      ///< constructed, not yet dispatched
+    Loading,      ///< sm.load_file in progress
+    Lexing,       ///< tcm.lex_file in progress
+    Preprocessing,///< mp.preprocess_file in progress
+    Parsing,      ///< parser (stub - not yet implemented)
+    Sema,         ///< semantic analysis (stub)
+    Codegen,      ///< code generation (stub)
+    Done,         ///< all requested stages completed successfully
+    Failed,       ///< halted due to error; batch may or may not abort
+    Aborted,      ///< halted because another TU triggered a fatal
+}

@@ -1,0 +1,46 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::TUStage::*;
+
+///
+/// \class TUResult
+///
+/// \brief Per-TU result record returned after pipeline execution.
+///
+/// Owned by the caller (CompilationBatch). Immutable after the TU
+/// transitions to Done / Failed / Aborted.
+///
+class TUResult {
+    __inline_cpp("public:");
+
+    pub var path:         string;      ///< canonical source path
+    pub var stage:        TUStage;     ///< stage reached before halt or Done
+    pub var file_id:      u32;         ///< SourceManager file ID (u32(-1) if load failed)
+    pub var error_count:  u32;         ///< errors attributed to this TU at time of halt
+    pub var warn_count:   u32;         ///< warnings attributed to this TU
+    pub var had_fatal:    bool;        ///< true if this TU emitted a fatal diagnostic
+    pub var elapsed_ms:   f64;         ///< wall time from dispatch to completion
+
+    fn TUResult(self) {
+        self.path        = "";
+        self.stage       = TUStage::Pending;
+        self.file_id     = u32(-1);
+        self.error_count = 0;
+        self.warn_count  = 0;
+        self.had_fatal   = false;
+        self.elapsed_ms  = 0.0;
+    }
+}

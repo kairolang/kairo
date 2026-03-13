@@ -22,7 +22,7 @@ deps            = []
 defines         = ["VERSION=L\"kairo-0.1.1+rc.250306\""]
 ld_flags        = []
 cxx_sources     = []
-cxx_passthrough = []
+cxx_passthrough = ["-Wl,-z,now -Wl,-z,relro"]
 
 [[target]]
 name     = "kbld"

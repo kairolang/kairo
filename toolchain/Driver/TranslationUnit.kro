@@ -1,0 +1,410 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Core::Diagnostics::DiagEngine::*;
+import Core::Diagnostics::DiagRegistry::*;
+import Core::Source::SourceManager::*;
+import Lexer::TokenCacheManager::*;
+import Lexer::Preprocessor::Preprocessor::*;
+import Lexer::Preprocessor::ImportResolver::*;
+import Driver::Command::Command::*;
+import Driver::TUResult::*;
+import Driver::TUStage::*;
+
+///
+/// \class TUDiagSnapshot
+///
+/// \brief Lightweight per-TU diagnostic counter snapshot.
+///
+/// Captured from DiagEngine before and after each stage so we can
+/// attribute deltas to individual TUs without adding per-TU consumers.
+///
+struct TUDiagSnapshot {
+    var errors:  u32 = 0;
+    var warnings: u32 = 0;
+    var fatals:  u32 = 0;
+}
+
+///
+/// \class TranslationUnit
+///
+/// \brief A single source file moving through the compilation pipeline.
+///
+/// ### Thread safety
+/// A TranslationUnit instance is owned by exactly one worker at a time.
+/// The object itself needs no internal locking. All shared-state access
+/// (SourceManager, TCM, DiagEngine, ImportResolver cache) is mediated
+/// through the mutexes held on CompilationBatch.
+///
+/// ### Stage gating
+/// Before entering each stage the TU checks:
+///   1. _batch_abort - set by any TU that emits a fatal. Immediately
+///      transitions to Aborted and returns without doing work.
+///   2. DiagEngine::has_fatal() - redundant safety check in case the
+///      atomic hasn't propagated yet.
+///
+/// ### Parser / Sema / Codegen stubs
+/// These stages are no-ops that immediately return true. They exist so
+/// the pipeline structure is in place and the parser can be slotted in
+/// without touching CompilationBatch or the driver.
+///
+class TranslationUnit {
+    __inline_cpp("public:");
+
+    pub var path:        Path;
+    pub var module_base: ModulePath;
+    pub var result:      TUResult;
+    priv var _sm:       *SourceManager;
+    priv var _tcm:      *TokenCacheManager;
+    priv var _resolver: *ImportResolver;
+    priv var _diag:     *DiagEngine;
+    priv var _pool:     *ThreadPool;
+
+    // ── batch-level synchronization (non-owning) ──────────────────────────
+    //
+    // _sm_mutex:    serializes load_file / lex_file since SourceManager and
+    //               TCM are not internally synchronized on write paths.
+    //
+    // _diag_mutex:  serializes DiagEngine::emit since it mutates shared
+    //               counters and the _all_diags vec without locks.
+    //
+    // _cache_mutex: serializes ImportResolver cache writes (map is not
+    //               concurrency-safe on insert). Read-only resolution
+    //               (cache hits) still races on map iteration - guard all
+    //               resolver calls until resolver gets an internal rwlock.
+    //
+    // _batch_abort: set to true by the first TU that emits a fatal.
+    //               All pending TUs transition to Aborted on next stage gate.
+
+    priv var _sm_mutex:    *std::Mutex;
+    priv var _diag_mutex:  *std::Mutex;
+    priv var _cache_mutex: *std::Mutex;
+    priv var _batch_abort: *std::Atomic::<bool>;
+
+    priv var _stage:   TUStage = TUStage::Pending;
+    priv var _file_id: u32     = u32(-1);
+    priv var _failed:  bool    = false;
+
+    fn TranslationUnit(
+        self,
+        path:         Path,
+        module_base:  ModulePath,
+        sm:          *SourceManager,
+        tcm:         *TokenCacheManager,
+        resolver:    *ImportResolver,
+        diag:        *DiagEngine,
+        pool:        *ThreadPool,
+        sm_mutex:    *std::Mutex,
+        diag_mutex:  *std::Mutex,
+        cache_mutex: *std::Mutex,
+        batch_abort: *std::Atomic::<bool>
+    ) {
+        self.path        = path;
+        self.module_base = module_base;
+        self._sm         = sm;
+        self._tcm        = tcm;
+        self._resolver   = resolver;
+        self._diag       = diag;
+        self._pool       = pool;
+        self._sm_mutex    = sm_mutex;
+        self._diag_mutex  = diag_mutex;
+        self._cache_mutex = cache_mutex;
+        self._batch_abort = batch_abort;
+
+        self.result.path = path.full_path();
+    }
+
+    ///
+    /// \brief Execute all pipeline stages synchronously on the calling thread.
+    ///
+    /// Called from within a ThreadPool task. Returns when the TU reaches
+    /// Done, Failed, or Aborted. The result field is populated before return.
+    ///
+    fn run(self) {
+        var t_start = libcxx::chrono::steady_clock::now();
+
+        finally {
+            var t_end = libcxx::chrono::steady_clock::now();
+            self.result.elapsed_ms = static_cast::<f64>(
+                libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(
+                    t_end - t_start
+                ).count()
+            ) / 1000.0;
+
+            self.result.stage    = self._stage;
+            self.result.file_id  = self._file_id;
+        }
+
+        Logger::info(Logger::Stage::Driver,
+            f"TU::run: begin path='{self.path.full_path()}' ");
+
+        if !self._stage_load()       { return; }
+        if !self._stage_lex()        { return; }
+        if !self._stage_preprocess() { return; }
+        if !self._stage_parse()      { return; }
+        if !self._stage_sema()       { return; }
+        if !self._stage_codegen()    { return; }
+
+        self._stage = TUStage::Done;
+        Logger::info(Logger::Stage::Driver,
+            f"TU::run: done path='{self.path.full_path()}' elapsed_ms={self.result.elapsed_ms:.2}");
+    }
+
+    fn stage(self) -> TUStage { return self._stage; }
+    fn failed(self) -> bool   { return self._failed; }
+
+    ///
+    /// \brief Gate check - must pass before every stage.
+    ///
+    /// Returns false (and transitions to Aborted) if the batch abort flag
+    /// is set or the shared DiagEngine already has a fatal.
+    ///
+    priv fn _gate(self) -> bool {
+        if self._batch_abort->load(std::MemoryOrder::acquire) {
+            self._stage = TUStage::Aborted;
+            Logger::info(Logger::Stage::Driver,
+                f"TU::gate: aborted (batch_abort) path='{self.path.full_path()}' ");
+            return false;
+        }
+        // secondary check: a fatal may have been emitted before the atomic
+        // propagated (acquire ordering should cover this, but be safe)
+        __inline_cpp("{");
+            var lock = std::LockGuard(*self._diag_mutex);
+            if self._diag->has_fatal() {
+                self._batch_abort->store(true, std::MemoryOrder::release);
+                self._stage = TUStage::Aborted;
+                return false;
+            }
+        __inline_cpp("}");
+        return true;
+    }
+
+    ///
+    /// \brief Snapshot current DiagEngine counters under the diag mutex.
+    ///
+    priv fn _snapshot(self) -> TUDiagSnapshot {
+        var lock = std::LockGuard(*self._diag_mutex);
+        var s = TUDiagSnapshot{};
+        s.errors   = self._diag->error_count();
+        s.warnings = self._diag->warn_count();
+        s.fatals   = self._diag->error_count(); // fatal increments error_count too
+        return s;
+    }
+
+    ///
+    /// \brief Apply a diagnostic delta to this TU's result and check for
+    ///        new fatals.
+    ///
+    /// Returns true if this stage is clean (no new fatals).
+    ///
+    priv fn _apply_delta(self, before: TUDiagSnapshot, after: TUDiagSnapshot) -> bool {
+        self.result.error_count += (after.errors   - before.errors);
+        self.result.warn_count  += (after.warnings - before.warnings);
+
+        var lock = std::LockGuard(*self._diag_mutex);
+        if self._diag->has_fatal() {
+            self.result.had_fatal = true;
+            self._batch_abort->store(true, std::MemoryOrder::release);
+            return false;
+        }
+        return true;
+    }
+
+    priv fn _stage_load(self) -> bool {
+        if !self._gate() { return false; }
+        self._stage = TUStage::Loading;
+
+        Logger::debug(Logger::Stage::Driver,
+            f"TU::load: path='{self.path.full_path()}' ");
+
+        var before = self._snapshot();
+        var fid: u32;
+
+        __inline_cpp("{");
+            // SourceManager::load_file is a write path - serialize it.
+            var lock = std::LockGuard(*self._sm_mutex);
+            fid = self._sm->load_file(self.path);
+        __inline_cpp("}");
+
+        var after = self._snapshot();
+
+        if fid == u32(-1) {
+            // load_file failed - emit a fatal through the diag engine so
+            // the error surfaces in the consumer and triggers batch abort.
+            __inline_cpp("{");
+                var lock = std::LockGuard(*self._diag_mutex);
+                self._diag->report(DiagID::U001F,
+                    f"could not load source file '{self.path.full_path()}' ")
+                    .emit();
+                self.result.had_fatal = true;
+                self._batch_abort->store(true, std::MemoryOrder::release);
+            __inline_cpp("}");
+            self._stage  = TUStage::Failed;
+            self._failed = true;
+            return false;
+        }
+
+        self._file_id = fid;
+        if !self._apply_delta(before, after) {
+            self._stage  = TUStage::Failed;
+            self._failed = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    priv fn _stage_lex(self) -> bool {
+        if !self._gate() { return false; }
+        self._stage = TUStage::Lexing;
+
+        Logger::debug(Logger::Stage::Driver,
+            f"TU::lex: fid={self._file_id} path='{self.path.full_path()}' ");
+
+        var before = self._snapshot();
+        var ok: bool = self._tcm->lex_file(self._file_id);
+        var after = self._snapshot();
+
+        if !ok {
+            __inline_cpp("{");
+                var lock = std::LockGuard(*self._diag_mutex);
+                self._diag->report(DiagID::U001F,
+                    f"lexer failed on '{self.path.full_path()}' ")
+                    .emit();
+                self.result.had_fatal = true;
+                self._batch_abort->store(true, std::MemoryOrder::release);
+            __inline_cpp("}");
+            self._stage  = TUStage::Failed;
+            self._failed = true;
+            return false;
+        }
+
+        // Flush balance-tracker errors from the lexer into the DiagEngine.
+        // This is a read on the lexer's internal state - still serialize
+        // since emit() writes to DiagEngine.
+        __inline_cpp("{");
+            var sm_lock   = std::LockGuard(*self._sm_mutex);
+            var diag_lock = std::LockGuard(*self._diag_mutex);
+            // var lexer_ptr = self._tcm->get_lexer(self._file_id);
+            // if lexer_ptr != &null {
+            //     lexer_ptr->emit_errors();
+            // }
+        __inline_cpp("}");
+
+        // Re-snapshot after balance errors are flushed.
+        after = self._snapshot();
+
+        if !self._apply_delta(before, after) {
+            self._stage  = TUStage::Failed;
+            self._failed = true;
+            return false;
+        }
+
+        // Non-fatal lex errors are allowed - we keep going (per policy).
+        if self._diag->has_errors() {
+            Logger::warn(Logger::Stage::Driver,
+                f"TU::lex: non-fatal errors in '{self.path.full_path()}' continuing");
+        }
+
+        return true;
+    }
+
+    priv fn _stage_preprocess(self) -> bool {
+        if !self._gate() { return false; }
+        self._stage = TUStage::Preprocessing;
+
+        Logger::debug(Logger::Stage::Driver,
+            f"TU::preprocess: fid={self._file_id} path='{self.path.full_path()}' ");
+
+        // ImportResolver::resolve_module writes to _cache on miss.
+        // Preprocess internally calls the resolver - guard with cache_mutex.
+        // This serializes preprocessing across TUs for now. A future
+        // improvement is an RWLock on the resolver cache so cache-hit
+        // resolution can proceed concurrently.
+        //
+        // NOTE: The PreProcessor takes *DiagEngine which it calls directly.
+        // We must hold _diag_mutex for the duration, OR we accept that
+        // preprocessor-emitted diagnostics may race. Since PreProcessor
+        // calls diag.report().emit() internally (not going through our
+        // locked path), we serialize the whole preprocess call under both
+        // mutexes to be safe until PreProcessor gets a DiagReportFn shim.
+
+        var before = self._snapshot();
+        var ok: bool;
+
+        __inline_cpp("{");
+            var cache_lock = std::LockGuard(*self._cache_mutex);
+            var diag_lock  = std::LockGuard(*self._diag_mutex);
+
+            // Construct a per-TU PreProcessor. It borrows sm, tcm, resolver,
+            // pool, and diag - all shared, all valid for the duration of this
+            // call since CompilationBatch owns them.
+            var mp = PreProcessor(
+                self._sm,
+                self._tcm,
+                self._resolver,
+                self._pool,
+                self._diag
+            );
+
+            ok = mp.preprocess_file(self._file_id, self.module_base);
+        __inline_cpp("}");
+
+        var after = self._snapshot();
+
+        if !self._apply_delta(before, after) {
+            self._stage  = TUStage::Failed;
+            self._failed = true;
+            return false;
+        }
+
+        if !ok {
+            Logger::warn(Logger::Stage::Driver,
+                f"TU::preprocess: non-fatal errors in '{self.path.full_path()}' ");
+            // Non-fatal: continue per policy.
+        }
+
+        return true;
+    }
+
+    ///
+    /// \brief Parser stage - stub, always succeeds.
+    ///
+    /// Replace the body of this function with:
+    ///   var parser = Parser(self._sm, self._tcm, self._diag, self._file_id);
+    ///   var ast    = parser.parse();
+    ///   if ast == &null { ... }
+    ///
+    priv fn _stage_parse(self) -> bool {
+        if !self._gate() { return false; }
+        self._stage = TUStage::Parsing;
+        // TODO(parser): slot in Parser here.
+        return true;
+    }
+
+    priv fn _stage_sema(self) -> bool {
+        if !self._gate() { return false; }
+        self._stage = TUStage::Sema;
+        // TODO(sema): slot in SemanticAnalyzer here.
+        return true;
+    }
+
+    priv fn _stage_codegen(self) -> bool {
+        if !self._gate() { return false; }
+        self._stage = TUStage::Codegen;
+        // TODO(codegen): slot in CodeGenerator here.
+        return true;
+    }
+}
