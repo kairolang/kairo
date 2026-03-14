@@ -553,6 +553,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
             cxx::flags::noElideTypeFlag,
 
             // POSIX-only flags
+            (is_windows_clang_cl ? "" : link_path),
             (is_windows_clang_cl ? "" : "-rdynamic"),
             (is_windows_clang_cl ? cxx::flags::None : cxx::flags::linkTimeOptimizationFlag),
             (is_windows_clang_cl ? cxx::flags::None : cxx::flags::stdLibAndLinks),
