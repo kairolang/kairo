@@ -630,7 +630,7 @@ class Command {
             if def->kind == FlagKind::PathList {
                 if result.files.size() == 0 {
                     self._diag->report(DiagCode(DiagID::U004E),
-                        f"at least one input file is required ({def->help})")
+                        f"no input files ({def->help})")
                         .emit();
                     result.ok = false;
                 }

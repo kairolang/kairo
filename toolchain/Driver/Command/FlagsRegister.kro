@@ -43,7 +43,7 @@ fn register_kairo_flags(cmd: *Command) {
     //  INPUT
     // =========================================================================
 
-    cmd->define::<FlagKind::PathList> ("files",                "input .kro source files");
+    cmd->define::<FlagKind::PathList> ("files",                "run --help to see usage");
     cmd->define::<FlagKind::StringList>("include-dirs",   "I", "include",             "add directory to module/header search path (repeatable)");
     cmd->define::<FlagKind::StringList>("ffi-include",    "",  "ffi-include",         "add directory to FFI/C++ header search path (repeatable)");
     cmd->define::<FlagKind::StringList>("cxx-include",    "",  "cxx-include",         "add include path forwarded only to clang for C++ interop headers (repeatable)");
