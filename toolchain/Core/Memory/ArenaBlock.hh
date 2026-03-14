@@ -1,8 +1,8 @@
 #pragma once
 #include <include/core.hh>
 
-#include "GlobalRecycler.hh"
 #include "../Types.hh"
+#include "GlobalRecycler.hh"
 
 namespace kairo {
 
@@ -68,10 +68,17 @@ struct alignas(64) ArenaBlock {
             pre_touch();
         }
 
-        Logger::trace(Logger::Stage::Driver, libcxx::format(L"ArenaBlock::ctor: cap={}B ptr={}", cap, static_cast<void*>(ptr)));
+        Logger::trace(Logger::Stage::Driver,
+                      libcxx::format(L"ArenaBlock::ctor: cap={}B ptr={}",
+                                     cap,
+                                     static_cast<void *>(ptr)));
     }
 
-    ~ArenaBlock() noexcept { if (ptr != nullptr) { GlobalRecycler::instance().push(ptr, capacity); } }
+    ~ArenaBlock() noexcept {
+        if (ptr != nullptr) {
+            GlobalRecycler::instance().push(ptr, capacity);
+        }
+    }
 
     ArenaBlock(const ArenaBlock &)            = delete;
     ArenaBlock &operator=(const ArenaBlock &) = delete;
@@ -82,7 +89,13 @@ struct alignas(64) ArenaBlock {
         size_t aligned = align_up(offset, align);
 
         if (aligned + sz > capacity) [[unlikely]] {
-            Logger::trace(Logger::Stage::Driver, libcxx::format(L"ArenaBlock::try_alloc: exhausted offset={} sz={} cap={}", offset, sz, capacity));
+            Logger::trace(
+                Logger::Stage::Driver,
+                libcxx::format(
+                    L"ArenaBlock::try_alloc: exhausted offset={} sz={} cap={}",
+                    offset,
+                    sz,
+                    capacity));
             return nullptr;
         }
 
@@ -97,7 +110,9 @@ struct alignas(64) ArenaBlock {
     }
 
     void destroy() noexcept {
-        Logger::debug(Logger::Stage::Driver, libcxx::format(L"ArenaBlock::destroy: hard-free cap={}B", capacity));
+        Logger::debug(Logger::Stage::Driver,
+                      libcxx::format(L"ArenaBlock::destroy: hard-free cap={}B",
+                                     capacity));
         libcxx::free(ptr);
         ptr = nullptr;
     }
@@ -121,10 +136,23 @@ struct alignas(64) ArenaBlock {
     void reset_neon(size_t len) noexcept {
         size_t i = 0;
 
+#if defined(__aarch64__)
+        // Non-temporal store pair via inline asm - stnp q0, q1, [addr]
+        // Zeroes 32 bytes per iteration without polluting the cache.
+        const uint8x16_t zero = vdupq_n_u8(0);
         for (; i + 32 <= len; i += 32) {
-            __builtin_aarch64_stnp_v2di(
-                reinterpret_cast<long long *>(ptr + i), 0, 0);
+            __asm__ volatile("stnp %q1, %q2, [%0]"
+                             :
+                             : "r"(ptr + i), "w"(zero), "w"(zero)
+                             : "memory");
         }
+#else
+        // Fallback: temporal NEON stores (still vectorized, no stnp)
+        const uint8x16_t zero = vdupq_n_u8(0);
+        for (; i + 16 <= len; i += 16) {
+            vst1q_u8(ptr + i, zero);
+        }
+#endif
 
         if (i < len) {
             std::Memory::set(ptr + i, 0, len - i);
@@ -173,11 +201,11 @@ struct alignas(64) ArenaBlock {
         }
 
         return static_cast<std::Byte *>(
-        #ifndef _MSC_VER
+#ifndef _MSC_VER
             libcxx::aligned_alloc(64, cap)
-        #else
+#else
             _aligned_malloc(cap, 64)
-        #endif
+#endif
         );
     }
 
