@@ -21,7 +21,6 @@
 #include "parser/preprocessor/include/preprocessor.hh"
 #include "parser/preprocessor/include/private/utils.hh"
 
-
 #ifndef DEBUG_LOG
 #define DEBUG_LOG(...)                            \
     if (is_verbose) {                             \
@@ -37,25 +36,31 @@ namespace {
 
 enum class LinkerFormat {
     LLD,
-    MSVCLink,   // clang-cl / MSVC link.exe: emits LNK#### codes
+    MSVCLink,  // clang-cl / MSVC link.exe: emits LNK#### codes
     GNULd,
     Unknown
 };
 
 struct LinkerDiag {
-    std::string message;
-    std::string file;       // may be empty for pure linker errors
-    size_t      line = 0;
+    std::string  message;
+    std::string  file;  // may be empty for pure linker errors
+    size_t       line  = 0;
     error::Level level = error::Level::ERR;
 };
 
 inline LinkerFormat detect_linker_format(const std::string &output) {
-    if (output.find("lld-link:")         != std::string::npos) return LinkerFormat::LLD;
-    if (output.find("ld.lld:")           != std::string::npos) return LinkerFormat::LLD;
-    if (output.find("LNK")              != std::string::npos) return LinkerFormat::MSVCLink; // add this
-    if (output.find("ld:")               != std::string::npos) return LinkerFormat::GNULd;
-    if (output.find("collect2:")         != std::string::npos) return LinkerFormat::GNULd;
-    if (output.find("undefined reference")!= std::string::npos) return LinkerFormat::GNULd;
+    if (output.find("lld-link:") != std::string::npos)
+        return LinkerFormat::LLD;
+    if (output.find("ld.lld:") != std::string::npos)
+        return LinkerFormat::LLD;
+    if (output.find("LNK") != std::string::npos)
+        return LinkerFormat::MSVCLink;  // add this
+    if (output.find("ld:") != std::string::npos)
+        return LinkerFormat::GNULd;
+    if (output.find("collect2:") != std::string::npos)
+        return LinkerFormat::GNULd;
+    if (output.find("undefined reference") != std::string::npos)
+        return LinkerFormat::GNULd;
     return LinkerFormat::Unknown;
 }
 
@@ -78,19 +83,23 @@ std::vector<LinkerDiag> parse_msvc_link_errors(const std::string &output) {
 
     while (std::getline(stream, line)) {
         // skip the clang-cl summary line — the real errors are the LNK#### lines
-        if (line.find("linker command failed") != std::string::npos) continue;
+        if (line.find("linker command failed") != std::string::npos)
+            continue;
 
         // format: <file> : error LNK####: <message>
         // format: <file> : fatal error LNK####: <message>
         auto lnk_pos = line.find("LNK");
-        if (lnk_pos == std::string::npos) continue;
+        if (lnk_pos == std::string::npos)
+            continue;
 
         // find the colon after LNK####
         auto colon_after_code = line.find(':', lnk_pos);
-        if (colon_after_code == std::string::npos) continue;
+        if (colon_after_code == std::string::npos)
+            continue;
 
         std::string msg = line.substr(colon_after_code + 1);
-        if (!msg.empty() && msg[0] == ' ') msg = msg.substr(1);
+        if (!msg.empty() && msg[0] == ' ')
+            msg = msg.substr(1);
 
         // determine severity from what precedes LNK
         // "fatal error LNK" → ERR, "error LNK" → ERR, "warning LNK" → WARN
@@ -100,7 +109,7 @@ std::vector<LinkerDiag> parse_msvc_link_errors(const std::string &output) {
 
         // extract LNK code for context e.g. LNK2019
         std::string lnk_code;
-        size_t code_end = lnk_pos + 3; // skip "LNK"
+        size_t      code_end = lnk_pos + 3;  // skip "LNK"
         while (code_end < line.size() && std::isdigit((unsigned char)line[code_end]))
             ++code_end;
         lnk_code = line.substr(lnk_pos, code_end - lnk_pos);
@@ -109,10 +118,10 @@ std::vector<LinkerDiag> parse_msvc_link_errors(const std::string &output) {
         auto q_pos = msg.find('?');
         if (q_pos != std::string::npos) {
             // extract just the mangled portion (up to next space or closing paren)
-            auto sym_end = msg.find_first_of(" )", q_pos);
-            std::string mangled = msg.substr(q_pos, sym_end - q_pos);
+            auto        sym_end   = msg.find_first_of(" )", q_pos);
+            std::string mangled   = msg.substr(q_pos, sym_end - q_pos);
             std::string demangled = helix::abi::demangle_partial(mangled);
-            msg = msg.substr(0, q_pos) + demangled +
+            msg                   = msg.substr(0, q_pos) + demangled +
                   (sym_end != std::string::npos ? msg.substr(sym_end) : "");
         }
 
@@ -131,32 +140,39 @@ std::vector<LinkerDiag> parse_lld_errors(const std::string &output) {
         // lld-link: error: ...
         // ld.lld: error: ...
         // lld-link: warning: ...
-        auto lld_link = line.find("lld-link:");
-        auto ld_lld   = line.find("ld.lld:");
+        auto   lld_link   = line.find("lld-link:");
+        auto   ld_lld     = line.find("ld.lld:");
         size_t prefix_end = std::string::npos;
 
         if (lld_link != std::string::npos)
-            prefix_end = lld_link + 9; // len("lld-link:")
+            prefix_end = lld_link + 9;  // len("lld-link:")
         else if (ld_lld != std::string::npos)
-            prefix_end = ld_lld + 7;   // len("ld.lld:")
+            prefix_end = ld_lld + 7;  // len("ld.lld:")
 
-        if (prefix_end == std::string::npos) continue;
+        if (prefix_end == std::string::npos)
+            continue;
 
         // skip whitespace
         size_t sev_start = line.find_first_not_of(' ', prefix_end);
-        if (sev_start == std::string::npos) continue;
+        if (sev_start == std::string::npos)
+            continue;
 
         size_t colon = line.find(':', sev_start);
-        if (colon == std::string::npos) continue;
+        if (colon == std::string::npos)
+            continue;
 
         std::string severity = line.substr(sev_start, colon - sev_start);
         std::string msg      = line.substr(colon + 1);
-        if (!msg.empty() && msg[0] == ' ') msg = msg.substr(1);
+        if (!msg.empty() && msg[0] == ' ')
+            msg = msg.substr(1);
 
         error::Level level;
-        if      (severity == "error")   level = error::Level::ERR;
-        else if (severity == "warning") level = error::Level::WARN;
-        else continue; // skip notes/trace lines
+        if (severity == "error")
+            level = error::Level::ERR;
+        else if (severity == "warning")
+            level = error::Level::WARN;
+        else
+            continue;  // skip notes/trace lines
 
         diags.push_back({clean_linker_message(msg), "", 0, level});
     }
@@ -176,7 +192,8 @@ std::vector<LinkerDiag> parse_gnu_ld_errors(const std::string &output) {
 
     while (std::getline(stream, line)) {
         // skip collect2 summary line — we already have the real errors
-        if (line.find("collect2:") != std::string::npos) continue;
+        if (line.find("collect2:") != std::string::npos)
+            continue;
 
         // look for "undefined reference to" pattern
         auto undef = line.find("undefined reference to");
@@ -193,9 +210,10 @@ std::vector<LinkerDiag> parse_gnu_ld_errors(const std::string &output) {
                 // check if next chars are digits (line number)
                 size_t second_colon = line.find(':', first_colon + 1);
                 if (second_colon != std::string::npos) {
-                    std::string between = line.substr(first_colon + 1, second_colon - first_colon - 1);
-                    bool all_digits = !between.empty() &&
-                        std::all_of(between.begin(), between.end(), ::isdigit);
+                    std::string between =
+                        line.substr(first_colon + 1, second_colon - first_colon - 1);
+                    bool all_digits =
+                        !between.empty() && std::all_of(between.begin(), between.end(), ::isdigit);
                     if (all_digits) {
                         file   = prefix;
                         lineno = std::stoul(between);
@@ -212,8 +230,10 @@ std::vector<LinkerDiag> parse_gnu_ld_errors(const std::string &output) {
         auto err_pos = line.find("error:");
         if (err_pos != std::string::npos) {
             std::string msg = line.substr(err_pos + 6);
-            if (!msg.empty() && msg[0] == ' ') msg = msg.substr(1);
-            if (msg.find("ld returned") != std::string::npos) continue; // skip summary
+            if (!msg.empty() && msg[0] == ' ')
+                msg = msg.substr(1);
+            if (msg.find("ld returned") != std::string::npos)
+                continue;  // skip summary
             diags.push_back({clean_linker_message(msg), "", 0, error::Level::ERR});
         }
     }
@@ -224,23 +244,29 @@ std::vector<LinkerDiag> parse_gnu_ld_errors(const std::string &output) {
 std::vector<LinkerDiag> parse_linker_errors(const std::string &output) {
     LinkerFormat fmt = detect_linker_format(output);
     switch (fmt) {
-        case LinkerFormat::LLD:      return parse_lld_errors(output);
-        case LinkerFormat::MSVCLink: return parse_msvc_link_errors(output);
-        case LinkerFormat::GNULd:    return parse_gnu_ld_errors(output);
-        default:                     return {};
+        case LinkerFormat::LLD:
+            return parse_lld_errors(output);
+        case LinkerFormat::MSVCLink:
+            return parse_msvc_link_errors(output);
+        case LinkerFormat::GNULd:
+            return parse_gnu_ld_errors(output);
+        default:
+            return {};
     }
 }
-}
+}  // namespace
 
 namespace {
 inline std::string find_clang_cl_windows(bool is_verbose) {
     // 1. check PATH first — if the user has LLVM installed standalone it'll be there
     CXIRCompiler::ExecResult probe = CXIRCompiler::exec("clang-cl --version");
-    if (probe.return_code == 0) return "clang-cl";
+    if (probe.return_code == 0)
+        return "clang-cl";
 
     // 2. check standalone LLVM install location
     constexpr std::string_view standalone = "C:/Program Files/LLVM/bin/clang-cl.exe";
-    if (std::filesystem::exists(standalone)) return std::string(standalone);
+    if (std::filesystem::exists(standalone))
+        return std::string(standalone);
 
     // 3. locate via vswhere — clang-cl bundled with VS
     constexpr std::string_view vswhere_path =
@@ -252,11 +278,11 @@ inline std::string find_clang_cl_windows(bool is_verbose) {
         return "";
     }
 
-    std::string vswhere_cmd =
-        "\"" + std::string(vswhere_path) + "\""
-        " -latest -products *"
-        " -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
-        " -property installationPath";
+    std::string vswhere_cmd = "\"" + std::string(vswhere_path) +
+                              "\""
+                              " -latest -products *"
+                              " -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
+                              " -property installationPath";
 
     CXIRCompiler::ExecResult vs = CXIRCompiler::exec(vswhere_cmd);
 
@@ -266,7 +292,7 @@ inline std::string find_clang_cl_windows(bool is_verbose) {
         constexpr std::string_view fallback_vs =
             "C:/Program Files (x86)/Microsoft Visual Studio/18/BuildTools";
         if (std::filesystem::exists(fallback_vs)) {
-            vs.output    = std::string(fallback_vs);
+            vs.output      = std::string(fallback_vs);
             vs.return_code = 0;
         } else {
             kairo::log<LogLevel::Warning>(
@@ -280,29 +306,34 @@ inline std::string find_clang_cl_windows(bool is_verbose) {
     vs_path.erase(vs_path.find_last_not_of(" \n\r\t") + 1);
 
     // clang-cl bundled with VS lives here
-    auto clang_cl = std::filesystem::path(vs_path) / "VC" / "Tools" / "Llvm" / "x64" / "bin" / "clang-cl.exe";
+    auto clang_cl =
+        std::filesystem::path(vs_path) / "VC" / "Tools" / "Llvm" / "x64" / "bin" / "clang-cl.exe";
     if (std::filesystem::exists(clang_cl)) {
         return clang_cl.generic_string();
     }
 
     // some VS installs put it at the non-x64 path
-    auto clang_cl_noarch = std::filesystem::path(vs_path) / "VC" / "Tools" / "Llvm" / "bin" / "clang-cl.exe";
+    auto clang_cl_noarch =
+        std::filesystem::path(vs_path) / "VC" / "Tools" / "Llvm" / "bin" / "clang-cl.exe";
     if (std::filesystem::exists(clang_cl_noarch)) {
         return clang_cl_noarch.generic_string();
     }
 
     kairo::log<LogLevel::Warning>(
-        "clang-cl not found in VS install at: " + vs_path
-        + "\nInstall the 'C++ Clang tools for Windows' component in the VS installer");
+        "clang-cl not found in VS install at: " + vs_path +
+        "\nInstall the 'C++ Clang tools for Windows' component in the VS installer");
     return "";
 }
 
 /// Returns true if the line looks like a compiler diagnostic with an absolute
 /// path prefix, handling both POSIX (/foo/bar) and Windows (C:\foo, Z:/foo).
 inline bool is_diagnostic_line(const std::string &line) {
-    if (line.empty()) return false;
-    if (line[0] == '/') return true;                          // POSIX absolute path
-    if (line.size() >= 2 && std::isalpha(line[0]) && line[1] == ':') return true; // Windows drive
+    if (line.empty())
+        return false;
+    if (line[0] == '/')
+        return true;  // POSIX absolute path
+    if (line.size() >= 2 && std::isalpha(line[0]) && line[1] == ':')
+        return true;  // Windows drive
     return false;
 }
 
@@ -310,15 +341,15 @@ inline bool is_diagnostic_line(const std::string &line) {
 /// On Windows we prefer clang-cl; on all other platforms we use whatever
 /// cxx_compiler is set to (defaulting to "c++" which resolves to clang/gcc).
 inline std::string resolve_compiler(const std::string &requested, bool is_verbose) {
-    if (!requested.empty()) return requested;
+    if (!requested.empty())
+        return requested;
 #if defined(_WIN32) || defined(_WIN64)
     std::string found = find_clang_cl_windows(is_verbose);
     if (found.empty()) {
-        kairo::log<LogLevel::Error>(
-            "could not locate clang-cl. Either:\n"
-            "  1. Install LLVM standalone: https://releases.llvm.org\n"
-            "  2. In the VS installer, add 'C++ Clang tools for Windows'\n"
-            "  3. Run kairo from a Developer Command Prompt");
+        kairo::log<LogLevel::Error>("could not locate clang-cl. Either:\n"
+                                    "  1. Install LLVM standalone: https://releases.llvm.org\n"
+                                    "  2. In the VS installer, add 'C++ Clang tools for Windows'\n"
+                                    "  3. Run kairo from a Developer Command Prompt");
         return "";
     }
     return found;
@@ -329,17 +360,21 @@ inline std::string resolve_compiler(const std::string &requested, bool is_verbos
 
 /// Identify the compiler family from its --version output.
 inline flag::types::Compiler identify_compiler(const std::string &version_output) {
-    if (version_output.find("clang") != std::string::npos) return flag::types::Compiler::Clang;
-    if (version_output.find("GCC")   != std::string::npos) return flag::types::Compiler::GCC;
-    if (version_output.find("msvc")  != std::string::npos) return flag::types::Compiler::MSVC;
-    if (version_output.find("mingw") != std::string::npos) return flag::types::Compiler::MingW;
+    if (version_output.find("clang") != std::string::npos)
+        return flag::types::Compiler::Clang;
+    if (version_output.find("GCC") != std::string::npos)
+        return flag::types::Compiler::GCC;
+    if (version_output.find("msvc") != std::string::npos)
+        return flag::types::Compiler::MSVC;
+    if (version_output.find("mingw") != std::string::npos)
+        return flag::types::Compiler::MingW;
     return flag::types::Compiler::Custom;
 }
 
-} // namespace
+}  // namespace
 
-CXIRCompiler::CompileResult
-CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
+CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action,
+                                                       bool               dry_run) const {
     bool is_verbose = action.flags.contains(EFlags(flag::types::CompileFlags::Verbose));
 
     this->dry_run = dry_run;
@@ -356,14 +391,16 @@ CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
     } catch (const std::exception &e) {
         if (!error::HAS_ERRORED) {
             error::HAS_ERRORED = true;
-            kairo::log<LogLevel::Error>("failed to compile: unhandled exception in compilation pipeline");
+            kairo::log<LogLevel::Error>(
+                "failed to compile: unhandled exception in compilation pipeline");
         }
         DEBUG_LOG("exception in CXIR_CXX: " + std::string(e.what()));
-        throw; // re-throw so it surfaces properly
+        throw;  // re-throw so it surfaces properly
     } catch (...) {
         if (!error::HAS_ERRORED) {
             error::HAS_ERRORED = true;
-            kairo::log<LogLevel::Error>("failed to compile: unhandled unknown in compilation pipeline");
+            kairo::log<LogLevel::Error>(
+                "failed to compile: unhandled unknown in compilation pipeline");
         }
         DEBUG_LOG("unknown exception in CXIR_CXX");
         throw;
@@ -373,14 +410,14 @@ CXIRCompiler::compile_CXIR(CXXCompileAction &&action, bool dry_run) const {
     return ret;
 }
 
-CXIRCompiler::CompileResult
-CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
+CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
     bool is_verbose = action.flags.contains(EFlags(flag::types::CompileFlags::Verbose));
 
     ExecResult probe = exec(action.cxx_compiler + " --version");
     if (probe.return_code != 0) {
         kairo::log<LogLevel::Error>(
-            "compiler not found or failed to execute: '" + action.cxx_compiler + "'"
+            "compiler not found or failed to execute: '" + action.cxx_compiler +
+            "'"
 #if defined(_WIN32) || defined(_WIN64)
             " — install LLVM from https://releases.llvm.org and ensure clang-cl is on PATH"
 #endif
@@ -391,9 +428,8 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
     flag::types::Compiler compiler = identify_compiler(probe.output);
     DEBUG_LOG("identified compiler: " + probe.output.substr(0, probe.output.find('\n')));
 
-    auto core = __CONTROLLER_FS_N::get_exe()
-                    .parent_path()
-                    .parent_path() / "core" / "include" / "core.hh";
+    auto core =
+        __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "include" / "core.hh";
 
     if (!std::filesystem::exists(core)) {
         kairo::log<LogLevel::Error>("core lib not found, verify the installation");
@@ -411,6 +447,46 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
         (action.cxx_compiler.find("clang-cl") != std::string::npos);
 #else
         false;
+#endif
+
+    std::string link_path;
+#if defined(__APPLE__)
+    if (compiler == flag::types::Compiler::Clang) {
+        std::string resolved;
+
+        // try llvm-config first
+        CXIRCompiler::ExecResult r = CXIRCompiler::exec("llvm-config --libdir");
+        if (r.return_code == 0) {
+            std::string libdir = r.output;
+            libdir.erase(libdir.find_last_not_of(" \n\r\t") + 1);
+
+            auto with_cxx = std::filesystem::path(libdir) / "c++";
+            auto without  = std::filesystem::path(libdir);
+
+            if (std::filesystem::exists(with_cxx / "libc++.dylib")) {
+                resolved = with_cxx.generic_string();
+            } else if (std::filesystem::exists(without / "libc++.dylib")) {
+                resolved = without.generic_string();
+            }
+        }
+
+        // fallback: hardcoded Homebrew path ( we should not have this )
+        // if (resolved.empty()) {
+        //     std::filesystem::path homebrew = "/opt/homebrew/opt/llvm/lib/c++";
+        //     if (std::filesystem::exists(homebrew / "libc++.dylib")) {
+        //         resolved = homebrew.generic_string();
+        //     }
+        // }
+
+        if (!resolved.empty()) {
+            link_path = "-L" + resolved + " ";
+            link_path += "-Wl,-rpath," + resolved + " ";
+            DEBUG_LOG("libc++ link path: " + resolved);
+        } else {
+            kairo::log<LogLevel::Warning>(
+                "could not locate Homebrew libc++ dylib — link may fail on macOS 26+");
+        }
+    }
 #endif
 
     if (is_windows_clang_cl) {
@@ -434,7 +510,7 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
             "/EHsc",
 
             // diagnostics
-            "/FC",        // full path in diagnostics
+            "/FC",  // full path in diagnostics
             "/nologo",
             "/W4",
 
@@ -443,12 +519,10 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
             "/D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
 
             // asan if debug
-            ((action.flags.contains(flag::types::CompileFlags::Debug))
-                ? "/fsanitize=address" : ""),
+            ((action.flags.contains(flag::types::CompileFlags::Debug)) ? "/fsanitize=address" : ""),
 
             // output
-            "/Fe\"" + action.cc_output.generic_string() + "\""
-        );
+            "/Fe\"" + action.cc_output.generic_string() + "\"");
     } else {
         compile_cmd += make_command(
             compiler,
@@ -459,12 +533,12 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
             core.parent_path().parent_path().generic_string(),
 
             ((action.flags.contains(flag::types::CompileFlags::Debug))
-                ? cxx::flags::debugModeFlag
-                : cxx::flags::optimizationLevel3),
+                 ? cxx::flags::debugModeFlag
+                 : cxx::flags::optimizationLevel3),
 
             ((action.flags.contains(flag::types::CompileFlags::Library))
-                ? cxx::flags::compileOnlyFlag
-                : cxx::flags::None),
+                 ? cxx::flags::compileOnlyFlag
+                 : cxx::flags::None),
 
             cxx::flags::cxxStandardFlag,
             cxx::flags::stdCXX23Flag,
@@ -487,14 +561,12 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
             "-D_CRT_SECURE_NO_WARNINGS",
             "-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
 
-            ((action.flags.contains(flag::types::CompileFlags::Debug))
-                ? cxx::flags::SanitizeFlag
-                : cxx::flags::None),
+            ((action.flags.contains(flag::types::CompileFlags::Debug)) ? cxx::flags::SanitizeFlag
+                                                                       : cxx::flags::None),
 
             cxx::flags::warnAllFlag,
             cxx::flags::outputFlag,
-            "\"" + action.cc_output.generic_string() + "\""
-        );
+            "\"" + action.cc_output.generic_string() + "\"");
     }
 
     if (this->dry_run) {
@@ -522,20 +594,19 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
     DEBUG_LOG("compile command: " + compile_cmd);
 
     if (!std::filesystem::exists(action.cc_source)) {
-        kairo::log<LogLevel::Error>(
-            "source file does not exist, possible memory corruption: "
-            + action.cc_source.generic_string());
+        kairo::log<LogLevel::Error>("source file does not exist, possible memory corruption: " +
+                                    action.cc_source.generic_string());
         return {{}, flag::ErrorType(flag::types::ErrorType::Error)};
     }
 
-    #if defined(_WIN32) || defined(_WIN64)
-        // exec() on Windows doesn't go through a shell, so redirects need cmd /c
-        std::string shell_cmd = "cmd.exe /c \"" + compile_cmd + " 2>&1\"";
-        ExecResult compile_result = exec(shell_cmd);
-    #else
-        compile_cmd += " 2>&1";
-        ExecResult compile_result = exec(compile_cmd);
-    #endif
+#if defined(_WIN32) || defined(_WIN64)
+    // exec() on Windows doesn't go through a shell, so redirects need cmd /c
+    std::string shell_cmd      = "cmd.exe /c \"" + compile_cmd + " 2>&1\"";
+    ExecResult  compile_result = exec(shell_cmd);
+#else
+    compile_cmd += " 2>&1";
+    ExecResult compile_result = exec(compile_cmd);
+#endif
     DEBUG_LOG("compiler output:\n" + compile_result.output);
 
     std::vector<std::string> diag_lines;
@@ -554,12 +625,15 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
         ErrorPOFNormalized err;
 
         switch (compiler) {
-            case flag::types::Compiler::Clang:  err = CXIRCompiler::parse_clang_err(line); break;
-            case flag::types::Compiler::GCC:    err = CXIRCompiler::parse_gcc_err(line);   break;
+            case flag::types::Compiler::Clang:
+                err = CXIRCompiler::parse_clang_err(line);
+                break;
+            case flag::types::Compiler::GCC:
+                err = CXIRCompiler::parse_gcc_err(line);
+                break;
             // clang-cl emits clang-format diagnostics, so parse_clang_err is correct
             default:
-                kairo::log<LogLevel::Warning>(
-                    "unknown compiler family, raw diagnostic: " + line);
+                kairo::log<LogLevel::Warning>("unknown compiler family, raw diagnostic: " + line);
                 continue;
         }
 
@@ -569,7 +643,8 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
         }
 
         if (!std::filesystem::exists(std::get<2>(err))) {
-            DEBUG_LOG("diagnostic references non-existent file (generated/temp): " + std::get<2>(err));
+            DEBUG_LOG("diagnostic references non-existent file (generated/temp): " +
+                      std::get<2>(err));
             continue;
         }
 
@@ -583,15 +658,18 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
             continue;
         }
 
-        std::string  severity = raw_msg.substr(first_char, colon - first_char);
-        std::string  msg      = raw_msg.substr(colon + 1);
+        std::string severity = raw_msg.substr(first_char, colon - first_char);
+        std::string msg      = raw_msg.substr(colon + 1);
         if (auto trim = msg.find_first_not_of(' '); trim != std::string::npos)
             msg = msg.substr(trim);
 
         error::Level level;
-        if      (severity == "error")   level = error::Level::ERR;
-        else if (severity == "warning") level = error::Level::WARN;
-        else if (severity == "note")    level = LSP_MODE ? error::Level::WARN : error::Level::NOTE;
+        if (severity == "error")
+            level = error::Level::ERR;
+        else if (severity == "warning")
+            level = error::Level::WARN;
+        else if (severity == "note")
+            level = LSP_MODE ? error::Level::WARN : error::Level::NOTE;
         else {
             DEBUG_LOG("unrecognised severity '" + severity + "', skipping");
             continue;
@@ -628,11 +706,9 @@ CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
 
     if (compile_result.return_code == 0 && !error::HAS_ERRORED) {
         kairo::log_opt<LogLevel::Progress>(
-            is_verbose,
-            "lowered " + action.kairo_src.generic_string() + " and compiled cxir");
+            is_verbose, "lowered " + action.kairo_src.generic_string() + " and compiled cxir");
         kairo::log_opt<LogLevel::Progress>(
-            is_verbose,
-            "compiled successfully to " + action.cc_output.generic_string());
+            is_verbose, "compiled successfully to " + action.cc_output.generic_string());
         return {compile_result, flag::ErrorType(flag::types::ErrorType::Success)};
     }
 
