@@ -3,11 +3,11 @@
 #!/usr/bin/env bash
 # ============================================================
 #  Kairo Installer - Unix (bash/zsh)
-#  Usage: curl -fsSL https://raw.githubusercontent.com/kairolang/kairo-lang/main/install.ps1 | bash
+#  Usage: curl -fsSL https://raw.githubusercontent.com/kairolang/kairo/main/install.ps1 | bash
 # ============================================================
 set -e
 
-KAIRO_REPO="https://github.com/kairolang/kairo-lang"
+KAIRO_REPO="https://github.com/kairolang/kairo"
 LSP_REPO="https://github.com/kairolang/kairo-lsp"
 KAIRO_BRANCH="beta/helix-0.0.1"
 DEFAULT_INSTALL_DIR="$(pwd)/kairo"
@@ -76,13 +76,13 @@ info ""
 read -r -p "$(echo -e "  Install directory [${CYAN}Enter for default${RESET}]: ")" USER_DIR
 INSTALL_DIR="${USER_DIR:-$DEFAULT_INSTALL_DIR}"
 INSTALL_DIR="${INSTALL_DIR/#\~/$HOME}"
-KAIRO_DIR="$INSTALL_DIR/kairo-lang"
+KAIRO_DIR="$INSTALL_DIR/kairo"
 LSP_DIR="$INSTALL_DIR/kairo-lsp"
 KAIRO_BIN="$KAIRO_DIR/build/release/$PLATFORM/bin"
 
 echo ""
 log "Install directory: $INSTALL_DIR"
-info "  kairo-lang source + build  ->  $KAIRO_DIR"
+info "  kairo source + build  ->  $KAIRO_DIR"
 info "  built binaries             ->  $KAIRO_BIN"
 info "  kairo-lsp (if selected)    ->  $LSP_DIR"
 echo ""
@@ -124,15 +124,15 @@ else
     ok "Created."
 fi
 
-# ---- clone / update kairo-lang ----
-section "Fetching kairo-lang"
+# ---- clone / update kairo ----
+section "Fetching kairo"
 if [ -d "$KAIRO_DIR/.git" ]; then
     log "Repo already present - fetching latest..."
     info "  git -C $KAIRO_DIR fetch --all"
     git -C "$KAIRO_DIR" fetch --all -q
     ok "Fetch done."
 else
-    log "Cloning kairo-lang..."
+    log "Cloning kairo..."
     info "  git clone $KAIRO_REPO $KAIRO_DIR"
     git clone --quiet "$KAIRO_REPO" "$KAIRO_DIR"
     ok "Clone done."
@@ -227,13 +227,13 @@ else
         ok "Build done."
 
         log "Packaging as .vsix..."
-        info "  npx vsce package --out kairo-language.vsix"
-        npx vsce package --out kairo-language.vsix -q
-        ok "Packaged: $LSP_DIR/kairo-language.vsix"
+        info "  npx vsce package --out kairouage.vsix"
+        npx vsce package --out kairouage.vsix -q
+        ok "Packaged: $LSP_DIR/kairouage.vsix"
 
         log "Installing extension into VSCode..."
-        info "  code --install-extension kairo-language.vsix --force"
-        code --install-extension "$LSP_DIR/kairo-language.vsix" --force
+        info "  code --install-extension kairouage.vsix --force"
+        code --install-extension "$LSP_DIR/kairouage.vsix" --force
         ok "Extension installed."
 
         PYTHON_PATH="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || echo 'python3')"
@@ -273,12 +273,12 @@ exit 0
 
 # ============================================================
 #  Kairo Installer - Windows (PowerShell)
-#  Usage: iwr https://raw.githubusercontent.com/kairolang/kairo-lang/main/install.ps1 | iex
+#  Usage: iwr https://raw.githubusercontent.com/kairolang/kairo/main/install.ps1 | iex
 # ============================================================
 
 $ErrorActionPreference = "Stop"
 
-$KairoRepo   = "https://github.com/kairolang/kairo-lang"
+$KairoRepo   = "https://github.com/kairolang/kairo"
 $LspRepo     = "https://github.com/kairolang/kairo-lsp"
 $KairoBranch = "beta/helix-0.0.1"
 $Platform    = "windows-x64"
@@ -322,14 +322,14 @@ $UserDir = Read-Host "  Install directory [press Enter for default]"
 $InstallDir = if ($UserDir -eq "") { $DefaultDir } else { $UserDir }
 $InstallDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir)
 
-$KairoDir  = "$InstallDir\kairo-lang"
+$KairoDir  = "$InstallDir\kairo"
 $LspDir    = "$InstallDir\kairo-lsp"
 $KairoBin  = "$KairoDir\build\release\$Platform\bin"
 $KairoExe  = "$KairoBin\kairo.exe"
 
 Write-Host ""
 Log "Install directory: $InstallDir"
-Info "  kairo-lang source + build  ->  $KairoDir"
+Info "  kairo source + build  ->  $KairoDir"
 Info "  built binaries             ->  $KairoBin"
 Info "  kairo-lsp (if selected)    ->  $LspDir"
 Write-Host ""
@@ -363,15 +363,15 @@ if (Test-Path $InstallDir) {
     Ok "Created."
 }
 
-# ---- clone / update kairo-lang ----
-Section "Fetching kairo-lang"
+# ---- clone / update kairo ----
+Section "Fetching kairo"
 if (Test-Path "$KairoDir\.git") {
     Log "Repo already present - fetching latest..."
     Info "  git -C $KairoDir fetch --all"
     git -C $KairoDir fetch --all -q
     Ok "Fetch done."
 } else {
-    Log "Cloning kairo-lang..."
+    Log "Cloning kairo..."
     Info "  git clone $KairoRepo $KairoDir"
     git clone --quiet $KairoRepo $KairoDir
     Ok "Clone done."
@@ -463,13 +463,13 @@ if (-not $HasCode) {
         Ok "Build done."
 
         Log "Packaging as .vsix..."
-        Info "  npx vsce package --out kairo-language.vsix"
-        npx vsce package --out kairo-language.vsix -q
-        Ok "Packaged: $LspDir\kairo-language.vsix"
+        Info "  npx vsce package --out kairouage.vsix"
+        npx vsce package --out kairouage.vsix -q
+        Ok "Packaged: $LspDir\kairouage.vsix"
 
         Log "Installing extension into VSCode..."
-        Info "  code --install-extension kairo-language.vsix --force"
-        code --install-extension "$LspDir\kairo-language.vsix" --force
+        Info "  code --install-extension kairouage.vsix --force"
+        code --install-extension "$LspDir\kairouage.vsix" --force
         Ok "Extension installed."
 
         $PyPath     = (Get-Command python -ErrorAction SilentlyContinue)?.Source ?? "python"
