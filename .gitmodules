@@ -1,15 +1,22 @@
-[submodule "lib-helix"]
-    path = lib-helix
-    url = https://github.com/kairolang/lib-helix
-[submodule "lib/libc/mingw"]
-	path = lib/libc/mingw
-	url = https://github.com/mingw-w64/mingw-w64
-[submodule "lib/libc/wasi"]
-	path = lib/libc/wasi
-	url = https://github.com/WebAssembly/wasi-libc
 [submodule "lib/libc/musl"]
-	path = lib/libc/musl
-	url = https://git.musl-libc.org/git/musl
+    path = lib/libc/musl
+    url = https://git.musl-libc.org/git/musl
+    shallow = true
+[submodule "lib/libc/mingw"]
+    path = lib/libc/mingw
+    url = https://github.com/mingw-w64/mingw-w64
+    shallow = true
+[submodule "lib/libc/wasi"]
+    path = lib/libc/wasi
+    url = https://github.com/WebAssembly/wasi-libc
+    shallow = true
 [submodule "lib/llvm-runtimes"]
-	path = lib/llvm-runtimes
-	url = https://github.com/llvm/llvm-project
+    path = lib/llvm-runtimes
+    url = https://github.com/llvm/llvm-project
+    shallow = true
+[submodule "lib/bootstrap/lib-helix"]
+	path = lib/bootstrap/lib-helix
+	url = https://github.com/kairolang/lib-helix
+[submodule "lib/std"]
+	path = lib/std
+	url = https://github.com/kairolang/kairo-std
