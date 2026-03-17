@@ -1,5 +1,0 @@
-### Lexer
-Contains header files for the lexical analysis component.  
-These headers define the API for tokenizing source code, handling character streams, and managing token types.
-
----

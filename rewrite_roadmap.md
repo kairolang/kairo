@@ -123,7 +123,7 @@ slowly start rewriting the following in kairo itself:
 
 # Enhancing the Kairo Compiler Toolchain
 
-This document outlines the necessary modifications to the Kairo compiler toolchain to support the Kairo language. These modifications are categorized as follows:
+This document outlines the necessary modifications to the Kairo compiler Toolchain to support the Kairo language. These modifications are categorized as follows:
 
 - Lexer
 - Parser
@@ -224,7 +224,7 @@ class TokenKind {
 ```
 
 ## Driver
-The driver will consolidate shared logic between the compiler and the toolchain. Files in this module will compile into binaries, encapsulating essential functionality for the compiler and tools.
+The driver will consolidate shared logic between the compiler and the Toolchain. Files in this module will compile into binaries, encapsulating essential functionality for the compiler and tools.
 
 ### File Class
 ```rs

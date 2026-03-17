@@ -1,0 +1,61 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that we give appropriate credit, and indicate if changes were made.    ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Lexer::Token::*;
+import Preprocessor::PreprocessorSymbolTable::*;
+
+type SymbolID = u32;;
+
+class IdentifierToken {
+    pub var name:  SymbolID;
+    pub var token: *Token;
+
+    fn IdentifierToken(self, name: SymbolID, token: *Token) {
+        self.name = name;
+        self.token = token;
+    }
+
+    default fn IdentifierToken(self);
+
+    const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
+        var name_str_ptr = sym_table->resolve(self.name);
+        var name_str = "<invalid>" if (name_str_ptr == &null) else *name_str_ptr;
+        return f"IdentifierToken(name: '{name_str}', token: {self.token})";
+    }
+
+    const fn op == (self, other: IdentifierToken) -> bool {
+        return (self.token) == (other.token);
+    }
+
+    const fn op != (self, other: IdentifierToken) -> bool {
+        return !(self == other);
+    }
+
+    const fn op == (self, other: SymbolID) -> bool {
+        return self.name == other;
+    }
+
+    const fn op != (self, other: SymbolID) -> bool {
+        return !(self == other);
+    }
+
+    const fn op < (self, other: IdentifierToken) -> bool {
+        return self.name < other.name;
+    }
+
+    const fn op > (self, other: IdentifierToken) -> bool {
+        return self.name > other.name;
+    }
+}

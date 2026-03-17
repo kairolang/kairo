@@ -13,9 +13,9 @@ mode     = "release"
 
 [[target]]
 name            = "kairo"
-entry           = "toolchain/Driver/Main/kairo.kro"
+entry           = "Toolchain/Driver/Main/kairo.kro"
 type            = "binary"
-includes        = ["toolchain", "lib-helix/core"]
+includes        = ["Toolchain", "lib-helix/core"]
 links           = []
 libs            = []
 deps            = []
@@ -26,35 +26,35 @@ cxx_passthrough = []
 
 [[target]]
 name     = "kbld"
-entry    = "toolchain/Driver/Main/kbld.kro"
+entry    = "Toolchain/Driver/Main/kbld.kro"
 type     = "binary"
-includes = ["toolchain"]
+includes = ["Toolchain"]
 defines  = ["VERSION=L\"kbld-0.1.0+rc.250306\""]
 
 [[target]]
 name     = "kfmt"
-entry    = "toolchain/Driver/Main/kfmt.kro"
+entry    = "Toolchain/Driver/Main/kfmt.kro"
 type     = "binary"
-includes = ["toolchain"]
+includes = ["Toolchain"]
 defines  = ["VERSION=L\"kfmt-0.1.0+rc.250306\""]
 
 [[target]]
 name     = "kld"
-entry    = "toolchain/Driver/Main/kld.kro"
+entry    = "Toolchain/Driver/Main/kld.kro"
 type     = "binary"
-includes = ["toolchain"]
+includes = ["Toolchain"]
 defines  = ["VERSION=L\"kld-0.1.0+rc.250306\""]
 
 [[target]]
 name     = "klsp"
-entry    = "toolchain/Driver/Main/klsp.kro"
+entry    = "Toolchain/Driver/Main/klsp.kro"
 type     = "binary"
-includes = ["toolchain"]
+includes = ["Toolchain"]
 defines  = ["VERSION=L\"klsp-0.1.0+rc.250306\""]
 
 [[target]]
 name     = "kpkg"
-entry    = "toolchain/Driver/Main/kpkg.kro"
+entry    = "Toolchain/Driver/Main/kpkg.kro"
 type     = "binary"
-includes = ["toolchain"]
+includes = ["Toolchain"]
 defines  = ["VERSION=L\"kpkg-0.1.0+rc.250306\""]

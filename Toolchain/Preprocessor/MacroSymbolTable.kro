@@ -1,0 +1,63 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that we give appropriate credit, and indicate if changes were made.    ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Preprocessor::MacroDefinition::*;
+
+class MacroSymbolTable {
+    pub var table: map::<ModulePath, map::<IdentifierToken, MacroDefinition>>; ///< scope path string -> macro name -> MacroDefinition
+
+    fn insert_macro(self, macro_def: MacroDefinition) -> bool {
+        var scope_map_it = self.table.find(macro_def.scope);
+        if scope_map_it == self.table.end() {
+            // No macros in this scope yet, create new map
+            var new_map = map::<IdentifierToken, MacroDefinition>();
+            new_map[macro_def.name] = macro_def;
+            self.table[macro_def.scope] = new_map;
+            return true;
+        } else {
+            var scope_map = &(scope_map_it->second);
+            if scope_map->contains(macro_def.name) {
+                return false;
+            }
+
+            scope_map->emplace(macro_def.name, macro_def);
+            return true;
+        }
+    }
+
+    fn find_macro(self, scope: ModulePath, name: IdentifierToken) -> *MacroDefinition {
+        var scope_map_it = self.table.find(scope);
+        if scope_map_it != self.table.end() {
+            var scope_map = &(scope_map_it->second);
+            var macro_it  = scope_map->find(name);
+            if  macro_it != scope_map->end() {
+                return &(macro_it->second);
+            }
+        }
+        return &null;
+    }
+
+    const fn as_string(self, s: *PreprocessorSymbolTable) -> string {
+        var repr = "MacroSymbolTable(\n";
+        for scope_pair in self.table {
+            repr += f"  Scope: '{scope_pair.first.as_string(s)}'\n";
+            for macro_pair in scope_pair.second {
+                repr += f"    Macro: '{macro_pair.first.as_string(s)}' => {macro_pair.second.as_string(s)}\n";
+            }
+        }
+        repr += ")";
+        return repr;
+    }
+}

@@ -1,0 +1,318 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Core::Diagnostics::DiagEngine::*;
+import Core::Diagnostics::DiagRegistry::*;
+import Core::Source::SourceManager::*;
+import Lexer::TokenCacheManager::*;
+import Preprocessor::Preprocessor::*;
+import Preprocessor::ImportResolver::*;
+import Driver::Command::Command::*;
+import Driver::BatchResult::*;
+import Driver::BatchConfig::*;
+import Driver::TranslationUnit::*;
+
+///
+/// \class CompilationBatch
+///
+/// \brief Manages a set of TranslationUnits through the compilation pipeline.
+///
+/// ### Ownership
+/// CompilationBatch owns:
+///   - The ThreadPool (or holds a non-owning pointer if one was injected)
+///   - The ImportResolver (heap-allocated via Builder)
+///   - The three synchronization mutexes
+///   - The batch_abort atomic
+///   - All TranslationUnit objects (via vec of pointers)
+///
+/// CompilationBatch does NOT own:
+///   - SourceManager (caller owns, must outlive the batch)
+///   - TokenCacheManager (caller owns, must outlive the batch)
+///   - DiagEngine (caller owns, must outlive the batch)
+///
+/// ### Usage
+///
+/// \code
+///   var batch = CompilationBatch::Builder()
+///       .shared(sm, tcm, diag)
+///       .config(cfg)
+///       .resolver(resolver_ptr)   // takes ownership
+///       .files(args.files, cwd)
+///       .build();
+///
+///   var result = batch.run();
+/// \endcode
+///
+class CompilationBatch {
+    // ── shared resources (non-owning) ─────────────────────────────────────
+    priv var _sm:       *SourceManager;
+    priv var _tcm:      *TokenCacheManager;
+    priv var _diag:     *DiagEngine;
+
+    // ── owned resources ───────────────────────────────────────────────────
+    priv var _resolver:     *ImportResolver;   ///< heap-allocated, owned
+    priv var _sm_mutex:     std::Mutex;
+    priv var _diag_mutex:   std::Mutex;
+    priv var _cache_mutex:  std::Mutex;
+    priv var _batch_abort:  std::Atomic::<bool>;
+
+    priv var _tus:    vec::<*TranslationUnit>; ///< owned
+    priv var _cfg:    BatchConfig;
+    priv var _pool:   *ThreadPool;             ///< owned if _owns_pool
+    priv var _owns_pool: bool = false;
+
+    // ── ThreadPool group ID allocation ────────────────────────────────────
+    //
+    // Each TU gets a group ID so we can wait on individual TUs if needed.
+    // We use a simple round-robin mod 256 (the pool's group array size).
+    // Group 0 is reserved for internal batch-level waits.
+    priv var _next_group: std::Atomic::<u8>;
+
+    // =========================================================================
+    //  Builder
+    // =========================================================================
+    __inline_cpp("public:");
+    
+    pub class Builder {
+        priv var _sm:       *SourceManager     = &null;
+        priv var _tcm:      *TokenCacheManager = &null;
+        priv var _diag:     *DiagEngine        = &null;
+        priv var _resolver: *ImportResolver    = &null;
+        priv var _cfg:      BatchConfig;
+        priv var _files:    vec::<string>;
+        priv var _cwd:      Path;
+        priv var _pool:     *ThreadPool        = &null;
+
+        fn Builder(self) {}
+
+        fn shared(self,
+            sm:   *SourceManager,
+            tcm:  *TokenCacheManager,
+            diag: *DiagEngine
+        ) -> ref!(Builder) {
+            self._sm   = sm;
+            self._tcm  = tcm;
+            self._diag = diag;
+            return self;
+        }
+
+        ///
+        /// \brief Inject an externally-built ImportResolver.
+        ///        Builder takes ownership.
+        ///
+        fn resolver(self, r: *ImportResolver) -> ref!(Builder) {
+            self._resolver = r;
+            return self;
+        }
+
+        fn config(self, cfg: BatchConfig) -> ref!(Builder) {
+            self._cfg = cfg;
+            return self;
+        }
+
+        fn files(self, paths: ref!(vec::<string>), cwd: Path) -> ref!(Builder) {
+            self._files = paths;
+            self._cwd   = cwd;
+            return self;
+        }
+
+        ///
+        /// \brief Inject an existing ThreadPool (non-owning).
+        ///
+        fn pool(self, p: *ThreadPool) -> ref!(Builder) {
+            self._pool = p;
+            return self;
+        }
+
+        fn build(self) -> *CompilationBatch {
+            var batch = std::create::<CompilationBatch>();
+
+            batch->_sm       = self._sm;
+            batch->_tcm      = self._tcm;
+            batch->_diag     = self._diag;
+            batch->_resolver = self._resolver;
+            batch->_cfg      = self._cfg;
+            batch->_batch_abort.store(false, std::MemoryOrder::relaxed);
+            batch->_next_group.store(1, std::MemoryOrder::relaxed); // 0 reserved
+
+            // ── thread pool ───────────────────────────────────────────────
+            if self._pool != &null {
+                batch->_pool      = self._pool;
+                batch->_owns_pool = false;
+            } else {
+                batch->_pool      = std::create::<ThreadPool>(self._cfg.thread_count);
+                batch->_owns_pool = true;
+            }
+
+            // ── apply DiagEngine config ───────────────────────────────────
+            self._diag->set_error_limit(self._cfg.max_errors);
+            self._diag->set_warnings_as_errors(self._cfg.warnings_as_errors);
+
+            // ── build TU list ─────────────────────────────────────────────
+            batch->_tus.reserve(self._files.size());
+
+            for path_str: string in self._files {
+                var p   = Path(path_str);
+                var mbase = ModulePath(); // root module; refined later when module system is active
+
+                var tu = std::create::<TranslationUnit>(
+                    p,
+                    mbase,
+                    self._sm,
+                    self._tcm,
+                    self._resolver,
+                    self._diag,
+                    batch->_pool,
+                    &(batch->_sm_mutex),
+                    &(batch->_diag_mutex),
+                    &(batch->_cache_mutex),
+                    &(batch->_batch_abort)
+                );
+
+                batch->_tus.push_back(tu);
+            }
+
+            return batch;
+        }
+    }
+
+    // ── constructor / destructor ──────────────────────────────────────────
+
+    fn CompilationBatch(self) {
+        self._sm         = &null;
+        self._tcm        = &null;
+        self._diag       = &null;
+        self._resolver   = &null;
+        self._pool       = &null;
+        self._owns_pool  = false;
+        self._batch_abort.store(false, std::MemoryOrder::relaxed);
+        self._next_group.store(1, std::MemoryOrder::relaxed);
+        self._tus.reserve(16);
+    }
+
+    fn op delete(self) {
+        for tu: *TranslationUnit in self._tus {
+            if tu != &null {
+                std::destroy(tu);
+            }
+        }
+        self._tus.clear();
+
+        if self._resolver != &null {
+            std::destroy(self._resolver);
+            self._resolver = &null;
+        }
+
+        if self._owns_pool && (self._pool != &null) {
+            std::destroy(self._pool);
+            self._pool = &null;
+        }
+    }
+
+    // =========================================================================
+    //  run() - dispatch all TUs, wait for completion, collect results
+    // =========================================================================
+
+    ///
+    /// \brief Execute the full compilation batch.
+    ///
+    /// Dispatches each TU as a ThreadPool task. TUs run concurrently up to
+    /// pool capacity. Fatal errors set the abort flag; remaining TUs detect
+    /// it at their next stage gate and transition to Aborted.
+    ///
+    /// Blocks until all TU tasks have completed (or aborted).
+    ///
+    fn run(self) -> BatchResult {
+        var result = BatchResult();
+        var t_start = libcxx::chrono::steady_clock::now();
+
+        // Wait for the resolver's async index to be ready before dispatching
+        // any TUs. If it was built with a pool this may spin briefly.
+        self._resolver->wait_for_index();
+
+        Logger::info(Logger::Stage::Driver,
+            f"CompilationBatch::run: {self._tus.size()} TU(s) threads={self._cfg.thread_count}");
+
+        // ── dispatch ──────────────────────────────────────────────────────
+        for tu: *TranslationUnit in self._tus {
+            // var group_id = self._alloc_group();
+            tu->run();
+            // self._pool->enqueue(
+            //     fn () {
+            //         tu->run();
+            //     },
+            //     group_id
+            // );
+        }
+
+        // ── wait for all TU tasks to finish ───────────────────────────────
+        //
+        // We can't use wait_all() because that spins on all 256 groups.
+        // Instead, wait on the groups we actually allocated, from 1 to
+        // _next_group - 1.
+        //
+        // var allocated = self._next_group.load(std::MemoryOrder::acquire);
+
+        // for var g: u8 = 1; g < allocated; ++g {
+        //     self._pool->wait_group(g);
+        // }
+
+        // ── collect results ───────────────────────────────────────────────
+        result.aborted = self._batch_abort.load(std::MemoryOrder::acquire);
+
+        for tu: *TranslationUnit in self._tus {
+            result.tu_results.push_back(tu->result);
+            result.total_errors   += tu->result.error_count;
+            result.total_warnings += tu->result.warn_count;
+        }
+
+        var t_end = libcxx::chrono::steady_clock::now();
+        result.elapsed_ms = static_cast::<f64>(
+            libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(
+                t_end - t_start
+            ).count()
+        ) / 1000.0;
+
+        Logger::info(Logger::Stage::Driver,
+            f"CompilationBatch::run: {result.summary()}");
+
+        return result;
+    }
+
+    // ── accessors ─────────────────────────────────────────────────────────
+
+    fn tu_count(self)    -> usize { return self._tus.size(); }
+    fn aborted(self)     -> bool  { return self._batch_abort.load(std::MemoryOrder::acquire); }
+    fn resolver(self)    -> *ImportResolver { return self._resolver; }
+
+    // =========================================================================
+    //  PRIVATE HELPERS
+    // =========================================================================
+
+    ///
+    /// \brief Allocate a group ID for a TU, wrapping at 255 back to 1.
+    ///
+    /// Group 0 is reserved. This is only called from the main thread
+    /// (inside run()) so no CAS needed - just a fetch_add with wrap.
+    ///
+    priv fn _alloc_group(self) -> u8 {
+        var g = self._next_group.fetch_add(1, std::MemoryOrder::relaxed);
+        if g == 0 {
+            // wrapped - skip 0
+            g = self._next_group.fetch_add(1, std::MemoryOrder::relaxed);
+        }
+        return g;
+    }
+}

@@ -1,5 +1,0 @@
-### Parser
-Contains header files for the parsing component.  
-These headers define the API for syntactic analysis, grammar rules, and building parse trees from token streams.
-
----

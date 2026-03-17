@@ -4,10 +4,10 @@
 
 ```bash
 # Unix (macOS, Linux)
-curl -sSL https://github.com/kairolang/kairo/blob/canary/helix-0.1.1+bc.251007/scripts/install.sh | bash
+curl -sSL https://github.com/kairolang/kairo/blob/canary/helix-0.1.1+bc.251007/Scripts/install.sh | bash
 
 # Windows (PowerShell)
-curl -sSL https://github.com/kairolang/kairo/blob/canary/helix-0.1.1+bc.251007/scripts/install.sh | iex
+curl -sSL https://github.com/kairolang/kairo/blob/canary/helix-0.1.1+bc.251007/Scripts/install.sh | iex
 ```
 
 The script will walk you through everything: install location, permissions, and optionally the VSCode extension.
@@ -42,7 +42,7 @@ git checkout canary/helix-0.1.1+bc.251007
 kbld
 
 # you can also test files that contain `fn Test() -> i32 { ... }` as the entry point, but note that this is not the standard entry point for Kairo programs.
-kbld test toolchain/Lexer/Lexer.kro
+kbld test Toolchain/Lexer/Lexer.kro
 ```
 
 

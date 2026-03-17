@@ -1,0 +1,53 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that we give appropriate credit, and indicate if changes were made.    ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Preprocessor::IdentifierToken::*;
+import Preprocessor::PreprocessorSymbolTable::*;
+import Lexer::TokenSpan::*;
+
+class MacroParameter {
+    __inline_cpp("public:");
+    enum VariadicType derives u8 {
+        None,    ///< not variadic
+        Named,   ///< named variadic (e.g., =...rest)
+        Unnamed, ///< unnamed variadic (e.g., ...rest)
+    }
+
+    pub var name:          IdentifierToken;
+    pub var has_default:   bool = false;
+    pub var is_variadic:   VariadicType = VariadicType::None;
+    pub var default_value: TokenSpan;
+
+    const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
+        var repr = f"MacroParameter(name: '{self.name.as_string(sym_table)}' ";
+        switch self.is_variadic {
+            case VariadicType::Named {
+                repr += ", is_variadic: named";
+            } case VariadicType::Unnamed {
+                repr += ", is_variadic: unnamed";
+            } case VariadicType::None {
+                repr += ", is_variadic: false";
+            }
+        }
+
+        if self.has_default {
+            repr += f", has_default: true, default_value: {self.default_value}";
+        } else {
+            repr += ", has_default: false, default_value: null";
+        }
+
+        return repr + ")";
+    }
+}

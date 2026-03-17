@@ -1,0 +1,32 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that we give appropriate credit, and indicate if changes were made.    ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Preprocessor::MacroParameterList::*;
+import Preprocessor::ModulePath::*;
+
+class MacroDefinition {
+    pub var scope:          ModulePath; ///< module path where this macro is defined (excl the name)
+    pub var params:         MacroParameterList; ///< list of parameters
+    /// TODO: change this to be a owned TokenBuffer instead of a span, since rn we need to leak the original tokens until the macro is expanded but if we own the tokens we can free them after expansion
+    pub var body:           TokenSpan; ///< raw token span for the macro body
+    pub var name:           IdentifierToken; ///< macro name we cant use a token here since a token doesnt store the text only kind range and imm data which is not sufficient
+    pub var definition_loc: SourceRange; ///< source location of the macro definition (for error reporting)
+    pub var accepts_params: bool;        ///< does this macro accept parameters (true if defined with parens)
+    pub var source_fid:     u32;
+
+    const fn as_string(self, s: *PreprocessorSymbolTable) -> string {
+        return f"MacroDefinition(name='{self.name.as_string(s)}', scope='{self.scope.as_string(s)}', params={self.params.as_string(s)}, body={self.body}, definition_loc={self.definition_loc}, accepts_params={self.accepts_params})";
+    }
+}

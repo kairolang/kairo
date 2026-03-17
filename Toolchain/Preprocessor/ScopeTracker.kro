@@ -1,0 +1,338 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that we give appropriate credit, and indicate if changes were made.    ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Preprocessor::MacroSymbolTable::*;
+import Core::Source::SourceManager::*;
+
+enum ModuleVisibility derives u8 {
+    Public,     ///< pub module or no modifier - exported
+    Private,    ///< priv module - not exported outside file
+    Protected,  ///< prot module - not accessible outside current folder
+}
+
+class ScopeTracker {
+    struct Frame {
+        var path:        ModulePath;        ///< full module path at this frame
+        var brace_depth: i32;               ///< brace depth when frame was pushed
+        var visibility:  ModuleVisibility;  ///< visibility of this module block
+        var is_global:   bool;              ///< true if `module :: { }`
+    }
+
+    priv var _sym_table:   *PreprocessorSymbolTable; ///< for interning identifiers
+    priv var _file_base:   ModulePath;               ///< base path from filename (e.g., Baz from baz.kro)
+    priv var _stack:       vec::<Frame>;             ///< scope stack
+    priv var _brace_depth: i32;                      ///< current brace nesting level
+    priv var _current:     ModulePath;               ///< cached current scope
+    priv var _sm:         *SourceManager;            ///< source manager for error reporting
+
+    /// \brief constructs tracker with file's base module path
+    /// \param sym_table symbol table for interning identifiers
+    /// \param file_base module path derived from filename
+    fn ScopeTracker(self, sym_table: *PreprocessorSymbolTable, sm: *SourceManager, file_base: ModulePath) {
+        self._stack       = vec::<Frame>();
+        self._sym_table   = sym_table;
+        self._file_base   = file_base;
+        self._current     = file_base;
+        self._sm          = sm;
+        self._brace_depth = 0;
+
+        // push initial frame for file-level scope
+        var initial = Frame();
+        initial.path        = file_base;
+        initial.brace_depth = 0;
+        initial.visibility  = ModuleVisibility::Public;
+        initial.is_global   = false;
+        self._stack.push_back(initial);
+    }
+
+    /// \brief returns current module scope as ModulePath
+    fn current_scope(self) -> ModulePath {
+        return self._current;
+    }
+
+    /// \brief returns current visibility
+    fn current_visibility(self) -> ModuleVisibility {
+        if self._stack.size() == 0 {
+            return ModuleVisibility::Public;
+        }
+        return self._stack.back().visibility;
+    }
+
+    /// \brief returns true if currently in global scope (module :: { })
+    fn is_global_scope(self) -> bool {
+        if self._stack.size() == 0 {
+            return false;
+        }
+        return self._stack.back().is_global;
+    }
+
+    /// \brief returns current brace depth
+    fn brace_depth(self) -> i32 {
+        return self._brace_depth;
+    }
+
+    /// \brief processes a single token, updating scope state
+    /// \param tokens the token span to read from
+    /// \param i current token index
+    /// \return number of additional tokens consumed (0 if just this token)
+    fn update(self, tokens: TokenSpan, i: usize) -> usize {
+        if i >= tokens.size() { return 0; }
+
+        var tok = tokens.get(i);
+
+        // track all braces for scope popping
+        if tok->kind == TokenKind::OpLBrace {
+            ++self._brace_depth;
+            return 0;
+        }
+
+        if tok->kind == TokenKind::OpRBrace {
+            --self._brace_depth;
+            self.maybe_pop_scope();
+            return 0;
+        }
+
+        // check for visibility modifier followed by module
+        if tok->kind == TokenKind::KwPub {
+            if (i + 1) < tokens.size() {
+                var next = tokens.get(i + 1);
+                if next->kind == TokenKind::KwModule {
+                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Public) + 1;
+                }
+            }
+            return 0;
+        }
+
+        if tok->kind == TokenKind::KwPriv {
+            if (i + 1) < tokens.size() {
+                var next = tokens.get(i + 1);
+                if next->kind == TokenKind::KwModule {
+                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Private) + 1;
+                }
+            }
+            return 0;
+        }
+
+        if tok->kind == TokenKind::KwProt {
+            if (i + 1) < tokens.size() {
+                var next = tokens.get(i + 1);
+                if next->kind == TokenKind::KwModule {
+                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Protected) + 1;
+                }
+            }
+            return 0;
+        }
+
+        // check for bare module keyword
+        if tok->kind == TokenKind::KwModule {
+            return self.parse_module_decl(tokens, i, ModuleVisibility::Public);
+        }
+
+        return 0;
+    }
+
+    /// \brief parses module declaration starting at `module` keyword
+    /// \returns number of tokens consumed (not including the visibility modifier)
+    priv fn parse_module_decl(self, tokens: TokenSpan, module_idx: usize,
+                              visibility: ModuleVisibility) -> usize {
+        var j = module_idx + 1;
+        if j >= tokens.size() { return 0; }
+
+        var t = tokens.get(j);
+
+        // case: `module :: { }` - global scope
+        if t->kind == TokenKind::OpColonColon {
+            if (j + 1) < tokens.size() {
+                var next = tokens.get(j + 1);
+                if next->kind == TokenKind::OpLBrace {
+                    self.push_global_scope(visibility);
+                    return 2; // `module` + `::`
+                }
+            }
+            // `module ::Foo::Bar` syntax - parse as global-qualified path
+            var path_result = self.parse_module_path(tokens, j + 1);
+            if path_result.path.segments.size() > 0 {
+                var after_path = j + 1 + path_result.tokens_consumed;
+                if after_path < tokens.size() {
+                    var next_tok = tokens.get(after_path);
+                    if next_tok->kind == TokenKind::OpLBrace {
+                        self.push_absolute_scope(path_result.path, visibility);
+                        return 2 + path_result.tokens_consumed; // `module` + `::` + path
+                    }
+                }
+            }
+            return 0;
+        }
+
+        // case: `module { }` - anonymous visibility block
+        if t->kind == TokenKind::OpLBrace {
+            self.push_visibility_scope(visibility);
+            return 1; // just `module`, brace handled by normal tracking
+        }
+
+        // case: `module Ident...` or `module Foo::Bar...`
+        if t->kind != TokenKind::LitIdentifier { return 0; }
+
+        var path_result = self.parse_module_path(tokens, j);
+        if path_result.path.segments.size() == 0 { return 0; }
+
+        var after_path = j + path_result.tokens_consumed;
+        if after_path >= tokens.size() { return 0; }
+
+        var next_tok = tokens.get(after_path);
+        if next_tok->kind == TokenKind::OpLBrace {
+            self.push_scope(path_result.path, visibility);
+            return 1 + path_result.tokens_consumed; // `module` + path tokens
+        }
+
+        return 0;
+    }
+
+    struct PathParseResult {
+        var path:            ModulePath;
+        var tokens_consumed: usize;
+    }
+
+    /// \brief parses a module path (Foo::Bar::Baz)
+    /// \param tokens token span
+    /// \param start index of first identifier
+    /// \returns PathParseResult with path and token count
+    priv fn parse_module_path(self, tokens: TokenSpan, start: usize) -> PathParseResult {
+        var result = PathParseResult();
+        result.path = ModulePath();
+        result.tokens_consumed = 0;
+
+        var j = start;
+
+        while j < tokens.size() {
+            var t = tokens.get(j);
+            if t->kind != TokenKind::LitIdentifier { break; }
+
+            // create IdentifierToken from the token
+            var ident = IdentifierToken();
+            ident.token = tokens.get(j);
+            ident.name  = self._sym_table->intern(self._sm->get_text(ident.token->range));
+
+            result.path.segments.push_back(ident);
+            result.tokens_consumed += 1;
+
+            // check for ::
+            if (j + 1) >= tokens.size() { break; }
+            var next = tokens.get(j + 1);
+            if next->kind != TokenKind::OpColonColon { break; }
+
+            result.tokens_consumed += 1; // count the ::
+            j += 2; // skip ident and ::
+        }
+
+        return result;
+    }
+
+    /// \brief pushes a new relative scope
+    priv fn push_scope(self, path: ModulePath, visibility: ModuleVisibility) {
+        var frame = Frame();
+
+        // extend current scope with new path
+        frame.path = self._current;
+        for seg in path.segments {
+            frame.path.segments.push_back(seg);
+        }
+
+        frame.brace_depth = self._brace_depth;
+        frame.visibility  = visibility;
+        frame.is_global   = false;
+
+        self._stack.push_back(frame);
+        self.update_current();
+    }
+
+    /// \brief pushes global scope (module :: { })
+    priv fn push_global_scope(self, visibility: ModuleVisibility) {
+        var frame = Frame();
+        frame.path        = ModulePath(); // empty = global
+        frame.brace_depth = self._brace_depth;
+        frame.visibility  = visibility;
+        frame.is_global   = true;
+
+        self._stack.push_back(frame);
+        self.update_current();
+    }
+
+    /// \brief pushes absolute scope (module ::Foo::Bar { })
+    priv fn push_absolute_scope(self, path: ModulePath, visibility: ModuleVisibility) {
+        var frame = Frame();
+        frame.path        = path; // absolute path, replaces current
+        frame.brace_depth = self._brace_depth;
+        frame.visibility  = visibility;
+        frame.is_global   = false;
+
+        self._stack.push_back(frame);
+        self.update_current();
+    }
+
+    /// \brief pushes visibility-only scope (priv module { })
+    priv fn push_visibility_scope(self, visibility: ModuleVisibility) {
+        var frame = Frame();
+        frame.path        = self._current;
+        frame.brace_depth = self._brace_depth;
+        frame.visibility  = visibility;
+        frame.is_global   = false;
+
+        self._stack.push_back(frame);
+        // current scope doesn't change, just visibility
+    }
+
+    /// \brief pops scope if brace depth drops below frame's depth
+    priv fn maybe_pop_scope(self) {
+        // never pop the file-level scope
+        while self._stack.size() > 1 {
+            var top = self._stack.back();
+            if self._brace_depth >= top.brace_depth {
+                break;
+            }
+            self._stack.pop_back();
+        }
+        self.update_current();
+    }
+
+    /// \brief updates cached current scope from stack top
+    priv fn update_current(self) {
+        if self._stack.size() == 0 {
+            self._current = self._file_base;
+            return;
+        }
+
+        var top = self._stack.back();
+        if top.is_global {
+            self._current = ModulePath(); // empty = global
+        } else {
+            self._current = top.path;
+        }
+    }
+
+    /// \brief resets tracker to initial state
+    fn reset(self) {
+        self._stack.clear();
+        self._brace_depth = 0;
+        self._current     = self._file_base;
+
+        var initial = Frame();
+        initial.path        = self._file_base;
+        initial.brace_depth = 0;
+        initial.visibility  = ModuleVisibility::Public;
+        initial.is_global   = false;
+        self._stack.push_back(initial);
+    }
+}
