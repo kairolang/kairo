@@ -3,6 +3,11 @@ if [[ "$BRANCH" == "main" || "$BRANCH" == "beta" ]]; then
     exit 1
 fi
 
+git checkout beta
+git merge canary
+git push origin beta
+git checkout canary
+
 git checkout main
 git merge canary
 git push origin main
