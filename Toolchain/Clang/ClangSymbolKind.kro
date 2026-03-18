@@ -1,0 +1,68 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+///
+/// \file Clang/ClangSymbolKind.kro
+/// \brief discriminant for all C++ symbol kinds extractable via libclang.
+///
+/// contains only the kinds the parser needs to pick a grammar branch and
+/// sema needs to decide whether to skip checking a call site. nothing more.
+///
+
+enum ClangSymbolKind derives u8 {
+    // --- callable ---
+    Function,           ///< free function
+    Method,             ///< member function (needs receiver)
+    Constructor,        ///< Type(...) call syntax
+    Destructor,         ///< rarely queried but needed for completeness
+    OperatorOverload,   ///< op+ op== etc
+    ConversionOperator, ///< operator T() - implicit conversion path
+    FriendFunction,     ///< declared inside class, callable outside
+    CoroutineFunction,  ///< returns coroutine handle - skip return type unification
+    ExplicitObjectMethod, ///< void foo(this Self&, ...) - deducing this (C++23)
+    DeductionGuide,     ///< looks like constructor call - parser needs to know
+
+    // --- overload sets ---
+    OverloadSet,        ///< same name multiple sigs - arity is min/max across all
+
+    // --- templates ---
+    FunctionTemplate,   ///< template<> fn - thing::<T>() is valid
+    ClassTemplate,      ///< template<> class - thing<T> in type position
+    AliasTemplate,      ///< using Foo = Bar<T>
+    PackExpansion,      ///< Foo<Args...> - ... after name is valid
+
+    // --- types ---
+    Class,              ///< concrete class/struct
+    Union,
+    Enum,               ///< C enum
+    EnumClass,          ///< C++ enum class
+    TypeAlias,          ///< typedef / using T = ...
+    StructuredBinding,  ///< auto [a, b] = ... exposed through headers
+
+    // --- concepts ---
+    Concept,            ///< concept Foo = ... - sema skips constraint checking
+
+    // --- variables ---
+    Variable,           ///< global / static var
+    StaticMember,       ///< Class::member
+    EnumConstant,       ///< Foo::Bar in enum
+
+    // --- macros ---
+    MacroFunction,      ///< #define FOO(x) ... - has arity
+    MacroConstant,      ///< #define FOO 42    - no arity
+
+    // --- namespaces ---
+    Namespace,          ///< for qualified lookup: std::vector
+}

@@ -1,0 +1,241 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Core::Source::SourceLocation::*;
+import Core::Source::SourceManager::*;
+import Clang::ClangSymbol::*;
+import Clang::ClangSymbolKind::*;
+
+///
+/// \file Clang/ClangSymbolTable.kro
+/// \brief per-header lookup table for C++ symbols extracted by ClangBridge.
+///
+/// \details
+/// one table per imported header. ClangBridge owns a map from header
+/// path -> ClangSymbolTable.
+///
+/// all parser disambiguation and sema skip decisions go through here.
+/// never stores more info than is needed for those two purposes.
+///
+
+///
+/// \brief result kind for a symbol table lookup.
+///
+enum LookupResultKind derives u8 {
+    Found,     ///< single unambiguous match
+    Ambiguous, ///< multiple symbols share this unqualified name
+    NotFound,  ///< name not in this table
+}
+
+///
+/// \brief result of a symbol table lookup.
+///
+/// \details
+/// check kind first. if kind == Found, sym holds the single result.
+/// if kind == Ambiguous, candidates holds all matches - caller must
+/// use qualified lookup to disambiguate.
+///
+struct LookupResult {
+    var kind:       LookupResultKind;
+    var sym:        ClangSymbol;           ///< valid when kind == Found
+    var candidates: vec::<ClangSymbol>;    ///< valid when kind == Ambiguous
+}
+
+///
+/// \brief parser query result: is < a template arg list or less-than?
+///
+enum GenericDisambig derives u8 {
+    IsGeneric,  ///< definitely template args - parse <...>
+    IsLessThan, ///< definitely binary op
+    Unknown,    ///< not in table - parser must backtrack or use heuristic
+}
+
+///
+/// \brief arity check result for a call site.
+///
+struct ArityMatch {
+    var matches:         bool; ///< at least one overload accepts this arg count
+    var needs_type_args: bool; ///< arity matches but symbol is a template
+}
+
+///
+/// \class ClangSymbolTable
+/// \brief central lookup table for all C++ symbols extracted from one header.
+///
+class ClangSymbolTable {
+    priv var _symbols:     hashmap::<string, vec::<ClangSymbol>>; ///< unqualified -> symbols
+    priv var _qualified:   hashmap::<string, ClangSymbol>;        ///< qualified   -> symbol
+    priv var _header_fid:  FileID;
+    priv var _header_path: string;
+
+    fn ClangSymbolTable(self, header_path: string, header_fid: FileID) {
+        self._header_path = header_path;
+        self._header_fid  = header_fid;
+        self._symbols     = hashmap::<string, vec::<ClangSymbol>>();
+        self._qualified   = hashmap::<string, ClangSymbol>();
+    }
+
+    ///
+    /// \brief insert a symbol. called by ClangBridge during header extraction.
+    ///
+    fn insert(self, sym: ClangSymbol) {
+        if !self._symbols.contains(sym.name) {
+            self._symbols.insert(sym.name, vec::<ClangSymbol>());
+        }
+
+        self._symbols[sym.name].push_back(sym);
+        self._qualified.insert(sym.qualified_name, sym);
+    }
+
+    ///
+    /// \brief primary parser query: look up by unqualified name.
+    ///
+    fn lookup(self, name: string) -> LookupResult {
+        if !self._symbols.contains(name) {
+            var r: LookupResult;
+            r.kind = LookupResultKind::NotFound;
+            return r;
+        }
+
+        var syms = self._symbols[name];
+
+        if syms.size() == 1 {
+            var r: LookupResult;
+            r.kind = LookupResultKind::Found;
+            r.sym  = syms[0];
+            return r;
+        }
+
+        var r: LookupResult;
+        r.kind       = LookupResultKind::Ambiguous;
+        r.candidates = syms;
+        return r;
+    }
+
+    ///
+    /// \brief qualified lookup for std::vector etc.
+    ///
+    fn lookup_qualified(self, qualified_name: string) -> LookupResult {
+        if !self._qualified.contains(qualified_name) {
+            var r: LookupResult;
+            r.kind = LookupResultKind::NotFound;
+            return r;
+        }
+
+        var r: LookupResult;
+        r.kind = LookupResultKind::Found;
+        r.sym  = self._qualified[qualified_name];
+        return r;
+    }
+
+    ///
+    /// \brief parser fast path: should < after this name be a template arg list?
+    ///
+    fn disambig_generic(self, name: string) -> GenericDisambig {
+        var result = self.lookup(name);
+
+        switch result.kind {
+            case LookupResultKind::NotFound {
+                return GenericDisambig::Unknown;
+            }
+            case LookupResultKind::Found {
+                if result.sym.is_template {
+                    return GenericDisambig::IsGeneric;
+                }
+                return GenericDisambig::IsLessThan;
+            }
+            case LookupResultKind::Ambiguous {
+                // if any candidate is a template treat as generic.
+                // clang rejects at codegen if it was wrong.
+                for sym: ClangSymbol in result.candidates {
+                    if sym.is_template {
+                        return GenericDisambig::IsGeneric;
+                    }
+                }
+                return GenericDisambig::IsLessThan;
+            }
+            default {
+                return GenericDisambig::Unknown;
+            }
+        }
+    }
+
+    ///
+    /// \brief sema query: is this name a known C++ symbol?
+    ///        if yes sema skips checking the call/usage entirely.
+    ///
+    fn is_cpp_symbol(self, name: string) -> bool {
+        return self._symbols.contains(name);
+    }
+
+    fn is_cpp_symbol_qualified(self, qualified_name: string) -> bool {
+        return self._qualified.contains(qualified_name);
+    }
+
+    ///
+    /// \brief sema query: does this arity plausibly match any overload?
+    ///        cheap early error before handing off to clang.
+    ///
+    fn check_arity(self, name: string, arg_count: u32) -> ArityMatch {
+        var result = self.lookup(name);
+
+        switch result.kind {
+            case LookupResultKind::NotFound {
+                return ArityMatch { matches: false, needs_type_args: false };
+            }
+            case LookupResultKind::Found {
+                return self._check_sym_arity(result.sym, arg_count);
+            }
+            case LookupResultKind::Ambiguous {
+                for sym: ClangSymbol in result.candidates {
+                    var m = self._check_sym_arity(sym, arg_count);
+                    if m.matches {
+                        return m;
+                    }
+                }
+                return ArityMatch { matches: false, needs_type_args: false };
+            }
+            default {
+                return ArityMatch { matches: false, needs_type_args: false };
+            }
+        }
+    }
+
+    fn header_path(self) -> string {
+        return self._header_path;
+    }
+
+    fn header_fid(self) -> FileID {
+        return self._header_fid;
+    }
+
+    fn symbol_count(self) -> usize {
+        return self._qualified.size();
+    }
+
+    priv fn _check_sym_arity(self, sym: ClangSymbol, arg_count: u32) -> ArityMatch {
+        if sym.max_arity == std::u32::MAX {
+            return ArityMatch {
+                matches:         arg_count >= sym.min_arity,
+                needs_type_args: sym.is_template,
+            };
+        }
+
+        return ArityMatch {
+            matches:         (arg_count >= sym.min_arity) && (arg_count <= sym.max_arity),
+            needs_type_args: sym.is_template,
+        };
+    }
+}

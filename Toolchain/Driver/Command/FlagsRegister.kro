@@ -457,6 +457,45 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  threading
     cmd->define_cfg::<FlagKind::I32>("max-threads",               "hard cap on compilation threads regardless of --threads (0 = no cap)",    0,       0,    1024);
+
+    //  floating point
+    cmd->define::<FlagKind::String>("fp-model",              "", "fp-model",               "floating-point semantics: precise|strict|fast (default: precise)",       "precise");
+    cmd->define::<FlagKind::String>("fp-contract",           "", "fp-contract",            "fused FP ops (FMAs): off|on|fast (default: off)",                        "off");
+    cmd->define::<FlagKind::Bool>  ("signed-wrap",           "", "signed-wrap",            "treat signed integer overflow as two's complement instead of UB",         false);
+    cmd->define::<FlagKind::Bool>  ("unsigned-trap",         "", "unsigned-trap",          "trap on unsigned integer overflow (extends --no-overflow to unsigned)",    false);
+
+    //  codegen optimizations
+    cmd->define::<FlagKind::Bool>  ("strict-aliasing",       "", "strict-aliasing",        "enable strict aliasing optimizations (off in debug, on in release)",      false);
+    cmd->define::<FlagKind::String>("thread-model",          "", "thread-model",           "threading model: posix|single (default: posix)",                          "posix");
+    cmd->define::<FlagKind::String>("unwind-tables",         "", "unwind-tables",          "unwind table emission: none|sync|async (default: sync)",                  "sync");
+    cmd->define::<FlagKind::String>("rtlib",                 "", "rtlib",                  "compiler runtime library: compiler-rt|libgcc (default: compiler-rt)",     "compiler-rt");
+    cmd->define::<FlagKind::String>("unwindlib",             "", "unwindlib",              "unwind library: libunwind|libgcc|none (default: platform default)",        "");
+
+    //  debug info
+    cmd->define::<FlagKind::Bool>  ("debug-macros",          "", "debug-macros",           "embed macro definitions in DWARF debug info",                             false);
+    cmd->define::<FlagKind::Bool>  ("embed-source",          "", "embed-source",           "embed source text directly in DWARF debug sections",                      false);
+
+    //  instrumentation
+    cmd->define::<FlagKind::Bool>  ("instrument-functions",  "", "instrument-functions",   "insert entry/exit instrumentation calls on every function",               false);
+    cmd->define::<FlagKind::String>("xray",                  "", "xray",                   "XRay instrumentation: none|basic|always (default: none)",                "none");
+    cmd->define::<FlagKind::I32>   ("xray-threshold",        "", "xray-threshold",         "minimum instruction count to instrument with XRay",                       200, 1, 1000000);
+
+    //  link-time optimizations
+    cmd->define::<FlagKind::Bool>  ("icf",                   "", "icf",                    "identical code folding: merge functions with identical machine code",      false);
+    cmd->define::<FlagKind::String>("icf-mode",              "", "icf-mode",               "ICF aggressiveness: safe|all (default: safe)",                            "safe");
+    cmd->define::<FlagKind::Bool>  ("whole-program-vtables", "", "whole-program-vtables",  "whole-program vtable devirtualization, requires --lto",                   false);
+    cmd->define::<FlagKind::Bool>  ("devirt",                "", "devirt",                 "dead virtual function elimination, requires --lto=full",                  false);
+
+    //  security hardening
+    cmd->define::<FlagKind::Bool>  ("stack-clash",           "", "stack-clash",            "probe stack on large frame allocations to prevent clash attacks",          false);
+    cmd->define::<FlagKind::Bool>  ("hot-cold-split",        "", "hot-cold-split",         "split hot/cold function sections using PGO data (ELF x86/aarch64 only)",  false);
+
+    //  WASM / WASI
+    cmd->define::<FlagKind::String>("wasm-exec-model",       "", "wasm-exec-model",        "WASM execution model: command|reactor (default: command)",                "command");
+
+    //  platform-specific / embedded
+    cmd->define::<FlagKind::Bool>  ("no-implicit-float",     "", "no-implicit-float",      "disallow implicit generation of float or vector instructions",            false);
+    cmd->define::<FlagKind::Bool>  ("kernel-mode",           "", "kernel-mode",            "kernel code model: no red zone, no implicit float, no SSE (x86 only)",   false);
 }
 
 fn register_test_flags(cmd: *Command) {

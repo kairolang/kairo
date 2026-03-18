@@ -1,0 +1,78 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Core::Source::SourceLocation::*;
+import Clang::ClangSymbolKind::*;
+
+///
+/// \file Clang/ClangSymbol.kro
+/// \brief minimal metadata for a single C++ symbol extracted by libclang.
+///
+/// \details
+/// contains only what the parser needs to disambiguate grammar and what
+/// sema needs to decide whether to skip checking a call site.
+///
+/// full type checking, constraint validation, and overload resolution
+/// are delegated entirely to clang at codegen time.
+///
+/// for OverloadSet: min_arity/max_arity span all overloads,
+/// overload_type_params stores per-overload template param counts so
+/// the parser knows which arities accept type args.
+///
+
+struct ClangSymbol {
+    var name:           string;       ///< unqualified name
+    var qualified_name: string;       ///< fully qualified e.g. std::vector
+
+    var kind: ClangSymbolKind;
+
+    ///< location minted via your SourceManager - valid for directly imported headers.
+    ///< invalid (default) for transitive / system headers: use clang_rendered_loc instead.
+    var decl_loc: SourceLocation;
+
+    ///< fallback for system/transitive headers where we don't load the buffer.
+    ///< e.g. "<cstdio>:143:7". empty string if decl_loc is valid.
+    var clang_rendered_loc: string;
+
+    ///< arity range - meaningful for callable kinds only.
+    ///< for OverloadSet: min/max across all overloads.
+    ///< for MacroConstant, Variable, etc: both 0.
+    ///< max_arity == std::u32::MAX means variadic.
+    var min_arity: u32;
+    var max_arity: u32;
+
+    ///< number of template type parameters.
+    ///< 0 for non-templates.
+    ///< for OverloadSet: max across all overloads.
+    var type_param_count: u32;
+
+    ///< per-overload template param counts for OverloadSet.
+    ///< empty for all other kinds.
+    var overload_type_params: vec::<u32>;
+
+    // --- parser disambiguation flags ---
+    var is_template:  bool; ///< <T> after name is valid in any position
+    var is_callable:  bool; ///< () after name is valid
+    var is_type:      bool; ///< valid in type position
+    var is_value:     bool; ///< valid in expression / value position
+    var is_namespace: bool; ///< LHS of :: is valid
+
+    // --- sema flags ---
+    var is_variadic:       bool; ///< accepts ...
+    var is_noexcept:       bool; ///< sema can skip exception path checking
+    var has_conversion_op: bool; ///< exposes operator T() - implicit conv available
+    var is_coroutine:      bool; ///< returns coroutine handle - skip return type unification
+    var is_consteval:      bool; ///< must be compile-time - sema note only
+}
