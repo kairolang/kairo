@@ -1,0 +1,87 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::Command::ParsedArgs::*;
+import Driver::Invocation::LangOptions::*;
+import Driver::Invocation::DiagnosticOptions::*;
+import Driver::Invocation::PreprocessorOptions::*;
+import Driver::Invocation::CodeGenOptions::*;
+import Driver::Invocation::FrontendOptions::*;
+import Driver::Invocation::TargetOptions::*;
+
+///
+/// \class CompilerInvocation
+///
+/// \brief The canonical, strongly-typed representation of one compiler run.
+///
+/// Built once from ParsedArgs at driver startup via from_args().  After that
+/// point nothing in the pipeline reads raw string flag keys — all options are
+/// accessed through the typed sub-option structs below.
+///
+/// All sub-option types are value types, so CompilerInvocation is trivially
+/// copyable and can be freely passed around by value or reference.
+///
+class CompilerInvocation {
+    __inline_cpp("public:");
+
+    // ── sub-option structs (one per subsystem) ────────────────────────────
+    pub var lang:     LangOptions;
+    pub var diag:     DiagnosticOptions;
+    pub var pp:       PreprocessorOptions;
+    pub var codegen:  CodeGenOptions;
+    pub var frontend: FrontendOptions;
+    pub var target:   TargetOptions;
+
+    // ── input files & search paths ────────────────────────────────────────
+    pub var input_files:    vec::<string>;
+    pub var include_dirs:   vec::<string>; ///< -I → Kairo ImportResolver
+    pub var ffi_includes:   vec::<string>; ///< --ffi-include → clang passthrough
+    pub var cxx_includes:   vec::<string>; ///< --cxx-include → clang passthrough
+    pub var macro_paths:    vec::<string>; ///< --macro-search-path → resolver
+    pub var working_dir:    string = "";
+    pub var input_encoding: string = "utf-8";
+
+    // ── link paths & libraries ────────────────────────────────────────────
+    pub var lib_dirs:       vec::<string>;
+    pub var link_libs:      vec::<string>;
+
+    ///
+    /// \brief Deserialise a fully-parsed ParsedArgs into a CompilerInvocation.
+    ///
+    /// This is the ONLY function that reads raw flag string keys.  Everything
+    /// in the compiler pipeline sees only this struct's typed fields.
+    ///
+    static fn from_args(args: ref!(ParsedArgs)) -> CompilerInvocation {
+        var inv = CompilerInvocation();
+        (inv.lang)     = LangOptions::from_args(args);
+        (inv.diag)     = DiagnosticOptions::from_args(args);
+        (inv.pp)       = PreprocessorOptions::from_args(args);
+        (inv.codegen)  = CodeGenOptions::from_args(args);
+        (inv.frontend) = FrontendOptions::from_args(args);
+        (inv.target)   = TargetOptions::from_args(args);
+
+        (inv.input_files)    = (args.files);
+        (inv.working_dir)    = (args.get_string("working-dir"));
+        (inv.input_encoding) = (args.get_string("input-encoding"));
+
+        for s: string in (args.get_list("include-dirs"))      { inv.include_dirs.push_back(s); }
+        for s: string in (args.get_list("ffi-include"))       { inv.ffi_includes.push_back(s); }
+        for s: string in (args.get_list("cxx-include"))       { inv.cxx_includes.push_back(s); }
+        for s: string in (args.get_list("macro-search-path")) { inv.macro_paths.push_back(s);  }
+        for s: string in (args.get_list("lib-dirs"))          { inv.lib_dirs.push_back(s);     }
+        for s: string in (args.get_list("link-libs"))         { inv.link_libs.push_back(s);    }
+        return inv;
+    }
+}

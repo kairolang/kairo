@@ -277,6 +277,7 @@ import Preprocessor::ExpansionContext::*;
 import Core::Diagnostics::Consumers::BasicDiagConsumer::*;
 import Core::Diagnostics::DiagEngine::*;
 import Core::Diagnostics::DiagRegistry::*;
+import Driver::Invocation::PreprocessorOptions::*;
 
 enum MacroSentinel derives u32 {
     NoParent    = static_cast::<u32>(-1),
@@ -425,29 +426,42 @@ class MacroExpander {
     priv var _imm_table:     *ImmediateTable;  ///< lexer's imm table for the file being expanded
     priv var _lexer:         *Lexer = &null;
     priv var _parent_ex_idx:  u32 = static_cast::<u32>(MacroSentinel::NoParent); ///< index of the parent expansion in the imm table, or -1 if top-level
-    priv var _fid:            u32;
-    priv var _unique_counter: u32 = 0;
+    priv var _fid:             u32;
+    priv var _unique_counter:  u32 = 0;
+    priv var _max_depth:       i32 = 128;   ///< from PreprocessorOptions::max_depth
+    priv var _max_expansions:  i32 = 65536; ///< from PreprocessorOptions::max_expansions; 0 = unlimited
+    priv var _expansion_count: i32 = 0;     ///< total expansions performed so far
+    priv var _macro_debug:     bool   = false;
+    priv var _debug_filter:    string = "";  ///< empty = all macros
 
     fn MacroExpander(
         self,
-        sm:          *SourceManager,
-        sym_table:   *PreprocessorSymbolTable,
-        macro_table: *MacroSymbolTable,
-        import_proc: *ImportProcessor,
-        skip_list:   *SkipList,
-        imm_table:   *ImmediateTable,
-        lexer:       *Lexer,
-        diag:        *DiagEngine
+        sm:           *SourceManager,
+        sym_table:    *PreprocessorSymbolTable,
+        macro_table:  *MacroSymbolTable,
+        import_proc:  *ImportProcessor,
+        skip_list:    *SkipList,
+        imm_table:    *ImmediateTable,
+        lexer:        *Lexer,
+        diag:         *DiagEngine,
+        max_depth:    i32 = 128,
+        max_expansions: i32 = 65536,
+        macro_debug:  bool   = false,
+        debug_filter: string = ""
     ) {
-        self._sm          = sm;
-        self._sym_table   = sym_table;
-        self._macro_table = macro_table;
-        self._import_proc = import_proc;
-        self._skip_list   = skip_list;
-        self._imm_table   = imm_table;
-        self._lexer       = lexer;
-        self._diag        = diag;
-        self._parent_ex_idx = static_cast::<u32>(MacroSentinel::NoParent);
+        self._sm             = sm;
+        self._sym_table      = sym_table;
+        self._macro_table    = macro_table;
+        self._import_proc    = import_proc;
+        self._skip_list      = skip_list;
+        self._imm_table      = imm_table;
+        self._lexer          = lexer;
+        self._diag           = diag;
+        self._parent_ex_idx  = static_cast::<u32>(MacroSentinel::NoParent);
+        self._max_depth      = max_depth;
+        self._max_expansions = max_expansions;
+        self._macro_debug    = macro_debug;
+        self._debug_filter   = debug_filter;
         Logger::info(Logger::Stage::Preprocessor, "MacroExpander: initialized");
     }
 
@@ -1147,12 +1161,35 @@ class MacroExpander {
             return &null;
         }
 
-        if ctx->exceeded_depth(256) {
+        if ctx->exceeded_depth(usize(self._max_depth)) {
             var name_str = self.name_str(def->name.name);
-            Logger::warn(Logger::Stage::Preprocessor, f"MacroExpander::expand_invocation: depth limit exceeded for '{self.name_str(def->name.name)}'!");
+            Logger::warn(Logger::Stage::Preprocessor,
+                f"MacroExpander::expand_invocation: depth limit ({self._max_depth}) exceeded for '{name_str}'!");
             self.error(tokens->get(invoke.start_index),
-                f"macro expansion depth limit (256) exceeded for '{name_str}!' ");
+                f"macro expansion depth limit ({self._max_depth}) exceeded for '{name_str}!' "
+                f" (raise with --cmax-macro-depth=N)");
             return &null;
+        }
+
+        if (self._max_expansions > 0) && (self._expansion_count >= self._max_expansions) {
+            var name_str = self.name_str(def->name.name);
+            Logger::warn(Logger::Stage::Preprocessor,
+                f"MacroExpander::expand_invocation: expansion budget ({self._max_expansions}) exhausted at '{name_str}'!");
+            self.error(tokens->get(invoke.start_index),
+                f"macro expansion budget ({self._max_expansions} total expansions) exhausted"
+                f" (raise with --cmax-macro-expansions=N)");
+            return &null;
+        }
+        self._expansion_count += 1;
+
+        if self._macro_debug {
+            var name_str = self.name_str(def->name.name);
+            var passes_filter = self._debug_filter.empty()
+                || (name_str.raw_string().find(self._debug_filter.raw_string()) != string::npos);
+            if passes_filter {
+                Logger::info(Logger::Stage::Preprocessor,
+                    f"[macro-debug] expanding '{name_str}!' depth={ctx->depth} count={self._expansion_count}");
+            }
         }
 
         ctx->push(def->name.name);
@@ -1627,6 +1664,7 @@ class PreProcessor {
 
     var _pool:     *ThreadPool;
     var _resolver: *ImportResolver;
+    var _opts:     PreprocessorOptions; ///< config from CompilerInvocation::pp
 
     var _import_proc:    ImportProcessor;               ///< single shared import processor
     var _processing:     set::<u32>;                    ///< files currently being processed (cycle detection)
@@ -1634,7 +1672,8 @@ class PreProcessor {
     var _skip_lists:     map::<u32, SkipList>;
 
     fn PreProcessor(self, sm: *SourceManager, tcm: *TokenCacheManager,
-                    resolver: *ImportResolver, pool: *ThreadPool, diag: *DiagEngine) {
+                    resolver: *ImportResolver, pool: *ThreadPool, diag: *DiagEngine,
+                    opts: PreprocessorOptions = PreprocessorOptions()) {
         self._pp_sym_table = std::create::<PreprocessorSymbolTable>();
         self._macro_table  = std::create::<MacroSymbolTable>();
         self._sm           = sm;
@@ -1643,6 +1682,7 @@ class PreProcessor {
         self._pool         = pool;
         self._diag         = diag;
 
+        self._opts         = opts;
         self._processing   = set::<u32>();
         self._processed    = set::<u32>();
 
@@ -1752,7 +1792,11 @@ class PreProcessor {
                     skip_list,
                     imm_ptr,
                     lexer_ptr,
-                    self._diag
+                    self._diag,
+                    self._opts.max_depth,
+                    self._opts.max_expansions,
+                    self._opts.macro_debug,
+                    self._opts.macro_debug_filter
                 );
 
                 var expanded = expander.expand(tokens, fid, module_path);

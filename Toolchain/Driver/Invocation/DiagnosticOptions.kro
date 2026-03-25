@@ -1,0 +1,78 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::Command::ParsedArgs::*;
+
+///
+/// \class DiagnosticOptions
+///
+/// \brief Controls diagnostic formatting, filtering, and budget limits.
+///
+class DiagnosticOptions {
+    __inline_cpp("public:");
+
+    // ── formatting ────────────────────────────────────────────────────────
+    pub var format:             string = "pretty"; ///< pretty|basic|json|msvc
+    pub var no_color:           bool   = false;
+    pub var show_ids:           bool   = false;    ///< print DiagCode alongside every message
+    pub var cascade:            bool   = true;     ///< cascade suppression via poisoned scopes
+    pub var absolute_paths:     bool   = false;
+    pub var show_context:       bool   = true;     ///< print surrounding source lines
+
+    // ── budget limits (from --c* config flags) ────────────────────────────
+    pub var max_errors:         i32    = 20;       ///< 0 = unlimited
+    pub var max_warnings:       i32    = 0;        ///< 0 = unlimited
+    pub var max_notes:          i32    = 0;        ///< 0 = unlimited
+    pub var max_context_lines:  i32    = 3;
+    pub var max_suggestions:    i32    = 5;
+    pub var tab_width:          i32    = 4;
+
+    // ── severity overrides ────────────────────────────────────────────────
+    pub var warnings_as_errors: bool   = false;    ///< --Werror
+    pub var suppress_warnings:  bool   = false;    ///< -w
+    pub var Wall:               bool   = false;
+    pub var Wextra:             bool   = false;
+    pub var Wpedantic:          bool   = false;
+    pub var warn_list:          vec::<string>;     ///< -W<name>
+    pub var allow_list:         vec::<string>;     ///< -A<name>
+    pub var deny_list:          vec::<string>;     ///< -E<name>
+    pub var forbid_list:        vec::<string>;     ///< -F<name>
+
+    static fn from_args(args: ref!(ParsedArgs)) -> DiagnosticOptions {
+        var o = DiagnosticOptions();
+        (o.format)             = args.get_string("error-format");
+        (o.no_color)           = args.get_bool("no-color");
+        (o.show_ids)           = args.get_bool("diag-show-ids");
+        (o.cascade)            = args.get_bool("diag-cascade");
+        (o.absolute_paths)     = args.get_bool("diag-absolute-paths");
+        (o.show_context)       = args.get_bool("diag-show-context");
+        (o.max_errors)         = args.get_cfg_i32("max-errors");
+        (o.max_warnings)       = args.get_cfg_i32("max-warnings");
+        (o.max_notes)          = args.get_cfg_i32("max-notes");
+        (o.max_context_lines)  = args.get_cfg_i32("max-diag-context-lines");
+        (o.max_suggestions)    = args.get_cfg_i32("max-suggestion-count");
+        (o.tab_width)          = args.get_cfg_i32("tab-width");
+        (o.warnings_as_errors) = args.get_bool("Werror");
+        (o.suppress_warnings)  = args.get_bool("nowarn");
+        (o.Wall)               = args.get_bool("Wall");
+        (o.Wextra)             = args.get_bool("Wextra");
+        (o.Wpedantic)          = args.get_bool("Wpedantic");
+        for s: string in args.get_list("warn")   { o.warn_list.push_back(s); }
+        for s: string in args.get_list("allow")  { o.allow_list.push_back(s); }
+        for s: string in args.get_list("deny")   { o.deny_list.push_back(s); }
+        for s: string in args.get_list("forbid") { o.forbid_list.push_back(s); }
+        return o;
+    }
+}

@@ -20,8 +20,8 @@ import Driver::TUStage::*;
 ///
 /// \brief Per-TU result record returned after pipeline execution.
 ///
-/// Owned by the caller (CompilationBatch). Immutable after the TU
-/// transitions to Done / Failed / Aborted.
+/// Owned by the caller (CompilerInstance::execute). Immutable after the
+/// FrontendAction transitions to Done / Failed.
 ///
 class TUResult {
     __inline_cpp("public:");

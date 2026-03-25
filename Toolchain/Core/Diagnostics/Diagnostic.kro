@@ -74,7 +74,7 @@ class Diagnostic {
         self.children.reserve(2);
     }
 
-    fn op delete(self) {
+    fn op delete (self) {
         for var i: usize = 0; i < self.children.size(); ++i {
             std::destroy(self.children[i]);
         }

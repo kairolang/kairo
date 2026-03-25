@@ -1,0 +1,100 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::Command::ParsedArgs::*;
+
+///
+/// \class LangOptions
+///
+/// \brief Language semantics and standard configuration.
+///
+/// Deserialised from ParsedArgs once by CompilerInvocation::from_args().
+/// Nothing downstream reads raw flag keys after this point.
+///
+class LangOptions {
+    __inline_cpp("public:");
+
+    pub var edition:         string = "2025";
+
+    // ── hard kill-switches ────────────────────────────────────────────────
+    pub var no_assert:       bool = false;
+    pub var no_finally:      bool = false;
+    pub var no_exceptions:   bool = false;
+    pub var no_ffi:          bool = false;
+    pub var no_cxx:          bool = false;
+    pub var no_unsafe:       bool = false;
+    pub var no_overflow:     bool = false;
+    pub var strict_const:    bool = false;
+    pub var no_eval:         bool = false;
+    pub var no_yield:        bool = false;
+    pub var no_modules:      bool = false;
+    pub var no_generics:     bool = false;
+    pub var no_fp:           bool = false;
+    pub var freestanding:    bool = false;
+    pub var no_prelude:      bool = false;
+    pub var no_stdlib:       bool = false;
+    pub var no_default_libs: bool = false;
+    pub var no_crt:          bool = false;
+
+    // ── -f / -fno- feature toggles ────────────────────────────────────────
+    // -1 = unset (profile default applies), 0 = disabled, 1 = enabled
+    pub var verify_interfaces:   i32 = -1;
+    pub var const_checks:        i32 = -1;
+    pub var overflow_checks:     i32 = -1;
+    pub var strict_null:         i32 = -1;
+    pub var implicit_conv:       i32 = -1;
+    pub var rtti:                i32 = -1;
+    pub var track_macro_origins: i32 = -1;
+    pub var union_inference:     i32 = -1;
+    pub var exceptions:          i32 = -1;
+    pub var unsafe_feature:      i32 = -1;
+
+    static fn from_args(args: ref!(ParsedArgs)) -> LangOptions {
+        var o = LangOptions();
+        (o.edition)         = args.get_string("edition");
+        (o.no_assert)       = args.get_bool("no-assert");
+        (o.no_finally)      = args.get_bool("no-finally");
+        (o.no_exceptions)   = args.get_bool("no-exceptions");
+        (o.no_ffi)          = args.get_bool("no-ffi");
+        (o.no_cxx)          = args.get_bool("no-cxx");
+        (o.no_unsafe)       = args.get_bool("no-unsafe");
+        (o.no_overflow)     = args.get_bool("no-overflow");
+        (o.strict_const)    = args.get_bool("strict-const");
+        (o.no_eval)         = args.get_bool("no-eval");
+        (o.no_yield)        = args.get_bool("no-yield");
+        (o.no_modules)      = args.get_bool("no-modules");
+        (o.no_generics)     = args.get_bool("no-generics");
+        (o.no_fp)           = args.get_bool("no-fp");
+
+        var fs = args.get_bool("freestanding");
+        (o.freestanding)    = fs;
+        (o.no_prelude)      = ((fs) || (args.get_bool("no-prelude")));
+        (o.no_stdlib)       = ((fs) || (args.get_bool("no-stdlib")));
+        (o.no_default_libs) = args.get_bool("no-default-libs");
+        (o.no_crt)          = ((fs) || (args.get_bool("no-crt")));
+
+        (o.verify_interfaces)   = args.get_feature("verify-interfaces");
+        (o.const_checks)        = args.get_feature("const-checks");
+        (o.overflow_checks)     = args.get_feature("overflow-checks");
+        (o.strict_null)         = args.get_feature("strict-null");
+        (o.implicit_conv)       = args.get_feature("implicit-conv");
+        (o.rtti)                = args.get_feature("rtti");
+        (o.track_macro_origins) = args.get_feature("track-macro-origins");
+        (o.union_inference)     = args.get_feature("union-inference");
+        (o.exceptions)          = args.get_feature("exceptions");
+        (o.unsafe_feature)      = args.get_feature("unsafe");
+        return o;
+    }
+}

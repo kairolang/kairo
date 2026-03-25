@@ -16,21 +16,20 @@
 ///
 /// \enum TUStage
 ///
-/// \brief Tracks the lifecycle stage of a TranslationUnit.
+/// \brief Tracks the lifecycle stage of a FrontendAction.
 ///
-/// Stages are strictly ordered. A TU may only advance forward. Any
-/// stage that sets _failed or triggers a fatal on the shared DiagEngine
-/// causes the TU to halt at its current stage and the batch to abort.
+/// Stages are strictly ordered — a FrontendAction may only advance forward.
+/// A stage returning false halts the pipeline and leaves the stage at Failed.
+/// A fatal diagnostic in any file sets BatchResult::aborted, skipping later files.
 ///
 enum TUStage derives u8 {
-    Pending,      ///< constructed, not yet dispatched
-    Loading,      ///< sm.load_file in progress
-    Lexing,       ///< tcm.lex_file in progress
-    Preprocessing,///< mp.preprocess_file in progress
-    Parsing,      ///< parser (stub - not yet implemented)
-    Sema,         ///< semantic analysis (stub)
-    Codegen,      ///< code generation (stub)
-    Done,         ///< all requested stages completed successfully
-    Failed,       ///< halted due to error; batch may or may not abort
-    Aborted,      ///< halted because another TU triggered a fatal
+    Pending,       ///< constructed, not yet run
+    Loading,       ///< SourceManager::load_file in progress
+    Lexing,        ///< TokenCacheManager::lex_file in progress
+    Preprocessing, ///< PreProcessor::preprocess_file in progress
+    Parsing,       ///< Parser (not yet implemented)
+    Sema,          ///< Semantic analysis (not yet implemented)
+    Codegen,       ///< Code generation (not yet implemented)
+    Done,          ///< all requested stages completed successfully
+    Failed,        ///< halted due to a diagnostic error
 }

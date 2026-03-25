@@ -1,0 +1,57 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::Command::ParsedArgs::*;
+
+///
+/// \class TargetOptions
+///
+/// \brief Target triple, ISA selection, and C++ interop ABI settings.
+///
+class TargetOptions {
+    __inline_cpp("public:");
+
+    pub var triple:    string = ""; ///< --target triple
+    pub var host:      string = ""; ///< --host triple
+    pub var march:     string = ""; ///< -march / --march
+    pub var mcpu:      string = ""; ///< -mcpu  / --mcpu
+    pub var mtune:     string = ""; ///< --mtune
+    pub var mabi:      string = ""; ///< --mabi
+    pub var mfeatures: string = ""; ///< --mfeatures (e.g. +avx2,-sse4.1)
+    pub var m32:       bool   = false;
+    pub var m64:       bool   = false;
+    pub var cxx_std:   string = "c++20";
+    pub var cxx_abi:   string = "itanium";
+    pub var sysroot:   string = "";
+    pub var pic_level: i32    = 0;
+
+    static fn from_args(args: ref!(ParsedArgs)) -> TargetOptions {
+        var o = TargetOptions();
+        (o.triple)     = args.get_string("target");
+        (o.host)       = args.get_string("host");
+        (o.march)      = args.get_string("march");
+        (o.mcpu)       = args.get_string("mcpu");
+        (o.mtune)      = args.get_string("mtune");
+        (o.mabi)       = args.get_string("mabi");
+        (o.mfeatures)  = args.get_string("mfeatures");
+        (o.m32)        = args.get_bool("m32");
+        (o.m64)        = args.get_bool("m64");
+        (o.cxx_std)    = args.get_string("cxx-std");
+        (o.cxx_abi)    = args.get_string("cxx-abi");
+        (o.sysroot)    = args.get_string("sysroot");
+        (o.pic_level)  = args.get_i32("pic-level");
+        return o;
+    }
+}

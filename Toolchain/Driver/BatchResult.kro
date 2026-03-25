@@ -29,7 +29,7 @@ class BatchResult {
     }
 
     fn ok(self) -> bool {
-        return !self.aborted && (self.total_errors == 0);
+        return (!self.aborted) && (self.total_errors == 0);
     }
 
     fn summary(self) -> string {

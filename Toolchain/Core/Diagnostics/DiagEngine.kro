@@ -221,7 +221,7 @@ class DiagEngine {
         self._poisoned.reserve(16);
     }
 
-    fn op delete(self) {
+    fn op delete (self) {
         for var i: usize = 0; i < self._all_diags.size(); ++i {
             std::destroy(self._all_diags[i]);
         }

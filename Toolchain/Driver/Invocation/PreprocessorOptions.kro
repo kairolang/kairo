@@ -1,0 +1,83 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::Command::ParsedArgs::*;
+
+///
+/// \class PreprocessorOptions
+///
+/// \brief Configuration passed directly into PreProcessor and MacroExpander.
+///
+/// Contains all tunable limits (macro depth, expansion budget, etc.) and
+/// debug flags so the preprocessor never reads raw flag keys.
+///
+class PreprocessorOptions {
+    __inline_cpp("public:");
+
+    // ── macro system limits ───────────────────────────────────────────────
+    pub var max_depth:         i32    = 128;       ///< --cmax-macro-depth
+    pub var max_expansions:    i32    = 65536;     ///< --cmax-macro-expansions; 0 = unlimited
+    pub var max_backtrace:     i32    = 8;         ///< --cmax-macro-backtrace
+    pub var trace_depth:       i32    = 0;         ///< --cmacro-trace-depth; 0 = unlimited
+
+    // ── import / module limits ────────────────────────────────────────────
+    pub var max_import_depth:  i32    = 512;       ///< --cmax-import-depth
+
+    // ── source limits ─────────────────────────────────────────────────────
+    pub var max_file_size_mb:  i32    = 256;       ///< --cmax-file-size-mb
+    pub var max_token_count:   i32    = 0;         ///< --cmax-token-count; 0 = unlimited
+    pub var max_string_length: i32    = 0;         ///< --cmax-string-length; 0 = unlimited
+
+    // ── debug / trace ─────────────────────────────────────────────────────
+    pub var macro_debug:          bool   = false;  ///< --macro-debug
+    pub var macro_debug_filter:   string = "";     ///< --macro-debug-filter
+
+    // ── feature toggles ───────────────────────────────────────────────────
+    pub var track_origins:     bool   = true;      ///< -ftrack-macro-origins (default on)
+
+    // ── prelude ───────────────────────────────────────────────────────────
+    pub var prelude_path:      string = "";        ///< --prelude
+    pub var no_prelude:        bool   = false;     ///< --no-prelude / --freestanding
+
+    // ── CLI defines: each entry is "NAME" or "NAME=VALUE" ─────────────────
+    pub var defines:           vec::<string>;      ///< -D flags
+
+    // ── forced includes prepended before every source file ────────────────
+    pub var force_includes:    vec::<string>;      ///< --force-include
+
+    static fn from_args(args: ref!(ParsedArgs)) -> PreprocessorOptions {
+        var o = PreprocessorOptions();
+        (o.max_depth)          = args.get_cfg_i32("max-macro-depth");
+        (o.max_expansions)     = args.get_cfg_i32("max-macro-expansions");
+        (o.max_backtrace)      = args.get_cfg_i32("max-macro-backtrace");
+        (o.trace_depth)        = args.get_cfg_i32("macro-trace-depth");
+        (o.max_import_depth)   = args.get_cfg_i32("max-import-depth");
+        (o.max_file_size_mb)   = args.get_cfg_i32("max-file-size-mb");
+        (o.max_token_count)    = args.get_cfg_i32("max-token-count");
+        (o.max_string_length)  = args.get_cfg_i32("max-string-length");
+        (o.macro_debug)        = args.get_bool("macro-debug");
+        (o.macro_debug_filter) = args.get_string("macro-debug-filter");
+        (o.prelude_path)       = args.get_string("prelude");
+        (o.no_prelude)         = args.get_bool("no-prelude") || args.get_bool("freestanding");
+
+        // -ftrack-macro-origins is on by default; off only when explicitly -fno-
+        var feat = args.get_feature("track-macro-origins");
+        (o.track_origins) = (feat != 0); // -1 (unset) and 1 (on) both map to true
+
+        for s: string in args.get_list("define")        { o.defines.push_back(s); }
+        for s: string in args.get_list("force-include") { o.force_includes.push_back(s); }
+        return o;
+    }
+}

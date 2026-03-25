@@ -1,0 +1,177 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::Command::ParsedArgs::*;
+
+// =============================================================================
+//  FRONTEND ACTION
+// =============================================================================
+
+///
+/// \brief Selects the highest-priority pipeline action.
+///
+/// Precedence (highest → lowest):
+///   Preprocess > SyntaxOnly > TypeCheckOnly > EmitObjOnly
+///   > EmitAsm > EmitLLVMIR > EmitLLVMBC > EmitObj (default)
+///
+/// Post-stage dump flags (print_tokens, print_macros, print_ast, …) are
+/// orthogonal to the primary action and can be combined with any of them.
+///
+enum FrontendActionKind derives u8 {
+    EmitObj,       ///< compile + link (default)
+    EmitObjOnly,   ///< compile to .o, no link              (-c)
+    EmitAsm,       ///< emit assembly                       (-S / --emit asm)
+    EmitLLVMIR,    ///< emit LLVM IR text                   (--emit llvm-ir)
+    EmitLLVMBC,    ///< emit LLVM bitcode                   (--emit llvm-bc)
+    Preprocess,    ///< preprocessor output only            (-E)
+    SyntaxOnly,    ///< stop after parsing                  (--syntax-only)
+    TypeCheckOnly, ///< stop after semantic analysis        (--type-check-only)
+}
+
+// =============================================================================
+//  FRONTEND OPTIONS
+// =============================================================================
+
+class FrontendOptions {
+    // ── primary action ────────────────────────────────────────────────────
+    pub var action:              FrontendActionKind = FrontendActionKind::EmitObj;
+
+    // ── output ────────────────────────────────────────────────────────────
+    pub var output:              string = "";
+    pub var out_dir:             string = "";
+    pub var entry:               string = "main";
+    pub var emit:                string = "obj";
+    pub var shared:              bool   = false;
+    pub var static_:             bool   = false;
+    pub var no_entry:            bool   = false;
+    pub var dll:                 bool   = false;
+    pub var save_temps:          bool   = false;
+
+    // ── verbosity / timing ────────────────────────────────────────────────
+    pub var verbose:             bool   = false;
+    pub var quiet:               bool   = false;
+    pub var suppress:            bool   = false;
+    pub var time_passes:         bool   = false;
+    pub var time_trace:          string = "";
+    pub var print_stats:         bool   = false;
+    pub var stats_file:          string = "";
+
+    // ── concurrency ───────────────────────────────────────────────────────
+    pub var thread_count:        i32    = 0; ///< 0 = hardware concurrency
+    pub var max_threads:         i32    = 0; ///< 0 = no cap
+
+    // ── post-stage dump flags (independent of primary action) ─────────────
+    pub var print_tokens:        bool   = false; ///< dump token stream after preprocessing
+    pub var print_macros:        bool   = false; ///< dump macro symbol table after preprocessing
+    pub var print_imports:       bool   = false; ///< dump import resolution graph
+    pub var print_ast:           bool   = false; ///< dump AST after parsing
+    pub var print_sema:          bool   = false; ///< dump IR after sema
+    pub var print_ir:            bool   = false; ///< dump LLVM IR pre/post optimisation
+    pub var print_bcir:          bool   = false; ///< dump BCIR pre/post borrow-check lowering
+    pub var print_generics:      bool   = false; ///< dump generic instantiations
+    pub var dump_type_info:      bool   = false; ///< dump inferred expression types after sema
+    pub var print_regalloc:      bool   = false; ///< dump register allocation decisions
+    pub var print_pass_pipeline: bool   = false; ///< dump LLVM pass pipeline
+
+    // ── verification passes ───────────────────────────────────────────────
+    pub var verify_ir:           bool   = false;
+    pub var verify_bcir:         bool   = false;
+    pub var bcir_verbose:        bool   = false;
+    pub var bcir_stats:          bool   = false;
+
+    // ── helpers ───────────────────────────────────────────────────────────
+
+    /// True when the primary action stops at or before the preprocess stage.
+    fn stops_at_preprocess(self) -> bool {
+        return self.action == FrontendActionKind::Preprocess;
+    }
+
+    /// True when the primary action stops at or before parsing.
+    fn stops_at_parse(self) -> bool {
+        return (self.action == FrontendActionKind::SyntaxOnly)
+            || (self.action == FrontendActionKind::Preprocess);
+    }
+
+    /// True when the primary action stops at or before semantic analysis.
+    fn stops_at_sema(self) -> bool {
+        return (self.action == FrontendActionKind::TypeCheckOnly)
+            || self.stops_at_parse();
+    }
+
+    /// True when codegen should be skipped entirely.
+    fn stops_before_codegen(self) -> bool {
+        return self.stops_at_sema();
+    }
+
+    static fn from_args(args: ref!(ParsedArgs)) -> FrontendOptions {
+        var o = FrontendOptions();
+        (o.output)        = args.get_string("output");
+        (o.out_dir)       = args.get_string("out-dir");
+        (o.entry)         = args.get_string("entry");
+        (o.emit)          = args.get_string("emit");
+        (o.shared)        = args.get_bool("shared");
+        (o.static_)       = args.get_bool("static");
+        (o.no_entry)      = args.get_bool("no-entry");
+        (o.dll)           = args.get_bool("dll");
+        (o.save_temps)    = args.get_bool("save-temps");
+        (o.verbose)       = args.get_bool("verbose");
+        (o.quiet)         = args.get_bool("quiet");
+        (o.suppress)      = args.get_bool("suppress");
+        (o.time_passes)   = args.get_bool("time-passes");
+        (o.time_trace)    = args.get_string("time-trace");
+        (o.print_stats)   = args.get_bool("print-stats");
+        (o.stats_file)    = args.get_string("stats-file");
+        (o.thread_count)  = args.get_i32("threads");
+        (o.max_threads)   = args.get_cfg_i32("max-threads");
+
+        // ── post-stage dump flags ─────────────────────────────────────────
+        (o.print_tokens)        = args.get_bool("print-tokens");
+        (o.print_macros)        = args.get_bool("print-macros");
+        (o.print_imports)       = args.get_bool("print-imports");
+        (o.print_ast)           = args.get_bool("print-ast");
+        (o.print_sema)          = args.get_bool("print-sema");
+        (o.print_ir)            = args.get_bool("print-ir");
+        (o.print_bcir)          = args.get_bool("print-bcir");
+        (o.print_generics)      = args.get_bool("print-generics");
+        (o.dump_type_info)      = args.get_bool("dump-type-info");
+        (o.print_regalloc)      = args.get_bool("print-regalloc");
+        (o.print_pass_pipeline) = args.get_bool("print-pass-pipeline");
+        (o.verify_ir)           = args.get_bool("verify-ir");
+        (o.verify_bcir)         = args.get_bool("verify-bcir");
+        (o.bcir_verbose)        = args.get_bool("bcir-verbose");
+        (o.bcir_stats)          = args.get_bool("bcir-stats");
+
+        // ── primary action: highest-priority flag wins ────────────────────
+        if (args.get_bool("preprocess")) || (args.get_bool("dump-preprocessed")) {
+            o.action = FrontendActionKind::Preprocess;
+        } else if args.get_bool("syntax-only") {
+            o.action = FrontendActionKind::SyntaxOnly;
+        } else if args.get_bool("type-check-only") {
+            o.action = FrontendActionKind::TypeCheckOnly;
+        } else if args.get_bool("compile-only") {
+            o.action = FrontendActionKind::EmitObjOnly;
+        } else if args.get_bool("emit-asm") {
+            o.action = FrontendActionKind::EmitAsm;
+        } else {
+            var emit_str = args.get_string("emit");
+            if      emit_str == "llvm-ir" { o.action = FrontendActionKind::EmitLLVMIR; }
+            else if emit_str == "llvm-bc" { o.action = FrontendActionKind::EmitLLVMBC; }
+            else if emit_str == "asm"     { o.action = FrontendActionKind::EmitAsm;    }
+            else                          { o.action = FrontendActionKind::EmitObj;    }
+        }
+
+        return o;
+    }
+}

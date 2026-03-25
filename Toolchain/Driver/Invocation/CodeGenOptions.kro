@@ -1,0 +1,102 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::Command::ParsedArgs::*;
+
+///
+/// \class CodeGenOptions
+///
+/// \brief Controls optimisation, debug info, and code generation behaviour.
+///
+class CodeGenOptions {
+    __inline_cpp("public:");
+
+    // ── optimisation ──────────────────────────────────────────────────────
+    pub var opt_level:             i32    = 0;
+    pub var opt_size:              bool   = false;
+    pub var opt_size_z:            bool   = false;
+    pub var lto:                   string = "off";
+    pub var profile:               string = "debug";
+
+    // ── debug info ────────────────────────────────────────────────────────
+    pub var debug_info:            bool   = false;
+    pub var no_debug_info:         bool   = false;
+    pub var dwarf_version:         i32    = 5;
+    pub var split_dwarf:           bool   = false;
+    pub var debug_macros:          bool   = false;
+    pub var embed_source:          bool   = false;
+
+    // ── strip ─────────────────────────────────────────────────────────────
+    pub var strip:                 bool   = false;
+    pub var strip_debug:           bool   = false;
+
+    // ── inliner / loop limits (from --c* config flags) ────────────────────
+    pub var max_inline_depth:      i32    = 256;
+    pub var inline_cost:           f64    = 225.0;
+    pub var max_unroll_count:      i32    = 0;
+    pub var max_for_unroll:        i32    = 1024;
+    pub var max_lambda_capture:    i32    = 1024;
+    pub var max_codegen_passes:    i32    = 0;
+    pub var max_object_size_mb:    i32    = 512;
+
+    // ── misc codegen ──────────────────────────────────────────────────────
+    pub var save_temps:            bool   = false;
+    pub var signed_wrap:           bool   = false;
+    pub var unsigned_trap:         bool   = false;
+    pub var strict_aliasing:       bool   = false;
+    pub var instrument_functions:  bool   = false;
+    pub var fp_model:              string = "precise";
+    pub var fp_contract:           string = "off";
+    pub var thread_model:          string = "posix";
+    pub var unwind_tables:         string = "sync";
+    pub var rtlib:                 string = "compiler-rt";
+    pub var unwindlib:             string = "";
+
+    static fn from_args(args: ref!(ParsedArgs)) -> CodeGenOptions {
+        var o = CodeGenOptions();
+        (o.opt_level)            = args.get_i32("opt");
+        (o.opt_size)             = args.get_bool("opt-size");
+        (o.opt_size_z)           = args.get_bool("opt-size-z");
+        (o.lto)                  = args.get_string("lto");
+        (o.profile)              = args.get_string("profile");
+        (o.debug_info)           = args.get_bool("debug-info");
+        (o.no_debug_info)        = args.get_bool("no-debug-info");
+        (o.dwarf_version)        = args.get_i32("dwarf-version");
+        (o.split_dwarf)          = args.get_bool("split-dwarf");
+        (o.debug_macros)         = args.get_bool("debug-macros");
+        (o.embed_source)         = args.get_bool("embed-source");
+        (o.strip)                = args.get_bool("strip");
+        (o.strip_debug)          = args.get_bool("strip-debug");
+        (o.max_inline_depth)     = args.get_cfg_i32("max-inline-depth");
+        (o.inline_cost)          = args.get_cfg_f64("inline-cost-threshold");
+        (o.max_unroll_count)     = args.get_cfg_i32("max-unroll-count");
+        (o.max_for_unroll)       = args.get_cfg_i32("max-for-unroll-count");
+        (o.max_lambda_capture)   = args.get_cfg_i32("max-lambda-capture-size");
+        (o.max_codegen_passes)   = args.get_cfg_i32("max-codegen-passes");
+        (o.max_object_size_mb)   = args.get_cfg_i32("max-object-size-mb");
+        (o.save_temps)           = args.get_bool("save-temps");
+        (o.signed_wrap)          = args.get_bool("signed-wrap");
+        (o.unsigned_trap)        = args.get_bool("unsigned-trap");
+        (o.strict_aliasing)      = args.get_bool("strict-aliasing");
+        (o.instrument_functions) = args.get_bool("instrument-functions");
+        (o.fp_model)             = args.get_string("fp-model");
+        (o.fp_contract)          = args.get_string("fp-contract");
+        (o.thread_model)         = args.get_string("thread-model");
+        (o.unwind_tables)        = args.get_string("unwind-tables");
+        (o.rtlib)                = args.get_string("rtlib");
+        (o.unwindlib)            = args.get_string("unwindlib");
+        return o;
+    }
+}

@@ -13,81 +13,17 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::Include::FileSystem::*;
-import Driver::Command::ParsedArgs::*;
-
-///
-/// \class BatchConfig
-///
-/// \brief Resolved, validated configuration for a CompilationBatch.
-///
-/// Built by CompilationBatch::Builder from a ParsedArgs. All paths have
-/// been validated; include lists have been split by routing (Kairo vs
-/// clang passthrough). This struct is immutable after construction.
-///
-class BatchConfig {
-    __inline_cpp("public:");
-
-    pub var include_dirs:   vec::<Path>;    ///< -I paths → Kairo ImportResolver
-    pub var macro_paths:    vec::<Path>;    ///< --macro-search-path → resolver
-    pub var ffi_includes:   vec::<string>;  ///< --ffi-include  → clang passthrough only
-    pub var cxx_includes:   vec::<string>;  ///< --cxx-include  → clang passthrough only
-    pub var thread_count:   usize;          ///< effective worker count
-    pub var max_errors:     u32;
-    pub var warnings_as_errors: bool;
-    pub var verbose:        bool;
-
-    fn BatchConfig(self) {
-        self.thread_count       = 0;
-        self.max_errors         = 50;
-        self.warnings_as_errors = false;
-        self.verbose            = false;
-    }
-
-    ///
-    /// \brief Construct a BatchConfig from a fully-parsed ParsedArgs.
-    ///
-    static fn from_args(args: ref!(ParsedArgs)) -> BatchConfig {
-        var cfg = BatchConfig();
-
-        // ── include dirs → Kairo resolver ─────────────────────────────────
-        for dir: string in args.get_list("include-dirs") {
-            cfg.include_dirs.push_back(Path(dir));
-        }
-
-        for dir: string in args.get_list("macro-search-path") {
-            cfg.macro_paths.push_back(Path(dir));
-        }
-
-        // ── ffi / cxx include → clang passthrough; do NOT feed to resolver
-        for dir: string in args.get_list("ffi-include") {
-            cfg.ffi_includes.push_back(dir);
-        }
-
-        for dir: string in args.get_list("cxx-include") {
-            cfg.cxx_includes.push_back(dir);
-        }
-
-        // ── concurrency ───────────────────────────────────────────────────
-        var requested = args.get_i32("threads");
-        if requested <= 0 {
-            cfg.thread_count = usize(std::Thread::hardware_concurrency());
-        } else {
-            cfg.thread_count = usize(requested);
-        }
-
-        var max_threads_cap = args.get_cfg_i32("max-threads");
-        if (max_threads_cap > 0) && (cfg.thread_count > usize(max_threads_cap)) {
-            cfg.thread_count = usize(max_threads_cap);
-        }
-
-        if cfg.thread_count == 0 { cfg.thread_count = 1; }
-
-        // ── diagnostics ───────────────────────────────────────────────────
-        cfg.max_errors          = u32(args.get_cfg_i32("max-errors"));
-        cfg.warnings_as_errors  = args.get_bool("Werror");
-        cfg.verbose             = args.get_bool("verbose");
-
-        return cfg;
-    }
-}
+// BatchConfig has been superseded by CompilerInvocation and its sub-option
+// structs (Driver::Invocation::*).  This file is kept as a tombstone to avoid
+// breaking any external references during the transition.
+//
+// Subsystem        → Replaced by
+// ─────────────────────────────────────────────────────────────────────────
+// include_dirs     → CompilerInvocation::include_dirs
+// macro_paths      → CompilerInvocation::macro_paths
+// ffi_includes     → CompilerInvocation::ffi_includes
+// cxx_includes     → CompilerInvocation::cxx_includes
+// thread_count     → FrontendOptions::thread_count
+// max_errors       → DiagnosticOptions::max_errors
+// warnings_as_err  → DiagnosticOptions::warnings_as_errors
+// verbose          → FrontendOptions::verbose
