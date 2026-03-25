@@ -63,9 +63,71 @@ import Preprocessor::ImportResolver::*;
 import Driver::Command::Command::*;
 import Driver::Command::FlagsRegister::*;
 import Driver::Invocation::CompilerInvocation::*;
-import Driver::FrontendAction::*;
 import Driver::BatchResult::*;
 import Driver::TUResult::*;
+import Driver::TUStage::*;
+import Preprocessor::Preprocessor::*;
+
+class CompilerInstance; // forward declaration to break circular dependency with FrontendAction
+
+class FrontendAction {
+    // Forward declaration to break circular dependency between these two.
+    // FrontendAction needs CompilerInstance for the constructor, but
+    // CompilerInstance needs FrontendAction for the execute() loop.
+    // The pointer is only used in the constructor and never dereferenced
+    // in this file, so it's safe to leave it as an opaque pointer here.
+    pub var path:        Path;
+    pub var module_base: ModulePath;
+    pub var result:      TUResult;
+
+    priv var _ci:       *CompilerInstance; ///< non-owning borrow
+    priv var _resolver: *ImportResolver;   ///< non-owning borrow
+    priv var _pp:       *PreProcessor;     ///< owned; null until _preprocess()
+    priv var _stage:    TUStage;
+    priv var _file_id:  u32;
+
+    fn FrontendAction(
+        self,
+        path:        Path,
+        module_base: ModulePath,
+        ci:         *CompilerInstance,
+        resolver:   *ImportResolver
+    ) {
+        self.path        = path;
+        self.module_base = module_base;
+        self._ci         = ci;
+        self._resolver   = resolver;
+        self._pp         = &null;
+        self._stage      = TUStage::Pending;
+        self._file_id    = u32(-1);
+        self.result.path = path.full_path();
+    }
+
+
+    fn op delete (self) {
+        if self._pp != &null {
+            std::destroy(self._pp);
+            self._pp = &null;
+        }
+    }
+
+    fn run(self);
+    fn stage(self)   -> TUStage { return self._stage; }
+    fn file_id(self) -> u32     { return self._file_id; }
+    fn ok(self)      -> bool    { return self._stage == TUStage::Done; }
+    fn failed(self)  -> bool    { return self._stage == TUStage::Failed; }
+
+    priv fn _fatal(self, msg: string) -> bool;
+    priv fn _load(self) -> bool;
+    priv fn _lex(self) -> bool;
+    priv fn _preprocess(self) -> bool;
+    priv fn _parse(self) -> bool;
+    priv fn _sema(self) -> bool;
+    priv fn _codegen(self) -> bool;
+    priv fn _dump_tokens(self);
+    priv fn _dump_macros(self);
+    priv fn _dump_imports(self);
+}
 
 class CompilerInstance {
     __inline_cpp("public:");
@@ -283,7 +345,7 @@ class CompilerInstance {
             var action = std::create::<FrontendAction>(
                 Path(path_str),
                 ModulePath(),
-                self,
+                &self,
                 resolver
             );
             finally { std::destroy(action); }
@@ -343,4 +405,193 @@ class CompilerInstance {
         //   gains a resize() API.
         //   TODO: self._pool->resize(usize(fe.thread_count))
     }
+}
+
+
+///
+/// \class FrontendAction
+///
+/// \brief Per-file compilation unit.
+///
+/// Runs Load → Lex → Preprocess → Parse → Sema → Codegen, honouring the
+/// FrontendOptions stop-at points and post-stage dump flags at each boundary.
+///
+///
+/// \brief Execute the full pipeline on the calling thread.
+///
+/// Stages are gated by FrontendOptions.  A stage returning false halts
+/// the pipeline; an early-exit flag advances _stage to Done and returns.
+///
+fn FrontendAction::run() {
+    var t0 = libcxx::chrono::steady_clock::now();
+    finally {
+        var t1 = libcxx::chrono::steady_clock::now();
+        self.result.elapsed_ms = static_cast::<f64>(
+            libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(
+                t1 - t0
+            ).count()
+        ) / 1000.0;
+        self.result.stage   = self._stage;
+        self.result.file_id = self._file_id;
+    }
+
+    Logger::info(Logger::Stage::Driver,
+        f"FrontendAction: begin '{self.path.full_path()}' ");
+
+    // ── Phase 1: shared-state stages (must run on the driver thread) ──
+    if !self._load() { return; }
+    if !self._lex()  { return; }
+
+    // ── Phase 2: per-file stages (async-dispatchable in the future) ───
+    if !self._preprocess() { return; }
+    var fe = ((self._ci->invocation()).frontend);
+    if fe.stops_at_preprocess() { self._stage = TUStage::Done; return; }
+
+    if !self._parse() { return; }
+    if fe.stops_at_parse() { self._stage = TUStage::Done; return; }
+
+    if !self._sema() { return; }
+    if fe.stops_at_sema() { self._stage = TUStage::Done; return; }
+
+    if !self._codegen() { return; }
+
+    self._stage = TUStage::Done;
+    Logger::info(Logger::Stage::Driver,
+        f"FrontendAction: done '{self.path.full_path()}' ({self.result.elapsed_ms:.2}ms)");
+}
+
+// =========================================================================
+//  Pipeline stages
+//  Each returns true to continue or false to halt.
+// =========================================================================
+
+fn FrontendAction::_fatal(msg: string) -> bool {
+    self._ci->diag()->report(DiagID::U001F, msg).emit();
+    self.result.had_fatal = true;
+    self._stage = TUStage::Failed;
+    return false;
+}
+
+fn FrontendAction::_load() -> bool {
+    self._stage   = TUStage::Loading;
+    self._file_id = self._ci->sm()->load_file(self.path);
+    if self._file_id == u32(-1) {
+        return self._fatal(f"cannot open '{self.path.full_path()}' ");
+    }
+    return true;
+}
+
+fn FrontendAction::_lex() -> bool {
+    self._stage = TUStage::Lexing;
+    if !self._ci->tcm()->lex_file(self._file_id) {
+        return self._fatal(f"lexer failed on '{self.path.full_path()}' ");
+    }
+    return true;
+}
+
+fn FrontendAction::_preprocess() -> bool {
+    self._stage = TUStage::Preprocessing;
+
+    var pp_opts = self._ci->invocation().pp;
+    self._pp = std::create::<PreProcessor>(
+        self._ci->sm(),
+        self._ci->tcm(),
+        self._resolver,
+        self._ci->pool(),
+        self._ci->diag(),
+        pp_opts
+    );
+
+    if pp_opts.defines.size() > 0 {
+        Logger::warn(Logger::Stage::Preprocessor,
+            f"-D defines ({pp_opts.defines.size()}) not yet implemented; ignored");
+    }
+
+    if !self._pp->preprocess_file(self._file_id, self.module_base) {
+        self.result.error_count = self._ci->diag()->error_count();
+        self.result.warn_count  = self._ci->diag()->warn_count();
+        self.result.had_fatal   = self._ci->diag()->has_fatal();
+        self._stage = TUStage::Failed;
+        return false;
+    }
+
+    self.result.error_count = self._ci->diag()->error_count();
+    self.result.warn_count  = self._ci->diag()->warn_count();
+
+    if self._ci->diag()->has_fatal() {
+        self.result.had_fatal = true;
+        self._stage = TUStage::Failed;
+        return false;
+    }
+
+    // ── post-preprocess dumps ─────────────────────────────────────────
+    var fe = self._ci->invocation().frontend;
+    if fe.print_tokens  { self._dump_tokens();  }
+    if fe.print_macros  { self._dump_macros();  }
+    if fe.print_imports { self._dump_imports(); }
+
+    return true;
+}
+
+fn FrontendAction::_parse() -> bool {
+    self._stage = TUStage::Parsing;
+    if self._ci->invocation().frontend.print_ast {
+        std::print(f"-- AST: {self.path.full_path()} (not yet implemented) --");
+    }
+    // TODO(parser): var ast = Parser(ci, _file_id).parse();
+    return true;
+}
+
+fn FrontendAction::_sema() -> bool {
+    self._stage = TUStage::Sema;
+    var fe = self._ci->invocation().frontend;
+    if fe.print_sema     { std::print(f"-- sema: {self.path.full_path()} (not yet implemented) --"); }
+    if fe.dump_type_info { std::print(f"-- type info: {self.path.full_path()} (not yet implemented) --"); }
+    // TODO(sema): var typed = Sema(ci, ast).analyze();
+    return true;
+}
+
+fn FrontendAction::_codegen() -> bool {
+    self._stage = TUStage::Codegen;
+    var fe = self._ci->invocation().frontend;
+    if fe.print_ir   { std::print(f"-- IR: {self.path.full_path()} (not yet implemented) --"); }
+    if fe.print_bcir { std::print(f"-- BCIR: {self.path.full_path()} (not yet implemented) --"); }
+    if fe.verify_ir  { std::print(f"-- IR verify: {self.path.full_path()} (not yet implemented) --"); }
+    // TODO(codegen): CodeGen(ci, typed).emit();
+    return true;
+}
+
+// =========================================================================
+//  Post-stage dump helpers
+// =========================================================================
+
+fn FrontendAction::_dump_tokens() {
+    var tokens = self._ci->tcm()->get_tokens(self._file_id);
+    if tokens == &null {
+        std::print(f"-- tokens: {self.path.full_path()} (none) --");
+        return;
+    }
+    std::print(f"-- token stream: {self.path.full_path()} ({tokens->size()} tokens) --");
+    for i in usize(0) .. tokens->size() {
+        var tok  = tokens->get(i);
+        var text = self._ci->tcm()->get_text(*tok);
+        std::print(f"  [{i}] {tok->kind} '{text}' @ {tok->range}");
+    }
+}
+
+fn FrontendAction::_dump_macros() {
+    if self._pp == &null { return; }
+    var mt = self._pp->get_macro_table();
+    var st = self._pp->get_symbol_table();
+    if (mt == &null) || (st == &null) { return; }
+    std::print(f"-- macro table: {self.path.full_path()} --");
+    std::print(mt->as_string(st));
+}
+
+fn FrontendAction::_dump_imports() {
+    if self._pp == &null { return; }
+    var imp = self._pp->get_import_processor();
+    if imp == &null { return; }
+    std::print(f"-- imports: {self.path.full_path()} --");
+    std::print(imp->dump_state());
 }

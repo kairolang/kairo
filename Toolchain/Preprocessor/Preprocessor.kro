@@ -1155,32 +1155,31 @@ class MacroExpander {
         ctx:    *ExpansionContext
     ) -> *(TokenBuffer::<512>) {
         if self.is_in_active_chain(def->name.name) {
-            Logger::warn(Logger::Stage::Preprocessor, f"MacroExpander::expand_invocation: recursive cycle detected for '{self.name_str(def->name.name)}'!");
+            Logger::warn(Logger::Stage::Preprocessor, f"MacroExpander::expand_invocation: recursive cycle detected for '{self.name_str(def->name.name)}'! ");
             self.error(tokens->get(invoke.start_index),
-                f"recursive expansion cycle detected for macro '{self.name_str(def->name.name)}!' (note: there are some false positives right now, this will be improved in the future)");
+                f"recursive expansion cycle detected for macro '{self.name_str(def->name.name)}!' (note: there are some false positives right now, this will be improved in the future) ");
             return &null;
         }
 
         if ctx->exceeded_depth(usize(self._max_depth)) {
             var name_str = self.name_str(def->name.name);
             Logger::warn(Logger::Stage::Preprocessor,
-                f"MacroExpander::expand_invocation: depth limit ({self._max_depth}) exceeded for '{name_str}'!");
+                f"MacroExpander::expand_invocation: depth limit ({self._max_depth}) exceeded for '{name_str}'! ");
             self.error(tokens->get(invoke.start_index),
-                f"macro expansion depth limit ({self._max_depth}) exceeded for '{name_str}!' "
-                f" (raise with --cmax-macro-depth=N)");
+                f"macro expansion depth limit ({self._max_depth}) exceeded for '{name_str}!' (raise with --cmax-macro-depth=N) ");
             return &null;
         }
 
         if (self._max_expansions > 0) && (self._expansion_count >= self._max_expansions) {
             var name_str = self.name_str(def->name.name);
             Logger::warn(Logger::Stage::Preprocessor,
-                f"MacroExpander::expand_invocation: expansion budget ({self._max_expansions}) exhausted at '{name_str}'!");
+                f"MacroExpander::expand_invocation: expansion budget ({self._max_expansions}) exhausted at '{name_str}'! ");
             self.error(tokens->get(invoke.start_index),
-                f"macro expansion budget ({self._max_expansions} total expansions) exhausted"
-                f" (raise with --cmax-macro-expansions=N)");
+                f"macro expansion budget ({self._max_expansions} total expansions) exhausted (raise with --cmax-macro-expansions=N) ");
             return &null;
         }
-        self._expansion_count += 1;
+
+        ++(self._expansion_count);
 
         if self._macro_debug {
             var name_str = self.name_str(def->name.name);
@@ -1188,7 +1187,7 @@ class MacroExpander {
                 || (name_str.raw_string().find(self._debug_filter.raw_string()) != string::npos);
             if passes_filter {
                 Logger::info(Logger::Stage::Preprocessor,
-                    f"[macro-debug] expanding '{name_str}!' depth={ctx->depth} count={self._expansion_count}");
+                    f"[macro-debug] expanding '{name_str}!' depth={ctx->depth} count={self._expansion_count} ");
             }
         }
 

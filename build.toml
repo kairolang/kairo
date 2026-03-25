@@ -16,10 +16,10 @@ name            = "kairo"
 entry           = "Toolchain/Driver/Main/kairo.kro"
 type            = "binary"
 includes        = ["Toolchain", "Lib/bootstrap/lib-helix"]
-libs            = ["LLVM-21", "clang-cpp"]
+libs            = ["clang-cpp"]
 deps            = []
 defines         = ["VERSION=L\"kairo-0.1.1+rc.250306\""]
-ld_flags        = ["-lLLVM-21", "-lclang-cpp"]
+ld_flags        = ["-lclang-cpp"]
 cxx_sources     = []
 cxx_passthrough = []
 

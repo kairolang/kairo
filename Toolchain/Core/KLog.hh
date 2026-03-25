@@ -83,6 +83,8 @@ class Logger {
         }
     }
 
+    static void set_level(Level level) { get()->min_level_ = level; }
+
     static Logger *get() { return instance_(); }
 
     static void shutdown() {

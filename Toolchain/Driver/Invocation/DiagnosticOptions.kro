@@ -69,10 +69,10 @@ class DiagnosticOptions {
         (o.Wall)               = args.get_bool("Wall");
         (o.Wextra)             = args.get_bool("Wextra");
         (o.Wpedantic)          = args.get_bool("Wpedantic");
-        for s: string in args.get_list("warn")   { o.warn_list.push_back(s); }
-        for s: string in args.get_list("allow")  { o.allow_list.push_back(s); }
-        for s: string in args.get_list("deny")   { o.deny_list.push_back(s); }
-        for s: string in args.get_list("forbid") { o.forbid_list.push_back(s); }
+        for s in (args.get_list("warn"))   { (o.warn_list.push_back(s)); }
+        for s in (args.get_list("allow"))  { (o.allow_list.push_back(s)); }
+        for s in (args.get_list("deny"))   { (o.deny_list.push_back(s)); }
+        for s in (args.get_list("forbid")) { (o.forbid_list.push_back(s)); }
         return o;
     }
 }

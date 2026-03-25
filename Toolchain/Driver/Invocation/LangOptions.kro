@@ -82,19 +82,19 @@ class LangOptions {
         (o.freestanding)    = fs;
         (o.no_prelude)      = ((fs) || (args.get_bool("no-prelude")));
         (o.no_stdlib)       = ((fs) || (args.get_bool("no-stdlib")));
-        (o.no_default_libs) = args.get_bool("no-default-libs");
+        (o.no_default_libs) = (args.get_bool("no-default-libs"));
         (o.no_crt)          = ((fs) || (args.get_bool("no-crt")));
 
-        (o.verify_interfaces)   = args.get_feature("verify-interfaces");
-        (o.const_checks)        = args.get_feature("const-checks");
-        (o.overflow_checks)     = args.get_feature("overflow-checks");
-        (o.strict_null)         = args.get_feature("strict-null");
-        (o.implicit_conv)       = args.get_feature("implicit-conv");
-        (o.rtti)                = args.get_feature("rtti");
-        (o.track_macro_origins) = args.get_feature("track-macro-origins");
-        (o.union_inference)     = args.get_feature("union-inference");
-        (o.exceptions)          = args.get_feature("exceptions");
-        (o.unsafe_feature)      = args.get_feature("unsafe");
+        (o.verify_interfaces)   = (args.get_feature("verify-interfaces"));
+        (o.const_checks)        = (args.get_feature("const-checks"));
+        (o.overflow_checks)     = (args.get_feature("overflow-checks"));
+        (o.strict_null)         = (args.get_feature("strict-null"));
+        (o.implicit_conv)       = (args.get_feature("implicit-conv"));
+        (o.rtti)                = (args.get_feature("rtti"));
+        (o.track_macro_origins) = (args.get_feature("track-macro-origins"));
+        (o.union_inference)     = (args.get_feature("union-inference"));
+        (o.exceptions)          = (args.get_feature("exceptions"));
+        (o.unsafe_feature)      = (args.get_feature("unsafe"));
         return o;
     }
 }

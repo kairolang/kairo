@@ -166,10 +166,11 @@ class FrontendOptions {
             o.action = FrontendActionKind::EmitAsm;
         } else {
             var emit_str = args.get_string("emit");
-            if      emit_str == "llvm-ir" { o.action = FrontendActionKind::EmitLLVMIR; }
-            else if emit_str == "llvm-bc" { o.action = FrontendActionKind::EmitLLVMBC; }
-            else if emit_str == "asm"     { o.action = FrontendActionKind::EmitAsm;    }
-            else                          { o.action = FrontendActionKind::EmitObj;    }
+            
+            if      (emit_str == "llvm-ir") { o.action = FrontendActionKind::EmitLLVMIR; }
+            else if (emit_str == "llvm-bc") { o.action = FrontendActionKind::EmitLLVMBC; }
+            else if (emit_str == "asm"    ) { o.action = FrontendActionKind::EmitAsm;    }
+            else                            { o.action = FrontendActionKind::EmitObj;    }
         }
 
         return o;
