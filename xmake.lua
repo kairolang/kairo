@@ -165,12 +165,12 @@ local function kairo_src_setup()
 	add_headerfiles("source/**.def")
 	add_headerfiles("source/**.inc")
 
-    add_includedirs("lib-helix/core/include") -- add all headers in the lib-helix/core/include directory
-    add_includedirs("lib-helix/core") -- add all headers in the lib-helix/core/include directory
+    add_includedirs("Lib/bootstrap/lib-helix/core/include") -- add all headers in the Lib/bootstrap/lib-helix/core/include directory
+    add_includedirs("Lib/bootstrap/lib-helix/core") -- add all headers in the Lib/bootstrap/lib-helix/core/include directory
 
-    add_headerfiles("lib-helix/core/include/**.h") -- add all headers in the lib-helix/core/include directory
-    add_headerfiles("lib-helix/core/include/**.hh") -- add all headers in the lib-helix/core/include directory
-    add_headerfiles("lib-helix/core/include/**.tpp") -- add all headers in the lib-helix/core/include directory
+    add_headerfiles("Lib/bootstrap/lib-helix/core/include/**.h") -- add all headers in the Lib/bootstrap/lib-helix/core/include directory
+    add_headerfiles("Lib/bootstrap/lib-helix/core/include/**.hh") -- add all headers in the Lib/bootstrap/lib-helix/core/include directory
+    add_headerfiles("Lib/bootstrap/lib-helix/core/include/**.tpp") -- add all headers in the Lib/bootstrap/lib-helix/core/include directory
 
     -- libs
     add_includedirs("libs") -- add all files in the neo-json directory
@@ -319,10 +319,38 @@ setup_env()
 target("kbld")
     set_kind("binary")
     set_languages(cxx_standard)
+    set_toolchains("clang")
 
-    add_files("kbld/src/main.cpp")
+    add_deps("kairo")  -- ensures kairo builds first and after_build populates core
+
+    add_files("kbld/src/main.cc")
     add_includedirs("kbld/include")
+
     add_defines("KAIRO_VERSION=\"" .. KAIRO_VERSION .. "\"")
+
+    --- we need to add all the core headers to the include path for kbld since kbld needs to be able to compile kro files and those kro files will need to include core headers
+    build_dir = ""
+    if abi == ""
+    then
+        build_dir = "$(buildir)/$(mode)/$(arch)-$(os)"
+    else
+        build_dir = "$(buildir)/$(mode)/$(arch)-$(os)-" .. abi
+    end
+
+    add_includedirs(build_dir .. "/core/include")
+    add_includedirs(build_dir .. "/core")
+
+    add_includedirs(build_dir .. "/core/include/**.h")
+    add_includedirs(build_dir .. "/core/include/**.hh")
+    add_includedirs(build_dir .. "/core/include/**.tpp")
+    add_headerfiles(build_dir .. "/core/include/**.tpp")
+    add_headerfiles(build_dir .. "/core/include/**.h")
+    add_headerfiles(build_dir .. "/core/include/**.hh")
+
+    if is_plat("linux", "macosx") then
+        add_cxxflags("-stdlib=libc++", { force = true })
+        add_ldflags("-stdlib=libc++", "-lc++", "-lc++abi", { force = true })
+    end
 
     set_policy("build.optimization.lto", true)
 target_end()
@@ -356,16 +384,16 @@ target("kairo") -- target config defined in the config seciton
     set_policy("build.optimization.lto", true)
     set_languages(cxx_standard)
 
-    -- after build copy all the folders and files from lib-helix to the target directory
+    -- after build copy all the folders and files from Lib/bootstrap/lib-helix to the target directory
     after_build(function(target)
         -- Determine the target output directory
         local target_dir = path.directory(target:targetfile())
 
-        -- Traverse the lib-helix folder to find all files
-        for _, filepath in ipairs(os.files("lib-helix/**/*")) do
+        -- Traverse the Lib/bootstrap/lib-helix folder to find all files
+        for _, filepath in ipairs(os.files("Lib/bootstrap/lib-helix/**/*")) do
             -- Get the file extension and relative path
             local ext = path.extension(filepath)
-            local relative_path = path.relative(filepath, "lib-helix")
+            local relative_path = path.relative(filepath, "Lib/bootstrap/lib-helix")
             local target_path = path.join(target_dir, "..", relative_path)
 
             if ext == ".h" or ext == ".hh" or ext == ".tpp" then
@@ -385,33 +413,10 @@ target("kairo") -- target config defined in the config seciton
         -- Remove the README.md file
         os.rm(path.join(target_dir, "..", "README.md"))
 
-
-        -- we need to compiler vial as well for the kairo build tool to work well
-        -- Z:\devolopment\kairo\kairo-lang\build\release\x64-windows-msvc\bin\kairo.exe Z:\devolopment\kairo\kairo-lang\vial\driver\main.kro -o Z:\devolopment\kairo\kairo-lang\build\release\x64-windows-msvc\bin\vial -IZ:\devolopment\kairo\kairo-lang\
-        local hcompiler = target:targetfile()
-        local vial_inc = path.join(target_dir, "..", "pkgs")
-        local vial_driver = path.join(target_dir, "..", "pkgs", "vial", "driver", "main.kro")
-        local vial_output = path.join(target_dir, "vial")
-        -- now that we have the compiler with us we need to move everything from the vial/ folder to pkgs/vial in the build folder (same as core)
-        
-        for _, filepath in ipairs(os.files("vial/**")) do
-            local relative_path = path.relative(filepath, "vial")
-            local target_path = path.join(target_dir, "..", "pkgs", "vial", relative_path)
-
-            os.cp(filepath, target_path)
-        end
-
-        -- now compile vial itself using whats in the driver
-        -- local compile_cmd = string.format(
-        --     '%s -I "%s" "%s" -o "%s"',
-        --     hcompiler, vial_inc, vial_driver, vial_output
-        -- )
-
-        -- os.execv(hcompiler, {
-        --     "-I", vial_inc,
-        --     vial_driver,
-        --     "-o", vial_output
-        -- })
+        -- we also need to copy kbld/include into the <build_dir>/include
+        local kbld_include_path = path.join(target_dir, "..", "include")
+        os.mkdir(kbld_include_path)
+        os.cp("kbld/include/**", kbld_include_path) -- copy all files in kbld/include to the target include directory
     end)
 target_end() -- empty target
 
