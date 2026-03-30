@@ -1,0 +1,43 @@
+fn main() -> i32 {
+    var p = Project("Kairo")
+        .version("kairo-0.0.1+rc.20260220")
+        .author("Dhruvan, Ojas and Arnav")
+        .license("CC-BY-4.0")
+        .compiler("kairo")
+        .mode("release")
+        .skip_dirs(["build", "libs", "private"]);
+
+    p.target(Target("kairo")
+        .entry("Toolchain/Driver/Main/kairo.kro")
+        .includes(["Toolchain", "Lib/bootstrap/lib-helix"])
+        .define("VERSION=L\"kairo-0.1.1+rc.250306\"")
+        .ld_flag("-lclang-cpp")
+        .passthrough("-fno-lto"));
+
+    p.target(Target("kbld")
+        .entry("Toolchain/Driver/Main/kbld.kro")
+        .include("Toolchain")
+        .define("VERSION=L\"kbld-0.1.0+rc.250306\""));
+
+    p.target(Target("kfmt")
+        .entry("Toolchain/Driver/Main/kfmt.kro")
+        .include("Toolchain")
+        .define("VERSION=L\"kfmt-0.1.0+rc.250306\""));
+
+    p.target(Target("kld")
+        .entry("Toolchain/Driver/Main/kld.kro")
+        .include("Toolchain")
+        .define("VERSION=L\"kld-0.1.0+rc.250306\""));
+
+    p.target(Target("klsp")
+        .entry("Toolchain/Driver/Main/klsp.kro")
+        .include("Toolchain")
+        .define("VERSION=L\"klsp-0.1.0+rc.250306\""));
+
+    p.target(Target("kpkg")
+        .entry("Toolchain/Driver/Main/kpkg.kro")
+        .include("Toolchain")
+        .define("VERSION=L\"kpkg-0.1.0+rc.250306\""));
+
+    return 0;
+}

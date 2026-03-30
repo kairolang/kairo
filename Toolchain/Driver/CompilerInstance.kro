@@ -68,8 +68,6 @@ import Driver::TUResult::*;
 import Driver::TUStage::*;
 import Preprocessor::Preprocessor::*;
 
-ffi "c++" import "llvm/TargetParser/Host.h";
-
 class CompilerInstance; // forward declaration to break circular dependency with FrontendAction
 
 class FrontendAction {
@@ -244,7 +242,7 @@ class CompilerInstance {
 
     fn print_version(self) {
         std::print(f"kairo version 0.1.1+rc.250306");
-        std::print(f"target triple: {llvm::sys::getDefaultTargetTriple()}");
+        std::print(f"target triple: {std::get_default_target_triple()}");
         std::print(f"thread model:  {std::get_thread_model()}");
         std::print(f"installed at:  {((std::get_exe_path()).parent_path()).generic_wstring()}");
     }
