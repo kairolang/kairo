@@ -1,0 +1,16 @@
+fn version(target: string, suffix: string) -> string {
+    var date_suffix = "";
+
+    if (suffix.contains("+rc")) || (suffix.contains("-dev")) {
+        var now      = libcxx::chrono::system_clock::now();
+        var now_t    = libcxx::chrono::system_clock::to_time_t(now);
+        var now_tm   = libcxx::localtime(&now_t);
+        date_suffix  = f".{1900 + now_tm->tm_year}{1 + now_tm->tm_mon:02}{now_tm->tm_mday:02}";
+    }
+
+    return f"{target}{suffix}{date_suffix}";
+}
+
+fn version_macro(target: string, suffix: string) -> string {
+    return f"VERSION=L\"{version(target, suffix)}\"";
+}

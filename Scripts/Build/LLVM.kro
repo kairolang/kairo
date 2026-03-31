@@ -1,0 +1,193 @@
+fn llvm_build_dir() -> string {
+    return build_dir() + "/llvm";
+}
+
+fn llvm_marker() -> string {
+    if platform() == "windows" {
+        return llvm_build_dir() + "/lib/LLVM.lib";
+    }
+    if platform() == "macos" {
+        return llvm_build_dir() + "/lib/libLLVM.dylib";
+    }
+    return llvm_build_dir() + "/lib/libLLVM.so";
+}
+
+fn submodule_build_exists() -> bool {
+    return path_exists(llvm_marker());
+}
+
+fn system_llvm_is_libcxx() -> bool {
+    var r = run(["llvm-config", "--version"]);
+    if !r.success { return false; }
+
+    if platform() == "windows" { return false; }
+
+    var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n\\r ' "]).stdout_str;
+
+    if platform() == "macos" {
+        var candidates = glob(libdir + "/libLLVM*.dylib");
+        if candidates.empty() { return false; }
+
+        var r2 = run(["otool", "-L", candidates[0]]);
+        if !r2.success { return false; }
+        return r2.stdout_str.contains("libc++");
+    }
+
+    // linux
+    var candidates = glob(libdir + "/libLLVM*.so");
+    if candidates.empty() { return false; }
+    var lib_path = candidates[0];
+
+    var r2 = run(["ldd", lib_path]);
+    if r2.success {
+        if r2.stdout_str.contains("libc++.so")    { return true;  }
+        if r2.stdout_str.contains("libstdc++.so") { return false; }
+    }
+
+    // ldd gave no clear answer — statically linked, check nm symbols
+    var r3 = run(["nm", "-D", lib_path]);
+    if !r3.success { return false; }
+    return !r3.stdout_str.contains("GLIBCXX");
+}
+
+fn llvm_copy_cmd(lib_dir: string) -> string {
+    var out_lib = out_dir() + "/../lib";
+
+    if platform() == "windows" {
+        // powershell
+        return "powershell -Command \"New-Item -ItemType Directory -Force " + out_lib + "; "
+             + "Copy-Item " + lib_dir + "/LLVM*.dll " + out_lib + "; "
+             + "Copy-Item " + lib_dir + "/clang*.dll " + out_lib + "; "
+             + "Copy-Item " + lib_dir + "/lld*.dll " + out_lib + "\"";
+    }
+
+    // linux + macos: same sh command, glob handles .so* vs .dylib
+    return "sh -c 'mkdir -p " + out_lib + " && "
+         + "cp -P " + lib_dir + "/libLLVM*.so* "   + out_lib + " 2>/dev/null; "
+         + "cp -P " + lib_dir + "/libclang*.so* "  + out_lib + " 2>/dev/null; "
+         + "cp -P " + lib_dir + "/liblld*.so* "    + out_lib + " 2>/dev/null; "
+         + "cp -P " + lib_dir + "/libLLVM*.dylib " + out_lib + " 2>/dev/null; "
+         + "cp -P " + lib_dir + "/libclang*.dylib "+ out_lib + " 2>/dev/null; "
+         + "cp -P " + lib_dir + "/liblld*.dylib "  + out_lib + " 2>/dev/null; "
+         + "true' ";
+}
+
+fn apply_rpath(t: ref!(Target)) -> void {
+    if platform() == "linux" {
+        t.ld_flag("-Wl,-rpath,$ORIGIN/../lib");
+    }
+    if platform() == "macos" {
+        t.ld_flag("-Wl,-rpath,@loader_path/../lib");
+    }
+}
+
+fn apply_llvm_from_build_dir(t: ref!(Target)) -> void {
+    var bdir = llvm_build_dir();
+    var src  = project_root() + "/Lib/llvm-runtimes";
+
+    t.include(bdir + "/include")
+     .include(src  + "/llvm/include")
+     .include(src  + "/clang/include")
+     .include(bdir + "/tools/clang/include")
+     .link_dir(bdir + "/lib")
+     .lib("clang-cpp")
+     .lib("LLVM")
+     .lib("lld");
+
+    apply_rpath(t);
+}
+
+fn apply_llvm_from_system(t: ref!(Target)) -> void {
+    var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n\\r ' "]).stdout_str;
+    var inc    = run(["sh", "-c", "llvm-config --includedir | tr -d '\\n\\r ' "]).stdout_str;
+    var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n\\r ' "]).stdout_str;
+
+    t.include(inc)
+     .include(prefix + "/include")
+     .link_dir(libdir)
+     .lib("clang-cpp")
+     .lib("LLVM")
+     .lib("lld");
+
+    apply_rpath(t);
+}
+
+fn build_llvm_from_source() -> void {
+    var src  = project_root() + "/Lib/llvm-runtimes";
+    var bdir = llvm_build_dir();
+
+    if !path_exists(src + "/llvm/CMakeLists.txt") {
+        log::error("Lib/llvm-runtimes submodule is not initialised.");
+        log::error("Run: git submodule update --init --recursive Lib/llvm-runtimes");
+        run_or_fail(["false"]);
+    }
+
+    var targets = "X86;AArch64;WebAssembly";
+    if platform() == "macos" {
+        targets = "X86;AArch64;WebAssembly";
+    }
+
+    log::info("Configuring LLVM...");
+    run_or_fail([
+        "cmake",
+        "-S", src + "/llvm",
+        "-B", bdir,
+        "-G", "Ninja",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_C_COMPILER=clang",
+        "-DCMAKE_CXX_COMPILER=clang++",
+        "-DLLVM_ENABLE_LIBCXX=ON",              // correct libc++ flag
+        "-DLLVM_ENABLE_PROJECTS=clang;lld",
+        "-DLLVM_TARGETS_TO_BUILD=" + targets,
+        "-DLLVM_BUILD_LLVM_DYLIB=ON",           // single libLLVM.so — correct for distribution
+        "-DLLVM_LINK_LLVM_DYLIB=ON",            // tools link against the dylib
+        "-DLLVM_INCLUDE_TESTS=OFF",
+        "-DLLVM_INCLUDE_EXAMPLES=OFF",
+        "-DLLVM_INCLUDE_BENCHMARKS=OFF",
+        "-DLLVM_BUILD_TOOLS=OFF",
+        "-DLLVM_ENABLE_BINDINGS=OFF",
+        "-DLLVM_ENABLE_TERMINFO=OFF",
+        "-DLLVM_ENABLE_ZLIB=OFF",
+        "-DLLVM_ENABLE_ZSTD=OFF",
+        "-DLLVM_ENABLE_LIBXML2=OFF",
+        /// remove these vvvv
+        "-DLLVM_USE_SPLIT_DWARF=ON",
+        "-DLLVM_ENABLE_LTO=Thin",
+        "-DLLVM_PARALLEL_LINK_JOBS=24",
+        // "-DLLVM_PARALLEL_LINK_JOBS=2",          // cap link parallelism — linking LLVM is RAM-heavy
+    ]);
+
+    log::info(f"Building LLVM with {num_jobs()} jobs...");
+    run_or_fail(["ninja", "-C", bdir, f"-j{num_jobs()}"]);
+
+    cache_set("llvm_built", "1");
+    log::ok("LLVM build complete.");
+}
+
+fn setup_llvm(t: ref!(Target)) -> void {
+    var lib_dir = "";
+
+    if submodule_build_exists() {
+        log::info("Using LLVM from submodule build.");
+        lib_dir = llvm_build_dir() + "/lib";
+        apply_llvm_from_build_dir(t);
+    } else if system_llvm_is_libcxx() {
+        log::info("Using system LLVM (libc++ ABI confirmed).");
+        lib_dir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n\\r ' "]).stdout_str;
+        apply_llvm_from_system(t);
+    } else {
+        var has_system = run(["llvm-config", "--version"]).success;
+        if has_system {
+            log::warn("System LLVM is built with libstdc++ — ABI incompatible with lib-helix.");
+        } else {
+            log::warn("llvm-config not found.");
+        }
+        log::info("Building LLVM from Lib/llvm-runtimes...");
+        build_llvm_from_source();
+        lib_dir = llvm_build_dir() + "/lib";
+        apply_llvm_from_build_dir(t);
+    }
+
+    t.post_build(llvm_copy_cmd(lib_dir));
+}
+

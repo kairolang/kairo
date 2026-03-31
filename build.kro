@@ -1,4 +1,55 @@
+import Scripts::Build::Version::*;
+
+fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: string) -> void {
+    t.include(llvm_build + "/include")
+        .include(llvm_src   + "/llvm/include")
+        .include(llvm_src   + "/clang/include")
+        .include(llvm_build + "/tools/clang/include")
+        .link_dir(out_lib)
+        .passthrough("-fno-lto")
+        .passthrough("-L" + llvm_build + "/lib")
+        .passthrough("-L" + out_lib)
+        .passthrough("-lclang-cpp")
+        .passthrough("-lLLVM")
+        .passthrough("-llldELF")
+        .passthrough("-llldMachO")
+        .passthrough("-llldCOFF")
+        .passthrough("-llldMinGW")
+        .passthrough("-llldWasm")
+        .passthrough("-llldCommon");
+
+    if platform() == "linux" {
+        t.passthrough("\x27-Wl,-rpath,$ORIGIN/../lib\x27");
+    }
+
+    if platform() == "macos" {
+        t.passthrough("\x27-Wl,-rpath,@loader_path/../lib\x27");
+    }
+}
+
 fn main() -> i32 {
+    const KAIRO_VERSION: string = version_macro("kairo", "-0.1.1-dev");
+    const KBLD_VERSION:  string = version_macro("kbld",  "-0.1.0-dev");
+    const KFMT_VERSION:  string = version_macro("kfmt",  "-0.1.0-dev");
+    const KLD_VERSION:   string = version_macro("kld",   "-0.1.0-dev");
+    const KLSP_VERSION:  string = version_macro("klsp",  "-0.1.0-dev");
+    const KPKG_VERSION:  string = version_macro("kpkg",  "-0.1.0-dev");
+
+    // ── LLVM paths ─────────────────────────────────────────────────────────────
+    // derived deterministically — prebuild script guarantees libs are here
+    var llvm_build = build_dir() + "/llvm";
+    var llvm_src   = project_root() + "/Lib/llvm-runtimes";
+    var out_lib    = build_dir() + "/" + triple() + "/" + build_mode() + "/lib";
+
+    // ── prebuild script selection ──────────────────────────────────────────────
+    var llvm_prebuild = "";
+    if platform() == "linux" {
+        llvm_prebuild = "bash Scripts/prebuild-llvm-linux.sh";
+    }
+    if platform() == "macos" {
+        llvm_prebuild = "bash Scripts/prebuild-llvm-macos.sh";
+    }
+
     var p = Project("Kairo")
         .version("kairo-0.0.1+rc.20260220")
         .author("Dhruvan, Ojas and Arnav")
@@ -7,37 +58,55 @@ fn main() -> i32 {
         .mode("release")
         .skip_dirs(["build", "libs", "private"]);
 
-    p.target(Target("kairo")
+    var kairo = Target("kairo")
         .entry("Toolchain/Driver/Main/kairo.kro")
         .includes(["Toolchain", "Lib/bootstrap/lib-helix"])
-        .define("VERSION=L\"kairo-0.1.1+rc.250306\"")
-        .ld_flag("-lclang-cpp")
-        .passthrough("-fno-lto"));
+        .define(KAIRO_VERSION)
+        .passthrough("-fno-lto")
+        .pre_build(llvm_prebuild);
+    apply_llvm(kairo, llvm_src, llvm_build, out_lib);
 
-    p.target(Target("kbld")
+    var kbld = Target("kbld")
         .entry("Toolchain/Driver/Main/kbld.kro")
         .include("Toolchain")
-        .define("VERSION=L\"kbld-0.1.0+rc.250306\""));
+        .define(KBLD_VERSION)
+        .pre_build(llvm_prebuild);
+    apply_llvm(kbld, llvm_src, llvm_build, out_lib);
 
-    p.target(Target("kfmt")
+    var kfmt = Target("kfmt")
         .entry("Toolchain/Driver/Main/kfmt.kro")
         .include("Toolchain")
-        .define("VERSION=L\"kfmt-0.1.0+rc.250306\""));
+        .define(KFMT_VERSION)
+        .pre_build(llvm_prebuild);
+    apply_llvm(kfmt, llvm_src, llvm_build, out_lib);
 
-    p.target(Target("kld")
+    var kld = Target("kld")
         .entry("Toolchain/Driver/Main/kld.kro")
         .include("Toolchain")
-        .define("VERSION=L\"kld-0.1.0+rc.250306\""));
+        .define(KLD_VERSION)
+        .pre_build(llvm_prebuild);
+    apply_llvm(kld, llvm_src, llvm_build, out_lib);
 
-    p.target(Target("klsp")
+    var klsp = Target("klsp")
         .entry("Toolchain/Driver/Main/klsp.kro")
         .include("Toolchain")
-        .define("VERSION=L\"klsp-0.1.0+rc.250306\""));
+        .define(KLSP_VERSION)
+        .pre_build(llvm_prebuild);
+    apply_llvm(klsp, llvm_src, llvm_build, out_lib);
 
-    p.target(Target("kpkg")
+    var kpkg = Target("kpkg")
         .entry("Toolchain/Driver/Main/kpkg.kro")
         .include("Toolchain")
-        .define("VERSION=L\"kpkg-0.1.0+rc.250306\""));
+        .define(KPKG_VERSION)
+        .pre_build(llvm_prebuild);
+    apply_llvm(kpkg, llvm_src, llvm_build, out_lib);
+
+    p.target(kairo);
+    p.target(kbld);
+    p.target(kfmt);
+    p.target(kld);
+    p.target(klsp);
+    p.target(kpkg);
 
     return 0;
 }
