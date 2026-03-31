@@ -337,15 +337,15 @@ target("kbld")
         build_dir = "$(buildir)/$(mode)/$(arch)-$(os)-" .. abi
     end
 
-    add_includedirs(build_dir .. "/core/include")
-    add_includedirs(build_dir .. "/core")
+    add_includedirs("Lib/bootstrap/lib-helix/core/include")
+    add_includedirs("Lib/bootstrap/lib-helix/core")
 
-    add_includedirs(build_dir .. "/core/include/**.h")
-    add_includedirs(build_dir .. "/core/include/**.hh")
-    add_includedirs(build_dir .. "/core/include/**.tpp")
-    add_headerfiles(build_dir .. "/core/include/**.tpp")
-    add_headerfiles(build_dir .. "/core/include/**.h")
-    add_headerfiles(build_dir .. "/core/include/**.hh")
+    add_includedirs("Lib/bootstrap/lib-helix/core/include/**.h")
+    add_includedirs("Lib/bootstrap/lib-helix/core/include/**.hh")
+    add_includedirs("Lib/bootstrap/lib-helix/core/include/**.tpp")
+    add_headerfiles("Lib/bootstrap/lib-helix/core/include/**.tpp")
+    add_headerfiles("Lib/bootstrap/lib-helix/core/include/**.h")
+    add_headerfiles("Lib/bootstrap/lib-helix/core/include/**.hh")
 
     if is_plat("linux", "macosx") then
         add_cxxflags("-stdlib=libc++", { force = true })
