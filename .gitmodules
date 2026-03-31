@@ -17,6 +17,7 @@
 	path = Lib/llvm-runtimes
 	url = https://github.com/llvm/llvm-project
 	shallow = true
+    branch = llvmorg-22.1.0
 
 [submodule "Lib/bootstrap/lib-helix"]
 	path = Lib/bootstrap/lib-helix
