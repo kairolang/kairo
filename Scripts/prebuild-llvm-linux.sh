@@ -5,7 +5,7 @@ ROOT="${KBLD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 BUILD_DIR="${KBLD_BUILD_DIR:-$ROOT/build}"
 TRIPLE="${KBLD_TRIPLE:-x86_64-linux-gnu}"
 MODE="${KBLD_MODE:-release}"
-JOBS="${KBLD_JOBS:-$(nproc)}"
+JOBS="$(nproc)"
 
 LLVM_SRC="$ROOT/Lib/llvm-runtimes"
 LLVM_BUILD="$BUILD_DIR/llvm"
@@ -79,13 +79,15 @@ fi
 
 # ── detect targets ─────────────────────────────────────────────────────────────
 ARCH="${KBLD_ARCH:-$(uname -m)}"
-case "$ARCH" in
-    x86_64)  HOST_TARGET="X86" ;;
-    aarch64) HOST_TARGET="AArch64" ;;
-    armv7*)  HOST_TARGET="ARM" ;;
-    riscv64) HOST_TARGET="RISCV" ;;
-    *)       HOST_TARGET="X86" ;;
-esac
+# case "$ARCH" in
+#     x86_64)  HOST_TARGET="X86;AArch64;ARM;RISCV;WebAssembly" ;;
+#     aarch64) HOST_TARGET="AArch64" ;;
+#     armv7*)  HOST_TARGET="ARM" ;;
+#     riscv64) HOST_TARGET="RISCV" ;;
+#     *)       HOST_TARGET="X86" ;;
+# esac
+HOST_TARGET="X86;AArch64;ARM;RISCV;WebAssembly"
+
 TARGETS="${LLVM_TARGETS:-$HOST_TARGET}"
 echo "[llvm] targets: $TARGETS"
 

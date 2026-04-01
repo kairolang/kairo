@@ -1,29 +1,40 @@
 import Scripts::Build::Version::*;
 
 fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: string) -> void {
-    t.include(llvm_build + "/include")
-        .include(llvm_src   + "/llvm/include")
-        .include(llvm_src   + "/clang/include")
-        .include(llvm_build + "/tools/clang/include")
-        .link_dir(out_lib)
-        .passthrough("-fno-lto")
-        .passthrough("-L" + llvm_build + "/lib")
-        .passthrough("-L" + out_lib)
-        .passthrough("-lclang-cpp")
-        .passthrough("-lLLVM")
-        .passthrough("-llldELF")
-        .passthrough("-llldMachO")
-        .passthrough("-llldCOFF")
-        .passthrough("-llldMinGW")
-        .passthrough("-llldWasm")
-        .passthrough("-llldCommon");
+    if path_exists(llvm_build + "/include") {
+        // submodule build exists — use it
+        t.include(llvm_build + "/include")
+         .include(llvm_src   + "/llvm/include")
+         .include(llvm_src   + "/clang/include")
+         .include(llvm_build + "/tools/clang/include")
+         .passthrough("-L" + llvm_build + "/lib")
+         .passthrough("-L" + out_lib);
+    } else {
+        // system LLVM — query llvm-config
+        var inc    = run(["sh", "-c", "llvm-config --includedir | tr -d '\\n' "]).stdout_str;
+        var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n' "]).stdout_str;
+        var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n' "]).stdout_str;
+        t.include(inc)
+         .include(prefix + "/include")
+         .passthrough("-L" + libdir);
+    }
+
+    t.passthrough("-fno-lto")
+     .passthrough("-lclang-cpp")
+     .passthrough("-lLLVM")
+     .passthrough("-llldELF")
+     .passthrough("-llldMachO")
+     .passthrough("-llldCOFF")
+     .passthrough("-llldMinGW")
+     .passthrough("-llldWasm")
+     .passthrough("-llldCommon");
 
     if platform() == "linux" {
-        t.passthrough("\x27-Wl,-rpath,$ORIGIN/../lib\x27");
+        t.passthrough("\\\x27-Wl,-rpath,\\$ORIGIN/../lib\\\x27");
     }
 
     if platform() == "macos" {
-        t.passthrough("\x27-Wl,-rpath,@loader_path/../lib\x27");
+        t.passthrough("\\\x27-Wl,-rpath,\\@loader_path/../lib\\\x27");
     }
 }
 
