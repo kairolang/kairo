@@ -14,11 +14,11 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 ///
-/// Driver Layer 3 — FrontendAction
+/// Driver Layer 3 - FrontendAction
 /// ================================
 ///
 /// A FrontendAction represents the compilation of a single source file.
-/// It is the Kairo equivalent of clang::FrontendAction — a self-contained
+/// It is the Kairo equivalent of clang::FrontendAction - a self-contained
 /// unit that CompilerInstance creates and runs, or hands to a worker thread.
 ///
 /// Clang-style layer map
@@ -32,11 +32,11 @@
 ///   FrontendAction contains no mutexes, atomics, or condition variables.
 ///
 ///   Borrows (read-only after construction):
-///     CompilerInstance  — DiagEngine, SourceManager, TCM, ThreadPool, invocation
-///     ImportResolver    — owned by CompilerInstance; fully indexed before dispatch
+///     CompilerInstance  - DiagEngine, SourceManager, TCM, ThreadPool, invocation
+///     ImportResolver    - owned by CompilerInstance; fully indexed before dispatch
 ///
 ///   Owns:
-///     PreProcessor      — allocated at _preprocess(), freed by destructor.
+///     PreProcessor      - allocated at _preprocess(), freed by destructor.
 ///                         Kept alive after the preprocess stage so the dump
 ///                         helpers (_dump_macros, _dump_imports) can access it.
 ///

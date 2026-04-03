@@ -464,39 +464,39 @@ User C++ types (anything not in the bridge table) are held as opaque `clang::Qua
 
 ```
 Phase 1 - Foundation (current)
-  ✅ Lexer (Stage 1 in progress)
-  ✅ Preprocessor (Stage 1 in progress)
-  🔨 Diagnostic Engine
+  [x] Lexer (Stage 1 in progress)
+  [x] Preprocessor (Stage 1 in progress)
+  [x] Diagnostic Engine
   
 Phase 2 - Frontend
-  ○ Parser → Kairo AST
-  ○ Basic Sema (Kairo-only, no C++ interop)
-  ○ Token Emitter (trivial subset: fn, var, if, while, for)
-  ○ Clang pipeline integration (verify round-trip)
+  [ ] Parser → Kairo AST
+  [ ] Basic Sema (Kairo-only, no C++ interop)
+  [ ] Token Emitter (trivial subset: fn, var, if, while, for)
+  [ ] Clang pipeline integration (verify round-trip)
 
 Phase 3 - Language Features
-  ○ Traits / interfaces
-  ○ Generics
-  ○ Pattern matching / match
-  ○ Full expression coverage in token emitter
+  [ ] Traits / interfaces
+  [ ] Generics
+  [ ] Pattern matching / match
+  [ ] Full expression coverage in token emitter
 
 Phase 4 - C++ Interop
-  ○ libclang stub extraction
-  ○ Deferred sema for C++ symbols
-  ○ import cpp support
-  ○ Std library bridge types (string, vec, map)
+  [ ] libclang stub extraction
+  [ ] Deferred sema for C++ symbols
+  [ ] import cpp support
+  [ ] Std library bridge types (string, vec, map)
 
 Phase 5 - Memory Safety
-  ○ AMT ownership tracking
-  ○ Borrow checking (pure Kairo)
-  ○ Trust boundary annotations for C++ calls
+  [ ] AMT ownership tracking
+  [ ] Borrow checking (pure Kairo)
+  [ ] Trust boundary annotations for C++ calls
 
 Phase 6 - Tooling
-  ○ LLD wrapper with Kairo demangling
-  ○ LSP server (klsp)
-  ○ Formatter (kfmt)
-  ○ Package manager (kpkg)
-  ○ Build system (kbld)
+  [ ] LLD wrapper with Kairo demangling
+  [ ] LSP server (klsp)
+  [ ] Formatter (kfmt)
+  [ ] Package manager (kpkg)
+  [ ] Build system (kbld)
 ```
 
 ---

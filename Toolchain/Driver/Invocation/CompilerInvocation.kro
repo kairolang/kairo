@@ -27,7 +27,7 @@ import Driver::Invocation::TargetOptions::*;
 /// \brief The canonical, strongly-typed representation of one compiler run.
 ///
 /// Built once from ParsedArgs at driver startup via from_args().  After that
-/// point nothing in the pipeline reads raw string flag keys — all options are
+/// point nothing in the pipeline reads raw string flag keys - all options are
 /// accessed through the typed sub-option structs below.
 ///
 /// All sub-option types are value types, so CompilerInvocation is trivially

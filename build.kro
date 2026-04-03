@@ -1,4 +1,19 @@
-import Scripts::Build::Version::*;
+fn version(target: string, suffix: string) -> string {
+    var date_suffix = "";
+
+    if (suffix.contains("+rc")) || (suffix.contains("+dev")) {
+        var now      = libcxx::chrono::system_clock::now();
+        var now_t    = libcxx::chrono::system_clock::to_time_t(now);
+        var now_tm   = libcxx::localtime(&now_t);
+        date_suffix  = f".{1900 + now_tm->tm_year}{1 + now_tm->tm_mon:02}{now_tm->tm_mday:02}";
+    }
+
+    return f"{target}{suffix}{date_suffix}";
+}
+
+fn version_macro(target: string, suffix: string) -> string {
+    return f"VERSION=L\\\\\\\"{version(target, suffix)}\\\\\\\"";
+}
 
 fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: string) -> void {
     if path_exists(llvm_build + "/include") {
@@ -39,12 +54,12 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
 }
 
 fn main() -> i32 {
-    const KAIRO_VERSION: string = version_macro("kairo", "-0.1.1-dev");
-    const KBLD_VERSION:  string = version_macro("kbld",  "-0.1.0-dev");
-    const KFMT_VERSION:  string = version_macro("kfmt",  "-0.1.0-dev");
-    const KLD_VERSION:   string = version_macro("kld",   "-0.1.0-dev");
-    const KLSP_VERSION:  string = version_macro("klsp",  "-0.1.0-dev");
-    const KPKG_VERSION:  string = version_macro("kpkg",  "-0.1.0-dev");
+    const KAIRO_VERSION: string = version_macro("kairo", "-0.1.1+dev");
+    const KBLD_VERSION:  string = version_macro("kbld",  "-0.1.0+dev");
+    const KFMT_VERSION:  string = version_macro("kfmt",  "-0.1.0+dev");
+    const KLD_VERSION:   string = version_macro("kld",   "-0.1.0+dev");
+    const KLSP_VERSION:  string = version_macro("klsp",  "-0.1.0+dev");
+    const KPKG_VERSION:  string = version_macro("kpkg",  "-0.1.0+dev");
 
     // ── LLVM paths ─────────────────────────────────────────────────────────────
     // derived deterministically — prebuild script guarantees libs are here
@@ -67,7 +82,7 @@ fn main() -> i32 {
         .license("CC-BY-4.0")
         .compiler("kairo")
         .mode("release")
-        .skip_dirs(["build", "libs", "private"]);
+        .skip_dirs(["build", "Lib", "private"]);
 
     var kairo = Target("kairo")
         .entry("Toolchain/Driver/Main/kairo.kro")

@@ -5,7 +5,7 @@ ROOT="${KBLD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 BUILD_DIR="${KBLD_BUILD_DIR:-$ROOT/build}"
 TRIPLE="${KBLD_TRIPLE:-arm64-darwin-macho}"
 MODE="${KBLD_MODE:-release}"
-JOBS="${KBLD_JOBS:-$(sysctl -n hw.logicalcpu)}"
+JOBS="$(sysctl -n hw.logicalcpu)"
 
 LLVM_SRC="$ROOT/Lib/llvm-runtimes"
 LLVM_BUILD="$BUILD_DIR/llvm"
@@ -90,10 +90,12 @@ cmake \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DLLVM_ENABLE_LIBCXX=ON \
-    -DLLVM_ENABLE_PROJECTS="clang;lld" \
+    -DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld" \
     -DLLVM_TARGETS_TO_BUILD="$TARGETS" \
     -DLLVM_BUILD_LLVM_DYLIB=ON \
     -DLLVM_LINK_LLVM_DYLIB=ON \
+    -DLLVM_ENABLE_RTTI=ON \
+    -DLLVM_ENABLE_EH=ON \
     -DLLVM_INCLUDE_TESTS=OFF \
     -DLLVM_INCLUDE_EXAMPLES=OFF \
     -DLLVM_INCLUDE_BENCHMARKS=OFF \

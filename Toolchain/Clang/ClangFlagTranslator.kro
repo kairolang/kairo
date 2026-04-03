@@ -722,12 +722,12 @@ class ClangFlagTranslator {
             var libs = args->get_list("link-libs");
             for lib: string in libs {
                 if lib.starts_with("static:") {
-                    var name = lib.substr(7);
+                    var name = lib.raw_string().substr(7);
                     argv->push_back("-Wl,-Bstatic");
                     argv->push_back(f"-l{name}");
                     argv->push_back("-Wl,-Bdynamic");
                 } else if lib.starts_with("dynamic:") {
-                    var name = lib.substr(8);
+                    var name = lib.raw_string().substr(8);
                     argv->push_back(f"-l{name}");
                 } else {
                     argv->push_back(f"-l{lib}");
@@ -832,10 +832,10 @@ class ClangFlagTranslator {
             for c: string in cfgs {
                 // cfg "name" → -D__KAIRO_CFG_NAME
                 // cfg "name=value" → -D__KAIRO_CFG_NAME=value
-                if c.find('=') != string::npos {
-                    var eq   = c.find('=');
-                    var name = c.substr(0, eq);
-                    var val  = c.substr(eq + 1);
+                if (c.raw_string().find('=')) != string::npos {
+                    var eq   = c.raw_string().find('=');
+                    var name = c.raw_string().substr(0, eq);
+                    var val  = c.raw_string().substr(eq + 1);
                     argv->push_back(f"-D__KAIRO_CFG_{name}={val}");
                 } else {
                     argv->push_back(f"-D__KAIRO_CFG_{c}=1");

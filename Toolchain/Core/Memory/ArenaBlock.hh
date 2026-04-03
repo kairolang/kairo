@@ -34,7 +34,7 @@ namespace kairo {
 /// high-water tracking:
 ///   high_water records the maximum offset ever reached. this lets
 ///   reset() skip zeroing untouched tail memory. updated on the
-///   allocation hot path with a branch-predicted unlikely check —
+///   allocation hot path with a branch-predicted unlikely check
 ///   once the block is warmed up, the branch never fires.
 ///
 /// thread safety:

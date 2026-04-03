@@ -13,138 +13,1027 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Core::Source::SourceManager::*;
-import Core::Diagnostics::DiagEngine::*;
+ffi "c++" import "Clang/ClangBridgeImpl.hh";
+
 import Core::Path::*;
-import Clang::ClangSymbol::*;
-import Clang::ClangSymbolTable::*;
+import Core::Source::SourceLocation::*;
+import Core::Source::SourceRange::*;
+import Core::Source::SourceManager::*;
 
 ///
-/// \file Clang/ClangBridge.kro
-/// \brief wraps the libclang invocation for header symbol extraction.
+/// \file  Clang/ClangBridge.kro
+/// \brief Kairo-facing API for C++ symbol extraction via Clang.
 ///
 /// \details
-/// responsibilities:
-///   1. load the header buffer into SourceManager
-///   2. invoke libclang on that same buffer as an unsaved file so both
-///      SM and clang look at the same memory - clang byte offsets are
-///      directly usable as offsets into your SM segment for that file
-///   3. walk the clang AST cursor tree and extract ClangSymbol entries
-///   4. build and cache a ClangSymbolTable per header
+/// wraps the C++ implementation in ClangBridgeImpl.hh.  the .hh contains
+/// the CRTP visitors, PPCallbacks, and CompilerInstance wiring that can't
+/// be expressed in Kairo syntax.  this file provides:
 ///
-/// what it does NOT do:
-///   - full type checking (clang handles that at codegen)
-///   - template instantiation (lazy, at codegen)
-///   - route through clang's DiagEngine - all diags go through yours
+///   - ClangSymbolKind enum (mirrors clang_detail::SymKind)
+///   - ClangSymbol struct (Kairo-native view of extracted symbols)
+///   - ClangSymbolTable (lookup table with overload set merging)
+///   - ClangBridge (persistent clang infrastructure)
+///   - SymbolExtractor (per-TU extraction entry point)
 ///
-/// \note
-/// _invoke_libclang is implemented in ClangBridge.cc. the .cc file
-/// calls clang_parseTranslationUnit with the SM buffer pointer as an
-/// unsaved file, walks clang_visitChildren, and calls insert() on the
-/// table for each cursor kind it recognizes.
-///
-/// key invariant: load_file BEFORE _invoke_libclang so the buffer
-/// your SM holds and the pointer clang sees are the same allocation.
+/// the parser uses ClangSymbolTable for:
+///   - `<` disambiguation (template args vs less-than)
+///   - arity checking at call sites
+///   - name lookup for FFI-imported C++ symbols
 ///
 
-///
-/// \brief result kind for processing a header through libclang.
-///
-enum BridgeResultKind derives u8 {
-    Ok,         ///< header parsed, table populated and cached
-    ParseError, ///< libclang failed - diag already emitted
-    Cached,     ///< header already processed - table pointer from cache
+// ═════════════════════════════════════════════════════════════════════════════
+//  ENUMS
+// ═════════════════════════════════════════════════════════════════════════════
+
+type ClangSymbolKind = clang_detail::SymKind;;
+
+enum LookupResultKind derives u8 {
+    Found,
+    Ambiguous,
+    NotFound,
 }
 
+enum GenericDisambig derives u8 {
+    IsGeneric,
+    IsLessThan,
+    Unknown,
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  DATA STRUCTS
+// ═════════════════════════════════════════════════════════════════════════════
+
 ///
-/// \brief result of processing a single header through libclang.
+/// \struct ClangSymbol
+/// \brief Kairo-native representation of a C++ symbol extracted by Clang.
 ///
 /// \details
-/// check kind first. if Ok or Cached, table is a valid pointer into
-/// the bridge cache. if ParseError, table is null.
+/// string fields use libcxx::string (C++ std::string) since the data
+/// originates from clang APIs and is compared against C++ identifiers.
 ///
-struct BridgeResult {
-    var kind:  BridgeResultKind;
-    var table: *ClangSymbolTable; ///< valid when kind == Ok or Cached, null on ParseError
+struct ClangSymbol {
+    var name:               string;  ///< unqualified name
+    var qualified_name:     string;  ///< fully qualified e.g. std::vector
+    var kind:               ClangSymbolKind;
+
+    /// location from Kairo's SourceManager — valid for directly imported
+    /// headers where the buffer is loaded.  invalid (default) for
+    /// transitive / system headers.
+    var decl_loc:           SourceLocation;
+
+    /// fallback for system/transitive headers.
+    /// e.g. "<cstdio>:143:7".  empty if decl_loc is valid.
+    var clang_rendered_loc: string;
+
+    /// arity range — callable kinds only.
+    /// OverloadSet: min/max across all overloads.
+    /// max_arity == u32::MAX means variadic.
+    var min_arity:          u32 = 0;
+    var max_arity:          u32 = 0;
+
+    /// template type parameter count.  0 for non-templates.
+    /// OverloadSet: max across all overloads.
+    var type_param_count:   u32 = 0;
+
+    /// per-overload template param counts (OverloadSet only).
+    var overload_type_params: vec::<u32>;
+
+    // --- parser disambiguation flags ---
+    var is_template:        bool = false;
+    var is_callable:        bool = false;
+    var is_type:            bool = false;
+    var is_value:           bool = false;
+    var is_namespace:       bool = false;
+
+    // --- sema flags ---
+    var is_variadic:        bool = false;
+    var is_noexcept:        bool = false;
+    var has_conversion_op:  bool = false;
+    var is_coroutine:       bool = false;
+    var is_consteval:       bool = false;
+}
+
+struct LookupResult {
+    var kind:       LookupResultKind;
+    var sym:        ClangSymbol;
+    var candidates: vec::<ClangSymbol>;
+}
+
+struct ArityMatch {
+    var matches:         bool = false;
+    var needs_type_args: bool = false;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  SYMBOL TABLE
+// ═════════════════════════════════════════════════════════════════════════════
+
+///
+/// \class ClangSymbolTable
+/// \brief holds all extracted symbols with O(1) unqualified lookup.
+///
+/// \details
+/// populated by SymbolExtractor from the raw C++ RawSymbolTable.
+/// provides the query interface used by the Kairo parser for
+/// disambiguation and arity checking.
+///
+class ClangSymbolTable {
+    priv var _syms:         vec::<ClangSymbol>;
+    priv var _by_name:      libcxx::unordered_map::<libcxx::string, libcxx::vector::<usize>>;
+    priv var _by_qualified: libcxx::unordered_map::<libcxx::string, usize>;
+
+    fn ClangSymbolTable(self) {}
+
+    fn op delete(self) {
+        self._syms.clear();
+        self._by_name.clear();
+        self._by_qualified.clear();
+    }
+
+    priv static fn create_lookup(kind: LookupResultKind, sym: ClangSymbol, candidates: vec::<ClangSymbol>) -> LookupResult {
+        __inline_cpp("return LookupResult {kind, sym, candidates}");
+    }
+    ///
+    /// \brief insert a symbol.  handles overload merging automatically.
+    ///
+    pub fn insert(self, sym: ClangSymbol) {
+        var nstr = libcxx::string(std::string_to_nstring(sym.qualified_name).raw_string());
+        var qit = self._by_qualified.find(nstr);
+
+        if qit != self._by_qualified.end() {
+            var idx = (*qit).second;
+            var existing = &self._syms[idx];
+
+            if existing->is_callable && sym.is_callable {
+                if existing->kind != ClangSymbolKind::OverloadSet {
+                    existing->overload_type_params.push_back(existing->type_param_count);
+                }
+
+                if (sym.min_arity) < (existing->min_arity) {
+                    (existing->min_arity) = sym.min_arity;
+                }
+
+                if (sym.max_arity) > (existing->max_arity) {
+                    (existing->max_arity) = sym.max_arity;
+                }
+
+                if (sym.type_param_count) > (existing->type_param_count) {
+                    (existing->type_param_count) = sym.type_param_count;
+                }
+
+                existing->overload_type_params.push_back(sym.type_param_count);
+                (existing->is_variadic)  =( existing->is_variadic ) || (sym.is_variadic);
+                (existing->is_noexcept)  =( existing->is_noexcept ) && (sym.is_noexcept);
+                (existing->is_template)  =( existing->is_template ) || (sym.is_template);
+                (existing->is_coroutine) =( existing->is_coroutine) || (sym.is_coroutine);
+                (existing->is_consteval) =( existing->is_consteval) && (sym.is_consteval);
+                (existing->kind) = ClangSymbolKind::OverloadSet;
+
+                return;
+            }
+
+            return;
+        }
+
+        var idx = self._syms.size();
+
+        self._by_qualified[nstr] = idx;
+        self._by_name[std::string_to_nstring(sym.name).raw_string()].push_back(idx);
+        self._syms.push_back(sym);
+    }
+
+    ///
+    /// \brief unqualified name lookup.
+    ///
+    pub fn lookup(self, name: *string) -> LookupResult {
+        var nstr = libcxx::string(std::string_to_nstring(*name).raw_string());
+        var it = self._by_name.find(nstr);
+        if it == self._by_name.end() {
+            return create_lookup(LookupResultKind::NotFound, ClangSymbol(), vec::<ClangSymbol>());
+        }
+
+        var indices = &(*it).second;
+
+        if indices->size() == 1 {
+            return create_lookup(LookupResultKind::Found, self._syms[(*indices)[0]], vec::<ClangSymbol>());
+        }
+
+        var cands = vec::<ClangSymbol>();
+        cands.reserve(indices->size());
+
+        for i in range::<usize>(0, indices->size()) {
+            cands.push_back(self._syms[(*indices)[i]]);
+        }
+
+        return create_lookup(LookupResultKind::Ambiguous, ClangSymbol(), cands);
+    }
+
+    ///
+    /// \brief qualified name lookup (exact match).
+    ///
+    pub fn lookup_qualified(self, qualified: *string) -> LookupResult {
+        var nstr = libcxx::string(std::string_to_nstring(*qualified).raw_string());
+        var it = self._by_qualified.find(nstr);
+        if it == self._by_qualified.end() {
+            return create_lookup(LookupResultKind::NotFound, ClangSymbol(), vec::<ClangSymbol>());
+        }
+
+        return create_lookup(LookupResultKind::Found, self._syms[(*it).second], vec::<ClangSymbol>());
+    }
+
+    ///
+    /// \brief parser query: is `<` after name a template arg list?
+    ///
+    pub fn disambiguate_generic(self, name: *string) -> GenericDisambig {
+        var nstr = libcxx::string(std::string_to_nstring(*name).raw_string());
+        var it = self._by_name.find(nstr);
+        if it == self._by_name.end() {
+            return GenericDisambig::Unknown;
+        }
+
+        var indices = &(*it).second;
+        for i in range::<usize>(0, indices->size()) {
+            if self._syms[(*indices)[i]].is_template {
+                return GenericDisambig::IsGeneric;
+            }
+        }
+
+        return GenericDisambig::IsLessThan;
+    }
+
+    priv fn create_arity_lookup(matches: bool, needs_type_args: bool) -> ArityMatch {
+        __inline_cpp("return ArityMatch {matches, needs_type_args}");
+    }
+
+    ///
+    /// \brief arity check: does any overload of `name` accept `arg_count` args?
+    ///
+    pub fn check_arity(self, name: *string, arg_count: u32) -> ArityMatch {
+        var nstr = libcxx::string(std::string_to_nstring(*name).raw_string());
+        var it = self._by_name.find(nstr);
+        if it == self._by_name.end() {
+            return create_arity_lookup(false, false);
+        }
+
+        var indices = &(*it).second;
+        for i in range::<usize>(0, indices->size()) {
+            var s = &self._syms[(*indices)[i]];
+            if !s->is_callable { continue; }
+
+            if (arg_count >= s->min_arity) && (arg_count <= s->max_arity) {
+                return create_arity_lookup(true, false);
+            }
+        }
+
+        return create_arity_lookup(false, false);
+    }
+
+    pub fn symbols(self) -> *vec::<ClangSymbol> {
+        return &self._syms;
+    }
+
+    pub fn size(self) -> usize {
+        return self._syms.size();
+    }
+
+    pub fn empty(self) -> bool {
+        return self._syms.empty();
+    }
+
+    pub fn clear(self) {
+        self._syms.clear();
+        self._by_name.clear();
+        self._by_qualified.clear();
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  CLANG BRIDGE — persistent clang infrastructure
+// ═════════════════════════════════════════════════════════════════════════════
+
+///
+/// \struct ClangBridgeConfig
+/// \brief configuration for ClangBridge construction.
+///
+struct ClangBridgeConfig {
+    var target_triple:           string;
+    var cxx_std:                 string;
+    var sysroot:                 string;
+    var resource_dir:            string;
+    var system_include_dirs:     vec::<string>;
+    var user_include_dirs:       vec::<string>;
+    var cxx_system_include_dirs: vec::<string>;
+    var defines:                 vec::<string>;
+    var suppress_diagnostics:    bool = true;
 }
 
 ///
 /// \class ClangBridge
-/// \brief owns the libclang invocation and per-header symbol table cache.
+/// \brief persistent Clang infrastructure, constructed once and reused.
+///
+/// \details
+/// wraps clang_detail::BridgeState.  owns the expensive components
+/// that survive across TU extractions: DiagnosticsEngine, FileManager,
+/// TargetInfo, HeaderSearchOptions.
 ///
 class ClangBridge {
-    priv var _cache: hashmap::<string, ClangSymbolTable>; ///< header_path -> table
-    priv var _sm:    *SourceManager;
-    priv var _diag:  *DiagEngine;
+    priv var _state: *clang_detail::BridgeState = &null;
 
-    ///< c++26 standard flag passed to clang on every invocation
-    priv const CPP_STD: string = "-std=c++26";
+    fn ClangBridge(self) {}
 
-    fn ClangBridge(self, sm: *SourceManager, diag: *DiagEngine) {
-        self._sm    = sm;
-        self._diag  = diag;
-        self._cache = hashmap::<string, ClangSymbolTable>();
+    fn op delete(self) {
+        if self._state != &null {
+            delete self._state;
+            self._state = &null;
+        }
     }
 
     ///
-    /// \brief process a header and return its symbol table.
+    /// \brief factory.  constructs the bridge from config.
     ///
-    /// \param header_path  path to the .h / .hpp file
-    /// \param include_dirs additional -I paths to pass to clang
-    /// \return BridgeResult with kind Ok/Cached on success, ParseError on failure
-    ///
-    /// \details
-    /// loads the header into your SM first so clang and SM share the
-    /// same buffer. clang byte offsets are then directly usable as
-    /// offsets into your SM segment for that file with zero translation.
-    ///
-    fn process_header(self, header_path: Path, include_dirs: vec::<Path>) -> BridgeResult {
-        var key = header_path.full_path();
+    pub static fn create(cfg: *ClangBridgeConfig) -> *ClangBridge {
+        var bridge = std::create::<ClangBridge>();
 
-        if self._cache.contains(key) {
-            var r: BridgeResult;
-            r.kind  = BridgeResultKind::Cached;
-            r.table = &self._cache[key];
-            return r;
+        var cc: clang_detail::BridgeConfig;
+
+        (cc.target_triple)           = std::string_to_nstring(cfg->target_triple).raw_string();
+        (cc.sysroot)                 = std::string_to_nstring(cfg->sysroot).raw_string();
+        (cc.resource_dir)            = std::string_to_nstring(cfg->resource_dir).raw_string();
+        (cc.suppress_diagnostics)    = (cfg->suppress_diagnostics);
+
+        /// for each of the other ones before populating we first convert
+        /// them using std::string_to_nstring
+        /// we do inplace
+        for dir in (cfg->system_include_dirs) {
+            cc.system_include_dirs.push_back(std::string_to_nstring(dir).raw_string());
         }
 
-        // load into SM first - clang receives the same buffer pointer
-        var fid = self._sm->load_file(header_path);
-
-        // actual libclang cursor walk is in ClangBridge.cc
-        // populates self._cache[key] on success
-        var ok = __inline_cpp("this->_invoke_libclang(header_path, include_dirs, fid)");
-
-        if !ok {
-            var r: BridgeResult;
-            r.kind  = BridgeResultKind::ParseError;
-            r.table = &null;
-            return r;
+        for dir in (cfg->user_include_dirs) {
+            cc.user_include_dirs.push_back(std::string_to_nstring(dir).raw_string());
         }
 
-        var r: BridgeResult;
-        r.kind  = BridgeResultKind::Ok;
-        r.table = &self._cache[key];
-        return r;
-    }
-
-    ///
-    /// \brief fast table lookup without re-processing.
-    ///        returns null if header has not been processed yet.
-    ///
-    fn get_table(self, header_path: string) -> *ClangSymbolTable? {
-        if !self._cache.contains(header_path) {
-            return null;
+        for dir in (cfg->cxx_system_include_dirs) {
+            cc.cxx_system_include_dirs.push_back(std::string_to_nstring(dir).raw_string());
         }
 
-        return &self._cache[header_path];
+        for def in (cfg->defines) {
+            cc.defines.push_back(std::string_to_nstring(def).raw_string());
+        }
+
+        if cfg->cxx_std.empty() {
+            (cc.cxx_std) = r"c++26"; // default is fine
+        } else {
+            (cc.cxx_std) = std::string_to_nstring(cfg->cxx_std).raw_string();
+        }
+
+        (bridge->_state) = clang_detail::BridgeState::create(cc);
+
+        if bridge->_state == &null {
+            std::destroy(bridge);
+            return &null;
+        }
+
+        return bridge;
     }
 
-    fn is_cached(self, header_path: string) -> bool {
-        return self._cache.contains(header_path);
-    }
-
-    fn cache_size(self) -> usize {
-        return self._cache.size();
+    pub fn state(self) -> *clang_detail::BridgeState {
+        return self._state;
     }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  SYMBOL EXTRACTOR
+// ═════════════════════════════════════════════════════════════════════════════
+
+///
+/// \class SymbolExtractor
+/// \brief extracts all C++ symbols from a translation unit.
+///
+/// \details
+/// stateless.  each call to extract() creates a fresh CompilerInstance
+/// sharing the bridge's persistent state.  runs SyntaxOnlyAction with
+/// macro + decl collectors, then converts the raw C++ results into a
+/// Kairo ClangSymbolTable.
+///
+class SymbolExtractor {
+    ///
+    /// \brief extract all symbols from a C++ file.
+    ///
+    pub static fn extract(
+        bridge:   *ClangBridge,
+        filename:  Path
+    ) -> ClangSymbolTable {
+        return SymbolExtractor::extract_with_opts(
+            bridge, filename, false, &null
+        );
+    }
+
+    ///
+    /// \brief extract with full options.
+    ///
+    pub static fn extract_with_opts(
+        bridge:          *ClangBridge,
+        filename:         Path,
+        include_system:   bool,
+        diag_sink:       *libcxx::vector::<libcxx::string>
+    ) -> ClangSymbolTable {
+        var table = ClangSymbolTable();
+
+        if (bridge == &null) || (bridge->state() == &null) {
+            return table;
+        }
+
+        var opts = clang_detail::ExtractOpts {};
+        opts.include_system_symbols = include_system;
+
+        if diag_sink != &null {
+            opts.diagnostic_sink = diag_sink;
+        }
+
+        var npath = std::string_to_nstring(filename.full_path());
+
+        var raw = clang_detail::extract_symbols(
+            *bridge->state(),
+            npath.raw(),
+            opts
+        );
+
+        SymbolExtractor::_convert(&raw, &table);
+        return table;
+    }
+
+    ///
+    /// \brief extract with extra include dirs and defines.
+    ///
+    pub static fn extract_with_extras(
+        bridge:              *ClangBridge,
+        filename:             Path,
+        extra_include_dirs:  *libcxx::vector::<libcxx::string>,
+        extra_defines:       *libcxx::vector::<libcxx::string>,
+        include_system:       bool
+    ) -> ClangSymbolTable {
+        var table = ClangSymbolTable();
+
+        if (bridge == &null) || ((bridge->state()) == &null) {
+            return table;
+        }
+
+        var opts = clang_detail::ExtractOpts {};
+        (opts.include_system_symbols) = include_system;
+
+        if extra_include_dirs != &null {
+            (opts.extra_include_dirs) = *extra_include_dirs;
+        }
+
+        if extra_defines != &null {
+            (opts.extra_defines) = *extra_defines;
+        }
+
+        var npath = std::string_to_nstring(filename.full_path());
+
+        var raw = clang_detail::extract_symbols(
+            *bridge->state(),
+            npath.raw(),
+            opts
+        );
+
+        SymbolExtractor::_convert(&raw, &table);
+        return table;
+    }
+
+    // ── internal ─────────────────────────────────────────────────────────
+
+    priv static fn _convert(
+        raw:   *clang_detail::RawSymbolTable,
+        table: *ClangSymbolTable
+    ) {
+        var syms = &(raw->symbols());
+
+        for i in range::<usize>(0, syms->size()) {
+            var rs = (&((*syms)[i]));
+
+            var sym = ClangSymbol {};
+            (sym.name)               = std::nstring_to_string(rs->name);
+            (sym.qualified_name)     = std::nstring_to_string(rs->qualified_name);
+            (sym.kind)               = SymbolExtractor::_convert_kind(rs->kind);
+            (sym.clang_rendered_loc) = std::nstring_to_string(rs->rendered_loc);
+            (sym.min_arity)          = (rs->min_arity);
+            (sym.max_arity)          = (rs->max_arity);
+            (sym.type_param_count)   = (rs->type_param_count);
+            (sym.is_template)        = (rs->is_template);
+            (sym.is_callable)        = (rs->is_callable);
+            (sym.is_type)            = (rs->is_type);
+            (sym.is_value)           = (rs->is_value);
+            (sym.is_namespace)       = (rs->is_namespace);
+            (sym.is_variadic)        = (rs->is_variadic);
+            (sym.is_noexcept)        = (rs->is_noexcept);
+            (sym.has_conversion_op)  = (rs->has_conversion_op);
+            (sym.is_coroutine)       = (rs->is_coroutine);
+            (sym.is_consteval)       = (rs->is_consteval);
+
+            var oparams = raw->overload_params();
+            var oit = oparams.find(i);
+
+            if oit != oparams.end() {
+                var params = &(*oit).second;
+                for j in range::<usize>(0, params->size()) {
+                    sym.overload_type_params.push_back((*params)[j]);
+                }
+            }
+
+            table->insert(sym);
+        }
+    }
+
+    priv static fn _convert_kind(k: clang_detail::SymKind) -> ClangSymbolKind {
+        return static_cast::<ClangSymbolKind>(static_cast::<u8>(k));
+    }
+}
+
+fn Test() -> i32 {
+    var suite = Assert("ClangBridge Tests");
+
+    // ── setup: build a minimal bridge ────────────────────────────────────
+    var cfg = ClangBridgeConfig {};
+    (cfg.cxx_std)              = "c++26";
+    (cfg.suppress_diagnostics) = true;
+    (cfg.resource_dir)         = "/usr/lib/clang/22";
+
+    cfg.cxx_system_include_dirs.push_back("/usr/bin/../include/c++/v1");
+    cfg.cxx_system_include_dirs.push_back("/usr/lib/clang/22/include");
+    cfg.cxx_system_include_dirs.push_back("/usr/local/include");
+    cfg.cxx_system_include_dirs.push_back("/usr/include");
+
+    var bridge = ClangBridge::create(&cfg);
+
+    finally {
+        if bridge != &null {
+            std::destroy(bridge);
+        }
+    }
+
+    // ── 1. bridge construction ────────────────────────────────────────────
+    suite.equal::<string>("bridge create returns non-null", "pass", fn () -> string {
+        if bridge == &null {
+            return "ClangBridge::create returned null — check target triple / resource_dir";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("bridge state is non-null", "pass", fn () -> string {
+        if bridge == &null { return "bridge is null, skipping"; }
+        if bridge->state() == &null {
+            return "bridge->state() is null after successful create";
+        }
+        return "pass";
+    });
+
+    // ── 2. extract from a header with known symbols ───────────────────────
+    // write a temp header with known contents
+    static var hdr_content: libcxx::string = std::string_to_nstring(
+          "namespace test_ns {\n"
+          "    void simple_func();\n"
+          "    int add(int a, int b);\n"
+          "    int add(int a, int b, int c);\n"
+          "    template<typename T> T identity(T x);\n"
+          "    struct MyStruct { };\n"
+          "    enum class MyEnum { A, B };\n"
+          "    constexpr int CONST_VAL = 42;\n"
+          "    void variadic_func(int x, ...);\n"
+          "}\n").raw_string();
+
+    var tmp_path = (libcxx::filesystem::temp_directory_path())
+        / libcxx::filesystem::path(r"kairo_clangbridge_test.hh");
+    var tmp_path_str = tmp_path.generic_string();
+
+    // write the file
+    __inline_cpp("
+        {
+            libcxx::ofstream f(tmp_path_str);
+            f << hdr_content;
+        }
+    ");
+
+    var tbl = ClangSymbolTable();
+
+    suite.equal::<string>("extract returns non-empty table", "pass", fn () -> string {
+        if bridge == &null { return "bridge is null, skipping"; }
+
+        var p = Path(std::nstring_to_string(tmp_path_str), false);
+        tbl = SymbolExtractor::extract(bridge, p);
+
+        if tbl.empty() {
+            return "symbol table is empty — extraction failed or header not found";
+        }
+        return "pass";
+    });
+
+    // ── 3. symbol table correctness ───────────────────────────────────────
+    suite.equal::<string>("simple_func is found and callable", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "simple_func";
+        var res = tbl.lookup(&name);
+
+        if res.kind != LookupResultKind::Found {
+            return "simple_func not found";
+        }
+        if !res.sym.is_callable {
+            return "simple_func not marked callable";
+        }
+        if res.sym.min_arity != 0 || res.sym.max_arity != 0 {
+            return f"simple_func arity: expected (0,0), got ({res.sym.min_arity},{res.sym.max_arity})";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("add merges into overload set with arity (2,3)", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "add";
+        var res = tbl.lookup(&name);
+
+        if res.kind != LookupResultKind::Found {
+            return "add not found";
+        }
+        if res.sym.kind != ClangSymbolKind::OverloadSet {
+            return f"expected OverloadSet, got {(res.sym.kind) as u8}";
+        }
+        if res.sym.min_arity != 2 {
+            return f"min_arity: expected 2, got {res.sym.min_arity}";
+        }
+        if res.sym.max_arity != 3 {
+            return f"max_arity: expected 3, got {res.sym.max_arity}";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("identity is a template", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "identity";
+        var res = tbl.lookup(&name);
+
+        if res.kind != LookupResultKind::Found {
+            return "identity not found";
+        }
+        if !res.sym.is_template {
+            return "identity not marked as template";
+        }
+        if res.sym.type_param_count != 1 {
+            return f"type_param_count: expected 1, got {res.sym.type_param_count}";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("MyStruct is a type and not callable", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "MyStruct";
+        var res = tbl.lookup(&name);
+
+        if res.kind != LookupResultKind::Found {
+            return "MyStruct not found";
+        }
+        if !res.sym.is_type {
+            return "MyStruct not marked as type";
+        }
+        if res.sym.is_callable {
+            return "MyStruct incorrectly marked callable";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("MyEnum is EnumClass and is_namespace", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "MyEnum";
+        var res = tbl.lookup(&name);
+
+        if res.kind != LookupResultKind::Found {
+            return "MyEnum not found";
+        }
+        if res.sym.kind != ClangSymbolKind::EnumClass {
+            return f"expected EnumClass, got kind={(res.sym.kind) as u8}";
+        }
+        if !res.sym.is_namespace {
+            return "EnumClass should set is_namespace (scoped enum acts as namespace)";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("test_ns namespace is found", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "test_ns";
+        var res = tbl.lookup(&name);
+
+        if res.kind != LookupResultKind::Found {
+            return "test_ns not found";
+        }
+        if (res.sym.kind) != ClangSymbolKind::Namespace {
+            return f"expected Namespace, got kind={(res.sym.kind) as u8}";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("variadic_func is marked variadic", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "variadic_func";
+        var res = tbl.lookup(&name);
+
+        if res.kind != LookupResultKind::Found {
+            return "variadic_func not found";
+        }
+        if !res.sym.is_variadic {
+            return "variadic_func not marked variadic";
+        }
+        var u32_max: u32 = 0xFFFFFFFF;
+        if res.sym.max_arity != u32_max {
+            return f"max_arity: expected u32::MAX, got {res.sym.max_arity}";
+        }
+        return "pass";
+    });
+
+    // ── 4. disambiguate_generic ───────────────────────────────────────────
+    suite.equal::<string>("disambiguate_generic: identity → IsGeneric", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "identity";
+        var result = tbl.disambiguate_generic(&name);
+
+        if result != GenericDisambig::IsGeneric {
+            return "identity should disambiguate as IsGeneric";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("disambiguate_generic: add → IsLessThan", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "add";
+        var result = tbl.disambiguate_generic(&name);
+
+        if result != GenericDisambig::IsLessThan {
+            return "add (non-template) should disambiguate as IsLessThan";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("disambiguate_generic: unknown name → Unknown", "pass", fn () -> string {
+        var name = "__nonexistent_xyz__";
+        var result = tbl.disambiguate_generic(&name);
+
+        if result != GenericDisambig::Unknown {
+            return "unknown name should return Unknown";
+        }
+        return "pass";
+    });
+
+    // ── 5. check_arity ────────────────────────────────────────────────────
+    suite.equal::<string>("check_arity: add(2) matches", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "add";
+        var r = tbl.check_arity(&name, 2);
+
+        if !r.matches {
+            return "add(2) should match";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("check_arity: add(3) matches", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "add";
+        var r = tbl.check_arity(&name, 3);
+
+        if !r.matches {
+            return "add(3) should match";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("check_arity: add(5) does not match", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var name = "add";
+        var r = tbl.check_arity(&name, 5);
+
+        if r.matches {
+            return "add(5) should not match";
+        }
+        return "pass";
+    });
+
+    // ── 6. qualified lookup ───────────────────────────────────────────────
+    suite.equal::<string>("qualified lookup: test_ns::add found", "pass", fn () -> string {
+        if tbl.empty() { return "table empty, skipping"; }
+
+        var qname = "test_ns::add";
+        var res = tbl.lookup_qualified(&qname);
+
+        if res.kind != LookupResultKind::Found {
+            return "test_ns::add not found via qualified lookup";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("qualified lookup: nonexistent returns NotFound", "pass", fn () -> string {
+        var qname = "test_ns::__nope__";
+        var res = tbl.lookup_qualified(&qname);
+
+        if res.kind != LookupResultKind::NotFound {
+            return "expected NotFound for nonexistent qualified name";
+        }
+        return "pass";
+    });
+
+    // ── 7. null bridge safety ─────────────────────────────────────────────
+    suite.equal::<string>("extract with null bridge returns empty table", "pass", fn () -> string {
+        var p = Path(std::nstring_to_string(tmp_path_str), false);
+        var t = SymbolExtractor::extract(&null, p);
+
+        if !t.empty() {
+            return "expected empty table when bridge is null";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("dump extracted symbols", "pass", fn () -> string {
+        // write a header that pulls in several heavy stdlib headers
+        static var hdr_content: libcxx::string = std::string_to_nstring(
+            "#include <vector>\n"
+            + "#include <unordered_map>\n"
+            + "#include <string>\n"
+            + "#include <algorithm>\n"
+            + "#include <memory>\n"
+            + "#include <optional>\n"
+            + "#include <variant>\n"
+            + "#include <functional>\n"
+            + "#include <span>\n"
+            + "#include <ranges>\n").raw_string();
+
+        var tmp_path = (libcxx::filesystem::temp_directory_path())
+            / libcxx::filesystem::path(r"kairo_clangbridge_stdlib_test.hh");
+        var tmp_path_str = tmp_path.generic_string();
+
+        __inline_cpp("
+            {
+                libcxx::ofstream f(tmp_path_str);
+                f << hdr_content;
+            }
+        ");
+
+        // ── bridge with correct include paths ────────────────────────────────
+        var stdlib_cfg = ClangBridgeConfig {};
+        (stdlib_cfg.cxx_std)              = "c++26";
+        (stdlib_cfg.suppress_diagnostics) = true;
+        (stdlib_cfg.resource_dir)         = "/usr/lib/clang/22";
+
+        stdlib_cfg.cxx_system_include_dirs.push_back("/usr/bin/../include/c++/v1");
+        stdlib_cfg.cxx_system_include_dirs.push_back("/usr/lib/clang/22/include");
+        stdlib_cfg.cxx_system_include_dirs.push_back("/usr/local/include");
+        stdlib_cfg.cxx_system_include_dirs.push_back("/usr/include");
+
+        var stdlib_bridge = ClangBridge::create(&stdlib_cfg);
+        finally {
+            if stdlib_bridge != &null {
+                std::destroy(stdlib_bridge);
+            }
+        }
+
+        if stdlib_bridge == &null {
+            return "failed to create stdlib bridge";
+        }
+
+        var p   = Path(std::nstring_to_string(tmp_path_str), false);
+        var stl = SymbolExtractor::extract_with_opts(stdlib_bridge, p, true, &null);
+
+        if stl.empty() {
+            return "stdlib symbol table is empty — check include paths";
+        }
+
+        /////////////
+        // we avoid printing all the symbols since it can be overwhelming,
+        // but this is left here as a spot check for manual inspection during test development
+        /////////////
+    
+        // var syms = stl.symbols();
+        // std::print(f"\n=== Extracted Symbols ({stl.size()} total, stdlib) ===");
+
+        // for i in range::<usize>(0, syms->size()) {
+        //     var s = &((*syms)[i]);
+
+        //     var kind_str = "";
+        //     if s->kind == ClangSymbolKind::Function              { kind_str = "fn"; }
+        //     else if s->kind == ClangSymbolKind::Method           { kind_str = "method"; }
+        //     else if s->kind == ClangSymbolKind::Constructor      { kind_str = "ctor"; }
+        //     else if s->kind == ClangSymbolKind::Destructor       { kind_str = "dtor"; }
+        //     else if s->kind == ClangSymbolKind::OverloadSet      { kind_str = "overload_set"; }
+        //     else if s->kind == ClangSymbolKind::FunctionTemplate { kind_str = "fn_tmpl"; }
+        //     else if s->kind == ClangSymbolKind::ClassTemplate    { kind_str = "class_tmpl"; }
+        //     else if s->kind == ClangSymbolKind::AliasTemplate    { kind_str = "alias_tmpl"; }
+        //     else if s->kind == ClangSymbolKind::Class            { kind_str = "class"; }
+        //     else if s->kind == ClangSymbolKind::Union            { kind_str = "union"; }
+        //     else if s->kind == ClangSymbolKind::Enum             { kind_str = "enum"; }
+        //     else if s->kind == ClangSymbolKind::EnumClass        { kind_str = "enum_class"; }
+        //     else if s->kind == ClangSymbolKind::TypeAlias        { kind_str = "alias"; }
+        //     else if s->kind == ClangSymbolKind::Concept          { kind_str = "concept"; }
+        //     else if s->kind == ClangSymbolKind::Variable         { kind_str = "var"; }
+        //     else if s->kind == ClangSymbolKind::StaticMember     { kind_str = "static"; }
+        //     else if s->kind == ClangSymbolKind::EnumConstant     { kind_str = "enum_val"; }
+        //     else if s->kind == ClangSymbolKind::MacroFunction    { kind_str = "macro_fn"; }
+        //     else if s->kind == ClangSymbolKind::MacroConstant    { kind_str = "macro_const"; }
+        //     else if s->kind == ClangSymbolKind::Namespace        { kind_str = "namespace"; }
+        //     else                                                 { kind_str = "?"; }
+
+        //     var flags = "";
+        //     if s->is_template  { flags += " tmpl"; }
+        //     if s->is_variadic  { flags += " variadic"; }
+        //     if s->is_noexcept  { flags += " noexcept"; }
+        //     if s->is_coroutine { flags += " coro"; }
+        //     if s->is_consteval { flags += " consteval"; }
+
+        //     var arity_str = "";
+        //     if s->is_callable {
+        //         var u32_max: u32 = 0xFFFFFFFF;
+        //         if s->max_arity == u32_max {
+        //             arity_str = f"({s->min_arity}..∞)";
+        //         } else if (s->min_arity) == (s->max_arity) {
+        //             arity_str = f"({s->min_arity})";
+        //         } else {
+        //             arity_str = f"({s->min_arity}..{s->max_arity})";
+        //         }
+        //     }
+
+        //     var tmpl_str = "";
+        //     if s->type_param_count > 0 {
+        //         tmpl_str = f"<{s->type_param_count}>";
+        //     }
+
+        //     // only print std:: symbols to avoid drowning in impl details
+        //     var qn = s->qualified_name;
+        //     if qn.starts_with("std::") || qn == "std" {
+        //         std::print(f"  [{kind_str}]{tmpl_str} {qn}{arity_str}{flags}");
+        //         if s->kind == ClangSymbolKind::OverloadSet && !s->overload_type_params.empty() {
+        //             var oparams = &s->overload_type_params;
+        //             std::print(f"    overloads: {oparams->size()} variants");
+        //         }
+        //     }
+        // }
+
+        // std::print("=== End Symbols ===\n");
+
+        // ── spot checks — kairo string API since lookup now takes *string ─────
+        var vec_name  = "vector";
+        var vec_res   = stl.lookup_qualified(&vec_name);
+        if vec_res.kind == LookupResultKind::NotFound {
+            return "vector not found — stdlib headers likely not being parsed";
+        }
+        if vec_res.sym.kind != ClangSymbolKind::ClassTemplate {
+            return f"vector found but wrong kind={libcxx::to_wstring(static_cast::<u8>(vec_res.sym.kind))}, lookup_kind={libcxx::to_wstring(static_cast::<u8>(vec_res.kind))}, candidates={libcxx::to_wstring(vec_res.candidates.size())}";
+        }
+
+        var sort_name = "sort";
+        var sort_res  = stl.lookup_qualified(&sort_name);
+        if sort_res.kind == LookupResultKind::NotFound {
+            return "sort not found";
+        }
+        if !sort_res.sym.is_callable {
+            return "sort found but not marked callable";
+        }
+
+        var opt_name  = "optional";
+        var opt_res   = stl.lookup_qualified(&opt_name);
+        if opt_res.kind == LookupResultKind::NotFound {
+            return "optional not found";
+        }
+
+        var umap_name = "unordered_map";
+        var umap_res  = stl.lookup_qualified(&umap_name);
+        if umap_res.kind == LookupResultKind::NotFound {
+            return "unordered_map not found";
+        }
+
+        var make_name = "make_unique";
+        var make_res  = stl.lookup_qualified(&make_name);
+        if make_res.kind == LookupResultKind::NotFound {
+            return "make_unique not found";
+        }
+        if !make_res.sym.is_template {
+            return "make_unique found but not marked as template";
+        }
+
+        libcxx::filesystem::remove(tmp_path);
+        return "pass";
+    });
+
+    // cleanup temp file
+    libcxx::filesystem::remove(tmp_path);
+
+    return 0;
+}
+

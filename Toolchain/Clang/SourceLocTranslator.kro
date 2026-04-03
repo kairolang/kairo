@@ -1,0 +1,76 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+ffi "c++" import "Clang/ClangBridgeImpl.hh";
+
+import Core::Source::SourceLocation::*;
+import Core::Source::SourceRange::*;
+import Core::Source::SourceManager::*;
+
+///
+/// \brief kairo SourceLocation → clang::SourceLocation.
+///
+/// \param loc   valid kairo SourceLocation.
+/// \param sm    kairo SourceManager that owns loc.
+/// \param csm   clang SourceManager for the TU being processed.
+/// \return      corresponding clang::SourceLocation, or invalid if loc is
+///              invalid or the file is not loaded in csm.
+///
+fn to_clang_source_loc(
+    loc: SourceLocation,
+    sm:  *SourceManager,
+    csm: *clang::SourceManager
+) -> clang::SourceLocation {
+    if !loc.is_valid() {
+        return clang::SourceLocation();
+    }
+
+    var coord = clang_detail::to_file_coord(loc, *sm);
+
+    if !coord.is_valid() {
+        return clang::SourceLocation();
+    }
+
+    return clang_detail::to_clang_loc(coord, *csm);
+}
+
+///
+/// \brief clang::SourceLocation → kairo SourceLocation.
+///
+/// \param loc   valid clang::SourceLocation.
+/// \param csm   clang SourceManager that owns loc.
+/// \param sm    kairo SourceManager — file is loaded into it if not already.
+/// \return      corresponding kairo SourceLocation, or invalid if loc is
+///              invalid or the file cannot be loaded.
+///
+fn to_kairo_source_loc(
+    loc: clang::SourceLocation,
+    csm: *clang::SourceManager,
+    sm:  *SourceManager
+) -> SourceLocation {
+    if loc.isInvalid() {
+        return SourceLocation();
+    }
+
+    var coord = clang_detail::to_file_coord(loc, *csm);
+
+    if !coord.is_valid() {
+        return SourceLocation();
+    }
+
+    var path = Path(std::nstring_to_string(coord.filename), false);
+    var fid  = sm->load_file(path, true);  // skip_indexing: we only need offsets
+
+    return sm->get_loc(fid, static_cast::<usize>(coord.offset));
+}

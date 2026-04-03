@@ -18,7 +18,7 @@
 ///
 /// \brief Tracks the lifecycle stage of a FrontendAction.
 ///
-/// Stages are strictly ordered — a FrontendAction may only advance forward.
+/// Stages are strictly ordered - a FrontendAction may only advance forward.
 /// A stage returning false halts the pipeline and leaves the stage at Failed.
 /// A fatal diagnostic in any file sets BatchResult::aborted, skipping later files.
 ///

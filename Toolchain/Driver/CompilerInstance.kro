@@ -14,7 +14,7 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 ///
-/// Driver Layer 2 — CompilerInstance
+/// Driver Layer 2 - CompilerInstance
 /// ====================================
 ///
 /// CompilerInstance is the hub of a compilation.  It owns every shared
@@ -37,7 +37,7 @@
 ///     TokenCacheManager, PrettyDiagConsumer, BasicDiagConsumer, Command
 ///
 ///   Created in execute():
-///     ImportResolver  — needs cwd + invocation paths; short-lived per call.
+///     ImportResolver  - needs cwd + invocation paths; short-lived per call.
 ///
 /// CLI integration
 /// ────────────────
@@ -132,8 +132,6 @@ class FrontendAction {
 }
 
 class CompilerInstance {
-    __inline_cpp("public:");
-
     // ── owned resources ───────────────────────────────────────────────────
     //   Destruction order is the reverse of construction order below.
     priv var _pool:   *ThreadPool;
@@ -148,10 +146,6 @@ class CompilerInstance {
     // ── CLI state ─────────────────────────────────────────────────────────
     priv var _parsed: ParsedArgs;
     priv var _inv:    CompilerInvocation;
-
-    // =========================================================================
-    //  Construction / destruction
-    // =========================================================================
 
     fn CompilerInstance(self, argc: i32, argv: *(*kairo::std::Legacy::char)) {
         // ── 1. Infrastructure (pool → diag → SM → TCM → consumers) ───────
@@ -203,19 +197,11 @@ class CompilerInstance {
         if self._pool   != &null { std::destroy(self._pool);   self._pool   = &null; }
     }
 
-    // =========================================================================
-    //  Accessors — non-owning pointers for subsystem use
-    // =========================================================================
-
     fn diag(self)       -> *DiagEngine          { return self._diag; }
     fn sm(self)         -> *SourceManager       { return self._sm;   }
     fn tcm(self)        -> *TokenCacheManager   { return self._tcm;  }
     fn pool(self)       -> *ThreadPool          { return self._pool; }
     fn invocation(self) -> ref!(CompilerInvocation) { return self._inv; }
-
-    // =========================================================================
-    //  Early-exit queries — checked in main() before execute()
-    // =========================================================================
 
     fn wants_help(self)    -> bool { return self._parsed.get_bool("help"); }
     fn wants_version(self) -> bool { return self._parsed.get_bool("version"); }
@@ -234,24 +220,20 @@ class CompilerInstance {
             || self._parsed.get_bool("print-cfg");
     }
 
-    // =========================================================================
-    //  Early-exit actions
-    // =========================================================================
-
     fn print_help(self) {
         self._cmd->print_help();
     }
 
     fn print_version(self) {
-        std::print(f"kairo version 0.1.1+rc.250306");
-        std::print(f"target triple: {llvm::sys::getDefaultTargetTriple()}");
-        std::print(f"thread model:  {std::get_thread_model()}");
-        std::print(f"installed at:  {((std::get_exe_path()).parent_path()).generic_wstring()}");
+        std::print(f"installed version: {VERSION}");
+        std::print(f"target triple:     {llvm::sys::getProcessTriple()}");
+        std::print(f"thread model:      {std::get_thread_model()}");
+        std::print(f"installed at:      {((std::get_exe_path()).parent_path()).generic_wstring()}");
     }
 
     fn run_explain(self) -> i32 {
         var code = self._parsed.get_string("explain");
-        // trim whitespace
+
         var first: usize = code.raw_string().find_first_not_of(" \t\n\r\f\v".raw());
         if !(string::npos == first) {
             var last: usize = code.raw_string().find_last_not_of(" \t\n\r\f\v".raw());
@@ -268,8 +250,6 @@ class CompilerInstance {
         return 0;
     }
 
-    /// Handle info-query flags.  --print-cfg is fully implemented today;
-    /// all others are stubs pending their subsystems.
     fn run_info_query(self) -> i32 {
         if self._parsed.get_bool("print-cfg") {
             for s: string in self._parsed.get_list("cfg") { std::print(s); }
@@ -283,10 +263,6 @@ class CompilerInstance {
         self._pretty->finalize_to_stderr();
     }
 
-    // =========================================================================
-    //  execute() — Layer 3 entry point
-    // =========================================================================
-
     ///
     /// \brief Compile all input files described by the invocation.
     ///
@@ -297,7 +273,7 @@ class CompilerInstance {
     /// Async upgrade path
     /// ───────────────────
     ///   Phase 1 (currently inlined into FrontendAction::run):
-    ///     Load + lex — touches shared SM/TCM, must stay on this thread.
+    ///     Load + lex - touches shared SM/TCM, must stay on this thread.
     ///
     ///   Phase 2 (future, when parallel dispatch lands):
     ///     Each FrontendAction can be handed to the pool after load + lex
@@ -365,10 +341,6 @@ class CompilerInstance {
 
         return result;
     }
-
-    // =========================================================================
-    //  Private helpers
-    // =========================================================================
 
     ///
     /// \brief Apply invocation settings to live subsystems.

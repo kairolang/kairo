@@ -131,7 +131,7 @@ class SourceManager {
     /// - registers file in the VirtualFileManager and SourceLineTable.
     /// - schedules async line-index build on the thread pool.
     ///
-    fn load_file(self, path: Path) -> FileID /* file_id */ {
+    fn load_file(self, path: Path, skip_indexing: bool = false) -> FileID /* file_id */ {
         for i in range::<usize>(0, self._files.size()) {
             var f = self._files[i];
 
@@ -157,6 +157,11 @@ class SourceManager {
         self._total_b += file->size_bytes;
         self._files.push_back(file);
         Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={file->size_bytes}B total={self._total_b}B");
+        
+        if skip_indexing {
+            Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: skipping line index for fid={base_fid} path={path.full_path()}");
+            return base_fid;
+        }
         
         self._pool->enqueue(__inline_cpp("
             [fid = base_fid, this]() {

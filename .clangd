@@ -1,0 +1,8 @@
+CompileFlags:
+  CompilationDatabase: .
+
+---
+If:
+  PathMatch: ^Lib/llvm-runtimes/.*
+CompileFlags:
+  CompilationDatabase: build/llvm

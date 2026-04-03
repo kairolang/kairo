@@ -672,187 +672,198 @@ class Lexer {
         var consumed: usize = 0;
         var out_i: usize = 0;
 
-        if (max_unicode_len == 1) {
-            const eval if defined(__AVX512BW__) && defined(__AVX512VL__) {
-                const STRIDE: usize = 64;
+        if (max_unicode_len != 1) {
+            while (out_i < N) && (consumed < remain) {
+                var d = UTF8View::decode_utf8(data + consumed, remain - consumed);
+                if d.len == 0 { break; }
 
-                while (out_i < N) {
-                    var rem = remain - consumed;
-                    if rem < STRIDE { break; } // <-- HARD BOUNDARY
+                res[out_i] = d;
+                consumed += d.len;
+                ++out_i;
+            }
 
-                    var ptr = data + consumed;
+            return res;
+        }
 
-                    // fully within mapping?
-                    // (only necessary if your MemoryBuffer isn't guaranteed padded)
-                    // Here we assume `remain` is correct for mapping.
+        const eval if defined(__AVX512BW__) && defined(__AVX512VL__) {
+            const STRIDE: usize = 64;
 
-                    var chunk: __m512i =
-                        _mm512_loadu_si512(reinterpret_cast::<const *__m512i>(ptr));
+            while (out_i < N) {
+                var rem = remain - consumed;
+                if rem < STRIDE { break; } // <-- HARD BOUNDARY
 
-                    var mask: __mmask64 = _mm512_movepi8_mask(chunk);
+                var ptr = data + consumed;
 
-                    if mask == 0 { // fully ASCII
-                        var limit = STRIDE;
-                        if out_i + STRIDE > N {
-                            limit = N - out_i;
-                        }
+                // fully within mapping?
+                // (only necessary if your MemoryBuffer isn't guaranteed padded)
+                // Here we assume `remain` is correct for mapping.
 
-                        for var j: usize = 0; j < limit; ++j {
-                            res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
-                            ++out_i;
-                        }
+                var chunk: __m512i =
+                    _mm512_loadu_si512(reinterpret_cast::<const *__m512i>(ptr));
 
-                        consumed += limit;
-                        continue;
-                    } else { // first non-ASCII stops SIMD processing
-                        var first = libcxx::countr_zero(mask);
+                var mask: __mmask64 = _mm512_movepi8_mask(chunk);
 
-                        var limit = first;
-                        if out_i + limit > N {
-                            limit = N - out_i;
-                        }
-
-                        for var j: usize = 0; j < limit; ++j {
-                            res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
-                            ++out_i;
-                        }
-
-                        consumed += first;
-                        break;
+                if mask == 0 { // fully ASCII
+                    var limit = STRIDE;
+                    if out_i + STRIDE > N {
+                        limit = N - out_i;
                     }
+
+                    for var j: usize = 0; j < limit; ++j {
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        ++out_i;
+                    }
+
+                    consumed += limit;
+                    continue;
+                } else { // first non-ASCII stops SIMD processing
+                    var first = libcxx::countr_zero(mask);
+
+                    var limit = first;
+                    if out_i + limit > N {
+                        limit = N - out_i;
+                    }
+
+                    for var j: usize = 0; j < limit; ++j {
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        ++out_i;
+                    }
+
+                    consumed += first;
+                    break;
                 }
-            } else if defined(__AVX2__) {
-                const STRIDE: usize = 32;
+            }
+        } else if defined(__AVX2__) {
+            const STRIDE: usize = 32;
 
-                while (out_i < N) {
-                    var rem = remain - consumed;
-                    if rem < STRIDE { break; }
+            while (out_i < N) {
+                var rem = remain - consumed;
+                if rem < STRIDE { break; }
 
-                    var ptr = data + consumed;
+                var ptr = data + consumed;
 
-                    var chunk: __m256i =
-                        _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(ptr));
+                var chunk: __m256i =
+                    _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(ptr));
 
-                    var hi = _mm256_movemask_epi8(chunk);
-                    if hi == 0 {
-                        var limit = STRIDE;
-                        if out_i + STRIDE > N {
-                            limit = N - out_i;
-                        }
-
-                        for var j: usize = 0; j < limit; ++j {
-                            res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
-                            ++out_i;
-                        }
-
-                        consumed += limit;
-                        continue;
-                    } else {
-                        var first = libcxx::countr_zero(hi);
-
-                        var limit = first;
-                        if out_i + limit > N {
-                            limit = N - out_i;
-                        }
-
-                        for var j: usize = 0; j < limit; ++j {
-                            res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
-                            ++out_i;
-                        }
-
-                        consumed += first;
-                        break;
+                var hi = _mm256_movemask_epi8(chunk);
+                if hi == 0 {
+                    var limit = STRIDE;
+                    if out_i + STRIDE > N {
+                        limit = N - out_i;
                     }
+
+                    for var j: usize = 0; j < limit; ++j {
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        ++out_i;
+                    }
+
+                    consumed += limit;
+                    continue;
+                } else {
+                    var first = libcxx::countr_zero(hi);
+
+                    var limit = first;
+                    if out_i + limit > N {
+                        limit = N - out_i;
+                    }
+
+                    for var j: usize = 0; j < limit; ++j {
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        ++out_i;
+                    }
+
+                    consumed += first;
+                    break;
                 }
-            } else if defined(__SSE2__) {
-                const STRIDE: usize = 16;
+            }
+        } else if defined(__SSE2__) {
+            const STRIDE: usize = 16;
 
-                while (out_i < N) {
-                    var rem = remain - consumed;
-                    if rem < STRIDE { break; }
+            while (out_i < N) {
+                var rem = remain - consumed;
+                if rem < STRIDE { break; }
 
-                    var ptr = data + consumed;
-                    var chunk: __m128i =
-                        _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(ptr));
+                var ptr = data + consumed;
+                var chunk: __m128i =
+                    _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(ptr));
 
-                    var hi = _mm_movemask_epi8(chunk);
-                    if hi == 0 {
-                        var limit = STRIDE;
-                        if out_i + STRIDE > N {
-                            limit = N - out_i;
-                        }
-
-                        for var j: usize = 0; j < limit; ++j {
-                            res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
-                            ++out_i;
-                        }
-
-                        consumed += limit;
-                        continue;
-                    } else {
-                        var first = libcxx::countr_zero(static_cast::<u32>(hi));
-
-                        var limit = first;
-                        if out_i + limit > N {
-                            limit = N - out_i;
-                        }
-
-                        for var j: usize = 0; j < limit; ++j {
-                            res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
-                            ++out_i;
-                        }
-
-                        consumed += first;
-                        break;
+                var hi = _mm_movemask_epi8(chunk);
+                if hi == 0 {
+                    var limit = STRIDE;
+                    if out_i + STRIDE > N {
+                        limit = N - out_i;
                     }
+
+                    for var j: usize = 0; j < limit; ++j {
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        ++out_i;
+                    }
+
+                    consumed += limit;
+                    continue;
+                } else {
+                    var first = libcxx::countr_zero(static_cast::<u32>(hi));
+
+                    var limit = first;
+                    if out_i + limit > N {
+                        limit = N - out_i;
+                    }
+
+                    for var j: usize = 0; j < limit; ++j {
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        ++out_i;
+                    }
+
+                    consumed += first;
+                    break;
                 }
-            } else if defined(__ARM_NEON) {
-                const STRIDE: usize = 16;
-                const hi_mask: uint8x16_t = vdupq_n_u8(0x80);
+            }
+        } else if defined(__ARM_NEON) {
+            const STRIDE: usize = 16;
+            const hi_mask: uint8x16_t = vdupq_n_u8(0x80);
 
-                while (out_i < N) {
-                    var rem = remain - consumed;
-                    if rem < STRIDE { break; }
+            while (out_i < N) {
+                var rem = remain - consumed;
+                if rem < STRIDE { break; }
 
-                    var ptr = data + consumed;
+                var ptr = data + consumed;
 
-                    var chunk = vld1q_u8(ptr);
-                    var hi = vandq_u8(chunk, hi_mask);
-                    hi = vtstq_u8(hi, hi_mask);
+                var chunk = vld1q_u8(ptr);
+                var hi = vandq_u8(chunk, hi_mask);
+                hi = vtstq_u8(hi, hi_mask);
 
-                    var tmp: std::Memory::buffer::<u8, 16>;
-                    vst1q_u8(tmp, hi);
+                var tmp: std::Memory::buffer::<u8, 16>;
+                vst1q_u8(tmp, hi);
 
-                    var bitmask: u32 = 0;
-                    for var k: usize = 0; k < 16; ++k {
-                        if tmp[k] != 0 { bitmask |= (1 << k); }
+                var bitmask: u32 = 0;
+                for var k: usize = 0; k < 16; ++k {
+                    if tmp[k] != 0 { bitmask |= (1 << k); }
+                }
+
+                if bitmask == 0 {
+                    var limit = STRIDE;
+                    if out_i + STRIDE > N { limit = N - out_i; }
+
+                    for var j: usize = 0; j < limit; ++j {
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        ++out_i;
                     }
 
-                    if bitmask == 0 {
-                        var limit = STRIDE;
-                        if out_i + STRIDE > N { limit = N - out_i; }
+                    consumed += limit;
+                    continue;
+                } else {
+                    var first = libcxx::countr_zero(bitmask);
 
-                        for var j: usize = 0; j < limit; ++j {
-                            res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
-                            ++out_i;
-                        }
+                    var limit = first;
+                    if out_i + limit > N { limit = N - out_i; }
 
-                        consumed += limit;
-                        continue;
-                    } else {
-                        var first = libcxx::countr_zero(bitmask);
-
-                        var limit = first;
-                        if out_i + limit > N { limit = N - out_i; }
-
-                        for var j: usize = 0; j < limit; ++j {
-                            res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
-                            ++out_i;
-                        }
-
-                        consumed += first;
-                        break;
+                    for var j: usize = 0; j < limit; ++j {
+                        res[out_i] = DecodeResult(static_cast::<char32>(ptr[j]), 1);
+                        ++out_i;
                     }
+
+                    consumed += first;
+                    break;
                 }
             }
         }
