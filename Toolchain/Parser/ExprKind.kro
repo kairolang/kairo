@@ -109,7 +109,7 @@ enum ExprKind {
 
     /// Growable vector initializer:  [i32, ...]  |  [i32, ... = 0]
     /// Node: VecInitializerExpr
-    VecInitializerExpr,
+    VectorInitializerExpr,
 
     /// Map initializer:  {i32: str, ...}  |  {i32: str, ... = default}
     /// Node: MapInitializerExpr

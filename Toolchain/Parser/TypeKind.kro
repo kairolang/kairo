@@ -91,8 +91,8 @@ enum TypeKind {
     FixedArrayType,
 
     /// Growable vector type:  [i32]
-    /// Node: SliceType element TypeRef.
-    SliceType,
+    /// Node: VectorType element TypeRef.
+    VectorType,
 
     /// Map type:  {str: i32}
     /// Node: MapType key TypeRef + value TypeRef.
