@@ -26,6 +26,7 @@ import Core::Source::SourceRange::*;
 import Core::Source::SourceManager::*;
 import Lexer::Token::*;
 import Lexer::Immediate::*;
+import Preprocessor::MacroSentinel::*;
 
 import Parser::DeclContextKind::*;
 import Parser::DeclKind::*;
@@ -35,73 +36,41 @@ import Parser::TypeKind::*;
 import Parser::StmtKind::*;
 
 class Expr {
-    pub var _range: SourceRange;
-    pub var _kind:  ExprKind;
+    pub var range: SourceRange;
+    pub var kind:  ExprKind;
     // required for getting the actual text from a token's source range
     pub var _sm:      *SourceManager;
     pub var _imm_tbl: *ImmediateTable;
-
-    fn range(self) -> SourceRange {
-        return self._range;
-    }
-
-    fn kind(self) -> ExprKind {
-        return self._kind;
-    }
     
     static fn classof(ptr: *Expr) -> bool;
 }
 
 class Stmt {
-    pub var _range: SourceRange;
-    pub var _kind:  StmtKind;
+    pub var range: SourceRange;
+    pub var kind:  StmtKind;
     // required for getting the actual text from a token's source range
     pub var _sm:      *SourceManager;
     pub var _imm_tbl: *ImmediateTable;
-
-    fn range(self) -> SourceRange {
-        return self._range;
-    }
-
-    fn kind(self) -> StmtKind {
-        return self._kind;
-    }
     
     static fn classof(ptr: *Stmt) -> bool;
 }
 
 class Decl {
-    pub var _range: SourceRange;
-    pub var _kind:  DeclKind;
+    pub var range: SourceRange;
+    pub var kind:  DeclKind;
     // required for getting the actual text from a token's source range
     pub var _sm:      *SourceManager;
     pub var _imm_tbl: *ImmediateTable;
-
-    fn range(self) -> SourceRange {
-        return self._range;
-    }
-
-    fn kind(self) -> DeclKind {
-        return self._kind;
-    }
     
     static fn classof(ptr: *Decl) -> bool;
 }
 
 class Type {
-    pub var _range: SourceRange;
-    pub var _kind:  ExprKind;
+    pub var range: SourceRange;
+    pub var kind:  TypeKind;
     // required for getting the actual text from a token's source range
     pub var _sm:      *SourceManager;
     pub var _imm_tbl: *ImmediateTable;
-
-    fn range(self) -> SourceRange {
-        return self._range;
-    }
-
-    fn kind(self) -> ExprKind {
-        return self._kind;
-    }
     
     static fn classof(ptr: *Type) -> bool;
 }
@@ -198,13 +167,14 @@ class PrimitiveLiteralExpr derives Expr { // does not cover string
     pub var value: Token; // in a string this is just the head token, since strings can be multi-token with interpolation
 };
 
-struct TokenText {
+class TokenText {
     var text:      string;
     var range:     SourceRange;
     var is_expand: bool = false;
     var is_marker: bool = false;
 
     fn TokenText(
+        self,
         txt: string,
         rng: SourceRange,
         expand: bool = false,
@@ -216,12 +186,7 @@ struct TokenText {
         self.is_marker = marker;
     }
 
-    fn TokenText(txt: string, rng: SourceRange) -> void {
-        self.text  = txt;
-        self.range = rng;
-    }
-
-    static fn resolve(
+    static static fn resolve(
         tok:     Token,
         sm:      *SourceManager,
         imm_tbl: *ImmediateTable
@@ -260,11 +225,11 @@ struct TokenText {
             }
         }
 
-        // these have no meaningful text — return canonical representation
+        // these have no meaningful text return canonical representation
         if kind == TokenKind::TkNewLine    { return TokenText("\n",  tok_range, true, false); }
         if kind == TokenKind::TkWhitespace { return TokenText(" ",   tok_range, true, false); }
 
-        // ── punctuation — canonical spacing ───────────────────────────────────
+        // ── punctuation canonical spacing ───────────────────────────────────
         if kind == TokenKind::OpComma      { return TokenText(",",   tok_range, true, false); }
         if kind == TokenKind::OpSemicolon  { return TokenText(";",   tok_range, true, false); }
         if kind == TokenKind::OpLParen     { return TokenText("(",   tok_range, true, false); }
@@ -297,7 +262,7 @@ struct TokenText {
         }
 
         // identifiers with imm > 0 and below threshold were renamed by the
-        // macro hygiene system — surface them with their internal unique id
+        // macro hygiene system surface them with their internal unique id
         // so sema sees a stable non-garbled name
         if (static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::LitIdentifier))
         && (imm > 0)
@@ -316,6 +281,22 @@ struct TokenText {
 
     static fn from_range(range: SourceRange, sm: *SourceManager) -> TokenText {
         return TokenText(sm->get_text(range), range);
+    }
+
+    fn get_text(self) -> string {
+        return self.text;
+    }
+
+    fn get_range(self) -> SourceRange {
+        return self.range;
+    }
+
+    fn is_macro_expansion(self) -> bool {
+        return self.is_expand;
+    }
+
+    fn is_macro_marker(self) -> bool {
+        return self.is_marker;
     }
 }
 
@@ -347,6 +328,13 @@ class IntegerLiteralExpr derives PrimitiveLiteralExpr {
     ///    bits:     u16;
     ///    base:     u8;
     ///    flags:    u8;
+    // flags layout:
+    //   bit 0: unsigned
+    //   bit 1: negative
+    //   bit 2: is_big (value >128-bit)
+    //   bit 3: has_suffix
+    //   bit 4: has_prefix
+
     pub var int_data: *(Immediate::IntData);
 
     fn get_value(self) -> Token {
@@ -354,7 +342,23 @@ class IntegerLiteralExpr derives PrimitiveLiteralExpr {
     }
 
     fn is_negative(self) -> bool {
-        return self.negative;
+        return (self.int_data->flags & 0b10) != 0;
+    }
+
+    fn is_unsigned(self) -> bool {
+        return (self.int_data->flags & 0b01) != 0;
+    }
+
+    fn is_big(self) -> bool {
+        return (self.int_data->flags & 0b100) != 0;
+    }
+
+    fn has_suffix(self) -> bool {
+        return (self.int_data->flags & 0b1000) != 0;
+    }
+
+    fn has_prefix(self) -> bool {
+        return (self.int_data->flags & 0b10000) != 0;
     }
 
     fn is_decimal(self) -> bool {
@@ -373,8 +377,52 @@ class IntegerLiteralExpr derives PrimitiveLiteralExpr {
         return self.int_kind == Kind::OctalInt;
     }
 
+    fn get_kind(self) -> Kind {
+        return self.int_kind;
+    }
+
     fn get_suffix(self) -> TokenText {
         return TokenText::from_range(self.int_data->suffix, self._sm);
+    }
+
+    fn get_prefix(self) -> TokenText {
+        return TokenText::from_range(self.int_data->prefix, self._sm);
+    }
+
+    fn get_body(self) -> TokenText {
+        return TokenText::from_range(self.int_data->body, self._sm);
+    }
+
+    fn get_value_as_u64(self) -> u64 {
+        return self.int_data->value_lo;
+    }
+
+    fn get_value_as_i64(self) -> i64 {
+        return static_cast::<i64>(self.int_data->value_lo);
+    }
+
+    fn get_value_as_bigint(self) -> *BigInt {
+        if self.int_data->big == &null {
+            self.int_data->big = std::create::<BigInt>(self.int_data->value_lo);
+            
+            if self.is_negative() {
+                (self.int_data->big->sign) = -1;
+            }
+        }
+
+        return self.int_data->big;
+    }
+
+    fn get_base(self) -> u8 {
+        return self.int_data->base;
+    }
+
+    fn get_bits(self) -> u16 {
+        return self.int_data->bits;
+    }
+
+    fn get_flags(self) -> u8 {
+        return self.int_data->flags;
     }
 }
 
@@ -389,30 +437,226 @@ class FloatingLiteralExpr derives PrimitiveLiteralExpr {
         HexFloat,
     }
 
+    pub var float_kind: Kind; // the specific kind of float literal (decimal or hex)
+    pub var float_data: *(Immediate::FloatData);
+    // FloatData stores:
+    // pub var body:   SourceRange;
+    // pub var prefix: SourceRange;
+    // pub var suffix: SourceRange;
+    // pub var bits:   u32;
+    // pub var base:   u8;
+    // pub var flags:  u8;
+    // // flags layout:
+    // //   bit 0: has_exponent
+    // //   bit 1: negative
+    // //   bit 2: is_hex_float
+    // //   bit 3: use_bigfloat
+    // //   bit 4: has_suffix
+    // pub var value_ieee: f80 = 0.0;
+    // pub var big_float:  *BigFloat = &null;
 
+    fn is_decimal(self) -> bool {
+        return self.float_kind == Kind::DecimalFloat;
+    }
+
+    fn is_hex(self) -> bool {
+        return self.float_kind == Kind::HexFloat;
+    }
+
+    fn is_negative(self) -> bool {
+        return (self.float_data->flags & 0b10) != 0;
+    }
+
+    fn has_exponent(self) -> bool {
+        return (self.float_data->flags & 0b01) != 0;
+    }
+
+    fn use_bigfloat(self) -> bool {
+        return (self.float_data->flags & 0b1000) != 0;
+    }
+
+    fn has_suffix(self) -> bool {
+        return (self.float_data->flags & 0b10000) != 0;
+    }
+
+    fn get_suffix(self) -> TokenText {
+        return TokenText::from_range(self.float_data->suffix, self._sm);
+    }
+
+    fn get_prefix(self) -> TokenText {
+        return TokenText::from_range(self.float_data->prefix, self._sm);
+    }
+
+    fn get_body(self) -> TokenText {
+        return TokenText::from_range(self.float_data->body, self._sm);
+    }
+
+    fn get_value_as_f80(self) -> f80 {
+        return self.float_data->value_ieee;
+    }
+
+    __inline_cpp("template<typename ... Ts>
+    BigFloat* get_value_as_bigfloat(Ts&&...ts) {
+        // we need this path to crash at compile time if we try to use:
+        // get_value_as_bigfloat()
+        // since its incomplete
+
+        static_assert(
+            not (libcxx::is_same_v<Ts,Ts> && ...),
+            \"TODO: implement parsing the float literal text into the \"
+            \"BigFloat struct, since some literals may exceed f80 precision \"
+            \"and require arbitrary-precision parsing to get the correct value.  \"
+            \"This is non-trivial but necessary for correctness, especially \"
+            \"for hex floats which can represent values that are not exactly \"
+            \"representable in binary floating-point formats.  In the meantime, \"
+            \"we can return an approximate value based on the f80 representation, \"
+            \"but this should be fixed before we consider the floating-point literal \"
+            \"implementation complete.\"
+        );
+
+        if (this->float_data->big_float == nullptr) {
+            // TODO
+        }
+
+        return this->float_data->big_float;
+    }");
+
+    fn get_bits(self) -> u32 {
+        return self.float_data->bits;
+    }
+
+    fn get_base(self) -> u8 {
+        return self.float_data->base;
+    }
+
+    fn get_flags(self) -> u8 {
+        return self.float_data->flags;
+    }
+
+    fn get_kind(self) -> Kind {
+        return self.float_kind;
+    }
 }
 
 class StringLiteralExpr derives PrimitiveLiteralExpr {
     enum Kind derives u8 {
         /// Plain string literal: "hello world"
         /// Can contain escape sequences: "line 1\nline 2"
-        /// Can be multi-line: """multi-line string"""
         /// Can contain interpolation: "Hello, {name}!"
         StringLiteral,
-
-        /// Raw string literal: r"raw string with no escapes \n and no interpolation {name}"
-        /// Can be multi-line: r"""raw multi-line string"""
-        RawStringLiteral,
 
         /// Byte string literal: b"byte string with ASCII only"
         /// Cannot contain escapes or interpolation.
         ByteStringLiteral,
 
-        /// Raw byte string literal: br"raw byte string with no escapes"
-        /// Cannot contain escapes or interpolation.
-        RawByteStringLiteral,
+        /// Format string literal: f"Hello, {name}! You have {count} new messages."
+        /// Can contain interpolation.
+        FormatStringLiteral,
+
+        /// Format byte string literal: bf"Byte string with {count} items."
+        /// Cannot contain escapes, but can contain interpolation.
+        FormatByteStringLiteral,
+    }
+
+    struct SingleString {
+        pub var string_kind: Kind; // the specific kind of string literal (plain, raw, byte, raw byte)
+        pub var string_data: *(Immediate::StringData);
+    }
+
+    pub var string_chain: ArenaList::<SingleString>; // for handling multiple adjacent string literals that are concatenated, e.g. "hello" " " "world"
+    
+    // StringData stores:
+    // pub var exprs: libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>; // exprs tokens
+    //         // along with the start and end from { and } (can be empty for non-interpolated strings)
+    // pub var prefix: Token;
+    // pub var suffix: Token;
+    // pub var body:   SourceRange; // string range excl quotes prefix and suffix
+    // pub var next:   u32; // for chained strings, contains the next imm string idx
+    // pub var prefix_kind: TextPrefixKind;
+    // enum TextPrefixKind derives u8 {
+    //     None,
+    //     Format,
+    //     Bytes,
+    //     BytesFormat,
+    // }
+
+    fn is_plain(self, idx: usize = 1) -> bool {
+        return (self.string_chain[idx]->string_kind) == Kind::StringLiteral;
+    }
+
+    fn is_byte(self, idx: usize = 1) -> bool {
+        return ((self.string_chain[idx]->string_kind) == Kind::ByteStringLiteral)
+            || ((self.string_chain[idx]->string_kind) == Kind::FormatByteStringLiteral);
+    }
+
+    fn is_format(self, idx: usize = 1) -> bool {
+        return ((self.string_chain[idx]->string_kind) == Kind::FormatStringLiteral)
+            || ((self.string_chain[idx]->string_kind) == Kind::FormatByteStringLiteral);
+    }
+
+    fn is_format_only(self, idx: usize = 1) -> bool {
+        return (self.string_chain[idx]->string_kind) == Kind::FormatStringLiteral;
+    }
+
+    fn is_format_byte(self, idx: usize = 1) -> bool {
+        return (self.string_chain[idx]->string_kind) == Kind::FormatByteStringLiteral;
+    }
+
+    fn get_prefix(self, idx: usize = 1) -> TokenText {
+        return TokenText::from_token(
+            self.string_chain[idx]->string_data->prefix,
+            self._sm,
+            self._imm_tbl
+        );
+    }
+
+    fn get_suffix(self, idx: usize = 1) -> TokenText {
+        return TokenText::from_token(
+            self.string_chain[idx]->string_data->suffix,
+            self._sm,
+            self._imm_tbl
+        );
+    }
+
+    fn get_body(self, idx: usize = 1) -> TokenText {
+        return TokenText::from_range(
+            self.string_chain[idx]->string_data->body,
+            self._sm
+        );
+    }
+
+    fn get_exprs(self, idx: usize = 1)
+        -> libcxx::deque::<(*TokenBuffer::<16>, SourceRange)> {
+        return self.string_chain[idx]->string_data->exprs;
+    }
+
+    fn get_kind(self, idx: usize = 1) -> Kind {
+        return (self.string_chain[idx]->string_kind);
+    }
+
+    fn is_multi_line(self, idx: usize = 1) -> bool {
+        // if the body contains a newline, it's a multi-line string
+        var body_text = self.get_body().get_text();
+        return body_text.raw_string().find('\n') != string::npos;
+    }
+
+    fn has_interpolation(self, idx: usize = 1) -> bool {
+        return !(self.string_chain[idx]->string_data->exprs.empty());
+    }
+
+    fn is_empty(self, idx: usize = 1) -> bool {
+        return self.get_body().get_text().empty();
     }
 }
+
+/// TODO: add format exprs as thier own node since they have different semantics
+//        from exprs with things like {foo:^10} that are not just simple interpolation
+//        of an expression but also include formatting options.  We can have a FormatExpr
+//        that contains the format string and a list of FormatArg structs that contain
+//        the expression and the formatting options, so that we can handle them properly
+//        in sema and codegen without having to special-case them as just regular
+//        interpolated expressions.
+
 
 class CharacterLiteralExpr derives PrimitiveLiteralExpr {
     enum Kind derives u8 {
@@ -446,7 +690,7 @@ class BooleanLiteralExpr derives PrimitiveLiteralExpr {
 class NullLiteralExpr derives PrimitiveLiteralExpr {
     enum Kind derives u8 {
         /// Null pointer / nullable null value: null
-        /// Type must be nullable (*T or T?) — sema enforces this.
+        /// Type must be nullable (*T or T?) sema enforces this.
         Null,
 
         /// Null pointer reference form: &null
@@ -463,9 +707,111 @@ class NullLiteralExpr derives PrimitiveLiteralExpr {
 // MapLiteralExpr
 
 // ArrayInitializerExpr
-// VecInitializerExpr
+// VectorInitializerExpr
 // MapInitializerExpr
 // SetInitializerExpr
+
+
+//---------------------- Type Kinds -------------------------------------------
+// NamedType
+// GenericInstanceType
+// TypeOfType
+// PackType
+// FatPointerType
+// RawPointerType
+// NullableType
+// PanicType
+// MutableType
+// SelfType
+// FunctionPointerType
+// InferredType
+// QualifiedModifierType
+// TypeKindCount
+
+// vvvvvvvvvvvvvvvvvvvvv these
+// TupleType
+// FixedArrayType
+// SetType
+// MapType
+// VectorType
+
+
+class MapType derives Type {
+    // Node: MapType key TypeRef + value TypeRef.
+    pub var key_type: *Type;
+    pub var value_type: *Type;
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::MapType;
+    }
+}
+
+class SetType derives Type {
+    // Node: SetType element TypeRef.
+    pub var element_type: *Type;
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::SetType;
+    }
+}
+
+class VectorType derives Type {
+    // Node: VectorType element TypeRef + optional size Expr (for fixed-size vectors).
+    pub var element_type: *Type;
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::VectorType;
+    }
+}
+
+class TupleType derives Type {
+    // Node: TupleType list of element TypeRefs.
+    pub var element_types: ArenaList::<*Type>;
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::TupleType;
+    }
+}
+
+class FixedArrayType derives Type {
+    // Node: FixedArrayType element TypeRef + size Expr.
+    pub var element_type: *Type;
+    pub var size_expr:    *Expr; // TODO: should this be a expr or a integer literal?
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::FixedArrayType;
+    }
+}
+
+
+class CollectionInitializerExpr derives Expr{
+    enum Kind derives u8 {
+        Array,  // var a: [i32; 10]  = [i32; 10]   || [i32; 10].fill(1)
+        Vector, // var a: [i32]      = [i32]       || [i32].fill(1)
+        Map,    // var a: {str: i32} = {str: i32}  || {str: i32}.default(1)
+        Set     // var a: {i32}      = {i32}       || {i32}.default(1)
+    }
+
+    pub var collection_kind: Kind;
+}
+
+
+class ArrayInitializerExpr derives CollectionInitializerExpr, FixedArrayType{
+    // Node: empty array initializer []
+}
+
+class VectorInitializerExpr derives CollectionInitializerExpr, VectorType {
+    // Node: empty vector initializer
+}
+
+class MapInitializerExpr derives CollectionInitializerExpr, MapType {
+    // Node: empty map initializer {}
+}
+
+class SetInitializerExpr derives CollectionInitializerExpr, SetType {
+    // Node: empty set initializer {}
+}
+
 
 class CollectionLiteralExpr derives Expr {
     enum Kind derives u8 {
@@ -483,21 +829,39 @@ class CollectionLiteralExpr derives Expr {
         var (f: i32, g: str) = e;
         */
     }
-
-    
-
 }
 
 class SetLiteralExpr derives CollectionLiteralExpr {
     // Node: SetLiteralExpr list of distinct (value Expr*) values 
-    var values: ArenaList::<*Expr>;
+    pub const MAX_VALUES: usize = 65535; // arbitrary limit to prevent overflow in the bitset used for deduping small sets, and to prevent excessive memory usage in general
+    pub const MAX_INDEX: usize = MAX_VALUES - 1;
+
+    pub var values: ArenaList::<*Expr>;
+    pub var is_deduped: bool = false; // set to true by sema after deduping the values, so that later stages can skip redundant deduping if needed
+    pub var is_sorted: bool = false; // set to true by sema after sorting the values, so that later stages can skip redundant sorting if needed
+    pub var is_homogeneous: bool = false; // set to true by sema if all values have the same type, so that later stages can optimize based on homogeneity
+    pub var element_type: *Type = &null; // set by sema if is_homogeneous is true, so that later stages can optimize based on known element type
 }
 
-class MapLiteralExpr derives CollectionLiteralExpr {
+class TupleLiteralExpr derives CollectionLiteralExpr {
     // Node: MapLiteralExpr list of (key Expr*, value Expr*) pairs.
-    var keys:   ArenaList::<*Expr>;
-    var values: ArenaList::<*Expr>;
+    struct TupleValueExpr {
+        var value: *Expr;
+        var element_type: *Type; // set by sema based on the corresponding element type in the tuple type, so that later stages can optimize based on known element type
+        var index: u32; // the index of this value within the tuple, used for error reporting and optimization purposes
+    }
+
+    pub var values: ArenaList::<TupleValueExpr>;
+    pub var is_homogeneous: bool = false; // set to true by sema
 }
+
+class MapLiteralExpr derives CollectionLiteralExpr, MapType {
+    // Node: MapLiteralExpr list of (key Expr*, value Expr*) pairs.
+    pub var keys:   ArenaList::<*Expr>;
+    pub var values: ArenaList::<*Expr>;
+}
+
+
 
 class ListLiteralExpr derives CollectionLiteralExpr { /// [ ... ]
     // Node: ListLiteralExpr basic ordered bag of values , either 
@@ -507,13 +871,14 @@ class ListLiteralExpr derives CollectionLiteralExpr { /// [ ... ]
         Vector
     }
     
-    var values: ArenaList::<*Expr>;
+    pub var values: ArenaList::<*Expr>;
     
     // this is set by sema when deguessing the literal based
     // on the expected type context, but it is stored in the AST so that later
     // stages can still distinguish between array and vector literals if needed
     // (e.g. for codegen optimizations)
-    var list_type: Type;
+    pub var list_type: Type;
+    pub var element_type: *Type = &null; // set by sema if is_homogeneous is true, so that later stages can optimize based on known element type
 
     fn is_array(self) -> bool {
         return self.list_type == Type::Array;
@@ -525,19 +890,9 @@ class ListLiteralExpr derives CollectionLiteralExpr { /// [ ... ]
     
 
     static fn classof(ptr: *Expr) -> bool {
-        return (ptr._kind) == ExprKind::ListLiteralExpr;
+        return (ptr->kind) == ExprKind::ListLiteralExpr;
     }
 }
-
-class CollectionInitializerExpr derives Expr{
-    enum Kind derives u8 {
-        Array,
-        Vector,
-        Map,
-        Set
-    }
-}
-
 
 
 
