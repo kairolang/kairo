@@ -81,8 +81,8 @@ enum ExprKind {
     // -----------------------------------------------------------------------
 
     /// Array literal:  [1, 2, 3]
-    /// Node: ArrayLiteralExpr
-    ArrayLiteralExpr,
+    /// Node: ListLiteralExpr
+    ListLiteralExpr,
 
     /// Tuple literal:  (1, "two", 3.0)
     /// Node: TupleLiteralExpr

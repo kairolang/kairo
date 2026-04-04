@@ -23,7 +23,9 @@
 
 import Core::Memory::ArenaList::*;
 import Core::Source::SourceRange::*;
+import Core::Source::SourceManager::*;
 import Lexer::Token::*;
+import Lexer::Immediate::*;
 
 import Parser::DeclContextKind::*;
 import Parser::DeclKind::*;
@@ -35,6 +37,9 @@ import Parser::StmtKind::*;
 class Expr {
     pub var _range: SourceRange;
     pub var _kind:  ExprKind;
+    // required for getting the actual text from a token's source range
+    pub var _sm:      *SourceManager;
+    pub var _imm_tbl: *ImmediateTable;
 
     fn range(self) -> SourceRange {
         return self._range;
@@ -50,6 +55,9 @@ class Expr {
 class Stmt {
     pub var _range: SourceRange;
     pub var _kind:  StmtKind;
+    // required for getting the actual text from a token's source range
+    pub var _sm:      *SourceManager;
+    pub var _imm_tbl: *ImmediateTable;
 
     fn range(self) -> SourceRange {
         return self._range;
@@ -65,6 +73,9 @@ class Stmt {
 class Decl {
     pub var _range: SourceRange;
     pub var _kind:  DeclKind;
+    // required for getting the actual text from a token's source range
+    pub var _sm:      *SourceManager;
+    pub var _imm_tbl: *ImmediateTable;
 
     fn range(self) -> SourceRange {
         return self._range;
@@ -80,6 +91,9 @@ class Decl {
 class Type {
     pub var _range: SourceRange;
     pub var _kind:  ExprKind;
+    // required for getting the actual text from a token's source range
+    pub var _sm:      *SourceManager;
+    pub var _imm_tbl: *ImmediateTable;
 
     fn range(self) -> SourceRange {
         return self._range;
@@ -91,6 +105,461 @@ class Type {
     
     static fn classof(ptr: *Type) -> bool;
 }
+
+// IntegerLiteralExpr
+// FloatingLiteralExpr
+// StringLiteralExpr
+// CharacterLiteralExpr
+// BooleanLiteralExpr
+// NullLiteralExpr
+
+
+// NamedInitializerExpr
+// AnonInitializerExpr
+// list
+// QualifiedPathExpr
+// GroupingExpr
+// UnaryOperatorExpr
+// BinaryOperatorExpr
+// ImplConformanceExpr
+// DerivesRelationExpr
+// ConditionalExpr
+// IfExpr
+// InlineTryCatchExpr
+// RangeExpr
+// ClosureExpr
+// AwaitExpr
+// SpawnExpr
+// ThreadExpr
+// MacroInvocationExpr
+// SizeOfExpr
+// AlignOfExpr
+// TypeOfExpr
+// EvalExpr
+// SelfExpr
+// DeleteExpr
+// SubscriptExpr
+// PackExpansionExpr
+// DestructuringBindingExpr
+// MatchBindingExpr
+// TypeCastExpr
+// InlineBlockExpr
+// ImplicitBoundaryCastExpr
+
+
+class PrimitiveLiteralExpr derives Expr { // does not cover string
+    enum Kind derives u8 {
+        // -----------------------------------------------------------------------
+        //  Integer literals
+        //
+        //  All stored as raw token + optional numeric suffix.
+        //  The suffix determines the final type: 1u8, 255u32, -1i64 etc.
+        //  No suffix = type inferred from context, defaults to i32.
+        // -----------------------------------------------------------------------
+        IntegerLiteral,  // 42, 0xFF, 0b1010 etc.
+
+        // -----------------------------------------------------------------------
+        //  Floating-point literals
+        //
+        //  Suffix determines type: 1.0f32, 1.0f64 etc.
+        //  No suffix = f64 by default.
+        // -----------------------------------------------------------------------
+        FloatingLiteral, // 1.2, 1.2e-3, 0.5, 1.0f32 etc.
+
+        // -----------------------------------------------------------------------
+        //  Character literals
+        //
+        //  Single codepoint or escape sequence, quoted with ''.
+        //  Encoding suffix determines type.
+        // -----------------------------------------------------------------------
+        CharacterLiteral, // 'a', '\n', '\u{1F600}' etc.
+
+        // -----------------------------------------------------------------------
+        //  String literals
+        //
+        //  Can be plain, raw, byte, or raw byte strings.
+        //  can also be multi-line and/or contain interpolation.
+        //  can also be multiple adjacent string literals that are concatenated:
+        //     "hello" " " "world" == "hello world"
+        // -----------------------------------------------------------------------
+        StringLiteral,   // "hello world" (handled separately as StringLiteralExpr)
+
+        // -----------------------------------------------------------------------
+        //  Boolean literals
+        // -----------------------------------------------------------------------
+        BooleanLiteral,  // true, false
+
+        // -----------------------------------------------------------------------
+        //  Null literals
+        // -----------------------------------------------------------------------
+        NullLiteral,     // null, &null
+    }
+    
+    pub var value: Token; // in a string this is just the head token, since strings can be multi-token with interpolation
+};
+
+struct TokenText {
+    var text:      string;
+    var range:     SourceRange;
+    var is_expand: bool = false;
+    var is_marker: bool = false;
+
+    fn TokenText(
+        txt: string,
+        rng: SourceRange,
+        expand: bool = false,
+        marker: bool = false
+    ) -> void {
+        self.text      = txt;
+        self.range     = rng;
+        self.is_expand = expand;
+        self.is_marker = marker;
+    }
+
+    fn TokenText(txt: string, rng: SourceRange) -> void {
+        self.text  = txt;
+        self.range = rng;
+    }
+
+    static fn resolve(
+        tok:     Token,
+        sm:      *SourceManager,
+        imm_tbl: *ImmediateTable
+    ) -> TokenText {
+        var kind      = tok.kind;
+        var imm       = tok.imm;
+        var tok_range = tok.range;
+
+        // if this token is a macro expansion AND it has a valid imm table entry
+        // (i.e. below the sentinel threshold), resolve back to the original token
+        if (static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand))
+        && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
+            if imm_tbl != &null {
+                var info  = imm_tbl->get::<Immediate::MacroExpansionInfo>(imm);
+                kind      = info->original_kind;
+                imm       = info->original_imm;
+                tok_range = info->def_range;
+            }
+        }
+
+        // these are compiler-internal markers, not real source tokens
+        if (static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand))
+        && (imm >= static_cast::<u32>(MacroSentinel::Threshold)) {
+            if imm == static_cast::<u32>(MacroSentinel::Todo) {
+                return TokenText("<todo>", tok_range, true, true);
+            } else if imm == static_cast::<u32>(MacroSentinel::Unreachable) {
+                return TokenText("<unreachable>", tok_range, true, true);
+            } else if imm == static_cast::<u32>(MacroSentinel::Include) {
+                return TokenText("<include>", tok_range, true, true);
+            } else if imm == static_cast::<u32>(MacroSentinel::IncludeStr) {
+                return TokenText("<include_str>", tok_range, true, true);
+            } else if imm == static_cast::<u32>(MacroSentinel::Embed) {
+                return TokenText("<embed>", tok_range, true, true);
+            } else {
+                return TokenText("<unknown_macro>", tok_range, true, true);
+            }
+        }
+
+        // these have no meaningful text — return canonical representation
+        if kind == TokenKind::TkNewLine    { return TokenText("\n",  tok_range, true, false); }
+        if kind == TokenKind::TkWhitespace { return TokenText(" ",   tok_range, true, false); }
+
+        // ── punctuation — canonical spacing ───────────────────────────────────
+        if kind == TokenKind::OpComma      { return TokenText(",",   tok_range, true, false); }
+        if kind == TokenKind::OpSemicolon  { return TokenText(";",   tok_range, true, false); }
+        if kind == TokenKind::OpLParen     { return TokenText("(",   tok_range, true, false); }
+        if kind == TokenKind::OpRParen     { return TokenText(")",   tok_range, true, false); }
+        if kind == TokenKind::OpLBrace     { return TokenText("{",   tok_range, true, false); }
+        if kind == TokenKind::OpRBrace     { return TokenText("}",   tok_range, true, false); }
+        if kind == TokenKind::OpLSquare    { return TokenText("[",   tok_range, true, false); }
+        if kind == TokenKind::OpRSquare    { return TokenText("]",   tok_range, true, false); }
+        if kind == TokenKind::OpExclaim    { return TokenText("!",   tok_range, true, false); }
+        if kind == TokenKind::OpColonColon { return TokenText("::",  tok_range, true, false); }
+        if kind == TokenKind::OpEllipsis   { return TokenText("...", tok_range, true, false); }
+        if kind == TokenKind::OpPlus       { return TokenText("+",   tok_range, true, false); }
+        if kind == TokenKind::OpMinus      { return TokenText("-",   tok_range, true, false); }
+        if kind == TokenKind::OpStar       { return TokenText("*",   tok_range, true, false); }
+        if kind == TokenKind::OpSlash      { return TokenText("/",   tok_range, true, false); }
+        if kind == TokenKind::OpEqual      { return TokenText("=",   tok_range, true, false); }
+        if kind == TokenKind::OpEqualEqual { return TokenText("==",  tok_range, true, false); }
+        if kind == TokenKind::OpLess       { return TokenText("<",   tok_range, true, false); }
+        if kind == TokenKind::OpGreater    { return TokenText(">",   tok_range, true, false); }
+        if kind == TokenKind::OpArrow      { return TokenText("->",  tok_range, true, false); }
+
+        // pull the actual value out of the immediate table if available
+        // otherwise fall back to raw source text
+        if kind == TokenKind::LitInt {
+            if imm_tbl != &null {
+                var int_data = imm_tbl->get::<Immediate::IntData>(imm);
+                return TokenText(f"{int_data->value_lo}", tok_range, true, false);
+            }
+            return TokenText(sm->get_text(tok_range), tok_range, true, false);
+        }
+
+        // identifiers with imm > 0 and below threshold were renamed by the
+        // macro hygiene system — surface them with their internal unique id
+        // so sema sees a stable non-garbled name
+        if (static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::LitIdentifier))
+        && (imm > 0)
+        && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
+            return TokenText(f"__kairo_hyg_{imm}__", tok_range, true, true);
+        }
+
+        // keywords, identifiers, string literals, float literals —
+        // all have their text directly in the source manager
+        return TokenText(sm->get_text(tok_range), tok_range, true, false);
+    }
+
+    static fn from_token(token: Token, sm: *SourceManager, imm_tbl: *ImmediateTable) -> TokenText {
+        return TokenText::resolve(token, sm, imm_tbl);
+    }
+
+    static fn from_range(range: SourceRange, sm: *SourceManager) -> TokenText {
+        return TokenText(sm->get_text(range), range);
+    }
+}
+
+class IntegerLiteralExpr derives PrimitiveLiteralExpr {
+    enum Kind derives u8 {
+        /// Decimal integer: 42 | 1_000_000 | 0
+        DecimalInt,
+
+        /// Hexadecimal integer: 0xFF | 0xDEAD_BEEF | 0x1A2B
+        HexInt,
+
+        /// Binary integer: 0b1010 | 0b1111_0000
+        BinaryInt,
+
+        /// Octal integer: 0o77 | 0o755
+        OctalInt,
+    }
+
+    /// value is derived from PrimitiveLiteralExpr
+    pub var int_kind: Kind; // the specific kind of integer literal (decimal, hex, binary, octal)
+    
+    /// IntData stores:
+    ///    body:     SourceRange;
+    ///    prefix:   SourceRange;
+    ///    suffix:   SourceRange;
+    ///    value_lo: u64;
+    ///    value_hi: u64;
+    ///    big:      *BigInt = &null;
+    ///    bits:     u16;
+    ///    base:     u8;
+    ///    flags:    u8;
+    pub var int_data: *(Immediate::IntData);
+
+    fn get_value(self) -> Token {
+        return self.value;
+    }
+
+    fn is_negative(self) -> bool {
+        return self.negative;
+    }
+
+    fn is_decimal(self) -> bool {
+        return self.int_kind == Kind::DecimalInt;
+    }
+
+    fn is_hex(self) -> bool {
+        return self.int_kind == Kind::HexInt;
+    }
+
+    fn is_binary(self) -> bool {
+        return self.int_kind == Kind::BinaryInt;
+    }
+
+    fn is_octal(self) -> bool {
+        return self.int_kind == Kind::OctalInt;
+    }
+
+    fn get_suffix(self) -> TokenText {
+        return TokenText::from_range(self.int_data->suffix, self._sm);
+    }
+}
+
+class FloatingLiteralExpr derives PrimitiveLiteralExpr {
+    enum Kind derives u8 {
+        /// Standard decimal float: 1.2 | 1.2e-3 | .5 | 1.
+        DecimalFloat,
+
+        /// Hexadecimal float (IEEE 754 exact representation):
+        ///   0x1.8p+1 | 0x1p-3 | 0x1.FFFp+127
+        /// The exponent is always base-2 (the 'p' exponent).
+        HexFloat,
+    }
+
+
+}
+
+class StringLiteralExpr derives PrimitiveLiteralExpr {
+    enum Kind derives u8 {
+        /// Plain string literal: "hello world"
+        /// Can contain escape sequences: "line 1\nline 2"
+        /// Can be multi-line: """multi-line string"""
+        /// Can contain interpolation: "Hello, {name}!"
+        StringLiteral,
+
+        /// Raw string literal: r"raw string with no escapes \n and no interpolation {name}"
+        /// Can be multi-line: r"""raw multi-line string"""
+        RawStringLiteral,
+
+        /// Byte string literal: b"byte string with ASCII only"
+        /// Cannot contain escapes or interpolation.
+        ByteStringLiteral,
+
+        /// Raw byte string literal: br"raw byte string with no escapes"
+        /// Cannot contain escapes or interpolation.
+        RawByteStringLiteral,
+    }
+}
+
+class CharacterLiteralExpr derives PrimitiveLiteralExpr {
+    enum Kind derives u8 {
+        /// Plain ASCII character: 'a' | 'Z' | '0'
+        AsciiChar,
+
+        /// Escape sequence character: '\n' | '\t' | '\r' | '\\' | '\''
+        EscapeChar,
+
+        /// Hex escape character: '\x41'  (must be valid ASCII)
+        HexEscapeChar,
+
+        /// Unicode codepoint: '\u{1F600}' | '\u{0041}'
+        UnicodeChar,
+
+        /// Null character: '\0'
+        NullChar,
+    }
+}
+
+class BooleanLiteralExpr derives PrimitiveLiteralExpr {
+    enum Kind derives u8 {
+        /// Boolean true: true
+        BoolTrue,
+
+        /// Boolean false: false
+        BoolFalse,
+    }
+}
+
+class NullLiteralExpr derives PrimitiveLiteralExpr {
+    enum Kind derives u8 {
+        /// Null pointer / nullable null value: null
+        /// Type must be nullable (*T or T?) — sema enforces this.
+        Null,
+
+        /// Null pointer reference form: &null
+        /// Equivalent to nullptr in C++.
+        /// Used when explicitly passing null where a pointer is expected.
+        NullRef,
+    }
+}
+
+
+// ListLiteralExpr
+// TupleLiteralExpr
+// SetLiteralExpr
+// MapLiteralExpr
+
+// ArrayInitializerExpr
+// VecInitializerExpr
+// MapInitializerExpr
+// SetInitializerExpr
+
+class CollectionLiteralExpr derives Expr {
+    enum Kind derives u8 {
+        Set,
+        Tuple,
+        List,
+        Map
+        
+        /*
+        var a: [10; i32] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        var b: [i32]     = [1, 2, 3, 4, 5]
+        var c: {str: i32} = {"one": 1, "two": 2, "three": 3}
+        var d: {i32} = {1, 2, 3, 4, 5}
+        var e: (i32, str) = (42, "hello")
+        var (f: i32, g: str) = e;
+        */
+    }
+
+    
+
+}
+
+class SetLiteralExpr derives CollectionLiteralExpr {
+    // Node: SetLiteralExpr list of distinct (value Expr*) values 
+    var values: ArenaList::<*Expr>;
+}
+
+class MapLiteralExpr derives CollectionLiteralExpr {
+    // Node: MapLiteralExpr list of (key Expr*, value Expr*) pairs.
+    var keys:   ArenaList::<*Expr>;
+    var values: ArenaList::<*Expr>;
+}
+
+class ListLiteralExpr derives CollectionLiteralExpr { /// [ ... ]
+    // Node: ListLiteralExpr basic ordered bag of values , either 
+
+    enum Type derives u8 {
+        Array,
+        Vector
+    }
+    
+    var values: ArenaList::<*Expr>;
+    
+    // this is set by sema when deguessing the literal based
+    // on the expected type context, but it is stored in the AST so that later
+    // stages can still distinguish between array and vector literals if needed
+    // (e.g. for codegen optimizations)
+    var list_type: Type;
+
+    fn is_array(self) -> bool {
+        return self.list_type == Type::Array;
+    }
+
+    fn is_vector(self) -> bool {
+        return self.list_type == Type::Vector;
+    }
+    
+
+    static fn classof(ptr: *Expr) -> bool {
+        return (ptr._kind) == ExprKind::ListLiteralExpr;
+    }
+}
+
+class CollectionInitializerExpr derives Expr{
+    enum Kind derives u8 {
+        Array,
+        Vector,
+        Map,
+        Set
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /// ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ///
 /// ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢟⣛⣛⣛⣛⡻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ///
@@ -127,6 +596,67 @@ class Type {
 ///                                                                          ///
 /// WHAT THE FUCK IS THIS; COMPILE FAILS IF THIS IS NOT THERE!!!             ///
 ///                                                                          ///
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 class NamedIdentifier derives Expr {
     var name: Token;
@@ -178,6 +708,10 @@ class BasicParameterDecl derives NamedDecl {
         /// Distinct from a parameter whose TYPE is a pointer.
         PointerReceiver,
 
+        /// Unsafe Pointer-prefixed parameter caller passes value, fn sees pointer.
+        /// unsafe *x: i32
+        UnsafePointerReceiver,
+
         /// Named parameter caller must supply the name at call site.
         /// Distinct from positional: named: x: i32
         Named,
@@ -210,6 +744,28 @@ class BasicParameterDecl derives NamedDecl {
      
     fn is_named(self) -> bool {
         return self.param_kind == Kind::Named;
+    }
+
+    fn is_typed(self) -> bool {
+        return (self.param_kind == Kind::Typed)
+            || (self.param_kind == Kind::TypedWithDefault);
+    }
+
+    fn has_default(self) -> bool {
+        return (self.param_kind == Kind::TypedWithDefault)
+            || (self.default_value != &null);
+    }
+
+    fn is_self_receiver_by_value(self) -> bool {
+        return self.param_kind == Kind::SelfValue;
+    }
+
+    fn is_self_receiver_by_pointer(self) -> bool {
+        return self.param_kind == Kind::SelfPointer;
+    }
+
+    fn is_unsafe_pointer_receiver(self) -> bool {
+        return self.param_kind == Kind::UnsafePointerReceiver;
     }
 };
 
