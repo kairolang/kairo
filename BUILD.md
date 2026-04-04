@@ -24,21 +24,21 @@ The script will walk you through everything: install location, permissions, and 
 ```bash
 git clone https://github.com/kairolang/kairo/
 cd kairo
-git submodule update --init --recursive
+git submodule update --init --recursive # this will take a while since it clones the entire LLVM repo, but it's necessary
 cd lib-helix && git checkout main && cd ..
 ```
 
-### 2. Build the Stage 0 compiler (this bracnh is for the Stage 1 compiler, which is still in development)
+### 2. Build the Stage 0 compiler (this branch is for the Stage 1 compiler, which is still in development)
 
 ```bash
-git checkout beta/helix-0.0.1
+git checkout archive/beta-helix-0.0.1
 xmake
 ```
 
 ### 2.1 Optional: Build the Stage 1 compiler (in development)
 
 ```bash
-git checkout canary/helix-0.1.1+bc.251007
+git checkout canary
 kbld
 
 # you can also test files that contain `fn Test() -> i32 { ... }` as the entry point, but note that this is not the standard entry point for Kairo programs.
@@ -48,7 +48,7 @@ kbld test Toolchain/Lexer/Lexer.kro
 
 Output lands in `./build/release/<platform>/bin/`: `kairo` and `kbld`.
 
-### 3. Add to PATH (recommended)
+### 3. Add the stage0 compiler to PATH (recommended)
 
 **Linux / macOS:**
 ```bash
@@ -82,6 +82,9 @@ npx vsce package
 ```
 
 This produces a `kairouage-<version>.vsix` file.
+Install it in VSCode (you can do that by heading to the Extensions tab, clicking the three dots, and selecting "Install from VSIX...").
+
+**NOTE:** If you open a `.kro` file before configuring the extension, it will annoy you with popups asking for the Kairo path. So ideally, configure the extension first before opening any Kairo files.
 
 ### Configure
 
