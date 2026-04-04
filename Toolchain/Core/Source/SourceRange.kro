@@ -114,6 +114,10 @@ class SourceRange {
         return !self.is_valid();
     }
 
+    static fn invalid() -> SourceRange {
+        return SourceRange::from_bounds(SourceLocation::invalid(), SourceLocation::invalid());
+    }
+
     ///
     /// \brief returns the size (in bytes) of the range.
     ///

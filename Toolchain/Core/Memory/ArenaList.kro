@@ -69,7 +69,8 @@ class <T> ArenaList {
         var capacity: usize;
     }
 
-    priv var _arena:       ArenaAllocator;
+    priv var _arena:       *ArenaAllocator = &null; ///< non-null = external (not owned)
+    priv var _owned_arena: ArenaAllocator;           ///< only used when arena is internal
     priv var _chunks:      *Chunk  = &null;
     priv var _chunk_count: usize   = 0;
     priv var _total:       usize   = 0;
@@ -78,20 +79,45 @@ class <T> ArenaList {
 
     __inline_cpp("static constexpr usize DESCRIPTOR_INIT = 8");
 
+    ///
+    /// \brief Default constructor owns its own internal ArenaAllocator.
+    /// Use for temporary lists during parsing that don't need to share memory.
+    ///
     fn ArenaList(self, slab_size: usize = 256) {
         self._slab_size = slab_size if slab_size > 0 else 256;
 
-        var padding = 2 * (alignof(libcxx::max_align_t) - 1);
+        var padding  = 2 * (alignof(libcxx::max_align_t) - 1);
         var arena_sz = (self._slab_size * sizeof(T))
                      + (DESCRIPTOR_INIT * sizeof(Chunk))
                      + padding;
 
-        self._arena.init(arena_sz);
+        self._owned_arena.init(arena_sz);
+        self._arena = &self._owned_arena;   ///< point at internal arena
 
         self.alloc_descriptor_table(DESCRIPTOR_INIT);
         self.alloc_slab();
 
-        Logger::debug(Logger::Stage::Driver, f"ArenaList::ctor: slab_size={self._slab_size} arena_sz={arena_sz}B");
+        Logger::debug(Logger::Stage::Driver,
+            f"ArenaList::ctor (owned): slab_size={self._slab_size} arena_sz={arena_sz}B");
+    }
+
+    ///
+    /// \brief External-arena constructor does NOT own the arena.
+    ///
+    /// The caller guarantees the arena outlives this list.
+    /// destroy() will NOT tear down the arena.
+    /// Use when the list's contents need to outlive the list itself
+    /// (e.g. AST node child arrays that live in the node arena).
+    ///
+    fn ArenaList(self, arena: *ArenaAllocator, slab_size: usize = 256) {
+        self._slab_size = slab_size if slab_size > 0 else 256;
+        self._arena     = arena;   ///< external not owned
+
+        self.alloc_descriptor_table(DESCRIPTOR_INIT);
+        self.alloc_slab();
+
+        Logger::debug(Logger::Stage::Driver,
+            f"ArenaList::ctor (external): slab_size={self._slab_size} arena={arena}");
     }
 
     fn push(self, val: T) -> *T {
@@ -159,11 +185,54 @@ class <T> ArenaList {
         return &self._chunks[0].base[0];
     }
 
-    fn size(self) -> usize { return self._total; }
+    ///
+    /// \brief Return a raw contiguous pointer to the first element.
+    ///
+    /// Only valid if slab_size >= total element count (single slab).
+    /// Use freeze() for the safe multi-slab version that copies into
+    /// a fresh contiguous block.
+    ///
+    fn raw(self) -> *T {
+        if self._chunk_count == 0 { return &null; }
+        return self._chunks[0].base;
+    }
 
-    fn empty(self) -> bool { return self._total == 0; }
+    ///
+    /// \brief Copy all elements into a fresh contiguous block allocated
+    /// from the given arena, then return a pointer to it.
+    ///
+    /// Use this to bake the list into an AST node's fixed array field:
+    ///
+    ///   node->stmts     = list.freeze(ctx->node_arena);
+    ///   node->num_stmts = list.size();
+    ///
+    /// After freeze() the list can be destroyed or cleared the frozen
+    /// array lives in the target arena and is independent of this list.
+    ///
+    fn freeze(self, arena: *ArenaAllocator) -> *T {
+        if self._total == 0 { return &null; }
 
-    /// O(1) metadata-only reset. Slabs retained, reused on next push.
+        var arr = reinterpret_cast::<*T>(
+            arena->alloc(self._total * sizeof(T), alignof(T))
+        );
+
+        var dst: usize = 0;
+        for var c: usize = 0; c < self._chunk_count; ++c {
+            var chunk = &self._chunks[c];
+            std::Memory::copy(
+                arr + dst,
+                chunk->base,
+                chunk->count * sizeof(T)
+            );
+            dst += chunk->count;
+        }
+
+        return arr;
+    }
+
+    fn size(self)  -> usize { return self._total; }
+    fn empty(self) -> bool  { return self._total == 0; }
+
     fn clear(self) {
         __inline_cpp("
             if constexpr (!libcxx::is_trivially_destructible_v<T>) {
@@ -174,24 +243,20 @@ class <T> ArenaList {
                 }
             }
         ");
-
         self._chunks[0].count = 0;
         self._chunk_count     = 1;
         self._total           = 0;
     }
 
-    /// Full arena SIMD zero + rebuild. Use when zeroed memory is required.
     fn clear_zero(self) {
         self._total       = 0;
         self._chunk_count = 0;
-        self._arena.reset();
-
+        self._arena->reset();
         self.alloc_descriptor_table(DESCRIPTOR_INIT);
         self.alloc_slab();
     }
 
     fn destroy(self) {
-        // destroy non-trivial elements before nuking the arena
         __inline_cpp("
             if constexpr (!libcxx::is_trivially_destructible_v<T>) {
                 for (usize c = 0; c < this->_chunk_count; ++c) {
@@ -206,16 +271,23 @@ class <T> ArenaList {
         self._chunk_count = 0;
         self._chunk_cap   = 0;
         self._total       = 0;
-        self._arena.destroy();
+
+        // only destroy if we own the arena
+        if self._arena == &self._owned_arena {
+            self._owned_arena.destroy();
+        }
+
+        self._arena = &null;
     }
 
-    fn op delete (self) {
+    fn op delete(self) {
         self.destroy();
     }
 
-    fn op [] (self, idx: usize) -> *T {
+    fn op [](self, idx: usize) -> *T {
         if idx >= self._total {
-            Logger::fatal(Logger::Stage::Driver, f"ArenaList::op[]: OOB idx={idx} size={self._total}");
+            Logger::fatal(Logger::Stage::Driver,
+                f"ArenaList::op[]: OOB idx={idx} size={self._total}");
             std::crash(std::Error::RuntimeError(
                 f"ArenaList::operator[]: index {idx} out of bounds (size={self._total})"
             ));
@@ -228,10 +300,8 @@ class <T> ArenaList {
             self.alloc_slab();
             return;
         }
-
         var chunk = &self._chunks[self._chunk_count - 1];
         if chunk->count < chunk->capacity { return; }
-
         self.alloc_slab();
     }
 
@@ -239,7 +309,7 @@ class <T> ArenaList {
         if self._chunk_count >= self._chunk_cap {
             var new_cap   = (self._chunk_cap * 2) if (self._chunk_cap > 0) else DESCRIPTOR_INIT;
             var new_table = reinterpret_cast::<*Chunk>(
-                self._arena.alloc(new_cap * sizeof(Chunk), alignof(Chunk))
+                self._arena->alloc(new_cap * sizeof(Chunk), alignof(Chunk))
             );
 
             if self._chunks != &null {
@@ -248,11 +318,10 @@ class <T> ArenaList {
 
             self._chunks    = new_table;
             self._chunk_cap = new_cap;
-            Logger::trace(Logger::Stage::Driver, f"ArenaList::alloc_slab: descriptor table grew cap={new_cap}");
         }
 
         var base = reinterpret_cast::<*T>(
-            self._arena.alloc(self._slab_size * sizeof(T), alignof(T))
+            self._arena->alloc(self._slab_size * sizeof(T), alignof(T))
         );
 
         self._chunks[self._chunk_count] = Chunk {
@@ -266,7 +335,7 @@ class <T> ArenaList {
 
     priv fn alloc_descriptor_table(self, cap: usize) {
         self._chunks = reinterpret_cast::<*Chunk>(
-            self._arena.alloc(cap * sizeof(Chunk), alignof(Chunk))
+            self._arena->alloc(cap * sizeof(Chunk), alignof(Chunk))
         );
         self._chunk_cap   = cap;
         self._chunk_count = 0;

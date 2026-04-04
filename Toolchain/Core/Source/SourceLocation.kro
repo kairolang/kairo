@@ -99,6 +99,10 @@ class SourceLocation {
         return self.id == 0;
     }
 
+    static fn invalid() -> SourceLocation {
+        return SourceLocation();
+    }
+
     ///
     /// \brief returns a new location offset by delta.
     ///
