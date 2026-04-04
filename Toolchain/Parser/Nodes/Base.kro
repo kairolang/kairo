@@ -1,0 +1,132 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Core::Source::SourceRange::*;
+import Parser::DeclContextKind::*;
+import Parser::ASTContext;
+import Parser::DeclKind::*;
+import Parser::ExprKind::*;
+import Parser::TypeKind::*;
+import Parser::StmtKind::*;
+import Parser::PatternKind::*;
+import Parser::Support::*;
+
+class Expr {
+    pub var kind:          ExprKind    = ExprKind::RecoveryExpr;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of expr we were trying to parse (for better error messages)
+    pub var recovery_kind: ExprKind    = ExprKind::RecoveryExpr;
+
+    fn is_valid(self) -> bool {
+        return self.kind != ExprKind::RecoveryExpr;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == ExprKind::RecoveryExpr;
+    }
+
+    fn get_excepted(self) -> ExprKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+
+        return self.kind;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return true; // all Expr* are valid for classof(Expr)
+    }
+}
+
+class Stmt {
+    pub var kind:          StmtKind    = StmtKind::RecoveryStmt;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var recovery_kind: StmtKind    = StmtKind::RecoveryStmt;
+
+    fn is_valid(self) -> bool {
+        return self.kind != StmtKind::RecoveryStmt;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == StmtKind::RecoveryStmt;
+    }
+
+    fn get_excepted(self) -> StmtKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+    
+    static fn classof(ptr: *Stmt) -> bool {
+        return true; // all Stmt* are valid for classof(Stmt)
+    }
+}
+
+class Decl {
+    pub var kind:          DeclKind    = DeclKind::RecoveryDecl;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var recovery_kind: DeclKind    = DeclKind::RecoveryDecl;
+
+    fn is_valid(self) -> bool {
+        return self.kind != DeclKind::RecoveryDecl;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == DeclKind::RecoveryDecl;
+    }
+
+    fn get_excepted(self) -> DeclKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+
+    static fn classof(ptr: *Decl) -> bool {
+        return true; // all Decl* are valid for classof(Decl)
+    }
+}
+
+class Type {
+    pub var kind:         TypeKind    = TypeKind::RecoveryType;
+    pub var range:        SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var recovery_kind: TypeKind   = TypeKind::RecoveryType;
+
+    fn is_valid(self) -> bool {
+        return self.kind != TypeKind::RecoveryType;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == TypeKind::RecoveryType;
+    }
+
+    fn get_excepted(self) -> TypeKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+
+    static fn classof(ptr: *Type) -> bool {
+        return true; // all Type* are valid for classof(Type)
+    }
+}
