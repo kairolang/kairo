@@ -1163,8 +1163,8 @@ module Immediate {
         pub var prefix: Token;
         pub var suffix: Token;
         pub var body:   SourceRange; // string range excl quotes prefix and suffix
-        pub var next:   u32; // for chained strings, contains the next imm string idx
         pub var prefix_kind: TextPrefixKind;
+        pub var next:   u32; // for chained strings, contains the next imm string idx
 
         priv var _evaluation_status_cb: fn (bool);
 
