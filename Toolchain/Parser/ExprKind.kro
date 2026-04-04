@@ -1,0 +1,329 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+///
+///   ExprKind
+///
+///   Ranges are defined for grouping classof() uses range checks
+///   instead of long chains of comparisons.
+///
+///   Layout:
+///     Error sentinel
+///     Scalar literals
+///     Collection literals
+///     Initializer expressions
+///     Name / path expressions
+///     Operator expressions
+///     Type relation expressions
+///     Control-flow expressions
+///     Async / concurrency expressions
+///     Intrinsic / builtin expressions
+///     Memory / lifetime expressions
+///     Destructuring expressions
+///
+
+enum ExprKind {
+    // -----------------------------------------------------------------------
+    //  Sentinel
+    // -----------------------------------------------------------------------
+
+    /// Produced by the parser on a syntax error.  Carries the bad source
+    /// range.  Sema skips any node whose kind is RecoveryExpr.
+    RecoveryExpr = 0,
+
+    // -----------------------------------------------------------------------
+    //  Scalar literals  [1 .. 6]
+    //
+    //  All map to IntegerLiteralExpr / FloatingLiteralExpr / etc.
+    //  Sub-kind (base, suffix, encoding) is stored inside the node.
+    // -----------------------------------------------------------------------
+
+    /// Integer literal: 42 | 0xFF | 0b1010 | 0o77 | 1_000_000
+    /// Node: IntegerLiteralExpr  stores token + numeric suffix type.
+    IntegerLiteralExpr,
+
+    /// Floating-point literal: 1.2 | 1.2e-3 | 0x1.8p+1 | .5f32
+    /// Node: FloatingLiteralExpr stores token + fp suffix type.
+    FloatingLiteralExpr,
+
+    /// String literal (plain, raw, or format):
+    ///   "hello"          plain
+    ///   r"raw \n"        raw (no escape processing)
+    ///   f"hi {name}!"   format string (carries interpolation exprs)
+    /// Node: StringLiteralExpr StringLiteralKind sub-enum inside node.
+    StringLiteralExpr,
+
+    /// Character literal: 'a' | '\n' | '\u{1F600}'
+    /// Node: CharacterLiteralExpr stores codepoint value + encoding.
+    CharacterLiteralExpr,
+
+    /// Boolean literal: true | false
+    /// Node: BooleanLiteralExpr
+    BooleanLiteralExpr,
+
+    /// Null literal: null | &null  (null pointer / nullable null)
+    /// Node: NullLiteralExpr is_ref flag distinguishes &null.
+    NullLiteralExpr,
+
+    // -----------------------------------------------------------------------
+    //  Collection literals  [7 .. 10]
+    // -----------------------------------------------------------------------
+
+    /// Array literal:  [1, 2, 3]
+    /// Node: ArrayLiteralExpr
+    ArrayLiteralExpr,
+
+    /// Tuple literal:  (1, "two", 3.0)
+    /// Node: TupleLiteralExpr
+    TupleLiteralExpr,
+
+    /// Set literal:  {1, 2, 3}
+    /// Node: SetLiteralExpr
+    SetLiteralExpr,
+
+    /// Map literal:  {"key": value, "other": value2}
+    /// Node: MapLiteralExpr stores MapEntryExpr pairs.
+    MapLiteralExpr,
+
+    // -----------------------------------------------------------------------
+    //  Initializer expressions  [11 .. 16]
+    //
+    //  Distinguished from literals: initializers describe a type's storage
+    //  layout rather than a value sequence.
+    // -----------------------------------------------------------------------
+
+    /// Fixed-size array initializer:  [N; i32]  |  [N; i32 = 0]
+    /// Node: ArrayInitializerExpr size expr + element type + optional fill.
+    ArrayInitializerExpr,
+
+    /// Growable vector initializer:  [i32, ...]  |  [i32, ... = 0]
+    /// Node: VecInitializerExpr
+    VecInitializerExpr,
+
+    /// Map initializer:  {i32: str, ...}  |  {i32: str, ... = default}
+    /// Node: MapInitializerExpr
+    MapInitializerExpr,
+
+    /// Set initializer:  {i32, ...}  |  {i32, ... = 0}
+    /// Node: SetInitializerExpr
+    SetInitializerExpr,
+
+    /// Named (typed) struct/class initializer:  Point { x: 1, y: 2 }
+    /// Node: NamedInitializerExpr carries the type path + field list.
+    NamedInitializerExpr,
+
+    /// Anonymous (dot-prefixed) struct initializer:  { .x: 1, .y: 2 }
+    /// Node: AnonInitializerExpr no type path, sema infers from context.
+    AnonInitializerExpr,
+
+    // -----------------------------------------------------------------------
+    //  Name / path expressions  [17 .. 18]
+    // -----------------------------------------------------------------------
+
+    /// Flat segment list covering all of:
+    ///   - unqualified name:          foo
+    ///   - scope-qualified path:      foo::bar::baz
+    ///   - field access:              foo.bar.baz
+    ///   - safe-navigation access:    foo?.bar
+    ///   - generic instantiation:     foo::<T, U>
+    ///   - function call:             foo(args)
+    ///   - chained combinations:      foo::bar::<T>().baz?.qux(args)
+    ///   - global-root path:          ::std::print
+    ///   - deref-prefixed segment:    *foo | **foo
+    ///
+    /// Each segment carries: name, optional generic args, optional arg list,
+    /// deref count, safe-nav flag, and access kind (Root/Scope/Field/SafeField).
+    /// Sema resolves scope vs. field semantics after parse.
+    ///
+    /// Node: QualifiedPathExpr
+    QualifiedPathExpr,
+
+    /// Parenthesized expression:  (expr)
+    /// Kept through parse for source fidelity.  Sema strips it.
+    /// Node: GroupingExpr
+    GroupingExpr,
+
+    // -----------------------------------------------------------------------
+    //  Operator expressions  [19 .. 20]
+    // -----------------------------------------------------------------------
+
+    /// Unary prefix or postfix operator:
+    ///   prefix:   ++x | --x | !x | -x | ~x | &x | *x | delete x
+    ///             l+x | l-x  (lvalue-prefix variants)
+    ///   postfix:  x++ | x-- | x? | x... | x?.  (safe-nav postfix)
+    ///             r++ | r--  (rvalue-postfix variants)
+    /// Node: UnaryOperatorExpr Fix (Pre/Post) + operator token.
+    UnaryOperatorExpr,
+
+    /// Binary infix operator:
+    ///   arithmetic:   x + y | x - y | x * y | x / y | x % y | x ** y
+    ///   bitwise:      x & y | x | y | x ^ y | x << y | x >> y
+    ///   logical:      x && y | x || y
+    ///   comparison:   x == y | x != y | x < y | x > y | x <= y | x >=y
+    ///   identity:     x === y  (referential equality)
+    ///   assignment:   x = y | x += y | x -= y | x **= y | ...
+    ///   range:        x .. y | x ..= y  (see also RangeExpr below)
+    ///   path:         x :: y | x . y  (handled in QualifiedPathExpr)
+    /// Node: BinaryOperatorExpr operator token + lhs + rhs.
+    BinaryOperatorExpr,
+
+    // -----------------------------------------------------------------------
+    //  Type-relation expressions  [21 .. 22]
+    //
+    //  These produce bool and appear in requires clauses and conditions.
+    // -----------------------------------------------------------------------
+
+    /// Interface conformance test:  T impl Interface
+    /// Node: ImplConformanceExpr lhs type + interface type.
+    ImplConformanceExpr,
+
+    /// Inheritance / derivation test:  T derives Base
+    /// Node: DerivesRelationExpr lhs type + base type.
+    DerivesRelationExpr,
+
+    // -----------------------------------------------------------------------
+    //  Control-flow expressions  [23 .. 26]
+    //
+    //  All produce values.  Sema enforces branch type compatibility.
+    // -----------------------------------------------------------------------
+
+    /// Conditional (ternary) expression:  value_if_true if condition else value_if_false
+    /// Node: ConditionalExpr condition + then_expr + else_expr.
+    ConditionalExpr,
+
+    /// If expression (block form):  if cond { expr } else { expr }
+    /// Requires else branch sema error if absent.
+    IfExpr,
+
+    /// Inline try-catch expression:  try: expr catch e: fallback
+    /// Node: InlineTryCatchExpr try_expr + catch arms.
+    InlineTryCatchExpr,
+
+    /// Range expression:  x..y | x..=y | ..y | x.. | ..
+    /// Node: RangeExpr begin (nullable) + end (nullable) + is_inclusive.
+    RangeExpr,
+
+    // -----------------------------------------------------------------------
+    //  Lambda / closure  [27]
+    // -----------------------------------------------------------------------
+
+    /// Anonymous function expression:
+    ///   fn (x: i32, y: i32) -> i32 { x + y }
+    ///   fn (x: i32) { std::print(x) }   inferred void return
+    /// Node: ClosureExpr params + optional generics + return type + body.
+    ClosureExpr,
+
+    // -----------------------------------------------------------------------
+    //  Async / concurrency expressions  [28 .. 30]
+    // -----------------------------------------------------------------------
+
+    /// Suspend current async task and await a future:  await expr
+    /// Node: AwaitExpr
+    AwaitExpr,
+
+    /// Spawn a new async task:  spawn expr
+    /// Node: SpawnExpr
+    SpawnExpr,
+
+    /// Spawn an OS thread:  thread expr
+    /// Node: ThreadExpr
+    ThreadExpr,
+
+    // -----------------------------------------------------------------------
+    //  Intrinsic / builtin expressions  [31 .. 34]
+    // -----------------------------------------------------------------------
+
+    /// Macro invocation:  foo!(args) | foo::bar!(args) | foo!
+    /// Node: MacroInvocationExpr path + optional arg list.
+    MacroInvocationExpr,
+
+    /// Size of a type in bytes:  sizeof T | sizeof(T)
+    /// Node: SizeOfExpr
+    SizeOfExpr,
+
+    /// Alignment of a type in bytes:  alignof T | alignof(T)
+    /// Node: AlignOfExpr
+    AlignOfExpr,
+
+    /// Type of an expression:  typeof expr | typeof(expr)
+    /// Node: TypeOfExpr
+    TypeOfExpr,
+
+    // Eval-qualified expression: eval expr
+    // forces compile-time evaluation of the wrapped expr
+    EvalExpr,
+
+    // Self reference: self | &self (is_ref flag inside node)
+    SelfExpr,
+
+    // -----------------------------------------------------------------------
+    //  Memory / lifetime expressions  [35 .. 36]
+    // -----------------------------------------------------------------------
+
+    /// Explicit heap deallocation:  delete expr | delete[] expr
+    /// Node: DeleteExpr is_array flag.
+    DeleteExpr,
+
+    /// Subscript / index / slice:
+    ///   element access:  arr[i]
+    ///   slice:           arr[1..3] | arr[..3] | arr[1..]
+    /// Node: SubscriptExpr base + index (RangeExpr or scalar Expr).
+    SubscriptExpr,
+
+    // -----------------------------------------------------------------------
+    //  Variadic pack expressions  [37]
+    // -----------------------------------------------------------------------
+
+    /// Variadic pack expansion:  ...foo | foo...
+    /// Covers both C++ parameter pack expansion and Kairo variadic spreading.
+    /// Node: PackExpansionExpr operand + is_prefix flag.
+    PackExpansionExpr,
+
+    // -----------------------------------------------------------------------
+    //  Destructuring expressions  [38 .. 39]
+    // -----------------------------------------------------------------------
+
+    /// Destructuring binding in assignment or declaration:
+    ///   var (x, y) = expr
+    ///   const (a, b, c) = tuple_expr
+    /// Node: DestructuringBindingExpr bindings + rhs + is_const.
+    DestructuringBindingExpr,
+
+    /// Pattern binding inside a match arm:  var x | const x
+    /// Scoped to the match arm.  Sema introduces the binding into the arm scope.
+    /// Node: MatchBindingExpr name token + is_const.
+    MatchBindingExpr,
+
+    // -----------------------------------------------------------------------
+    //  Type cast  [40]
+    // -----------------------------------------------------------------------
+
+    /// Explicit type cast:  expr as Type
+    /// Node: TypeCastExpr value + target TypeRef.
+    TypeCastExpr,
+
+    // Inline foreign blocks (expression position)
+    // inline "asm" { } | inline "c" { } | inline "c++" { }
+    InlineBlockExpr,
+
+    // inserted by sema at FFI call boundaries carries:
+    // original expr + source type + target ABI type
+    // invisible to the programmer, visible in AST dumps for debugging
+    ImplicitBoundaryCastExpr,
+
+    // -----------------------------------------------------------------------
+    //  Marker must stay last
+    // -----------------------------------------------------------------------
+    ExprKindCount,
+}

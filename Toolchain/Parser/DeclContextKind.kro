@@ -1,0 +1,50 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+enum DeclContextKind derives u8 {
+    /// Root scope of a .kro source file.
+    TranslationUnit,
+
+    /// module Foo { }  |  inline module Foo { }
+    ModuleScope,
+
+    /// class Foo { }
+    ClassScope,
+
+    /// struct Foo { }
+    StructScope,
+
+    /// interface Foo { }
+    InterfaceScope,
+
+    /// extend Foo { }
+    ExtensionScope,
+
+    /// enum Foo { }
+    EnumScope,
+
+    /// fn foo() { }
+    FunctionScope,
+
+    /// unsafe { }
+    UnsafeScope,
+
+    /// eval { }  (compile-time execution scope)
+    EvalScope,
+
+    /// ffi "c++" { } or ffi "c" { }
+    /// ffi_lang field on DeclContext holds the language string.
+    FFIScope,
+}
