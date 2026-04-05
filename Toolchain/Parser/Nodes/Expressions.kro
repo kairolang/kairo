@@ -74,6 +74,7 @@
 
 
 import Parser::Nodes::Base::*;
+import Parser::Nodes::PrimaryExpressions::*;
 
 class PrimitiveLiteralExpr derives Expr { // does not cover string
     __inline_cpp("public:");
@@ -123,7 +124,7 @@ class PrimitiveLiteralExpr derives Expr { // does not cover string
         // -----------------------------------------------------------------------
         NullLiteral,     // null, &null
     }
-    
+
     pub var value: Token;      // in a string this is just the head token, since strings can be multi-token with interpolation
     pub var ctx:  *ASTContext; // for resolving the token text from the source manager and imm table
 
@@ -304,7 +305,7 @@ class IntegerLiteralExpr derives PrimitiveLiteralExpr {
     fn get_value_as_bigint(self) -> *BigInt {
         if self.int_data->big == &null {
             self.int_data->big = std::create::<BigInt>(self.int_data->value_lo);
-            
+
             if self.is_negative() {
                 (self.int_data->big->sign) = -1;
             }
@@ -507,7 +508,7 @@ class StringLiteralExpr derives PrimitiveLiteralExpr {
     }
 
     pub var string_chain: FrozenList::<SingleString>; // for handling multiple adjacent string literals that are concatenated, e.g. "hello" " " "world"
-    
+
     // StringData stores:
     // pub var exprs: libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>; // exprs tokens
     //         // along with the start and end from { and } (can be empty for non-interpolated strings)
@@ -1270,8 +1271,6 @@ class MapLiteralExpr derives MapInitializerExpr {
     }
 }
 
-
-
 class ListLiteralExpr derives ArrayInitializerExpr { /// [ ... ]
     // Node: ListLiteralExpr basic ordered bag of values , either
     __inline_cpp("public:");
@@ -1279,11 +1278,11 @@ class ListLiteralExpr derives ArrayInitializerExpr { /// [ ... ]
         Array,
         Vector
     }
-    
+
     pub var values: FrozenList::<*Expr>;
     pub const MAX_VALUES: usize = 65535; // arbitrary limit
     pub const MAX_INDEX: usize = MAX_VALUES - 1;
-    
+
     // this is set by sema when deguessing the literal based
     // on the expected type context, but it is stored in the AST so that later
     // stages can still distinguish between array and vector literals if needed
@@ -1355,7 +1354,7 @@ class ListLiteralExpr derives ArrayInitializerExpr { /// [ ... ]
     fn get_element_type(self) -> *Type {
         return self.element_type;
     }
-    
+
     /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
         return (ptr->kind) == ExprKind::ListLiteralExpr;
     }
@@ -1365,34 +1364,29 @@ class ListLiteralExpr derives ArrayInitializerExpr { /// [ ... ]
     }
 }
 
-
-
-struct NamedValueExpr {
-    var name:        Token; // can be an invalid token if no name is present
-    var value:      *Expr;
-    var field_type: *Type;
-}
-
 class NamedInitializerExpr derives Expr { // must validate that all names are preset in parser
-    pub var values: FrozenList::<NamedValueExpr>;
+    pub var values: FrozenList::<NamedValue>;
+    pub var name:  *Type;
     pub var ctx:   *ASTContext;
-    
+
     static fn create(
         ctx:    *ASTContext,
         range:   SourceRange,
-        values: *vec::<NamedValueExpr> // a temp stack allocated vector
+        name:   *Type,
+        values: *vec::<NamedValue> // a temp stack allocated vector
     ) -> *NamedInitializerExpr {
         var node = ctx->alloc::<NamedInitializerExpr>();
         // from Expr
         node->kind     = ExprKind::NamedInitializerExpr;
         node->range    = range;
         // from NamedInitializerExpr
-        var arr = ctx->alloc_array::<NamedValueExpr>(values->size());
+        var arr = ctx->alloc_array::<NamedValue>(values->size());
         for var i: usize = 0; i < values->size(); ++i {
             arr[i] = (*values)[i];
         }
 
         node->values.from_raw(arr, values->size());
+        node->name  = name;
         node->ctx   = ctx;
         return node;
     }
@@ -1400,9 +1394,10 @@ class NamedInitializerExpr derives Expr { // must validate that all names are pr
     static fn create_error(
         ctx:    *ASTContext,
         range:   SourceRange,
-        values: *vec::<NamedValueExpr> // a temp stack allocated vector
+        name:   *Type,
+        values: *vec::<NamedValue> // a temp stack allocated vector
     ) -> *NamedInitializerExpr {
-        var node            = create(ctx, range, values);
+        var node            = create(ctx, range, name, values);
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::NamedInitializerExpr;
         return node;
@@ -1419,8 +1414,10 @@ class NamedInitializerExpr derives Expr { // must validate that all names are pr
     fn has_values(self) -> bool {
         return !(self.values.is_empty());
     }
-     
-    // at this point not sure what other methods we need...
+
+    fn get_name(self) -> *Type {
+        return self.name;
+    }
 }
 
 class AnonInitializerExpr derives Expr {
@@ -1428,20 +1425,20 @@ class AnonInitializerExpr derives Expr {
     // invalid or missing, and sema will have to infer them based on context
     // and set the field_type for each value based on the corresponding field
     // in the struct literal type.
-    pub var values: FrozenList::<NamedValueExpr>;
+    pub var values: FrozenList::<NamedValue>;
     pub var ctx:   *ASTContext;
 
     static fn create(
         ctx:    *ASTContext,
         range:   SourceRange,
-        values: *vec::<NamedValueExpr> // a temp stack allocated vector
+        values: *vec::<NamedValue> // a temp stack allocated vector
     ) -> *AnonInitializerExpr {
         var node = ctx->alloc::<AnonInitializerExpr>();
         // from Expr
         node->kind     = ExprKind::AnonInitializerExpr;
         node->range    = range;
         // from AnonInitializerExpr
-        var arr = ctx->alloc_array::<NamedValueExpr>(values->size());
+        var arr = ctx->alloc_array::<NamedValue>(values->size());
         for var i: usize = 0; i < values->size(); ++i {
             arr[i] = (*values)[i];
         }
@@ -1454,7 +1451,7 @@ class AnonInitializerExpr derives Expr {
     static fn create_error(
         ctx:    *ASTContext,
         range:   SourceRange,
-        values: *vec::<NamedValueExpr> // a temp stack allocated vector
+        values: *vec::<NamedValue> // a temp stack allocated vector
     ) -> *AnonInitializerExpr {
         var node            = create(ctx, range, values);
         node->kind          = ExprKind::RecoveryExpr;
@@ -1477,243 +1474,79 @@ class AnonInitializerExpr derives Expr {
     // at this point not sure what other methods we need...
 }
 
-// this is now a hard one to solve something like:
-// std::option::Option::<i32>::Some().inst()[190].other
-// needs to be represted in a flat format so smea is easy for that to happen
-// we need to store *Expr <SegmentSeparator> *Expr <SegmentSeparator> *Expr
-// where the *Expr has to be bounded to a subset of expressions that can appear in a
-// dissalowed exprs segment:
-
-class NamedIdentExpr derives Expr {
-    pub var name:  Token;
-    pub var ctx:  *ASTContext;
+class MethodCallExpr derives Expr {
+    // this is for method calls, we have a full chainExpr on the left side (the call)
+    // optional gernics, and a list of arguments.
+    pub var name: *ChainExpr;
+    pub var generic_args: FrozenList::<*Type>;
+    pub var args: FrozenList::<*Expr>;
 
     static fn create(
         ctx: *ASTContext,
         range: SourceRange,
-        name: Token
-    ) -> *NamedIdentExpr {
-        var node = ctx->alloc::<NamedIdentExpr>();
+        name: *ChainExpr,
+        generic_args: *vec::<*Type>,
+        args: *vec::<*Expr>
+    ) -> *MethodCallExpr {
+        var node = ctx->alloc::<MethodCallExpr>();
         // from Expr
-        node->kind     = ExprKind::NamedIdentExpr;
+        node->kind     = ExprKind::MethodCallExpr;
         node->range    = range;
-        // from NamedIdentExpr
-        node->name     = name;
-        node->ctx      = ctx;
+        // from MethodCallExpr
+        node->name = name;
+
+        var gen_arr = ctx->alloc_array::<*Type>(generic_args->size());
+        for var i: usize = 0; i < generic_args->size(); ++i {
+            gen_arr[i] = (*generic_args)[i];
+        }
+
+        node->generic_args.from_raw(gen_arr, generic_args->size());
+
+        var arg_arr = ctx->alloc_array::<*Expr>(args->size());
+        for var i: usize = 0; i < args->size(); ++i {
+            arg_arr[i] = (*args)[i];
+        }
+
+        node->args.from_raw(arg_arr, args->size());
+
         return node;
     }
 
     static fn create_error(
         ctx: *ASTContext,
         range: SourceRange,
-        name: Token
-    ) -> *NamedIdentExpr {
-        var node            = create(ctx, range, name);
+        name: *ChainExpr,
+        generic_args: *vec::<*Type>,
+        args: *vec::<*Expr>
+    ) -> *MethodCallExpr {
+        var node            = create(ctx, range, name, generic_args, args);
         node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::NamedIdentExpr;
+        node->recovery_kind = ExprKind::MethodCallExpr;
         return node;
     }
 
     /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::NamedIdentExpr;
+        return ptr->kind == ExprKind::MethodCallExpr;
     }
 
     /* OVERRIDE */ static fn expr_kind() -> ExprKind {
-        return ExprKind::NamedIdentExpr;
+        return ExprKind::MethodCallExpr;
     }
 
-    fn get_name(self) -> TokenText {
-        return TokenText::from_token(self.name, self.ctx);
-    }
-}
-
-
-/// ChainExpr Parser MUST validate only a primary expession can appear in the segments
-//    NullLiteralExpr
-//    ImplConformanceExpr
-//    DerivesRelationExpr
-//    InlineTryCatchExpr
-//    RangeExpr
-//    AwaitExpr
-//    SpawnExpr
-//    ThreadExpr
-//    SizeOfExpr
-//    AlignOfExpr
-//    TypeOfExpr
-//    EvalExpr
-//    DeleteExpr
-//    PackExpansionExpr
-//    DestructuringBindingExpr
-//    MatchBindingExpr
-//    TypeCastExpr
-//    InlineBlockExpr
-class ChainExpr derives Expr {
-    __inline_cpp("public:");
-    enum SegmentSeparator derives u8 {
-        None = 0,          // for the first segment which has no separator
-        Dot,               // .
-        Arrow,             // ->
-        DotStar,           // .*
-        ArrowStar,         // ->*
-        ColonColon,        // ::
-        QuestionDot,       // ?.
-        QuestionArrow,     // ?->
-        QuestionArrowStar, // ?->*
-        QuestionDotStar,   // ?.*
+    fn has_generic_args(self) -> bool {
+        return !(self.generic_args.is_empty());
     }
 
-    struct ChainSegment { // <SegmentSeparator> <Expr (primary)>
-        var sep:   SegmentSeparator;
-        var expr: *Expr;
+    fn has_args(self) -> bool {
+        return !(self.args.is_empty());
     }
 
-    pub var segments: FrozenList::<ChainSegment>;
-    pub var ctx: *ASTContext;
-    
-    static fn create(
-        ctx: *ASTContext,
-        range: SourceRange,
-        segments: *vec::<ChainSegment> // a temp stack allocated vector
-    ) -> *ChainExpr {
-        var node = ctx->alloc::<ChainExpr>();
-        // from Expr
-        node->kind     = ExprKind::ChainExpr;
-        node->range    = range;
-        // from ChainExpr
-        var arr = ctx->alloc_array::<ChainSegment>(segments->size());
-        for var i: usize = 0; i < segments->size(); ++i {
-            arr[i] = (*segments)[i];
-        }
-
-        node->segments.from_raw(arr, segments->size());
-        node->ctx   = ctx;
-        return node;
+    fn get_last_name(self) -> *ChainExpr::ChainSegment {
+        return self.name->last();
     }
 
-    static fn create_error(
-        ctx: *ASTContext,
-        range: SourceRange,
-        segments: *vec::<ChainSegment> // a temp stack allocated vector
-    ) -> *ChainExpr {
-        var node            = create(ctx, range, segments);
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::ChainExpr;
-        return node;
-    }
-
-    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::ChainExpr;
-    }
-
-    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
-        return ExprKind::ChainExpr;
-    }
-
-    fn get_segments(self) -> FrozenList::<ChainSegment> {
-        return self.segments;
-    }
-
-    fn size(self) -> usize {
-        return self.segments.size();
-    }
-
-    fn last(self) -> *ChainSegment {
-        if (self.segments.is_empty()) {
-            return &null;
-        }
-
-        return self.segments[self.segments.size() - 1];
-    }
-
-    fn first(self) -> *ChainSegment {
-        if (self.segments.is_empty()) {
-            return &null;
-        }
-
-        return self.segments[0];
-    }
-
-    // all the seps must be a scope separator (::) for this to be true, which
-    // means this chain is just a path and not an actual chained expression with
-    // member accesses or method calls, so we can optimize it as a simple path
-    // in sema and codegen
-    fn is_scoped_only(self) -> bool {
-        return self.segments.all(fn(x: *ChainSegment) -> bool {
-            return x->sep == SegmentSeparator::ColonColon;
-        });
-    }
-
-    fn has_method_calls(self) -> bool {
-        return self.segments.any(fn(x: *ChainSegment) -> bool {
-            return x->sep == SegmentSeparator::Dot || x->sep == SegmentSeparator::Arrow;
-        });
-    }
-
-    fn has_optional_chaining(self) -> bool {
-        return self.segments.any(fn(x: *ChainSegment) -> bool {
-            return (x->sep == SegmentSeparator::QuestionDot)
-                || (x->sep == SegmentSeparator::QuestionArrow)
-                || (x->sep == SegmentSeparator::QuestionArrowStar)
-                || (x->sep == SegmentSeparator::QuestionDotStar);
-        });
-    }
-
-    fn has_member_access(self) -> bool {
-        return self.segments.any(fn(x: *ChainSegment) -> bool {
-            return (x->sep == SegmentSeparator::Dot)
-                || (x->sep == SegmentSeparator::Arrow)
-                || (x->sep == SegmentSeparator::DotStar)
-                || (x->sep == SegmentSeparator::ArrowStar);
-        });
-    }
-
-    fn accesses_global_scope(self) -> bool {
-        if (self.segments.is_empty()) {
-            return false;
-        }
-
-        return (self.segments[0]->sep) == SegmentSeparator::ColonColon;
-    }
-}
-
-class GroupingExpr derives Expr {
-    pub var sub_expr: *Expr;
-
-    static fn create(
-        ctx: *ASTContext,
-        range: SourceRange,
-        sub_expr: *Expr
-    ) -> *GroupingExpr {
-        var node = ctx->alloc::<GroupingExpr>();
-        // from Expr
-        node->kind     = ExprKind::GroupingExpr;
-        node->range    = range;
-        // from GroupingExpr
-        node->sub_expr = sub_expr;
-        return node;
-    }
-
-    static fn create_error(
-        ctx: *ASTContext,
-        range: SourceRange,
-        sub_expr: *Expr
-    ) -> *GroupingExpr {
-        var node            = create(ctx, range, sub_expr);
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::GroupingExpr;
-        return node;
-    }
-
-    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::GroupingExpr;
-    }
-
-    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
-        return ExprKind::GroupingExpr;
-    }
-
-    fn get_sub_expr(self) -> *Expr {
-        return self.sub_expr;
+    fn get_generic_args(self) -> FrozenList::<*Type> {
+        return self.generic_args;
     }
 }
 
@@ -1936,7 +1769,7 @@ class AssignOperatorExpr derives BinaryOperatorExpr {
 class ImplConformanceExpr derives Expr {
     pub var left:  *Type;
     pub var right: FrozenList::<*Type>;
-    
+
     static fn create(
         ctx: *ASTContext,
         range: SourceRange,
@@ -2185,7 +2018,7 @@ class IfExpr derives Expr {
                 return true;
             }
         }
-    
+
         return false;
     }
 }
@@ -2368,7 +2201,7 @@ class InlineTryCatchExpr derives Expr {
                 return true;
             }
         }
-    
+
         return false;
     }
 }
@@ -2450,7 +2283,7 @@ class AwaitExpr derives UnaryOperatorExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwAwait && r"Expected an await operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // await is always a prefix operator
         return node;
@@ -2491,7 +2324,7 @@ class SpawnExpr derives UnaryOperatorExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwSpawn && r"Expected a spawn operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // spawn is always a prefix operator
         return node;
@@ -2532,7 +2365,7 @@ class ThreadExpr derives UnaryOperatorExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwThread && r"Expected a thread operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // thread is always a prefix operator
         return node;
@@ -2573,7 +2406,7 @@ class EvalExpr derives UnaryOperatorExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwEval && r"Expected an eval operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // eval is always a prefix operator
         return node;
@@ -2590,7 +2423,7 @@ class EvalExpr derives UnaryOperatorExpr {
         node->recovery_kind = ExprKind::EvalExpr;
         return node;
     }
-    
+
     /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
         return ptr->kind == ExprKind::EvalExpr;
     }
@@ -2614,7 +2447,7 @@ class UnsafeExpr derives UnaryOperatorExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwUnsafe && r"Expected an unsafe operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // unsafe is always a prefix operator
         return node;
@@ -2655,7 +2488,7 @@ class DeleteExpr derives UnaryOperatorExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwDelete && r"Expected a delete operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // delete is always a prefix operator
         return node;
@@ -2701,13 +2534,13 @@ class TypeOfExpr derives UnaryOperatorExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwSizeOf && r"Expected a sizeof operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // sizeof is always a prefix operator
 
         // from TypeOfExpr
         node->operand_is_type = operand_is_type;
-        
+
         if (operand_is_type) {
             assert((operand_type != &null) && r"Expected operand_type to be set when operand_is_type is true");
             node->operand_type = operand_type;
@@ -2778,13 +2611,13 @@ class SizeOfExpr derives TypeOfExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwSizeOf && r"Expected a sizeof operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // sizeof is always a prefix operator
 
         // from TypeOfExpr
         node->operand_is_type = operand_is_type;
-        
+
         if (operand_is_type) {
             assert((operand_type != &null) && r"Expected operand_type to be set when operand_is_type is true");
             node->operand_type = operand_type;
@@ -2835,13 +2668,13 @@ class AlignOfExpr derives TypeOfExpr {
         // from UnaryOperatorExpr
         node->operator = operator;
         assert(operator.kind == TokenKind::KwAlignOf && r"Expected an alignof operator token");
-        
+
         node->operand  = operand;
         node->prefix   = true; // alignof is always a prefix operator
 
         // from TypeOfExpr
         node->operand_is_type = operand_is_type;
-        
+
         if (operand_is_type) {
             assert((operand_type != &null) && r"Expected operand_type to be set when operand_is_type is true");
             node->operand_type = operand_type;
@@ -2969,7 +2802,7 @@ class TypeCastExpr derives Expr {
     pub var operator:    Token; // the cast operator token, e.g. 'as'
     pub var left:        *Expr; // the operand being casted, stored in the
     pub var target_type: *Type; // we don't use the right side of the binary operator for type casts, instead we store the target type in the TypeCastExpr itself
-    
+
     static fn create(
         ctx: *ASTContext,
         range: SourceRange,
@@ -3072,8 +2905,8 @@ class MacroInvocationExpr derives Expr {
         return ExprKind::MacroInvocationExpr;
     }
 
-    fn get_macro_name(self) -> Token {
-        return self.macro_name;
+    fn get_macro_name(self) -> *ChainExpr::ChainSegment {
+        return self.macro_path->last();
     }
 
     fn get_args(self) -> FrozenList::<*Expr> {
@@ -3171,4 +3004,49 @@ class ImplicitBoundaryCastExpr derives Expr {
     fn get_target_abi_type(self) -> *Type {
         return self.target_abi_type;
     }
+}
+
+// free function: is_primary_expr
+eval fn is_primary_expr(expr: *Expr) -> bool {
+    switch expr->kind {
+        case ExprKind::IntegerLiteralExpr:
+        case ExprKind::FloatingLiteralExpr:
+        case ExprKind::StringLiteralExpr:
+        case ExprKind::CharacterLiteralExpr:
+        case ExprKind::BooleanLiteralExpr:
+        case ExprKind::NullLiteralExpr:
+        case ExprKind::ListLiteralExpr:
+        case ExprKind::TupleLiteralExpr:
+        case ExprKind::SetLiteralExpr:
+        case ExprKind::MapLiteralExpr:
+        case ExprKind::ArrayInitializerExpr:
+        case ExprKind::VectorInitializerExpr:
+        case ExprKind::MapInitializerExpr:
+        case ExprKind::SetInitializerExpr:
+        case ExprKind::NamedInitializerExpr: // ambiguous
+        case ExprKind::AnonInitializerExpr:
+        case ExprKind::ChainExpr: // ambiguous
+        case ExprKind::NamedIdentExpr:
+        case ExprKind::SelfExpr:
+        case ExprKind::GroupingExpr:
+        case ExprKind::IfExpr:
+        case ExprKind::InlineTryCatchExpr:
+        case ExprKind::ClosureExpr:
+        case ExprKind::MacroInvocationExpr: // ambiguous
+        case ExprKind::SizeOfExpr:
+        case ExprKind::AlignOfExpr:
+        case ExprKind::TypeOfExpr:
+        case ExprKind::AwaitExpr:
+        case ExprKind::SpawnExpr:
+        case ExprKind::ThreadExpr:
+        case ExprKind::EvalExpr:
+        case ExprKind::UnaryOperatorExpr: // ambiguous
+        case ExprKind::PackExpansionExpr: // ambiguous
+            return true;
+
+        default:
+            return false;
+    }
+
+    return false;
 }

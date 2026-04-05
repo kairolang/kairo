@@ -24,16 +24,16 @@
 ///     [11 .. 12] Compiler-inserted types
 ///
 enum TypeKind {
-    // -----------------------------------------------------------------------
-    //  Sentinel
-    // -----------------------------------------------------------------------
+    /// -----------------------------------------------------------------------
+    ///  Sentinel
+    /// -----------------------------------------------------------------------
 
     /// Parser / sema error sentinel.
     RecoveryType = 0,
 
-    // -----------------------------------------------------------------------
-    //  Named / resolved types  [1 .. 2]
-    // -----------------------------------------------------------------------
+    /// -----------------------------------------------------------------------
+    ///  Named / resolved types  [1 .. 2]
+    /// -----------------------------------------------------------------------
 
     /// A type referenced by name, possibly scope-qualified:
     ///   i32 | Foo | foo::Bar | ::std::String
@@ -41,46 +41,50 @@ enum TypeKind {
     /// Node: NamedType
     NamedType,
 
+    /// T inside fn foo<T>(x: T) — unresolved generic param
+    /// distinct from NamedType which resolves to a concrete TypeDecl
+    GenericParamType,
+
     /// An explicitly generic instantiation:  Vec<i32> | Map<str, i32>
     /// Node: GenericInstanceType base NamedType + TypeRef arg list.
     GenericInstanceType,
 
-    // typeof in type position: var x: typeof(foo()) = bar()
-    // distinct from TypeOfExpr which is an expression
+    /// typeof in type position: var x: typeof(foo()) = bar()
+    /// distinct from TypeOfExpr which is an expression
     TypeOfType,
 
-    // Variadic pack type: ...T
-    // used in variadic generic signatures
+    /// Variadic pack type: ...T
+    /// used in variadic generic signatures
     PackType,
 
-    // -----------------------------------------------------------------------
-    //  Pointer / optional types  [3 .. 4]
-    // -----------------------------------------------------------------------
+    /// -----------------------------------------------------------------------
+    ///  Pointer / optional types  [3 .. 4]
+    /// -----------------------------------------------------------------------
 
     /// Fat pointer type:  *T | **T
-    /// Node: FatPointerType pointee TypeRef.
-    FatPointerType,
+    /// Node: PointerType pointee TypeRef.
+    PointerType,
 
     /// Raw pointer type:  unsafe *T | unsafe **T
-    /// Node: RawPointerType pointee TypeRef.
-    RawPointerType,
+    /// Node: UnsafePointerType pointee TypeRef.
+    UnsafePointerType,
 
     /// Nullable (optional) type:  T?
     /// Lowered to std::Optional<T> by sema unless --explicit-aliasing.
     /// Node: NullableType inner TypeRef.
     NullableType,
 
-    // Never / bottom type functions that don't return
-    // Written as 'panic' in Kairo: fn diverge() -> panic
+    /// Never / bottom type functions that don't return
+    /// Written as 'panic' in Kairo: fn diverge() -> panic
     PanicType,
 
-    // Mutable type: mutable T
-    // Distinct from raw pointer mutable types have value semantics and are not unsafe by default.
+    /// Mutable type: mutable T
+    /// Distinct from raw pointer mutable types have value semantics and are not unsafe by default.
     MutableType,
 
-    // -----------------------------------------------------------------------
-    //  Collection types  [5 .. 9]
-    // -----------------------------------------------------------------------
+    /// -----------------------------------------------------------------------
+    ///  Collection types  [5 .. 9]
+    /// -----------------------------------------------------------------------
 
     /// Tuple type:  (i32, str, f64)
     /// Node: TupleType element TypeRef array.
@@ -102,21 +106,25 @@ enum TypeKind {
     /// Node: SetType element TypeRef.
     SetType,
 
-    // Self type inside class/interface bodies
-    // refers to the implementing type
+    /// Self type inside class/interface bodies
+    /// refers to the implementing type
     SelfType,
 
-    // -----------------------------------------------------------------------
-    //  Callable type  [10]
-    // -----------------------------------------------------------------------
+    /// -----------------------------------------------------------------------
+    ///  Callable type  [10]
+    /// -----------------------------------------------------------------------
 
     /// Function pointer type:  fn(i32, str) -> bool
     /// Node: FunctionPointerType param TypeRef array + return TypeRef.
     FunctionPointerType,
 
-    // -----------------------------------------------------------------------
-    //  Compiler-inserted types  [11 .. 12]
-    // -----------------------------------------------------------------------
+    /// type of fn(...) { } with captures
+    /// distinct from FunctionPointerType which has no captures
+    ClosureType,
+
+    /// -----------------------------------------------------------------------
+    ///  Compiler-inserted types  [11 .. 12]
+    /// -----------------------------------------------------------------------
 
     /// Type inference placeholder:  _ or omitted annotation
     /// Sema assigns a concrete type by solving constraints.
@@ -130,8 +138,17 @@ enum TypeKind {
     /// Node: QualifiedModifierType Modifier enum + inner TypeRef.
     QualifiedModifierType,
 
-    // -----------------------------------------------------------------------
-    //  Marker
-    // -----------------------------------------------------------------------
+    // T& from C++ headers
+    CXXLValueRefType,
+
+    // T&& from C++ headers
+    CXXRValueRefType,
+
+    // opaque type from ffi "c++" — sema treats as black box
+    OpaqueFFIType,
+
+    /// -----------------------------------------------------------------------
+    ///  Marker
+    /// -----------------------------------------------------------------------
     TypeKindCount,
 }

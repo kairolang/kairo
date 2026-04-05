@@ -13,7 +13,34 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
+//    [ ] NamedType                                                          ///
+//    [ ] GenericParamType                                                   ///
+//    [ ] GenericInstanceType                                                ///
+//    [ ] TypeOfType                                                         ///
+//    [ ] PackType                                                           ///
+//    [ ] PointerType                                                        ///
+//    [ ] UnsafePointerType                                                  ///
+//    [ ] NullableType                                                       ///
+//    [ ] PanicType                                                          ///
+//    [ ] MutableType                                                        ///
+//    [ ] TupleType                                                          ///
+//    [ ] FixedArrayType                                                     ///
+//    [ ] VectorType                                                         ///
+//    [ ] MapType                                                            ///
+//    [ ] SetType                                                            ///
+//    [ ] SelfType                                                           ///
+//    [ ] FunctionPointerType                                                ///
+//    [ ] ClosureType                                                        ///
+//    [ ] InferredType                                                       ///
+//    [ ] QualifiedModifierType                                              ///
+//    [ ] CXXLValueRefType                                                   ///
+//    [ ] CXXRValueRefType                                                   ///
+//    [ ] OpaqueFFIType                                                      ///
+//    [ ] TypeKindCount                                                      ///
+
+
 import Parser::Nodes::Base::*;
+import Parser::Nodes::PrimaryExpressions::*;
 
 class MapType derives Type {
     // Node: MapType key TypeRef + value TypeRef.
@@ -62,6 +89,3 @@ class FixedArrayType derives Type {
     }
 }
 
-
-
-⠀⠀
