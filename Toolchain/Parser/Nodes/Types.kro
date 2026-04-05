@@ -45,7 +45,7 @@ class VectorType derives Type {
 
 class TupleType derives Type {
     // Node: TupleType list of element TypeRefs.
-    pub var element_types: ArenaList::<*Type>;
+    pub var element_types: FrozenList::<*Type>;
 
     static fn classof(ptr: *Type) -> bool {
         return (ptr->kind) == TypeKind::TupleType;
@@ -61,3 +61,7 @@ class FixedArrayType derives Type {
         return (ptr->kind) == TypeKind::FixedArrayType;
     }
 }
+
+
+
+⠀⠀
