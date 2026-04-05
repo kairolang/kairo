@@ -92,27 +92,23 @@ enum TokenKind derives u32 {
     OpAt          = compute_hash::<r"@">(),    // "@"     NOT (clang-compatible)
 
     OpEqual       = compute_hash::<r"=">(),    // "="
-    OpPlusplus    = compute_hash::<r"++">(),   // "++"
+    OpPlusPlus    = compute_hash::<r"++">(),   // "++"
     OpMinusMinus  = compute_hash::<r"--">(),   // "--"
 
+    OpSemicolon         = compute_hash::<r";">(),    // ";"
+    OpColon             = compute_hash::<r":">(),    // ":"
+    
     OpArrow             = compute_hash::<r"->">(),   // "->"
     OpArrowStar         = compute_hash::<r"->*">(),  // "->*"
     OpQuestionArrow     = compute_hash::<r"?->">(),  // "?->"   NOT (clang-comp)
     OpQuestionArrowStar = compute_hash::<r"?->*">(), // "?->*   NOT (clang-comp)
-    OpExclaimArrow      = compute_hash::<r"!->">(),  // "!->"   NOT (clang-comp)
-    OpExclaimArrowStar  = compute_hash::<r"!->*">(), // "!->"   NOT (clang-comp)
+    OpComma             = compute_hash::<r",">(),    // ","
+    OpDot               = compute_hash::<r".">(),    // "."
+    OpDotStar           = compute_hash::<r".*">(),   // ".*"
+    OpColonColon        = compute_hash::<r"::">(),   // "::"
+    OpQuestionDot       = compute_hash::<r"?.">(),   // "?."      NOT (clang-comp)
+    OpQuestionDotStar   = compute_hash::<r"?.*">(),  // "?.*"     NOT (clang-comp)
 
-    OpColon           = compute_hash::<r":">(),    // ":"
-    OpSemicolon       = compute_hash::<r";">(),    // ";"
-    OpComma           = compute_hash::<r",">(),    // ","
-    OpDot             = compute_hash::<r".">(),    // "."
-    OpDotStar         = compute_hash::<r".*">(),   // ".*"
-    OpColonColon      = compute_hash::<r"::">(),   // "::"
-
-    OpQuestionDot     = compute_hash::<r"?.">(),   // "?."      NOT (clang-comp)
-    OpQuestionDotStar = compute_hash::<r"?.*">(),  // "?.*"     NOT (clang-comp)
-    OpExclaimDot      = compute_hash::<r"!.">(),   // "!."      NOT (clang-comp)
-    OpExclaimDotStar  = compute_hash::<r"!.*">(),  // "!.*"     NOT (clang-comp)
     OpEllipsis        = compute_hash::<r"...">(),  // "..."
 
     ///===----------------------------------------------------------------===///
@@ -320,12 +316,11 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::OpAmp:              case TokenKind::OpCaretCaret:
         case TokenKind::OpRangeEqual:       case TokenKind::OpTilde:
         case TokenKind::OpExclaim:          case TokenKind::OpAt:
-        case TokenKind::OpPlusplus:         case TokenKind::OpMinusMinus:
+        case TokenKind::OpPlusPlus:         case TokenKind::OpMinusMinus:
         case TokenKind::OpArrowStar:        case TokenKind::OpQuestionArrow:
-        case TokenKind::OpExclaimArrow:     case TokenKind::OpExclaimArrowStar:
         case TokenKind::OpSemicolon:        case TokenKind::OpComma:
         case TokenKind::OpDotStar:          case TokenKind::OpColonColon:
-        case TokenKind::OpQuestionDotStar:  case TokenKind::OpExclaimDot:
+        case TokenKind::OpQuestionDotStar:  case TokenKind::BiAlignAs:
         case TokenKind::OpEllipsis:         case TokenKind::OpPlusEqual:
         case TokenKind::OpStarEqual:        case TokenKind::OpSlashEqual:
         case TokenKind::OpAmpEqual:         case TokenKind::OpPipeEqual:
@@ -357,7 +352,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::KwModule:           case TokenKind::OpColon:
         case TokenKind::KwTest:             case TokenKind::OpDot:
         case TokenKind::KwMacro:            case TokenKind::OpQuestionDot:
-        case TokenKind::KwImport:           case TokenKind::OpExclaimDotStar:
+        case TokenKind::KwImport:           case TokenKind::AtU64:
         case TokenKind::KwOverride:         case TokenKind::OpMinusEqual:
         case TokenKind::KwFinal:            case TokenKind::OpPercentEqual:
         case TokenKind::KwFfi:              case TokenKind::OpCaretEqual:
@@ -399,8 +394,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::BiForceInline:      case TokenKind::AtU8:
         case TokenKind::BiNoInline:         case TokenKind::AtU16:
         case TokenKind::BiDeprecated:       case TokenKind::AtU32:
-        case TokenKind::BiMustUse:          case TokenKind::AtU64:
-        case TokenKind::BiAlignAs:
+        case TokenKind::BiMustUse:
             return true;
         default:
             return false;
@@ -454,14 +448,12 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::OpExclaim {             return "op-exclaim"; }
         case TokenKind::OpAt {                  return "op-at"; }
         case TokenKind::OpEqual {               return "op-equal"; }
-        case TokenKind::OpPlusplus {            return "op-plusplus"; }
+        case TokenKind::OpPlusPlus {            return "op-plusplus"; }
         case TokenKind::OpMinusMinus {          return "op-minus-minus"; }
         case TokenKind::OpArrow {               return "op-arrow"; }
         case TokenKind::OpArrowStar {           return "op-arrow-star"; }
         case TokenKind::OpQuestionArrow {       return "op-question-arrow"; }
         case TokenKind::OpQuestionArrowStar {   return "op-question-arrow-star"; }
-        case TokenKind::OpExclaimArrow {        return "op-exclaim-arrow"; }
-        case TokenKind::OpExclaimArrowStar {    return "op-exclaim-arrow-star"; }
         case TokenKind::OpColon {               return "op-colon"; }
         case TokenKind::OpSemicolon {           return "op-semicolon"; }
         case TokenKind::OpComma {               return "op-comma"; }
@@ -470,8 +462,6 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::OpColonColon {          return "op-colon-colon"; }
         case TokenKind::OpQuestionDot {         return "op-question-dot"; }
         case TokenKind::OpQuestionDotStar {     return "op-question-dot-star"; }
-        case TokenKind::OpExclaimDot {          return "op-exclaim-dot"; }
-        case TokenKind::OpExclaimDotStar {      return "op-exclaim-dot-star"; }
         case TokenKind::OpEllipsis {            return "op-ellipsis"; }
         case TokenKind::OpPlusEqual {           return "op-plus-equal"; }
         case TokenKind::OpMinusEqual {          return "op-minus-equal"; }
@@ -648,14 +638,12 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::OpExclaim             { return "!";   }
         case TokenKind::OpAt                  { return "@";   }
         case TokenKind::OpEqual               { return "=";   }
-        case TokenKind::OpPlusplus            { return "++";  }
+        case TokenKind::OpPlusPlus            { return "++";  }
         case TokenKind::OpMinusMinus          { return "--";  }
         case TokenKind::OpArrow               { return "->";  }
         case TokenKind::OpArrowStar           { return "->*"; }
         case TokenKind::OpQuestionArrow       { return "?->"; }
         case TokenKind::OpQuestionArrowStar   { return "?->*"; }
-        case TokenKind::OpExclaimArrow        { return "!->"; }
-        case TokenKind::OpExclaimArrowStar    { return "!->*"; }
         case TokenKind::OpColon               { return ":"; }
         case TokenKind::OpSemicolon           { return ";"; }
         case TokenKind::OpComma               { return ","; }
@@ -664,8 +652,6 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::OpColonColon          { return "::"; }
         case TokenKind::OpQuestionDot         { return "?."; }
         case TokenKind::OpQuestionDotStar     { return "?.*"; }
-        case TokenKind::OpExclaimDot          { return "!."; }
-        case TokenKind::OpExclaimDotStar      { return "!.*"; }
         case TokenKind::OpEllipsis            { return "..."; }
         case TokenKind::OpPlusEqual           { return "+="; }
         case TokenKind::OpMinusEqual          { return "-="; }
@@ -860,7 +846,7 @@ fn is_unary_operator(kind: TokenKind) -> bool {
         case TokenKind::KwThread:     case TokenKind::KwCompl:
         case TokenKind::KwSpawn:      case TokenKind::OpAt:
         case TokenKind::KwDelete:     case TokenKind::OpEqual:
-        case TokenKind::KwYield:      case TokenKind::OpPlusplus:
+        case TokenKind::KwYield:      case TokenKind::OpPlusPlus:
         case TokenKind::KwSizeOf:     case TokenKind::OpMinusMinus:
         case TokenKind::KwAlignOf:    case TokenKind::OpPlus:
         case TokenKind::KwTypeOf:     case TokenKind::OpMinus:
@@ -897,15 +883,13 @@ fn is_binary_operator(kind: TokenKind) -> bool {
         case TokenKind::OpAmpAmp:           case TokenKind::OpArrowStar:
         case TokenKind::OpPipePipe:         case TokenKind::OpQuestionArrow:
         case TokenKind::OpPipeGreater:      case TokenKind::OpQuestionArrowStar:
-        case TokenKind::OpLessPipe:         case TokenKind::OpExclaimArrow:
-        case TokenKind::OpPlusEqual:        case TokenKind::OpExclaimArrowStar:
+        case TokenKind::OpLessPipe:         case TokenKind::OpQuestionDotStar:
+        case TokenKind::OpPlusEqual:        case TokenKind::OpCaretEqual:
         case TokenKind::OpMinusEqual:       case TokenKind::OpComma:
         case TokenKind::OpStarEqual:        case TokenKind::OpDot:
         case TokenKind::OpSlashEqual:       case TokenKind::OpDotStar:
         case TokenKind::OpPercentEqual:     case TokenKind::OpQuestionDot:
-        case TokenKind::OpAmpEqual:         case TokenKind::OpQuestionDotStar:
-        case TokenKind::OpPipeEqual:        case TokenKind::OpExclaimDot:
-        case TokenKind::OpCaretEqual:       case TokenKind::OpExclaimDotStar:
+        case TokenKind::OpAmpEqual:         case TokenKind::OpPipeEqual:
             return true;
         default:
             return false;
@@ -934,6 +918,16 @@ fn is_punctuator(kind: TokenKind) -> bool {
         case TokenKind::OpRBrace:     case TokenKind::OpColon:
         case TokenKind::OpLParen:     case TokenKind::OpSemicolon:
         case TokenKind::OpRParen:
+            return true;
+        default:
+            return false;
+    }
+}
+
+fn is_range_operator(kind: TokenKind) -> bool {
+    switch kind {
+        case TokenKind::OpRange:       case TokenKind::OpRangeEqual:
+        case TokenKind::OpLessEqualGreater:
             return true;
         default:
             return false;

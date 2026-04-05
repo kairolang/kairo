@@ -2459,7 +2459,7 @@ fn Test() -> i32 {
         
         var tokens = lexer->tokens();
         var expected = vec::<TokenKind>();
-        expected.push_back(TokenKind::OpPlusplus);
+        expected.push_back(TokenKind::OpPlusPlus);
         expected.push_back(TokenKind::OpMinusMinus);
         expected.push_back(TokenKind::OpArrow);
         expected.push_back(TokenKind::OpColonColon);
@@ -2562,13 +2562,6 @@ fn Test() -> i32 {
         if tokens->get(3)->kind != TokenKind::OpQuestionArrowStar {
             return f"token 3: expected OpQuestionArrowStar, got {token_kind_to_readable_string(tokens->get(3)->kind)}";
         }
-        if tokens->get(4)->kind != TokenKind::OpExclaimArrow {
-            return f"token 4: expected OpExclaimArrow, got {token_kind_to_readable_string(tokens->get(4)->kind)}";
-        }
-        if tokens->get(5)->kind != TokenKind::OpExclaimArrowStar {
-            return f"token 5: expected OpExclaimArrowStar, got {token_kind_to_readable_string(tokens->get(5)->kind)}";
-        }
-        
         if lexer->has_errors() {
             return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
@@ -2602,13 +2595,6 @@ fn Test() -> i32 {
         if tokens->get(3)->kind != TokenKind::OpQuestionDotStar {
             return f"token 3: expected OpQuestionDotStar, got {token_kind_to_readable_string(tokens->get(3)->kind)}";
         }
-        if tokens->get(4)->kind != TokenKind::OpExclaimDot {
-            return f"token 4: expected OpExclaimDot, got {token_kind_to_readable_string(tokens->get(4)->kind)}";
-        }
-        if tokens->get(5)->kind != TokenKind::OpExclaimDotStar {
-            return f"token 5: expected OpExclaimDotStar, got {token_kind_to_readable_string(tokens->get(5)->kind)}";
-        }
-        
         if lexer->has_errors() {
             return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
         }
