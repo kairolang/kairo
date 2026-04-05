@@ -12,6 +12,66 @@
 ///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
+///
+/// \invariant Recovery node casting contract:
+///
+/// When kind == ExprKind::RecoveryExpr and recovery_kind == ExprKind::X,
+/// the node was allocated as X and it is ALWAYS safe to cast:
+///
+///   static_cast<X*>(recovery_expr_ptr)
+///
+/// This is guaranteed by create_error() on every concrete node class.
+/// Sema relies on this invariant for partial recovery type checking.
+/// Codegen relies on this to emit defaults for broken nodes.
+///
+/// DO NOT allocate a bare Expr and set recovery_kind — the cast will
+/// read out of bounds. Always use the concrete node's create_error().
+///
+
+///   [x] IntegerLiteralExpr                                                 ///
+///   [x] FloatingLiteralExpr                                                ///
+///   [x] StringLiteralExpr                                                  ///
+///   [x] CharacterLiteralExpr                                               ///
+///   [x] BooleanLiteralExpr                                                 ///
+///   [x] NullLiteralExpr                                                    ///
+///   [x] ListLiteralExpr                                                    ///
+///   [x] TupleLiteralExpr                                                   ///
+///   [x] SetLiteralExpr                                                     ///
+///   [x] MapLiteralExpr                                                     ///
+///   [x] ArrayInitializerExpr                                               ///
+///   [x] VectorInitializerExpr                                              ///
+///   [x] MapInitializerExpr                                                 ///
+///   [x] SetInitializerExpr                                                 ///
+///   [x] NamedInitializerExpr                                               ///
+///   [x] AnonInitializerExpr                                                ///
+///   [x] ChainExpr                                                          ///
+///   [x] NamedIdentExpr                                                     ///
+///   [x] GroupingExpr                                                       ///
+///   [x] UnaryOperatorExpr                                                  ///
+///   [x] BinaryOperatorExpr                                                 ///
+///   [x] AssignOperatorExpr                                                 ///
+///   [x] ImplConformanceExpr                                                ///
+///   [x] DerivesRelationExpr                                                ///
+///   [x] TernaryExpr                                                        ///
+///   [x] IfExpr                                                             ///
+///   [x] InlineTryCatchExpr                                                 ///
+///   [x] RangeExpr                                                          ///
+///   [x] AwaitExpr                                                          ///
+///   [x] SpawnExpr                                                          ///
+///   [x] ThreadExpr                                                         ///
+///   [x] SizeOfExpr                                                         ///
+///   [x] AlignOfExpr                                                        ///
+///   [x] TypeOfExpr                                                         ///
+///   [x] EvalExpr                                                           ///
+///   [x] SelfExpr                                                           ///
+///   [x] DeleteExpr                                                         ///
+///   [x] SubscriptExpr                                                      ///
+///   [x] TypeCastExpr                                                       ///
+///   [x] MacroInvocationExpr                                                ///
+///   [x] PackExpansionExpr                                                  ///
+///   [x] ImplicitBoundaryCastExpr                                           ///
+///   [ ] ClosureExpr                                                        ///
+
 
 import Parser::Nodes::Base::*;
 
@@ -67,7 +127,7 @@ class PrimitiveLiteralExpr derives Expr { // does not cover string
     pub var value: Token;      // in a string this is just the head token, since strings can be multi-token with interpolation
     pub var ctx:  *ASTContext; // for resolving the token text from the source manager and imm table
 
-    static fn classof(ptr: *Expr) -> bool { /* OVERRIDE */
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
         return (ptr->kind == ExprKind::IntegerLiteralExpr)
             || (ptr->kind == ExprKind::FloatingLiteralExpr)
             || (ptr->kind == ExprKind::CharacterLiteralExpr)
@@ -83,7 +143,26 @@ class PrimitiveLiteralExpr derives Expr { // does not cover string
     fn get_value_text(self) -> TokenText {
         return TokenText::from_token(self.value, self.ctx);
     }
-};
+}
+
+class CollectionExpr derives Expr {
+    __inline_cpp("public:");
+    enum Kind derives u8 {
+        Set,
+        Tuple,
+        List,
+        Map
+    }
+
+    pub var collection_kind: Kind;
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return (ptr->kind == ExprKind::SetLiteralExpr)
+        || (ptr->kind == ExprKind::TupleLiteralExpr)
+        || (ptr->kind == ExprKind::MapLiteralExpr)
+        || (ptr->kind == ExprKind::ListLiteralExpr);
+    }
+}
 
 class IntegerLiteralExpr derives PrimitiveLiteralExpr {
     __inline_cpp("public:");
@@ -156,6 +235,10 @@ class IntegerLiteralExpr derives PrimitiveLiteralExpr {
 
     /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
         return ptr->kind == ExprKind::IntegerLiteralExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::IntegerLiteralExpr;
     }
 
     fn is_negative(self) -> bool {
@@ -243,48 +326,6 @@ class IntegerLiteralExpr derives PrimitiveLiteralExpr {
     }
 }
 
-class CollectionLiteralExpr derives Expr {
-    __inline_cpp("public:");
-    enum Kind derives u8 {
-        Set,
-        Tuple,
-        List,
-        Map
-        
-        /*
-        var a: [10; i32] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-        var b: [i32]     = [1, 2, 3, 4, 5]
-        var c: {str: i32} = {"one": 1, "two": 2, "three": 3}
-        var d: {i32} = {1, 2, 3, 4, 5}
-        var e: (i32, str) = (42, "hello")
-        var (f: i32, g: str) = e;
-        */
-    }
-
-    pub var collection_kind: Kind;
-
-    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
-        return (ptr->kind == ExprKind::SetLiteralExpr)
-        || (ptr->kind == ExprKind::TupleLiteralExpr)
-        || (ptr->kind == ExprKind::MapLiteralExpr)
-        || (ptr->kind == ExprKind::ListLiteralExpr);
-    }
-}
-
-class CollectionInitializerExpr derives Expr{
-    enum Kind derives u8 {
-        Array,  // var a: [i32; 10]  = [i32; 10]   || [i32; 10].fill(1)
-        Vector, // var a: [i32]      = [i32]       || [i32].fill(1)
-        Map,    // var a: {str: i32} = {str: i32}  || {str: i32}.default(1)
-        Set     // var a: {i32}      = {i32}       || {i32}.default(1)
-    }
-
-    pub var collection_kind: Kind;
-}
-
-
-
-
 class FloatingLiteralExpr derives PrimitiveLiteralExpr {
     __inline_cpp("public:");
     enum Kind derives u8 {
@@ -350,6 +391,10 @@ class FloatingLiteralExpr derives PrimitiveLiteralExpr {
 
     /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
         return ptr->kind == ExprKind::FloatingLiteralExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::FloatingLiteralExpr;
     }
 
     fn is_decimal(self) -> bool {
@@ -514,6 +559,10 @@ class StringLiteralExpr derives PrimitiveLiteralExpr {
         return ptr->kind == ExprKind::StringLiteralExpr;
     }
 
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::StringLiteralExpr;
+    }
+
     fn is_plain(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
         if s == &null { return false; }
@@ -671,6 +720,10 @@ class CharacterLiteralExpr derives PrimitiveLiteralExpr {
         return ptr->kind == ExprKind::CharacterLiteralExpr;
     }
 
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::CharacterLiteralExpr;
+    }
+
     fn is_ascii(self) -> bool {
         return self.char_kind == Kind::AsciiChar;
     }
@@ -754,6 +807,10 @@ class BooleanLiteralExpr derives PrimitiveLiteralExpr {
         return ptr->kind == ExprKind::BooleanLiteralExpr;
     }
 
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::BooleanLiteralExpr;
+    }
+
     fn is_true(self) -> bool {
         return self.bool_kind == Kind::BoolTrue;
     }
@@ -764,6 +821,8 @@ class BooleanLiteralExpr derives PrimitiveLiteralExpr {
 }
 
 class NullLiteralExpr derives PrimitiveLiteralExpr {
+    __inline_cpp("public:");
+
     enum Kind derives u8 {
         /// Null pointer / nullable null value: null
         /// Type must be nullable (*T or T?) sema enforces this.
@@ -815,6 +874,10 @@ class NullLiteralExpr derives PrimitiveLiteralExpr {
         return ptr->kind == ExprKind::NullLiteralExpr;
     }
 
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::NullLiteralExpr;
+    }
+
     fn is_null(self) -> bool {
         return self.null_kind == Kind::Null;
     }
@@ -828,63 +891,206 @@ class NullLiteralExpr derives PrimitiveLiteralExpr {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-class ArrayInitializerExpr derives CollectionInitializerExpr, FixedArrayType {
-    // Node: empty array initializer []
-}
-
-class VectorInitializerExpr derives CollectionInitializerExpr, VectorType {
-    // Node: empty vector initializer
-}
-
-class MapInitializerExpr derives CollectionInitializerExpr, MapType {
-    // Node: empty map initializer {}
-}
-
-class SetInitializerExpr derives CollectionInitializerExpr, SetType {
-    // Node: empty set initializer {}
-}
-
-class SetLiteralExpr derives CollectionLiteralExpr {
-    // Node: SetLiteralExpr list of distinct (value Expr*) values 
-    pub const MAX_VALUES: usize = 65535; // arbitrary limit to prevent overflow in the bitset used for deduping small sets, and to prevent excessive memory usage in general
-    pub const MAX_INDEX: usize = MAX_VALUES - 1;
-
-    pub var values: FrozenList::<Expr>;
-    pub var is_deduped: bool = false; // set to true by sema after deduping the values, so that later stages can skip redundant deduping if needed
-    pub var is_sorted: bool = false; // set to true by sema after sorting the values, so that later stages can skip redundant sorting if needed
-    pub var is_homogeneous: bool = false; // set to true by sema if all values have the same type, so that later stages can optimize based on homogeneity
-    pub var element_type: *Type = &null; // set by sema if is_homogeneous is true, so that later stages can optimize based on known element type
+class ArrayInitializerExpr derives CollectionExpr {
+    pub var element_type: *Type;
+    pub var size_expr:    *Expr;
 
     static fn create(
         ctx:            *ASTContext,
         range:           SourceRange,
-        collection_kind: CollectionLiteralExpr::Kind,
-        values: *vec::<Expr>, // a temp stack allocated vector
-        is_deduped: bool,
-        is_sorted: bool,
-        is_homogeneous: bool,
-        element_type: *Type
+        collection_kind: CollectionExpr::Kind,
+        element_type:   *Type,
+        size_expr:      *Expr
+    ) -> *ArrayInitializerExpr {
+        var node = ctx->alloc::<ArrayInitializerExpr>();
+        // from Expr
+        node->kind     = ExprKind::ArrayInitializerExpr;
+        node->range    = range;
+        // CollectionExpr
+        node->collection_kind = collection_kind;
+        // from ArrayInitializerExpr
+        node->element_type = element_type;
+        node->size_expr = size_expr;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        element_type:   *Type,
+        size_expr:      *Expr
+    ) -> *ArrayInitializerExpr {
+        var node = create(ctx, range, collection_kind, element_type, size_expr);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ArrayInitializerExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::ArrayInitializerExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::ArrayInitializerExpr;
+    }
+}
+
+class VectorInitializerExpr derives CollectionExpr {
+    pub var element_type: *Type;
+
+    static fn create(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        element_type:   *Type
+    ) -> *VectorInitializerExpr {
+        var node = ctx->alloc::<VectorInitializerExpr>();
+        // from Expr
+        node->kind     = ExprKind::VectorInitializerExpr;
+        node->range    = range;
+        // CollectionExpr
+        node->collection_kind = collection_kind;
+        // from VectorInitializerExpr
+        node->element_type = element_type;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        element_type:   *Type
+    ) -> *VectorInitializerExpr {
+        var node = create(ctx, range, collection_kind, element_type);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::VectorInitializerExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::VectorInitializerExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::VectorInitializerExpr;
+    }
+}
+
+class MapInitializerExpr derives CollectionExpr {
+    pub var key_type:   *Type;
+    pub var value_type: *Type;
+
+    static fn create(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        key_type:       *Type,
+        value_type:     *Type
+    ) -> *MapInitializerExpr {
+        var node = ctx->alloc::<MapInitializerExpr>();
+        // from Expr
+        node->kind     = ExprKind::MapInitializerExpr;
+        node->range    = range;
+        // CollectionExpr
+        node->collection_kind = collection_kind;
+        // from MapInitializerExpr
+        node->key_type = key_type;
+        node->value_type = value_type;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        key_type:       *Type,
+        value_type:     *Type
+    ) -> *MapInitializerExpr {
+        var node = create(ctx, range, collection_kind, key_type, value_type);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::MapInitializerExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::MapInitializerExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::MapInitializerExpr;
+    }
+}
+
+class SetInitializerExpr derives CollectionExpr {
+    pub var element_type: *Type;
+
+    static fn create(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        element_type:   *Type
+    ) -> *SetInitializerExpr {
+        var node = ctx->alloc::<SetInitializerExpr>();
+        // from Expr
+        node->kind     = ExprKind::SetInitializerExpr;
+        node->range    = range;
+        // CollectionExpr
+        node->collection_kind = collection_kind;
+        // from SetInitializerExpr
+        node->element_type = element_type;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        element_type:   *Type
+    ) -> *SetInitializerExpr {
+        var node = create(ctx, range, collection_kind, element_type);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::SetInitializerExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::SetInitializerExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::SetInitializerExpr;
+    }
+}
+
+class SetLiteralExpr derives SetInitializerExpr {
+    // Node: SetLiteralExpr list of distinct (value Expr*) values
+    pub const MAX_VALUES: usize = 65535; // arbitrary limit to prevent overflow in the bitset used for deduping small sets, and to prevent excessive memory usage in general
+    pub const MAX_INDEX: usize = MAX_VALUES - 1;
+
+    pub var values: FrozenList::<*Expr>;
+    pub var is_deduped: bool = false; // set to true by sema after deduping the values, so that later stages can skip redundant deduping if needed
+    pub var is_sorted: bool = false; // set to true by sema after sorting the values, so that later stages can skip redundant sorting if needed
+
+    static fn create(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        element_type:   *Type,
+        values:         *vec::<*Expr>, // a temp stack allocated vector
+        is_deduped:      bool,
+        is_sorted:       bool
     ) -> *SetLiteralExpr {
         var node = ctx->alloc::<SetLiteralExpr>();
         // from Expr
         node->kind     = ExprKind::SetLiteralExpr;
         node->range    = range;
-        // CollectionLiteralExpr
+        // CollectionExpr
         node->collection_kind = collection_kind;
+        // from SetInitializerExpr
+        node->element_type = element_type;
         // from SetLiteralExpr
-        var arr = ctx->alloc_array::<Expr>(values->size());
+        var arr = ctx->alloc_array::<*Expr>(values->size());
         for var i: usize = 0; i < values->size(); ++i {
             arr[i] = (*values)[i];
         }
@@ -892,8 +1098,6 @@ class SetLiteralExpr derives CollectionLiteralExpr {
         node->values.from_raw(arr, values->size());
         node->is_deduped = is_deduped;
         node->is_sorted = is_sorted;
-        node->is_homogeneous = is_homogeneous;
-        node->element_type = element_type;
 
         return node;
     }
@@ -901,71 +1105,2070 @@ class SetLiteralExpr derives CollectionLiteralExpr {
     static fn create_error(
         ctx:            *ASTContext,
         range:           SourceRange,
-        collection_kind: CollectionLiteralExpr::Kind,
-        values: *vec::<Expr>, // a temp stack allocated vector
-        is_deduped: bool,
-        is_sorted: bool,
-        is_homogeneous: bool,
-        element_type: *Type
+        collection_kind: CollectionExpr::Kind,
+        element_type:   *Type,
+        values:         *vec::<*Expr>, // a temp stack allocated vector
+        is_deduped:      bool,
+        is_sorted:       bool
     ) -> *SetLiteralExpr {
-        var node            = create(ctx, range, collection_kind, values, is_deduped, is_sorted, is_homogeneous, element_type);
+        var node = create(
+            ctx,
+            range,
+            collection_kind,
+            element_type,
+            values,
+            is_deduped,
+            is_sorted
+        );
+
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::SetLiteralExpr;
         return node;
     }
 
     /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::IntegerLiteralExpr;
+        return ptr->kind == ExprKind::SetLiteralExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::SetLiteralExpr;
     }
 }
 
-class TupleLiteralExpr derives CollectionLiteralExpr {
+class TupleLiteralExpr derives CollectionExpr {
     // Node: MapLiteralExpr list of (key Expr*, value Expr*) pairs.
+    __inline_cpp("public:");
+
     struct TupleValueExpr {
         var value: *Expr;
         var element_type: *Type; // set by sema based on the corresponding element type in the tuple type, so that later stages can optimize based on known element type
         var index: u32; // the index of this value within the tuple, used for error reporting and optimization purposes
     }
 
-    pub var values: ArenaList::<TupleValueExpr>;
+    pub var values: FrozenList::<TupleValueExpr>;
     pub var is_homogeneous: bool = false; // set to true by sema
+    pub const MAX_VALUES: usize = 65535; // arbitrary limit
+    pub const MAX_INDEX: usize = MAX_VALUES - 1;
+
+    static fn create(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        values: *vec::<TupleValueExpr>, // a temp stack allocated vector
+        is_homogeneous: bool
+    ) -> *TupleLiteralExpr {
+        var node = ctx->alloc::<TupleLiteralExpr>();
+        // from Expr
+        node->kind     = ExprKind::TupleLiteralExpr;
+        node->range    = range;
+        // CollectionExpr
+        node->collection_kind = collection_kind;
+        // from TupleLiteralExpr
+        var arr = ctx->alloc_array::<TupleValueExpr>(values->size());
+        for var i: usize = 0; i < values->size(); ++i {
+            arr[i] = (*values)[i];
+        }
+
+        node->values.from_raw(arr, values->size());
+        node->is_homogeneous = is_homogeneous;
+
+        return node;
+    }
+
+    static fn create_error(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        values: *vec::<TupleValueExpr>, // a temp stack allocated vector
+        is_homogeneous: bool
+    ) -> *TupleLiteralExpr {
+        var node = create(
+            ctx,
+            range,
+            collection_kind,
+            values,
+            is_homogeneous
+        );
+
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::TupleLiteralExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::TupleLiteralExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::TupleLiteralExpr;
+    }
 }
 
-class MapLiteralExpr derives CollectionLiteralExpr, MapType {
+class MapLiteralExpr derives MapInitializerExpr {
     // Node: MapLiteralExpr list of (key Expr*, value Expr*) pairs.
-    pub var keys:   ArenaList::<*Expr>;
-    pub var values: ArenaList::<*Expr>;
+    __inline_cpp("public:");
+
+    struct MapKeyValueExpr {
+        var key:        *Expr;
+        var value:      *Expr;
+        var key_type:   *Type;
+        var value_type: *Type;
+    }
+
+    pub var entries: FrozenList::<MapKeyValueExpr>;
+    pub const MAX_VALUES: usize = 65535; // arbitrary limit
+    pub const MAX_INDEX: usize = MAX_VALUES - 1;
+
+    static fn create(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        values: *vec::<MapKeyValueExpr> // a temp stack allocated vector
+    ) -> *MapLiteralExpr {
+        var node = ctx->alloc::<MapLiteralExpr>();
+        // from Expr
+        node->kind     = ExprKind::MapLiteralExpr;
+        node->range    = range;
+        // CollectionExpr
+        node->collection_kind = collection_kind;
+        // from SetLiteralExpr
+        var arr = ctx->alloc_array::<MapKeyValueExpr>(values->size());
+        for var i: usize = 0; i < values->size(); ++i {
+            arr[i] = (*values)[i];
+        }
+
+        node->entries.from_raw(arr, values->size());
+
+        return node;
+    }
+
+    static fn create_error(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        values: *vec::<MapKeyValueExpr>, // a temp stack allocated vector
+        is_homogeneous: bool
+    ) -> *MapLiteralExpr {
+        var node = create(
+            ctx,
+            range,
+            collection_kind,
+            values
+        );
+
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::MapLiteralExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::MapLiteralExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::MapLiteralExpr;
+    }
 }
 
 
 
-class ListLiteralExpr derives CollectionLiteralExpr { /// [ ... ]
-    // Node: ListLiteralExpr basic ordered bag of values , either 
-
-    enum Type derives u8 {
+class ListLiteralExpr derives ArrayInitializerExpr { /// [ ... ]
+    // Node: ListLiteralExpr basic ordered bag of values , either
+    __inline_cpp("public:");
+    enum ListType derives u8 {
         Array,
         Vector
     }
     
-    pub var values: ArenaList::<*Expr>;
+    pub var values: FrozenList::<*Expr>;
+    pub const MAX_VALUES: usize = 65535; // arbitrary limit
+    pub const MAX_INDEX: usize = MAX_VALUES - 1;
     
     // this is set by sema when deguessing the literal based
     // on the expected type context, but it is stored in the AST so that later
     // stages can still distinguish between array and vector literals if needed
     // (e.g. for codegen optimizations)
-    pub var list_type: Type;
-    pub var element_type: *Type = &null; // set by sema if is_homogeneous is true, so that later stages can optimize based on known element type
+    pub var list_type: ListType;
+
+    static fn create(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        list_type: ListType,
+        element_type: *Type,
+        values: *vec::<*Expr> // a temp stack allocated vector
+    ) -> *ListLiteralExpr {
+        var node = ctx->alloc::<ListLiteralExpr>();
+        // from Expr
+        node->kind     = ExprKind::ListLiteralExpr;
+        node->range    = range;
+        // CollectionExpr
+        node->collection_kind = collection_kind;
+        // from ArrayInitializerExpr
+        var arr = ctx->alloc_array::<*Expr>(values->size());
+        for var i: usize = 0; i < values->size(); ++i {
+            arr[i] = (*values)[i];
+        }
+
+        node->values.from_raw(arr, values->size());
+        node->element_type = element_type;
+        node->size_expr = &null;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:            *ASTContext,
+        range:           SourceRange,
+        collection_kind: CollectionExpr::Kind,
+        list_type: ListType,
+        element_type: *Type,
+        values: *vec::<*Expr> // a temp stack allocated vector
+    ) -> *ListLiteralExpr {
+        var node = create(
+            ctx,
+            range,
+            collection_kind,
+            list_type,
+            element_type,
+            values
+        );
+
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ListLiteralExpr;
+        return node;
+    }
+
+
 
     fn is_array(self) -> bool {
-        return self.list_type == Type::Array;
+        return self.list_type == ListType::Array;
     }
 
     fn is_vector(self) -> bool {
-        return self.list_type == Type::Vector;
+        return self.list_type == ListType::Vector;
+    }
+
+    fn get_size(self) -> usize {
+        return self.values.size();
+    }
+
+    fn get_element_type(self) -> *Type {
+        return self.element_type;
     }
     
-
-    static fn classof(ptr: *Expr) -> bool {
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
         return (ptr->kind) == ExprKind::ListLiteralExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::ListLiteralExpr;
+    }
+}
+
+
+
+struct NamedValueExpr {
+    var name:        Token; // can be an invalid token if no name is present
+    var value:      *Expr;
+    var field_type: *Type;
+}
+
+class NamedInitializerExpr derives Expr { // must validate that all names are preset in parser
+    pub var values: FrozenList::<NamedValueExpr>;
+    pub var ctx:   *ASTContext;
+    
+    static fn create(
+        ctx:    *ASTContext,
+        range:   SourceRange,
+        values: *vec::<NamedValueExpr> // a temp stack allocated vector
+    ) -> *NamedInitializerExpr {
+        var node = ctx->alloc::<NamedInitializerExpr>();
+        // from Expr
+        node->kind     = ExprKind::NamedInitializerExpr;
+        node->range    = range;
+        // from NamedInitializerExpr
+        var arr = ctx->alloc_array::<NamedValueExpr>(values->size());
+        for var i: usize = 0; i < values->size(); ++i {
+            arr[i] = (*values)[i];
+        }
+
+        node->values.from_raw(arr, values->size());
+        node->ctx   = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:    *ASTContext,
+        range:   SourceRange,
+        values: *vec::<NamedValueExpr> // a temp stack allocated vector
+    ) -> *NamedInitializerExpr {
+        var node            = create(ctx, range, values);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::NamedInitializerExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::NamedInitializerExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::NamedInitializerExpr;
+    }
+
+    fn has_values(self) -> bool {
+        return !(self.values.is_empty());
+    }
+     
+    // at this point not sure what other methods we need...
+}
+
+class AnonInitializerExpr derives Expr {
+    // we can reuse the same struct for named values, but the names may be
+    // invalid or missing, and sema will have to infer them based on context
+    // and set the field_type for each value based on the corresponding field
+    // in the struct literal type.
+    pub var values: FrozenList::<NamedValueExpr>;
+    pub var ctx:   *ASTContext;
+
+    static fn create(
+        ctx:    *ASTContext,
+        range:   SourceRange,
+        values: *vec::<NamedValueExpr> // a temp stack allocated vector
+    ) -> *AnonInitializerExpr {
+        var node = ctx->alloc::<AnonInitializerExpr>();
+        // from Expr
+        node->kind     = ExprKind::AnonInitializerExpr;
+        node->range    = range;
+        // from AnonInitializerExpr
+        var arr = ctx->alloc_array::<NamedValueExpr>(values->size());
+        for var i: usize = 0; i < values->size(); ++i {
+            arr[i] = (*values)[i];
+        }
+
+        node->values.from_raw(arr, values->size());
+        node->ctx   = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:    *ASTContext,
+        range:   SourceRange,
+        values: *vec::<NamedValueExpr> // a temp stack allocated vector
+    ) -> *AnonInitializerExpr {
+        var node            = create(ctx, range, values);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::AnonInitializerExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::AnonInitializerExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::AnonInitializerExpr;
+    }
+
+    fn has_values(self) -> bool {
+        return !(self.values.is_empty());
+    }
+
+    // at this point not sure what other methods we need...
+}
+
+// this is now a hard one to solve something like:
+// std::option::Option::<i32>::Some().inst()[190].other
+// needs to be represted in a flat format so smea is easy for that to happen
+// we need to store *Expr <SegmentSeparator> *Expr <SegmentSeparator> *Expr
+// where the *Expr has to be bounded to a subset of expressions that can appear in a
+// dissalowed exprs segment:
+
+class NamedIdentExpr derives Expr {
+    pub var name:  Token;
+    pub var ctx:  *ASTContext;
+
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        name: Token
+    ) -> *NamedIdentExpr {
+        var node = ctx->alloc::<NamedIdentExpr>();
+        // from Expr
+        node->kind     = ExprKind::NamedIdentExpr;
+        node->range    = range;
+        // from NamedIdentExpr
+        node->name     = name;
+        node->ctx      = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        name: Token
+    ) -> *NamedIdentExpr {
+        var node            = create(ctx, range, name);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::NamedIdentExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::NamedIdentExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::NamedIdentExpr;
+    }
+
+    fn get_name(self) -> TokenText {
+        return TokenText::from_token(self.name, self.ctx);
+    }
+}
+
+
+/// ChainExpr Parser MUST validate only a primary expession can appear in the segments
+//    NullLiteralExpr
+//    ImplConformanceExpr
+//    DerivesRelationExpr
+//    InlineTryCatchExpr
+//    RangeExpr
+//    AwaitExpr
+//    SpawnExpr
+//    ThreadExpr
+//    SizeOfExpr
+//    AlignOfExpr
+//    TypeOfExpr
+//    EvalExpr
+//    DeleteExpr
+//    PackExpansionExpr
+//    DestructuringBindingExpr
+//    MatchBindingExpr
+//    TypeCastExpr
+//    InlineBlockExpr
+class ChainExpr derives Expr {
+    __inline_cpp("public:");
+    enum SegmentSeparator derives u8 {
+        None = 0,          // for the first segment which has no separator
+        Dot,               // .
+        Arrow,             // ->
+        DotStar,           // .*
+        ArrowStar,         // ->*
+        ColonColon,        // ::
+        QuestionDot,       // ?.
+        QuestionArrow,     // ?->
+        QuestionArrowStar, // ?->*
+        QuestionDotStar,   // ?.*
+    }
+
+    struct ChainSegment { // <SegmentSeparator> <Expr (primary)>
+        var sep:   SegmentSeparator;
+        var expr: *Expr;
+    }
+
+    pub var segments: FrozenList::<ChainSegment>;
+    pub var ctx: *ASTContext;
+    
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        segments: *vec::<ChainSegment> // a temp stack allocated vector
+    ) -> *ChainExpr {
+        var node = ctx->alloc::<ChainExpr>();
+        // from Expr
+        node->kind     = ExprKind::ChainExpr;
+        node->range    = range;
+        // from ChainExpr
+        var arr = ctx->alloc_array::<ChainSegment>(segments->size());
+        for var i: usize = 0; i < segments->size(); ++i {
+            arr[i] = (*segments)[i];
+        }
+
+        node->segments.from_raw(arr, segments->size());
+        node->ctx   = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        segments: *vec::<ChainSegment> // a temp stack allocated vector
+    ) -> *ChainExpr {
+        var node            = create(ctx, range, segments);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ChainExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::ChainExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::ChainExpr;
+    }
+
+    fn get_segments(self) -> FrozenList::<ChainSegment> {
+        return self.segments;
+    }
+
+    fn size(self) -> usize {
+        return self.segments.size();
+    }
+
+    fn last(self) -> *ChainSegment {
+        if (self.segments.is_empty()) {
+            return &null;
+        }
+
+        return self.segments[self.segments.size() - 1];
+    }
+
+    fn first(self) -> *ChainSegment {
+        if (self.segments.is_empty()) {
+            return &null;
+        }
+
+        return self.segments[0];
+    }
+
+    // all the seps must be a scope separator (::) for this to be true, which
+    // means this chain is just a path and not an actual chained expression with
+    // member accesses or method calls, so we can optimize it as a simple path
+    // in sema and codegen
+    fn is_scoped_only(self) -> bool {
+        return self.segments.all(fn(x: *ChainSegment) -> bool {
+            return x->sep == SegmentSeparator::ColonColon;
+        });
+    }
+
+    fn has_method_calls(self) -> bool {
+        return self.segments.any(fn(x: *ChainSegment) -> bool {
+            return x->sep == SegmentSeparator::Dot || x->sep == SegmentSeparator::Arrow;
+        });
+    }
+
+    fn has_optional_chaining(self) -> bool {
+        return self.segments.any(fn(x: *ChainSegment) -> bool {
+            return (x->sep == SegmentSeparator::QuestionDot)
+                || (x->sep == SegmentSeparator::QuestionArrow)
+                || (x->sep == SegmentSeparator::QuestionArrowStar)
+                || (x->sep == SegmentSeparator::QuestionDotStar);
+        });
+    }
+
+    fn has_member_access(self) -> bool {
+        return self.segments.any(fn(x: *ChainSegment) -> bool {
+            return (x->sep == SegmentSeparator::Dot)
+                || (x->sep == SegmentSeparator::Arrow)
+                || (x->sep == SegmentSeparator::DotStar)
+                || (x->sep == SegmentSeparator::ArrowStar);
+        });
+    }
+
+    fn accesses_global_scope(self) -> bool {
+        if (self.segments.is_empty()) {
+            return false;
+        }
+
+        return (self.segments[0]->sep) == SegmentSeparator::ColonColon;
+    }
+}
+
+class GroupingExpr derives Expr {
+    pub var sub_expr: *Expr;
+
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        sub_expr: *Expr
+    ) -> *GroupingExpr {
+        var node = ctx->alloc::<GroupingExpr>();
+        // from Expr
+        node->kind     = ExprKind::GroupingExpr;
+        node->range    = range;
+        // from GroupingExpr
+        node->sub_expr = sub_expr;
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        sub_expr: *Expr
+    ) -> *GroupingExpr {
+        var node            = create(ctx, range, sub_expr);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::GroupingExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::GroupingExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::GroupingExpr;
+    }
+
+    fn get_sub_expr(self) -> *Expr {
+        return self.sub_expr;
+    }
+}
+
+class UnaryOperatorExpr derives Expr {
+    // we do validate this in input to verfiy it is the right kind of unary
+    // operator, but we still want to store the token for error reporting and
+    // codegen purposes
+    pub var operator: Token;
+    pub var operand: *Expr;
+
+    // true for prefix operators like -x, false for postfix operators like x++
+    pub var prefix: bool;
+
+    // we have acess to the following functions the parser would check on:
+    // is_unary_operator
+    // is_binary_operator
+    // is_assignment_operator
+    // is_punctuator
+    // is_operator
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand: *Expr,
+        prefix: bool
+    ) -> *UnaryOperatorExpr {
+        var node = ctx->alloc::<UnaryOperatorExpr>();
+        // from Expr
+        node->kind     = ExprKind::UnaryOperatorExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(is_unary_operator(operator.kind) && r"Expected a unary operator token");
+        node->operand  = operand;
+        node->prefix   = prefix;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand: *Expr,
+        prefix: bool
+    ) -> *UnaryOperatorExpr {
+        var node            = create(ctx, range, operator, operand, prefix);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::UnaryOperatorExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::UnaryOperatorExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::UnaryOperatorExpr;
+    }
+
+    fn get_operator(self) -> Token {
+        return self.operator;
+    }
+
+    fn get_operand(self) -> *Expr {
+        return self.operand;
+    }
+
+    fn is_dereference(self) -> bool {
+        return (self.operator.kind == TokenKind::OpStar) && self.prefix;
+    }
+
+    fn is_address_of(self) -> bool {
+        return (self.operator.kind == TokenKind::OpAmp) && self.prefix;
+    }
+
+    fn is_logical_not(self) -> bool {
+        return (self.operator.kind == TokenKind::OpExclaim) && self.prefix;
+    }
+
+    fn is_unary_plus(self) -> bool {
+        return (self.operator.kind == TokenKind::OpPlus) && self.prefix;
+    }
+
+    fn is_postfix_increment(self) -> bool {
+        return (self.operator.kind == TokenKind::OpPlusPlus) && !self.prefix;
+    }
+
+    fn is_postfix_decrement(self) -> bool {
+        return (self.operator.kind == TokenKind::OpMinusMinus) && !self.prefix;
+    }
+
+    fn is_prefix_increment(self) -> bool {
+        return (self.operator.kind == TokenKind::OpPlusPlus) && self.prefix;
+    }
+
+    fn is_prefix_decrement(self) -> bool {
+        return (self.operator.kind == TokenKind::OpMinusMinus) && self.prefix;
+    }
+
+    fn is_bitwise_not(self) -> bool {
+        return (self.operator.kind == TokenKind::OpTilde) && self.prefix;
+    }
+}
+
+class BinaryOperatorExpr derives Expr {
+    pub var operator: Token;
+    pub var left:    *Expr;
+    pub var right:   *Expr;
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        left:    *Expr,
+        right:   *Expr
+    ) -> *BinaryOperatorExpr {
+        var node = ctx->alloc::<BinaryOperatorExpr>();
+        // from Expr
+        node->kind     = ExprKind::BinaryOperatorExpr;
+        node->range    = range;
+        // from BinaryOperatorExpr
+        node->operator = operator;
+        // this does only run in debug mode so its fine to have
+        assert(is_binary_operator(operator.kind) && r"Expected a binary operator token");
+        node->left     = left;
+        node->right    = right;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        left:    *Expr,
+        right:   *Expr
+    ) -> *BinaryOperatorExpr {
+        var node            = create(ctx, range, operator, left, right);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::BinaryOperatorExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::BinaryOperatorExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::BinaryOperatorExpr;
+    }
+
+    fn get_operator(self) -> Token {
+        return self.operator;
+    }
+
+    fn get_left(self) -> *Expr {
+        return self.left;
+    }
+
+    fn get_right(self) -> *Expr {
+        return self.right;
+    }
+}
+
+class AssignOperatorExpr derives BinaryOperatorExpr {
+    // we do validate this in input to verfiy it is the right kind of assignment
+    // operator, but we still want to store the token for error reporting and
+    // codegen purposes
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        left:    *Expr,
+        right:   *Expr
+    ) -> *AssignOperatorExpr {
+        var node = ctx->alloc::<AssignOperatorExpr>();
+        // from Expr
+        node->kind     = ExprKind::AssignOperatorExpr;
+        node->range    = range;
+        // from BinaryOperatorExpr
+        node->operator = operator;
+        assert(is_assignment_operator(operator.kind) && r"Expected an assignment operator token");
+        node->left     = left;
+        node->right    = right;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        left:    *Expr,
+        right:   *Expr
+    ) -> *AssignOperatorExpr {
+        var node            = create(ctx, range, operator, left, right);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::AssignOperatorExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::AssignOperatorExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::AssignOperatorExpr;
+    }
+
+    // we get these from BinaryOperatorExpr:
+    //      fn get_operator(self) -> Token
+    //      fn get_left(self) -> *Expr
+    //      fn get_right(self) -> *Expr
+
+    fn is_simple_assignment(self) -> bool {
+        return self.operator.kind == TokenKind::OpEqual;
+    }
+}
+
+class ImplConformanceExpr derives Expr {
+    pub var left:  *Type;
+    pub var right: FrozenList::<*Type>;
+    
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        left: *Type,
+        right: *vec::<*Type> // a temp stack allocated vector
+    ) -> *ImplConformanceExpr {
+        var node = ctx->alloc::<ImplConformanceExpr>();
+        // from Expr
+        node->kind     = ExprKind::ImplConformanceExpr;
+        node->range    = range;
+        // from ImplConformanceExpr
+        node->left     = left;
+        var arr = ctx->alloc_array::<*Type>((*right).size());
+        for var i: usize = 0; i < (*right).size(); ++i {
+            arr[i] = (*right)[i];
+        }
+
+        node->right.from_raw(arr, (*right).size());
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range:  SourceRange,
+        left:  *Type,
+        right: *vec::<*Type> // a temp stack allocated vector
+    ) -> *ImplConformanceExpr {
+        var node            = create(ctx, range, left, right);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ImplConformanceExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::ImplConformanceExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::ImplConformanceExpr;
+    }
+
+    fn get_left(self) -> *Type {
+        return self.left;
+    }
+
+    fn get_right(self) -> FrozenList::<*Type> {
+        return self.right;
+    }
+
+    fn get_trait(self, idx: usize) -> *Type {
+        if (idx >= self.right.size()) {
+            return &null;
+        }
+
+        return *self.right[idx];
+    }
+}
+
+class DerivesRelationExpr derives Expr {
+    pub var left:  *Type;
+    pub var right: FrozenList::<*Type>;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range:  SourceRange,
+        left:  *Type,
+        right: *vec::<*Type> // a temp stack allocated vector
+    ) -> *DerivesRelationExpr {
+        var node = ctx->alloc::<DerivesRelationExpr>();
+        // from Type
+        node->kind     = ExprKind::DerivesRelationExpr;
+        node->range    = range;
+        // from DerivesRelationExpr
+        node->left     = left;
+        var arr = ctx->alloc_array::<*Type>((*right).size());
+        for var i: usize = 0; i < (*right).size(); ++i {
+            arr[i] = (*right)[i];
+        }
+
+        node->right.from_raw(arr, (*right).size());
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        left: *Type,
+        right: *vec::<*Type> // a temp stack allocated vector
+    ) -> *DerivesRelationExpr {
+        var node            = create(ctx, range, left, right);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::DerivesRelationExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::DerivesRelationExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::DerivesRelationExpr;
+    }
+
+    fn get_left(self) -> *Type {
+        return self.left;
+    }
+
+    fn get_right(self) -> FrozenList::<*Type> {
+        return self.right;
+    }
+}
+
+class IfExpr derives Expr {
+    __inline_cpp("public:");
+    enum BranchKind derives u8 {
+        If,
+        ElseIf,
+        Else
+    }
+
+    struct IfBranch {
+        var condition: *Expr; // null for else branch
+        var body:      *Expr;
+        var kind: BranchKind;
+    }
+
+    pub var branches: FrozenList::<IfBranch>;
+    pub const MAX_BRANCHES: usize = 255;
+    // we parse more if there more then this number but this number is at what
+    // point we emit a warning diagnostic in parse about too many branches
+    // which can affect readability and maintainability of the code.
+    pub const RECOMMENDED_MAX_BRANCHES: usize = 4;
+
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        branches: *vec::<IfBranch> // a temp stack allocated vector
+    ) -> *IfExpr {
+        var node = ctx->alloc::<IfExpr>();
+        // from Expr
+        node->kind     = ExprKind::IfExpr;
+        node->range    = range;
+        // from IfExpr
+        var arr = ctx->alloc_array::<IfBranch>(branches->size());
+        for var i: usize = 0; i < branches->size(); ++i {
+            arr[i] = (*branches)[i];
+        }
+
+        node->branches.from_raw(arr, branches->size());
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        branches: *vec::<IfBranch> // a temp stack allocated vector
+    ) -> *IfExpr {
+        var node            = create(ctx, range, branches);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::IfExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::IfExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::IfExpr;
+    }
+
+    fn get_branches(self) -> FrozenList::<IfBranch> {
+        return self.branches;
+    }
+
+    fn has_else_branch(self) -> bool {
+        return self.branches.any(fn(x: *IfBranch) -> bool {
+            return x->kind == BranchKind::Else;
+        });
+    }
+
+    fn get_else_branch(self) -> *IfBranch {
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if self.branches[i]->kind == BranchKind::Else {
+                return self.branches[i];
+            }
+        }
+
+        return &null;
+    }
+
+    fn get_if_branches(self) -> vec::<*IfBranch> {
+        var result: vec::<*IfBranch>;
+        result.reserve(self.branches.size()); // at most all branches could be if/else if branches
+
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if ((self.branches[i]->kind) == BranchKind::If) || ((self.branches[i]->kind) == BranchKind::ElseIf) {
+                result.emplace_back(self.branches[i]);
+            }
+        }
+
+        return result;
+    }
+
+    fn get_else_if_branches(self) -> vec::<*IfBranch> {
+        var result: vec::<*IfBranch>;
+        result.reserve(self.branches.size()); // at most all branches could be else if branches
+
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if (self.branches[i]->kind) == BranchKind::ElseIf {
+                result.emplace_back(self.branches[i]);
+            }
+        }
+
+        return result;
+    }
+
+    fn get_else_branches(self) -> vec::<*IfBranch> {
+        var else_branches: vec::<*IfBranch>;
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if (self.branches[i]->kind) == BranchKind::Else {
+                else_branches.emplace_back(self.branches[i]);
+            }
+        }
+
+        return else_branches;
+    }
+
+    fn has_multiple_branches(self) -> bool {
+        return self.branches.size() > 1;
+    }
+
+    fn meets_min_requirement(self) -> bool {
+        // we need 1 if branch and 1 else branch
+        var has_if_branch = false;
+        var has_else_branch = false;
+
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if (self.branches[i]->kind) == BranchKind::If {
+                has_if_branch = true;
+            } else if self.branches[i]->kind == BranchKind::Else {
+                has_else_branch = true;
+            }
+
+            if has_if_branch && has_else_branch {
+                return true;
+            }
+        }
+    
+        return false;
+    }
+}
+
+class TernaryExpr derives IfExpr { /// parser MUST emit a removal warning
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        condition:  *Expr,
+        true_expr:  *Expr,
+        false_expr: *Expr
+    ) -> *IfExpr {
+        var node = ctx->alloc::<IfExpr>();
+        // from Expr
+        node->kind     = ExprKind::IfExpr;
+        node->range    = range;
+        // from IfExpr
+        var arr = ctx->alloc_array::<IfBranch>(2);
+        arr[0] = IfBranch(
+            condition,
+            true_expr,
+            BranchKind::If
+        );
+
+        arr[1] = IfBranch(
+            &null, // no condition for else branch
+            false_expr,
+            BranchKind::Else
+        );
+
+        node->branches.from_raw(arr, 2);
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        condition: *Expr,
+        true_expr: *Expr,
+        false_expr: *Expr
+    ) -> *IfExpr {
+        var node            = create(ctx, range, condition, true_expr, false_expr);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::IfExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::IfExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::IfExpr;
+    }
+}
+
+class InlineTryCatchExpr derives Expr {
+    __inline_cpp("public:");
+    enum BranchKind derives u8 {
+        Try,
+        Catch,
+        CatchAll // for catch branch with no condition
+    }
+
+    struct TryCatchBranch {
+        var condition: *Expr; // null for catch branches
+        var body:      *Expr;
+        var kind: BranchKind;
+    }
+
+    pub var branches: FrozenList::<TryCatchBranch>;
+    pub const MAX_BRANCHES: usize = 255;
+    // we parse more if there more then this number but this number is at what
+    // point we emit a warning diagnostic in parse about too many branches
+    // which can affect readability and maintainability of the code.
+    pub const RECOMMENDED_MAX_BRANCHES: usize = 4;
+
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        branches: *vec::<TryCatchBranch> // a temp stack allocated vector
+    ) -> *InlineTryCatchExpr {
+        var node = ctx->alloc::<InlineTryCatchExpr>();
+        // from Expr
+        node->kind     = ExprKind::InlineTryCatchExpr;
+        node->range    = range;
+        // from InlineTryCatchExpr
+        var arr = ctx->alloc_array::<TryCatchBranch>(branches->size());
+        for var i: usize = 0; i < branches->size(); ++i {
+            arr[i] = (*branches)[i];
+        }
+
+        node->branches.from_raw(arr, branches->size());
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        branches: *vec::<TryCatchBranch> // a temp stack allocated vector
+    ) -> *InlineTryCatchExpr {
+        var node            = create(ctx, range, branches);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::InlineTryCatchExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::InlineTryCatchExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::InlineTryCatchExpr;
+    }
+
+    fn get_branches(self) -> FrozenList::<TryCatchBranch> {
+        return self.branches;
+    }
+
+    fn has_catch_all_branch(self) -> bool {
+        return self.branches.any(fn(x: *TryCatchBranch) -> bool {
+            return x->kind == BranchKind::CatchAll;
+        });
+    }
+
+    fn get_catch_all_branch(self) -> *TryCatchBranch {
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if self.branches[i]->kind == BranchKind::CatchAll {
+                return self.branches[i];
+            }
+        }
+
+        return &null;
+    }
+
+    fn get_try_branches(self) -> vec::<*TryCatchBranch> {
+        var result: vec::<*TryCatchBranch>;
+        result.reserve(self.branches.size()); // at most all branches could be try branches
+
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if self.branches[i]->kind == BranchKind::Try {
+                result.emplace_back(self.branches[i]);
+            }
+        }
+
+        return result;
+    }
+
+    fn get_catch_branches(self) -> vec::<*TryCatchBranch> {
+        var result: vec::<*TryCatchBranch>;
+        result.reserve(self.branches.size()); // at most all branches could be catch branches
+
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if self.branches[i]->kind == BranchKind::Catch {
+                result.emplace_back(self.branches[i]);
+            }
+        }
+
+        return result;
+    }
+
+    fn has_multiple_branches(self) -> bool {
+        return self.branches.size() > 1;
+    }
+
+    fn meets_min_requirement(self) -> bool {
+        // we need 1 try branch and at least 1 catch or catch all branch
+        var has_try_branch = false;
+        var has_catch_or_catch_all_branch = false;
+
+        for var i: usize = 0; i < self.branches.size(); ++i {
+            if self.branches[i]->kind == BranchKind::Try {
+                has_try_branch = true;
+            } else if (self.branches[i]->kind == BranchKind::Catch)
+                   || (self.branches[i]->kind == BranchKind::CatchAll) {
+                has_catch_or_catch_all_branch = true;
+            }
+
+            if has_try_branch && has_catch_or_catch_all_branch {
+                return true;
+            }
+        }
+    
+        return false;
+    }
+}
+
+class RangeExpr derives BinaryOperatorExpr {
+    // we do validate this in input to verfiy it is the right kind of range
+    // operator, but we still want to store the token for error reporting and
+    // codegen purposes
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        left:    *Expr,
+        right:   *Expr
+    ) -> *RangeExpr {
+        var node = ctx->alloc::<RangeExpr>();
+        // from Expr
+        node->kind     = ExprKind::RangeExpr;
+        node->range    = range;
+        // from BinaryOperatorExpr
+        node->operator = operator;
+        assert(is_range_operator(operator.kind) && r"Expected a range operator token");
+        node->left     = left;
+        node->right    = right;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        left:    *Expr,
+        right:   *Expr
+    ) -> *RangeExpr {
+        var node            = create(ctx, range, operator, left, right);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::RangeExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::RangeExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::RangeExpr;
+    }
+
+    // we get these from BinaryOperatorExpr:
+    //      fn get_operator(self) -> Token
+    //      fn get_left(self) -> *Expr
+    //      fn get_right(self) -> *Expr
+
+    fn is_inclusive_range(self) -> bool {
+        return self.operator.kind == TokenKind::OpRangeEqual;
+    }
+
+    fn is_exclusive_range(self) -> bool {
+        return self.operator.kind == TokenKind::OpRange;
+    }
+
+    fn is_half_open_range(self) -> bool {
+        return self.operator.kind == TokenKind::OpLessEqualGreater;
+    }
+}
+
+class AwaitExpr derives UnaryOperatorExpr {
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *AwaitExpr {
+        var node = ctx->alloc::<AwaitExpr>();
+        // from Expr
+        node->kind     = ExprKind::AwaitExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwAwait && r"Expected an await operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // await is always a prefix operator
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *AwaitExpr {
+        var node            = create(ctx, range, operator, operand);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::AwaitExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::AwaitExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::AwaitExpr;
+    }
+}
+
+class SpawnExpr derives UnaryOperatorExpr {
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *SpawnExpr {
+        var node = ctx->alloc::<SpawnExpr>();
+        // from Expr
+        node->kind     = ExprKind::SpawnExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwSpawn && r"Expected a spawn operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // spawn is always a prefix operator
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *SpawnExpr {
+        var node            = create(ctx, range, operator, operand);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::SpawnExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::SpawnExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::SpawnExpr;
+    }
+}
+
+class ThreadExpr derives UnaryOperatorExpr {
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *ThreadExpr {
+        var node = ctx->alloc::<ThreadExpr>();
+        // from Expr
+        node->kind     = ExprKind::ThreadExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwThread && r"Expected a thread operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // thread is always a prefix operator
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *ThreadExpr {
+        var node            = create(ctx, range, operator, operand);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ThreadExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::ThreadExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::ThreadExpr;
+    }
+}
+
+class EvalExpr derives UnaryOperatorExpr {
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *EvalExpr {
+        var node = ctx->alloc::<EvalExpr>();
+        // from Expr
+        node->kind     = ExprKind::EvalExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwEval && r"Expected an eval operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // eval is always a prefix operator
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *EvalExpr {
+        var node            = create(ctx, range, operator, operand);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::EvalExpr;
+        return node;
+    }
+    
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::EvalExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::EvalExpr;
+    }
+}
+
+class UnsafeExpr derives UnaryOperatorExpr {
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *UnsafeExpr {
+        var node = ctx->alloc::<UnsafeExpr>();
+        // from Expr
+        node->kind     = ExprKind::UnsafeExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwUnsafe && r"Expected an unsafe operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // unsafe is always a prefix operator
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *UnsafeExpr {
+        var node            = create(ctx, range, operator, operand);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::UnsafeExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::UnsafeExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::UnsafeExpr;
+    }
+}
+
+class DeleteExpr derives UnaryOperatorExpr {
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *DeleteExpr {
+        var node = ctx->alloc::<DeleteExpr>();
+        // from Expr
+        node->kind     = ExprKind::DeleteExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwDelete && r"Expected a delete operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // delete is always a prefix operator
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr
+    ) -> *DeleteExpr {
+        var node            = create(ctx, range, operator, operand);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::DeleteExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::DeleteExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::DeleteExpr;
+    }
+}
+
+class TypeOfExpr derives UnaryOperatorExpr {
+    pub var operand_is_type: bool; // true if operand is a type, false if operand is an expression
+    pub var operand_type:   *Type; // only set if operand_is_type is true, otherwise null
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr,
+        operand_is_type: bool,
+        operand_type: *Type
+    ) -> *TypeOfExpr {
+        var node = ctx->alloc::<TypeOfExpr>();
+        // from Expr
+        node->kind     = ExprKind::TypeOfExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwSizeOf && r"Expected a sizeof operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // sizeof is always a prefix operator
+
+        // from TypeOfExpr
+        node->operand_is_type = operand_is_type;
+        
+        if (operand_is_type) {
+            assert((operand_type != &null) && r"Expected operand_type to be set when operand_is_type is true");
+            node->operand_type = operand_type;
+        } else {
+            assert((operand_type == &null) && r"Expected operand_type to be null when operand_is_type is false");
+            node->operand_type = &null;
+        }
+
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr,
+        operand_is_type: bool,
+        operand_type: *Type
+    ) -> *TypeOfExpr {
+        var node            = create(ctx, range, operator, operand, operand_is_type, operand_type);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::TypeOfExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::TypeOfExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::TypeOfExpr;
+    }
+
+    fn is_operand_type(self) -> bool {
+        return self.operand_is_type;
+    }
+
+    fn get_operand_type(self) -> *Type {
+        if (!self.operand_is_type) {
+            return &null;
+        }
+
+        return self.operand_type;
+    }
+
+    fn get_operand_expr(self) -> *Expr {
+        if (self.operand_is_type) {
+            return &null;
+        }
+
+        return self.operand;
+    }
+}
+
+class SizeOfExpr derives TypeOfExpr {
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr,
+        operand_is_type: bool,
+        operand_type: *Type
+    ) -> *SizeOfExpr {
+        var node = ctx->alloc::<SizeOfExpr>();
+        // from Expr
+        node->kind     = ExprKind::SizeOfExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwSizeOf && r"Expected a sizeof operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // sizeof is always a prefix operator
+
+        // from TypeOfExpr
+        node->operand_is_type = operand_is_type;
+        
+        if (operand_is_type) {
+            assert((operand_type != &null) && r"Expected operand_type to be set when operand_is_type is true");
+            node->operand_type = operand_type;
+        } else {
+            assert((operand_type == &null) && r"Expected operand_type to be null when operand_is_type is false");
+            node->operand_type = &null;
+        }
+
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr,
+        operand_is_type: bool,
+        operand_type: *Type
+    ) -> *SizeOfExpr {
+        var node            = create(ctx, range, operator, operand, operand_is_type, operand_type);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::SizeOfExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::SizeOfExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::SizeOfExpr;
+    }
+}
+
+class AlignOfExpr derives TypeOfExpr {
+    static fn create(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr,
+        operand_is_type: bool,
+        operand_type: *Type
+    ) -> *AlignOfExpr {
+        var node = ctx->alloc::<AlignOfExpr>();
+        // from Expr
+        node->kind     = ExprKind::AlignOfExpr;
+        node->range    = range;
+        // from UnaryOperatorExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwAlignOf && r"Expected an alignof operator token");
+        
+        node->operand  = operand;
+        node->prefix   = true; // alignof is always a prefix operator
+
+        // from TypeOfExpr
+        node->operand_is_type = operand_is_type;
+        
+        if (operand_is_type) {
+            assert((operand_type != &null) && r"Expected operand_type to be set when operand_is_type is true");
+            node->operand_type = operand_type;
+        } else {
+            assert((operand_type == &null) && r"Expected operand_type to be null when operand_is_type is false");
+            node->operand_type = &null;
+        }
+
+        return node;
+    }
+
+    static fn create_error(
+        ctx:     *ASTContext,
+        range:    SourceRange,
+        operator: Token,
+        operand:  *Expr,
+        operand_is_type: bool,
+        operand_type: *Type
+    ) -> *AlignOfExpr {
+        var node            = create(ctx, range, operator, operand, operand_is_type, operand_type);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::AlignOfExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::AlignOfExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::AlignOfExpr;
+    }
+}
+
+class SelfExpr derives NamedIdentExpr {
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        token: Token
+    ) -> *SelfExpr {
+        var node = ctx->alloc::<SelfExpr>();
+        // from Expr
+        node->kind     = ExprKind::SelfExpr;
+        node->range    = range;
+        // from NamedIdentExpr
+        node->name     = token;
+        assert(token.kind == TokenKind::KwSelf && r"Expected a self keyword token");
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        token: Token
+    ) -> *SelfExpr {
+        var node            = create(ctx, range, token);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::SelfExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::SelfExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::SelfExpr;
+    }
+}
+
+class SubscriptExpr derives Expr {
+    pub var base:  *Expr;
+    pub var index: *Expr;
+    pub var is_slice: bool; // true if this is a slice subscript like arr[1..3], false if this is a regular subscript like arr[1]
+
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        base: *Expr,
+        index: *Expr,
+        is_slice: bool
+    ) -> *SubscriptExpr {
+        var node = ctx->alloc::<SubscriptExpr>();
+        // from Expr
+        node->kind     = ExprKind::SubscriptExpr;
+        node->range    = range;
+        // from SubscriptExpr
+        node->base     = base;
+        node->index    = index;
+        node->is_slice = is_slice;
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        base: *Expr,
+        index: *Expr,
+        is_slice: bool
+    ) -> *SubscriptExpr {
+        var node            = create(ctx, range, base, index, is_slice);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::SubscriptExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::SubscriptExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::SubscriptExpr;
+    }
+
+    fn get_base(self) -> *Expr {
+        return self.base;
+    }
+
+    fn get_index(self) -> *Expr {
+        return self.index;
+    }
+}
+
+class TypeCastExpr derives Expr {
+    pub var operator:    Token; // the cast operator token, e.g. 'as'
+    pub var left:        *Expr; // the operand being casted, stored in the
+    pub var target_type: *Type; // we don't use the right side of the binary operator for type casts, instead we store the target type in the TypeCastExpr itself
+    
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        operator: Token,
+        left: *Expr,
+        target_type: *Type
+    ) -> *TypeCastExpr {
+        var node = ctx->alloc::<TypeCastExpr>();
+        // from Expr
+        node->kind     = ExprKind::TypeCastExpr;
+        node->range    = range;
+        // from TypeCastExpr
+        node->operator = operator;
+        assert(operator.kind == TokenKind::KwAs && r"Expected a cast operator token");
+        node->left     = left;
+        node->target_type = target_type;
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        operator: Token,
+        left: *Expr,
+        target_type: *Type
+    ) -> *TypeCastExpr {
+        var node            = create(ctx, range, operator, left, target_type);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::TypeCastExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::TypeCastExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::TypeCastExpr;
+    }
+
+    fn get_operator(self) -> Token {
+        return self.operator;
+    }
+
+    fn get_left(self) -> *Expr {
+        return self.left;
+    }
+
+    fn get_target_type(self) -> *Type {
+        return self.target_type;
+    }
+}
+
+class MacroInvocationExpr derives Expr {
+    pub var macro_path: *ChainExpr;
+    pub var args: FrozenList::<*Expr>;
+    pub var is_basic: bool = false; // true for foo!(), false for @foo()
+
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        macro_path: *ChainExpr,
+        args: *vec::<*Expr>, // a temp stack allocated vector
+        is_basic: bool
+    ) -> *MacroInvocationExpr {
+        var node = ctx->alloc::<MacroInvocationExpr>();
+        // from Expr
+        node->kind     = ExprKind::MacroInvocationExpr;
+        node->range    = range;
+        // from MacroInvocationExpr
+        node->macro_path = macro_path;
+        var arr = ctx->alloc_array::<*Expr>(args->size());
+        for var i: usize = 0; i < args->size(); ++i {
+            arr[i] = (*args)[i];
+        }
+
+        node->args.from_raw(arr, args->size());
+        node->is_basic = is_basic;
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        macro_path: *ChainExpr,
+        args: *vec::<*Expr>, // a temp stack allocated vector
+        is_basic: bool
+    ) -> *MacroInvocationExpr {
+        var node            = create(ctx, range, macro_path, args, is_basic);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::MacroInvocationExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::MacroInvocationExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::MacroInvocationExpr;
+    }
+
+    fn get_macro_name(self) -> Token {
+        return self.macro_name;
+    }
+
+    fn get_args(self) -> FrozenList::<*Expr> {
+        return self.args;
+    }
+}
+
+class PackExpansionExpr derives Expr {
+    pub var pattern: *Expr;
+    pub var prefixed: bool; // true if the pattern is prefixed with '...'
+
+    static fn create(
+        ctx: *ASTContext,
+        range: SourceRange,
+        pattern: *Expr,
+        prefixed: bool
+    ) -> *PackExpansionExpr {
+        var node = ctx->alloc::<PackExpansionExpr>();
+        // from Expr
+        node->kind     = ExprKind::PackExpansionExpr;
+        node->range    = range;
+        // from PackExpansionExpr
+        node->pattern  = pattern;
+        node->prefixed = prefixed;
+        return node;
+    }
+
+    static fn create_error(
+        ctx: *ASTContext,
+        range: SourceRange,
+        pattern: *Expr,
+        prefixed: bool
+    ) -> *PackExpansionExpr {
+        var node            = create(ctx, range, pattern, prefixed);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::PackExpansionExpr;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::PackExpansionExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::PackExpansionExpr;
+    }
+
+    fn get_pattern(self) -> *Expr {
+        return self.pattern;
+    }
+}
+
+// inserted by sema at FFI call boundaries carries:
+// original expr + source type + target ABI type
+// invisible to the programmer, visible in AST dumps for debugging
+class ImplicitBoundaryCastExpr derives Expr {
+    pub var operand:         *Expr;
+    pub var source_type:     *Type;
+    pub var target_abi_type: *Type;
+
+    static fn create(
+        ctx:             *ASTContext,
+        range:            SourceRange,
+        operand:         *Expr,
+        source_type:     *Type,
+        target_abi_type: *Type
+    ) -> *ImplicitBoundaryCastExpr {
+        var node = ctx->alloc::<ImplicitBoundaryCastExpr>();
+        // from Expr
+        node->kind     = ExprKind::ImplicitBoundaryCastExpr;
+        node->range    = range;
+        // from ImplicitBoundaryCastExpr
+        node->operand = operand;
+        node->source_type = source_type;
+        node->target_abi_type = target_abi_type;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::ImplicitBoundaryCastExpr;
+    }
+
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::ImplicitBoundaryCastExpr;
+    }
+
+    fn get_operand(self) -> *Expr {
+        return self.operand;
+    }
+
+    fn get_source_type(self) -> *Type {
+        return self.source_type;
+    }
+
+    fn get_target_abi_type(self) -> *Type {
+        return self.target_abi_type;
     }
 }

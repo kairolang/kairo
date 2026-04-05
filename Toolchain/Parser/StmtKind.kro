@@ -155,6 +155,12 @@ enum StmtKind {
     /// Node: ContextBindingStmt value + binding ParamDecl* + body.
     ContextBindingStmt,
 
+    /// Destructuring binding in assignment or declaration:
+    ///   var (x, y) = expr
+    ///   const (a, b, c) = tuple_expr
+    /// Node: DestructuringDeclStmt pattern + value + is_const flag.
+    DestructuringDeclStmt,
+
     // Inline foreign block (statement position)
     // inline "asm" { } | inline "c" { } | inline "c++" { }
     InlineBlockStmt,
