@@ -146,13 +146,18 @@ enum ExprKind {
     /// deref count, safe-nav flag, and access kind (Root/Scope/Field/SafeField).
     /// Sema resolves scope vs. field semantics after parse.
     ///
-    /// Node: QualifiedPathExpr
-    QualifiedPathExpr,
+    /// Node: ChainExpr
+    ChainExpr,
 
     /// Parenthesized expression:  (expr)
     /// Kept through parse for source fidelity.  Sema strips it.
     /// Node: GroupingExpr
     GroupingExpr,
+
+    /// Named identifier expression:  foo
+    /// Distinct from qualified paths and field accesses which are ChainExpr.
+    /// Node: NamedIdentExpr
+    NamedIdentExpr,
 
     // -----------------------------------------------------------------------
     //  Operator expressions  [19 .. 20]
@@ -174,9 +179,14 @@ enum ExprKind {
     ///   identity:     x === y  (referential equality)
     ///   assignment:   x = y | x += y | x -= y | x **= y | ...
     ///   range:        x .. y | x ..= y  (see also RangeExpr below)
-    ///   path:         x :: y | x . y  (handled in QualifiedPathExpr)
+    ///   path:         x :: y | x . y  (handled in ChainExpr)
     /// Node: BinaryOperatorExpr operator token + lhs + rhs.
     BinaryOperatorExpr,
+
+    /// Assignment operator:  = | += | -= | *= | /= | %= | **= | &= | |= | ^= | <<= | >>=
+    /// Node: AssignmentOperatorExpr operator token + lhs + rhs.
+    /// Distinct from BinaryOperatorExpr to simplify visitor handling and precedence parsing.
+    AssignOperatorExpr,
 
     // -----------------------------------------------------------------------
     //  Type-relation expressions  [21 .. 22]
@@ -198,9 +208,9 @@ enum ExprKind {
     //  All produce values.  Sema enforces branch type compatibility.
     // -----------------------------------------------------------------------
 
-    /// Conditional (ternary) expression:  value_if_true if condition else value_if_false
-    /// Node: ConditionalExpr condition + then_expr + else_expr.
-    ConditionalExpr,
+    /// Ternary expression:  value_if_true if condition else value_if_false
+    /// Node: TernaryExpr condition + then_expr + else_expr.
+    TernaryExpr,
 
     /// If expression (block form):  if cond { expr } else { expr }
     /// Requires else branch sema error if absent.
@@ -219,7 +229,7 @@ enum ExprKind {
     // -----------------------------------------------------------------------
 
     /// Anonymous function expression:
-    ///   fn (x: i32, y: i32) -> i32 { x + y }
+    ///   fn <T> (x: T, y: i32)|foo| -> i32 { x + y + foo }
     ///   fn (x: i32) { std::print(x) }   inferred void return
     /// Node: ClosureExpr params + optional generics + return type + body.
     ClosureExpr,
@@ -260,12 +270,16 @@ enum ExprKind {
     /// Node: TypeOfExpr
     TypeOfExpr,
 
-    // Eval-qualified expression: eval expr
-    // forces compile-time evaluation of the wrapped expr
+    /// Eval-qualified expression: eval expr
+    /// forces compile-time evaluation of the wrapped expr
     EvalExpr,
 
-    // Self reference: self | &self (is_ref flag inside node)
+    /// Self reference: self | &self (is_ref flag inside node)
     SelfExpr,
+
+    /// Unsafe call expr
+    /// unsafe Expr
+    UnsafeExpr,
 
     // -----------------------------------------------------------------------
     //  Memory / lifetime expressions  [35 .. 36]
@@ -294,16 +308,10 @@ enum ExprKind {
     //  Destructuring expressions  [38 .. 39]
     // -----------------------------------------------------------------------
 
-    /// Destructuring binding in assignment or declaration:
-    ///   var (x, y) = expr
-    ///   const (a, b, c) = tuple_expr
-    /// Node: DestructuringBindingExpr bindings + rhs + is_const.
-    DestructuringBindingExpr,
-
     /// Pattern binding inside a match arm:  var x | const x
     /// Scoped to the match arm.  Sema introduces the binding into the arm scope.
     /// Node: MatchBindingExpr name token + is_const.
-    MatchBindingExpr,
+    // MatchBindingExpr, --- IGNORE ---
 
     // -----------------------------------------------------------------------
     //  Type cast  [40]
@@ -312,10 +320,6 @@ enum ExprKind {
     /// Explicit type cast:  expr as Type
     /// Node: TypeCastExpr value + target TypeRef.
     TypeCastExpr,
-
-    // Inline foreign blocks (expression position)
-    // inline "asm" { } | inline "c" { } | inline "c++" { }
-    InlineBlockExpr,
 
     // inserted by sema at FFI call boundaries carries:
     // original expr + source type + target ABI type
