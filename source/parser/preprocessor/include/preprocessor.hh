@@ -16,13 +16,6 @@
 #ifndef __PRE_PROCESSOR_H__
 #define __PRE_PROCESSOR_H__
 
-#include "controller/include/Controller.hh"
-#include "controller/include/tooling/tooling.hh"
-#include "generator/include/CX-IR/CXIR.hh"
-#include "parser/preprocessor/include/config/Preprocessor_config.def"
-#include "parser/preprocessor/include/private/dependency_tree.hh"
-#include "parser/preprocessor/include/private/processor.hh"
-
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -30,8 +23,14 @@
 #include <variant>
 #include <vector>
 
+#include "controller/include/Controller.hh"
+#include "controller/include/tooling/tooling.hh"
+#include "generator/include/CX-IR/CXIR.hh"
 #include "parser/ast/include/nodes/AST_expressions.hh"
 #include "parser/ast/include/nodes/AST_statements.hh"
+#include "parser/preprocessor/include/config/Preprocessor_config.def"
+#include "parser/preprocessor/include/private/dependency_tree.hh"
+#include "parser/preprocessor/include/private/processor.hh"
 #include "token/include/private/Token_base.hh"
 
 // parser::preprocessor::import_tree
@@ -43,15 +42,15 @@
     }
 
 #ifndef THROW_PANIC
-#define THROW_PANIC(msg, marker)         \
+#define THROW_PANIC(msg, marker)   \
     error::Panic(error::CodeError{ \
-        .pof      = marker,              \
-        .err_code = 0.0123,              \
-        .mark_pof = true,                \
-        .fix_fmt_args{},                 \
-        .err_fmt_args{msg},              \
-        .opt_fixes{},                    \
-        .level = error::ERR,             \
+        .pof      = marker,        \
+        .err_code = 0.0123,        \
+        .mark_pof = true,          \
+        .fix_fmt_args{},           \
+        .err_fmt_args{msg},        \
+        .opt_fixes{},              \
+        .level = error::ERR,       \
     })
 #ifndef WARN_PANIC_FIX
 #define WARN_PANIC_FIX(msg, fix, marker) \
@@ -67,9 +66,10 @@
 #endif
 #endif
 
-inline std::vector<CXXCompileAction> COMPILE_ACTIONS;
-inline std::unordered_set<std::filesystem::path>  DEPENDENCIES;     // all imported files
-inline std::unordered_map<std::filesystem::path, std::shared_ptr<generator::CXIR::CXIR>> IMPORT_CACHE_MODULE;
+inline std::vector<CXXCompileAction>             COMPILE_ACTIONS;
+inline std::unordered_set<std::filesystem::path> DEPENDENCIES;  // all imported files
+inline std::unordered_map<std::filesystem::path, std::shared_ptr<generator::CXIR::CXIR>>
+                                                 IMPORT_CACHE_MODULE;
 inline std::unordered_set<std::filesystem::path> IMPORT_CACHE_HEADER;
 
 __PREPROCESSOR_BEGIN {
@@ -79,7 +79,8 @@ __PREPROCESSOR_BEGIN {
                                        // (i cba to make it a pointer lol)
         std::vector<std::filesystem::path> import_dirs;
         __CONTROLLER_CLI_N::CLIArgs        parsed_args;
-        void* override_processable_imports = nullptr; // NOLINT - if 0xFFF is present then we stop processing imports
+        void                              *override_processable_imports =
+            nullptr;  // NOLINT - if 0xFFF is present then we stop processing imports
 
       public:
         enum class Type {
@@ -88,7 +89,7 @@ __PREPROCESSOR_BEGIN {
         };
 
         using NormalizedImport =
-        std::tuple<std::filesystem::path, size_t, parser::preprocessor::ImportProcessor::Type>;
+            std::tuple<std::filesystem::path, size_t, parser::preprocessor::ImportProcessor::Type>;
 
         using ImportType                = std::variant<std::filesystem::path, __TOKEN_N::TokenList>;
         using ImportAlias               = __TOKEN_N::TokenList;
@@ -137,7 +138,7 @@ __PREPROCESSOR_BEGIN {
         bool has_processable_import();
         void force_import(const std::filesystem::path &path, __CONTROLLER_CLI_N::CLIArgs args);
 
-        void append(const std::filesystem::path                        &path,
+        void append(const std::filesystem::path              &path,
                     size_t                                    rel_to_index,
                     Type                                      type,
                     size_t                                    start_pos,
@@ -145,11 +146,11 @@ __PREPROCESSOR_BEGIN {
                     __CONTROLLER_CLI_N::CLIArgs              &parsed_args,
                     __TOKEN_N::Token                         &start);
 
-        void extend(const std::vector<NormalizedImport> &normalized,
-                    const std::vector<std::filesystem::path>                 &import_dirs,
-                    __CONTROLLER_CLI_N::CLIArgs                              &parsed_args,
-                    size_t                                                    start_pos,
-                    __TOKEN_N::Token                                         &start);
+        void extend(const std::vector<NormalizedImport>      &normalized,
+                    const std::vector<std::filesystem::path> &import_dirs,
+                    __CONTROLLER_CLI_N::CLIArgs              &parsed_args,
+                    size_t                                    start_pos,
+                    __TOKEN_N::Token                         &start);
 
         std::vector<std::filesystem::path> get_dirs() const { return import_dirs; }
 

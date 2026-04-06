@@ -177,6 +177,8 @@
     GENERATE_MACRO_HELPER(VISIT_FUNC) virtual void visit(__AST_NODE::Program &) = 0;
 #define GENERATE_VISIT_EXTENDS \
     GENERATE_MACRO_HELPER(VISIT_EXTEND) void visit(__AST_NODE::Program &) override;
+#define GENERATE_NO_OP_VISIT_FUNCS \
+    GENERATE_MACRO_HELPER(VISIT_FUNC) virtual void visit(__AST_NODE::Program &) override {}
 
 namespace parser::preprocessor {
     class ImportProcessor;

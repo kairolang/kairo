@@ -318,10 +318,10 @@ __PREPROCESSOR_BEGIN {
     }
 
     bool ImportProcessor::has_processable_import() {
-        bool found_import = false;
-        __TOKEN_N::TokenList::TokenListIter iter = tokens.begin();
+        bool                                found_import = false;
+        __TOKEN_N::TokenList::TokenListIter iter         = tokens.begin();
 
-        if (override_processable_imports == reinterpret_cast<void*>(0xFFF)) {
+        if (override_processable_imports == reinterpret_cast<void *>(0xFFF)) {
             return false;
         }
 
@@ -381,15 +381,16 @@ __PREPROCESSOR_BEGIN {
                                         // again.
                 }
             }
-            
+
             if (iter->token_kind() == __TOKEN_N::tokens::KEYWORD_IMPORT) {
                 /// remove all import tokens
                 /// calculate the 'import' token to the ';' or '}' token
-                i32  offset    = 1;
-                bool has_brace = false;
-                __TOKEN_N::Token start = iter.current().get();
+                i32              offset    = 1;
+                bool             has_brace = false;
+                __TOKEN_N::Token start     = iter.current().get();
 
-                if (!iter.peek(offset).has_value() || iter.peek(offset).value().get().token_kind() == __TOKEN_N::tokens::EOF_TOKEN) {
+                if (!iter.peek(offset).has_value() ||
+                    iter.peek(offset).value().get().token_kind() == __TOKEN_N::tokens::EOF_TOKEN) {
                     error::Panic(error::CodeError{
                         .pof      = &start,
                         .err_code = 0.0001,
@@ -405,8 +406,7 @@ __PREPROCESSOR_BEGIN {
                 std::unordered_set<__TOKEN_N::tokens> valid_kinds = {
                     __TOKEN_N::tokens::PUNCTUATION_OPEN_BRACE,
                     __TOKEN_N::tokens::IDENTIFIER,
-                    __TOKEN_N::tokens::LITERAL_STRING
-                };
+                    __TOKEN_N::tokens::LITERAL_STRING};
 
                 if (!valid_kinds.contains(iter.peek(1)->get().token_kind())) {
                     error::Panic(error::CodeError{
@@ -414,7 +414,8 @@ __PREPROCESSOR_BEGIN {
                         .err_code = 0.0001,
                         .mark_pof = true,
                         .fix_fmt_args{},
-                        .err_fmt_args{"expected a valid token after 'import' but found '" + iter.peek(1)->get().token_kind_repr() + "'."},
+                        .err_fmt_args{"expected a valid token after 'import' but found '" +
+                                      iter.peek(1)->get().token_kind_repr() + "'."},
                         .opt_fixes{},
                     });
 
@@ -434,11 +435,11 @@ __PREPROCESSOR_BEGIN {
                             .err_code = 0.0001,
                             .mark_pof = true,
                             .fix_fmt_args{},
-                            .err_fmt_args{"expected a " + std::string(has_brace ? "'}'" : "';'") + " to close the 'import' statement"},
+                            .err_fmt_args{"expected a " + std::string(has_brace ? "'}'" : "';'") +
+                                          " to close the 'import' statement"},
                             .opt_fixes{},
-                            .level=error::Level::ERR
-                        });
-                        
+                            .level = error::Level::ERR});
+
                         found_import = false;
                         goto leave_loop_has_processable_import;
                     }
@@ -446,22 +447,22 @@ __PREPROCESSOR_BEGIN {
                     if (iter.peek(offset)->get().token_kind() ==
                         (has_brace ? __TOKEN_N::tokens::PUNCTUATION_CLOSE_BRACE
                                    : __TOKEN_N::tokens::PUNCTUATION_SEMICOLON)) {
-                        found_import  = true;
+                        found_import = true;
                         goto leave_loop_has_processable_import;
                     }
 
                     ++offset;
                 }
 
-                error::Panic(error::CodeError{
-                    .pof      = &start,
-                    .err_code = 0.0001,
-                    .mark_pof = true,
-                    .fix_fmt_args{},
-                    .err_fmt_args{"expected a " + std::string(has_brace ? "'}'" : "';'") + " to close the import"},
-                    .opt_fixes{},
-                    .level=error::Level::ERR
-                });
+                error::Panic(error::CodeError{.pof      = &start,
+                                              .err_code = 0.0001,
+                                              .mark_pof = true,
+                                              .fix_fmt_args{},
+                                              .err_fmt_args{"expected a " +
+                                                            std::string(has_brace ? "'}'" : "';'") +
+                                                            " to close the import"},
+                                              .opt_fixes{},
+                                              .level = error::Level::ERR});
 
                 found_import = false;
                 break;
@@ -470,7 +471,7 @@ __PREPROCESSOR_BEGIN {
             iter.advance();
         }
 
-leave_loop_has_processable_import:
+    leave_loop_has_processable_import:
         return found_import;
     }
 
@@ -484,7 +485,7 @@ leave_loop_has_processable_import:
         size_t start_pos = std::numeric_limits<size_t>::max();
         Token  start;
         Token  end;
-        size_t end_pos = std::numeric_limits<size_t>::max();
+        size_t end_pos      = std::numeric_limits<size_t>::max();
         bool   found_import = false;
 
         while (iter.remaining_n() > 0) {
@@ -507,7 +508,7 @@ leave_loop_has_processable_import:
                         .opt_fixes{},
                     });
 
-                    override_processable_imports = (void*)(0xFFF);
+                    override_processable_imports = (void *)(0xFFF);
                     return;
                 }
 
@@ -537,7 +538,7 @@ leave_loop_has_processable_import:
                             .opt_fixes{},
                         });
 
-                        override_processable_imports = (void*)(0xFFF);
+                        override_processable_imports = (void *)(0xFFF);
                         return;
                     }
 
@@ -545,7 +546,7 @@ leave_loop_has_processable_import:
                                         // again.
                 }
             }
-            
+
             if (iter->token_kind() == __TOKEN_N::tokens::KEYWORD_IMPORT) {
                 /// remove all import tokens
                 /// calculate the 'import' token to the ';' or '}' token
@@ -554,7 +555,8 @@ leave_loop_has_processable_import:
                 start          = iter.current().get();
                 start_pos      = iter.position();
 
-                if (!iter.peek(offset).has_value() || iter.peek(offset).value().get().token_kind() == __TOKEN_N::tokens::EOF_TOKEN) {
+                if (!iter.peek(offset).has_value() ||
+                    iter.peek(offset).value().get().token_kind() == __TOKEN_N::tokens::EOF_TOKEN) {
                     error::Panic(error::CodeError{
                         .pof      = &start,
                         .err_code = 0.0001,
@@ -563,8 +565,8 @@ leave_loop_has_processable_import:
                         .err_fmt_args{"expected a something after 'import' keyword"},
                         .opt_fixes{},
                     });
-                    
-                    override_processable_imports = (void*)(0xFFF);
+
+                    override_processable_imports = (void *)(0xFFF);
                     return;
                 }
 
@@ -585,14 +587,14 @@ leave_loop_has_processable_import:
                             .opt_fixes{},
                         });
 
-                        override_processable_imports = (void*)(0xFFF);
+                        override_processable_imports = (void *)(0xFFF);
                         return;
                     }
 
                     if (iter.peek(offset)->get().token_kind() ==
                         (has_brace ? __TOKEN_N::tokens::PUNCTUATION_CLOSE_BRACE
                                    : __TOKEN_N::tokens::PUNCTUATION_SEMICOLON)) {
-                        end = iter.peek(offset).value().get();
+                        end     = iter.peek(offset).value().get();
                         end_pos = iter.peek(offset).value().get().offset();
                         break;
                     }
@@ -609,13 +611,13 @@ leave_loop_has_processable_import:
         }
 
         if (!found_import) {
-            override_processable_imports = (void*)(0xFFF);
+            override_processable_imports = (void *)(0xFFF);
             return;
         }
 
         if (!import_result.has_value() || start == Token()) {
             import_result.error().panic();
-            override_processable_imports = (void*)(0xFFF);
+            override_processable_imports = (void *)(0xFFF);
             return;
         }
 
@@ -709,7 +711,7 @@ leave_loop_has_processable_import:
 
                 path = import_path.pop_front().value();
 
-                for ([[maybe_unused]] auto & _: import_path) {
+                for ([[maybe_unused]] auto &_ : import_path) {
                     path /= import_path.pop_front().value();
                 }
             }
@@ -738,9 +740,10 @@ leave_loop_has_processable_import:
             auto [path, rel_to_index, _] = imp;
             std::string namespace_path =
                 helix::abi::mangle((import_dirs[rel_to_index] / path).generic_string(),
-                                      helix::abi::ObjectType::Module);
+                                   helix::abi::ObjectType::Module);
 
-            if ((resolved_mapping.find(imp) != resolved_mapping.end()) && (rel_to_index != std::numeric_limits<size_t>::max())) {
+            if ((resolved_mapping.find(imp) != resolved_mapping.end()) &&
+                (rel_to_index != std::numeric_limits<size_t>::max())) {
                 auto [what_was_imported, alias, is_wildcard] = *resolved_mapping[imp];
                 /// so now we know the import is in kairo::<namespace_path>
                 /// so lets say:
@@ -822,8 +825,8 @@ leave_loop_has_processable_import:
     /// \brief force imports a file into the current compilation unit (must be a module import)
     /// \param path the absolute path to the file
     /// \param parsed_args the parsed cli args
-    void ImportProcessor::force_import(const std::filesystem::path           &path,
-                                       __CONTROLLER_CLI_N::CLIArgs            parsed_args) {
+    void ImportProcessor::force_import(const std::filesystem::path &path,
+                                       __CONTROLLER_CLI_N::CLIArgs  parsed_args) {
         std::filesystem::path full_path = std::filesystem::absolute(path).lexically_normal();
 
         auto it = IMPORT_CACHE_MODULE.find(full_path);
@@ -836,8 +839,11 @@ leave_loop_has_processable_import:
         parsed_args.file = full_path.generic_string();
 
         if (!std::filesystem::is_regular_file(parsed_args.file)) [[unlikely]] {
-            error::Panic(error::CompilerError{
-                .err_code = 0.0001, .fix_fmt_args = {}, .err_fmt_args = {"could not locate the requested import of: " + path.generic_string()}});
+            error::Panic(
+                error::CompilerError{.err_code     = 0.0001,
+                                     .fix_fmt_args = {},
+                                     .err_fmt_args = {"could not locate the requested import of: " +
+                                                      path.generic_string()}});
             return;
         }
 
@@ -855,16 +861,16 @@ leave_loop_has_processable_import:
     }
 
     void ImportProcessor::append(const std::filesystem::path              &path,
-                                size_t                                    rel_to_index,
-                                Type                                      type,
-                                size_t                                    start_pos,
-                                const std::vector<std::filesystem::path> &import_dirs,
-                                __CONTROLLER_CLI_N::CLIArgs              &parsed_args,
-                                __TOKEN_N::Token                         &start) {
+                                 size_t                                    rel_to_index,
+                                 Type                                      type,
+                                 size_t                                    start_pos,
+                                 const std::vector<std::filesystem::path> &import_dirs,
+                                 __CONTROLLER_CLI_N::CLIArgs              &parsed_args,
+                                 __TOKEN_N::Token                         &start) {
 
         std::filesystem::path raw_path = (rel_to_index == std::numeric_limits<size_t>::max())
-                                       ? path
-                                       : (import_dirs[rel_to_index] / path);
+                                             ? path
+                                             : (import_dirs[rel_to_index] / path);
 
         std::filesystem::path full_path = std::filesystem::absolute(raw_path).lexically_normal();
 
@@ -1159,7 +1165,7 @@ leave_loop_has_processable_import:
             });
 
             found_paths.emplace_back(path, std::numeric_limits<size_t>::max(), Type::Module);
-            
+
             return found_paths;
         }
 
