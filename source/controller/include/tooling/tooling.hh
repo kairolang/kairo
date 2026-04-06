@@ -8,6 +8,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "controller/include/Controller.hh"
 #include "controller/include/config/Controller_config.def"
@@ -75,6 +76,7 @@ struct CXXCompileAction {  // NOLINT
     Args               cxx_args;
     flag::CompileFlags flags;
     std::string        cxx_compiler;
+    mutable std::vector<std::string> full_cxx_args;
 
     static CXXCompileAction
          init(CXIR &emitter, const Path &cc_out, flag::CompileFlags flags, Args cxx_args);
@@ -100,13 +102,14 @@ struct CXXCompileAction {  // NOLINT
 
     CXXCompileAction &operator=(const CXXCompileAction &other) {
         if (this != &other) {
-            working_dir  = other.working_dir;
-            cc_source    = other.cc_source;
-            cc_output    = other.cc_output;
-            kairo_src    = other.kairo_src;
-            cxx_args     = other.cxx_args;
-            flags        = other.flags;
-            cxx_compiler = other.cxx_compiler;
+            working_dir   = other.working_dir;
+            cc_source     = other.cc_source;
+            cc_output     = other.cc_output;
+            kairo_src     = other.kairo_src;
+            cxx_args      = other.cxx_args;
+            flags         = other.flags;
+            cxx_compiler  = other.cxx_compiler;
+            full_cxx_args = other.full_cxx_args; // ADD THIS
         }
         return *this;
     }
@@ -118,17 +121,19 @@ struct CXXCompileAction {  // NOLINT
         , kairo_src(std::move(other.kairo_src))
         , cxx_args(std::move(other.cxx_args))
         , flags(other.flags)
-        , cxx_compiler(std::move(other.cxx_compiler)) {}
+        , cxx_compiler(std::move(other.cxx_compiler))
+        , full_cxx_args(std::move(other.full_cxx_args)) {} // ADD THIS
 
     CXXCompileAction &operator=(CXXCompileAction &&other) noexcept {
         if (this != &other) {
-            working_dir  = std::move(other.working_dir);
-            cc_source    = std::move(other.cc_source);
-            cc_output    = std::move(other.cc_output);
-            kairo_src    = std::move(other.kairo_src);
-            cxx_args     = std::move(other.cxx_args);
-            flags        = other.flags;
-            cxx_compiler = std::move(other.cxx_compiler);
+            working_dir   = std::move(other.working_dir);
+            cc_source     = std::move(other.cc_source);
+            cc_output     = std::move(other.cc_output);
+            kairo_src     = std::move(other.kairo_src);
+            cxx_args      = std::move(other.cxx_args);
+            flags         = other.flags;
+            cxx_compiler  = std::move(other.cxx_compiler);
+            full_cxx_args = std::move(other.full_cxx_args); // ADD THIS
         }
         return *this;
     }
@@ -193,32 +198,28 @@ class CompilationUnit {
 };
 
 template <typename... Flags>
-inline std::string make_command(const flag::types::Compiler _Compiler, Flags... flags) {
-    std::string compile_cmd;
-
+inline void make_command(std::vector<string> &compile_cmd, const flag::types::Compiler _Compiler, Flags... flags) {
     // for each flag call flag->clang after checking if its of type cxx::flags::CX
     (void)std::initializer_list<int>{(
         [&compile_cmd, &_Compiler](auto flag) {
             if constexpr (std::is_same_v<decltype(flag), cxx::flags::CF>) {
                 if (_Compiler == flag::types::Compiler::Clang) {
-                    compile_cmd += std::string((flag).clang) + " ";
+                    compile_cmd.push_back(std::string((flag).clang));
                 } else if (_Compiler == flag::types::Compiler::MSVC) {
-                    compile_cmd += std::string((flag).msvc) + " ";
+                    compile_cmd.push_back(std::string((flag).msvc));
                 } else if (_Compiler == flag::types::Compiler::MingW) {
-                    compile_cmd += std::string((flag).mingw) + " ";
+                    compile_cmd.push_back(std::string((flag).mingw));
                 } else {
-                    compile_cmd += std::string((flag).gcc) + " "; // default to gcc
+                    compile_cmd.push_back(std::string((flag).gcc)); // default to gcc
                 }
             } else if constexpr (std::is_same_v<decltype(flag), std::string> ||
                                  std::is_same_v<decltype(flag), const char *>) {
-                compile_cmd += flag + std::string(" ");
+                compile_cmd.push_back(flag);
             } else {
                 static_assert(false, "invalid flag type");
             }
         }(flags),
         0)...};
-
-    return compile_cmd;
 }
 
 #endif  // __TOOLING_H__

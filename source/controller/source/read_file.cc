@@ -72,10 +72,10 @@ __CONTROLLER_FS_BEGIN {
     }
 
     std::string _internal_read_file(const std::string &filename) {
-        auto cached_file = FileCache::get_file(filename);
-        if (cached_file.has_value()) {
-            return cached_file.value();
-        }
+        // auto cached_file = FileCache::get_file(filename);
+        // if (cached_file.has_value()) {
+        //    return cached_file.value();
+        // }
 
         std::ifstream file(filename, std::ios::binary | std::ios::ate);
 
@@ -93,7 +93,7 @@ __CONTROLLER_FS_BEGIN {
             return "";
         }
 
-        FileCache::add_file(filename, source);
+        // FileCache::add_file(filename, source);
 
         return source;
     }

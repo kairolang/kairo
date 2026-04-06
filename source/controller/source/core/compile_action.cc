@@ -164,11 +164,9 @@ void cleanup_old_files(const std::filesystem::path &dir) {
 
     // enforce max 75 files
     if (files.size() > 75) {
-        std::sort(files.begin(), files.end(),
-            [](auto &a, auto &b) {
-                return std::filesystem::last_write_time(a) <
-                       std::filesystem::last_write_time(b);
-            });
+        std::sort(files.begin(), files.end(), [](auto &a, auto &b) {
+            return std::filesystem::last_write_time(a) < std::filesystem::last_write_time(b);
+        });
 
         std::size_t excess = files.size() - 75;
         for (std::size_t i = 0; i < excess; ++i) {
@@ -208,7 +206,11 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
         cleanup_old_files(exe / "cache" / "cxx");
     }
 
-    Path cc_source = exe / "cache" / "cxx" / ("kairoCXIR" + generate_file_name(10) + ".cxx");
+    Path cc_source =
+        exe / "cache" / "cxx" /
+        ("kairoCXIR_" +
+         std::to_string(std::hash<std::string>{}(kairo_src.has_value() ? kairo_src.value() : "")) +
+         ".cxx");
 
     bool is_verbose = flags.contains(EFlags(flag::types::CompileFlags::Verbose));
 
@@ -221,37 +223,30 @@ CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags fla
         cc_source = cwd / "IR.temp.debug.verbose.kairo-compiler.cxx";
     }
 
-
     struct {
         std::string compiler = "c++";
-        
-        static std::string does_tool_exist(const std::string& tool) {
-            char* path = std::getenv("PATH");
-            
-            for (const auto& dir : std::filesystem::path(path ? path : "").string()
-                                                     | std::views::split(':')) {
+
+        static std::string does_tool_exist(const std::string &tool) {
+            char *path = std::getenv("PATH");
+
+            for (const auto &dir :
+                 std::filesystem::path(path ? path : "").string() | std::views::split(':')) {
 
                 auto full_path = std::filesystem::path(std::string(dir.begin(), dir.end())) / tool;
-            
+
                 if (std::filesystem::exists(full_path) &&
                     std::system((full_path.string() + " --version >/dev/null 2>&1").c_str()) == 0) {
                     /// return the full path to the tool
                     return full_path.string();
                 }
             }
-            
+
             return std::string{};
         }
-    
+
         void find() {
             std::array<std::string, 6> compilers = {
-                "clang++",
-                "clang-cl",
-                "cl",
-                "g++",
-                "GCC",
-                "c++"
-            };
+                "clang++", "clang-cl", "cl", "g++", "GCC", "c++"};
 
             for (const auto &c : compilers) {
                 if (does_tool_exist(c).empty()) {
