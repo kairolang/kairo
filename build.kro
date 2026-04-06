@@ -24,25 +24,30 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
          .include(llvm_build + "/tools/clang/include")
          .passthrough("-L" + llvm_build + "/lib")
          .passthrough("-L" + out_lib);
+
+        t.passthrough("-fno-lto")
+         .passthrough("-lclang-cpp")
+         .passthrough("-lLLVM")
+         .passthrough("-llldELF")
+         .passthrough("-llldMachO")
+         .passthrough("-llldCOFF")
+         .passthrough("-llldMinGW")
+         .passthrough("-llldWasm")
+         .passthrough("-llldCommon");
     } else {
         // system LLVM — query llvm-config
         var inc    = run(["sh", "-c", "llvm-config --includedir | tr -d '\\n' "]).stdout_str;
         var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n' "]).stdout_str;
         var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n' "]).stdout_str;
-        t.include(inc)
-         .include(prefix + "/include")
+        t.passthrough("-I" + inc)
+         .passthrough("-I" + prefix + "/include")
+         .passthrough("-I" + prefix + "/tools/clang/include")
          .passthrough("-L" + libdir);
-    }
 
-    t.passthrough("-fno-lto")
-     .passthrough("-lclang-cpp")
-     .passthrough("-lLLVM")
-     .passthrough("-llldELF")
-     .passthrough("-llldMachO")
-     .passthrough("-llldCOFF")
-     .passthrough("-llldMinGW")
-     .passthrough("-llldWasm")
-     .passthrough("-llldCommon");
+        t.passthrough("-fno-lto")
+         .passthrough("-lclang-cpp")
+         .passthrough("-lLLVM");
+    }
 
     if platform() == "linux" {
         t.passthrough("\\\x27-Wl,-rpath,\\$ORIGIN/../lib\\\x27");
