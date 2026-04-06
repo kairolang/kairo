@@ -1366,7 +1366,7 @@ class ListLiteralExpr derives ArrayInitializerExpr { /// [ ... ]
 
 class NamedInitializerExpr derives Expr { // must validate that all names are preset in parser
     pub var values: FrozenList::<NamedValue>;
-    pub var name:  *Type;
+    pub var name:  *Type; // a chained type is still a type
     pub var ctx:   *ASTContext;
 
     static fn create(

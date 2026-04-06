@@ -149,6 +149,9 @@ enum ExprKind {
     /// Node: ChainExpr
     ChainExpr,
 
+    /// Method call:  bar(args)  |  bar(args)
+    MethodCallExpr,
+
     /// Parenthesized expression:  (expr)
     /// Kept through parse for source fidelity.  Sema strips it.
     /// Node: GroupingExpr
