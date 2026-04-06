@@ -635,6 +635,24 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         json args = json::array();
         for (auto &inc : t.includes)
             args.push_back("-I" + inc);
+
+        // collect passthrough exactly as build_command does
+        std::vector<std::string> passthrough;
+        for (auto &def : t.defines)
+            passthrough.push_back("-D" + def);
+        for (auto &lf : t.ld_flags)
+            passthrough.push_back(lf);
+        for (auto &src : t.cxx_sources)
+            passthrough.push_back(src);
+        for (auto &pt : t.cxx_passthrough)
+            passthrough.push_back(pt);
+
+        if (!passthrough.empty()) {
+            args.push_back("--");
+            for (auto &pt : passthrough)
+                args.push_back(pt);
+        }
+
         json e;
         e["directory"] = cwd;
         e["arguments"] = std::move(args);
@@ -1244,6 +1262,23 @@ static auto execute_test(const Config &cfg, const CLIOptions &opts, const std::s
     cmd += (mode == BuildMode::Debug) ? " --debug" : " --release";
     if (opts.verbose)
         cmd += " --verbose";
+
+    // mirror build_command passthrough
+    std::vector<std::string> passthrough;
+    for (auto &def : first.defines)
+        passthrough.push_back("-D" + def);
+    for (auto &lf : first.ld_flags)
+        passthrough.push_back(lf);
+    for (auto &src : first.cxx_sources)
+        passthrough.push_back(src);
+    for (auto &pt : first.cxx_passthrough)
+        passthrough.push_back(pt);
+
+    if (!passthrough.empty()) {
+        cmd += " --";
+        for (auto &pt : passthrough)
+            cmd += " " + pt;
+    }
 
     _I_log::info(fmt("compiling test: {}", filename));
     if (opts.verbose)

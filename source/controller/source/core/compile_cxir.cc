@@ -64,7 +64,7 @@ inline LinkerFormat detect_linker_format(const std::string &output) {
     return LinkerFormat::Unknown;
 }
 
-/// Strips MSVC mangled name noise if present — just demangles the first
+/// Strips MSVC mangled name noise if present just demangles the first
 /// symbol found in the message for readability.
 inline std::string clean_linker_message(const std::string &msg) {
 #if defined(_WIN32) || defined(_WIN64)
@@ -82,7 +82,7 @@ std::vector<LinkerDiag> parse_msvc_link_errors(const std::string &output) {
     std::string             line;
 
     while (std::getline(stream, line)) {
-        // skip the clang-cl summary line — the real errors are the LNK#### lines
+        // skip the clang-cl summary line the real errors are the LNK#### lines
         if (line.find("linker command failed") != std::string::npos)
             continue;
 
@@ -191,7 +191,7 @@ std::vector<LinkerDiag> parse_gnu_ld_errors(const std::string &output) {
     //   collect2: error: ld returned 1 exit status
 
     while (std::getline(stream, line)) {
-        // skip collect2 summary line — we already have the real errors
+        // skip collect2 summary line we already have the real errors
         if (line.find("collect2:") != std::string::npos)
             continue;
 
@@ -258,7 +258,7 @@ std::vector<LinkerDiag> parse_linker_errors(const std::string &output) {
 
 namespace {
 inline std::string find_clang_cl_windows(bool is_verbose) {
-    // 1. check PATH first — if the user has LLVM installed standalone it'll be there
+    // 1. check PATH first if the user has LLVM installed standalone it'll be there
     CXIRCompiler::ExecResult probe = CXIRCompiler::exec("clang-cl --version");
     if (probe.return_code == 0)
         return "clang-cl";
@@ -268,13 +268,13 @@ inline std::string find_clang_cl_windows(bool is_verbose) {
     if (std::filesystem::exists(standalone))
         return std::string(standalone);
 
-    // 3. locate via vswhere — clang-cl bundled with VS
+    // 3. locate via vswhere clang-cl bundled with VS
     constexpr std::string_view vswhere_path =
         "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe";
 
     if (!std::filesystem::exists(vswhere_path)) {
         kairo::log<LogLevel::Warning>(
-            "vswhere not found — cannot locate clang-cl bundled with Visual Studio");
+            "vswhere not found cannot locate clang-cl bundled with Visual Studio");
         return "";
     }
 
@@ -410,6 +410,16 @@ CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action
     return ret;
 }
 
+std::string join(const std::vector<std::string> &parts, const std::string &delimiter) {
+    std::string result;
+    for (size_t i = 0; i < parts.size(); ++i) {
+        result += parts[i];
+        if (i != parts.size() - 1)
+            result += delimiter;
+    }
+    return result;
+}
+
 CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &action) const {
     bool is_verbose = action.flags.contains(EFlags(flag::types::CompileFlags::Verbose));
 
@@ -419,7 +429,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
             "compiler not found or failed to execute: '" + action.cxx_compiler +
             "'"
 #if defined(_WIN32) || defined(_WIN64)
-            " — install LLVM from https://releases.llvm.org and ensure clang-cl is on PATH"
+            " install LLVM from https://releases.llvm.org and ensure clang-cl is on PATH"
 #endif
         );
         return {probe, flag::ErrorType(flag::types::ErrorType::NotFound)};
@@ -436,7 +446,9 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         return {probe, flag::ErrorType(flag::types::ErrorType::NotFound)};
     }
 
-    std::string compile_cmd = action.cxx_compiler + " ";
+    std::vector<std::string> compile_cmd;
+    compile_cmd.reserve(20);  // avoid reallocations we have a fixed set of flags
+    compile_cmd.push_back( action.cxx_compiler);
 
     // Platform-specific flag adjustments:
     //   - clang-cl (Windows): no -rdynamic, no -flto, no stdLibAndLinks,
@@ -484,16 +496,17 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
             DEBUG_LOG("libc++ link path: " + resolved);
         } else {
             kairo::log<LogLevel::Warning>(
-                "could not locate Homebrew libc++ dylib — link may fail on macOS 26+");
+                "could not locate Homebrew libc++ dylib link may fail on macOS 26+");
         }
     }
 #endif
 
     if (is_windows_clang_cl) {
-        compile_cmd += make_command(
+        make_command(
+            compile_cmd,
             compiler,
 
-            // force-include core — clang-cl uses /FI with no space before the path
+            // force-include core clang-cl uses /FI with no space before the path
             "/FI\"" + core.generic_string() + "\"",
 
             // include search path
@@ -524,7 +537,8 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
             // output
             "/Fe\"" + action.cc_output.generic_string() + "\"");
     } else {
-        compile_cmd += make_command(
+        make_command(
+            compile_cmd,
             compiler,
 
             "-include \"" + core.generic_string() + "\" ",
@@ -570,29 +584,32 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
             "\"" + action.cc_output.generic_string() + "\"");
     }
 
-    if (this->dry_run) {
-        compile_cmd += std::string(cxx::flags::dryRunFlag.clang) + " ";
-    }
+    // if (this->dry_run) {
+    //     compile_cmd.push_back(std::string(cxx::flags::dryRunFlag.clang));
+    // }
 
     // additional translation units (batch compiles)
     if (!COMPILE_ACTIONS.empty()) {
         for (auto &a : COMPILE_ACTIONS) {
-            compile_cmd += "\"" + a.cc_source.generic_string() + "\" ";
+            compile_cmd.push_back("\"" + a.cc_source.generic_string() + "\"");
         }
     }
 
     // caller-supplied extra flags
     for (const auto &flag : action.cxx_args) {
-        compile_cmd += flag + " ";
+        compile_cmd.push_back(flag);
     }
 
     // primary source file
-    compile_cmd += "\"" + action.cc_source.generic_string() + "\"";
+    compile_cmd.push_back("\"" + action.cc_source.generic_string() + "\"");
 
-    // merge stderr into stdout so exec() captures everything
-    compile_cmd += " 2>&1";
+    DEBUG_LOG("compile command: " + join(compile_cmd, " "));
+    action.full_cxx_args.assign(compile_cmd.begin(), compile_cmd.end());
 
-    DEBUG_LOG("compile command: " + compile_cmd);
+    if (this->dry_run) {
+        kairo::log_opt<LogLevel::Progress>(is_verbose, "dry run: compiler command constructed");
+        return {{}, flag::ErrorType(flag::types::ErrorType::Success)};
+    }
 
     if (!std::filesystem::exists(action.cc_source)) {
         kairo::log<LogLevel::Error>("source file does not exist, possible memory corruption: " +
@@ -602,11 +619,10 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
 
 #if defined(_WIN32) || defined(_WIN64)
     // exec() on Windows doesn't go through a shell, so redirects need cmd /c
-    std::string shell_cmd      = "cmd.exe /c \"" + compile_cmd + " 2>&1\"";
-    ExecResult  compile_result = exec(shell_cmd);
+    std::string shell_cmd      = "cmd.exe /c \"" + join(compile_cmd, " ") + " 2>&1\"";
+    ExecResult  compile_result = exec(shell_cmd);`
 #else
-    compile_cmd += " 2>&1";
-    ExecResult compile_result = exec(compile_cmd);
+    ExecResult compile_result = exec(join(compile_cmd, " ") + " 2>&1");
 #endif
     DEBUG_LOG("compiler output:\n" + compile_result.output);
 

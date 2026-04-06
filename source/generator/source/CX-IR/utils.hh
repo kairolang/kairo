@@ -98,7 +98,7 @@ contains_self_static(const __AST_N::NodeT<__AST_NODE::FuncDecl> &func_decl) {
 
 inline void handle_static_self_fn_decl(__AST_N::NodeT<__AST_NODE::FuncDecl> &func_decl,
                                        token::Token                         &pof,
-                                       bool in_udt = true) {
+                                       bool                                  in_udt = true) {
     auto [has_self, has_static] = contains_self_static(func_decl);
 
     if (!in_udt) {  // free fucntion, cannot have self
@@ -126,10 +126,10 @@ inline void handle_static_self_fn_decl(__AST_N::NodeT<__AST_NODE::FuncDecl> &fun
     }
 }
 
-inline void handle_static_self_fn_decl(__AST_NODE::FuncDecl&func_decl,
-                                       token::Token                         &pof,
-                                       bool in_udt = true) {
-    auto [has_self, has_static] = contains_self_static(std::make_shared<__AST_NODE::FuncDecl>(func_decl));
+inline void
+handle_static_self_fn_decl(__AST_NODE::FuncDecl &func_decl, token::Token &pof, bool in_udt = true) {
+    auto [has_self, has_static] =
+        contains_self_static(std::make_shared<__AST_NODE::FuncDecl>(func_decl));
 
     if (!in_udt) {  // free fucntion, cannot have self
         if (has_self) {
@@ -285,7 +285,7 @@ inline OperatorType determine_operator_type(const __AST_N::NodeT<__AST_NODE::Fun
         }
 
         if (op_decl->params.size() == 2) {  // (..., ...)
-            return OperatorType::Binary;          // binary operator
+            return OperatorType::Binary;    // binary operator
         }
 
         if (op_decl->params.size() > 2) {  // (..., ..., ...)
@@ -550,8 +550,7 @@ struct OpType {
 
             // check the signature we don't give a shit about the func name rn
             if ($self && op.params.size() == 1) {  // most likely GeneratorOp
-                if (op.returns &&
-                    op.returns->specifiers.contains(__TOKEN_N::KEYWORD_YIELD)) {
+                if (op.returns && op.returns->specifiers.contains(__TOKEN_N::KEYWORD_YIELD)) {
                     return GeneratorOp;
                 }
             } else if ($self && op.params.size() == 2) {  // most likely ContainsOp
@@ -666,10 +665,8 @@ struct OpType {
         // -> string {}`
         if (op.op.size() == 1 && op.op.back() == __TOKEN_N::KEYWORD_PANIC) {
             if ((($self && op.params.size() == 1) || ($static && op.params.empty())) &&
-                op.returns &&
-                op.returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr &&
-                __AST_N::as<__AST_NODE::IdentExpr>(op.returns->value)->name.value() ==
-                    "string") {
+                op.returns && op.returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr &&
+                __AST_N::as<__AST_NODE::IdentExpr>(op.returns->value)->name.value() == "string") {
                 return PanicOp;
             }
 
@@ -685,8 +682,7 @@ struct OpType {
         if (op.op.size() == 1 && op.op.back() == __TOKEN_N::PUNCTUATION_QUESTION_MARK) {
             if ($self && op.params.size() == 1 && op.returns &&
                 op.returns->value->getNodeType() == __AST_NODE::nodes::IdentExpr &&
-                __AST_N::as<__AST_NODE::IdentExpr>(op.returns->value)->name.value() ==
-                    "bool") {
+                __AST_N::as<__AST_NODE::IdentExpr>(op.returns->value)->name.value() == "bool") {
                 return QuestionOp;
             }
 
@@ -729,7 +725,7 @@ inline void add_func_modifiers(__CXIR_CODEGEN_N::CXIR *self, __AST_N::Modifiers 
         modifiers.contains(__TOKEN_N::KEYWORD_EVAL)) {
         bool right_order = false;
 
-        for (auto& mod : modifiers.get<__AST_N::FunctionSpecifier>()) {
+        for (auto &mod : modifiers.get<__AST_N::FunctionSpecifier>()) {
             if (mod.type == __AST_N::FunctionSpecifier::Specifier::Eval) {
                 break;
             }
@@ -739,13 +735,15 @@ inline void add_func_modifiers(__CXIR_CODEGEN_N::CXIR *self, __AST_N::Modifiers 
                 break;
             }
         }
-        
+
         if (right_order) {
             self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-                __CXIR_CODEGEN_N::cxir_tokens::CXX_CONSTEVAL, modifiers.get(__TOKEN_N::KEYWORD_EVAL)));
+                __CXIR_CODEGEN_N::cxir_tokens::CXX_CONSTEVAL,
+                modifiers.get(__TOKEN_N::KEYWORD_EVAL)));
         } else {
             self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-                __CXIR_CODEGEN_N::cxir_tokens::CXX_CONSTEXPR, modifiers.get(__TOKEN_N::KEYWORD_EVAL)));
+                __CXIR_CODEGEN_N::cxir_tokens::CXX_CONSTEXPR,
+                modifiers.get(__TOKEN_N::KEYWORD_EVAL)));
         }
     } else if (modifiers.contains(__TOKEN_N::KEYWORD_EVAL)) {
         self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
@@ -764,7 +762,8 @@ inline void add_func_specifiers(__CXIR_CODEGEN_N::CXIR *self, __AST_N::Modifiers
 
     if (modifiers.contains(__TOKEN_N::KEYWORD_NOPANIC)) {
         self->append(std::make_unique<__CXIR_CODEGEN_N::CX_Token>(
-            __CXIR_CODEGEN_N::cxir_tokens::CXX_NOEXCEPT, modifiers.get(__TOKEN_N::KEYWORD_NOPANIC)));
+            __CXIR_CODEGEN_N::cxir_tokens::CXX_NOEXCEPT,
+            modifiers.get(__TOKEN_N::KEYWORD_NOPANIC)));
     }
 }
 
@@ -780,7 +779,8 @@ class ModifyNestedFunctions {
     bool operator()(const __AST_N::NodeT<> &elm) const {
         emitter->append(std::make_unique<CX_Token>(CXX_SEMICOLON));
 
-        if (elm->getNodeType() == __AST_NODE::nodes::FuncDecl && !(__AST_N::as<__AST_NODE::FuncDecl>(elm)->is_op)) {
+        if (elm->getNodeType() == __AST_NODE::nodes::FuncDecl &&
+            !(__AST_N::as<__AST_NODE::FuncDecl>(elm)->is_op)) {
             __AST_N::NodeT<__AST_NODE::FuncDecl> func_decl = __AST_N::as<__AST_NODE::FuncDecl>(elm);
 
             if (func_decl->name != nullptr) {
@@ -835,7 +835,8 @@ class ModifyNestedFunctions {
             return true;
         }
 
-        if (elm->getNodeType() == __AST_NODE::nodes::FuncDecl && __AST_N::as<__AST_NODE::FuncDecl>(elm)->is_op) {
+        if (elm->getNodeType() == __AST_NODE::nodes::FuncDecl &&
+            __AST_N::as<__AST_NODE::FuncDecl>(elm)->is_op) {
             __AST_N::NodeT<__AST_NODE::FuncDecl> func_decl = __AST_N::as<__AST_NODE::FuncDecl>(elm);
 
             error::Panic _(error::CodeError{
@@ -878,10 +879,12 @@ inline void check_for_yield_and_panic(const __AST_N::NodeT<__AST_NODE::SuiteStat
     __TOKEN_N::Token yield_marker;
 
     for (auto &child : body->body->body) {
-        if (child->getNodeType() == __AST_NODE::nodes::PanicState) { // if panic is there then warn and change the panic to throw instead
+        if (child->getNodeType() ==
+            __AST_NODE::nodes::PanicState) {  // if panic is there then warn and change the panic to
+                                              // throw instead
             has_panic    = true;
             panic_marker = __AST_N::as<__AST_NODE::PanicState>(child)->marker;
-            auto panic  = __AST_N::as<__AST_NODE::PanicState>(child);
+            auto panic   = __AST_N::as<__AST_NODE::PanicState>(child);
             panic->crash = true;
 
         } else if (child->getNodeType() == __AST_NODE::nodes::YieldState) {
@@ -891,15 +894,28 @@ inline void check_for_yield_and_panic(const __AST_N::NodeT<__AST_NODE::SuiteStat
     }
 
     if (has_panic && !return_type->nullable) {
-        error::Panic(error::CodeError{.pof = &return_type->marker, .err_code = 0.3008, .level = error::Level::WARN});
         error::Panic(error::CodeError{
-            .pof = &panic_marker, .err_code = 0.3018, .mark_pof = false, .fix_fmt_args = {}, .err_fmt_args = {}, .opt_fixes = {}, .level = error::Level::NONE, .indent = 1});
+            .pof = &return_type->marker, .err_code = 0.3008, .level = error::Level::WARN});
+        error::Panic(error::CodeError{.pof          = &panic_marker,
+                                      .err_code     = 0.3018,
+                                      .mark_pof     = false,
+                                      .fix_fmt_args = {},
+                                      .err_fmt_args = {},
+                                      .opt_fixes    = {},
+                                      .level        = error::Level::NONE,
+                                      .indent       = 1});
     }
 
     if (has_yield && !return_type->specifiers.contains(token::tokens::KEYWORD_YIELD)) {
         error::Panic(error::CodeError{.pof = &return_type->marker, .err_code = 0.3009});
-        error::Panic(error::CodeError{
-            .pof = &yield_marker, .err_code = 0.3019, .mark_pof = false, .fix_fmt_args = {}, .err_fmt_args = {}, .opt_fixes = {}, .level = error::Level::NONE, .indent = 1});
+        error::Panic(error::CodeError{.pof          = &yield_marker,
+                                      .err_code     = 0.3019,
+                                      .mark_pof     = false,
+                                      .fix_fmt_args = {},
+                                      .err_fmt_args = {},
+                                      .opt_fixes    = {},
+                                      .level        = error::Level::NONE,
+                                      .indent       = 1});
     }
 }
 
@@ -1123,11 +1139,8 @@ inline bool contains_trivial_import_directive(const __AST_N::NodeV<> &directives
 
     auto validator = __CXIR_CODEGEN_N::ValidateFunctionDirective<1>(
         "trivially_import",
-        __CXIR_CODEGEN_N::ArgumentValidate<
-            __AST_NODE::ArgumentExpr::ArgumentType::Positional,
-            __AST_NODE::LiteralExpr::LiteralType::Boolean>
-            ("true")
-    );
+        __CXIR_CODEGEN_N::ArgumentValidate<__AST_NODE::ArgumentExpr::ArgumentType::Positional,
+                                           __AST_NODE::LiteralExpr::LiteralType::Boolean>("true"));
 
     return std::ranges::any_of(directives, [&](const auto &directive) {
         if (directive->getNodeType() == __AST_NODE::nodes::FunctionCallExpr) {
