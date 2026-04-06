@@ -35,8 +35,8 @@
 #include "parser/ast/include/types/AST_jsonify_visitor.hh"
 #include "parser/ast/include/types/AST_types.hh"
 #include "parser/preprocessor/include/preprocessor.hh"
-#include "token/include/private/Token_base.hh"
 #include "parser/preprocessor/include/private/utils.hh"
+#include "token/include/private/Token_base.hh"
 
 extern bool LSP_MODE;
 inline bool CORE_IMPORTED = false;
@@ -46,7 +46,7 @@ void process_paths(std::vector<T>                     &paths,
                    std::vector<std::filesystem::path> &add_to,
                    std::filesystem::path &
                        base_to,  //< must be a file not a dir, it is checked also must be normalized
-                   const std::vector<std::filesystem::path>& add_after_base) {
+                   const std::vector<std::filesystem::path> &add_after_base) {
     std::vector<std::filesystem::path> normalized_input;
     std::filesystem::path              cwd = __CONTROLLER_FS_N::get_cwd();
     std::filesystem::path              exe = __CONTROLLER_FS_N::get_exe();
@@ -110,9 +110,9 @@ void process_paths(std::vector<T>                     &paths,
 }
 
 int CompilationUnit::compile(int argc, char **argv) {
-    #ifndef KAIRO_VERSION
-        #error "KAIRO_VERSION is not defined"
-    #endif
+#ifndef KAIRO_VERSION
+#error "KAIRO_VERSION is not defined"
+#endif
 
     __CONTROLLER_CLI_N::CLIArgs parsed_args(argc, argv, "Kairo Compiler " KAIRO_VERSION);
     check_exit(parsed_args);
@@ -158,23 +158,25 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
 
     kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "preprocessing");
 
-    this->import_processor = std::make_shared<__PREPROCESSOR_N::ImportProcessor>(tokens, import_dirs, parsed_args);
-            
+    this->import_processor =
+        std::make_shared<__PREPROCESSOR_N::ImportProcessor>(tokens, import_dirs, parsed_args);
+
     if (tokens.empty()) {
         return {};
     }
 
-    if (!CORE_IMPORTED) { // 1 core import per file
+    if (!CORE_IMPORTED) {  // 1 core import per file
         CORE_IMPORTED = true;
 
         auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "core.kro";
-        auto pos = tokens[0];
+        auto pos  = tokens[0];
 
         import_processor->force_import(core, parsed_args);
-        // import_processor->insert_inline_cpp(tokens, {0, pos}, sanitize_string(core.generic_string()));
+        // import_processor->insert_inline_cpp(tokens, {0, pos},
+        // sanitize_string(core.generic_string()));
     }
-    
-    while (import_processor->has_processable_import()) { // recursively process imports
+
+    while (import_processor->has_processable_import()) {  // recursively process imports
         import_processor->process();
     }
 
@@ -216,7 +218,7 @@ __AST_N::NodeT<__AST_NODE::Program> CompilationUnit::parse_ast(__TOKEN_N::TokenL
 /// compile and return the path of the compiled file without calling the linker
 /// ret codes: 0 - success, 1 - error, 2 - lsp mode
 std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
-    __CONTROLLER_CLI_N::CLIArgs &parsed_args, bool enable_logging, bool no_unit) { // false, true
+    __CONTROLLER_CLI_N::CLIArgs &parsed_args, bool enable_logging, bool no_unit) {  // false, true
     if (parsed_args.error) {
         NO_LOGS           = true;
         error::SHOW_ERROR = true;
@@ -241,10 +243,11 @@ std::pair<CXXCompileAction, int> CompilationUnit::build_unit(
     }
 
     kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsing ast...");
-    
+
     ast = parse_ast(tokens, in_file_path);
-    
-    kairo::log_opt<LogLevel::Progress>(parsed_args.verbose, "parsed: " + in_file_path.generic_string());
+
+    kairo::log_opt<LogLevel::Progress>(parsed_args.verbose,
+                                       "parsed: " + in_file_path.generic_string());
 
     if (!ast) {
         return {{}, 1};
@@ -306,7 +309,7 @@ generator::CXIR::CXIR CompilationUnit::generate_cxir(bool forward_only) {
     std::vector<std::shared_ptr<generator::CXIR::CXIR>> imports;
     // make a temp set and copy the imports into it to avoid duplicates while maintaining order
     std::unordered_set<std::shared_ptr<generator::CXIR::CXIR>> import_set;
-    
+
     for (const auto &imp : this->import_processor->imports) {
         if (import_set.find(imp) == import_set.end()) {
             imports.push_back(imp);
@@ -328,30 +331,31 @@ int CompilationUnit::compile(__CONTROLLER_CLI_N::CLIArgs &parsed_args) {
     std::chrono::time_point<std::chrono::high_resolution_clock> start =
         std::chrono::high_resolution_clock::now();
     auto [action, result] = build_unit(parsed_args);
-    
+
     switch (result) {
         case 0:
             break;
 
         case 1:
             return 1;
-        
+
         case 2:
             return 0;
-        
-        case 3: // emit dependencies
+
+        case 3:  // emit dependencies
             return 3;
-        
+
         default:
             kairo::log<LogLevel::Error>("unknown result code: ", result);
             return 1;
     }
-    
-    kairo::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose), "compiling");
-    
+
+    kairo::log_opt<LogLevel::Progress>(action.flags.contains(flag::types::CompileFlags::Verbose),
+                                       "compiling");
+
     if (error::HAS_ERRORED || parsed_args.lsp_mode) {
         LSP_MODE = parsed_args.lsp_mode;
-        
+
         if (LSP_MODE && !parsed_args.emit_ir) {
             return 0;
         }
@@ -389,9 +393,10 @@ void CompilationUnit::emit_cxir /* */ (const generator::CXIR::CXIR &emitter, boo
     kairo::log<LogLevel::Info>("emitting cx-ir...");
 
     if (verbose) {
-        auto cxir = emitter.to_CXIR<true>(); // this should be called so source maps are generated
+        auto cxir = emitter.to_CXIR<true>();  // this should be called so source maps are generated
         kairo::log<LogLevel::Debug>("\n", colors::fg16::yellow, cxir, colors::reset);
-        kairo::log<LogLevel::Debug>("\nSourceMap: ", colors::fg16::yellow, emitter.source_map.to_dict(), colors::reset);
+        kairo::log<LogLevel::Debug>(
+            "\nSourceMap: ", colors::fg16::yellow, emitter.source_map.to_dict(), colors::reset);
     } else {
         kairo::log<LogLevel::Info>("\n", emitter.to_readable_CXIR(), colors::reset);
     }
@@ -406,7 +411,8 @@ CompilationUnit::determine_output_file(const __CONTROLLER_CLI_N::CLIArgs &parsed
                                : std::filesystem::path(in_file_path).stem().generic_string();
 
 #if defined(_WIN32) || defined(WIN32) || defined(_WIN64) || defined(WIN64)
-    out_file += (parsed_args.build_lib == __CONTROLLER_CLI_N::CLIArgs::ABI::KAIRO) ? ".obj" : ".exe";
+    out_file +=
+        (parsed_args.build_lib == __CONTROLLER_CLI_N::CLIArgs::ABI::KAIRO) ? ".obj" : ".exe";
 #endif
 
     return __CONTROLLER_FS_N::normalize_path_no_check(out_file);

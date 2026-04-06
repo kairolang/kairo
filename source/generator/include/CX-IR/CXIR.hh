@@ -30,6 +30,10 @@
 #include "parser/ast/include/AST.hh"
 #include "parser/ast/include/nodes/AST_declarations.hh"
 
+namespace kairo::lsp {
+static void dbg(const std::string &msg);
+}
+
 const std::regex
     double_semi_regexp(R"(;\r?\n\s*?;)");  // Matches any whitespace around the semicolons
 inline std::string get_neo_clang_format_config() {
@@ -137,6 +141,7 @@ UseTab:          Never
 GENERATE_CXIR_TOKENS_ENUM_AND_MAPPING;
 
 __CXIR_CODEGEN_BEGIN {
+    void reset_cxir_statics();
     class CX_Token {
       private:
         u64         line{};
@@ -229,115 +234,268 @@ __CXIR_CODEGEN_BEGIN {
         }
     };
 
-    struct SourceMap { /* this all a part of the same c++ output object
-        so a couple of things only the kairo file and locs change
-        while the c++ source locs keep constant this should be a primary static strcut */
+    struct SourceMap {
         inline static size_t cxx_line_num{1};
         inline static size_t cxx_column_num{1};
 
-        std::vector<SourceLocation> locs;
-
-        /* {filename : [locs...]}*/
+        std::vector<SourceLocation>                     locs;
         std::map<std::string, std::vector<std::string>> full_dict;
         std::string                                     file_name;
 
+        // flat sorted cache for reverse lookup
+        struct FlatEntry {
+            std::string file;
+            size_t      kairo_line;
+            size_t      kairo_col;
+            size_t      cxir_line;
+            size_t      cxir_col;
+        };
+
+        mutable std::vector<FlatEntry> _flat;
+        mutable bool                   _flat_built = false;
+
         SourceMap() = default;
 
+        // --- forward map building (unchanged from your original) ---
+
         void finalize() {
-            // finalize everything into the flatend dict
-            /* exmaple:
+            if (file_name.empty() || locs.empty())
+                return;
 
-            "kairo_file_name" : [
-                (kairo_line, kairo_col): (cxir_line, cxir_col),
-                (kairo_line, kairo_col): (cxir_line, cxir_col),
-            ],
-
-            */
-
-            // add the file name to the dict
-            auto [key, inserted] =
-                full_dict.insert_or_assign(file_name, std::vector<std::string>{});
-
-            auto &vec = key->second;
-
-            // add the locs to the vector
+            auto &vec = full_dict[file_name];  // insert empty vec if not present, or get existing
             for (const auto &loc : locs) {
                 vec.emplace_back(loc.to_dict());
             }
 
-            // clear the locs
             locs.clear();
+            _flat_built = false;
         }
 
         static void inc_line_num(size_t inc = 1) {
-            // increment the line number
             cxx_line_num += inc;
             cxx_column_num = 1;
         }
 
         [[nodiscard]] static size_t get_line_num() { return cxx_line_num; }
-
         [[nodiscard]] static size_t get_column_num() { return cxx_column_num; }
-
-        [[nodiscard]] static void inc_column_num(size_t inc = 1) { cxx_column_num += inc; }
+        [[nodiscard]] static void   inc_column_num(size_t inc = 1) { cxx_column_num += inc; }
 
         [[nodiscard]] static void reset_line_num() {
             cxx_line_num   = 1;
             cxx_column_num = 1;
         }
 
+        void reset() {
+            locs.clear();
+            full_dict.clear();
+            file_name.clear();
+            _flat.clear();
+            _flat_built = false;
+            reset_line_num();
+            reset_cxir_statics();
+        }
+
         [[nodiscard]] static std::string get_file_name(const CX_Token &token) {
             return token.get_file_name();
         }
 
-        void set_file_name(const std::string &file_name) {
-            // if both file names are the same return
-            if (this->file_name == file_name) {
+        void set_file_name(const std::string &new_file_name) {
+            if (this->file_name == new_file_name)
                 return;
-            }
-
-            // everytime we set the file name we need to clear the locs and finalize the previous
-            // locs
-            if (!this->file_name.empty()) {
+            if (!this->file_name.empty())
                 finalize();
-            }
-
-            this->file_name = file_name;
+            this->file_name = new_file_name;
         }
 
-        void add_loc(const SourceLocation &loc) { locs.emplace_back(loc); }
+        void add_loc(const SourceLocation &loc) {
+            locs.emplace_back(loc);
+            _flat_built = false;
+        }
+
+        // --- flat cache ---
+
+        void build_flat() const {
+            _flat.clear();
+
+            for (auto &[file, loc_strs] : full_dict) {
+                for (auto &loc_str : loc_strs) {
+                    size_t kl = 0, kc = 0, cl = 0, cc = 0;
+                    sscanf(loc_str.c_str(), "(%zu,%zu):(%zu,%zu)", &kl, &kc, &cl, &cc);
+                    if (kl == 0 || cl == 0)
+                        continue;  // skip invalid
+                    _flat.push_back({file, kl, kc, cl, cc});
+                }
+            }
+
+            // sort by (cxir_line, cxir_col) for forward lookup
+            std::sort(_flat.begin(), _flat.end(), [](const FlatEntry &a, const FlatEntry &b) {
+                if (a.cxir_line != b.cxir_line)
+                    return a.cxir_line < b.cxir_line;
+                return a.cxir_col < b.cxir_col;
+            });
+
+            _flat_built = true;
+        }
+
+        // --- reverse lookup: cxir (line, col) → kairo loc ---
+
+        // returns nearest kairo loc at or before the given cxir position
+        std::optional<FlatEntry> lookup_cxir(size_t cxir_line, size_t cxir_col) const {
+            if (!_flat_built)
+                build_flat();
+            if (_flat.empty())
+                return std::nullopt;
+
+            const FlatEntry *best = nullptr;
+            for (auto &e : _flat) {
+                if (e.cxir_line > cxir_line)
+                    break;
+                if (e.cxir_line == cxir_line && e.cxir_col > cxir_col)
+                    break;
+                best = &e;
+            }
+
+            return best ? std::optional(*best) : std::nullopt;
+        }
+
+        // col-adjusted version: applies the off-by-one fix for emitter trailing spaces
+        std::optional<FlatEntry> lookup_cxir_adjusted(size_t cxir_line, size_t cxir_col) const {
+            auto result = lookup_cxir(cxir_line, cxir_col);
+            if (!result)
+                return std::nullopt;
+
+            // fix trailing space offset: emitter adds space after every token
+            // so cxir col is 1-indexed with spaces, kairo col is 1-indexed without
+            if (result->kairo_col > 1 && result->cxir_col > 1) {
+                result->kairo_col -= 1;
+            }
+
+            return result;
+        }
+
+        // std::optional<FlatEntry> lookup_cxir_adjusted(size_t cxir_line, size_t cxir_col) const {
+        //     auto result = lookup_cxir(cxir_line, cxir_col);
+        //     if (!result) return std::nullopt;
+        //     if (result->kairo_col > 1 && result->cxir_col > 1)
+        //         result->kairo_col -= 1;
+        //     return result;
+        // }
+
+        // --- forward lookup: kairo (file, line) → cxir line ---
+
+        std::optional<size_t> lookup_kairo_line(const std::string &file, size_t kairo_line) const {
+            if (!_flat_built)
+                build_flat();
+            // _flat is sorted by cxir, need linear scan for kairo lookup
+            for (auto &e : _flat) {
+                if (e.file == file && e.kairo_line == kairo_line)
+                    return e.cxir_line;
+            }
+            return std::nullopt;
+        }
+
+        // exact kairo (file, line, col) → cxir (line, col)
+        std::optional<std::pair<size_t, size_t>>
+        lookup_kairo(const std::string &file, size_t kairo_line, size_t kairo_col) const {
+            if (!_flat_built)
+                build_flat();
+            const FlatEntry *best = nullptr;
+            for (auto &e : _flat) {
+                if (e.file != file)
+                    continue;
+                if (e.kairo_line > kairo_line)
+                    continue;
+                if (e.kairo_line == kairo_line && e.kairo_col > kairo_col)
+                    continue;
+                if (!best || e.kairo_line > best->kairo_line ||
+                    (e.kairo_line == best->kairo_line && e.kairo_col > best->kairo_col))
+                    best = &e;
+            }
+
+            if (!best)
+                return std::nullopt;
+            return {{best->cxir_line, best->cxir_col}};
+        }
+
+        // --- debug output ---
 
         [[nodiscard]] string to_dict() const {
-            // convert the locs to a string
             std::string dict = "{";
-
             for (const auto &[key, value] : full_dict) {
                 dict += "\"" + key + "\": {";
-
                 for (const auto &loc : value) {
                     dict += loc;
                 }
-
                 dict += "},";
             }
-
             dict += "}";
-
             return dict;
         }
     };
 
+    class CXIRBuilder {
+        string file_name;
+        string cxir;
+
+      public:
+        inline static size_t cxir_line{1};
+        inline static size_t cxir_col{1};
+        SourceMap           *source_map{nullptr};
+
+        size_t kairo_line{1};
+        size_t kairo_col{1};
+
+        // we need a few functions to help us also build the source map
+        void add_to_source_map(const CX_Token *token = nullptr);
+
+      public:
+        explicit CXIRBuilder(const size_t len, SourceMap *source_map = nullptr);
+
+        CXIRBuilder &add_line();
+
+        CXIRBuilder &add_line(const string &str);
+
+        CXIRBuilder &add_line(const CX_Token &token);
+
+        CXIRBuilder &add_line(const std::unique_ptr<CX_Token> &token);
+
+        // ONLY add change the kairo mapping
+        CXIRBuilder &add(const string &str);
+
+        CXIRBuilder &add(const CX_Token &token);
+
+        CXIRBuilder &add(const std::unique_ptr<CX_Token> &token);
+
+        CXIRBuilder &add_line_marker(const size_t  line_num,
+                                     const string &file_macro = "",
+                                     const string &file_name  = "");
+
+        CXIRBuilder &add_macro(const string &str);
+
+        CXIRBuilder &operator+=(const string &str);
+        CXIRBuilder &operator+=(const CX_Token &token);
+        CXIRBuilder &operator+=(const std::unique_ptr<CX_Token> &token);
+
+        CXIRBuilder &operator<<(const string &str);
+        CXIRBuilder &operator<<(const CX_Token &token);
+        CXIRBuilder &operator<<(const std::unique_ptr<CX_Token> &token);
+
+        [[nodiscard]] string build() const;
+        [[nodiscard]] string get_file_name() const;
+    };
+
     class CXIR : public __AST_VISITOR::Visitor {
       private:
-        std::vector<std::unique_ptr<CX_Token>> tokens;
+        std::vector<std::unique_ptr<CX_Token>>              tokens;
         std::vector<std::shared_ptr<generator::CXIR::CXIR>> imports;
-        std::filesystem::path                  core_dir;
-        bool                                   forward_only = false;
+        std::filesystem::path                               core_dir;
+        bool                                                forward_only = false;
 
       public:
         inline static SourceMap source_map;
 
-        explicit CXIR(bool forward_only = false, std::vector<std::shared_ptr<generator::CXIR::CXIR>> imports = {})
+        explicit CXIR(bool                                                forward_only = false,
+                      std::vector<std::shared_ptr<generator::CXIR::CXIR>> imports      = {})
             : imports(std::move(imports))
             , forward_only(forward_only) {}
 
@@ -369,19 +527,22 @@ __CXIR_CODEGEN_BEGIN {
         std::string generate_CXIR() const;
 
         template <const bool add_core = true>
-        [[nodiscard]] std::string to_CXIR(std::unordered_set<std::string> *seen = nullptr) const {
+        std::string to_CXIR(std::unordered_set<std::string> *seen = nullptr) const {
             std::string cxir;
-            size_t      line_count = 0;
 
             if constexpr (add_core) {
-                string core = get_core();
-                line_count  = std::count(core.begin(), core.end(), '\n');
-                cxir += core + "\n" + get_imports<false>(seen) + "\n";
+                string core       = get_core();
+                size_t core_lines = std::count(core.begin(), core.end(), '\n') + 1;
+                string imports    = get_imports<false>(seen, core_lines + 1);
+                cxir += core + "\n" + imports + "\n";
             } else {
-                cxir += get_imports<false>(seen) + "\n";
+                string imports = get_imports<false>(seen, 0);
+                cxir += imports + "\n";
             }
 
-            generator::CXIR::SourceMap::inc_line_num(line_count);
+            size_t line_offset     = std::count(cxir.begin(), cxir.end(), '\n');
+            CXIRBuilder::cxir_line = line_offset + 1;
+
             cxir += generate_CXIR();
 
             if (cxir.empty()) {
@@ -392,7 +553,8 @@ __CXIR_CODEGEN_BEGIN {
             return cxir;
         }
 
-        [[nodiscard]] std::string to_readable_CXIR(std::unordered_set<std::string> *seen = nullptr) const {
+        [[nodiscard]] std::string
+        to_readable_CXIR(std::unordered_set<std::string> *seen = nullptr) const {
             std::string cxir = get_imports<true>(seen) + "\n";
             std::string file_name;
 
@@ -420,31 +582,57 @@ __CXIR_CODEGEN_BEGIN {
             return format_cxir(cxir);
         }
 
-        [[nodiscard]] static std::string format_cxir(const std::string &cxir) {
-            return cxir;
-        }
+        [[nodiscard]] static std::string format_cxir(const std::string &cxir) { return cxir; }
 
         static std::string get_core();
 
         template <const bool readable>
-        std::string get_imports(std::unordered_set<std::string> *seen = nullptr) const {
-            std::string cxir;
+        std::string get_imports(std::unordered_set<std::string> *seen             = nullptr,
+                                size_t                           base_line_offset = 0) const {
+            std::string                     cxir;
             std::unordered_set<std::string> local_seen;
-            
-            if (seen == nullptr) {
+            if (seen == nullptr)
                 seen = &local_seen;
-            }
 
             for (const auto &import : this->imports) {
                 auto fname = import->get_file_name();
-                if (fname.has_value() && !seen->insert(fname.value()).second) {
+                if (fname.has_value() && !seen->insert(fname.value()).second)
                     continue;
-                }
+
+                size_t before = base_line_offset + std::count(cxir.begin(), cxir.end(), '\n');
+
+                std::unordered_set<std::string> import_files_before;
+                for (auto &[f, _] : source_map.full_dict)
+                    import_files_before.insert(f);
 
                 if constexpr (readable) {
                     cxir += import->to_readable_CXIR(seen);
                 } else {
                     cxir += import->template to_CXIR<false>(seen);
+                }
+
+                for (auto &[file, entries] : source_map.full_dict) {
+                    if (import_files_before.count(file))
+                        continue;
+                    if (file == get_file_name().value_or(""))
+                        continue;
+
+                    size_t sub_base = SIZE_MAX;
+                    for (auto &entry : entries) {
+                        size_t kl, kc, cl, cc;
+                        sscanf(entry.c_str(), "(%zu,%zu):(%zu,%zu)", &kl, &kc, &cl, &cc);
+                        sub_base = std::min(sub_base, cl);
+                    }
+                    if (sub_base == SIZE_MAX)
+                        continue;
+
+                    for (auto &entry : entries) {
+                        size_t kl, kc, cl, cc;
+                        sscanf(entry.c_str(), "(%zu,%zu):(%zu,%zu)", &kl, &kc, &cl, &cc);
+                        cl    = (cl - sub_base) + before;
+                        entry = "(" + std::to_string(kl) + "," + std::to_string(kc) + "):(" +
+                                std::to_string(cl) + "," + std::to_string(cc) + "),";
+                    }
                 }
             }
 
@@ -479,13 +667,9 @@ __CXIR_CODEGEN_BEGIN {
         void visit(parser::ast::node::AsyncThreading &node) override;
         void visit(parser::ast::node::Type &node) override;
         void visit(parser::ast::node::NamedVarSpecifier &node, bool omit_t);
-        void visit(parser::ast::node::NamedVarSpecifier &node) override {
-            visit(node, false);
-        }
+        void visit(parser::ast::node::NamedVarSpecifier &node) override { visit(node, false); }
         void visit(parser::ast::node::NamedVarSpecifierList &node, bool omit_t);
-        void visit(parser::ast::node::NamedVarSpecifierList &node) override {
-            visit(node, false);
-        }
+        void visit(parser::ast::node::NamedVarSpecifierList &node) override { visit(node, false); }
         void visit(parser::ast::node::ForPyStatementCore &node) override;
         void visit(parser::ast::node::ForCStatementCore &node) override;
         void visit(parser::ast::node::ForState &node) override;

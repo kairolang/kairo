@@ -9,9 +9,10 @@
 ///     https://creativecommons.org/licenses/by/4.0/                                             ///
 ///                                                                                              ///
 ///   SPDX-License-Identifier: Apache-2.0                                                        ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           /// 
 ///                                                                                              ///
 ///-------------------------------------------------------------------------------------- C++ ---///
+#include "lsp/LSPServer.hh"
 
 #include "parser/preprocessor/include/preprocessor.hh"
 #define _SILENCE_CXX23_ALIGNED_UNION_DEPRECATION_WARNING
@@ -25,10 +26,17 @@
 #include "controller/include/tooling/tooling.hh"
 #include "controller/include/shared/logger.hh"
 
+
 int main(int argc, char **argv) {
     std::vector<neo::json> errors;
     auto compiler = CompilationUnit();
     int  result   = 1;
+
+    if (argc >= 2 && std::string(argv[1]) == "--lsp-server") {
+        kairo::lsp::LSPServer server;
+        server.run();
+        return 0;
+    }
 
     try {
         result = compiler.compile(argc, argv);
