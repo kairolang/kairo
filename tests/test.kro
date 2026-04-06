@@ -2,6 +2,9 @@
 ffi "c++" import "chrono";
 ffi "c++" import "random";
 
+import test_import::*;
+import a::*;
+
 fn return_success() -> i32? {
     return 1;  // Always returns success
 }
@@ -89,6 +92,10 @@ fn main() -> i32 {
     run_test_case("return_null",     &return_null);
     run_test_case("cause_panic",     &cause_panic);
 
+    add_2_nums(5, 10);
+
+    thisis_a();
+
     // test random as well:
     for _ in 0..5 {
         var rd   = libcxx::random_device();
@@ -141,4 +148,23 @@ fn main() -> i32 {
     }
 
     return 0;
+}
+
+
+class Foo {
+    virtual fn bar(self) -> string {
+        return "Hello from Foo!";
+    }
+}
+
+class Baz derives Foo {
+    override fn bar(self) -> string {
+        return "Hello from Baz!";
+    }
+}
+
+enum MyEnum {
+    VariantA,
+    VariantB,
+    VariantC,
 }

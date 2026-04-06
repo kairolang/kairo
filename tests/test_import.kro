@@ -1,0 +1,9 @@
+import b::*;
+
+fn add_2_nums(a: i32, b: i32) -> i32 {
+    return a + b;
+}
+
+fn return_success() -> i32 {
+    return add_2_nums(5, 10);
+}

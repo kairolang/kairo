@@ -1,0 +1,5 @@
+import a::*;
+
+fn thisis_b() -> i32 {
+    return 42;
+}
