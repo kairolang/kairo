@@ -76,13 +76,13 @@ __PREPROCESSOR_BEGIN {
     class ImportProcessor {
       private:
         __TOKEN_N::TokenList &tokens;  // NOLINT - this is a reference intentionally
-                                       // (i cba to make it a pointer lol)
-        std::vector<std::filesystem::path> import_dirs;
-        __CONTROLLER_CLI_N::CLIArgs        parsed_args;
-        void                              *override_processable_imports =
+        // (i cba to make it a pointer lol)
+        __CONTROLLER_CLI_N::CLIArgs parsed_args;
+        void                       *override_processable_imports =
             nullptr;  // NOLINT - if 0xFFF is present then we stop processing imports
 
       public:
+        std::vector<std::filesystem::path> import_dirs;
         enum class Type {
             Module,
             Header,

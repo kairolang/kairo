@@ -16,6 +16,7 @@
 #include "controller/include/tooling/tooling.hh"
 #include "generator/include/CX-IR/CXIR.hh"
 #include "lsp/LSPServer.hh"
+#include "parser/preprocessor/include/preprocessor.hh"
 #include "parser/preprocessor/include/private/utils.hh"
 
 #ifndef _WIN32
@@ -525,31 +526,64 @@ std::string LSPServer::compile_and_get_cxx(const std::string              &kro_f
                                            const std::vector<std::string> &kairo_args,
                                            bool                            force_recompile) {
     // compile into temporaries first don't nuke state until we succeed
+    chdir("/Volumes/Foundry/helix/kairo");
+
     error::HAS_ERRORED = false;
     error::ERRORS.clear();
+    COMPILE_ACTIONS.clear();
+    DEPENDENCIES.clear();
+    IMPORT_CACHE_MODULE.clear();
+    IMPORT_CACHE_HEADER.clear();
     CORE_IMPORTED = false;
 
     generator::CXIR::CXIR::source_map.reset();
 
+    std::filesystem::path root = std::filesystem::path(uri_to_path(_root_uri));
+
     std::vector<std::string> argv_storage;
     argv_storage.emplace_back("kairo");
     argv_storage.push_back(kro_file);
-    for (auto &a : kairo_args)
+
+    for (auto &a : kairo_args) {
+        if (a.size() > 2 && a.substr(0, 2) == "-I") {
+            std::filesystem::path inc = std::filesystem::path(a.substr(2));
+            if (inc.is_relative()) {
+                inc = (root / inc).lexically_normal();
+            }
+            argv_storage.push_back("-I" + inc.generic_string());
+            continue;
+        }
         argv_storage.push_back(a);
+    }
 
     std::vector<char *> argv;
-    for (auto &s : argv_storage)
+    std::string         args_str;
+    for (auto &s : argv_storage) {
         argv.push_back(s.data());
+        args_str += s + " ";
+    }
 
+    dbg("compile_and_get_cxx: kro_file=" + kro_file + " kairo_args=" + args_str +
+        " force_recompile=" + (force_recompile ? "true" : "false"));
+
+    char cwd_buf[4096];
+    getcwd(cwd_buf, sizeof(cwd_buf));
+    dbg("CWD before compile: " + std::string(cwd_buf));
+    dbg("chdir result: " + std::to_string(chdir("/Volumes/Foundry/helix/kairo")));
+    getcwd(cwd_buf, sizeof(cwd_buf));
+    dbg("CWD after chdir: " + std::string(cwd_buf));
     __CONTROLLER_CLI_N::CLIArgs parsed_args(
         static_cast<int>(argv.size()), argv.data(), "kairo-lsp");
 
     if (parsed_args.file.empty())
         return {};
 
+    dbg("import_dirs after process_paths:");
+    for (auto &d : parsed_args.include_dirs)
+        dbg("  " + d);
+
     CompilationUnit unit;
-    auto [action, result] =
-        unit.build_unit(parsed_args, /*enable_logging=*/false, /*no_unit=*/false);
+    auto [action, result] = unit.build_unit(parsed_args);
 
     if (result != 0 || action.cc_source.empty()) {
         return {};  // caller will call publish_ast_errors
@@ -915,6 +949,9 @@ json LSPServer::handle_hover(const json &msg) {
     if (p.contains("kairoArgs") && p["kairoArgs"].is_array())
         kairo_args = p["kairoArgs"].get<std::vector<std::string>>();
 
+    if (kairo_args.empty())
+        kairo_args = _last_kairo_args;
+
     // recompile if file changed or args changed
     if (kro_file != _last_kro_file || kairo_args != _last_kairo_args) {
         std::string cxx_path = compile_and_get_cxx(kro_file, kairo_args);
@@ -996,6 +1033,9 @@ json LSPServer::handle_definition(const json &msg) {
     if (p.contains("kairoArgs") && p["kairoArgs"].is_array())
         kairo_args = p["kairoArgs"].get<std::vector<std::string>>();
 
+    if (kairo_args.empty())
+        kairo_args = _last_kairo_args;
+
     if (kro_file != _last_kro_file || kairo_args != _last_kairo_args) {
         std::string cxx_path = compile_and_get_cxx(kro_file, kairo_args);
         if (cxx_path.empty()) {
@@ -1035,6 +1075,9 @@ json LSPServer::handle_completion(const json &msg) {
     std::vector<std::string> kairo_args;
     if (p.contains("kairoArgs") && p["kairoArgs"].is_array())
         kairo_args = p["kairoArgs"].get<std::vector<std::string>>();
+
+    if (kairo_args.empty())
+        kairo_args = _last_kairo_args;
 
     if (kro_file != _last_kro_file || kairo_args != _last_kairo_args) {
         std::string cxx_path = compile_and_get_cxx(kro_file, kairo_args);
@@ -1079,6 +1122,9 @@ json LSPServer::handle_references(const json &msg) {
     std::vector<std::string> kairo_args;
     if (p.contains("kairoArgs") && p["kairoArgs"].is_array())
         kairo_args = p["kairoArgs"].get<std::vector<std::string>>();
+
+    if (kairo_args.empty())
+        kairo_args = _last_kairo_args;
 
     if (kro_file != _last_kro_file || kairo_args != _last_kairo_args) {
         std::string cxx_path = compile_and_get_cxx(kro_file, kairo_args);

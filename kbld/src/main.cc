@@ -610,6 +610,8 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
             args.push_back("-I" + inc);
         for (auto &def : first.defines)
             args.push_back("-D" + def);
+        for (auto &lf : first.cxx_passthrough)
+            args.push_back(lf);
         args.push_back(f.string());
         json e;
         e["directory"] = cwd;
@@ -623,6 +625,17 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         json args = json::array();
         for (auto &inc : first.includes)
             args.push_back("-I" + inc);
+
+        args.push_back("--");
+        for (auto &def : first.defines)
+            args.push_back("-D" + def);
+        for (auto &lf : first.ld_flags)
+            args.push_back(lf);
+        for (auto &src : first.cxx_sources)
+            args.push_back(src);
+        for (auto &pt : first.cxx_passthrough)
+            args.push_back(pt);
+
         json e;
         e["directory"] = cwd;
         e["arguments"] = std::move(args);
