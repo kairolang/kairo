@@ -1,0 +1,75 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Memory::ArenaList::*;
+import Source::SourceManager::*;
+import Lexer::Lexer::*;
+import Lexer::Immediate::*;
+
+class ASTContext {
+    pub var source_path:   Path;
+    // pub var module_base:   ModulePath;
+    pub var nodes:         ArenaAllocator;
+    pub var strings:       ArenaAllocator;
+    pub var sm:           *SourceManager;
+    pub var lexer:        *Lexer; // we can get the imm table from the lexer
+    pub var diags:        *DiagEngine;
+    // pub var resolver:     *ImportResolver;
+    // pub var hoisted_root: *HoistedScope;
+
+    fn get_imm_table(self) -> *ImmediateTable {
+        if self.lexer != &null {
+            return self.lexer->get_imm_tbl();
+        }
+
+        return &null;
+    }
+
+    fn <T> alloc(self) -> *T {
+        var mem: *void = self.nodes.alloc(sizeof(T), alignof(T));
+        return static_cast::<*T>(mem);
+
+        // NOTE: we deliberately do NOT construct, its the parsers job to fill
+        //       all the fields. If T has non-trivial members that must be
+        //       initialized, use alloc_init<T>() instead.
+    }
+
+    __inline_cpp("
+    template <typename T, typename ...Args>
+    T *alloc_init(Args &&...args) {
+        void *mem = this->nodes.alloc(sizeof(T), alignof(T));
+        return ::new (mem) T(libcxx::forward<Args>(args)...);
+    }
+    ");
+
+    fn <T> alloc_array(self, n: usize) -> *T {
+        if n == 0 {
+            return &null;
+        }
+
+        var mem: *void = self.nodes.alloc(sizeof(T) * n, alignof(T));
+        return static_cast::<*T>(mem);
+    }
+
+    fn <T> alloc_array_zeroed(self, n: usize) -> *T {
+        if n == 0 {
+            return &null;
+        }
+
+        var mem: *void = self.nodes.alloc(sizeof(T) * n, alignof(T));
+        libcxx::memset(mem, 0, sizeof(T) * n);
+        return static_cast::<*T>(mem);
+    }
+}

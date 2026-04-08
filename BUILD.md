@@ -42,7 +42,7 @@ git checkout canary
 kbld
 
 # you can also test files that contain `fn Test() -> i32 { ... }` as the entry point, but note that this is not the standard entry point for Kairo programs.
-kbld test Toolchain/Lexer/Lexer.kro
+kbld test Compiler/Lexer/Lexer.kro
 ```
 
 

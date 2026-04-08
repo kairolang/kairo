@@ -1,0 +1,111 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+//    [ ] NamedType                                                          ///
+//    [ ] GenericParamType                                                   ///
+//    [ ] GenericInstanceType                                                ///
+//    [ ] TypeOfType                                                         ///
+//    [ ] PackType                                                           ///
+//    [ ] PointerType                                                        ///
+//    [ ] NullableType                                                       ///
+//    [ ] PanicType                                                          ///
+//    [ ] MutableType                                                        ///
+//    [ ] TupleType                                                          ///
+//    [ ] FixedArrayType                                                     ///
+//    [ ] VectorType                                                         ///
+//    [ ] MapType                                                            ///
+//    [ ] SetType                                                            ///
+//    [ ] SelfType                                                           /// is this needed?
+//    [ ] FunctionPointerType                                                ///
+//    [ ] InferredType                                                       ///
+//    [ ] QualifiedModifierType                                              ///
+//    [ ] CXXLValueRefType                                                   ///
+//    [ ] CXXRValueRefType                                                   ///
+//    [ ] OpaqueFFIType                                                      ///
+//    [ ] TypeHintType                                                       ///
+//    [ ] TypeAttributeType                                                  ///
+
+
+import ASTNode::Base::*;
+import ASTNode::PrimaryExpressions::*;
+
+class MapType derives Type {
+    // Node: MapType key TypeRef + value TypeRef.
+    pub var key_type:   *Type;
+    pub var value_type: *Type;
+
+    static fn create(
+        ctx:             *ASTContext,
+        range:            SourceRange,
+        key_type:        *Type,
+        value_type:      *Type
+    ) -> *MapType {
+        var node = ctx.alloc::<MapType>();
+        /// from Type
+        node.kind = TypeKind::MapType;
+        node.range = range;
+        node.qualified_type = &null; // set by sema for associated types
+        /// from MapType
+        node.key_type = key_type;
+        node.value_type = value_type;
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool 
+    /* OVERRIDE */ static fn expr_kind() -> TypeKind {
+        return TypeKind::MapType;
+    }
+
+    fn get_key_type(self)   -> *Type { return self.key_type; }
+    fn get_value_type(self) -> *Type { return self.value_type; }
+}
+
+class SetType derives Type {
+    // Node: SetType element TypeRef.
+    pub var element_type: *Type;
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::SetType;
+    }
+}
+
+class VectorType derives Type {
+    // Node: VectorType element TypeRef + optional size Expr (for fixed-size vectors).
+    pub var element_type: *Type;
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::VectorType;
+    }
+}
+
+class TupleType derives Type {
+    // Node: TupleType list of element TypeRefs.
+    pub var element_types: FrozenList::<*Type>;
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::TupleType;
+    }
+}
+
+class FixedArrayType derives Type {
+    // Node: FixedArrayType element TypeRef + size Expr.
+    pub var element_type: *Type;
+    pub var size_expr:    *Expr;
+
+    static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::FixedArrayType;
+    }
+}
+

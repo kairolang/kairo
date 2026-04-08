@@ -1,0 +1,150 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Source::SourceManager::*;
+import Diagnostics::DiagEngine::*;
+import Path::*;
+import Clang::ClangSymbol::*;
+import Clang::ClangSymbolTable::*;
+
+///
+/// \file Clang/ClangBridge.kro
+/// \brief wraps the libclang invocation for header symbol extraction.
+///
+/// \details
+/// responsibilities:
+///   1. load the header buffer into SourceManager
+///   2. invoke libclang on that same buffer as an unsaved file so both
+///      SM and clang look at the same memory - clang byte offsets are
+///      directly usable as offsets into your SM segment for that file
+///   3. walk the clang AST cursor tree and extract ClangSymbol entries
+///   4. build and cache a ClangSymbolTable per header
+///
+/// what it does NOT do:
+///   - full type checking (clang handles that at codegen)
+///   - template instantiation (lazy, at codegen)
+///   - route through clang's DiagEngine - all diags go through yours
+///
+/// \note
+/// _invoke_libclang is implemented in ClangBridge.cc. the .cc file
+/// calls clang_parseTranslationUnit with the SM buffer pointer as an
+/// unsaved file, walks clang_visitChildren, and calls insert() on the
+/// table for each cursor kind it recognizes.
+///
+/// key invariant: load_file BEFORE _invoke_libclang so the buffer
+/// your SM holds and the pointer clang sees are the same allocation.
+///
+
+///
+/// \brief result kind for processing a header through libclang.
+///
+enum BridgeResultKind derives u8 {
+    Ok,         ///< header parsed, table populated and cached
+    ParseError, ///< libclang failed - diag already emitted
+    Cached,     ///< header already processed - table pointer from cache
+}
+
+///
+/// \brief result of processing a single header through libclang.
+///
+/// \details
+/// check kind first. if Ok or Cached, table is a valid pointer into
+/// the bridge cache. if ParseError, table is null.
+///
+struct BridgeResult {
+    var kind:  BridgeResultKind;
+    var table: *ClangSymbolTable; ///< valid when kind == Ok or Cached, null on ParseError
+}
+
+///
+/// \class ClangBridge
+/// \brief owns the libclang invocation and per-header symbol table cache.
+///
+class ClangBridge {
+    priv var _cache: hashmap::<string, ClangSymbolTable>; ///< header_path -> table
+    priv var _sm:    *SourceManager;
+    priv var _diag:  *DiagEngine;
+
+    ///< c++26 standard flag passed to clang on every invocation
+    priv const CPP_STD: string = "-std=c++26";
+
+    fn ClangBridge(self, sm: *SourceManager, diag: *DiagEngine) {
+        self._sm    = sm;
+        self._diag  = diag;
+        self._cache = hashmap::<string, ClangSymbolTable>();
+    }
+
+    ///
+    /// \brief process a header and return its symbol table.
+    ///
+    /// \param header_path  path to the .h / .hpp file
+    /// \param include_dirs additional -I paths to pass to clang
+    /// \return BridgeResult with kind Ok/Cached on success, ParseError on failure
+    ///
+    /// \details
+    /// loads the header into your SM first so clang and SM share the
+    /// same buffer. clang byte offsets are then directly usable as
+    /// offsets into your SM segment for that file with zero translation.
+    ///
+    fn process_header(self, header_path: Path, include_dirs: vec::<Path>) -> BridgeResult {
+        var key = header_path.full_path();
+
+        if self._cache.contains(key) {
+            var r: BridgeResult;
+            r.kind  = BridgeResultKind::Cached;
+            r.table = &self._cache[key];
+            return r;
+        }
+
+        // load into SM first - clang receives the same buffer pointer
+        var fid = self._sm->load_file(header_path);
+
+        // actual libclang cursor walk is in ClangBridge.cc
+        // populates self._cache[key] on success
+        var ok = __inline_cpp("this->_invoke_libclang(header_path, include_dirs, fid)");
+
+        if !ok {
+            var r: BridgeResult;
+            r.kind  = BridgeResultKind::ParseError;
+            r.table = &null;
+            return r;
+        }
+
+        var r: BridgeResult;
+        r.kind  = BridgeResultKind::Ok;
+        r.table = &self._cache[key];
+        return r;
+    }
+
+    ///
+    /// \brief fast table lookup without re-processing.
+    ///        returns null if header has not been processed yet.
+    ///
+    fn get_table(self, header_path: string) -> *ClangSymbolTable? {
+        if !self._cache.contains(header_path) {
+            return null;
+        }
+
+        return &self._cache[header_path];
+    }
+
+    fn is_cached(self, header_path: string) -> bool {
+        return self._cache.contains(header_path);
+    }
+
+    fn cache_size(self) -> usize {
+        return self._cache.size();
+    }
+}

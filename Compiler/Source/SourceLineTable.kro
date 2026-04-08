@@ -1,0 +1,623 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+ffi "c++" import "Core/Types.hh";
+
+import Path::*;
+import Memory::MappedFileBuffer::*;
+import Memory::MemoryBuffer::*;
+import VirtualFileManager::*;
+import Source::FullSourceLocation::*;
+import Source::SourceLocation::*;
+import Source::SourceRange::*;
+
+///
+/// \file Core/SourceLineTable.hlx
+/// \brief simd-optimized source line index for fast line/column resolution.
+///
+/// \details
+/// `SourceLineTable` maintains a global, atomic table mapping file offsets
+/// to line starts. each file gets its own entry (`FileEntry`) containing
+/// a vector of newline offsets and metadata.
+///
+/// the table supports both incremental updates (by the lexer) and full
+/// parallel construction (via the thread pool). builds are SIMD-optimized
+/// for x86 (AVX512/AVX2/SSE2) and ARM (NEON) architectures with fallback
+/// scalar logic.
+///
+/// key properties:
+///   - all accesses are atomic; concurrent readers are safe.
+///   - background builds do not block readers.
+///   - binary-search lookup provides O(log n) line resolution.
+///
+/// this table is used by `SourceManager` and `FullSourceLocation` to
+/// provide accurate human-readable diagnostics.
+///
+/// \note
+///   - no internal locking; relies on atomic ops and external sync for writes.
+///   - cross-architecture simd support with conditional compilation.
+///
+/// \see SourceManager, FullSourceLocation, VirtualFileManager
+///
+
+///
+/// \class SourceLineTable
+/// \brief maintains file-to-line offset mapping with simd acceleration.
+///
+/// each registered file gets a `FileEntry` with a precomputed vector of
+/// line-start offsets. entries are indexed by file ID.
+///
+/// uses relaxed atomic storage to allow concurrent access and safe teardown.
+///
+class SourceLineTable {
+    class FileEntry; ///< forward declaration
+
+    priv var _file_table: std::Atomic::<*vec::<*FileEntry>> = std::Atomic::<*vec::<*FileEntry>>(&null);
+    priv var _file_count: std::Atomic::<u64>   = std::Atomic::<u64>(0);
+    priv var _active:     std::Atomic::<bool>  = std::Atomic::<bool>(false);
+
+    ///
+    /// \class FileEntry
+    /// \brief represents one file's line index data.
+    ///
+    /// stores file size, line count, file id, readiness flag,
+    /// and pointer to a vector of newline offsets.
+    ///
+    class FileEntry {
+        pub var line_count: std::Atomic::<u32> = std::Atomic::<u32>(0); ///< number of lines.
+        pub var file_size:  u32; ///< total size in bytes.
+        pub var file_id:    u32; ///< file index in table.
+        pub var ready:      std::Atomic::<bool> = std::Atomic::<bool>(false);
+        pub var lines:      std::Atomic::<*vec::<u32>> = std::Atomic::<*vec::<u32>>(&null);
+
+        ///
+        /// \brief default constructor.
+        ///
+        default fn FileEntry(self);
+
+        ///
+        /// \brief copy constructor deleted to prevent copies.
+        ///
+        delete fn FileEntry(self, other: ref!(FileEntry));
+
+        ///
+        /// \brief copy assignment operator deleted to prevent copies.
+        ///
+        delete fn op = (self, other: ref!(FileEntry));
+
+        ///
+        /// \brief constructs a FileEntry with given id and size.
+        ///
+        fn FileEntry(self, id: u32, size: u32) {
+            self.file_id   = id;
+            self.file_size = size;
+        }
+
+        ///
+        /// \brief checks if the entry is ready (index built).
+        ///
+        fn is_ready(self) -> bool {
+            return self.ready.load(std::MemoryOrder::acquire);
+        }
+
+        ///
+        /// \brief publishes the computed line offsets.
+        ///
+        fn publish_lines(self, lines: *vec::<u32>, count: u32) {
+            self.lines.store(lines, std::MemoryOrder::release);
+            self.line_count.store(count, std::MemoryOrder::release);
+            self.ready.store(true, std::MemoryOrder::release);
+        }
+
+        fn op as (self) -> string {
+            return f"FileEntry(file_id:{self.file_id}, file_size:{self.file_size}, line_count:{self.line_count.load(std::MemoryOrder::acquire)}, ready:{self.is_ready()})";
+        }
+    }
+
+    ///
+    /// \brief constructs the global table with initial capacity.
+    ///
+    fn SourceLineTable(self) {
+        var tbl = std::create::<vec::<*FileEntry>>();
+        tbl->reserve(256);
+
+        self._file_table.store(tbl, std::MemoryOrder::relaxed);
+    }
+
+    ///
+    /// \brief destructor, cleans all file entries and buffers.
+    ///
+    fn op delete (self) {
+        self.shutdown();
+    }
+
+    ///
+    /// \brief releases all memory and resets table state.
+    ///
+    fn shutdown(self) {
+        /// wait for any active builds to finish
+        while self._active.load(std::MemoryOrder::acquire) {
+            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
+        }
+        
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if tbl == &null { return; }
+
+        for f: *FileEntry in *tbl {
+            if f != &null {
+                var lines = f->lines.load(std::MemoryOrder::relaxed);
+                if lines != &null { delete lines; }
+                delete f;
+            }
+        }
+
+        delete tbl;
+
+        self._file_table.store(&null, std::MemoryOrder::release);
+        self._file_count.store(0, std::MemoryOrder::release);
+    }
+
+    ///
+    /// \brief registers a new file entry in the line table.
+    ///
+    fn register_file(self, fid: u32, size: u32) {
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if tbl == &null {
+            return;
+        }
+
+        if fid >= tbl->size() {
+            tbl->resize(fid + 1, &null);
+        }
+
+        var existing = (*tbl)[fid];
+        if existing != &null {
+            Logger::debug(Logger::Stage::Driver, f"SourceLineTable::register_file: fid={fid} already registered");
+
+            return;
+        }
+
+        var entry = std::create::<FileEntry>(fid, size);
+        (*tbl)[fid] = entry;
+        self._file_count.fetch_add(1, std::MemoryOrder::relaxed);
+
+        Logger::debug(Logger::Stage::Driver, f"SourceLineTable::register_file: fid={fid} size={size}B total_files={self._file_count.load(std::MemoryOrder::relaxed)}");
+    }
+
+    ///
+    /// \brief builds the line index for a file using simd or scalar fallback.
+    ///
+    /// \details
+    /// scans for newline bytes (`'\n'`) and records their offsets.
+    /// architecture-specific branches use AVX512, AVX2, SSE2, or NEON.
+    /// automatically falls back to scalar if no simd is available.
+    ///
+    fn build_index(self, fid: u32, vfm: *VirtualFileManager) {
+        var buff = vfm->get_buffer(fid)->bytes();
+
+        if ((!buff.data()) || buff.size() == 0){
+            return;
+        }
+
+        var tbl = _file_table.load(std::MemoryOrder::acquire);
+        if (!tbl || fid >= tbl->size()) {
+            return;
+        }
+
+        var entry = (*tbl)[fid];
+        if (!entry || entry->is_ready()) {
+            Logger::debug(Logger::Stage::Driver, f"SourceLineTable::build_index: fid={fid} already ready, skipping");
+
+            return;
+        }
+
+        const data: *u8   = buff.data();
+        const size: usize = buff.size();
+        var   lines       = std::create::<vec::<u32>>();
+
+        lines->reserve(size / 64);
+        lines->push_back(0);
+
+        var count: u32   = 1;
+        var i:     usize = 0;
+
+        //===--------------------------------------------------------------===//
+        // simd scanning AVX512                                               //
+        //===--------------------------------------------------------------===//
+        const eval if defined(__AVX512BW__) && defined(__AVX512VL__) {
+            const STRIDE: usize = 64;
+            const nl: __m512i = _mm512_set1_epi8(static_cast::<u8>('\n'));
+
+            for (; (i + STRIDE) <= size; i += (STRIDE * 2)) {
+                _mm_prefetch(reinterpret_cast::<const *u8>(data + i + 512), _MM_HINT_T0);
+
+                var c0: __m512i = _mm512_loadu_si512(reinterpret_cast::<const *__m512i>(data + i));
+                var c1: __m512i = _mm512_loadu_si512(reinterpret_cast::<const *__m512i>(data + i + STRIDE));
+
+                var m0: __mmask64 = _mm512_cmpeq_epi8_mask(c0, nl);
+                var m1: __mmask64 = _mm512_cmpeq_epi8_mask(c1, nl);
+
+                while (m0) {
+                    var offset: u32 = libcxx::countr_zero(m0);
+                    lines->push_back(static_cast::<u32>(i + offset + 1));
+                    ++count;
+                    m0 &= (m0 - 1);
+                }
+
+                while (m1) {
+                    var offset: u32 = libcxx::countr_zero(m1);
+                    lines->push_back(static_cast::<u32>(i + STRIDE + offset + 1));
+                    ++count;
+                    m1 &= (m1 - 1);
+                }
+            }
+
+        }
+
+        //===--------------------------------------------------------------===//
+        // simd scanning AVX2                                                 //
+        //===--------------------------------------------------------------===//
+        else if defined(__AVX2__) {
+            const STRIDE: usize = 32;
+            const nl: __m256i = _mm256_set1_epi8(static_cast::<std::Legacy::char>('\n'));
+            for (; (i + STRIDE * 4) <= size; i += (STRIDE * 4)) {
+                _mm_prefetch(reinterpret_cast::<const *std::Legacy::char>(data + i + 256), _MM_HINT_T0);
+
+                var c0: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i));
+                var c1: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i + 32));
+                var c2: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i + 64));
+                var c3: __m256i = _mm256_loadu_si256(reinterpret_cast::<const *__m256i>(data + i + 96));
+
+                var m0: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c0, nl));
+                var m1: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c1, nl));
+                var m2: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c2, nl));
+                var m3: u32 = _mm256_movemask_epi8(_mm256_cmpeq_epi8(c3, nl));
+
+                var emit = fn (mask: u32, base: u32) {
+                    while (mask) {
+                        var offset: u32 = libcxx::countr_zero(mask);
+
+                        lines->push_back(base + offset + 1);
+                        ++count;
+                        mask &= (mask - 1);
+                    }
+                };
+
+                emit(m0, i);
+                emit(m1, i + 32);
+                emit(m2, i + 64);
+                emit(m3, i + 96);
+            }
+
+        }
+        
+        //===--------------------------------------------------------------===//
+        // simd scanning SSE2                                                 //
+        //===--------------------------------------------------------------===//
+        else if defined(__SSE2__) {
+            const STRIDE: usize = 16;
+            const nl: __m128i = _mm_set1_epi8(static_cast::<std::Legacy::char>('\n'));
+
+            for (; (i + STRIDE * 4) <= size; i += (STRIDE * 4)) {
+                _mm_prefetch(reinterpret_cast::<std::const_ptr::<std::Legacy::char>>(data + i + 128), _MM_HINT_T0);
+
+                var c0: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i));
+                var c1: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i + 16));
+                var c2: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i + 32));
+                var c3: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i + 48));
+
+                var m0: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c0, nl));
+                var m1: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c1, nl));
+                var m2: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c2, nl));
+                var m3: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c3, nl));
+
+                var emit = fn (mask: u32, base: u32) {
+                    while (mask) {
+                        var offset: u32 = libcxx::countr_zero(mask);
+                        lines->push_back(base + offset + 1);
+                        ++count;
+                        mask &= (mask - 1);
+                    }
+                };
+
+                emit(m0, i);
+                emit(m1, i + 16);
+                emit(m2, i + 32);
+                emit(m3, i + 48);
+            }
+
+        }
+
+        //===--------------------------------------------------------------===//
+        // simd scanning NEON                                                 //
+        //===--------------------------------------------------------------===//
+        else if defined(__ARM_NEON) {
+            const STRIDE: usize = 16;
+            const nl: uint8x16_t = vdupq_n_u8(static_cast::<u8>('\n'));
+
+            for (; i + STRIDE * 2 <= size; i += STRIDE * 2) {
+                var c0:  uint8x16_t = vld1q_u8(data + i);
+                var c1:  uint8x16_t = vld1q_u8(data + i + 16);
+                var eq0: uint8x16_t = vceqq_u8(c0, nl);
+                var eq1: uint8x16_t = vceqq_u8(c1, nl);
+                var tmp: std::Memory::buffer::<u8, 32>;
+
+                vst1q_u8(tmp, eq0);
+                vst1q_u8(tmp + 16, eq1);
+
+                for (var j: i32 = 0; j < 32; ++j) {
+                    if tmp[j] == 0xFF {
+                        lines->push_back(static_cast<u32>(i + j + 1));
+                        ++count;
+                    }
+                }
+            }
+
+        }
+
+        //===--------------------------------------------------------------===//
+        // scalar fallback scan                                               //
+        //===--------------------------------------------------------------===//
+        else {
+            const STRIDE: usize = 0; // scalar only
+        }
+
+        // tail scan
+        for (; i < size; ++i) {
+            if (data[i] == '\n') {
+                lines->push_back(static_cast<u32>(i + 1));
+                ++count;
+            }
+        }
+
+        Logger::info(Logger::Stage::Driver, f"SourceLineTable::build_index: fid={fid} indexed {count} lines size={size}B");
+        entry->publish_lines(lines, count);
+    }
+
+    ///
+    /// \brief checks if the file entry is ready (index built).
+    ///
+    fn is_ready(self, fid: u32) -> bool {
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if (tbl == &null) || (fid >= tbl->size()) { return false; }
+        var entry = (*tbl)[fid];
+        return (entry != &null) && (entry->is_ready());
+    }
+
+    ///
+    /// \brief busy-waits until the file entry is ready, with backoff.
+    ///
+    fn wait_until_ready(self, fid: u32) {
+        var count: u16 = 0; // prevent busy wait from hogging CPU
+        while true {
+            if self.is_ready(fid) { return; }
+
+            if count >= 10000 {
+                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
+                if count >= 15000 {
+                    count = 0;
+                    Logger::warn(Logger::Stage::Driver, f"SourceLineTable::wait_until_ready: fid={fid} stalled, still waiting");
+                }
+            } else if count >= 5000 {
+                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(25));
+            } else if count >= 1000 {
+                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(5));
+            } else {
+                _thread_pause();
+            }
+
+            ++count;
+        }
+    }
+
+    ///
+    /// \brief resolves line and column for a given file id and offset.
+    ///
+    /// \details
+    /// performs a binary search on the line offsets to find the
+    /// corresponding line number and column within that line.
+    ///
+    fn get_line_col(self, fid: u32, offset: u32, file_name: Path) -> FullSourceLocation {
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if (tbl == &null) || (fid >= tbl->size()) {
+            return FullSourceLocation(
+                fid,
+                0, 0,
+                file_name
+            );
+        }
+
+        var entry = (*tbl)[fid];
+        if (entry == &null) || (!entry->is_ready()) {
+            return FullSourceLocation(
+                fid,
+                0, 0,
+                file_name
+            );
+        }
+
+        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        if lines == &null {
+            return FullSourceLocation(
+                fid,
+                0, 0,
+                file_name
+            );
+        }
+
+        var end: usize = entry->line_count.load(std::MemoryOrder::acquire);
+        if end == 0 {
+            return FullSourceLocation(
+                fid,
+                0, 0,
+                file_name
+            );
+        }
+
+        var lo: usize = 0;
+        var hi: usize = end - 1;
+
+        while lo < hi {
+            var mid = (lo + hi + 1) >> 1;
+            if (*lines)[mid] <= offset {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
+        }
+
+        var line_start = (*lines)[lo];
+        var col = offset - line_start + 1;
+
+        return FullSourceLocation(
+            fid,
+            lo + 1,
+            col,
+            file_name
+        );
+    }
+
+    ///
+    /// \brief dumps the internal state of the source line table.
+    ///
+    fn op as (self) -> string {
+        var out = f"SourceLineTable(\n";
+        out += f"  _file_count: {self._file_count}\n"
+            +  f"  _active: {self._active}\n";
+        
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if tbl == &null {
+            out += "  _file_table: &null\n)";
+            return out;
+        }
+
+        out +=  "  _file_table:\n";
+        for i in range::<usize>(0, tbl->size()) {
+            var entry = (*tbl)[i];
+            if entry == &null {
+                out += f"    [{i}] &null\n";
+                continue;
+            }
+
+            out += f"    [{i}] {*entry}\n";
+        }
+
+        return out + ")";
+    }
+
+    ///
+    /// \brief gets the starting offset of a line.
+    ///
+    /// \param fid file id.
+    /// \param line_num 1-based line number.
+    /// \return byte offset of line start, or 0 if invalid.
+    ///
+    fn get_line_offset(self, fid: u32, line_num: u32) -> u32 {
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if (tbl == &null) || (fid >= tbl->size()) {
+            return 0;
+        }
+
+        var entry = (*tbl)[fid];
+        if (entry == &null) || (!entry->is_ready()) {
+            return 0;
+        }
+
+        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        if lines == &null {
+            return 0;
+        }
+
+        var line_count = entry->line_count.load(std::MemoryOrder::acquire);
+        
+        // line_num is 1-based, but array is 0-indexed
+        if (line_num == 0) || (line_num > line_count) {
+            return 0;
+        }
+
+        return (*lines)[line_num - 1];
+    }
+
+    ///
+    /// \brief gets the ending offset of a line (start of next line or EOF).
+    ///
+    /// \param fid file id.
+    /// \param line_num 1-based line number.
+    /// \return byte offset where line ends (exclusive).
+    ///
+    fn get_line_end_offset(self, fid: u32, line_num: u32) -> u32 {
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if (tbl == &null) || (fid >= tbl->size()) {
+            return 0;
+        }
+
+        var entry = (*tbl)[fid];
+        if (entry == &null) || (!entry->is_ready()) {
+            return 0;
+        }
+
+        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        if lines == &null {
+            return 0;
+        }
+
+        var line_count = entry->line_count.load(std::MemoryOrder::acquire);
+        
+        if (line_num == 0) || (line_num > line_count) {
+            return 0;
+        }
+
+        // if this is the last line, return file size
+        if line_num == line_count {
+            return entry->file_size;
+        }
+
+        // otherwise return start of next line (which is after the newline)
+        // we want the position before the newline
+        return (*lines)[line_num] - 1;
+    }
+
+    ///
+    /// \brief resets the table to initial state.
+    ///
+    /// \details
+    /// waits for active builds, destroys all entries, reallocates table.
+    ///
+    fn reset(self) {
+        // wait for any active builds
+        while self._active.load(std::MemoryOrder::acquire) {
+            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
+        }
+        
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if tbl != &null {
+            for f: *FileEntry in *tbl {
+                if f != &null {
+                    var lines = f->lines.load(std::MemoryOrder::relaxed);
+                    if lines != &null { delete lines; }
+                    delete f;
+                }
+            }
+            delete tbl;
+        }
+
+        // reallocate fresh table
+        var new_tbl = std::create::<vec::<*FileEntry>>();
+        new_tbl->reserve(256);
+        
+        self._file_table.store(new_tbl, std::MemoryOrder::release);
+        self._file_count.store(0, std::MemoryOrder::release);
+    }
+}

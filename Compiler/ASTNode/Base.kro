@@ -1,0 +1,585 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Source::SourceRange::*;
+import ASTKind::DeclContextKind::*;
+import ASTKind::ASTContext::*;
+import ASTKind::DeclKind::*;
+import ASTKind::ExprKind::*;
+import ASTKind::TypeKind::*;
+import ASTKind::StmtKind::*;
+import ASTKind::PatternKind::*;
+import ASTKind::Support::*;
+
+class Expr {
+    pub var kind:          ExprKind    = ExprKind::RecoveryExpr;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of expr we were trying to parse (for better error messages)
+    pub var recovery_kind: ExprKind    = ExprKind::RecoveryExpr;
+
+    enum ValueCategory derives u8 {
+        Unknown,  // not yet resolved by sema
+        LValue,   // has address, assignable
+        RValue,   // temporary, not assignable
+        XValue,   // expiring value (move semantics) — needed for C++ interop
+    }
+
+    pub var value_category: ValueCategory = ValueCategory::Unknown;
+
+    fn is_valid(self) -> bool {
+        return self.kind != ExprKind::RecoveryExpr;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == ExprKind::RecoveryExpr;
+    }
+
+    fn get_excepted(self) -> ExprKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+
+        return self.kind;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return true; // all Expr* are valid for classof(Expr)
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::RecoveryExpr; // default, overridden by concrete nodes
+    }
+
+    fn is_lvalue(self) -> bool {
+        return self.value_category == ValueCategory::LValue;
+    }
+
+    fn is_rvalue(self) -> bool {
+        return self.value_category == ValueCategory::RValue;
+    }
+
+    fn is_xvalue(self) -> bool {
+        return self.value_category == ValueCategory::XValue;
+    }
+}
+
+class Stmt {
+    pub var kind:          StmtKind    = StmtKind::RecoveryStmt;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var recovery_kind: StmtKind    = StmtKind::RecoveryStmt;
+
+    fn is_valid(self) -> bool {
+        return self.kind != StmtKind::RecoveryStmt;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == StmtKind::RecoveryStmt;
+    }
+
+    fn get_excepted(self) -> StmtKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+    
+    static fn classof(ptr: *Stmt) -> bool {
+        return true; // all Stmt* are valid for classof(Stmt)
+    }
+
+    static fn stmt_kind() -> StmtKind {
+        return StmtKind::RecoveryStmt; // default, overridden by concrete nodes
+    }
+}
+
+class Decl {
+    pub var kind:          DeclKind    = DeclKind::RecoveryDecl;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var recovery_kind: DeclKind    = DeclKind::RecoveryDecl;
+
+    fn is_valid(self) -> bool {
+        return self.kind != DeclKind::RecoveryDecl;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == DeclKind::RecoveryDecl;
+    }
+
+    fn get_excepted(self) -> DeclKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+
+    static fn classof(ptr: *Decl) -> bool {
+        return true; // all Decl* are valid for classof(Decl)
+    }
+
+    static fn decl_kind() -> DeclKind {
+        return DeclKind::RecoveryDecl; // default, overridden by concrete nodes
+    }
+}
+
+class Type {
+    pub var kind:            TypeKind    = TypeKind::RecoveryType;
+    pub var range:           SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var recovery_kind:   TypeKind    = TypeKind::RecoveryType;
+    pub var qualified_type: *Type       = &null; // for types that are qualified by another type, e.g. associated types like T::Item or pointer types like *T
+
+    fn is_valid(self) -> bool {
+        return self.kind != TypeKind::RecoveryType;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == TypeKind::RecoveryType;
+    }
+
+    fn get_excepted(self) -> TypeKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+
+    fn get_qualified_type(self) -> *Type {
+        return self.qualified_type;
+    }
+
+    static fn classof(ptr: *Type) -> bool {
+        return true; // all Type* are valid for classof(Type)
+    }
+
+    static fn type_kind() -> TypeKind {
+        return TypeKind::RecoveryType; // default, overridden by concrete nodes
+    }
+}
+
+///
+/// \brief RTTI casting system for Kairo AST nodes.
+///
+/// All casts are based on the kind field at offset 0 of every node.
+/// No vtable, no dynamic_cast, no typeid.
+///
+/// Three cast functions per hierarchy:
+///   isa<T>(ptr)      — check if ptr is a T, no cast
+///   cast<T>(ptr)     — assert + static_cast, crashes in debug if wrong
+///   dyn_cast<T>(ptr) — returns null if not a T, T* if it is
+///
+/// The kind field is always valid even on RecoveryExpr nodes because
+/// create_error() always allocates the full concrete node and sets
+/// recovery_kind. See the recovery casting contract in Expr.
+///
+/// Recovery casting:
+///   isa_recovery<T>(ptr)      — checks recovery_kind instead of kind
+///   cast_recovery<T>(ptr)     — cast via recovery_kind, debug assert
+///   dyn_cast_recovery<T>(ptr) — safe cast via recovery_kind
+///
+/// Usage:
+///   if isa::<IntegerLiteralExpr>(e) { ... }
+///   var lit = cast::<IntegerLiteralExpr>(e);
+///   if var lit = dyn_cast::<IntegerLiteralExpr>(e) { ... }
+///
+fn <T> isa(ptr: *Expr) -> bool {
+    if ptr == &null {
+        return false;
+    }
+
+    return T::classof(ptr);
+}
+
+fn <T> isa(ptr: *Stmt) -> bool {
+    if ptr == &null {
+        return false;
+    }
+
+    return T::classof(ptr);
+}
+
+fn <T> isa(ptr: *Decl) -> bool {
+    if ptr == &null {
+        return false;
+    }
+
+    return T::classof(ptr);
+}
+
+fn <T> isa(ptr: *Type) -> bool {
+    if ptr == &null {
+        return false;
+    }
+
+    return T::classof(ptr);
+}
+
+__inline_cpp("
+template <typename T>
+inline const T *cast(const Expr *ptr) {
+    assert(ptr != nullptr && \"cast<>: null pointer\");
+    assert(T::classof(ptr) && \"cast<>: incorrect type\");
+    return static_cast<const T*>(ptr);
+}
+
+template <typename T>
+inline const T *cast(const Stmt *ptr) {
+    assert(ptr != nullptr && \"cast<>: null pointer\");
+    assert(T::classof(ptr) && \"cast<>: incorrect type\");
+    return static_cast<const T*>(ptr);
+}
+
+template <typename T>
+inline const T *cast(const Decl *ptr) {
+    assert(ptr != nullptr && \"cast<>: null pointer\");
+    assert(T::classof(ptr) && \"cast<>: incorrect type\");
+    return static_cast<const T*>(ptr);
+}
+
+template <typename T>
+inline const T *cast(const Type *ptr) {
+    assert(ptr != nullptr && \"cast<>: null pointer\");
+    assert(T::classof(ptr) && \"cast<>: incorrect type\");
+    return static_cast<const T*>(ptr);
+}
+");
+
+fn <T> cast(ptr: *Expr) -> *T {
+    assert((ptr != &null)    && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> cast(ptr: *Stmt) -> *T {
+    assert((ptr != &null)    && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> cast(ptr: *Decl) -> *T {
+    assert((ptr != &null)    && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> cast(ptr: *Type) -> *T {
+    assert((ptr != &null)    && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<*T>(ptr);
+}
+
+
+fn <T> dyn_cast(ptr: *Expr) -> *T {
+    if (ptr != &null) && isa::<T>(ptr) {
+        return static_cast::<*T>(ptr);
+    }
+
+    return &null;
+}
+
+fn <T> dyn_cast(ptr: *Stmt) -> *T {
+    if (ptr != &null) && isa::<T>(ptr) {
+        return static_cast::<*T>(ptr);
+    }
+
+    return &null;
+}
+
+fn <T> dyn_cast(ptr: *Decl) -> *T {
+    if (ptr != &null) && isa::<T>(ptr) {
+        return static_cast::<*T>(ptr);
+    }
+
+    return &null;
+}
+
+fn <T> dyn_cast(ptr: *Type) -> *T {
+    if (ptr != &null) && isa::<T>(ptr) {
+        return static_cast::<*T>(ptr);
+    }
+
+    return &null;
+}
+
+
+__inline_cpp("
+template <typename T>
+inline const T *dyn_cast(const Expr *ptr) {
+    if (ptr != nullptr && T::classof(ptr)) {
+        return static_cast<const T*>(ptr);
+    }
+
+    return nullptr;
+}
+
+template <typename T>
+inline const T *dyn_cast(const Stmt *ptr) {
+    if (ptr != nullptr && T::classof(ptr)) {
+        return static_cast<const T*>(ptr);
+    }
+
+    return nullptr;
+}
+
+template <typename T>
+inline const T *dyn_cast(const Decl *ptr) {
+    if (ptr != nullptr && T::classof(ptr)) {
+        return static_cast<const T*>(ptr);
+    }
+
+    return nullptr;
+}
+
+template <typename T>
+inline const T *dyn_cast(const Type *ptr) {
+    if (ptr != nullptr && T::classof(ptr)) {
+        return static_cast<const T*>(ptr);
+    }
+
+    return nullptr;
+}
+");
+
+// ============================================================================
+//  Recovery casting
+//
+//  Used by sema to cast a RecoveryExpr/RecoveryStmt/RecoveryDecl/RecoveryType
+//  back to its concrete allocated type.
+//
+//  Safe because create_error() on every concrete node allocates the FULL
+//  concrete node and then overwrites kind with Recovery*.
+//  recovery_kind always matches the actual allocation — the cast is valid.
+//
+//  Each concrete node must define:
+//    static fn expr_kind() -> ExprKind   (or stmt_kind, decl_kind, type_kind)
+//  so the recovery cast can verify the recovery_kind matches T.
+// ============================================================================
+
+fn <T> isa_recovery(ptr: *Expr) -> bool {
+    if ptr == &null {
+        return false;
+    }
+    if ptr->kind != ExprKind::RecoveryExpr {
+        return false;
+    }
+    return ptr->recovery_kind == T::expr_kind();
+}
+
+fn <T> cast_recovery(ptr: *Expr) -> *T {
+    assert((ptr != &null)                          && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == ExprKind::RecoveryExpr)   && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::expr_kind())  && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> dyn_cast_recovery(ptr: *Expr) -> *T {
+    if (ptr != &null)
+    && (ptr->kind == ExprKind::RecoveryExpr)
+    && (ptr->recovery_kind == T::expr_kind()) {
+        return static_cast::<*T>(ptr);
+    }
+    return &null;
+}
+
+// const overloads for Expr recovery
+__inline_cpp("
+    template <typename T>
+    inline bool isa_recovery(const Expr *ptr) {
+        if (ptr == nullptr) return false;
+        if (ptr->kind != ExprKind::RecoveryExpr) return false;
+        return ptr->recovery_kind == T::expr_kind();
+    }
+
+    template <typename T>
+    inline const T *cast_recovery(const Expr *ptr) {
+        assert(ptr != nullptr                                && \"cast_recovery<>: null pointer\");
+        assert(ptr->kind == ExprKind::RecoveryExpr && \"cast_recovery<>: not a recovery node\");
+        assert(ptr->recovery_kind == T::expr_kind()         && \"cast_recovery<>: wrong recovery_kind\");
+        return static_cast<const T*>(ptr);
+    }
+
+    template <typename T>
+    inline const T *dyn_cast_recovery(const Expr *ptr) {
+        if (ptr != nullptr
+        &&  ptr->kind == ExprKind::RecoveryExpr
+        &&  ptr->recovery_kind == T::expr_kind()) {
+            return static_cast<const T*>(ptr);
+        }
+        return nullptr;
+    }
+");
+
+fn <T> isa_recovery(ptr: *Stmt) -> bool {
+    if ptr == &null {
+        return false;
+    }
+    if ptr->kind != StmtKind::RecoveryStmt {
+        return false;
+    }
+    return ptr->recovery_kind == T::stmt_kind();
+}
+
+fn <T> cast_recovery(ptr: *Stmt) -> *T {
+    assert((ptr != &null)                          && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == StmtKind::RecoveryStmt)   && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::stmt_kind())  && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> dyn_cast_recovery(ptr: *Stmt) -> *T {
+    if (ptr != &null)
+    && (ptr->kind == StmtKind::RecoveryStmt)
+    && (ptr->recovery_kind == T::stmt_kind()) {
+        return static_cast::<*T>(ptr);
+    }
+    return &null;
+}
+
+__inline_cpp("
+    template <typename T>
+    inline bool isa_recovery(const Stmt *ptr) {
+        if (ptr == nullptr) return false;
+        if (ptr->kind != StmtKind::RecoveryStmt) return false;
+        return ptr->recovery_kind == T::stmt_kind();
+    }
+
+    template <typename T>
+    inline const T *cast_recovery(const Stmt *ptr) {
+        assert(ptr != nullptr                                 && \"cast_recovery<>: null pointer\");
+        assert(ptr->kind == StmtKind::RecoveryStmt && \"cast_recovery<>: not a recovery node\");
+        assert(ptr->recovery_kind == T::stmt_kind()          && \"cast_recovery<>: wrong recovery_kind\");
+        return static_cast<const T*>(ptr);
+    }
+
+    template <typename T>
+    inline const T *dyn_cast_recovery(const Stmt *ptr) {
+        if (ptr != nullptr
+        &&  ptr->kind == StmtKind::RecoveryStmt
+        &&  ptr->recovery_kind == T::stmt_kind()) {
+            return static_cast<const T*>(ptr);
+        }
+        return nullptr;
+    }
+");
+
+fn <T> isa_recovery(ptr: *Decl) -> bool {
+    if ptr == &null {
+        return false;
+    }
+    if ptr->kind != DeclKind::RecoveryDecl {
+        return false;
+    }
+    return ptr->recovery_kind == T::decl_kind();
+}
+
+fn <T> cast_recovery(ptr: *Decl) -> *T {
+    assert((ptr != &null)                          && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == DeclKind::RecoveryDecl)   && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::decl_kind())  && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> dyn_cast_recovery(ptr: *Decl) -> *T {
+    if (ptr != &null)
+    && (ptr->kind == DeclKind::RecoveryDecl)
+    && (ptr->recovery_kind == T::decl_kind()) {
+        return static_cast::<*T>(ptr);
+    }
+    return &null;
+}
+
+__inline_cpp("
+    template <typename T>
+    inline bool isa_recovery(const Decl *ptr) {
+        if (ptr == nullptr) return false;
+        if (ptr->kind != DeclKind::RecoveryDecl) return false;
+        return ptr->recovery_kind == T::decl_kind();
+    }
+
+    template <typename T>
+    inline const T *cast_recovery(const Decl *ptr) {
+        assert(ptr != nullptr                                 && \"cast_recovery<>: null pointer\");
+        assert(ptr->kind == DeclKind::RecoveryDecl && \"cast_recovery<>: not a recovery node\");
+        assert(ptr->recovery_kind == T::decl_kind()          && \"cast_recovery<>: wrong recovery_kind\");
+        return static_cast<const T*>(ptr);
+    }
+
+    template <typename T>
+    inline const T *dyn_cast_recovery(const Decl *ptr) {
+        if (ptr != nullptr
+        &&  ptr->kind == DeclKind::RecoveryDecl
+        &&  ptr->recovery_kind == T::decl_kind()) {
+            return static_cast<const T*>(ptr);
+        }
+        return nullptr;
+    }
+");
+
+fn <T> isa_recovery(ptr: *Type) -> bool {
+    if ptr == &null {
+        return false;
+    }
+    if ptr->kind != TypeKind::RecoveryType {
+        return false;
+    }
+    return ptr->recovery_kind == T::type_kind();
+}
+
+fn <T> cast_recovery(ptr: *Type) -> *T {
+    assert((ptr != &null)                          && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == TypeKind::RecoveryType)   && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::type_kind())  && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> dyn_cast_recovery(ptr: *Type) -> *T {
+    if (ptr != &null)
+    && (ptr->kind == TypeKind::RecoveryType)
+    && (ptr->recovery_kind == T::type_kind()) {
+        return static_cast::<*T>(ptr);
+    }
+    return &null;
+}
+
+__inline_cpp("
+    template <typename T>
+    inline bool isa_recovery(const Type *ptr) {
+        if (ptr == nullptr) return false;
+        if (ptr->kind != TypeKind::RecoveryType) return false;
+        return ptr->recovery_kind == T::type_kind();
+    }
+
+    template <typename T>
+    inline const T *cast_recovery(const Type *ptr) {
+        assert(ptr != nullptr                                 && \"cast_recovery<>: null pointer\");
+        assert(ptr->kind == TypeKind::RecoveryType && \"cast_recovery<>: not a recovery node\");
+        assert(ptr->recovery_kind == T::type_kind()          && \"cast_recovery<>: wrong recovery_kind\");
+        return static_cast<const T*>(ptr);
+    }
+
+    template <typename T>
+    inline const T *dyn_cast_recovery(const Type *ptr) {
+        if (ptr != nullptr
+        &&  ptr->kind == TypeKind::RecoveryType
+        &&  ptr->recovery_kind == T::type_kind()) {
+            return static_cast<const T*>(ptr);
+        }
+        return nullptr;
+    }
+");

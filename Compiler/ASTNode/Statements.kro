@@ -1,0 +1,71 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import ASTNode::Base::*;
+
+enum InlineBlockLang derives u8 {
+    /// Clang: -x assembler-with-cpp
+    /// inline "asm" { }
+    Asm,
+
+    /// Clang: -x c
+    /// inline "c" { }
+    C,
+
+    /// Clang: -x c++
+    /// inline "c++" { }
+    Cxx,
+
+    /// Clang: -x cuda  (requires CUDA toolkit)
+    /// inline "cuda" { }
+    Cuda,
+
+    /// Clang: -x hip  (requires ROCm)
+    /// inline "hip" { }
+    Hip,
+
+    /// Clang: -x opencl
+    /// inline "OpenCL" { }
+    OpenCL,
+
+    /// Clang: -x hlsl  (Clang 15+)
+    /// inline "hlsl" { }
+    Hlsl,
+
+    /// Apple metal compiler (xcrun metal), NOT standard Clang
+    /// requires Apple toolchain
+    /// inline "metal" { }
+    Metal,
+
+    /// OpenCL source compiled to SPIR-V via --target=spirv32/spirv64
+    /// not a separate language, just OpenCL with a different target
+    /// inline "spirv" { }
+    SpirV,
+
+    /// naga or tint compiler, NOT Clang
+    /// requires separate WGSL toolchain
+    /// inline "wgsl" { }
+    Wgsl,
+
+    /// glslang or shaderc, NOT Clang
+    /// requires separate GLSL toolchain
+    /// inline "glsl" { }
+    Glsl,
+
+    /// does absolutely nothing, just for fucks and giggles
+    /// ACTUALLY MIGHT BE USEFUL FOR ADDING KAIRO DIRECTLY INTO C++ CODE
+    /// inline "kairo" { }
+    Kairo,
+};

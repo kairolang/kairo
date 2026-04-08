@@ -1,0 +1,177 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Source::SourceRange::*;
+import TokenKind::*;
+
+/// size = 16 bytes on 64-bit
+///      sizeof(kind)   = 32 bits
+///      sizeof(range)  = 64 bits </ (start: 32 bits, end: 32 bits)
+///      sizeof(imm)    = 32 bits
+///      alignof(Token) = 4 bytes
+///      total          = 16 bytes + 0 bytes padding
+///
+/// on 32-bit alignment is 4 bytes, total size is still 16 bytes
+struct Token { // size=16B, align=4
+    pub var range: SourceRange = SourceRange();          ///< source location range
+    pub var kind:  TokenKind   = TokenKind::TkUnknown;   ///< token kind
+    pub var imm:   u32         = -1;                     ///< immediate value index in ImmediateTable, or -1 if none
+
+    enum Type {
+        Annotation,
+        Keyword,
+        UnaryOperator,
+        BinaryOperator,
+        AssignmentOperator,
+        Punctuator,
+        Operator,
+        Builtin,
+        Special,
+        Internal,
+        Literal,
+        Substitutable,
+        Eof,
+        Unknown,
+
+    }
+
+    const fn op == (self, other: Token) -> bool {
+        return (self.kind == other.kind) && (self.range == other.range) && (self.imm == other.imm);
+    }
+
+    const fn op != (self, other: Token) -> bool {
+        return !(self == other);
+    }
+
+    const fn op == (self, other: TokenKind) -> bool {
+        return self.kind == other;
+    }
+
+    const fn op != (self, other: TokenKind) -> bool {
+        return self.kind != other;
+    }
+
+    fn op = (self, new: TokenKind) -> ref!(Token) {
+        self.kind = new;
+        return self;
+    }
+
+    fn op = (self, new: SourceRange) -> ref!(Token) {
+        self.range = new;
+        return self;
+    }
+
+    fn op = (self, new: u32) -> ref!(Token) {
+        self.imm = new;
+        return self;
+    }
+
+    fn op == (self, kinds: set::<TokenKind>) -> bool {
+        return kinds.contains(self.kind);
+    }
+
+    fn op != (self, kinds: set::<TokenKind>) -> bool {
+        return !(kinds.contains(self.kind));
+    }
+
+    fn op == (self, kinds: vec::<TokenKind>) -> bool {
+        for kind in kinds {
+            if self.kind == kind {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn op != (self, kinds: vec::<TokenKind>) -> bool {
+        return !(self == kinds);
+    }
+
+    fn op == (self, const typ: Type) -> bool {
+        switch (typ) {
+            case Type::Annotation {
+                return is_annotation(self.kind);
+            } case Type::Keyword {
+                return is_keyword(self.kind);
+            } case Type::UnaryOperator {
+                return is_unary_operator(self.kind);
+            } case Type::BinaryOperator {
+                return is_binary_operator(self.kind);
+            } case Type::AssignmentOperator {
+                return is_assignment_operator(self.kind);
+            } case Type::Punctuator {
+                return is_punctuator(self.kind);
+            } case Type::Operator {
+                return is_operator(self.kind);
+            } case Type::Builtin {
+                return is_builtin(self.kind);
+            } case Type::Special {
+                return is_special(self.kind);
+            } case Type::Internal {
+                return is_internal(self.kind);
+            } case Type::Literal {
+                return is_literal(self.kind);
+            } case Type::Substitutable {
+                return is_substitutable(self.kind);
+            } case Type::Eof {
+                return self.kind == TokenKind::TkEof;
+            } case Type::Unknown {
+                return self.kind == TokenKind::TkUnknown;
+            }
+        }
+    }
+
+    fn op != (self, const typ: Type) -> bool {
+        return !(self == typ);
+    }
+
+    const fn op as (self) -> string {
+        return f"Token(kind: '{token_kind_to_string(self.kind)}', kind[hash]: 0x{to_hex_string(static_cast::<u32>(self.kind))}, range: {self.range}, imm: 0x{to_hex_string((self.imm) as u64)})";
+    }
+} //Token end
+
+module TokenUtils {
+    fn has_imm(tok: Token) -> bool {
+        return tok.imm != u32(-1);
+    }
+
+    fn is_valid(tok: Token) -> bool {
+        return tok.kind != TokenKind::TkUnknown;
+    }
+
+    fn is_eof(tok: Token) -> bool {
+        return tok.kind == TokenKind::TkEof;
+    }
+
+    fn is_error(tok: Token) -> bool {
+        return tok.kind == TokenKind::TkError;
+    }
+
+    fn error_expected_kind(tok: Token) -> TokenKind {
+        return static_cast::<TokenKind>(tok.imm);
+    }
+
+    fn start_loc(tok: Token) -> SourceLocation {
+        return tok.range.start;
+    }
+
+    fn end_loc(tok: Token) -> SourceLocation {
+        return tok.range.end;
+    }
+
+    fn readable_kind(tok: Token) -> string {
+        return token_kind_to_readable_string(tok.kind);
+    }
+}

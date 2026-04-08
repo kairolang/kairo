@@ -1,0 +1,822 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+ffi "c++" import "Core/SmallFunction.hh";
+ffi "c++" import "Core/Types.hh";
+
+import Timer::*;
+
+///
+/// \class ThreadPool
+///
+/// \brief A high-performance work-stealing thread pool for parallel
+///        task execution.
+///
+/// \details
+/// The `ThreadPool` class implements a lock-free, cache-aligned work-stealing
+///     design optimized for minimal contention and consistent task throughput
+///     across heterogeneous systems. Each worker maintains a per-thread
+///     partitioned queue from which tasks are locally dequeued and, when idle,
+///     stolen by other threads in randomized batches.
+///
+/// Tasks are represented as small callable objects (`SmallFunction<64>`) and
+///     can be grouped via a numeric identifier for synchronization purposes.
+///     The pool supports dynamic task submission, group-based waiting, and
+///     graceful shutdown.
+///
+/// The design prioritizes deterministic startup, cache coherency, and
+///     predictable shutdown semantics for long-running parallel workloads.
+///
+/// \warning
+///   - The number of threads defaults to the hardware concurrency level but
+///     can be explicitly set (minimum of 1).
+///   - Each partitioned queue has a fixed capacity (default 16384 tasks).
+///   - Tasks are copy-disabled and move-only to ensure locality and prevent
+///     accidental duplication.
+///   - The pool must be explicitly shut down to join all threads and release
+///     resources.
+///   - The implementation relies on C++11 atomics and threading primitives.
+///
+/// \see PartitionQueue, Task, wait_group, enqueue, shutdown, warmup
+///
+class ThreadPool {
+    /// Forward declarations
+    class PartitionQueue;
+    class Task;
+
+    /// Type aliases for brevity
+    type FunctionT   = SmallFunction::<64>;
+
+    /// C++ threading alias for std::thread, the alias is in a __inline_cpp
+    /// block to avoid stage(0) parser issues with the 'thread' keyword.
+    __inline_cpp("using  Thread = libcxx::thread");
+    __inline_cpp("static constexpr size_t DEFAULT_QUEUE_SIZE = 1 << 14");
+
+    ///
+    /// Cache line size detection for alignment
+    /// TODO: Add more architectures as needed
+    ///
+    /// \info again in a __inline_cpp block, since the current stage(0) parser
+    ///       does not support static & eval variables, it only supports static
+    ///       not even eval (constexpr) variables.
+    ///
+    const eval if defined(__x86_64__) || defined(__aarch64__) || defined(__riscv) {
+        __inline_cpp("static constexpr size_t CACHE_LINE = 64");
+    } else if defined(__powerpc64__) {
+        __inline_cpp("static constexpr size_t CACHE_LINE = 128");
+    } else {
+        __inline_cpp("static constexpr size_t CACHE_LINE = 32");
+    }
+
+    priv var _count:   usize = 0;
+    priv var _threads: vec::<Thread>;
+    priv var _queues:  vec::<*PartitionQueue>;
+    priv var _groups:  array::<std::Atomic::<u64>, 256> = array::<std::Atomic::<u64>, 256>();
+    priv var _rr:      std::Atomic::<usize> = std::Atomic::<usize>(0);
+    priv var _active:  std::Atomic::<bool>  = std::Atomic::<bool>(true);
+
+    ///
+    /// \class Task
+    ///
+    /// \brief Represents a unit of work executed by the thread pool.
+    ///
+    /// \details
+    /// A `Task` encapsulates a small callable (`SmallFunction<64>`) and a
+    ///     numeric group identifier. Tasks are copy-disabled and move-only to
+    ///     preserve function storage locality and prevent accidental
+    ///     duplication across queues.
+    ///
+    /// \see enqueue, PartitionQueue
+    ///
+    class Task {
+        /// \var _fn
+        /// The callable function to execute.
+        ///
+        /// \var _group
+        /// Numeric group ID for synchronization tracking.
+        pub var _fn:    FunctionT;
+        pub var _group: u8 = 0;
+
+        ///
+        /// \brief Default constructor initializes an empty task.
+        ///
+        fn Task(self) {}
+
+        ///
+        /// \brief Move constructor transfers ownership of the callable and
+        ///        group ID.
+        ///
+        /// \param other Source task to move from. (mref! is a c++ && rvalue)
+        ///
+        fn Task(self, other: mref!(Task)) {
+            self._fn    = std::Memory::move(other._fn);
+            self._group = other._group;
+        }
+
+        ///
+        /// \brief Move assignment operator transfers ownership, guarding
+        ///        against self-assignment.
+        ///
+        /// \param other Source task to move from. (mref! is a c++ && rvalue)
+        fn op=(self, other: mref!(Task)) {
+            self._fn    = std::Memory::move(other._fn);
+            self._group = other._group;
+        }
+    }
+
+    ///
+    /// \class PartitionQueue
+    ///
+    /// \brief Lock-free circular buffer for per-thread task storage.
+    ///
+    /// \details
+    /// Implements a cache-aligned ring buffer with atomic sequence counters for
+    ///     enqueue/dequeue coordination. Each queue supports concurrent
+    ///     producers and consumers through relaxed atomic operations.
+    ///     `push()` and `pop()` follow a bounded MPMC pattern using
+    ///     `compare_exchange_weak` for contention resolution, while `steal()`
+    ///     allows cross-queue task acquisition.
+    ///
+    /// \warning
+    ///   - Capacity must be a power of two.
+    ///   - Each cell maintains a monotonic sequence to prevent ABA hazards.
+    ///
+    /// \see Task, ThreadPool
+    ///
+    class PartitionQueue {
+        struct Cell;
+
+        priv var _buf: vec::<Cell>;
+        priv var _mask: u64 = 0;
+        priv var _cap:  u64 = 0;
+
+        priv var _enqueue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
+        priv var _dequeue_pos: std::Atomic::<u64> = std::Atomic::<u64>(0);
+
+        ///
+        /// \struct ThreadPool::PartitionQueue::Cell
+        ///
+        /// \brief Cache-aligned storage cell for a single task entry in the
+        ///        partitioned queue.
+        ///
+        /// \details
+        /// The `Cell` struct represents one slot in the lock-free circular
+        ///     buffer backing each `PartitionQueue`. Each cell maintains an
+        ///     atomic sequence counter and a stored `Task`, ensuring proper
+        ///     synchronization between producers and consumers without locks.
+        ///
+        /// The `seq` field acts as a ticket system:
+        ///     - When `seq == position`, the cell is available for enqueue.
+        ///     - When `seq == position + 1`, the cell contains a valid task for
+        ///       dequeue.
+        ///     - When `seq` advances beyond the current window, the cell is
+        ///       recycled for reuse.
+        ///
+        /// The `val` field holds the actual task to be executed.
+        ///
+        /// Each cell is cache-line aligned to prevent false sharing between adjacent
+        ///     queue entries during concurrent access by multiple threads.
+        ///
+        /// ### Constructors and Operators
+        ///     - Default constructor: Initializes an empty cell with `seq = 0`.
+        ///     - Move constructor: Transfers ownership of the stored task and
+        ///       sequence counter in a relaxed, lock-free manner for relocation
+        ///       of queue buffers.
+        ///     - Move assignment: Same as move construction, but guards self-
+        ///       assignment and preserves sequence ordering.
+        ///     - Copy operations: Explicitly deleted to enforce unique cell
+        ///       ownership and prevent accidental data duplication.
+        ///
+        /// ### Memory Ordering
+        ///     - Sequence loads and stores use `memory_order::relaxed` since
+        ///       ordering guarantees are enforced externally by producer/
+        ///       consumer operations in `push()` and `pop()`.
+        ///
+        /// \warning
+        ///     - Instances must not be copied.
+        ///     - Sequence counter integrity must be maintained; modifying `seq`
+        ///       directly outside queue operations can lead to corruption.
+        ///     - Cache-line alignment (`CACHE_LINE`) is mandatory for avoiding
+        ///       performance degradation due to false sharing.
+        ///
+        /// \see PartitionQueue, Task, ThreadPool
+        ///
+        __inline_cpp("
+        struct alignas(CACHE_LINE) Cell {
+            std::Atomic<u64> seq {0};
+            Task        val;
+
+            Cell() = default;
+
+            Cell(Cell&& other) noexcept {
+                auto seq_val = other.seq.load(libcxx::memory_order::relaxed);
+                seq.store(seq_val, libcxx::memory_order::relaxed);
+
+                val = std::Memory::move(other.val);
+            }
+
+            Cell &operator=(Cell&& other) noexcept {
+                if (this != &other) {
+                    auto seq_val = other.seq.load(libcxx::memory_order::relaxed);
+                    seq.store(seq_val, libcxx::memory_order::relaxed);
+
+                    val = std::Memory::move(other.val);
+                }
+
+                return *this;
+            }
+
+            Cell           (const Cell&) = delete;
+            Cell &operator=(const Cell&) = delete;
+        }
+        ");
+
+        ///
+        /// \brief Constructs a partitioned queue with the specified capacity.
+        ///
+        /// \param cap_req Desired capacity (rounded up to next power of two).
+        ///
+        /// \details
+        /// Allocates and initializes the internal circular buffer to the
+        ///     smallest power-of-two size greater than or equal to `cap_req`.
+        ///     Each cell's sequence counter is initialized to its index to
+        ///     establish the initial empty state.
+        ///
+        /// \warning Capacity must be a power of two for correct operation.
+        ///
+        /// \see push, pop, steal
+        ///
+        fn PartitionQueue(self, cap_req: usize = DEFAULT_QUEUE_SIZE) {
+            var c: usize = 1;
+
+            while c < cap_req {
+                c <<= 1;
+            }
+
+            self._cap  = static_cast::<u64>(c);
+            self._mask = static_cast::<u64>(c - 1);
+            self._buf.resize(c);
+
+            for i in range::<usize>(0, c) {
+                self._buf[i].seq.store(
+                    static_cast::<u64>(i),
+                    std::MemoryOrder::relaxed
+                );
+            }
+        }
+
+        ///
+        /// \brief Inserts a task into the queue.
+        ///
+        /// \param v Task to enqueue (moved).
+        /// \return `true` if the task was successfully enqueued, otherwise `false` if full.
+        ///
+        inline fn push(self, v: Task) -> bool {
+            var pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
+
+            while true {
+                var idx  = static_cast::<usize>(pos & self._mask);
+                var cell = &self._buf[idx];
+                var seq  = cell->seq.load(std::MemoryOrder::acquire);
+                var dif = static_cast::<i64>(seq) - static_cast::<i64>(pos);
+
+                if dif == 0 {
+                    if self._enqueue_pos.compare_exchange_weak(
+                            pos, pos + 1,
+                            std::MemoryOrder::acq_rel,
+                            std::MemoryOrder::relaxed)
+                    { // write payload then publish seq
+                        cell->val = std::Memory::move(v);
+                        cell->seq.store(pos + 1, std::MemoryOrder::release);
+                        return true;
+                    }
+
+                    // CAS failed -> retry pos reload
+                } else if dif < 0 {
+                    return false;
+                } else {
+                    _thread_pause();
+                }
+
+                pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
+            }
+        }
+
+        ///
+        /// \brief Removes a task from the queue.
+        ///
+        /// \param out Pointer to receive dequeued task.
+        /// \return `true` if successful, `false` if queue is empty.
+        ///
+        inline fn pop(self, out: *Task) -> bool {
+            var pos = self._dequeue_pos.load(std::MemoryOrder::relaxed);
+
+            while true {
+                var idx  = static_cast::<usize>(pos & self._mask);
+                var cell = &self._buf[idx];
+                var seq  = cell->seq.load(std::MemoryOrder::acquire);
+                var dif  = static_cast::<i64>(seq) - static_cast::<i64>(pos + 1);
+
+                if dif == 0 {
+                    if self._dequeue_pos.compare_exchange_weak(pos, pos + 1,
+                        std::MemoryOrder::release, std::MemoryOrder::relaxed)
+                    {
+                        (*out) = std::Memory::move(cell->val);
+                        cell->seq.store(pos + self._cap, std::MemoryOrder::release);
+                        return true;
+                    }
+                } else if dif < 0 {
+                    return false;
+                } else {
+                    _thread_pause();
+                    pos = self._dequeue_pos.load(std::MemoryOrder::relaxed);
+                }
+            }
+        }
+
+        ///
+        /// \brief Attempts to steal a task from the queue.
+        ///
+        /// \param out Pointer to receive stolen task.
+        /// \return `true` if a task was stolen, otherwise `false`.
+        ///
+        inline fn steal(self, out: *Task) -> bool {
+            return self.pop(out);
+        }
+    }
+
+    ///
+    /// \brief Constructs and initializes a thread pool.
+    ///
+    /// \param n Number of threads to create (defaults to hardware concurrency).
+    ///
+    /// \details
+    /// Allocates one partitioned queue per worker, initializes task groups, and
+    ///     spawns all worker threads immediately. Each worker enters an
+    ///     internal execution loop awaiting tasks or performing random steal
+    ///     attempts when idle.
+    ///
+    /// \warning
+    ///   - If `n == 0`, one worker is forced to ensure valid operation.
+    ///   - Threads start immediately upon construction.
+    ///
+    /// \see worker_loop
+    ///
+    fn ThreadPool(self, n: usize = Thread::hardware_concurrency()) {
+        if n == 0 {
+            n = 1;
+        }
+
+        self._count = n;
+        self._threads.reserve(n);
+        self._queues.reserve(n);
+        var self_ptr: *ThreadPool = __inline_cpp("this");
+
+        for gi in range::<usize>(0, 256) {
+            self._groups[gi].store(0, std::MemoryOrder::relaxed);
+        }
+
+        for _ in range::<usize>(0, n) {
+            var q = std::create_unique::<PartitionQueue>(DEFAULT_QUEUE_SIZE);
+            self._queues.push_back(q.release());
+        }
+
+        for i in range::<usize>(0, n) {
+            __inline_cpp("
+            _threads.emplace_back([self_ptr, i]() {
+                self_ptr->worker_loop(i);
+            })
+            ");
+            Logger::info(Logger::Stage::ThreadPool, f"ThreadPool: initialized {self._count} workers");
+        }
+    }
+
+    ///
+    /// \brief Destructor that ensures proper shutdown.
+    ///
+    /// \details Invokes `shutdown()` to terminate all threads and clean up
+    ///     resources. Safe to call multiple times; subsequent calls are noops.
+    ///
+    /// \see shutdown
+    ///
+    fn op delete (self) {
+        self.shutdown();
+    }
+
+    inline static fn fnv1a64_bytes(const tid: ref!(std::Thread::id)) -> u64 {
+        var h: u64 = 0xcbf29ce484222325;
+
+        __inline_cpp("
+            static constexpr size_t TID_SIZE = sizeof(libcxx::thread::id);
+        ");
+
+        var buf: std::Memory::buffer::<u8, TID_SIZE>;
+        libcxx::memcpy(buf, &tid, TID_SIZE);
+
+        for var i: usize = 0; i < TID_SIZE; ++i {
+            h = (h ^ buf[i]) * 0x100000001b3;
+        }
+
+        return h;
+    }
+
+    ///
+    /// \brief Schedules a callable for asynchronous execution.
+    ///
+    /// \param _fn Callable function (moved into queue).
+    /// \param group Optional group ID for synchronization tracking.
+    ///
+    /// \details
+    /// The function is enqueued in a pseudo-random queue using round-robin with
+    ///     FNV-based hash mixing. If the selected queue is full, the task is
+    ///     retried sequentially across all queues. Group counters are atomically
+    ///     incremented on successful enqueue to enable completion tracking.
+    ///
+    /// \see wait_group, is_completed
+    ///
+    inline fn enqueue(self, _fn: FunctionT, group: u8 = 0) {
+        if !self._active.load(std::MemoryOrder::relaxed) {
+            return;
+        }
+
+        __inline_cpp("
+            thread_local size_t local_qid = static_cast<size_t>(-1);
+        ");
+
+        if local_qid == static_cast::<usize>(-1) {
+            // distribute threads but STICK to one queue after
+            var tid =  libcxx::this_thread::get_id();
+            local_qid = static_cast::<usize>(fnv1a64_bytes(tid) % self._count);
+        }
+
+        var qid = local_qid;
+
+        // --- build task once ---
+        var task = Task();
+        task._fn    = std::Memory::move(_fn);
+        task._group = group;
+
+        // --- fast path: push to primary queue ---
+        if (self._queues[qid]->push(std::Memory::move(task))) {
+            self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
+            return;
+        }
+
+        // --- one fallback queue only ---
+        var alt = (qid + 1) % self._count;
+        if (self._queues[alt]->push(std::Memory::move(task))) {
+            self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
+            return;
+        }
+
+        Logger::warn(Logger::Stage::ThreadPool, f"ThreadPool::enqueue: qid={qid} full, spinning (group={group})");
+
+        // --- final fallback: spin until primary has a slot ---
+        while !self._queues[qid]->push(std::Memory::move(task)) {
+            _thread_pause();
+        }
+
+        self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
+    }
+
+    ///
+    /// \brief Waits for completion of all tasks within a specific group.
+    ///
+    /// \param group Group ID to wait for.
+    ///
+    /// \details
+    /// Spins adaptively and yields progressively until the specified group
+    ///     counter reaches zero. Uses a hybrid approach combining busy-wait,
+    ///     micro-sleep, and periodic resets to balance responsiveness and CPU
+    ///     efficiency.
+    ///
+    /// \warning
+    ///   - Blocking call. Avoid long waits on the main thread.
+    ///
+    inline fn wait_group(self, group: u8) {
+        var spins: u32 = 0;
+
+        while self._groups[group].load(std::MemoryOrder::acquire) > 0 {
+            if spins < 10000 {
+                _thread_pause();
+                ++spins;
+            } else if spins < 20000 {
+                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(8));
+                ++spins;
+            } else {
+                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
+                spins = 0; // reset to check more frequently again
+                Logger::warn(Logger::Stage::ThreadPool, f"ThreadPool::wait_group: group={group} stalled pending={self._groups[group].load(std::MemoryOrder::acquire)}");
+            }
+        }
+    }
+
+    ///
+    /// \brief Waits for completion of all tasks across all groups.
+    ///
+    /// \details
+    /// Iteratively invokes `wait_group` for each group ID from 0 to 255.
+    ///
+    /// \see wait_group
+    ///
+    inline fn wait_all(self) {
+        for gi in range::<u32>(0, 256) {
+            self.wait_group(gi);
+        }
+    }
+
+    ///
+    /// \brief Initiates an orderly shutdown of the thread pool.
+    ///
+    /// \details
+    /// Gracefully terminates all worker threads after active tasks complete.
+    ///     Joins all threads, deletes all queues, and clears internal state.
+    ///     Subsequent calls are ignored once shutdown has begun.
+    ///
+    /// \see worker_loop, is_active
+    ///
+    fn shutdown(self) {
+        var expected = true;
+
+        if !self._active.compare_exchange_strong(expected, false) {
+            return;
+        }
+
+        Logger::info(Logger::Stage::ThreadPool, f"ThreadPool::shutdown: joining {self._count} workers total_pending={self.get_total_pending_tasks()}");
+        
+        for t: ref!(Thread) in self._threads {
+            if t.joinable() {
+                t.join();
+            }
+        }
+
+        for q: ref!(*PartitionQueue) in self._queues {
+            delete q;
+        }
+
+        self._queues.clear();
+        self._threads.clear();
+        Logger::info(Logger::Stage::ThreadPool, "ThreadPool::shutdown: complete");
+    }
+
+    ///
+    /// \brief Main execution loop executed by each worker thread.
+    ///
+    /// \param id Worker thread index.
+    ///
+    /// \details
+    /// Each worker dequeues tasks from its local queue, executes them, and
+    ///     updates group counters. When the local queue is empty, it performs
+    ///     randomized stealing in small batches across other queues. If no
+    ///     tasks are found, threads engage in adaptive spinning and yielding to
+    ///     prevent wasted CPU time.
+    ///
+    /// \note This function runs indefinitely until `_active` is set to false.
+    ///
+    fn worker_loop(self, id: usize) {
+        var task:  Task;
+        var spins: u32 = 0;
+        var q = self._queues[id];
+        var rng_state: u64 = (id + 1) * 0x9e3779b97f4a7c15;
+
+        inline fn next_rand(state: *u64) -> usize {
+            (*state) = (*state) ^ ((*state) >> 12);
+            (*state) = (*state) ^ ((*state) << 25);
+            (*state) = (*state) ^ ((*state) >> 27);
+
+            return static_cast::<usize>(((*state) * 0x2545f4914f6cdd1d) >> 32);
+        }
+
+        while self._active.load(std::MemoryOrder::acquire) {
+            if q->pop(&task) {
+                task._fn();
+
+                self._groups[task._group].fetch_sub(1, std::MemoryOrder::relaxed);
+                spins = 0;
+
+                continue;
+            }
+
+            var   found = false;
+            const BATCH:  usize = 4;
+            const STRIDE: usize = 3;
+
+            for var k: usize = 0; k < self._count; k += STRIDE {
+                var target = (id + next_rand(&rng_state) + k) % self._count;
+
+                if target == id {
+                    continue;
+                }
+
+                for var n: usize = 0; n < BATCH; ++n {
+                    if self._queues[target]->steal(&task) {
+                        task._fn();
+                        self._groups[task._group].fetch_sub(
+                            1, std::MemoryOrder::relaxed
+                        );
+
+                        found = true;
+                        spins = 0;
+
+                        break;
+                    }
+                }
+
+                if found { break; }
+            }
+
+            if !found {
+                if spins < 2000 {
+                    _thread_pause();
+                    ++spins;
+                } else {
+                    __inline_cpp("libcxx::this_thread::yield()");
+                    spins = 0;
+                }
+            }
+        }
+    }
+
+    ///
+    /// \brief Returns true if all tasks in a group have completed.
+    ///
+    /// \param group Group ID to check.
+    /// \return `true` if all tasks have finished, otherwise `false`.
+    ///
+    fn is_completed(self, group: u8) -> bool {
+        return self._groups[group].load(std::MemoryOrder::acquire) == 0;
+    }
+
+    ///
+    /// \brief Checks whether the pool is active.
+    ///
+    /// \return `true` if threads are still processing or accepting work.
+    ///
+    fn is_active(self) -> bool {
+        return self._active.load(std::MemoryOrder::acquire);
+    }
+
+    ///
+    /// \brief Retrieves the total number of worker threads.
+    ///
+    /// \return Worker thread count.
+    ///
+    fn get_thread_count(self) -> usize {
+        return self._count;
+    }
+
+    ///
+    /// \brief Retrieves the number of pending tasks for a specific group.
+    ///
+    /// \param group Group ID.
+    /// \return Number of pending tasks.
+    ///
+    fn get_pending_tasks(self, group: u8) -> u64 {
+        return self._groups[group].load(std::MemoryOrder::acquire);
+    }
+
+    ///
+    /// \brief Retrieves the total number of pending tasks across all groups.
+    ///
+    /// \return Aggregate pending task count.
+    ///
+    fn get_total_pending_tasks(self) -> u64 {
+        var total: u64 = 0;
+
+        for gi in range::<usize>(0, 256) {
+            total += self._groups[gi].load(std::MemoryOrder::acquire);
+        }
+
+        return total;
+    }
+
+    ///
+    /// \brief Performs a CPU warmup routine to eliminate cold-start latency.
+    ///
+    /// \param spins Number of iterations for dummy computations.
+    ///
+    /// \details Executes synthetic spin tasks across all threads to ensure:
+    ///   - Thread scheduling and CPU frequency ramp-up.
+    ///   - L1/L2 cache warming for task dispatch structures.
+    ///
+    /// Threads synchronize via a barrier to ensure simultaneous readiness
+    ///     before returning.
+    ///
+    /// \see enqueue
+    ///
+    fn warmup(self, spins: i32 = 1000000) {
+        var barrier: std::Atomic::<usize> = std::Atomic::<usize>(0);
+        Logger::debug(Logger::Stage::ThreadPool, f"ThreadPool::warmup: {self._count} threads spins={spins}");
+
+        fn heat_task(barrier: *std::Atomic::<usize>, spins: i32) {
+            var x: i64 = 1;
+
+            for var j: i32 = 0; j < spins; ++j {
+                x = (x * 3 + j) % 7919;
+            }
+
+            barrier->fetch_add(1, libcxx::memory_order::release);
+
+            while barrier->load(libcxx::memory_order::acquire)
+                < Thread::hardware_concurrency() {
+                _thread_pause();
+            }
+
+            if x == 42 {
+                std::print("");
+            }
+        }
+
+        for var i: usize = 0; i < self._count; ++i {
+            self.enqueue(fn() {
+                heat_task(&barrier, spins);
+            }, static_cast::<u8>(i));
+        }
+
+        while barrier.load(std::MemoryOrder::acquire) < self._count {
+            _thread_pause();
+        }
+
+        Logger::debug(Logger::Stage::ThreadPool, "ThreadPool::warmup: complete");
+
+        _thread_pause();
+    }
+}
+
+///
+/// \brief ThreadPool performance benchmark and validation entrypoint.
+///
+/// \return Always returns 0 on success.
+///
+/// \details
+/// The `Test()` function initializes a thread pool, performs a warmup phase,
+///     dispatches 4000 compute-heavy tasks across multiple groups, and measures
+///     the total execution time across startup, enqueue, completion, and
+///     synchronization phases. provides a reproducible benchmark for assessing
+///     Pqueue contention, warm-start effectiveness, and task completion latency.
+///
+/// \see ThreadPool, Timer, wait_group, warmup
+///
+fn Test() -> i32 {
+    std::print("=== Kairo ThreadPool Benchmark ===");
+    var total_timer = Timer("Total test duration");
+
+    var pool = ThreadPool();
+    var total_tasks: i32;
+    var groups:      i32;
+
+    /// for some reason the stage(0) parser does not allow `{}` scoped blocks
+    /// so we have to use __inline_cpp to create a scope for the Timer RAII
+    /// object to work correctly.
+    __inline_cpp("{");
+        var startup = Timer("ThreadPool startup");
+        total_tasks = 4000;
+        groups = 4;
+        pool.warmup();
+    __inline_cpp("}");
+
+    std::print(f"Spawning {total_tasks} tasks across {groups} groups...");
+
+    fn heavy_task() {
+        var acc: i64 = 1;
+
+        for var j: i32 = 1; j <= 2500; ++j {
+            acc = (acc * 3 + j) % 7919;
+        }
+
+        if acc == 0 {
+            std::print(""); // prevent optimization (never runs)
+        }
+    }
+
+    __inline_cpp("{");
+        var enqueue_timer = Timer("Enqueue phase");
+
+        for var i: i32 = 0; i < total_tasks; ++i {
+            var g: u8 = static_cast::<u8>(i % groups);
+            pool.enqueue(heavy_task, g);
+        }
+    __inline_cpp("}");
+
+    for var g: i32 = 0; g < groups; ++g {
+        var t = Timer(f"Group {g} completion");
+        pool.wait_group(static_cast::<u8>(g));
+    }
+
+    var sync_timer = Timer("Final synchronization");
+    pool.shutdown();
+
+    return 0;
+}

@@ -212,29 +212,29 @@ class Builder:
 # ---------------------------------- START OF COMPILER COMMANDS ---------------------------------- #
 
 # the kairo compiler
-Builder("Toolchain/Driver/Main/HBuild.kro", "kairo")                             \
+Builder("Compiler/Driver/Main/HBuild.kro", "kairo")                             \
     .add_include_dir(Path("."))                                                \
-    .add_include_dir(Path(".") / "Toolchain")                                  \
+    .add_include_dir(Path(".") / "Compiler")                                  \
 
 # the kairo code formatter
-Builder("Toolchain/Driver/Main/Kairo.kro", "kairo-fmt")                           \
+Builder("Compiler/Driver/Main/Kairo.kro", "kairo-fmt")                           \
     .add_include_dir(Path("."))                                                \
-    .add_include_dir(Path(".") / "Toolchain")                                  \
+    .add_include_dir(Path(".") / "Compiler")                                  \
     
 # the kairo ide client for lsp support
-Builder("Toolchain/Driver/Main/HFmt.kro", "kairo-analyzer")                 \
+Builder("Compiler/Driver/Main/HFmt.kro", "kairo-analyzer")                 \
     .add_include_dir(Path("."))                                                \
-    .add_include_dir(Path(".") / "Toolchain")                                  \
+    .add_include_dir(Path(".") / "Compiler")                                  \
     
 # the kairo linker
-Builder("Toolchain/Driver/Main/HLd.kro", "kairo-ld")                             \
+Builder("Compiler/Driver/Main/HLd.kro", "kairo-ld")                             \
     .add_include_dir(Path("."))                                                \
-    .add_include_dir(Path(".") / "Toolchain")                                  \
+    .add_include_dir(Path(".") / "Compiler")                                  \
     
 # the kairo package manager
-Builder("Toolchain/Driver/Main/HLS.kro", "vial")                               \
+Builder("Compiler/Driver/Main/HLS.kro", "vial")                               \
     .add_include_dir(Path("."))                                                \
-    .add_include_dir(Path(".") / "Toolchain")                                  \
+    .add_include_dir(Path(".") / "Compiler")                                  \
 
 # ----------------------------------- END OF COMPILER COMMANDS ----------------------------------- #
 

@@ -1,0 +1,434 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+ffi "c++" import "Core/Types.hh";
+
+import Source::SourceRange::*;
+import Diagnostics::DiagRegistry::*;
+import Diagnostics::Diagnostic::*;
+import Diagnostics::DiagConsumer::*;
+// import Diagnostics::Consumers::BasicDiagConsumer::*; this should not be imported here, because it would create a circular dependency
+// as SourceManager depends on DiagEngine, and BasicDiagConsumer depends on SourceManager. Instead, BasicDiagConsumer should be imported by the driver or other components that use it.
+
+class DiagEngine;
+class DiagBuilder;
+
+class DiagBuilder {
+    priv var _engine:  *DiagEngine;
+    priv var _diag:    *Diagnostic;
+    priv var _emitted: bool;
+
+    fn DiagBuilder(self, engine: *DiagEngine, code: DiagCode, loc: SourceLocation, msg: string) {
+        self._engine  = engine;
+        self._diag    = std::create::<Diagnostic>(code, loc, msg);
+        self._emitted = false;
+    }
+
+    fn DiagBuilder(self, engine: *DiagEngine, code: DiagCode, msg: string) {
+        self._engine  = engine;
+        self._diag    = std::create::<Diagnostic>(code, msg);
+        self._emitted = false;
+    }
+
+    fn first(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        var label = DiagLabel{};
+        label.range = range;
+        label.text  = text;
+        label.style = DiagLabel::Style::Primary;
+        self._diag->labels.push_back(label);
+        return self;
+    }
+
+    fn second(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        var label = DiagLabel{};
+        label.range = range;
+        label.text  = text;
+        label.style = DiagLabel::Style::Secondary;
+        self._diag->labels.push_back(label);
+        return self;
+    }
+
+    fn highlight(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        var label = DiagLabel{};
+        label.range = range;
+        label.text  = text;
+        label.style = DiagLabel::Style::Highlight;
+        self._diag->labels.push_back(label);
+        return self;
+    }
+
+    fn strike(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        var label = DiagLabel{};
+        label.range = range;
+        label.text  = text;
+        label.style = DiagLabel::Style::StrikeThrough;
+        self._diag->labels.push_back(label);
+        return self;
+    }
+
+    fn fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
+        var f = FixIt{};
+        f.range       = range;
+        f.replacement = replacement;
+        f.message     = msg;
+        self._diag->fixits.push_back(f);
+        return self;
+    }
+
+    fn insert(self, loc: SourceLocation, text: string, msg: string) -> ref!(DiagBuilder) {
+        var r = SourceRange{};
+        r.start = loc;
+        r.end   = loc;
+
+        var f = FixIt{};
+        f.range       = r;
+        f.replacement = text;
+        f.message     = msg;
+        self._diag->fixits.push_back(f);
+        return self;
+    }
+
+    priv fn _add_child(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        var child = std::create::<Diagnostic>(code, loc, msg);
+        self._diag->children.push_back(child);
+        return self;
+    }
+
+    priv fn _add_child_no_loc(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        var child = std::create::<Diagnostic>(code, msg);
+        self._diag->children.push_back(child);
+        return self;
+    }
+
+    fn note(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child(code, loc, msg);
+    }
+
+    fn note(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(code, msg);
+    }
+
+    fn warning(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child(code, loc, msg);
+    }
+
+    fn warning(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(code, msg);
+    }
+
+    fn remark(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child(code, loc, msg);
+    }
+
+    fn remark(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(code, msg);
+    }
+
+    fn verbose(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child(code, loc, msg);
+    }
+
+    fn debug_note(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child(code, loc, msg);
+    }
+
+    fn child_first(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if self._diag->children.size() > 0 {
+            var child = self._diag->children[self._diag->children.size() - 1];
+            var label = DiagLabel{};
+            label.range = range;
+            label.text  = text;
+            label.style = DiagLabel::Style::Primary;
+            child->labels.push_back(label);
+        }
+        return self;
+    }
+
+    fn child_second(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if self._diag->children.size() > 0 {
+            var child = self._diag->children[self._diag->children.size() - 1];
+            var label = DiagLabel{};
+            label.range = range;
+            label.text  = text;
+            label.style = DiagLabel::Style::Secondary;
+            child->labels.push_back(label);
+        }
+        return self;
+    }
+
+    fn child_fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
+        if self._diag->children.size() > 0 {
+            var child = self._diag->children[self._diag->children.size() - 1];
+            var f = FixIt{};
+            f.range       = range;
+            f.replacement = replacement;
+            f.message     = msg;
+            child->fixits.push_back(f);
+        }
+        return self;
+    }
+
+    fn emit(self);  // defined out-of-line after DiagEngine
+
+    fn op delete (self) {
+        if !self._emitted {
+            self.emit();
+        }
+        // NOTE: _diag ownership transfers to DiagEngine on emit.
+        //       if emit was never called, we need to clean up.
+        if self._emitted == false {
+            std::destroy(self._diag);
+        }
+    }
+}
+
+class DiagEngine {
+    struct PoisonEntry {
+        var category: DiagCategory;
+        var scope:    SourceRange;
+    }
+
+    priv var _consumers:          vec::<*DiagConsumer>;
+    priv var _all_diags:          vec::<*Diagnostic>;  // owns all emitted diags
+    priv var _error_count:        u32  = 0;
+    priv var _warn_count:         u32  = 0;
+    priv var _note_count:         u32  = 0;
+    priv var _remark_count:       u32  = 0;
+    priv var _ignored_count:      u32  = 0;
+    priv var _verbose_count:      u32  = 0;
+    priv var _debug_count:        u32  = 0;
+    priv var _fatal_count:        u32  = 0;
+    priv var _suppressed_count:   u32  = 0;
+    priv var _error_limit:        u32  = 50;
+    priv var _warnings_as_errors: bool = false;
+    priv var _poisoned:           vec::<PoisonEntry>;
+
+    fn DiagEngine(self) {
+        self._consumers.reserve(2);
+        self._all_diags.reserve(64);
+        self._poisoned.reserve(16);
+    }
+
+    fn op delete (self) {
+        for var i: usize = 0; i < self._all_diags.size(); ++i {
+            std::destroy(self._all_diags[i]);
+        }
+    }
+
+    fn add_consumer(self, consumer: *DiagConsumer) {
+        self._consumers.push_back(consumer);
+    }
+
+    fn remove_consumer(self, consumer: *DiagConsumer) {
+        var j: usize = 0;
+        for var i: usize = 0; i < self._consumers.size(); ++i {
+            if self._consumers[i] != consumer {
+                if i != j {
+                    self._consumers[j] = self._consumers[i];
+                }
+                j += 1;
+            }
+        }
+
+        
+        while self._consumers.size() > j {
+            self._consumers.pop_back();
+        }
+    }
+
+    fn report(self, code: DiagCode, loc: SourceLocation, msg: string) -> DiagBuilder {
+        return DiagBuilder(&self, code, loc, msg);
+    }
+
+    fn report(self, code: DiagCode, msg: string) -> DiagBuilder {
+        return DiagBuilder(&self, code, msg);
+    }
+
+    // convenience: report by DiagID directly
+    fn report(self, id: DiagID, loc: SourceLocation, msg: string) -> DiagBuilder {
+        return DiagBuilder(&self, DiagCode(id), loc, msg);
+    }
+
+    fn report(self, id: DiagID, msg: string) -> DiagBuilder {
+        return DiagBuilder(&self, DiagCode(id), msg);
+    }
+
+    fn poison(self, category: DiagCategory, scope: SourceRange) {
+        var entry = PoisonEntry{};
+        entry.category = category;
+        entry.scope    = scope;
+        self._poisoned.push_back(entry);
+    }
+
+    fn is_poisoned(self, category: DiagCategory, loc: SourceLocation) -> bool {
+        for var i: usize = 0; i < self._poisoned.size(); ++i {
+            if self._poisoned[i].category == category {
+                if self._poisoned[i].scope.contains(loc) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    fn clear_poison(self, category: DiagCategory) {
+        var j: usize = 0;
+        for var i: usize = 0; i < self._poisoned.size(); ++i {
+            if self._poisoned[i].category != category {
+                if i != j {
+                    self._poisoned[j] = self._poisoned[i];
+                }
+                j += 1;
+            }
+        }
+        // shrink
+        while self._poisoned.size() > j {
+            self._poisoned.pop_back();
+        }
+    }
+
+    fn clear_all_poison(self) {
+        self._poisoned.clear();
+    }
+
+    fn emit(self, diag: *Diagnostic) {
+        var sev = diag->code.severity();
+        var cat = diag->code.category();
+
+        if diag->has_loc {
+            if sev == DiagSeverity::Error || sev == DiagSeverity::Warning {
+                if self.is_poisoned(cat, diag->loc) {
+                    self._suppressed_count += 1;
+                    self._all_diags.push_back(diag);
+                    return;
+                }
+            }
+        }
+
+        if sev == DiagSeverity::Warning && self._warnings_as_errors {
+            sev = DiagSeverity::Error;
+        }
+
+        if sev == DiagSeverity::Error || sev == DiagSeverity::Fatal {
+            if self._error_count >= self._error_limit {
+                self._suppressed_count += 1;
+                self._all_diags.push_back(diag);
+                return;
+            }
+        }
+
+        switch sev {
+            case DiagSeverity::Ignored  { self._ignored_count += 1; }
+            case DiagSeverity::Remark   { self._remark_count  += 1; }
+            case DiagSeverity::Verbose  { self._verbose_count += 1; }
+            case DiagSeverity::Note     { self._note_count    += 1; }
+            case DiagSeverity::Debug    { self._debug_count   += 1; }
+            case DiagSeverity::Warning  { self._warn_count    += 1; }
+            case DiagSeverity::Error    { self._error_count   += 1; }
+            case DiagSeverity::Fatal    { self._fatal_count   += 1;
+                                          self._error_count   += 1; }
+            default {}
+        }
+
+        self._all_diags.push_back(diag);
+
+        for var i: usize = 0; i < self._consumers.size(); ++i {
+            self._consumers[i]->handle(diag);
+        }
+    }
+
+    fn set_error_limit(self, limit: u32) {
+        self._error_limit = limit;
+    }
+
+    fn set_warnings_as_errors(self, val: bool) {
+        self._warnings_as_errors = val;
+    }
+
+    fn has_errors(self) -> bool       { return self._error_count > 0; }
+    fn has_fatal(self) -> bool        { return self._fatal_count > 0; }
+    fn error_count(self) -> u32       { return self._error_count; }
+    fn warn_count(self) -> u32        { return self._warn_count; }
+    fn note_count(self) -> u32        { return self._note_count; }
+    fn remark_count(self) -> u32      { return self._remark_count; }
+    fn ignored_count(self) -> u32     { return self._ignored_count; }
+    fn verbose_count(self) -> u32     { return self._verbose_count; }
+    fn debug_count(self) -> u32       { return self._debug_count; }
+    fn suppressed_count(self) -> u32  { return self._suppressed_count; }
+
+    fn summary(self) -> string {
+        var out: string;
+        if self._error_count > 0 {
+            out += f"{self._error_count} error(s)";
+        }
+        if self._warn_count > 0 {
+            if out.length() > 0 { out += ", "; }
+            out += f"{self._warn_count} warning(s)";
+        }
+        if self._note_count > 0 {
+            if out.length() > 0 { out += ", "; }
+            out += f"{self._note_count} note(s)";
+        }
+        if self._suppressed_count > 0 {
+            if out.length() > 0 { out += ", "; }
+            out += f"{self._suppressed_count} suppressed";
+        }
+        if out.length() == 0 {
+            out = "no diagnostics";
+        }
+        return out;
+    }
+}
+
+fn DiagBuilder::emit() {
+    if self._emitted {
+        return;
+    }
+
+    self._emitted = true;
+    self._engine->emit(self._diag);
+    // ownership of _diag transfers to engine
+}
+
+// =========================================================================
+//  Usage example (in driver):
+//
+//  var engine   = DiagEngine();
+//  var consumer = BasicDiagConsumer();
+//  engine.add_consumer(&consumer);
+//
+//  // wire SourceManager without circular import:
+//  var sm = SourceManager(pool, vfm,
+//      diag_engine_report_callback,   // fn ptr
+//      static_cast::<*void>(&engine)  // ctx
+//  );
+//
+//  // compiler components hold *DiagEngine directly:
+//  var lexer = Lexer(sm, &engine);
+//
+//  // emit an error:
+//  engine.report(DiagCode(DiagID::SC041E), some_loc,
+//          f"function '{name}' has a 'void' return type but returns '{ret}' ")
+//      .first(fn_name_range)
+//      .second(ret_type_range, f"expected 'void', found '{ret}' ")
+//      .fix(ret_type_range, ret, f"change the return type to '{ret}' ")
+//      .note(DiagCode(DiagID::SC021N), ret_loc, "the return is here")
+//          .child_first(ret_range, "returns here")
+//      .emit();
+//
+//  // at the end:
+//  consumer.finalize_to_stderr();
+//  std::print(engine.summary());
+// =========================================================================

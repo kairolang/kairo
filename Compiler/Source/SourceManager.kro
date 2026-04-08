@@ -1,0 +1,933 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+ffi "c++" import "Core/Types.hh";
+
+import Source::SourceFile::*;
+import Source::SourceLocation::*;
+import Source::FullSourceLocation::*;
+import Path::*;
+import Memory::MemoryBuffer::*;
+import Source::SourceLineTable::*;
+import ThreadPool::*;
+import VirtualFileManager::*;
+import Assert::*;
+
+type FileID = u32;;
+
+/// FIXME: change the use of string paths in get_line_col to Path objects.
+
+///
+/// \file Core/SourceManager.kro
+/// \brief central coordinator for file loading, buffer access, and location
+///        mapping.
+///
+/// \details
+/// `SourceManager` acts as the backbone of the compiler's source system. it
+/// maintains the relationship between on-disk files, in-memory buffers, and
+/// compact `SourceLocation` identifiers used throughout parsing and diagnostics.
+///
+/// it integrates several key subsystems:
+///   - `VirtualFileManager`: handles file registration and mapped memory.
+///   - `SourceLineTable`: provides fast line/column resolution.
+///   - `ThreadPool`: performs async line index building.
+///   - `SourceFile`: represents loaded files and their memory-backed content.
+///
+/// conceptually, it provides a unified logical address space where each file
+/// occupies a contiguous region. a `SourceLocation` id is simply an offset
+/// into this space:
+/// **`id = file_base + local_offset`**
+///
+/// this provides deterministic mapping and constant-time location resolution.
+///
+/// \note
+/// this class is *not thread-safe*. concurrent operations must be synchronized
+/// externally.
+///
+/// \see VirtualFileManager, SourceLineTable, SourceFile, SourceLocation
+///
+
+///
+/// \class SourceManager
+/// \brief manages mapping between files, buffers, and source locations.
+///
+/// provides APIs for:
+///   - loading files (`load_file`)
+///   - resolving ids to file/offset (`resolve`)
+///   - computing line/column (`get_line_col`)
+///   - fetching views, buffers, and metadata
+///
+class SourceManager {
+    pub  var _line_table: SourceLineTable;    ///< global line mapping table
+    priv var _files:      vec::<*SourceFile>; ///< all loaded files
+    priv var _total_b:    u64 = 0;            ///< total bytes mapped
+    priv var _pool:      *ThreadPool;         ///< background worker pool
+    priv var _vfile_mgr: *VirtualFileManager; ///< underlying virtual filesystem
+
+    ///
+    /// \brief constructs a new SourceManager with pool and vfile manager.
+    ///
+    /// \param pool thread pool used for background indexing.
+    /// \param vfile_mgr virtual file manager used for mapping files.
+    ///
+    /// \throws RuntimeError if either argument is null.
+    ///
+    fn SourceManager(self, pool: *ThreadPool, vfile_mgr: *VirtualFileManager) {
+        if pool == &null {
+            std::crash(std::Error::RuntimeError(
+                "SourceManager: A valid ThreadPool is required"
+            ));
+        }
+
+        if vfile_mgr == &null {
+            std::crash(std::Error::RuntimeError(
+                "SourceManager: A valid VirtualFileManager is required"
+            ));
+        }
+
+        self._pool      = pool;
+        self._files     = vec::<*SourceFile>();
+        self._total_b   = 0;
+        self._vfile_mgr = vfile_mgr;
+        Logger::info(Logger::Stage::Driver, f"SourceManager: initialized");
+    }
+
+    ///
+    /// \brief destructor: cleans up all loaded files.
+    ///
+    fn op delete (self) {
+        self._line_table.shutdown();
+        // self._pool->wait_all();
+
+        for f: *SourceFile in _files {
+            if f != &null {
+                delete f;
+            }
+        }
+
+        _files.clear();
+    }
+
+    ///
+    /// \brief loads a file and registers it in the global source space.
+    ///
+    /// \param path file path to load.
+    /// \return file id assigned by VirtualFileManager.
+    ///
+    /// \details
+    /// - avoids duplicates by checking already-loaded paths.
+    /// - registers file in the VirtualFileManager and SourceLineTable.
+    /// - schedules async line-index build on the thread pool.
+    ///
+    fn load_file(self, path: Path, skip_indexing: bool = false) -> FileID /* file_id */ {
+        for i in range::<usize>(0, self._files.size()) {
+            var f = self._files[i];
+
+            if (f != &null) && (f->path.full_path() == path.full_path()) {
+                Logger::debug(
+                    Logger::Stage::Driver,
+                    f"SourceManager::load_file: cache hit for {path.full_path()}"
+                );
+                return static_cast::<FileID>(i);
+            }
+        }
+
+        var base_fid = _vfile_mgr->register_file(path);
+        var info     = _vfile_mgr->get_info(base_fid);
+        var size     = info.size;
+
+        _line_table.register_file(base_fid, size);
+
+        var buf  = _vfile_mgr->get_buffer(base_fid);
+        var file = std::create::<SourceFile>(path, buf, self._total_b);
+
+        /// FIXME: an overflow can occur here.
+        self._total_b += file->size_bytes;
+        self._files.push_back(file);
+        Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={file->size_bytes}B total={self._total_b}B");
+        
+        if skip_indexing {
+            Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: skipping line index for fid={base_fid} path={path.full_path()}");
+            return base_fid;
+        }
+        
+        self._pool->enqueue(__inline_cpp("
+            [fid = base_fid, this]() {
+                this->_line_table.build_index(fid, this->_vfile_mgr);
+            }
+        "));
+
+        // std::print(f"load_file: path={path.full_path()}, base_fid={base_fid}, _files.size()={self._files.size()}");
+        return base_fid;
+    }
+
+    ///
+    /// \brief loads a virtual (in-memory) file into the source space.
+    ///
+    /// \param fake_path logical path to assign to the virtual file.
+    /// \param data pointer to raw byte data.
+    /// \param size size of the data in bytes.
+    ///
+    /// \return file id assigned by VirtualFileManager.
+    ///
+    /// \note The caller is responsible for ensuring the data pointer
+    ///       remains valid for the lifetime of the virtual file.
+    ///
+    fn load_virtual(self, fake_path: Path, data: std::const_ptr::<u8>, size: usize) -> FileID {
+        var fid = _vfile_mgr->register_virtual(fake_path, data, size);
+        
+        _line_table.register_file(fid, size);
+        
+        var buf  = _vfile_mgr->get_buffer(fid);
+        var file = std::create::<SourceFile>(fake_path, buf, self._total_b);
+        
+        self._total_b += file->size_bytes;
+        self._files.push_back(file);
+        Logger::info(Logger::Stage::Driver, f"SourceManager::load_virtual: registered fid={fid} path={fake_path.full_path()} size={size}B");
+        
+        self._line_table.build_index(fid, self._vfile_mgr);
+        
+        return fid;
+    }
+
+    ///
+    /// \brief resolves line and column for a given SourceLocation.
+    ///
+    fn get_line_col(self, loc: SourceLocation) -> FullSourceLocation {
+        var res     = self.resolve(loc);
+        var file_id = res.fid;
+        var offset  = res.offset;
+
+        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
+            Logger::warn(Logger::Stage::Driver, f"SourceManager::get_line_col: invalid fid={file_id}");
+            return FullSourceLocation();
+        }
+
+        return self._line_table.get_line_col(
+            file_id,
+            offset,
+            self.get_filename(file_id)
+        );
+    }
+
+    ///
+    /// \brief resolves line/column directly by file id and offset.
+    ///
+    fn get_line_col(self, file_id: FileID, offset: usize) -> FullSourceLocation {
+        return self._line_table.get_line_col(
+            file_id,
+            offset,
+            self.get_filename(file_id)
+        );
+    }
+
+    fn get_full_line(self, loc: SourceLocation) -> string {
+        var range    = self.get_line_range(loc);
+        return self.get_text(range);
+    }
+
+    __inline_cpp("
+        private:
+        struct LineUtil {
+            template <usize N>
+            static inline constexpr usize line_range_size = N * 2 + 1;
+        };
+        public:
+    ");
+
+    /// gets N lines above and below the given locations line
+    fn <N: usize> get_line_range_context(self, loc: SourceLocation) -> array::<string, LineUtil::line_range_size::<N>> {
+        var full_loc = self.get_line_col(loc);
+        var resolve  = self.resolve(loc);
+        var fid      = resolve.fid;
+        var line     = full_loc.line;
+        var context: array::<string, LineUtil::line_range_size::<N>> = array::<string, LineUtil::line_range_size::<N>>();
+
+        for i in range::<isize>(-static_cast::<isize>(N), static_cast::<isize>(N) + 1) {
+            var curr_line = static_cast::<usize>(static_cast::<isize>(line) + i);
+
+            if curr_line < 1 {
+                context[static_cast::<usize>(i + static_cast::<isize>(N))] = "";
+                continue;
+            }
+
+            /// if the line doesnt exist, return empty string
+            var line_start = self._line_table.get_line_offset(fid, curr_line);
+            var line_end   = self._line_table.get_line_end_offset(fid, curr_line);
+            if line_start == line_end {
+                context[static_cast::<usize>(i + static_cast::<isize>(N))] = "";
+                continue;
+            }
+
+            var line_range = self.get_range(
+                fid,
+                static_cast::<usize>(line_start),
+                static_cast::<usize>(line_end - line_start)
+            );
+
+            context[static_cast::<usize>(i + static_cast::<isize>(N))] = self.get_text(line_range);
+        }
+
+        return context;
+    }
+
+    ///
+    /// \brief resolves a SourceLocation -> file/offset pair.
+    ///
+    /// \return segment info `{fid, offset}` or invalid if not found.
+    ///
+    fn resolve(self, loc: SourceLocation) -> VirtualFileManager::SegmentResolve {
+        return self._vfile_mgr->resolve_loc(loc);
+    }
+
+    ///
+    /// \brief placeholder for async line index status.
+    ///
+    fn is_line_index_ready(self, file_id: FileID) -> bool {
+        return false;
+    }
+
+    ///
+    /// \brief blocks until line index for file is ready.
+    ///
+    fn wait_for_line_index(self, file_id: FileID) {
+        self._line_table.wait_until_ready(file_id);
+    }
+
+    ///
+    /// \brief retrieves file buffer as MemoryBuffer view.
+    ///
+    fn get_buffer(self, file_id: FileID) -> MemoryBuffer? {
+        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
+            return null;
+        }
+
+        return self._files[file_id]->buffer->bytes();
+    }
+
+    ///
+    /// \brief returns full path for file id.
+    ///
+    fn get_filename(self, file_id: FileID) -> string {
+        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
+            return "<invalid>";
+        }
+
+        return self._files[file_id]->path.full_path();
+    }
+
+    ///
+    /// \brief returns logical path for SourceLocation
+    ///
+    fn get_filename(self, loc: SourceLocation) -> string {
+        var res = self.resolve(loc);
+        return self.get_filename(res.fid);
+    }
+
+    ///
+    /// \brief returns logical path for SourceRange
+    ///
+    fn get_filename(self, range: SourceRange) -> string {
+        var res = self.resolve(range.start);
+        return self.get_filename(res.fid);
+    }
+
+    ///
+    /// \brief returns file extension (if any).
+    ///
+    fn get_file_extension(self, file_id: FileID) -> string? {
+        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
+            return null;
+        }
+
+        return self._files[file_id]->path.extension();
+    }
+
+    ///
+    /// \brief fetches file view handle from VirtualFileManager.
+    ///
+    fn get_file_view(self, fid: FileID) -> VirtualFileManager::FileHandle {
+        return _vfile_mgr->get_file_view(fid);
+    }
+
+    ///
+    /// \brief resolves a raw pointer back to file id + offset.
+    ///
+    fn resolve_ptr(self, ptr: std::const_ptr::<u8>)
+        -> VirtualFileManager::SegmentResolve
+    {
+        return _vfile_mgr->resolve_ptr(const_cast::<*u8>(ptr));
+    }
+
+    ///
+    /// \brief expands a SourceLocation into a FullSourceLocation.
+    ///
+    fn get_full_loc(self, loc: SourceLocation) -> FullSourceLocation {
+        if !loc.is_valid() {
+            return FullSourceLocation();
+        }
+
+        var res = self.resolve(loc);
+        var lc  = self.get_line_col(res.fid, res.offset);
+
+        return FullSourceLocation(res.fid, lc.line, lc.column, lc.path);
+    }
+
+    ///
+    /// \brief convenience wrapper to get SourceLocation from fid+offset.
+    ///
+    fn get_loc(self, fid: FileID, off: usize) -> SourceLocation {
+        return _vfile_mgr->get_loc(fid, off);
+    }
+
+    fn get_loc(self, ptr: std::restrict_ptr::<u8>) -> SourceLocation {
+        return _vfile_mgr->get_loc(ptr);
+    }
+
+    ///
+    /// \brief returns SourceRange for file id, offset, and length.
+    ///
+    fn get_range(self, fid: FileID, off: usize, len: usize) -> SourceRange {
+        return _vfile_mgr->get_range(fid, off, len);
+    }
+
+    ///
+    /// \brief returns number of loaded files.
+    ///
+    fn file_count(self) -> usize {
+        return self._files.size();
+    }
+
+    ///
+    /// \brief returns total bytes of all loaded files.
+    ///
+    fn total_bytes(self) -> u64 {
+        /// FIXME: an overflow can occur here.
+        return self._total_b;
+    }
+
+    ///
+    /// \brief retrieves a MemoryBuffer view for a SourceRange.
+    ///
+    fn get_view(self, range: SourceRange) -> MemoryBuffer {
+        var res     = self.resolve(range.start);
+        // std::print(f"get_view: range.start.raw()={range.start.raw()}, resolved fid={res.fid}, offset={res.offset}, _files.size()={self._files.size()}");
+        
+        // if res.fid >= self._files.size() {
+        //     std::print(f"get_view: INVALID fid {res.fid} >= {self._files.size()}");
+        //     return MemoryBuffer();
+        // }
+
+        var file_id = res.fid;
+        var offset  = res.offset;
+        var length  = static_cast::<usize>(range.end.raw() - range.start.raw());
+        var file    = self._files[file_id];
+        var buf     = file->buffer->bytes();
+
+        if (offset + length) >= buf.size() {
+            length = buf.size() - offset;
+        }
+
+        return MemoryBuffer(buf.data() + offset, length);
+    }
+
+    ///
+    /// \brief retrieves a UTF-8 string for a SourceRange.
+    ///
+    /// \param range source range to fetch.
+    /// \return UTF-8 string covering the range.
+    ///
+    /// \warning This is a very expensive operation. Use only for debugging.
+    ///
+    fn get_text(self, range: SourceRange) -> string {
+        var mbuf = self.get_view(range);
+        var cstr = mbuf.data();
+        var str: string;
+        var p   = cstr;
+        var end = cstr + mbuf.size();
+
+        str.reserve(mbuf.size());
+
+        while (p <= end) {
+            var res = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+            var codepoint = res.chr;
+            var len = res.len;
+
+            if len == 0 {
+                break;
+            }
+
+            eval if sizeof(char) == 4 {
+                str.push_back(static_cast::<char>(codepoint));
+            } else {
+                if codepoint < 0x10000 {
+                    str.push_back(static_cast::<char>(codepoint));
+                } else {
+                    var hi = codepoint - 0x10000;
+                    str.push_back(static_cast::<char>(0xD800 + (hi >> 10)));
+                    str.push_back(static_cast::<char>(0xDC00 + (hi & 0x3FF)));
+                }
+            }
+
+            p += len;
+        }
+
+        return str;
+    }
+    
+    ///
+    /// \brief prints loaded file metadata for debugging.
+    ///
+    fn dump_files(self) {
+        std::print("=== SourceManager File Dump ===");
+
+        for i in range::<usize>(0, self._files.size()) {
+            var file = self._files[i];
+            std::print(f"[{i}] {file->path.full_path()}");
+            std::print(f"     size: {file->size_bytes} bytes");
+            std::print(f"     base offset: {file->base_offset}");
+        }
+    }
+
+    ///
+    /// \brief computes byte distance between two source locations.
+    ///
+    /// \param a first location.
+    /// \param b second location.
+    /// \return absolute byte distance.
+    ///
+    /// \warning returns 0 if locations are from different files.
+    ///
+    fn diff(self, a: SourceLocation, b: SourceLocation) -> usize {
+        var res_a = self.resolve(a);
+        var res_b = self.resolve(b);
+        
+        // different files -> distance is meaningless
+        if res_a.fid != res_b.fid {
+            return 0;
+        }
+        
+        return a.distance_to(b);
+    }
+
+    ///
+    /// \brief checks if two locations are in the same file.
+    ///
+    fn same_file(self, a: SourceLocation, b: SourceLocation) -> bool {
+        var res_a = self.resolve(a);
+        var res_b = self.resolve(b);
+        return res_a.fid == res_b.fid;
+    }
+
+    ///
+    /// \brief extracts a single character at a location.
+    ///
+    /// \param loc location to read from.
+    /// \return UTF-32 codepoint, or 0 if invalid.
+    ///
+    fn get_char_at(self, loc: SourceLocation) -> char {
+        var range = SourceRange::single(loc);
+        var buf   = self.get_view(range);
+        
+        if buf.size() == 0 {
+            return 0;
+        }
+        
+        var res = UTF8View::decode_utf8(buf.data(), buf.size());
+        return res.chr;
+    }
+
+    ///
+    /// \brief checks if a location points to whitespace.
+    ///
+    fn is_whitespace_at(self, loc: SourceLocation) -> bool {
+        var chr = self.get_char_at(loc);
+        return (chr == ' ') || (chr == '\t') || (chr == '\n') || (chr == '\r');
+    }
+
+    ///
+    /// \brief finds start of line containing location.
+    ///
+    /// \param loc location to search from.
+    /// \return location at start of line.
+    ///
+    fn get_line_start(self, loc: SourceLocation) -> SourceLocation {
+        if !loc.is_valid() {
+            return loc;
+        }
+
+        var full_loc = self.get_line_col(loc);
+        var res = self.resolve(loc);
+        
+        // wait for line index if not ready
+        self._line_table.wait_until_ready(res.fid);
+        
+        var line_start_offset = self._line_table.get_line_offset(
+            res.fid,
+            full_loc.line
+        );
+        
+        return self.get_loc(res.fid, static_cast::<usize>(line_start_offset));
+    }
+
+    ///
+    /// \brief finds end of line containing location.
+    ///
+    /// \param loc location to search from.
+    /// \return location at end of line (before newline).
+    ///
+    fn get_line_end(self, loc: SourceLocation) -> SourceLocation {
+        if !loc.is_valid() {
+            return loc;
+        }
+
+        var full_loc = self.get_line_col(loc);
+        var res = self.resolve(loc);
+        
+        // wait for line index if not ready
+        self._line_table.wait_until_ready(res.fid);
+        
+        var line_end_offset = self._line_table.get_line_end_offset(
+            res.fid,
+            full_loc.line
+        );
+        
+        return self.get_loc(res.fid, static_cast::<usize>(line_end_offset));
+    }
+
+    ///
+    /// \brief extracts entire line containing a location.
+    ///
+    /// \param loc any location on the line.
+    /// \return range covering the full line.
+    ///
+    fn get_line_range(self, loc: SourceLocation) -> SourceRange {
+        var start = self.get_line_start(loc);
+        var end   = self.get_line_end(loc);
+        return SourceRange::from_bounds(start, end);
+    }
+
+    ///
+    /// \brief checks if range spans multiple lines.
+    ///
+    fn is_multiline(self, range: SourceRange) -> bool {
+        var start_line = self.get_line_col(range.start).line;
+        var end_line = self.get_line_col(range.end).line;
+        return start_line != end_line;
+    }
+
+    fn get_fid(self, loc: SourceLocation) -> FileID {
+        var res = self.resolve(loc);
+        return res.fid;
+    }
+
+    fn get_fid(self, range: SourceRange) -> FileID {
+        var res = self.resolve(range.start);
+        return res.fid;
+    }
+
+    fn get_offset(self, loc: SourceLocation) -> usize {
+        var res = self.resolve(loc);
+        return res.offset;
+    }
+
+    fn get_offset(self, range: SourceRange) -> usize {
+        var res = self.resolve(range.start);
+        return res.offset;
+    }
+
+    fn get_file_size(self, fid: FileID) -> usize {
+        if (fid >= self._files.size()) || (self._files[fid] == &null) {
+            return 0;
+        }
+
+        return self._files[fid]->size_bytes;
+    }
+
+    fn get_file_size(self, loc: SourceLocation) -> usize {
+        var res = self.resolve(loc);
+        return self.get_file_size(res.fid);
+    }
+
+    ///
+    /// \brief resets the manager to initial state.
+    ///
+    /// \details
+    /// destroys all loaded files, resets byte counter and line table.
+    /// also resets the underlying VirtualFileManager.
+    /// used for test isolation.
+    ///
+    fn reset(self) {
+        self._line_table.shutdown();
+        Logger::debug(Logger::Stage::Driver, f"SourceManager::reset: releasing {self._files.size()} files, {self._total_b}B total");
+        
+        for f: *SourceFile in _files {
+            if f != &null {
+                delete f;
+            }
+        }
+        _files.clear();
+        
+        self._total_b = 0;
+        self._vfile_mgr->reset();
+        
+        // reinitialize line table if needed
+        self._line_table.reset();
+    }
+}
+
+fn Test() -> i32 {
+    var pool = std::create::<ThreadPool>(4);
+    var vfm  = std::create::<VirtualFileManager>();
+    var sm   = std::create::<SourceManager>(pool, vfm);
+
+    finally {
+        std::destroy(sm);
+        std::destroy(vfm);
+        std::destroy(pool);
+    }
+
+    var suite = Assert("SourceManager Multi-File Tests");
+
+    // =========================================================================
+    // HELPERS
+    // =========================================================================
+
+    static var data0: libcxx::string;
+    static var data1: libcxx::string;
+
+    var file0_str = "hello world\nline two\n";
+    var file1_str = "module Foo {\n    macro mac! { 10 }\n}\n";
+
+    var nd0 = std::string_to_nstring(file0_str);
+    data0 = libcxx::string(nd0);
+    var nd1 = std::string_to_nstring(file1_str);
+    data1 = libcxx::string(nd1);
+
+    var fid0 = sm->load_virtual(
+        Path("test_file0.kro", false),
+        reinterpret_cast::<std::const_ptr::<u8>>(data0.data()),
+        file0_str.size()
+    );
+
+    var fid1 = sm->load_virtual(
+        Path("test_file1.kro", false),
+        reinterpret_cast::<std::const_ptr::<u8>>(data1.data()),
+        file1_str.size()
+    );
+
+    // =========================================================================
+    // FILE REGISTRATION
+    // =========================================================================
+
+    suite.equal::<string>("fid0 is 0", "pass", fn () -> string {
+        if fid0 != 0 { return f"expected fid0=0, got {fid0}"; }
+        return "pass";
+    });
+
+    suite.equal::<string>("fid1 is 1", "pass", fn () -> string {
+        if fid1 != 1 { return f"expected fid1=1, got {fid1}"; }
+        return "pass";
+    });
+
+    suite.equal::<string>("total bytes = sum of file sizes", "pass", fn () -> string {
+        var expected = file0_str.size() + file1_str.size();
+        var actual = sm->total_bytes();
+        if actual != expected {
+            return f"expected total_bytes={expected}, got {actual}";
+        }
+        return "pass";
+    });
+
+    // =========================================================================
+    // GET_LOC / RESOLVE ROUND-TRIP: FILE 0
+    // =========================================================================
+
+    suite.equal::<string>("file0: get_loc(0) resolves to fid=0 offset=0", "pass", fn () -> string {
+        var loc = sm->get_loc(fid0, 0);
+        var res = sm->resolve(loc);
+        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
+        if res.offset != 0 { return f"offset: expected 0, got {res.offset}"; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file0: get_loc(5) resolves to fid=0 offset=5", "pass", fn () -> string {
+        var loc = sm->get_loc(fid0, 5);
+        var res = sm->resolve(loc);
+        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
+        if res.offset != 5 { return f"offset: expected 5, got {res.offset}"; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file0: last byte resolves correctly", "pass", fn () -> string {
+        var last = file0_str.size() - 1;
+        var loc = sm->get_loc(fid0, last);
+        var res = sm->resolve(loc);
+        if res.fid != 0 { return f"fid: expected 0, got {res.fid}"; }
+        if res.offset != last { return f"offset: expected {last}, got {res.offset}"; }
+        return "pass";
+    });
+
+    // =========================================================================
+    // GET_LOC / RESOLVE ROUND-TRIP: FILE 1
+    // =========================================================================
+
+    suite.equal::<string>("file1: get_loc(0) resolves to fid=1 offset=0", "pass", fn () -> string {
+        var loc = sm->get_loc(fid1, 0);
+        var res = sm->resolve(loc);
+        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
+        if res.offset != 0 { return f"offset: expected 0, got {res.offset}"; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1: get_loc(7) resolves to fid=1 offset=7", "pass", fn () -> string {
+        var loc = sm->get_loc(fid1, 7);
+        var res = sm->resolve(loc);
+        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
+        if res.offset != 7 { return f"offset: expected 7, got {res.offset}"; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1: last byte resolves correctly", "pass", fn () -> string {
+        var last = file1_str.size() - 1;
+        var loc = sm->get_loc(fid1, last);
+        var res = sm->resolve(loc);
+        if res.fid != 1 { return f"fid: expected 1, got {res.fid}"; }
+        if res.offset != last { return f"offset: expected {last}, got {res.offset}"; }
+        return "pass";
+    });
+
+    // =========================================================================
+    // GET_TEXT: FILE 0
+    // =========================================================================
+
+    suite.equal::<string>("file0: get_text [0,5] = 'hello' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid0, 0, 5));
+        if text != "hello" { return f"expected 'hello', got '{text}' "; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file0: get_text [6,11] = 'world' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid0, 6, 5));
+        if text != "world" { return f"expected 'world', got '{text}' "; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file0: get_text [0,11] = 'hello world' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid0, 0, 11));
+        if text != "hello world" { return f"expected 'hello world', got '{text}' "; }
+        return "pass";
+    });
+
+    // =========================================================================
+    // GET_TEXT: FILE 1
+    // =========================================================================
+
+    suite.equal::<string>("file1: get_text [0,6] = 'module' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid1, 0, 6));
+        if text != "module" { return f"expected 'module', got '{text}' "; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1: get_text [7,10] = 'Foo' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid1, 7, 3));
+        if text != "Foo" { return f"expected 'Foo', got '{text}' "; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1: get_text [17,22] = 'macro' ", "pass", fn () -> string {
+        var text = sm->get_text(sm->get_range(fid1, 17, 5));
+        if text != "macro" { return f"expected 'macro', got '{text}' "; }
+        return "pass";
+    });
+
+    // =========================================================================
+    // GET_VIEW: BUFFER CORRECTNESS
+    // =========================================================================
+
+    suite.equal::<string>("file0: get_view bytes match 'hello' ", "pass", fn () -> string {
+        var view = sm->get_view(sm->get_range(fid0, 0, 5));
+        if view.data() == &null { return "view data is null"; }
+        if view.size() != 5 { return f"expected size 5, got {view.size()}"; }
+        // h=104 e=101 l=108 l=108 o=111
+        if view.data()[0] != 104 { return f"byte 0: expected 104, got {view.data()[0]}"; }
+        if view.data()[1] != 101 { return f"byte 1: expected 101, got {view.data()[1]}"; }
+        if view.data()[4] != 111 { return f"byte 4: expected 111, got {view.data()[4]}"; }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1: get_view bytes match 'Foo' ", "pass", fn () -> string {
+        var view = sm->get_view(sm->get_range(fid1, 7, 3));
+        if view.data() == &null { return "view data is null"; }
+        if view.size() != 3 { return f"expected size 3, got {view.size()}"; }
+        // F=70 o=111 o=111
+        if view.data()[0] != 70 { return f"byte 0: expected 70, got {view.data()[0]}"; }
+        if view.data()[1] != 111 { return f"byte 1: expected 111, got {view.data()[1]}"; }
+        return "pass";
+    });
+
+    // =========================================================================
+    // CROSS-FILE ISOLATION
+    // =========================================================================
+
+    suite.equal::<string>("file0 locations never resolve to file1", "pass", fn () -> string {
+        for i in range::<usize>(0, file0_str.size()) {
+            var loc = sm->get_loc(fid0, i);
+            var res = sm->resolve(loc);
+            if res.fid != 0 {
+                return f"offset {i}: resolved to fid={res.fid}, expected 0";
+            }
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("file1 locations never resolve to file0", "pass", fn () -> string {
+        for i in range::<usize>(0, file1_str.size()) {
+            var loc = sm->get_loc(fid1, i);
+            var res = sm->resolve(loc);
+            if res.fid != 1 {
+                return f"offset {i}: resolved to fid={res.fid}, expected 1";
+            }
+        }
+        return "pass";
+    });
+
+    // =========================================================================
+    // GET_BUFFER
+    // =========================================================================
+
+    suite.equal::<string>("get_buffer(fid0) returns correct size", "pass", fn () -> string {
+        var buf = sm->get_buffer(fid0);
+        if buf == null { return "buffer is null"; }
+        var b = (*buf);
+        if b.size() != file0_str.size() {
+            return f"expected size {file0_str.size()}, got {b.size()}";
+        }
+        return "pass";
+    });
+
+    suite.equal::<string>("get_buffer(fid1) returns correct size", "pass", fn () -> string {
+        var buf = sm->get_buffer(fid1);
+        if buf == null { return "buffer is null"; }
+        var b = (*buf);
+        if b.size() != file1_str.size() {
+            return f"expected size {file1_str.size()}, got {b.size()}";
+        }
+        return "pass";
+    });
+
+    pool->wait_all();
+    return 0;
+}

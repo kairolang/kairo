@@ -1,0 +1,30 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Source::SourceManager::*;
+/// SourceManager has: import ThreadPool::*;
+/// SourceManager has: import VirtualFileManager::*;
+/// SourceManager has: import Source::SourceLocation::*;
+/// SourceManager has: import Source::FullSourceLocation::*;
+/// SourceManager has: import Memory::MemoryBuffer::*;
+/// SourceManager has: import Path::*;
+/// SourceManager has: import Memory::MMapRegion::*;
+/// SourceManager has: import Timer::*;
+/// SourceManager has: import Memory::MappedFileBuffer::*;
+/// SourceManager has: import FileSystem::*;
+/// SourceManager has: import Source::SourceLineTable::*;
+/// SourceManager has: import UTF8View::*;
+/// SourceManager has: import Source::SourceFile::*;
+/// SourceManager has: import Source::SourceRange::*;

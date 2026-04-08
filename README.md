@@ -22,7 +22,7 @@ The **Stage 0 compiler** (written in C++) is functional and can compile Kairo, y
 > [!WARNING]
 >  Documentation is a work in progress, it doesn't refelct what Stage 0 can compile or do; since most of the code emaples are for stage 1's syntax - and yes, the discriptions are mostly written using AI (LLMs). We will be redoing it incrementally, until stage 1 is stable; We would appreciate any contributions, feedback, or suggestions you may have!
 >
-> You can find the source on [GitHub](https://github.com/kairolang/kairo-site), and the website is at [helix-lang.com](https://www.helix-lang.com). In the meantime if you'd want some reference of kairo code that compiles on stage 0 take a look [here](https://github.com/kairolang/kairo/tree/canary/kairo-0.1.1%2Bbc.251007/Toolchain)
+> You can find the source on [GitHub](https://github.com/kairolang/kairo-site), and the website is at [helix-lang.com](https://www.helix-lang.com). In the meantime if you'd want some reference of kairo code that compiles on stage 0 take a look [here](https://github.com/kairolang/kairo/tree/canary/kairo-0.1.1%2Bbc.251007/Compiler)
 
 ### Why Kairo?
 
@@ -51,7 +51,7 @@ Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh 
 
 **Build from source:** see [BUILD.md](BUILD.md) - covers the quick install script, manual setup, PATH configuration, the VSCode extension, and debugging.
 
-**Code reference:** since the docs are still catching up, the [Toolchain directory](https://github.com/kairolang/kairo/tree/canary/kairo-0.1.1%2Bbc.251007/Toolchain) has working Stage 0 examples.
+**Code reference:** since the docs are still catching up, the [Compiler directory](https://github.com/kairolang/kairo/tree/canary/kairo-0.1.1%2Bbc.251007/Compiler) has working Stage 0 examples.
 
 ### License:
 Kairo is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/kairolang/kairo/blob/main/license) for more details.

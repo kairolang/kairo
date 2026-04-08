@@ -1,0 +1,121 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import ASTNode::Base::*;
+
+class <T> ReDeclarable {
+    var first:    *T;   // canonical first decl seen
+    var previous: *T;   // previous in chain, null if first
+    var most_recent: *T; // tail of chain
+
+    fn get_canonical(self) -> *T { return self.first; }
+    fn get_previous(self)  -> *T { return self.previous; }
+    fn get_last(self)      -> *T { return self.most_recent; }
+}
+
+class BasicParameterDecl derives NamedDecl {
+    // name is inherited from NamedIdentifier
+    // also inherits range and kind from Expr, but kind is always ParameterDecl
+    enum Kind {
+        /// Basic typed parameter: x: i32
+        /// Most common case.
+        Typed,
+
+        /// Typed with default value: x: i32 = 0
+        TypedWithDefault,
+
+        /// Const parameter value cannot be mutated inside the function.
+        /// const x: i32
+        Const,
+
+        /// Self receiver by value consumes the object.
+        /// self
+        SelfValue,
+
+        /// Self receiver by pointer borrows the object.
+        /// &self
+        SelfPointer,
+
+        /// Pointer-prefixed parameter caller passes value, fn sees pointer.
+        /// *x: i32
+        /// Distinct from a parameter whose TYPE is a pointer.
+        PointerReceiver,
+
+        /// Unsafe Pointer-prefixed parameter caller passes value, fn sees pointer.
+        /// unsafe *x: i32
+        UnsafePointerReceiver,
+
+        /// Named parameter caller must supply the name at call site.
+        /// Distinct from positional: named: x: i32
+        Named,
+
+        /// Kairo variadic pack: ..args: [i32]
+        /// Caller passes zero or more values, collected into a slice.
+        VariadicPack,
+    }
+
+    var typ: *Type;
+    var default_value: *Expr;  // optional, for default parameters
+    var param_kind: Kind;
+
+    fn is_variadic_pack(self) -> bool {
+        return self.param_kind == Kind::VariadicPack;
+    }
+
+    fn is_self_receiver(self) -> bool {
+        return (self.param_kind == Kind::SelfValue)
+            || (self.param_kind == Kind::SelfPointer);
+    }
+
+    fn is_const(self) -> bool {
+        return self.param_kind == Kind::Const;
+    }
+
+    fn is_pointer_receiver(self) -> bool {
+        return self.param_kind == Kind::PointerReceiver;
+    }
+     
+    fn is_named(self) -> bool {
+        return self.param_kind == Kind::Named;
+    }
+
+    fn is_typed(self) -> bool {
+        return (self.param_kind == Kind::Typed)
+            || (self.param_kind == Kind::TypedWithDefault);
+    }
+
+    fn has_default(self) -> bool {
+        return (self.param_kind == Kind::TypedWithDefault)
+            || (self.default_value != &null);
+    }
+
+    fn is_self_receiver_by_value(self) -> bool {
+        return self.param_kind == Kind::SelfValue;
+    }
+
+    fn is_self_receiver_by_pointer(self) -> bool {
+        return self.param_kind == Kind::SelfPointer;
+    }
+
+    fn is_unsafe_pointer_receiver(self) -> bool {
+        return self.param_kind == Kind::UnsafePointerReceiver;
+    }
+};
+
+class ParamList derives BasicParameterDecl {
+    const MAX_PARAMS: usize = 256;
+    const MAX_INDEX:  usize = MAX_PARAMS - 1;
+    var param_list :  ArenaList::<BasicParameterDecl>;
+};

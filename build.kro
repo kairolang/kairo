@@ -90,44 +90,44 @@ fn main() -> i32 {
         .skip_dirs(["build", "Lib", "private"]);
 
     var kairo = Target("kairo")
-        .entry("Toolchain/Driver/Main/kairo.kro")
-        .includes(["Toolchain", "Lib/bootstrap/lib-helix"])
+        .entry("Compiler/Driver/Main/kairo.kro")
+        .includes(["Compiler", "Lib/bootstrap/lib-helix"])
         .define(KAIRO_VERSION)
         .passthrough("-fno-lto")
         .pre_build(llvm_prebuild);
     apply_llvm(kairo, llvm_src, llvm_build, out_lib);
 
     var kbld = Target("kbld")
-        .entry("Toolchain/Driver/Main/kbld.kro")
-        .include("Toolchain")
+        .entry("Compiler/Driver/Main/kbld.kro")
+        .include("Compiler")
         .define(KBLD_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(kbld, llvm_src, llvm_build, out_lib);
 
     var kfmt = Target("kfmt")
-        .entry("Toolchain/Driver/Main/kfmt.kro")
-        .include("Toolchain")
+        .entry("Compiler/Driver/Main/kfmt.kro")
+        .include("Compiler")
         .define(KFMT_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(kfmt, llvm_src, llvm_build, out_lib);
 
     var kld = Target("kld")
-        .entry("Toolchain/Driver/Main/kld.kro")
-        .include("Toolchain")
+        .entry("Compiler/Driver/Main/kld.kro")
+        .include("Compiler")
         .define(KLD_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(kld, llvm_src, llvm_build, out_lib);
 
     var klsp = Target("klsp")
-        .entry("Toolchain/Driver/Main/klsp.kro")
-        .include("Toolchain")
+        .entry("Compiler/Driver/Main/klsp.kro")
+        .include("Compiler")
         .define(KLSP_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(klsp, llvm_src, llvm_build, out_lib);
 
     var kpkg = Target("kpkg")
-        .entry("Toolchain/Driver/Main/kpkg.kro")
-        .include("Toolchain")
+        .entry("Compiler/Driver/Main/kpkg.kro")
+        .include("Compiler")
         .define(KPKG_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(kpkg, llvm_src, llvm_build, out_lib);

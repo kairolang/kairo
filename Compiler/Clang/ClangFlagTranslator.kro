@@ -1,0 +1,1363 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Driver::Command::ParsedArgs::*;
+import Path::*;
+
+///
+/// \file Driver/ClangFlagTranslator.kro
+/// \brief translates ParsedArgs into a clang argv vec for codegen invocation.
+///
+/// \details
+/// this is the single place that maps Kairo flags -> clang flags.
+/// called by the codegen driver after all Kairo-side passes are done,
+/// immediately before handing the TU to clang's driver pipeline.
+///
+/// rules:
+///   - kairo-only flags (borrow-check, amt-*, emit cxx/ast/bcir/tokens,
+///     print-*, dump-*, macro-debug, incremental, module-*, bcir-*) are
+///     never forwarded.
+///   - one kairo flag may map to many clang flags (1:N).
+///   - if a flag was not explicitly set and has a default, the default
+///     is still forwarded if clang needs it.
+///   - --profile is a preset: it fires first and sets baseline flags,
+///     then individual flags can override.
+///   - clang always receives -std=c++{ver} from --cxx-std (default c++26).
+///   - clang always receives our DiagEngine hook via -Xclang args
+///     (injected externally by the codegen driver, not here).
+///
+
+///
+/// \class ClangFlagTranslator
+/// \brief stateless translator: give it ParsedArgs, get back a clang argv.
+///
+class ClangFlagTranslator {
+    pub fn translate(self, args: *ParsedArgs, input_file: string) -> vec::<string> {
+        var argv: vec::<string>;
+
+        // argv[0] = clang++ (caller may override to a full path)
+        argv.push_back("clang++");
+
+        // ── profile preset (fires first, individual flags override) ────
+        self._emit_profile(args, &argv);
+
+        // ── language standard ──────────────────────────────────────────
+        self._emit_std(args, &argv);
+
+        // ── floating point ABI + semantics ─────────────────────────────
+        self._emit_fp(args, &argv);
+
+        // ── target triple + machine ────────────────────────────────────
+        self._emit_target(args, &argv);
+
+        // ── optimisation (individual flags override profile baseline) ──
+        self._emit_opt(args, &argv);
+
+        // ── debug info ─────────────────────────────────────────────────
+        self._emit_debug(args, &argv);
+
+        // ── output ─────────────────────────────────────────────────────
+        self._emit_output(args, &argv);
+
+        // ── include paths ──────────────────────────────────────────────
+        self._emit_includes(args, &argv);
+
+        // ── library paths + link libs ──────────────────────────────────
+        self._emit_link(args, &argv);
+
+        // ── defines ───────────────────────────────────────────────────
+        self._emit_defines(args, &argv);
+
+        // ── feature flags (-f*) ───────────────────────────────────────
+        self._emit_features(args, &argv);
+
+        // ── sanitizers ────────────────────────────────────────────────
+        self._emit_sanitizers(args, &argv);
+
+        // ── instrumentation ───────────────────────────────────────────
+        self._emit_instrumentation_extras(args, &argv);
+
+        // ── LTO ───────────────────────────────────────────────────────
+        self._emit_lto(args, &argv);
+
+        // ── hardening ─────────────────────────────────────────────────
+        self._emit_hardening(args, &argv);
+
+        // ── warnings ──────────────────────────────────────────────────
+        self._emit_warnings(args, &argv);
+
+        // ── platform-specific ─────────────────────────────────────────
+        self._emit_platform(args, &argv);
+
+        // ── WASM ──────────────────────────────────────────────────────
+        self._emit_wasm(args, &argv);
+
+        // ── reproducible builds ───────────────────────────────────────
+        self._emit_repro(args, &argv);
+
+        // ── raw passthroughs ──────────────────────────────────────────
+        self._emit_passthrough(args, &argv);
+
+        // ── input file (always last) ──────────────────────────────────
+        argv.push_back(input_file);
+
+        return argv;
+    }
+
+    // =========================================================================
+    //  PROFILE PRESET
+    //  fires first so individual flag emitters can override
+    // =========================================================================
+
+    priv fn _emit_profile(self, args: *ParsedArgs, argv: *vec::<string>) {
+        var profile = args->get_string("profile");
+
+        if profile == "release" {
+            argv->push_back("-O2");
+            argv->push_back("-DNDEBUG");
+            argv->push_back("-fstack-protector-strong");
+            argv->push_back("-fno-omit-frame-pointer");  // override later if user set --opt
+        } else if profile == "min-size" {
+            argv->push_back("-Oz");
+            argv->push_back("-DNDEBUG");
+            argv->push_back("-fstack-protector-strong");
+        } else {
+            // debug (default)
+            argv->push_back("-O0");
+            argv->push_back("-g");
+            argv->push_back("-fno-omit-frame-pointer");
+            argv->push_back("-fstack-protector");
+            // overflow checking on in debug
+            argv->push_back("-ftrapv");
+        }
+    }
+
+    // =========================================================================
+    //  LANGUAGE STANDARD
+    // =========================================================================
+
+    priv fn _emit_std(self, args: *ParsedArgs, argv: *vec::<string>) {
+        var std_ver = args->get_string("cxx-std");
+
+        // default to c++26 (kairo's internal baseline)
+        if std_ver.empty() {
+            std_ver = "c++26";
+        }
+
+        argv->push_back(f"-std={std_ver}");
+
+        // cxx-abi → -fc++-abi=itanium or -fc++-abi=microsoft
+        var cxx_abi = args->get_string("cxx-abi");
+        if cxx_abi == "msvc" {
+            argv->push_back("-fc++-abi=microsoft");
+        }
+        // itanium is clang's default, no flag needed
+
+        // freestanding implies -ffreestanding
+        if args->get_bool("freestanding") {
+            argv->push_back("-ffreestanding");
+            argv->push_back("-nostdinc");
+            argv->push_back("-nostdlib");
+        } else {
+            if args->get_bool("no-stdlib") {
+                argv->push_back("-nostdlib");
+            }
+            if args->get_bool("no-crt") {
+                argv->push_back("-nostartfiles");
+            }
+            if args->get_bool("no-default-libs") {
+                argv->push_back("-nodefaultlibs");
+            }
+        }
+
+        // exceptions
+        if args->get_bool("no-exceptions") {
+            argv->push_back("-fno-exceptions");
+        } else {
+            var exc_feat = args->get_feature("exceptions");
+            if exc_feat == 0 {
+                argv->push_back("-fno-exceptions");
+            } else {
+                argv->push_back("-fexceptions");
+            }
+        }
+
+        // rtti
+        var rtti_feat = args->get_feature("rtti");
+        if rtti_feat == 0 {
+            argv->push_back("-fno-rtti");
+        }
+
+        // no-fp → -msoft-float
+        if args->get_bool("no-fp") {
+            argv->push_back("-msoft-float");
+        }
+
+        // thread model
+        var thread_model = args->get_string("thread-model");
+        if !thread_model.empty() && thread_model != "posix" {
+            argv->push_back(f"-mthread-model");
+            argv->push_back(thread_model);
+        }
+
+        // rtlib / unwindlib
+        var rtlib = args->get_string("rtlib");
+        if !rtlib.empty() && rtlib != "compiler-rt" {
+            argv->push_back(f"-rtlib={rtlib}");
+        }
+
+        var unwindlib = args->get_string("unwindlib");
+        if !unwindlib.empty() {
+            argv->push_back(f"-unwindlib={unwindlib}");
+        }
+
+        // unwind tables
+        var unwind = args->get_string("unwind-tables");
+        if unwind == "none" {
+            argv->push_back("-fno-unwind-tables");
+        } else if unwind == "async" {
+            argv->push_back("-fasync-exceptions");
+        }
+        // sync is clang default, no flag needed
+
+        // no-implicit-float
+        if args->get_bool("no-implicit-float") {
+            argv->push_back("-mno-implicit-float");
+        }
+
+        // kernel-mode: no red zone + no implicit float + no SSE
+        if args->get_bool("kernel-mode") {
+            argv->push_back("-mno-red-zone");
+            argv->push_back("-mno-implicit-float");
+            argv->push_back("-mno-mmx");
+            argv->push_back("-mno-sse");
+            argv->push_back("-mno-sse2");
+            argv->push_back("-mcmodel=kernel");
+        }
+    }
+
+    // =========================================================================
+    //  Floating point ABI
+    // ==========================================================================
+    priv fn _emit_fp(self, args: *ParsedArgs, argv: *vec::<string>) {
+        // fp-model is the master switch for IEEE754 compliance
+        var fp_model = args->get_string("fp-model");
+
+        if fp_model == "strict" {
+            // full IEEE754: no reassociation, no fusing, exceptions observable
+            argv->push_back("-ffp-model=strict");
+            argv->push_back("-ffp-exception-behavior=strict");
+        } else if fp_model == "fast" {
+            argv->push_back("-ffp-model=fast");
+        } else {
+            // precise: default - reassociation off, NaN/Inf respected, no exceptions
+            argv->push_back("-ffp-model=precise");
+        }
+
+        // fp-contract controls FMA formation independently of fp-model
+        var fp_contract = args->get_string("fp-contract");
+        if fp_contract == "fast" {
+            argv->push_back("-ffp-contract=fast");
+        } else if fp_contract == "on" {
+            argv->push_back("-ffp-contract=on");
+        } else {
+            // off: never form FMAs automatically
+            argv->push_back("-ffp-contract=off");
+        }
+
+        // signed-wrap: wrapping semantics for signed overflow
+        if args->get_bool("signed-wrap") {
+            argv->push_back("-fwrapv");
+        }
+
+        // unsigned-trap: trap on unsigned overflow too
+        // clang has no direct flag for this; we combine -fsanitize=unsigned-integer-overflow
+        // with -fsanitize-recover=unsigned-integer-overflow=0 (trap, not recover)
+        if args->get_bool("unsigned-trap") {
+            argv->push_back("-fsanitize=unsigned-integer-overflow");
+            argv->push_back("-fno-sanitize-recover=unsigned-integer-overflow");
+        }
+    }
+
+    // =========================================================================
+    //  TARGET TRIPLE + MACHINE
+    // =========================================================================
+
+    priv fn _emit_target(self, args: *ParsedArgs, argv: *vec::<string>) {
+        var target = args->get_string("target");
+        if !target.empty() {
+            argv->push_back(f"--target={target}");
+        }
+
+        var march = args->get_string("march");
+        if !march.empty() {
+            argv->push_back(f"-march={march}");
+        }
+
+        var mcpu = args->get_string("mcpu");
+        if !mcpu.empty() {
+            argv->push_back(f"-mcpu={mcpu}");
+        }
+
+        var mtune = args->get_string("mtune");
+        if !mtune.empty() {
+            argv->push_back(f"-mtune={mtune}");
+        }
+
+        var mabi = args->get_string("mabi");
+        if !mabi.empty() {
+            argv->push_back(f"-mabi={mabi}");
+        }
+
+        var mfeatures = args->get_string("mfeatures");
+        if !mfeatures.empty() {
+            // mfeatures is +avx2,+bmi2,-sse4.1 → becomes -march=... suffix or -mattr
+            // clang accepts this as part of -march or via -Xclang -target-feature
+            // safest portable form: forward as -Xclang -target-feature per feature
+            // but comma-split is complex; forward as -mattr= for now
+            argv->push_back(f"-mattr={mfeatures}");
+        }
+
+        if args->get_bool("m32") {
+            argv->push_back("-m32");
+        }
+
+        if args->get_bool("m64") {
+            argv->push_back("-m64");
+        }
+
+        // sysroot
+        var sysroot = args->get_string("sysroot");
+        if !sysroot.empty() {
+            argv->push_back(f"--sysroot={sysroot}");
+        }
+    }
+
+    // =========================================================================
+    //  OPTIMISATION
+    //  individual flags can override the profile baseline
+    // =========================================================================
+
+    priv fn _emit_opt(self, args: *ParsedArgs, argv: *vec::<string>) {
+        // if user explicitly set --opt, it overrides profile
+        if args->is_set("opt") {
+            var level = args->get_i32("opt");
+            argv->push_back(f"-O{level}");
+        }
+
+        if args->is_set("opt-size") && args->get_bool("opt-size") {
+            argv->push_back("-Os");
+        }
+
+        if args->is_set("opt-size-z") && args->get_bool("opt-size-z") {
+            argv->push_back("-Oz");
+        }
+
+        // inline threshold → -mllvm -inline-threshold=N
+        if args->cfg_is_set("inline-cost-threshold") {
+            var thresh = args->get_cfg_f64("inline-cost-threshold");
+            argv->push_back("-mllvm");
+            argv->push_back(f"-inline-threshold={static_cast::<i32>(thresh)}");
+        }
+
+        // max inline depth → -mllvm -inlinehint-threshold=N (closest clang equivalent)
+        if args->cfg_is_set("max-inline-depth") {
+            var depth = args->get_cfg_i32("max-inline-depth");
+            argv->push_back("-mllvm");
+            argv->push_back(f"-inlinehint-threshold={depth}");
+        }
+
+        // individual feature toggles that affect codegen
+        var feat_inline = args->get_feature("inline");
+        if feat_inline == 0 {
+            argv->push_back("-fno-inline");
+        } else if feat_inline == 1 {
+            argv->push_back("-finline-functions");
+        }
+
+        var feat_tco = args->get_feature("tail-call");
+        if feat_tco == 0 {
+            argv->push_back("-fno-optimize-sibling-calls");
+        }
+
+        var feat_dce = args->get_feature("dead-code-elim");
+        if feat_dce == 0 {
+            // no direct clang flag to disable DCE globally;
+            // closest is disabling the entire opt pipeline
+            argv->push_back("-O0");
+        }
+
+        var feat_vec = args->get_feature("vectorize");
+        if feat_vec == 1 {
+            argv->push_back("-fvectorize");
+            argv->push_back("-fslp-vectorize");
+        } else if feat_vec == 0 {
+            argv->push_back("-fno-vectorize");
+            argv->push_back("-fno-slp-vectorize");
+        }
+
+        var feat_unroll = args->get_feature("unroll-loops");
+        if feat_unroll == 1 {
+            argv->push_back("-funroll-loops");
+        } else if feat_unroll == 0 {
+            argv->push_back("-fno-unroll-loops");
+        }
+
+        var feat_merge = args->get_feature("merge-functions");
+        if feat_merge == 1 {
+            argv->push_back("-fmerge-all-constants");
+        }
+
+        var feat_fnsec = args->get_feature("function-sections");
+        if feat_fnsec == 1 {
+            argv->push_back("-ffunction-sections");
+        }
+
+        var feat_datasec = args->get_feature("data-sections");
+        if feat_datasec == 1 {
+            argv->push_back("-fdata-sections");
+        }
+
+        var feat_omitfp = args->get_feature("omit-frame-pointer");
+        if feat_omitfp == 1 {
+            argv->push_back("-fomit-frame-pointer");
+        } else if feat_omitfp == 0 {
+            argv->push_back("-fno-omit-frame-pointer");
+        }
+
+        var feat_fm = args->get_feature("fast-math");
+        if feat_fm == 1 {
+            argv->push_back("-ffast-math");
+        } else if feat_fm == 0 {
+            argv->push_back("-fno-fast-math");
+        }
+
+        // pass plugins
+        if args->is_set("pass-plugin") {
+            var plugins = args->get_list("pass-plugin");
+            for p: string in plugins {
+                argv->push_back(f"-fpass-plugin={p}");
+            }
+        }
+
+        // disable specific llvm passes
+        if args->is_set("disable-llvm-pass") {
+            var passes = args->get_list("disable-llvm-pass");
+            for p: string in passes {
+                argv->push_back("-mllvm");
+                argv->push_back(f"-disable-{p}");
+            }
+        }
+
+        // mllvm raw passthrough
+        if args->is_set("mllvm") {
+            var mllvm_flags = args->get_list("mllvm");
+            for f: string in mllvm_flags {
+                argv->push_back("-mllvm");
+                argv->push_back(f);
+            }
+        }
+
+        // strip
+        if args->get_bool("strip") {
+            argv->push_back("-Wl,--strip-all");
+        } else if args->get_bool("strip-debug") {
+            argv->push_back("-Wl,--strip-debug");
+        }
+
+        // save-temps
+        if args->get_bool("save-temps") {
+            argv->push_back("-save-temps");
+        }
+
+        // strict aliasing
+        if args->is_set("strict-aliasing") {
+            if args->get_bool("strict-aliasing") {
+                argv->push_back("-fstrict-aliasing");
+            } else {
+                argv->push_back("-fno-strict-aliasing");
+            }
+        } else {
+            // default: off in debug, on in release (profile already set -O level,
+            // but aliasing is a separate decision - conservative default is off)
+            argv->push_back("-fno-strict-aliasing");
+        }
+
+        // whole-program vtables (requires LTO)
+        if args->get_bool("whole-program-vtables") {
+            argv->push_back("-fwhole-program-vtables");
+        }
+
+        // dead virtual function elimination (requires full LTO)
+        if args->get_bool("devirt") {
+            argv->push_back("-fvirtual-function-elimination");
+        }
+
+        // ICF
+        if args->get_bool("icf") {
+            var icf_mode = args->get_string("icf-mode");
+            if icf_mode == "all" {
+                argv->push_back("-Wl,--icf=all");
+            } else {
+                argv->push_back("-Wl,--icf=safe");
+            }
+        }
+
+        // stack clash protection
+        if args->get_bool("stack-clash") {
+            argv->push_back("-fstack-clash-protection");
+        }
+
+        // hot/cold split
+        if args->get_bool("hot-cold-split") {
+            argv->push_back("-fsplit-machine-functions");
+        }
+    }
+
+    // =========================================================================
+    //  DEBUG INFO
+    // =========================================================================
+
+    priv fn _emit_debug(self, args: *ParsedArgs, argv: *vec::<string>) {
+        if args->get_bool("no-debug-info") {
+            argv->push_back("-g0");
+            return;
+        }
+
+        if args->is_set("debug-info") && args->get_bool("debug-info") {
+            var dwarf_ver = args->get_i32("dwarf-version");
+            if dwarf_ver > 0 {
+                argv->push_back(f"-gdwarf-{dwarf_ver}");
+            } else {
+                argv->push_back("-g");
+            }
+
+            if args->get_bool("split-dwarf") {
+                argv->push_back("-gsplit-dwarf=split");
+            }
+        }
+
+        // path remapping for debug info
+        if args->is_set("debug-prefix-map") {
+            var maps = args->get_list("debug-prefix-map");
+            for m: string in maps {
+                argv->push_back(f"-fdebug-prefix-map={m}");
+            }
+        }
+
+        if args->get_bool("debug-macros") {
+            argv->push_back("-fdebug-macro");
+        }
+
+        if args->get_bool("embed-source") {
+            argv->push_back("-gembed-source");
+        }
+    }
+
+    // =========================================================================
+    //  OUTPUT
+    // =========================================================================
+
+    priv fn _emit_output(self, args: *ParsedArgs, argv: *vec::<string>) {
+        var output = args->get_string("output");
+        if !output.empty() {
+            argv->push_back("-o");
+            argv->push_back(output);
+        }
+
+        // emit types that map to clang flags
+        // cxx, ast, bcir, tokens, sema, dep-info are kairo-internal; skip them
+        var emit = args->get_string("emit");
+
+        if args->get_bool("compile-only") || emit == "obj" {
+            argv->push_back("-c");
+        } else if args->get_bool("emit-asm") || emit == "asm" {
+            argv->push_back("-S");
+        } else if args->get_bool("preprocess") || emit == "cxx" {
+            // preprocess only: note 'cxx' emit is kairo-internal
+            // only forward -E if user explicitly asked for preprocess
+            if args->get_bool("preprocess") {
+                argv->push_back("-E");
+            }
+        } else if emit == "llvm-ir" {
+            argv->push_back("-emit-llvm");
+            argv->push_back("-S");
+        } else if emit == "llvm-bc" {
+            argv->push_back("-emit-llvm");
+            argv->push_back("-c");
+        }
+
+        // shared / static / no-entry
+        if args->get_bool("shared") || args->get_bool("dll") {
+            argv->push_back("-shared");
+        }
+
+        if args->get_bool("static") {
+            argv->push_back("-static");
+        }
+
+        if args->get_bool("no-entry") {
+            argv->push_back("-Wl,--no-entry");
+        }
+
+        // entry point override
+        var entry = args->get_string("entry");
+        if !entry.empty() && entry != "main" {
+            argv->push_back(f"-Wl,-e,{entry}");
+        }
+
+        // coverage
+        var feat_cov = args->get_feature("coverage");
+        if feat_cov == 1 {
+            argv->push_back("-fprofile-arcs");
+            argv->push_back("-ftest-coverage");
+            var cov_fmt = args->get_string("coverage-format");
+            if cov_fmt == "llvm" {
+                argv->push_back("-fcoverage-mapping");
+            }
+        }
+
+        // PGO
+        var feat_pgo = args->get_feature("profile-generate");
+        if feat_pgo == 1 {
+            argv->push_back("-fprofile-generate");
+        }
+
+        var prof_use = args->get_string("profile-use");
+        if !prof_use.empty() {
+            argv->push_back(f"-fprofile-use={prof_use}");
+        }
+
+        // time trace
+        var time_trace = args->get_string("time-trace");
+        if !time_trace.empty() {
+            argv->push_back(f"-ftime-trace={time_trace}");
+        }
+
+        if args->get_bool("time-passes") {
+            argv->push_back("-ftime-report");
+        }
+    }
+
+    // =========================================================================
+    //  INCLUDE PATHS
+    // =========================================================================
+
+    priv fn _emit_includes(self, args: *ParsedArgs, argv: *vec::<string>) {
+        // --include-dirs → -I
+        if args->is_set("include-dirs") {
+            var dirs = args->get_list("include-dirs");
+            for d: string in dirs {
+                argv->push_back(f"-I{d}");
+            }
+        }
+
+        // --ffi-include → -I (FFI headers go on the regular include path)
+        if args->is_set("ffi-include") {
+            var dirs = args->get_list("ffi-include");
+            for d: string in dirs {
+                argv->push_back(f"-I{d}");
+            }
+        }
+
+        // --cxx-include → -cxx-isystem (system-level C++ headers)
+        if args->is_set("cxx-include") {
+            var dirs = args->get_list("cxx-include");
+            for d: string in dirs {
+                argv->push_back(f"-cxx-isystem");
+                argv->push_back(d);
+            }
+        }
+
+        // --force-include → -include
+        if args->is_set("force-include") {
+            var files = args->get_list("force-include");
+            for f: string in files {
+                argv->push_back("-include");
+                argv->push_back(f);
+            }
+        }
+
+        // --prelude → -include (custom prelude forwarded as a forced include)
+        var prelude = args->get_string("prelude");
+        if !prelude.empty() && !args->get_bool("no-prelude") {
+            argv->push_back("-include");
+            argv->push_back(prelude);
+        }
+
+        // --working-dir
+        var wdir = args->get_string("working-dir");
+        if !wdir.empty() {
+            argv->push_back("-working-directory");
+            argv->push_back(wdir);
+        }
+    }
+
+    // =========================================================================
+    //  LIBRARY PATHS + LINK LIBS
+    // =========================================================================
+
+    priv fn _emit_link(self, args: *ParsedArgs, argv: *vec::<string>) {
+        if args->is_set("lib-dirs") {
+            var dirs = args->get_list("lib-dirs");
+            for d: string in dirs {
+                argv->push_back(f"-L{d}");
+            }
+        }
+
+        // --link-libs supports qualifiers: -l static:foo → -Wl,-Bstatic -lfoo -Wl,-Bdynamic
+        if args->is_set("link-libs") {
+            var libs = args->get_list("link-libs");
+            for lib: string in libs {
+                if lib.starts_with("static:") {
+                    var name = lib.raw_string().substr(7);
+                    argv->push_back("-Wl,-Bstatic");
+                    argv->push_back(f"-l{name}");
+                    argv->push_back("-Wl,-Bdynamic");
+                } else if lib.starts_with("dynamic:") {
+                    var name = lib.raw_string().substr(8);
+                    argv->push_back(f"-l{name}");
+                } else {
+                    argv->push_back(f"-l{lib}");
+                }
+            }
+        }
+
+        if args->is_set("rpath") {
+            var rpaths = args->get_list("rpath");
+            for r: string in rpaths {
+                argv->push_back(f"-Wl,-rpath,{r}");
+            }
+        }
+
+        if args->is_set("rpath-link") {
+            var rlinks = args->get_list("rpath-link");
+            for r: string in rlinks {
+                argv->push_back(f"-Wl,-rpath-link,{r}");
+            }
+        }
+
+        var linker_script = args->get_string("linker-script");
+        if !linker_script.empty() {
+            argv->push_back(f"-Wl,-T,{linker_script}");
+        }
+
+        var version_script = args->get_string("version-script");
+        if !version_script.empty() {
+            argv->push_back(f"-Wl,--version-script={version_script}");
+        }
+
+        var map_file = args->get_string("map-file");
+        if !map_file.empty() {
+            argv->push_back(f"-Wl,-Map={map_file}");
+        }
+
+        var build_id = args->get_string("build-id");
+        if !build_id.empty() && build_id != "fast" {
+            argv->push_back(f"-Wl,--build-id={build_id}");
+        } else if build_id == "fast" {
+            argv->push_back("-Wl,--build-id");
+        }
+
+        if args->get_bool("export-dynamic") {
+            argv->push_back("-Wl,-E");
+        }
+
+        if args->get_bool("now") {
+            argv->push_back("-Wl,-z,now");
+        }
+
+        if args->get_bool("z-noexecstack") {
+            argv->push_back("-Wl,-z,noexecstack");
+        }
+
+        var hash_style = args->get_string("hash-style");
+        if !hash_style.empty() && hash_style != "gnu" {
+            argv->push_back(f"-Wl,--hash-style={hash_style}");
+        }
+
+        var dyn_linker = args->get_string("dynamic-linker");
+        if !dyn_linker.empty() {
+            argv->push_back(f"-Wl,-dynamic-linker,{dyn_linker}");
+        }
+
+        var emulation = args->get_string("emulation");
+        if !emulation.empty() {
+            argv->push_back(f"-Wl,-m,{emulation}");
+        }
+
+        var compress_dbg = args->get_string("compress-debug");
+        if !compress_dbg.empty() && compress_dbg != "none" {
+            argv->push_back(f"-Wl,--compress-debug-sections={compress_dbg}");
+        }
+
+        // raw linker passthrough
+        if args->is_set("ld-flags") {
+            var ldflags = args->get_list("ld-flags");
+            for f: string in ldflags {
+                argv->push_back(f"-Wl,{f}");
+            }
+        }
+    }
+
+    // =========================================================================
+    //  DEFINES + CFG
+    // =========================================================================
+
+    priv fn _emit_defines(self, args: *ParsedArgs, argv: *vec::<string>) {
+        if args->is_set("define") {
+            var defs = args->get_list("define");
+            for d: string in defs {
+                argv->push_back(f"-D{d}");
+            }
+        }
+
+        // --cfg flags become -D__KAIRO_CFG_{NAME}[=VALUE]
+        // they are kairo-level conditional compilation flags,
+        // forwarded as defines so C++ interop code can see them too
+        if args->is_set("cfg") {
+            var cfgs = args->get_list("cfg");
+            for c: string in cfgs {
+                // cfg "name" → -D__KAIRO_CFG_NAME
+                // cfg "name=value" → -D__KAIRO_CFG_NAME=value
+                if (c.raw_string().find('=')) != string::npos {
+                    var eq   = c.raw_string().find('=');
+                    var name = c.raw_string().substr(0, eq);
+                    var val  = c.raw_string().substr(eq + 1);
+                    argv->push_back(f"-D__KAIRO_CFG_{name}={val}");
+                } else {
+                    argv->push_back(f"-D__KAIRO_CFG_{c}=1");
+                }
+            }
+        }
+    }
+
+    // =========================================================================
+    //  FEATURE FLAGS (-f*)
+    // =========================================================================
+
+    priv fn _emit_features(self, args: *ParsedArgs, argv: *vec::<string>) {
+        // implicit conversions → -fno-implicit-conversions (clang extension)
+        var feat_conv = args->get_feature("implicit-conv");
+        if feat_conv == 0 {
+            argv->push_back("-fno-implicit-conversions");
+        }
+
+        // pic / pie
+        var feat_pic = args->get_feature("pic");
+        if feat_pic == 1 {
+            argv->push_back("-fPIC");
+        }
+
+        var feat_pie = args->get_feature("pie");
+        if feat_pie == 1 {
+            argv->push_back("-fPIE");
+        }
+
+        var feat_ss = args->get_feature("split-stack");
+        if feat_ss == 1 {
+            argv->push_back("-fsplit-stack");
+        }
+
+        var feat_trap = args->get_feature("trap-unreachable");
+        if feat_trap == 1 {
+            argv->push_back("-ftrap-function=__builtin_trap");
+        }
+
+        var feat_sf = args->get_feature("soft-float");
+        if feat_sf == 1 {
+            argv->push_back("-msoft-float");
+        }
+
+        var feat_export = args->get_feature("export-all");
+        if feat_export == 1 {
+            argv->push_back("-fvisibility=default");
+        } else {
+            argv->push_back("-fvisibility=hidden");
+        }
+
+        // no-unsafe: kairo-only, not forwarded
+        // strict-const: kairo-only, not forwarded
+        // union-inference: kairo-only, not forwarded
+        // verify-interfaces: kairo-only, not forwarded
+        // const-checks: kairo-only, not forwarded
+        // track-macro-origins: kairo-only, not forwarded
+
+        // overflow checks: --no-overflow → -ftrapv (in all modes)
+        if args->get_bool("no-overflow") {
+            argv->push_back("-ftrapv");
+        }
+
+        // raw cxx-flags passthrough
+        if args->is_set("cxx-flags") {
+            var cxx_flags = args->get_list("cxx-flags");
+            for f: string in cxx_flags {
+                argv->push_back(f);
+            }
+        }
+    }
+
+    // =========================================================================
+    //  SANITIZERS
+    // =========================================================================
+
+    priv fn _emit_sanitizers(self, args: *ParsedArgs, argv: *vec::<string>) {
+        var san_list: vec::<string>;
+
+        if args->get_feature("sanitize-address") == 1 {
+            san_list.push_back("address");
+        }
+        if args->get_feature("sanitize-thread") == 1 {
+            san_list.push_back("thread");
+        }
+        if args->get_feature("sanitize-memory") == 1 {
+            san_list.push_back("memory");
+        }
+        if args->get_feature("sanitize-ub") == 1 {
+            san_list.push_back("undefined");
+        }
+
+        if !san_list.empty() {
+            var san_str: string;
+            for var i: usize = 0; i < san_list.size(); ++i {
+                if i > 0 { san_str += ","; }
+                san_str += san_list[i];
+            }
+            argv->push_back(f"-fsanitize={san_str}");
+        }
+    }
+
+    // =========================================================================
+    //  INSTRUMENTATION
+    // =========================================================================
+
+    priv fn _emit_instrumentation_extras(self, args: *ParsedArgs, argv: *vec::<string>) {
+        if args->get_bool("instrument-functions") {
+            argv->push_back("-finstrument-functions");
+        }
+
+        var xray = args->get_string("xray");
+        if xray == "basic" || xray == "always" {
+            argv->push_back("-fxray-instrument");
+            var threshold = args->get_i32("xray-threshold");
+            if threshold > 0 {
+                argv->push_back(f"-fxray-instruction-threshold={threshold}");
+            }
+            if xray == "always" {
+                // always instrument regardless of size threshold
+                argv->push_back(f"-fxray-instruction-threshold=1");
+            }
+        }
+    }
+
+    // =========================================================================
+    //  LTO
+    // =========================================================================
+
+    priv fn _emit_lto(self, args: *ParsedArgs, argv: *vec::<string>) {
+        var lto = args->get_string("lto");
+
+        if lto == "thin" {
+            argv->push_back("-flto=thin");
+        } else if lto == "full" {
+            argv->push_back("-flto=full");
+        } else {
+            argv->push_back("-fno-lto");
+        }
+    }
+
+    // =========================================================================
+    //  HARDENING
+    // =========================================================================
+
+    priv fn _emit_hardening(self, args: *ParsedArgs, argv: *vec::<string>) {
+        var feat_sp = args->get_feature("stack-protector");
+        if feat_sp == 1 {
+            argv->push_back("-fstack-protector-strong");
+        } else if feat_sp == 0 {
+            argv->push_back("-fno-stack-protector");
+        }
+
+        var feat_relro = args->get_feature("relro");
+        if feat_relro == 1 {
+            argv->push_back("-Wl,-z,relro");
+        }
+
+        var feat_ehframe = args->get_feature("eh-frame-hdr");
+        if feat_ehframe == 1 {
+            argv->push_back("-Wl,--eh-frame-hdr");
+        }
+
+        var feat_gc = args->get_feature("gc-sections");
+        if feat_gc == 1 {
+            argv->push_back("-Wl,--gc-sections");
+        }
+
+        var feat_guard_cf = args->get_feature("guard-cf");
+        if feat_guard_cf == 1 {
+            argv->push_back("-Xclang");
+            argv->push_back("-cfguard");
+        }
+    }
+
+    // =========================================================================
+    //  WARNINGS + DIAGNOSTICS
+    // =========================================================================
+
+    priv fn _emit_warnings(self, args: *ParsedArgs, argv: *vec::<string>) {
+        if args->get_bool("Wall") {
+            argv->push_back("-Wall");
+        }
+
+        if args->get_bool("Wextra") {
+            argv->push_back("-Wextra");
+        }
+
+        if args->get_bool("Wpedantic") {
+            argv->push_back("-Wpedantic");
+        }
+
+        if args->get_bool("Werror") {
+            argv->push_back("-Werror");
+        }
+
+        if args->get_bool("nowarn") {
+            argv->push_back("-w");
+        }
+
+        // --warn list → -W{name}
+        if args->is_set("warn") {
+            var warns = args->get_list("warn");
+            for w: string in warns {
+                argv->push_back(f"-W{w}");
+            }
+        }
+
+        // --allow → -Wno-{name}
+        if args->is_set("allow") {
+            var allows = args->get_list("allow");
+            for a: string in allows {
+                argv->push_back(f"-Wno-{a}");
+            }
+        }
+
+        // --deny → -Werror={name}
+        if args->is_set("deny") {
+            var denies = args->get_list("deny");
+            for d: string in denies {
+                argv->push_back(f"-Werror={d}");
+            }
+        }
+
+        // --error-format pretty|basic|json|msvc → clang diagnostic format
+        var efmt = args->get_string("error-format");
+        if efmt == "json" {
+            argv->push_back("-fdiagnostics-format=json");
+        } else if efmt == "msvc" {
+            argv->push_back("-fdiagnostics-format=msvc");
+        }
+        // pretty and basic: clang default is already human-readable
+
+        if args->get_bool("no-color") {
+            argv->push_back("-fno-color-diagnostics");
+        } else {
+            argv->push_back("-fcolor-diagnostics");
+        }
+
+        if args->get_bool("diag-absolute-paths") {
+            argv->push_back("-fdiagnostics-absolute-paths");
+        }
+
+        // max errors → -ferror-limit=N
+        var max_err = args->get_cfg_i32("max-errors");
+        if max_err > 0 {
+            argv->push_back(f"-ferror-limit={max_err}");
+        }
+
+        // template backtrace depth → -ftemplate-backtrace-limit=N
+        var tmpl_bt = args->get_cfg_i32("max-generic-backtrace");
+        if tmpl_bt > 0 {
+            argv->push_back(f"-ftemplate-backtrace-limit={tmpl_bt}");
+        }
+
+        // constexpr depth + steps
+        var ce_depth = args->get_cfg_i32("max-const-eval-depth");
+        if ce_depth > 0 {
+            argv->push_back(f"-fconstexpr-depth={ce_depth}");
+        }
+
+        var ce_steps = args->get_cfg_i32("max-const-eval-steps");
+        if ce_steps > 0 {
+            argv->push_back(f"-fconstexpr-steps={ce_steps}");
+        }
+
+        // template depth
+        var tmpl_depth = args->get_cfg_i32("max-generic-depth");
+        if tmpl_depth > 0 {
+            argv->push_back(f"-ftemplate-depth={tmpl_depth}");
+        }
+    }
+
+    // =========================================================================
+    //  PLATFORM-SPECIFIC
+    // =========================================================================
+
+    priv fn _emit_platform(self, args: *ParsedArgs, argv: *vec::<string>) {
+        // ── macOS / Darwin ────────────────────────────────────────────────
+        var macos_min = args->get_string("macos-version-min");
+        if !macos_min.empty() {
+            argv->push_back(f"-mmacos-version-min={macos_min}");
+        }
+
+        var ios_min = args->get_string("ios-version-min");
+        if !ios_min.empty() {
+            argv->push_back(f"-mios-version-min={ios_min}");
+        }
+
+        var macos_sdk = args->get_string("macos-sdk");
+        if !macos_sdk.empty() {
+            argv->push_back(f"-isysroot");
+            argv->push_back(macos_sdk);
+        }
+
+        var install_name = args->get_string("install-name");
+        if !install_name.empty() {
+            argv->push_back(f"-Wl,-install_name,{install_name}");
+        }
+
+        var rpath_origin = args->get_string("rpath-origin");
+        if !rpath_origin.empty() {
+            argv->push_back(f"-Wl,-rpath,{rpath_origin}");
+        }
+
+        if args->is_set("force-load") {
+            var fl = args->get_list("force-load");
+            for f: string in fl {
+                argv->push_back(f"-Wl,-force_load,{f}");
+            }
+        }
+
+        var feat_dead_strip = args->get_feature("dead-strip");
+        if feat_dead_strip == 1 {
+            argv->push_back("-Wl,-dead_strip");
+        }
+
+        var feat_bitcode = args->get_feature("bitcode");
+        if feat_bitcode == 1 {
+            argv->push_back("-fembed-bitcode");
+        }
+
+        var headerpad = args->get_i32("headerpad");
+        if headerpad > 0 {
+            argv->push_back(f"-Wl,-headerpad,{headerpad}");
+        }
+
+        // ── Windows / PE-COFF ─────────────────────────────────────────────
+        var subsystem = args->get_string("subsystem");
+        if !subsystem.empty() && subsystem != "console" {
+            argv->push_back(f"-Wl,/subsystem:{subsystem}");
+        }
+
+        var pdb = args->get_string("pdb");
+        if !pdb.empty() {
+            argv->push_back(f"-Wl,/pdb:{pdb}");
+        }
+
+        var def_file = args->get_string("def");
+        if !def_file.empty() {
+            argv->push_back(f"-Wl,/def:{def_file}");
+        }
+
+        var implib = args->get_string("implib");
+        if !implib.empty() {
+            argv->push_back(f"-Wl,/implib:{implib}");
+        }
+
+        if args->get_bool("manifest") {
+            var mf = args->get_string("manifest-file");
+            if !mf.empty() {
+                argv->push_back(f"-Wl,/manifestinput:{mf}");
+            }
+            argv->push_back("-Wl,/manifest:embed");
+        }
+
+        var feat_heva = args->get_feature("high-entropy-va");
+        if feat_heva == 1 {
+            argv->push_back("-Wl,/highentropyva");
+        }
+
+        var feat_dynbase = args->get_feature("dynamicbase");
+        if feat_dynbase == 1 {
+            argv->push_back("-Wl,/dynamicbase");
+        }
+
+        var feat_nxcompat = args->get_feature("nxcompat");
+        if feat_nxcompat == 1 {
+            argv->push_back("-Wl,/nxcompat");
+        }
+
+        var feat_tsaware = args->get_feature("tsaware");
+        if feat_tsaware == 1 {
+            argv->push_back("-Wl,/tsaware");
+        }
+
+        if args->get_bool("kill-at") {
+            argv->push_back("-Wl,/kill@");
+        }
+
+        var stack_sz = args->get_i32("stack-size");
+        if stack_sz > 0 {
+            argv->push_back(f"-Wl,/stack:{stack_sz}");
+        }
+
+        var heap_sz = args->get_i32("heap-size");
+        if heap_sz > 0 {
+            argv->push_back(f"-Wl,/heap:{heap_sz}");
+        }
+    }
+
+    // =========================================================================
+    //  WASM / WASI
+    // =========================================================================
+
+    priv fn _emit_wasm(self, args: *ParsedArgs, argv: *vec::<string>) {
+        if !args->get_bool("wasi") {
+            // check if any wasm feature is set before emitting anything
+            var any_wasm = false;
+            if args->get_feature("wasm-bulk-memory")    == 1 { any_wasm = true; }
+            if args->get_feature("wasm-threads")        == 1 { any_wasm = true; }
+            if args->get_feature("wasm-tail-calls")     == 1 { any_wasm = true; }
+            if args->get_feature("wasm-simd")           == 1 { any_wasm = true; }
+            if args->get_feature("wasm-sign-ext")       == 1 { any_wasm = true; }
+            if args->get_feature("wasm-reference-types")== 1 { any_wasm = true; }
+            if args->get_feature("wasm-exceptions")     == 1 { any_wasm = true; }
+            if !any_wasm { return; }
+        }
+
+        // collect enabled wasm features → -mattr=+feature,...
+        var feats: vec::<string>;
+
+        if args->get_feature("wasm-bulk-memory")     == 1 { feats.push_back("+bulk-memory"); }
+        if args->get_feature("wasm-threads")         == 1 { feats.push_back("+atomics"); feats.push_back("+bulk-memory"); }
+        if args->get_feature("wasm-tail-calls")      == 1 { feats.push_back("+tail-call"); }
+        if args->get_feature("wasm-simd")            == 1 { feats.push_back("+simd128"); }
+        if args->get_feature("wasm-sign-ext")        == 1 { feats.push_back("+sign-ext"); }
+        if args->get_feature("wasm-reference-types") == 1 { feats.push_back("+reference-types"); }
+        if args->get_feature("wasm-exceptions")      == 1 { feats.push_back("+exception-handling"); }
+
+        if !feats.empty() {
+            var feat_str: string;
+            for var i: usize = 0; i < feats.size(); ++i {
+                if i > 0 { feat_str += ","; }
+                feat_str += feats[i];
+            }
+            argv->push_back(f"-mattr={feat_str}");
+        }
+
+        if args->is_set("wasm-export") {
+            var exports = args->get_list("wasm-export");
+            for e: string in exports {
+                argv->push_back(f"-Wl,--export={e}");
+            }
+        }
+
+        if args->get_bool("wasm-import-memory") {
+            argv->push_back("-Wl,--import-memory");
+        }
+
+        if args->get_bool("wasm-export-memory") {
+            argv->push_back("-Wl,--export-memory");
+        }
+
+        var wasm_max_mem = args->get_i32("wasm-max-memory");
+        if wasm_max_mem > 0 {
+            argv->push_back(f"-Wl,--max-memory={wasm_max_mem}");
+        }
+
+        var wasm_init_mem = args->get_i32("wasm-initial-memory");
+        if wasm_init_mem > 0 && wasm_init_mem != 65536 {
+            argv->push_back(f"-Wl,--initial-memory={wasm_init_mem}");
+        }
+
+        var wasm_stack = args->get_i32("wasm-stack-size");
+        if wasm_stack > 0 && wasm_stack != 65536 {
+            argv->push_back(f"-Wl,-z,stack-size={wasm_stack}");
+        }
+
+        if args->get_bool("wasi") {
+            var wasi_ver = args->get_string("wasi-version");
+            // wasi target triple is set via --target by the user;
+            // version hint forwarded as a define
+            argv->push_back(f"-D__WASI_VERSION_{wasi_ver}__=1");
+        }
+
+        var wasm_exec = args->get_string("wasm-exec-model");
+        if !wasm_exec.empty() && wasm_exec != "command" {
+            argv->push_back(f"-mexec-model={wasm_exec}");
+        }
+    }
+
+    // =========================================================================
+    //  REPRODUCIBLE BUILDS
+    // =========================================================================
+
+    priv fn _emit_repro(self, args: *ParsedArgs, argv: *vec::<string>) {
+        if args->get_bool("no-timestamps") {
+            argv->push_back("-Wl,--no-insert-timestamp");
+            argv->push_back("-ffile-reproducible");
+        }
+
+        var sde = args->get_string("source-date-epoch");
+        if !sde.empty() {
+            // clang doesn't consume SOURCE_DATE_EPOCH via flag;
+            // it reads the env var. we emit a define so our own code can use it
+            // and the codegen driver must set the env var separately.
+            // flag it here as a define for completeness.
+            argv->push_back(f"-DSOURCE_DATE_EPOCH={sde}");
+        }
+
+        if args->is_set("remap-path-prefix") {
+            var remaps = args->get_list("remap-path-prefix");
+            for r: string in remaps {
+                argv->push_back(f"-ffile-prefix-map={r}");
+            }
+        }
+
+        if args->is_set("debug-prefix-map") {
+            var remaps = args->get_list("debug-prefix-map");
+            for r: string in remaps {
+                argv->push_back(f"-fdebug-prefix-map={r}");
+            }
+        }
+
+        if args->is_set("coverage-prefix-map") {
+            var remaps = args->get_list("coverage-prefix-map");
+            for r: string in remaps {
+                argv->push_back(f"-fcoverage-prefix-map={r}");
+            }
+        }
+    }
+
+    // =========================================================================
+    //  RAW PASSTHROUGHS
+    // =========================================================================
+
+    priv fn _emit_passthrough(self, args: *ParsedArgs, argv: *vec::<string>) {
+        // --cxx-flags: raw flags forwarded verbatim to clang
+        // already handled in _emit_features to keep ordering consistent,
+        // but we handle it here too for any that arrive late
+        // (deduplication is clang's problem; extra copies are harmless)
+    }
+}

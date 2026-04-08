@@ -1,0 +1,109 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+ffi "c++" import "Core/Types.hh";
+
+import UTF8View::*;
+
+///
+/// \file Core/MemoryBuffer.kro
+/// \brief simple read-only byte buffer with utf-8 decoding support.
+///
+/// \details
+/// `MemoryBuffer` is a lightweight wrapper around a pointer to immutable
+/// byte data and its total size. it provides direct byte access and an
+/// iterator-based utf-8 view for character-level decoding.
+///
+/// typically wraps a memory-mapped region (`MMapRegion`) or subrange of one,
+/// exposing convenient access for lexers, parsers, and file i/o layers.
+///
+/// this class performs no ownership or lifetime management- the backing
+/// memory must remain valid for the duration of its use.
+///
+/// \note
+/// read-only by design; use external writers for mutable operations.
+/// \warning
+/// not thread-safe without external synchronization.
+///
+
+///
+/// \class MemoryBuffer
+/// \brief read-only view over raw byte memory.
+///
+/// \details
+/// provides direct pointer access (`data()`, `size()`) and utf-8 decoding
+/// through the `chars()` method. used heavily by the compiler's source and
+/// file management subsystems.
+///
+class MemoryBuffer {
+    priv var _data: std::const_ptr::<u8> = &null; ///< pointer to raw data bytes.
+    priv var _size: usize = 0;                    ///< total byte size of buffer.
+
+    ///
+    /// \brief default constructor (invalid buffer).
+    ///
+    default fn MemoryBuffer(self);
+
+    ///
+    /// \brief constructs from a raw pointer and size.
+    ///
+    /// \param data pointer to constant byte memory.
+    /// \param size total number of bytes available.
+    ///
+    fn MemoryBuffer(self, data: std::const_ptr::<u8>, size: usize) {
+        self._data = data;
+        self._size = size;
+    }
+
+    ///
+    /// \brief assignment operator.
+    ///
+    inline fn op = (self, other: MemoryBuffer) {
+        self._data = other._data;
+        self._size = other._size;
+    }
+
+    ///
+    /// \brief returns pointer to underlying byte data.
+    ///
+    inline fn data(self) -> std::const_ptr::<u8> {
+        return self._data;
+    }
+
+    ///
+    /// \brief returns total size of the buffer in bytes.
+    ///
+    inline fn size(self) -> usize {
+        return self._size;
+    }
+
+    ///
+    /// \brief checks if buffer is valid.
+    ///
+    /// \return true if `_data` is not null and `_size` > 0.
+    ///
+    inline fn is_valid(self) -> bool {
+        return (self._data != &null) && (self._size > 0);
+    }
+
+    ///
+    /// \brief returns utf-8 decoding view of the buffer.
+    ///
+    /// \return `UTF8View` initialized with buffer data.
+    ///
+    inline fn chars(self) -> UTF8View {
+        return UTF8View(self._data, self._size);
+    }
+}

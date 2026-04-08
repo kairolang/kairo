@@ -121,9 +121,9 @@ slowly start rewriting the following in kairo itself:
 -- perl must be installed
 -- zlib and zstd are optional
 
-# Enhancing the Kairo Compiler Toolchain
+# Enhancing the Kairo Compiler Compiler
 
-This document outlines the necessary modifications to the Kairo compiler Toolchain to support the Kairo language. These modifications are categorized as follows:
+This document outlines the necessary modifications to the Kairo compiler Compiler to support the Kairo language. These modifications are categorized as follows:
 
 - Lexer
 - Parser
@@ -224,7 +224,7 @@ class TokenKind {
 ```
 
 ## Driver
-The driver will consolidate shared logic between the compiler and the Toolchain. Files in this module will compile into binaries, encapsulating essential functionality for the compiler and tools.
+The driver will consolidate shared logic between the compiler and the Compiler. Files in this module will compile into binaries, encapsulating essential functionality for the compiler and tools.
 
 ### File Class
 ```rs

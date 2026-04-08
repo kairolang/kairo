@@ -1,0 +1,194 @@
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: CC-BY-4.0                                     ///
+///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
+
+import Include::Base::*;
+
+class BalanceTracker {
+    __inline_cpp("public:");
+
+    struct Entry {
+        var kind:     TokenKind; // 32
+        var loc:      SourceLocation; // 32
+        var is_macro: bool; // 1
+    }
+    
+    enum BalanceErrorKind derives u8 {
+        Unclosed,
+        Unexpected,
+        Mismatched
+    }
+    
+    struct BalanceError {
+        var kind     : BalanceErrorKind;
+        var loc      : SourceLocation;
+        var expected : TokenKind;
+        var found    : TokenKind;
+        var open_loc : SourceLocation;
+        var is_macro : bool;
+    }
+    
+    const MAX_STACK_SIZE: usize = 512;
+    var stack      : std::Memory::buffer::<Entry, 512>; // static const and initialized in class is not supported in stage(0)
+    var stack_size : usize = 0;
+    pub var errors : libcxx::deque::<BalanceError>;
+    
+    inline fn push(self, kind: TokenKind, loc: SourceLocation, is_macro: bool = false) {
+        if self.stack_size < MAX_STACK_SIZE {
+            self.stack[self.stack_size] = Entry{
+                kind: kind,
+                loc: loc,
+                is_macro: is_macro
+            };
+            ++self.stack_size;
+        } else {
+            // overflow = unrecoverable nesting
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Unclosed,
+                loc: loc,
+                expected: TokenKind::TkUnknown,
+                found: TokenKind::TkUnknown,
+                open_loc: loc,
+                is_macro: is_macro
+            });
+        }
+    }
+
+    inline fn pop(self, closer: TokenKind, loc: SourceLocation) -> bool {
+        if self.stack_size == 0 {
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Unexpected,
+                loc: loc,
+                expected: TokenKind::TkUnknown,
+                found: closer,
+                open_loc: SourceLocation(),
+                is_macro: false
+            });
+            return false;
+        }
+
+        var top = self.stack[self.stack_size - 1];
+        var expected = BalanceTracker::get_closer(top.kind);
+
+        if expected == closer {
+            --self.stack_size;
+            return true;
+        }
+
+        // limited depth recovery (max 3 like before)
+        var matching_opener = BalanceTracker::get_opener(closer);
+        var found_index: isize = -1;
+
+        for var i: isize = static_cast::<isize>(self.stack_size) - 1;
+            i >= 0 && (static_cast::<usize>(self.stack_size - 1 - i) <= 3);
+            --i {
+
+            if self.stack[static_cast::<usize>(i)].kind == matching_opener {
+                found_index = i;
+                break;
+            }
+        }
+
+        if found_index >= 0 {
+            // report unclosed between top and match
+            for var i: usize = static_cast::<usize>(found_index) + 1;
+                i < self.stack_size;
+                ++i {
+
+                var unclosed = self.stack[i];
+                self.errors.push_back(BalanceError{
+                    kind: BalanceErrorKind::Unclosed,
+                    loc: unclosed.loc,
+                    expected: BalanceTracker::get_closer(unclosed.kind),
+                    found: TokenKind::TkUnknown,
+                    open_loc: unclosed.loc,
+                    is_macro: unclosed.is_macro
+                });
+            }
+
+            // consume everything including matching opener
+            self.stack_size = static_cast::<usize>(found_index);
+        } else {
+            // mismatched
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Mismatched,
+                loc: loc,
+                expected: expected,
+                found: closer,
+                open_loc: top.loc,
+                is_macro: top.is_macro
+            });
+
+            --self.stack_size;
+        }
+
+        return false;
+    }
+
+    inline fn finalize(self) {
+        while self.stack_size > 0 {
+            var top = self.stack[self.stack_size - 1];
+
+            self.errors.push_back(BalanceError{
+                kind: BalanceErrorKind::Unclosed,
+                loc: top.loc,
+                expected: BalanceTracker::get_closer(top.kind),
+                found: TokenKind::TkUnknown,
+                open_loc: top.loc,
+                is_macro: top.is_macro
+            });
+
+            --self.stack_size;
+        }
+    }
+
+    static fn get_opener(closer: TokenKind) -> TokenKind {
+        switch closer {
+            case TokenKind::OpRBrace  { return TokenKind::OpLBrace;  }
+            case TokenKind::OpRParen  { return TokenKind::OpLParen;  }
+            case TokenKind::OpRSquare { return TokenKind::OpLSquare; }
+            default { return TokenKind::TkUnknown; }
+        }
+    }
+    
+    inline static fn get_closer(opener: TokenKind) -> TokenKind {
+        switch opener {
+            case TokenKind::OpLBrace  { return TokenKind::OpRBrace;  }
+            case TokenKind::OpLParen  { return TokenKind::OpRParen;  }
+            case TokenKind::OpLSquare { return TokenKind::OpRSquare; }
+            default { return TokenKind::TkUnknown; }
+        }
+    }
+    
+    inline static fn is_opener(kind: TokenKind) -> bool {
+        return (kind == TokenKind::OpLBrace)
+            || (kind == TokenKind::OpLParen)
+            || (kind == TokenKind::OpLSquare);
+    }
+    
+    inline static fn is_closer(kind: TokenKind) -> bool {
+        return (kind == TokenKind::OpRBrace)
+            || (kind == TokenKind::OpRParen)
+            || (kind == TokenKind::OpRSquare);
+    }
+    
+    fn has_errors(self) -> bool {
+        return !self.errors.empty();
+    }
+    
+    inline fn clear(self) {
+        self.stack_size = 0;
+        self.errors.clear();
+    }
+}
