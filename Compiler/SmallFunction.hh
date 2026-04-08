@@ -17,7 +17,7 @@
 #define __KAIRO_TOOLCHAIN_CORE_SMALLFUNCTION_HH__
 
 ///
-/// \file Core/SmallFunction.hh
+/// \file SmallFunction.hh
 /// \brief Inline small callable wrapper with zero dynamic allocations.
 ///
 /// \details

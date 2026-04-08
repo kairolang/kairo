@@ -14,7 +14,7 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 ///
-/// \file Core/SourceLocation.kro
+/// \file SourceLocation.kro
 /// \brief lightweight encoded handle representing a position in a source file.
 ///
 /// \details

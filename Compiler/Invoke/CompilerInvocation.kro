@@ -13,13 +13,13 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Driver::Command::ParsedArgs::*;
-import Driver::Invocation::LangOptions::*;
-import Driver::Invocation::DiagnosticOptions::*;
-import Driver::Invocation::PreprocessorOptions::*;
-import Driver::Invocation::CodeGenOptions::*;
-import Driver::Invocation::FrontendOptions::*;
-import Driver::Invocation::TargetOptions::*;
+import Command::ParsedArgs::*;
+import Invoke::LangOptions::*;
+import Invoke::DiagnosticOptions::*;
+import Invoke::PreprocessorOptions::*;
+import Invoke::CodeGenOptions::*;
+import Invoke::FrontendOptions::*;
+import Invoke::TargetOptions::*;
 
 ///
 /// \class CompilerInvocation

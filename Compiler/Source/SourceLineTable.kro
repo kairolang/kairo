@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/Types.hh";
+ffi "c++" import "Types.hh";
 
 import Path::*;
 import Memory::MappedFileBuffer::*;
@@ -24,7 +24,7 @@ import Source::SourceLocation::*;
 import Source::SourceRange::*;
 
 ///
-/// \file Core/SourceLineTable.hlx
+/// \file SourceLineTable.hlx
 /// \brief simd-optimized source line index for fast line/column resolution.
 ///
 /// \details

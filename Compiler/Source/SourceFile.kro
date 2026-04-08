@@ -18,7 +18,7 @@ import Memory::MappedFileBuffer::*;
 import Memory::MemoryBuffer::*;
 
 ///
-/// \file Core/SourceFile.kro
+/// \file SourceFile.kro
 /// \brief representation of a single memory-mapped source file.
 ///
 /// \details

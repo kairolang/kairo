@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/Memory/ArenaBlock.hh";
+ffi "c++" import "Memory/ArenaBlock.hh";
 
 import Timer::*;
 

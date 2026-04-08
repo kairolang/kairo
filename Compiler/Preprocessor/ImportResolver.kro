@@ -49,7 +49,9 @@
 //      denied root giving the preprocessor enough signal to emit a useful
 //      diagnostic rather than a silent "module not found".
 
-import Include::FileSystem::*;
+import Path::*;
+import FileSystem::*;
+import Memory::MappedFileBuffer::*;
 import Include::Concurrency::*;
 import Include::Testing::*;
 

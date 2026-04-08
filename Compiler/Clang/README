@@ -505,7 +505,7 @@ Phase 6 - Tooling
 
 ```
 Compiler/
-├-- Core/
+├-- 
 |   ├-- Diagnostics/
 |   |   ├-- DiagCode.kro
 |   |   ├-- DiagEngine.kro

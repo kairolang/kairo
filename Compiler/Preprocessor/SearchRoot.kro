@@ -13,7 +13,9 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Include::FileSystem::*;
+import Path::*;
+import FileSystem::*;
+import Memory::MappedFileBuffer::*;
 
 import Preprocessor::FileExtensions::*;
 import Preprocessor::DirEntry::*;

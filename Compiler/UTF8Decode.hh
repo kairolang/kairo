@@ -20,7 +20,7 @@
 ///       support for AVX2, AVX512, etc...
 
 ///
-/// \file Core/Utf8Decode.hh
+/// \file Utf8Decode.hh
 /// \brief fast utf-8 decoding utilities optimized for compiler hot paths.
 ///
 /// \details

@@ -23,7 +23,7 @@
 ///
 /// Clang-style layer map
 /// ─────────────────────
-///   Layer 1  CompilerInvocation   strongly-typed options  (Driver::Invocation::*)
+///   Layer 1  CompilerInvocation   strongly-typed options  (Invoke::*)
 ///   Layer 2  CompilerInstance     shared resources        (Driver::CompilerInstance)
 ///   Layer 3  FrontendAction       per-file pipeline       (this file)
 ///

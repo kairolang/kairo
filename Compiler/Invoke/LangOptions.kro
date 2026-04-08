@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Driver::Command::ParsedArgs::*;
+import Command::ParsedArgs::*;
 
 ///
 /// \class LangOptions

@@ -13,12 +13,12 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/Types.hh";
+ffi "c++" import "Types.hh";
 
 import UTF8View::*;
 
 ///
-/// \file Core/MemoryBuffer.kro
+/// \file MemoryBuffer.kro
 /// \brief simple read-only byte buffer with utf-8 decoding support.
 ///
 /// \details

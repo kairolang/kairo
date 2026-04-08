@@ -14,7 +14,7 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 ///
-/// \file Core/Timer.kro
+/// \file Timer.kro
 /// \brief lightweight scoped timer for profiling and benchmarking.
 ///
 /// \details

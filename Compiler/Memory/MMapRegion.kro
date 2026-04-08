@@ -13,10 +13,10 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/Types.hh";
+ffi "c++" import "Types.hh";
 
 ///
-/// \file Core/MMapRegion.kro
+/// \file MMapRegion.kro
 /// \brief cross-platform RAII wrapper around memory-mapped file regions.
 ///
 /// \details

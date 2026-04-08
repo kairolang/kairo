@@ -13,8 +13,8 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/SmallFunction.hh";
-ffi "c++" import "Core/Types.hh";
+ffi "c++" import "SmallFunction.hh";
+ffi "c++" import "Types.hh";
 
 import Timer::*;
 

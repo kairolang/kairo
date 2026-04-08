@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-import Lexer::Lexer::*;
+import Lexer::Lex::*;
 
 class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     var _kv_s:        map::<u32, *Lexer>;

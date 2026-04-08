@@ -18,7 +18,7 @@ import Path::*;
 import VirtualFileManager::*;
 
 ///
-/// \file Core/FullSourceLocation.kro
+/// \file FullSourceLocation.kro
 /// \brief fully resolved representation of a source position.
 ///
 /// \details

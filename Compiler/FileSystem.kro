@@ -14,7 +14,7 @@
 ///------------------------------------------------------------ KAIRO -------///
 
 ///
-/// \file Core/FileTypes.kro
+/// \file FileTypes.kro
 /// \brief type aliases and enums for filesystem abstractions.
 ///
 /// \details

@@ -13,9 +13,11 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/Types.hh";
+ffi "c++" import "Types.hh";
 
-import Include::FileSystem::*;
+import Path::*;
+import FileSystem::*;
+import Memory::MappedFileBuffer::*;
 
 import Preprocessor::FileExtensions::*;
 

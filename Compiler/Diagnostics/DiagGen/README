@@ -1,9 +1,9 @@
 # this folder contains the list of all diagnostics
 
-if you want to regenerate the diagnostics file (Compiler/Core/Diagnostics/DiagRegistry.kro) you can run the following command from the root of the repo:
+if you want to regenerate the diagnostics file (Compiler/Diagnostics/DiagRegistry.kro) you can run the following command from the root of the repo:
 
 ```bash
-./Scripts/gen_diag.py Compiler/Core/Diagnostics/DiagGen/*.diag.toml > Compiler/Core/Diagnostics/DiagRegistry.kro
+./Scripts/gen_diag.py Compiler/Diagnostics/DiagGen/*.diag.toml > Compiler/Diagnostics/DiagRegistry.kro
 ```
 
 the following categories are used:

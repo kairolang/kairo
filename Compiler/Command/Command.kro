@@ -54,7 +54,7 @@
 
 import Include::Testing::*;
 import Diagnostics::DiagEngine::*;
-import Driver::Command::ParsedArgs::*;
+import Command::ParsedArgs::*;
 
 // =============================================================================
 //  COMMAND  - the parser; use like other compiler components
@@ -119,7 +119,7 @@ class Command {
     }
 
     fn Command(self, diag: *DiagEngine) { // ONLY FOR TESTING
-        __inline_cpp("#warning \"Command::Command(diag) is only for testing; use Command(argc, argv, diag) in production\"");
+        __inline_cpp("#warning \"CommandCommand::Command(diag) is only for testing; use Command(argc, argv, diag) in production\"");
         self._diag = diag;
         self._table.reserve(64);
     }

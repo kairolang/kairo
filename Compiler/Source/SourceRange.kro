@@ -16,7 +16,7 @@
 import Source::SourceLocation::*;
 
 ///
-/// \file Core/SourceRange.kro
+/// \file SourceRange.kro
 /// \brief compact representation of a half-open interval between two source
 ///        locations.
 ///

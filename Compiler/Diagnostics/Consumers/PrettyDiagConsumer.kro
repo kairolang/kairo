@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/Types.hh";
+ffi "c++" import "Types.hh";
 
 import Diagnostics::Diagnostic::*;
 import Diagnostics::DiagConsumer::*;

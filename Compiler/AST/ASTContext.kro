@@ -15,7 +15,7 @@
 
 import Memory::ArenaList::*;
 import Source::SourceManager::*;
-import Lexer::Lexer::*;
+import Lexer::Lex::*;
 import Lexer::Immediate::*;
 
 class ASTContext {

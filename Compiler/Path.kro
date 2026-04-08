@@ -16,7 +16,7 @@
 import FileSystem::*;
 
 ///
-/// \file Core/Path.kro
+/// \file Path.kro
 /// \brief high-level abstraction over libc++ filesystem paths.
 ///
 /// \details

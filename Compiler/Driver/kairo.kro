@@ -17,7 +17,7 @@
 /// Driver entry point - 3-layer Clang-style pipeline
 /// ==================================================
 ///
-///   Layer 1  CompilerInvocation  - strongly-typed options (Driver::Invocation::*)
+///   Layer 1  CompilerInvocation  - strongly-typed options (Invoke::*)
 ///   Layer 2  CompilerInstance    - shared state owner    (Driver::CompilerInstance)
 ///   Layer 3  FrontendAction      - pipeline strategy     (driven by FrontendOptions)
 ///

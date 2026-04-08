@@ -23,7 +23,7 @@
 ///
 /// Clang-style layer map
 /// ─────────────────────
-///   Layer 1  CompilerInvocation   strongly-typed options  (Driver::Invocation::*)
+///   Layer 1  CompilerInvocation   strongly-typed options  (Invoke::*)
 ///   Layer 2  CompilerInstance     shared resources        (this file)
 ///   Layer 3  FrontendAction       per-file pipeline       (Driver::FrontendAction)
 ///
@@ -59,10 +59,9 @@ import Diagnostics::Consumers::BasicDiagConsumer::*;
 import Source::SourceManager::*;
 import TermRenderer::*;
 import Lexer::TokenCacheManager::*;
-import Preprocessor::ImportResolver::*;
-import Driver::Command::Command::*;
-import Driver::Command::FlagsRegister::*;
-import Driver::Invocation::CompilerInvocation::*;
+import Command::Command::*;
+import Command::FlagsRegister::*;
+import Invoke::CompilerInvocation::*;
 import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;

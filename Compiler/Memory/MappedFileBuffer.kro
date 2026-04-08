@@ -19,7 +19,7 @@ import UTF8View::*;
 import Timer::*;
 
 ///
-/// \file Core/MappedFileBuffer.kro
+/// \file MappedFileBuffer.kro
 /// \brief memory-mapped file abstraction with utf-8 viewing support.
 ///
 /// \details

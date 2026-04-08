@@ -63,7 +63,7 @@ fn main() -> i32 {
     const KBLD_VERSION:  string = version_macro("kbld",  "-0.1.0+dev");
     const KFMT_VERSION:  string = version_macro("kfmt",  "-0.1.0+dev");
     const KLD_VERSION:   string = version_macro("kld",   "-0.1.0+dev");
-    const KLSP_VERSION:  string = version_macro("klsp",  "-0.1.0+dev");
+    const KALS_VERSION:  string = version_macro("kals",  "-0.1.0+dev");
     const KPKG_VERSION:  string = version_macro("kpkg",  "-0.1.0+dev");
 
     // ── LLVM paths ─────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ fn main() -> i32 {
         .skip_dirs(["build", "Lib", "private"]);
 
     var kairo = Target("kairo")
-        .entry("Compiler/Driver/Main/kairo.kro")
+        .entry("Compiler/Driver/kairo.kro")
         .includes(["Compiler", "Lib/bootstrap/lib-helix"])
         .define(KAIRO_VERSION)
         .passthrough("-fno-lto")
@@ -98,35 +98,35 @@ fn main() -> i32 {
     apply_llvm(kairo, llvm_src, llvm_build, out_lib);
 
     var kbld = Target("kbld")
-        .entry("Compiler/Driver/Main/kbld.kro")
+        .entry("Extras/BuildTool/Driver/kbld.kro")
         .include("Compiler")
         .define(KBLD_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(kbld, llvm_src, llvm_build, out_lib);
 
     var kfmt = Target("kfmt")
-        .entry("Compiler/Driver/Main/kfmt.kro")
+        .entry("Extras/Formatter/Driver/kfmt.kro")
         .include("Compiler")
         .define(KFMT_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(kfmt, llvm_src, llvm_build, out_lib);
 
     var kld = Target("kld")
-        .entry("Compiler/Driver/Main/kld.kro")
+        .entry("Linker/Driver/kld.kro")
         .include("Compiler")
         .define(KLD_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(kld, llvm_src, llvm_build, out_lib);
 
-    var klsp = Target("klsp")
-        .entry("Compiler/Driver/Main/klsp.kro")
+    var klsp = Target("kals")
+        .entry("Analyzer/Driver/kals.kro")
         .include("Compiler")
-        .define(KLSP_VERSION)
+        .define(KALS_VERSION)
         .pre_build(llvm_prebuild);
     apply_llvm(klsp, llvm_src, llvm_build, out_lib);
 
     var kpkg = Target("kpkg")
-        .entry("Compiler/Driver/Main/kpkg.kro")
+        .entry("Extras/PackageManager/Driver/kpkg.kro")
         .include("Compiler")
         .define(KPKG_VERSION)
         .pre_build(llvm_prebuild);

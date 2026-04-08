@@ -13,12 +13,12 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/UTF8Decode.hh";
+ffi "c++" import "UTF8Decode.hh";
 
 import Memory::MMapRegion::*;
 
 ///
-/// \file Core/UTF8View.kro
+/// \file UTF8View.kro
 /// \brief forward iterator for utf-8 decoding with ascii fast-path.
 ///
 /// \details
@@ -28,7 +28,7 @@ import Memory::MMapRegion::*;
 /// from files via `MMapRegion`.
 ///
 /// the iterator decodes one code point per iteration using `decode_utf8_lut()`
-/// (from `Core/UTF8Decode.hh`), which applies strict utf-8 validation. invalid
+/// (from `UTF8Decode.hh`), which applies strict utf-8 validation. invalid
 /// or overlong sequences are replaced with `'?'` (0x3F). for efficiency, ascii
 /// bytes are processed in a single fast-path pass.
 ///

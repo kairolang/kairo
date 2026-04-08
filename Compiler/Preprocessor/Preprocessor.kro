@@ -277,7 +277,7 @@ import Preprocessor::ExpansionContext::*;
 import Diagnostics::Consumers::BasicDiagConsumer::*;
 import Diagnostics::DiagEngine::*;
 import Diagnostics::DiagRegistry::*;
-import Driver::Invocation::PreprocessorOptions::*;
+import Invoke::PreprocessorOptions::*;
 import Preprocessor::MacroSentinel::*;
 
 class PreProcessor;

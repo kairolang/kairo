@@ -13,7 +13,7 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
-ffi "c++" import "Core/Types.hh";
+ffi "c++" import "Types.hh";
 
 import Source::SourceFile::*;
 import Source::SourceLocation::*;
@@ -30,7 +30,7 @@ type FileID = u32;;
 /// FIXME: change the use of string paths in get_line_col to Path objects.
 
 ///
-/// \file Core/SourceManager.kro
+/// \file SourceManager.kro
 /// \brief central coordinator for file loading, buffer access, and location
 ///        mapping.
 ///

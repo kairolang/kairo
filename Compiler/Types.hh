@@ -17,7 +17,7 @@
 #define __KAIRO_TOOLCHAIN_CORE_TYPES_HH__
 
 ///
-/// \file Core/Types.hh
+/// \file Types.hh
 /// \brief Common type and function aliases for Kairo core and standard
 /// interoperability.
 ///
