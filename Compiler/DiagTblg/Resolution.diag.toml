@@ -1,0 +1,230 @@
+#--- The Kairo Project ----------------------------------------------------#
+#                                                                          #
+#   Part of the Kairo Project, under the Attribution 4.0 International     #
+#   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    #
+#   and create derivative works, even for commercial purposes, provided    #
+#   that you give appropriate credit, and indicate if changes were made.   #
+#                                                                          #
+#   For more information on the license terms and requirements, please     #
+#     visit: https://creativecommons.org/licenses/by/4.0/                  #
+#                                                                          #
+#   SPDX-License-Identifier: Apache-2.0                                    #
+#   Copyright (c) 2026 The Kairo Project (Apache-2.0)                      #
+#                                                                          #
+#------------------------------------------------------------ KAIRO -------#
+
+[R001]
+brief = "place holder diagnostics"
+group = "Uncategorized"
+    [R001.W]
+    explain = "This is placeholder diagnostics. (Warning)"
+    [R001.I]
+    explain = "This is placeholder diagnostics. (Info)"
+    [R001.R]
+    explain = "This is placeholder diagnostics. (Remark)"
+    [R001.V]
+    explain = "This is placeholder diagnostics. (Verbose)"
+    [R001.N]
+    explain = "This is placeholder diagnostics. (Note)"
+    [R001.D]
+    explain = "This is placeholder diagnostics. (Debug)"
+    [R001.E]
+    explain = "This is placeholder diagnostics. (Error)"
+    [R001.F]
+    explain = "This is placeholder diagnostics. (Fatal)"
+
+[R003]
+brief = "undefined macro"
+group = "macro"
+
+    [R003.E]
+    explain = """
+    The macro was invoked but no definition was found in the
+    current scope, imported scopes, or global scope.
+    """
+
+    [R003.W]
+    explain = """
+    The macro was invoked but could not be resolved. This may
+    indicate a missing import or a typo in the macro name.
+    Expansion was skipped.
+    """
+
+    [R003.N]
+    explain = "Related to an undefined macro reference above."
+
+[R002]
+brief = "failed to lex imported file"
+group = "import"
+
+    [R002.E]
+    explain = """
+    # failed to lex imported file
+
+    the preprocessor attempted to lex a file that is referenced by an import statement, but the lexer
+    returned an error. this usually means the file does not exist, cannot be read, or contains
+    unrecoverable lexical errors.
+
+    ## how to fix
+    verify that the imported file path is correct and that the file is accessible and well-formed.
+    """
+
+[R004]
+brief = "no tokens available for imported file"
+group = "import"
+
+    [R004.E]
+    explain = """
+    # no tokens for imported file
+
+    the preprocessor successfully located an imported file but obtained an empty or null token stream.
+    this is an internal consistency error that may indicate a corrupted token cache or a double-load race.
+
+    ## how to fix
+    if this is a user-visible error, file a bug report. ensure the file is not empty and that the
+    lexer processes it before the preprocessor runs.
+    """
+
+[R005]
+brief = "ambiguous module path"
+group = "import"
+
+    [R005.W]
+    explain = """
+    # ambiguous module
+
+    a module path resolves to both a directory (`Foo/Bar/`) and a file (`Foo/Bar.kro`). the compiler
+    will prefer the file, but this is likely a project layout mistake.
+
+    ## how to fix
+    rename one of the conflicting paths or use the `module` disambiguation keyword (`import module Foo::Bar`)
+    to explicitly select the directory-based module.
+    """
+
+[R006]
+brief = "macro invoked without required arguments"
+group = "macro"
+
+    [R006.E]
+    explain = """
+    # macro requires arguments
+
+    a parameterized macro was invoked without providing any arguments. macros defined with a parameter
+    list must be called with matching arguments.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    macro add!(a, b) { a + b }
+    var x = add!(1, 2);
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var x = add!;   // missing argument list
+    ```
+
+    ## how to fix
+    add the argument list: `add!(1, 2)`.
+    """
+
+[R007]
+brief = "macro invoked with arguments but accepts none"
+group = "macro"
+
+    [R007.E]
+    explain = """
+    # macro does not accept arguments
+
+    a parameterless macro (defined without a parameter list) was invoked with arguments.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    macro greet! { "hello" }
+    var s = greet!;
+    ```
+
+    - incorrect usage:
+    ```kairo
+    var s = greet!("world");  // unexpected args
+    ```
+
+    ## how to fix
+    remove the argument list from the invocation.
+    """
+
+[R008]
+brief = "macro expansion error"
+group = "macro"
+
+    [R008.E]
+    explain = """
+    # macro expansion error
+
+    an error occurred while expanding a macro invocation. this covers argument count mismatches, too
+    many arguments, too few arguments, or errors in nested expansion.
+
+    ## how to fix
+    check the macro definition for the expected parameter list and ensure the invocation supplies
+    the correct number of arguments. see the accompanying note for the exact problem.
+    """
+
+[R009]
+brief = "builtin macro misuse"
+group = "macro"
+
+    [R009.E]
+    explain = """
+    # builtin macro error
+
+    a compiler-provided builtin macro (such as `error!`, `warn!`, `first!`, `last!`, `unstringify!`)
+    was called with incorrect arguments or in an unsupported context.
+
+    ## how to fix
+    consult the builtin macro documentation for the expected argument types and counts.
+    """
+
+[R010]
+brief = "user-emitted diagnostic via error!() macro"
+group = "macro"
+
+    [R010.E]
+    explain = """
+    # error!() macro diagnostic
+
+    the source file explicitly invoked `error!(message)` to emit a compile-time error.
+    this is a user-defined diagnostic, not a compiler bug.
+    """
+
+    [R010.W]
+    explain = """
+    # warn!() macro diagnostic
+
+    the source file explicitly invoked `warn!(message)` to emit a compile-time warning.
+    this is a user-defined diagnostic, not a compiler bug.
+    """
+
+    [R010.N]
+    explain = """
+    # note!() macro diagnostic
+
+    the source file explicitly invoked `note!(message)` to emit a compile-time note.
+    """
+
+[R011]
+brief = "failed to resolve import path"
+group = "import"
+
+    [R011.E]
+    explain = """
+    # failed to resolve import path
+
+    the preprocessor attempted to resolve an import path but could not locate a matching file or module.
+    this may indicate a missing file, a typo in the import statement, or an incorrect project layout.
+
+    ## how to fix
+    verify that the imported file or module exists and that the import statement uses the correct path.
+    """

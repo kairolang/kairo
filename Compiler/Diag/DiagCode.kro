@@ -1,0 +1,106 @@
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Diag::DiagRegistry::*;
+
+class DiagCode {
+    var _meta: DiagMeta;
+    var _id:   DiagID;       // SC(41, DiagSeverity::Error) -> DiagID::SC041E
+
+    fn DiagCode(self) {
+        self._id   = DiagID::Invalid;
+        self._meta = diag_meta(DiagID::Invalid);
+    }
+
+    fn DiagCode(self, _id: DiagID) {
+        self._id   = _id;
+        self._meta = diag_meta(_id);
+    }
+
+    fn DiagCode(self, _meta: DiagMeta) {
+        self._meta = _meta;
+        self._id   = static_cast::<DiagID>(_meta.hash);
+    }
+
+    fn id(self) -> DiagID {
+        return self._id;
+    }
+
+    fn meta(self) -> DiagMeta {
+        return self._meta;
+    }
+
+    fn category(self) -> DiagCategory {
+        return self._meta.category;
+    }
+
+    fn severity(self) -> DiagSeverity {
+        return self._meta.severity;
+    }
+
+    fn number(self) -> u32 {
+        return self._meta.number;
+    }
+
+    fn hash(self) -> u32 {
+        return self._meta.hash;
+    }
+
+    fn brief(self) -> string {
+        return self._meta.brief;
+    }
+
+    fn group(self) -> string {
+        return self._meta.group;
+    }
+
+    fn op as (self) -> string { // convert to string like this: SC(41, DiagSeverity::Error) -> "SC041E"
+        return (self._meta) as string;
+    }
+
+    fn op as (self) -> DiagID {
+        return self._id;
+    }
+
+    fn op == (self, other: DiagCode) -> bool {
+        return (self._meta.category == other._meta.category)
+            && (self._meta.severity == other._meta.severity)
+            && (self._meta.number   == other._meta.number);
+    }
+
+    fn op != (self, other: DiagCode) -> bool {
+        return !(self == other);
+    }
+
+    fn op < (self, other: DiagCode) -> bool {
+        if (self._meta.category != other._meta.category) {
+            return self._meta.category < other._meta.category;
+        }
+        if (self._meta.severity != other._meta.severity) {
+            return self._meta.severity < other._meta.severity;
+        }
+        return self._meta.number < other._meta.number;
+    }
+
+    fn op > (self, other: DiagCode) -> bool {
+        return !(self < other) && (self != other);
+    }
+
+    fn op <= (self, other: DiagCode) -> bool {
+        return (self < other) || (self == other);
+    }
+
+    fn op >= (self, other: DiagCode) -> bool {
+        return (self > other) || (self == other);
+    }
+}

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
 Reads diag.toml, generates DiagRegistry.kro
-Usage: python3 gen_diag.py syntax.diag.toml sema.diag.toml > DiagRegistry.kro
+Usage: python3 gen_diag.py <folder with .diag.toml files> > DiagRegistry.kro
 """
 
-import sys, tomllib, textwrap
+import sys, tomllib, textwrap, os
 
 CAT_MAP = {
     "S": "Syntax", "U": "Uncategorized", "C": "CodeGen",
@@ -27,14 +27,19 @@ def parse_base_code(code: str):
 
 def main():
     if len(sys.argv) < 2:
-        print(f"usage: {sys.argv[0]} <cat.diag.toml>...", file=sys.stderr)
+        print(f"usage: {sys.argv[0]} <folder with .diag.toml files>", file=sys.stderr)
         sys.exit(1)
 
     # first we read all the toml files and merge them into a single string then parse it
+    # get all the files in the folder that end with .diag.toml
     merged_toml = ""
-    for path in sys.argv[1:]:
-        with open(path, "rb") as f:
+    folder = sys.argv[1]
+    toml_files = [sys.argv[1] + "/" + f for f in os.listdir(folder) if f.endswith(".diag.toml")]
+    for toml_file in toml_files:
+        with open(toml_file, "rb") as f:
             merged_toml += f.read().decode("utf-8") + "\n"
+    
+    
     
     # now parse the merged toml
     data = tomllib.loads(merged_toml)
@@ -81,8 +86,8 @@ def main():
         "///   For more information on the license terms and requirements, please     ///",
         "///     visit: https://creativecommons.org/licenses/by/4.0/                  ///",
         "///                                                                          ///",
-        "///   SPDX-License-Identifier: CC-BY-4.0                                     ///",
-        "///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///",
+        "///   SPDX-License-Identifier: Apache-2.0                                    ///",
+        "///   Copyright (c) 2026 The Kairo Project (Apache-2.0)                      ///",
         "///                                                                          ///",
         "///------------------------------------------------------------ KAIRO -------///",
         "",

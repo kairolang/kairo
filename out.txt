@@ -1,0 +1,3892 @@
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[90mdebug: [0mimport dirs: [
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/pkgs, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+[90mdebug: [0m]
+[90mdebug: [0mlink dirs: [
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/libs, 
+[90mdebug: [0m]
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/abi.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/range.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame_context.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/handler.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/core.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceLocation.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceRange.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/EvalHash.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagCategory.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagSeverity.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagMeta.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagRegistry.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagCode.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/Diagnostic.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagConsumer.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagEngine.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/FileSystem.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Path.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/MMapRegion.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/UTF8View.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/MemoryBuffer.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Timer.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/MappedFileBuffer.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceFile.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/ThreadPool.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/VirtualFileManager.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/FullSourceLocation.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceLineTable.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Assert.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceManager.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/DiagConsumer/PrettyDiagConsumer.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/DiagConsumer/BasicDiagConsumer.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/TermRenderer.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/TokenKind.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/Token.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/ArenaAllocator.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/TokenBuffer.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/ArenaList.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/Immediate.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Include/Base.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/BalanceTracker.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/HexParser.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/OctalParser.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Include/SourceManager.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Include/Testing.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/TokenCacheManager.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Command/FlagUtils.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Command/ParsedArgs.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Command/FlagsRegister.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/LangOptions.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/DiagnosticOptions.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/PreprocessorOptions.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/CodeGenOptions.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/FrontendOptions.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/TargetOptions.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/CompilerInvocation.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/TUStage.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/TUResult.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/BatchResult.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/TokenSpan.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Include/Concurrency.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/FileExtensions.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/DirEntry.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/SearchRoot.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ImportResolver.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/PreprocessorSymbolTable.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/IdentifierToken.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroParameter.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroParameterList.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ModulePath.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroDefinition.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroSymbolTable.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ScopeTracker.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroImport.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/FileImportState.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ParsedImport.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/SkipList.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroDefinitionCollector.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ExpansionContext.kro[96m][0m
+[90mdebug: [0mflags: 
+    verbose: 1, 
+    quiet: 0, 
+    emit tokens: 0, 
+    emit llvm: 0, 
+    emit asm: 0, 
+    emit ast: 0, 
+    emit cst: 0, 
+    emit ir: 0, 
+    emit doc: 0, 
+    release: 1, 
+    debug: 0, 
+    lib: 0, 
+    python abi: 0, 
+    rust abi: 0, 
+    cxx abi: 0, 
+    kairo abi: 0, 
+    config file: , 
+    output file: build/x86_64-linux-gnu/release/bin/kairo, 
+    toolchain target: , 
+    toolchain arch: , 
+    toolchain cpu: , 
+    toolchain sdk: , 
+    include dir: [
+Compiler, 
+    Lib/bootstrap/lib-helix, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/llvm/include, 
+    /mnt/linux-dev/projects/kairo-lang/Lib/llvm-runtimes/clang/include, 
+    /mnt/linux-dev/projects/kairo-lang/build/llvm/tools/clang/include, 
+        ], 
+    library dir: [     ], 
+    link libraries: [     ], 
+    module dir: [     ]
+[96m[[0mtokenized[96m][0m
+[96m[[0mpreprocessing[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroSentinel.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/Preprocessor.kro[96m][0m
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/CompilerInstance.kro[96m][0m
+[90mdebug: [0mimported files: [
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroSentinel.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroImport.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ModulePath.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroParameterList.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroSymbolTable.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/FileImportState.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ScopeTracker.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroDefinitionCollector.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ImportResolver.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/DirEntry.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/Preprocessor.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/MemoryBuffer.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroDefinition.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Include/Concurrency.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/TokenKind.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/MappedFileBuffer.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Path.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/MacroParameter.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/FullSourceLocation.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/SkipList.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/BalanceTracker.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceFile.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/Token.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/UTF8View.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Command/FlagUtils.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/VirtualFileManager.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceManager.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/TokenBuffer.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ParsedImport.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/DiagConsumer/PrettyDiagConsumer.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagCode.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/Diagnostic.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagCategory.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Include/Testing.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagSeverity.kro, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/abi.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/MMapRegion.kro, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/range.kro, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Include/SourceManager.kro, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame_context.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/CompilerInstance.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/FileSystem.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagEngine.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceRange.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/FileExtensions.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/ArenaList.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceLocation.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagRegistry.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Timer.kro, 
+[90mdebug: [0m/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/handler.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagMeta.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/TUStage.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/CompilerInvocation.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Assert.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/DiagConsumer/BasicDiagConsumer.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/PreprocessorSymbolTable.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/PreprocessorOptions.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/TermRenderer.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/TokenCacheManager.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/BatchResult.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Memory/ArenaAllocator.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/TargetOptions.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/HexParser.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/TUResult.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/EvalHash.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/Immediate.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Include/Base.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ExpansionContext.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/TokenSpan.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Source/SourceLineTable.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Command/ParsedArgs.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Command/FlagsRegister.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Lexer/OctalParser.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/FrontendOptions.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/SearchRoot.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/ThreadPool.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/LangOptions.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Diag/DiagConsumer.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/DiagnosticOptions.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Preprocessor/IdentifierToken.kro, 
+[90mdebug: [0m/home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Invoke/CodeGenOptions.kro, 
+[90mdebug: [0m]
+[96m[[0mpreprocessed[96m][0m
+[96m[[0mparsing ast...[96m][0m
+[96m[[0mparsed: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/kairo.kro[96m][0m
+[96m[[0memitted cx-ir[96m][0m
+[90mdebug: [0mCXXCompileAction initialized with:
+[90mdebug: [0mworking_dir: /home/dhruvan/linux-dev/projects/kairo-lang
+[90mdebug: [0mcc_source: /mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/cache/cxx/kairoCXIR_13575979221124421355.cxx
+[90mdebug: [0mcc_output: /home/dhruvan/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/bin/kairo
+[90mdebug: [0mkairo_src: /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/kairo.kro
+[90mdebug: [0mcxx_compiler: clang++
+[90mdebug: [0mcxx_args: [-DVERSION=L\"kairo-0.1.1+dev.202648\", build/.gen/kairo_meta.cpp, -fno-lto, -L/mnt/linux-dev/projects/kairo-lang/build/llvm/lib, -L/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/lib, -fno-lto, -lclang-cpp, -lLLVM, -llldELF, -llldMachO, -llldCOFF, -llldMinGW, -llldWasm, -llldCommon, '-Wl,-rpath,$ORIGIN/../lib']
+[90mdebug: [0mdoes cc_source exists? : yes
+[96m[[0mcompiling[96m][0m
+[90mdebug: [0midentified compiler: clang version 22.1.2
+[90mdebug: [0mcompile command: clang++ -include "/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/include/core.hh"  -I /mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core -O3  -xc++ -std=c++23 -fexceptions -fno-omit-frame-pointer -fno-color-diagnostics -fno-diagnostics-fixit-info -fdiagnostics-absolute-paths -fno-diagnostics-show-line-numbers -fno-diagnostics-show-option -fcaret-diagnostics-max-lines=0 -fno-elide-type  -rdynamic -flto -stdlib=libc++ -lc++ -lc++abi -D_CRT_SECURE_NO_WARNINGS -D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS  -Wall -o "/home/dhruvan/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/bin/kairo" -DVERSION=L\"kairo-0.1.1+dev.202648\" build/.gen/kairo_meta.cpp -fno-lto -L/mnt/linux-dev/projects/kairo-lang/build/llvm/lib -L/mnt/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/lib -fno-lto -lclang-cpp -lLLVM -llldELF -llldMachO -llldCOFF -llldMinGW -llldWasm -llldCommon '-Wl,-rpath,$ORIGIN/../lib' "/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/cache/cxx/kairoCXIR_13575979221124421355.cxx"
+[90mdebug: [0mcompiler output:
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:135:12: warning: inline function 'u128::u128' is not defined
+    inline u128(i32 val);
+           ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:84:10: note: used here
+    u128 result(0);          // Integer part
+         ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:144:17: warning: inline function 'u128::operator*' is not defined
+    inline u128 operator*(const u128 &other) const;
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:107:29: note: used here
+            result = result * u128(base) + u128(*str - 'a' + 10);
+                            ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:142:17: warning: inline function 'u128::operator+' is not defined
+    inline u128 operator+(const u128 &other) const;
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:107:42: note: used here
+            result = result * u128(base) + u128(*str - 'a' + 10);
+                                         ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:165:18: warning: inline function 'u128::operator=' is not defined
+    inline u128 &operator=(const u128 &other);
+                 ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:107:20: note: used here
+            result = result * u128(base) + u128(*str - 'a' + 10);
+                   ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:145:17: warning: inline function 'u128::operator/' is not defined
+    inline u128 operator/(const u128 &divisor) const;
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:162:56: note: used here
+        result = (base == 10 && has_fraction) ? result / fraction_place * multiplier
+                                                       ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:202:12: warning: inline function 'i128::i128' is not defined
+    inline i128(i32 val);
+           ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:177:10: note: used here
+    i128 result(0);          // Integer part
+         ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:214:17: warning: inline function 'i128::operator*' is not defined
+    inline i128 operator*(const i128 &other) const;
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:200:29: note: used here
+            result = result * i128(base) + i128(*str - 'a' + 10);
+                            ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:212:17: warning: inline function 'i128::operator+' is not defined
+    inline i128 operator+(const i128 &other) const;
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:200:42: note: used here
+            result = result * i128(base) + i128(*str - 'a' + 10);
+                                         ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:235:18: warning: inline function 'i128::operator=' is not defined
+    inline i128 &operator=(const i128 &other);
+                 ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:200:20: note: used here
+            result = result * i128(base) + i128(*str - 'a' + 10);
+                   ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:215:17: warning: inline function 'i128::operator/' is not defined
+    inline i128 operator/(const i128 &other) const;
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:255:56: note: used here
+        result = (base == 10 && has_fraction) ? result / fraction_place * multiplier
+                                                       ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/meta.hh:28:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/interfaces.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/meta/__interfaces/casting.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/string/char_traits.hh:23:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/primitives.hh:255:17: warning: inline function 'i128::operator-' is not defined
+    inline i128 operator-() const;
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/types/builtins/literals.hh:262:26: note: used here
+    return is_negative ? -result : result;  // Apply sign and return truncated integer part
+                         ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/runtime.hh:20:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic.hh:24:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/frame_context.hh:93:12: warning: inline function 'kairo::std::Panic::FrameContext::~FrameContext' is not defined
+    inline ~FrameContext();
+           ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/frame.hh:135:5: note: used here
+    ~Frame()          = default;
+    ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/frame.hh:129:12: warning: inline function 'kairo::std::Panic::Frame::Frame<kairo::std::Error::RuntimeError>' is not defined
+    inline Frame(T obj, const char *filename, usize lineno);
+           ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__io/__print/stringf.hh:130:17: note: used here
+                _HX_MC_Q7_INTERNAL_CRASH_PANIC_M(Error::RuntimeError(L"[f-string rt]: too few format specifiers (\"{}\")"));
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic_config.hh:49:5: note: expanded from macro '_HX_MC_Q7_INTERNAL_CRASH_PANIC_M'
+    ::kairo::std::Panic::Frame(err, __FILE__, __LINE__).operator$panic();
+    ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/runtime.hh:20:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic.hh:25:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/frame.hh:151:30: warning: inline function 'kairo::std::Panic::Frame::operator$panic' is not defined
+    [[noreturn]] inline void operator$panic() const;
+                             ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__io/__print/stringf.hh:130:17: note: used here
+                _HX_MC_Q7_INTERNAL_CRASH_PANIC_M(Error::RuntimeError(L"[f-string rt]: too few format specifiers (\"{}\")"));
+                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic_config.hh:49:57: note: expanded from macro '_HX_MC_Q7_INTERNAL_CRASH_PANIC_M'
+    ::kairo::std::Panic::Frame(err, __FILE__, __LINE__).operator$panic();
+                                                        ^
+14 warnings generated.
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame_context.kro:39:214: warning: function declared 'noreturn' should not return
+std  ::  crash  (  std  ::  Error  ::  RuntimeError  (  string  (  L"Object \'"  )  +  string  (  (  *  this  )  .  error  ->  type_info  (  )  ->  name  (  )  )  +  string  (  L"\' failed to panic."  )  )  )  ;  }  auto  
+                                                                                                                                                                                                                     ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Diag/DiagRegistry.kro:1575:1: warning: enumeration value 'Invalid' not handled in switch
+/mnt/linux-dev/projects/kairo-lang/Compiler/Diag/DiagConsumer.kro:17:179: warning: expression result unused
+/mnt/linux-dev/projects/kairo-lang/Compiler/Diag/DiagConsumer.kro:18:170: warning: expression result unused
+/mnt/linux-dev/projects/kairo-lang/Compiler/Diag/DiagConsumer.kro:19:170: warning: expression result unused
+/mnt/linux-dev/projects/kairo-lang/Compiler/Diag/DiagConsumer.kro:20:182: warning: expression result unused
+/mnt/linux-dev/projects/kairo-lang/Compiler/Diag/DiagConsumer.kro:21:172: warning: expression result unused
+/mnt/linux-dev/projects/kairo-lang/Compiler/Diag/DiagConsumer.kro:21:189: warning: non-void function does not return a value
+virtual  auto  finalize_to_string  (  )  ->  string  {  ;  __REGISTER_KAIRO_TRACE_BLOCK__  (  __FILE__  ,  __LINE__  ,  __KAIRO_FUNCNAME__  ,  $_1775629869399_7956  )  ;  i32  (  0  )  ;  }  ;  ;  public  :  
+                                                                                                                                                                                            ^
+In file included from /mnt/linux-dev/projects/kairo-lang/Compiler/UTF8View.kro:2:
+/mnt/linux-dev/projects/kairo-lang/Compiler/UTF8Decode.hh:118:19: warning: unused variable 'mask'
+/mnt/linux-dev/projects/kairo-lang/Compiler/VirtualFileManager.kro:353:254: warning: non-void function does not return a value in all control paths
+std  ::  crash  (  std  ::  Error  ::  RuntimeError  (  kairo  ::  std  ::  stringf  (  string  (  L"VirtualFileManager: Pointer {} out of bounds"  )  ,  (  kairo  ::  std  ::  as_unsafe  <  void  *  ,  decltype  (  ptr  )  >  (  ptr  )  )  )  )  )  ;  }  public  :  auto  
+                                                                                                                                                                                                                                                             ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Assert.kro:51:14: warning: variable 'dummy' set but not used
+volatile i64 dummy = 0  ;  ;  for  (  auto  
+             ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Immediate.kro:907:8: warning: variable 'frac_start' set but not used
+usize  frac_start  =  i32  (  0  )  ;  ;  
+       ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Immediate.kro:755:7: warning: variable 'has_integer' set but not used
+bool  has_integer  =  false  ;  ;  ;  
+      ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Immediate.kro:756:7: warning: variable 'has_fraction' set but not used
+bool  has_fraction  =  false  ;  ;  ;  
+      ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:404:19: warning: equality comparison with extraneous parentheses
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:404:19: note: remove extraneous parentheses around the comparison to silence this warning
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:404:19: note: use '=' to turn this equality comparison into an assignment
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:1040:82: warning: '&&' within '||'
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:1040:82: note: place parentheses around the '&&' expression to silence this warning
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:1093:1: warning: expression result unused
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:1397:1: warning: unused variable 'line_start'
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:3691:8: warning: unused variable 'one_u'
+/mnt/linux-dev/projects/kairo-lang/Compiler/Lexer/Lex.kro:4903:14: warning: variable 'dummy' set but not used
+volatile i64 dummy = 0  ;  ;  for  (  auto  
+             ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:120:2: warning: "CommandCommand::Command(diag) is only for testing; use Command(argc, argv, diag) in production" ;  ;  (  *  this  )  .  
+#warning "CommandCommand::Command(diag) is only for testing; use Command(argc, argv, diag) in production" ;  ;  (  *  this  )  .  
+ ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:384:1: warning: expression result unused
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:386:1: warning: expression result unused
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:463:16: warning: equality comparison with extraneous parentheses
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:463:16: note: remove extraneous parentheses around the comparison to silence this warning
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:463:16: note: use '=' to turn this equality comparison into an assignment
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:504:16: warning: equality comparison with extraneous parentheses
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:504:16: note: remove extraneous parentheses around the comparison to silence this warning
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:504:16: note: use '=' to turn this equality comparison into an assignment
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:544:27: warning: equality comparison with extraneous parentheses
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:544:27: note: remove extraneous parentheses around the comparison to silence this warning
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:544:27: note: use '=' to turn this equality comparison into an assignment
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:570:16: warning: equality comparison with extraneous parentheses
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:570:16: note: remove extraneous parentheses around the comparison to silence this warning
+/mnt/linux-dev/projects/kairo-lang/Compiler/Command/Command.kro:570:16: note: use '=' to turn this equality comparison into an assignment
+/mnt/linux-dev/projects/kairo-lang/Compiler/Preprocessor/ImportResolver.kro:939:1: warning: unused variable 'passed'
+/mnt/linux-dev/projects/kairo-lang/Compiler/Preprocessor/Preprocessor.kro:2699:1: warning: expression result unused
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/runtime.hh:20:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic.hh:24:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/frame_context.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__function/function_impl.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__memory/memory.hh:27:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__memory/allocation.hh:47:5: warning: delete called on non-final 'kairo::_$M_$002Fhome$002Fdhruvan$002Flinux$002Ddev$002Fprojects$002Fkairo$002Dlang$002FCompiler$002FDiagConsumer$002FPrettyDiagConsumer$002Ekro$L88_E$::PrettyDiagConsumer' that has virtual functions but non-virtual destructor
+    delete ptr;  // NOLINT
+    ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Driver/CompilerInstance.kro:183:10: note: in instantiation of function template specialization 'kairo::std::destroy<kairo::_$M_$002Fhome$002Fdhruvan$002Flinux$002Ddev$002Fprojects$002Fkairo$002Dlang$002FCompiler$002FDiagConsumer$002FPrettyDiagConsumer$002Ekro$L88_E$::PrettyDiagConsumer>' requested here
+std  ::  destroy  (  (  *  this  )  .  _pretty  )  ;  ;  (  *  this  )  .  
+         ^
+In file included from <built-in>:1:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/core.hh:23:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/runtime.hh:20:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic.hh:24:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/frame_context.hh:21:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__function/function_impl.hh:22:
+In file included from /mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__memory/memory.hh:27:
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__memory/allocation.hh:47:5: warning: delete called on non-final 'kairo::_$M_$002Fhome$002Fdhruvan$002Flinux$002Ddev$002Fprojects$002Fkairo$002Dlang$002FCompiler$002FDiagConsumer$002FBasicDiagConsumer$002Ekro$L87_E$::BasicDiagConsumer' that has virtual functions but non-virtual destructor
+    delete ptr;  // NOLINT
+    ^
+/mnt/linux-dev/projects/kairo-lang/Compiler/Driver/CompilerInstance.kro:188:10: note: in instantiation of function template specialization 'kairo::std::destroy<kairo::_$M_$002Fhome$002Fdhruvan$002Flinux$002Ddev$002Fprojects$002Fkairo$002Dlang$002FCompiler$002FDiagConsumer$002FBasicDiagConsumer$002Ekro$L87_E$::BasicDiagConsumer>' requested here
+std  ::  destroy  (  (  *  this  )  .  _basic  )  ;  ;  (  *  this  )  .  
+         ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame_context.kro:30:49: warning: function declared 'noreturn' should not return
+std  ::  crash  (  (  *  (  object  )  )  )  ;  }  auto  
+                                                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/PanicFrameContext.tpp:87:30: note: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::throw_object<kairo::std::Error::NullValueError>' requested here
+    handler = &FrameContext::throw_object<T>;
+                             ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame.kro:42:13: note: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::FrameContext<kairo::std::Error::NullValueError>' requested here
+context  =  Panic  ::  FrameContext  (  object  )  ;  ;  }  else  if  constexpr  (  (  
+            ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/PanicFrame.tpp:35:5: note: in instantiation of function template specialization 'kairo::std::Panic::Frame::initialize<kairo::std::Error::NullValueError>' requested here
+    initialize<T>(&obj);
+    ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/Questionable.tpp:292:5: note: in instantiation of function template specialization 'kairo::std::Panic::Frame::Frame<kairo::std::Error::NullValueError>' requested here
+    _HX_MC_Q7_INTERNAL_CRASH_PANIC_M(std::Error::NullValueError(L"Invalid Decay: value is null."));
+    ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic_config.hh:49:5: note: expanded from macro '_HX_MC_Q7_INTERNAL_CRASH_PANIC_M'
+    ::kairo::std::Panic::Frame(err, __FILE__, __LINE__).operator$panic();
+    ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/abi/abi.hh:118:44: note: in instantiation of member function 'kairo::$question<unsigned long>::operator*' requested here
+    if (bslash != null && (sep == null || (*bslash) > (*sep))) {
+                                           ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame_context.kro:30:49: warning: function declared 'noreturn' should not return
+std  ::  crash  (  (  *  (  object  )  )  )  ;  }  auto  
+                                                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/PanicFrameContext.tpp:87:30: note: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::throw_object<kairo::std::Error::StateMismatchError>' requested here
+    handler = &FrameContext::throw_object<T>;
+                             ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame.kro:42:13: note: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::FrameContext<kairo::std::Error::StateMismatchError>' requested here
+context  =  Panic  ::  FrameContext  (  object  )  ;  ;  }  else  if  constexpr  (  (  
+            ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/PanicFrame.tpp:35:5: note: in instantiation of function template specialization 'kairo::std::Panic::Frame::initialize<kairo::std::Error::StateMismatchError>' requested here
+    initialize<T>(&obj);
+    ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/abi.kro:31:1: note: in instantiation of function template specialization 'kairo::std::Panic::Frame::Frame<kairo::std::Error::StateMismatchError>' requested here
+_HX_MC_Q7_PANIC_M  (  std  ::  Error  ::  StateMismatchError  (  string  (  L"Input string cannot be empty"  )  )  )  ;  ;  }  ;  
+^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic_config.hh:80:39: note: expanded from macro '_HX_MC_Q7_PANIC_M'
+#define _HX_MC_Q7_PANIC_M(err) return ::kairo::std::Panic::Frame(err, __FILE__, __LINE__);
+                                      ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame_context.kro:30:49: warning: function declared 'noreturn' should not return
+std  ::  crash  (  (  *  (  object  )  )  )  ;  }  auto  
+                                                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/PanicFrameContext.tpp:87:30: note: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::throw_object<kairo::std::Error::RuntimeError>' requested here
+    handler = &FrameContext::throw_object<T>;
+                             ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame.kro:42:13: note: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::FrameContext<kairo::std::Error::RuntimeError>' requested here
+context  =  Panic  ::  FrameContext  (  object  )  ;  ;  }  else  if  constexpr  (  (  
+            ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/PanicFrame.tpp:35:5: note: in instantiation of function template specialization 'kairo::std::Panic::Frame::initialize<kairo::std::Error::RuntimeError>' requested here
+    initialize<T>(&obj);
+    ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic.hh:37:22: note: in instantiation of function template specialization 'kairo::std::Panic::Frame::Frame<kairo::std::Error::RuntimeError>' requested here
+        auto frame = std::Panic::Frame(error, location.file_name(), location.line());
+                     ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame_context.kro:30:49: warning: function declared 'noreturn' should not return
+std  ::  crash  (  (  *  (  object  )  )  )  ;  }  auto  
+                                                ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/PanicFrameContext.tpp:87:30: note: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::throw_object<kairo::std::Error::TypeMismatchError>' requested here
+    handler = &FrameContext::throw_object<T>;
+                             ^
+/mnt/linux-dev/projects/kairo-lang/build/release/x86_64-linux-gnu/core/frame.kro:42:13: note: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::FrameContext<kairo::std::Error::TypeMismatchError>' requested here
+context  =  Panic  ::  FrameContext  (  object  )  ;  ;  }  else  if  constexpr  (  (  
+            ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/source/PanicFrame.tpp:35:5: note: in instantiation of function template specialization 'kairo::std::Panic::Frame::initialize<kairo::std::Error::TypeMismatchError>' requested here
+    initialize<T>(&obj);
+    ^
+/mnt/linux-dev/projects/kairo-lang/Lib/bootstrap/lib-helix/core/include/runtime/__panic/panic.hh:37:22: note: in instantiation of function template specialization 'kairo::std::Panic::Frame::Frame<kairo::std::Error::TypeMismatchError>' requested here
+        auto frame = std::Panic::Frame(error, location.file_name(), location.line());
+                     ^
+35 warnings generated.
+[90mdebug: [0mdiagnostic lines to parse: 97
+[90mdebug: [0memitting diagnostic [warning]: inline function 'u128::u128' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'u128::operator*' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'u128::operator+' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'u128::operator=' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'u128::operator/' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'i128::i128' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'i128::operator*' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'i128::operator+' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'i128::operator=' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'i128::operator/' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'i128::operator-' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'kairo::std::Panic::FrameContext::~FrameContext' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [warning]: inline function 'kairo::std::Panic::Frame::Frame<kairo::std::Error::RuntimeError>' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [note]: expanded from macro '_HX_MC_Q7_INTERNAL_CRASH_PANIC_M'
+[90mdebug: [0memitting diagnostic [warning]: inline function 'kairo::std::Panic::Frame::operator$panic' is not defined
+[90mdebug: [0memitting diagnostic [note]: used here
+[90mdebug: [0memitting diagnostic [note]: expanded from macro '_HX_MC_Q7_INTERNAL_CRASH_PANIC_M'
+[90mdebug: [0memitting diagnostic [warning]: function declared 'noreturn' should not return
+[90mdebug: [0memitting diagnostic [warning]: enumeration value 'Invalid' not handled in switch
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: non-void function does not return a value
+[90mdebug: [0memitting diagnostic [warning]: unused variable 'mask'
+[90mdebug: [0memitting diagnostic [warning]: non-void function does not return a value in all control paths
+[90mdebug: [0memitting diagnostic [warning]: variable 'dummy' set but not used
+[90mdebug: [0memitting diagnostic [warning]: variable 'frac_start' set but not used
+[90mdebug: [0memitting diagnostic [warning]: variable 'has_integer' set but not used
+[90mdebug: [0memitting diagnostic [warning]: variable 'has_fraction' set but not used
+[90mdebug: [0memitting diagnostic [warning]: equality comparison with extraneous parentheses
+[90mdebug: [0memitting diagnostic [note]: remove extraneous parentheses around the comparison to silence this warning
+[90mdebug: [0memitting diagnostic [note]: use '=' to turn this equality comparison into an assignment
+[90mdebug: [0memitting diagnostic [warning]: '&&' within '||'
+[90mdebug: [0memitting diagnostic [note]: place parentheses around the '&&' expression to silence this warning
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: unused variable 'line_start'
+[90mdebug: [0memitting diagnostic [warning]: unused variable 'one_u'
+[90mdebug: [0memitting diagnostic [warning]: variable 'dummy' set but not used
+[90mdebug: [0memitting diagnostic [warning]: "CommandCommand::Command(diag) is only for testing; use Command(argc, argv, diag) in production" ;  ;  (  *  this  )  .  
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: equality comparison with extraneous parentheses
+[90mdebug: [0memitting diagnostic [note]: remove extraneous parentheses around the comparison to silence this warning
+[90mdebug: [0memitting diagnostic [note]: use '=' to turn this equality comparison into an assignment
+[90mdebug: [0memitting diagnostic [warning]: equality comparison with extraneous parentheses
+[90mdebug: [0memitting diagnostic [note]: remove extraneous parentheses around the comparison to silence this warning
+[90mdebug: [0memitting diagnostic [note]: use '=' to turn this equality comparison into an assignment
+[90mdebug: [0memitting diagnostic [warning]: equality comparison with extraneous parentheses
+[90mdebug: [0memitting diagnostic [note]: remove extraneous parentheses around the comparison to silence this warning
+[90mdebug: [0memitting diagnostic [note]: use '=' to turn this equality comparison into an assignment
+[90mdebug: [0memitting diagnostic [warning]: equality comparison with extraneous parentheses
+[90mdebug: [0memitting diagnostic [note]: remove extraneous parentheses around the comparison to silence this warning
+[90mdebug: [0memitting diagnostic [note]: use '=' to turn this equality comparison into an assignment
+[90mdebug: [0memitting diagnostic [warning]: unused variable 'passed'
+[90mdebug: [0memitting diagnostic [warning]: expression result unused
+[90mdebug: [0memitting diagnostic [warning]: delete called on non-final 'kairo::_$M_$002Fhome$002Fdhruvan$002Flinux$002Ddev$002Fprojects$002Fkairo$002Dlang$002FCompiler$002FDiagConsumer$002FPrettyDiagConsumer$002Ekro$L88_E$::PrettyDiagConsumer' that has virtual functions but non-virtual destructor
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::destroy<kairo::_$M_$002Fhome$002Fdhruvan$002Flinux$002Ddev$002Fprojects$002Fkairo$002Dlang$002FCompiler$002FDiagConsumer$002FPrettyDiagConsumer$002Ekro$L88_E$::PrettyDiagConsumer>' requested here
+[90mdebug: [0memitting diagnostic [warning]: delete called on non-final 'kairo::_$M_$002Fhome$002Fdhruvan$002Flinux$002Ddev$002Fprojects$002Fkairo$002Dlang$002FCompiler$002FDiagConsumer$002FBasicDiagConsumer$002Ekro$L87_E$::BasicDiagConsumer' that has virtual functions but non-virtual destructor
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::destroy<kairo::_$M_$002Fhome$002Fdhruvan$002Flinux$002Ddev$002Fprojects$002Fkairo$002Dlang$002FCompiler$002FDiagConsumer$002FBasicDiagConsumer$002Ekro$L87_E$::BasicDiagConsumer>' requested here
+[90mdebug: [0memitting diagnostic [warning]: function declared 'noreturn' should not return
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::throw_object<kairo::std::Error::NullValueError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::FrameContext<kairo::std::Error::NullValueError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::Frame::initialize<kairo::std::Error::NullValueError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::Frame::Frame<kairo::std::Error::NullValueError>' requested here
+[90mdebug: [0memitting diagnostic [note]: expanded from macro '_HX_MC_Q7_INTERNAL_CRASH_PANIC_M'
+[90mdebug: [0memitting diagnostic [note]: in instantiation of member function 'kairo::$question<unsigned long>::operator*' requested here
+[90mdebug: [0memitting diagnostic [warning]: function declared 'noreturn' should not return
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::throw_object<kairo::std::Error::StateMismatchError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::FrameContext<kairo::std::Error::StateMismatchError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::Frame::initialize<kairo::std::Error::StateMismatchError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::Frame::Frame<kairo::std::Error::StateMismatchError>' requested here
+[90mdebug: [0memitting diagnostic [note]: expanded from macro '_HX_MC_Q7_PANIC_M'
+[90mdebug: [0memitting diagnostic [warning]: function declared 'noreturn' should not return
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::throw_object<kairo::std::Error::RuntimeError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::FrameContext<kairo::std::Error::RuntimeError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::Frame::initialize<kairo::std::Error::RuntimeError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::Frame::Frame<kairo::std::Error::RuntimeError>' requested here
+[90mdebug: [0memitting diagnostic [warning]: function declared 'noreturn' should not return
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::throw_object<kairo::std::Error::TypeMismatchError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::FrameContext::FrameContext<kairo::std::Error::TypeMismatchError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::Frame::initialize<kairo::std::Error::TypeMismatchError>' requested here
+[90mdebug: [0memitting diagnostic [note]: in instantiation of function template specialization 'kairo::std::Panic::Frame::Frame<kairo::std::Error::TypeMismatchError>' requested here
+[96m[[0mlowered /home/dhruvan/linux-dev/projects/kairo-lang/Compiler/Driver/kairo.kro and compiled cxir[96m][0m
+[96m[[0mcompiled successfully to /home/dhruvan/linux-dev/projects/kairo-lang/build/x86_64-linux-gnu/release/bin/kairo[96m][0m
+[90mdebug: [0mtime taken: 21389015081.000000 ns
+[90mdebug: [0m            21389.015081 ms
+[1m[32msuccess: [0mcompilation successful

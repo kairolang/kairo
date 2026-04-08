@@ -1,0 +1,27 @@
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+enum DiagCategory derives u8 {
+    Syntax,         // S
+    Uncategorized,  // U
+    CodeGen,        // C
+    Memory,         // M
+    Resolution,     // R
+    Linker,         // L
+    Semantic,       // SC
+    Portability,    // P
+    Lowering,       // CL
+    Optimization,   // OPT
+    Internal,       // I
+    Count,          /// Total number of categories.  Not a valid category.
+}

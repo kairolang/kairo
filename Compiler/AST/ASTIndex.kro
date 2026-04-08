@@ -1,0 +1,16 @@
+/// --- The Kairo Project -------------------- Compiler/AST/ASTIndex.kro --- ///
+///
+///   ----------------------------------------------------------------------
+///   ASTIndex is a compact, read-only data structure. It's used in parse
+///   step 1, to store initial Symbol and SourceRange information for all
+///   Decls, and in parse step 2, to quickly look up Decls by their Symbol.
+///   ----------------------------------------------------------------------
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///

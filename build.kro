@@ -1,3 +1,18 @@
+/// --- The Kairo Project ------------------------------------ build.kro --- ///
+///
+///   Build script for the Kairo compiler and tools. This script defines how
+///   to compile the various components of the Kairo project, including the
+///   compiler itself, the standard library, and any auxiliary tools or tests.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
 fn version(target: string, suffix: string) -> string {
     var date_suffix = "";
 
@@ -17,7 +32,7 @@ fn version_macro(target: string, suffix: string) -> string {
 
 fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: string) -> void {
     if path_exists(llvm_build + "/include") {
-        // submodule build exists — use it
+        // submodule build existsuse it
         t.include(llvm_build + "/include")
          .include(llvm_src   + "/llvm/include")
          .include(llvm_src   + "/clang/include")
@@ -35,7 +50,9 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
          .passthrough("-llldWasm")
          .passthrough("-llldCommon");
     } else {
-        // system LLVM — query llvm-config
+        /// at some point we do need to always require the submodule build,
+        /// but for now fallback to system llvm if not present, as we need
+        /// clang-tools-extra, and prebuilt llvm, does not include that.
         var inc    = run(["sh", "-c", "llvm-config --includedir | tr -d '\\n' "]).stdout_str;
         var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n' "]).stdout_str;
         var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n' "]).stdout_str;
@@ -67,7 +84,7 @@ fn main() -> i32 {
     const KPKG_VERSION:  string = version_macro("kpkg",  "-0.1.0+dev");
 
     // ── LLVM paths ─────────────────────────────────────────────────────────────
-    // derived deterministically — prebuild script guarantees libs are here
+    // derived deterministicallyprebuild script guarantees libs are here
     var llvm_build = build_dir() + "/llvm";
     var llvm_src   = project_root() + "/Lib/llvm-runtimes";
     var out_lib    = build_dir() + "/" + triple() + "/" + build_mode() + "/lib";
@@ -80,6 +97,11 @@ fn main() -> i32 {
     if platform() == "macos" {
         llvm_prebuild = "bash Scripts/prebuild-llvm-macos.sh";
     }
+
+    // we also need to add
+    //    "python3 Scripts/gen_diag.py Compiler/DiagTblg > Compiler/Diag/DiagRegistry.kro"
+    //    as a prebuild step for the entire project, but that is currently not
+    //    possible since it would require regenerating DiagRegistry.kro before every target
 
     var p = Project("Kairo")
         .version("kairo-0.0.1+rc.20260220")

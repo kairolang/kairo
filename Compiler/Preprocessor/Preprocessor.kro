@@ -8,8 +8,8 @@
 ///   For more information on the license terms and requirements, please     ///
 ///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
 ///                                                                          ///
-///   SPDX-License-Identifier: CC-BY-4.0                                     ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///   SPDX-License-Identifier: Apache-2.0                                    ///
+///   Copyright (c) 2026 The Kairo Project (Apache-2.0)                      ///
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
@@ -274,9 +274,9 @@ import Lexer::TokenSpan::*;
 import Preprocessor::ImportResolver::*;
 import Preprocessor::MacroDefinitionCollector::*;
 import Preprocessor::ExpansionContext::*;
-import Diagnostics::Consumers::BasicDiagConsumer::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
+import DiagConsumer::BasicDiagConsumer::*;
+import Diag::DiagEngine::*;
+import Diag::DiagRegistry::*;
 import Invoke::PreprocessorOptions::*;
 import Preprocessor::MacroSentinel::*;
 

@@ -1,17 +1,15 @@
-///--- The Kairo Project ----------------------------------------------------///
-///                                                                          ///
-///   Part of the Kairo Project, under the Attribution 4.0 International     ///
-///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
-///   and create derivative works, even for commercial purposes, provided    ///
-///   that you give appropriate credit, and indicate if changes were made.   ///
-///                                                                          ///
-///   For more information on the license terms and requirements, please     ///
-///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
-///                                                                          ///
-///   SPDX-License-Identifier: CC-BY-4.0                                     ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
-///                                                                          ///
-///------------------------------------------------------------ KAIRO -------///
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
 
 import Source::SourceRange::*;
 import ASTKind::DeclContextKind::*;
@@ -33,7 +31,7 @@ class Expr {
         Unknown,  // not yet resolved by sema
         LValue,   // has address, assignable
         RValue,   // temporary, not assignable
-        XValue,   // expiring value (move semantics) — needed for C++ interop
+        XValue,   // expiring value (move semantics)needed for C++ interop
     }
 
     pub var value_category: ValueCategory = ValueCategory::Unknown;
@@ -180,18 +178,18 @@ class Type {
 /// No vtable, no dynamic_cast, no typeid.
 ///
 /// Three cast functions per hierarchy:
-///   isa<T>(ptr)      — check if ptr is a T, no cast
-///   cast<T>(ptr)     — assert + static_cast, crashes in debug if wrong
-///   dyn_cast<T>(ptr) — returns null if not a T, T* if it is
+///   isa<T>(ptr)     check if ptr is a T, no cast
+///   cast<T>(ptr)    assert + static_cast, crashes in debug if wrong
+///   dyn_cast<T>(ptr)returns null if not a T, T* if it is
 ///
 /// The kind field is always valid even on RecoveryExpr nodes because
 /// create_error() always allocates the full concrete node and sets
 /// recovery_kind. See the recovery casting contract in Expr.
 ///
 /// Recovery casting:
-///   isa_recovery<T>(ptr)      — checks recovery_kind instead of kind
-///   cast_recovery<T>(ptr)     — cast via recovery_kind, debug assert
-///   dyn_cast_recovery<T>(ptr) — safe cast via recovery_kind
+///   isa_recovery<T>(ptr)     checks recovery_kind instead of kind
+///   cast_recovery<T>(ptr)    cast via recovery_kind, debug assert
+///   dyn_cast_recovery<T>(ptr)safe cast via recovery_kind
 ///
 /// Usage:
 ///   if isa::<IntegerLiteralExpr>(e) { ... }
@@ -364,7 +362,7 @@ inline const T *dyn_cast(const Type *ptr) {
 //
 //  Safe because create_error() on every concrete node allocates the FULL
 //  concrete node and then overwrites kind with Recovery*.
-//  recovery_kind always matches the actual allocation — the cast is valid.
+//  recovery_kind always matches the actual allocationthe cast is valid.
 //
 //  Each concrete node must define:
 //    static fn expr_kind() -> ExprKind   (or stmt_kind, decl_kind, type_kind)

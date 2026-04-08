@@ -1,17 +1,15 @@
-///--- The Kairo Project ----------------------------------------------------///
-///                                                                          ///
-///   Part of the Kairo Project, under the Attribution 4.0 International     ///
-///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
-///   and create derivative works, even for commercial purposes, provided    ///
-///   that you give appropriate credit, and indicate if changes were made.   ///
-///                                                                          ///
-///   For more information on the license terms and requirements, please     ///
-///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
-///                                                                          ///
-///   SPDX-License-Identifier: CC-BY-4.0                                     ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
-///                                                                          ///
-///------------------------------------------------------------ KAIRO -------///
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
 ///
 /// \invariant Recovery node casting contract:
 ///
@@ -24,7 +22,7 @@
 /// Sema relies on this invariant for partial recovery type checking.
 /// Codegen relies on this to emit defaults for broken nodes.
 ///
-/// DO NOT allocate a bare Expr and set recovery_kind — the cast will
+/// DO NOT allocate a bare Expr and set recovery_kindthe cast will
 /// read out of bounds. Always use the concrete node's create_error().
 ///
 

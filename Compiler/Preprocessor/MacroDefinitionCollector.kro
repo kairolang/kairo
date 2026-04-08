@@ -8,8 +8,8 @@
 ///   For more information on the license terms and requirements, please     ///
 ///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
 ///                                                                          ///
-///   SPDX-License-Identifier: CC-BY-4.0                                     ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
+///   SPDX-License-Identifier: Apache-2.0                                    ///
+///   Copyright (c) 2026 The Kairo Project (Apache-2.0)                      ///
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
@@ -17,8 +17,8 @@ import Preprocessor::ScopeTracker::*;
 import Preprocessor::FileImportState::*;
 import Preprocessor::ParsedImport::*;
 import Preprocessor::SkipList::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
+import Diag::DiagEngine::*;
+import Diag::DiagRegistry::*;
 
 /// Macro Definition Collector
 /// ==========================

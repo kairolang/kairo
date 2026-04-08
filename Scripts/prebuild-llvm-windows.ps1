@@ -95,7 +95,7 @@ Write-Host "[llvm] using VS env: $vsDevCmd"
 
 # ── verify ninja is available ─────────────────────────────────────────────────
 if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
-    Write-Error "[llvm] error: ninja not found — install via 'winget install Ninja-build.Ninja' or add to PATH"
+    Write-Error "[llvm] error: ninja not foundinstall via 'winget install Ninja-build.Ninja' or add to PATH"
     exit 1
 }
 

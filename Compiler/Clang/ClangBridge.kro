@@ -1,17 +1,15 @@
-///--- The Kairo Project ----------------------------------------------------///
-///                                                                          ///
-///   Part of the Kairo Project, under the Attribution 4.0 International     ///
-///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
-///   and create derivative works, even for commercial purposes, provided    ///
-///   that you give appropriate credit, and indicate if changes were made.   ///
-///                                                                          ///
-///   For more information on the license terms and requirements, please     ///
-///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
-///                                                                          ///
-///   SPDX-License-Identifier: CC-BY-4.0                                     ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
-///                                                                          ///
-///------------------------------------------------------------ KAIRO -------///
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Clang/ClangBridgeImpl.hh";
 
@@ -76,7 +74,7 @@ struct ClangSymbol {
     var qualified_name:     string;  ///< fully qualified e.g. std::vector
     var kind:               ClangSymbolKind;
 
-    /// location from Kairo's SourceManager — valid for directly imported
+    /// location from Kairo's SourceManagervalid for directly imported
     /// headers where the buffer is loaded.  invalid (default) for
     /// transitive / system headers.
     var decl_loc:           SourceLocation;
@@ -85,7 +83,7 @@ struct ClangSymbol {
     /// e.g. "<cstdio>:143:7".  empty if decl_loc is valid.
     var clang_rendered_loc: string;
 
-    /// arity range — callable kinds only.
+    /// arity rangecallable kinds only.
     /// OverloadSet: min/max across all overloads.
     /// max_arity == u32::MAX means variadic.
     var min_arity:          u32 = 0;
@@ -308,7 +306,7 @@ class ClangSymbolTable {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  CLANG BRIDGE — persistent clang infrastructure
+//  CLANG BRIDGEpersistent clang infrastructure
 // ═════════════════════════════════════════════════════════════════════════════
 
 ///
@@ -575,7 +573,7 @@ fn Test() -> i32 {
     // ── 1. bridge construction ────────────────────────────────────────────
     suite.equal::<string>("bridge create returns non-null", "pass", fn () -> string {
         if bridge == &null {
-            return "ClangBridge::create returned null — check target triple / resource_dir";
+            return "ClangBridge::create returned nullcheck target triple / resource_dir";
         }
         return "pass";
     });
@@ -623,7 +621,7 @@ fn Test() -> i32 {
         tbl = SymbolExtractor::extract(bridge, p);
 
         if tbl.empty() {
-            return "symbol table is empty — extraction failed or header not found";
+            return "symbol table is emptyextraction failed or header not found";
         }
         return "pass";
     });
@@ -913,7 +911,7 @@ fn Test() -> i32 {
         var stl = SymbolExtractor::extract_with_opts(stdlib_bridge, p, true, &null);
 
         if stl.empty() {
-            return "stdlib symbol table is empty — check include paths";
+            return "stdlib symbol table is emptycheck include paths";
         }
 
         /////////////
@@ -987,11 +985,11 @@ fn Test() -> i32 {
 
         // std::print("=== End Symbols ===\n");
 
-        // ── spot checks — kairo string API since lookup now takes *string ─────
+        // ── spot checkskairo string API since lookup now takes *string ─────
         var vec_name  = "vector";
         var vec_res   = stl.lookup_qualified(&vec_name);
         if vec_res.kind == LookupResultKind::NotFound {
-            return "vector not found — stdlib headers likely not being parsed";
+            return "vector not foundstdlib headers likely not being parsed";
         }
         if vec_res.sym.kind != ClangSymbolKind::ClassTemplate {
             return f"vector found but wrong kind={libcxx::to_wstring(static_cast::<u8>(vec_res.sym.kind))}, lookup_kind={libcxx::to_wstring(static_cast::<u8>(vec_res.kind))}, candidates={libcxx::to_wstring(vec_res.candidates.size())}";

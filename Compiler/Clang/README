@@ -318,7 +318,7 @@ The emitted token stream is fed into Clang's standard pipeline:
 
 Kairo invokes this by creating a `clang::CompilerInstance`, configuring it with Kairo's flags (mapped to Clang equivalents), and running the pipeline.
 
-**Diagnostic capture:** Clang's `DiagnosticConsumer` is subclassed to intercept diagnostics and route them through Kairo's `DiagEngine`. Since source locations already point to `.kro` files (via the virtual file mapping in the token emitter), most diagnostics display correctly without remapping.
+**Diagnostic capture:** Clang's `DiagConsumer` is subclassed to intercept diagnostics and route them through Kairo's `DiagEngine`. Since source locations already point to `.kro` files (via the virtual file mapping in the token emitter), most diagnostics display correctly without remapping.
 
 **Error remapping for cascade suppression:** when Clang reports an error on a deferred C++ node, the Kairo diagnostic consumer:
 1. Identifies the `DiagCategory` (from the Clang diagnostic ID)

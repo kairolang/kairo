@@ -163,7 +163,7 @@ class RawSymbolTable {
         if (qit != by_qualified_.end()) {
             auto &existing = syms_[qit->second];
             if (existing.is_callable && sym.is_callable) {
-                // don't merge a template decl with its templated function —
+                // don't merge a template decl with its templated function
                 // the visitor fires for both; keep whichever is the template
                 if (existing.is_template && !sym.is_template) {
                     return;
@@ -619,7 +619,7 @@ class DeclCollector : public clang::RecursiveASTVisitor<DeclCollector> {
             return true;
         }
         // the nominated namespace's symbols are already in the table
-        // from VisitNamespaceDecl traversal — nothing to add here.
+        // from VisitNamespaceDecl traversalnothing to add here.
         // but record the namespace itself so the parser knows
         // unqualified lookup should search it.
         // for now: no-op, parser handles this at sema level
@@ -888,7 +888,7 @@ inline RawSymbolTable extract_symbols(BridgeState       &bridge,
                                        true);
     }
 
-    // Mutate the CI's own invocation in place — no setInvocation in LLVM 22
+    // Mutate the CI's own invocation in placeno setInvocation in LLVM 22
     ci->getLangOpts()          = bridge.lang_opts();
     ci->getTargetOpts().Triple = bridge.target_opts().Triple;
     ci->getHeaderSearchOpts()  = bridge.hdr_opts();

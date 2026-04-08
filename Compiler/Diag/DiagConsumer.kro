@@ -1,0 +1,22 @@
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Diag::Diagnostic::*;
+
+class DiagConsumer {
+    virtual fn handle(self, diag: *Diagnostic) { 0; };
+    virtual fn finalize_to_stderr(self) { 0; };
+    virtual fn finalize_to_stdout(self) { 0; };
+    virtual fn finalize_to_file(self, path: string) { 0; };
+    virtual fn finalize_to_string(self) -> string { 0; };
+}
