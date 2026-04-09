@@ -54,21 +54,18 @@ class GlobalRecycler {
         size_t capacity;
     };
 
-    static_assert(sizeof(Node) <= 64, "Node must fit in a cache line");
-
     static constexpr size_t NUM_BINS                 = 3;
     static constexpr size_t BIN_THRESHOLDS[NUM_BINS] = {
         64UL * 1024, 1024UL * 1024, SIZE_MAX};
+    static constexpr size_t MIN_RECYCLABLE = 4096;
 
-    std::Atomic<Node *> bins_[NUM_BINS] = {};
+    Node*       bins_[NUM_BINS] = {};  // plain pointers, mutex protects them
+    std::Mutex  _mu;
 
     static size_t bin_index(size_t size) noexcept {
         for (size_t i = 0; i < NUM_BINS; ++i) {
-            if (size <= BIN_THRESHOLDS[i]) {
-                return i;
-            }
+            if (size <= BIN_THRESHOLDS[i]) return i;
         }
-
         #ifdef _MSC_VER
             __assume(false);
         #else
@@ -76,83 +73,50 @@ class GlobalRecycler {
         #endif
     }
 
-    static constexpr size_t MIN_RECYCLABLE = 4096;
-
-  public:
-    static GlobalRecycler &instance() noexcept {
+public:
+    static GlobalRecycler& instance() noexcept {
         static GlobalRecycler inst;
         return inst;
     }
 
-    GlobalRecycler() = default;
+    GlobalRecycler()                                  = default;
     ~GlobalRecycler() noexcept { clear(); }
+    GlobalRecycler(const GlobalRecycler&)             = delete;
+    GlobalRecycler& operator=(const GlobalRecycler&)  = delete;
+    GlobalRecycler(GlobalRecycler&&)                  = delete;
+    GlobalRecycler& operator=(GlobalRecycler&&)       = delete;
 
-    GlobalRecycler(const GlobalRecycler &)            = delete;
-    GlobalRecycler &operator=(const GlobalRecycler &) = delete;
-    GlobalRecycler(GlobalRecycler &&)                 = delete;
-    GlobalRecycler &operator=(GlobalRecycler &&)      = delete;
-
-    void push(std::Byte *block, size_t capacity) noexcept {
-        if (block == nullptr || capacity < MIN_RECYCLABLE) [[unlikely]] {
+    void push(std::Byte* block, size_t capacity) noexcept {
+        if (block == nullptr || capacity < MIN_RECYCLABLE) {
             if (block != nullptr) {
-                Logger::trace(Logger::Stage::Driver, libcxx::format(L"GlobalRecycler::push: skip recycle cap={}B (below threshold)", capacity));
                 #ifdef _MSC_VER
                     _aligned_free(block);
                 #else
                     libcxx::free(block);
                 #endif
             }
-
             return;
         }
 
-        if (capacity < MIN_RECYCLABLE) [[unlikely]] {
-            #ifdef _MSC_VER
-                _aligned_free(block);
-            #else
-                libcxx::free(block);
-            #endif
-            return;
-        }
-
-        auto *node     = reinterpret_cast<Node *>(block);
+        auto* node     = reinterpret_cast<Node*>(block);
         node->capacity = capacity;
+        size_t idx     = bin_index(capacity);
 
-        size_t idx = bin_index(capacity);
-
-        node->next = bins_[idx].load(std::MemoryOrder::relaxed);
-        while (!bins_[idx].compare_exchange_weak(node->next,
-                                                 node,
-                                                 std::MemoryOrder::release,
-                                                 std::MemoryOrder::relaxed)) {
-            ;  // spin until we successfully push the node onto the bin's linked
-               // list
-        }
-
-        Logger::trace(Logger::Stage::Driver, libcxx::format(L"GlobalRecycler::push: recycled cap={}B bin={}", capacity, idx));
+        std::LockGuard<std::Mutex> lock(_mu);
+        node->next = bins_[idx];
+        bins_[idx] = node;
     }
 
-    std::Byte *pop(size_t min_size) noexcept {
-        if (min_size < MIN_RECYCLABLE) {
-            return nullptr;
-        }
+    std::Byte* pop(size_t min_size) noexcept {
+        if (min_size < MIN_RECYCLABLE) return nullptr;
+
+        std::LockGuard<std::Mutex> lock(_mu);
 
         for (size_t idx = bin_index(min_size); idx < NUM_BINS; ++idx) {
-            Node *node = bins_[idx].load(std::MemoryOrder::acquire);
-
-            while (node != nullptr) {
-                if (node->capacity >= min_size) {
-                    if (bins_[idx].compare_exchange_weak(
-                            node,
-                            node->next,
-                            std::MemoryOrder::acq_rel,
-                            std::MemoryOrder::relaxed)) {
-                        Logger::trace(Logger::Stage::Driver, libcxx::format(L"GlobalRecycler::pop: reused cap={}B bin={}", node->capacity, idx));
-                        return reinterpret_cast<std::Byte *>(node);
-                    }
-                    continue;
-                }
-                break;
+            Node* node = bins_[idx];
+            if (node != nullptr && node->capacity >= min_size) {
+                bins_[idx] = node->next;
+                return reinterpret_cast<std::Byte*>(node);
             }
         }
 
@@ -160,15 +124,16 @@ class GlobalRecycler {
     }
 
     void clear() noexcept {
-        Logger::debug(Logger::Stage::Driver, L"GlobalRecycler::clear: releasing all bins");
-        for (auto &bin : bins_) {
-            Node *node = bin.exchange(nullptr, std::MemoryOrder::acq_rel);
+        std::LockGuard<std::Mutex> lock(_mu);
+        for (auto& bin : bins_) {
+            Node* node = bin;
+            bin = nullptr;
             while (node != nullptr) {
-                Node *next = node->next;
+                Node* next = node->next;
                 #ifdef _MSC_VER
-                    _aligned_free(reinterpret_cast<std::Byte *>(node));
+                    _aligned_free(reinterpret_cast<std::Byte*>(node));
                 #else
-                    libcxx::free(reinterpret_cast<std::Byte *>(node));
+                    libcxx::free(reinterpret_cast<std::Byte*>(node));
                 #endif
                 node = next;
             }

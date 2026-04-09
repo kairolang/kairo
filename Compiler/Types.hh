@@ -331,18 +331,35 @@ using Thread = libcxx::thread;
 using Mutex = libcxx::mutex;
 
 ///
+/// \brief Alias for shared mutex
+///
+/// \see libcxx::shared_mutex
+///
+using SharedMutex = libcxx::shared_mutex;
+
+///
 /// \brief Alias for unique locking mechanism providing scoped ownership.
 ///
 /// \see libcxx::unique_lock
 ///
-using UniqueLock = libcxx::unique_lock<Mutex>;
+template <typename M>
+using UniqueLock = libcxx::unique_lock<M>;
+
+///
+/// \brief Alias for shared locking mechanism allowing multiple concurrent readers.
+///
+/// \see libcxx::shared_lock
+///
+template <typename M>
+using SharedLock = libcxx::shared_lock<M>;
 
 ///
 /// \brief Alias for RAII-style lock guard.
 ///
 /// \see libcxx::lock_guard
 ///
-using LockGuard = libcxx::lock_guard<Mutex>;
+template <typename M>
+using LockGuard = libcxx::lock_guard<M>;
 
 ///
 /// \brief Alias for condition variable used in thread synchronization.

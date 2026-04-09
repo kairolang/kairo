@@ -219,7 +219,7 @@ class Logger {
             return;
         }
         for (const auto &e : get()->entries_) {
-            out << format_entry(e).raw_string();
+            out << format_entry(e, false).raw_string();
         }
     }
 
@@ -280,11 +280,11 @@ class Logger {
         return m;
     }
 
-    [[nodiscard]] static string format_entry(const Entry &e) {
+    [[nodiscard]] static string format_entry(const Entry &e, bool use_color = true) {
         auto        ts  = format_time(e.timestamp_ns);
         auto        tid = format_thread(e.thread_id);
         const auto *stg = stage_str(e.stage);
-        const auto *lvl = level_str(e.level);
+        const auto *lvl = level_str(e.level, use_color);
 
         string out = libcxx::format(L"[{}] [T:{}] [{}] [{}] {}",
                                     ts.raw_string(),
@@ -333,8 +333,8 @@ class Logger {
         return (i < libcxx::size(names)) ? names[i] : L"Unknown   ";
     }
 
-    static const wchar_t *level_str(Level l) {
-        static constexpr const wchar_t *names[] = {
+    static const wchar_t *level_str(Level l, bool use_color = true) {
+        static constexpr const wchar_t *colored_names[] = {
             L"\033[94m"   L"TRACE" L"\033[0m",
             L"\033[36m"   L"DEBUG" L"\033[0m",
             L"\033[32m"   L"INFO " L"\033[0m",
@@ -342,8 +342,19 @@ class Logger {
             L"\033[31m"   L"ERROR" L"\033[0m",
             L"\033[1;31m" L"FATAL" L"\033[0m",
         };
-        auto i = static_cast<size_t>(l);
-        return (i < libcxx::size(names)) ? names[i] : L"?????";
+        
+        static constexpr const wchar_t *plain_names[] = {
+            L"TRACE",
+            L"DEBUG",
+            L"INFO ",
+            L"WARN ",
+            L"ERROR",
+            L"FATAL",
+        };
+
+        const wchar_t *const *names = use_color ? colored_names : plain_names;
+        auto                  i     = static_cast<size_t>(l);
+        return (i < libcxx::size(colored_names)) ? names[i] : L"?????";
     }
 
     uint64_t elapsed_ns() const {

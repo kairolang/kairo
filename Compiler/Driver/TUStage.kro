@@ -21,7 +21,7 @@ enum TUStage derives u8 {
     Pending,        ///< Constructed, not yet dispatched.
     Loading,        ///< SourceManager::load_file in progress.
     Lexing,         ///< TokenCacheManager::lex_file in progress.
-    Preprocessing,  ///< PreProcessor::preprocess_file in progress.
+    Preprocessing,  ///< PreProcessor::preprocess in progress.
     Parsing,        ///< Parser not yet implemented.
     Sema,           ///< Semantic analysis not yet implemented.
     Codegen,        ///< Code generation not yet implemented.

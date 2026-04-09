@@ -113,7 +113,7 @@ fn main() -> i32 {
 
     var kairo = Target("kairo")
         .entry("Compiler/Driver/kairo.kro")
-        .includes(["Compiler", "Lib/bootstrap/lib-helix"])
+        .includes(["Compiler", "Lib/bootstrap/lib-helix/core"])
         .define(KAIRO_VERSION)
         .passthrough("-fno-lto")
         .pre_build(llvm_prebuild);
