@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ----- Compiler/Preprocessor/ImportResolver.kro --- ///
 ///
 ///   <short description>
 ///
@@ -46,6 +46,13 @@
 //      ResolveError::PermissionDenied (not NotFound) when a lookup targets a
 //      denied root giving the preprocessor enough signal to emit a useful
 //      diagnostic rather than a silent "module not found".
+
+// FIXME(async-indexing): currently the resolver builds the index synchronously
+//      on the calling thread. this is because libcxx::filesystem touches locale
+//      state on first use and throws std::runtime_error when invoked on worker
+//      threads where libc++ locale state is uninitialized. rn in kairo/ the
+//      walk phase alone takes up seconds of time, since kairo/ has all of llvm
+//      and all of libc source in its search paths its awfully slow to index.
 
 import Path::*;
 import FileSystem::*;
@@ -169,7 +176,7 @@ class ImportResolver {
             // state is uninitialised. Async indexing bought nothing anyway since
             // CompilationBatch::run() calls wait_for_index() before dispatching
             // any TU tasks - the spin was immediate and free-threaded for zero gain.
-            resolver->build_index(cwd_path, self._include_paths, &null);
+            resolver->build_index(cwd_path, self._include_paths, pool);
             return resolver;
         }
     }
@@ -197,26 +204,53 @@ class ImportResolver {
     /// sets `_index_completed` to true on exit via `finally` block.
     fn build_index(self, cwd: Path, include_paths: vec::<Path>, pool: *ThreadPool = &null) {
         self._index_completed.store(false, std::MemoryOrder::release);
-        Logger::info(Logger::Stage::Preprocessor, f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={include_paths.size() + 1}");
-        finally {
-            Logger::info(Logger::Stage::Preprocessor, f"ImportResolver::build_index: complete roots={self._roots.size()}");
-            self._index_completed.store(true, std::MemoryOrder::release);
-        };
+        Logger::info(Logger::Stage::Preprocessor,
+            f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={include_paths.size() + 1}");
 
+        // build root list first (cheap, just path checks)
         if cwd.exists() && cwd.is_directory() {
             var root = std::create::<SearchRoot>(cwd, 0, self._ext_cfg);
             self._roots.push_back(root);
-            root->build_index();
         }
 
         var priority: u32 = 1;
         for p: Path in include_paths {
             if p.exists() && p.is_directory() {
-                var root = std::create::<SearchRoot>(p, priority++, self._ext_cfg);
+                var root = std::create::<SearchRoot>(p, priority, self._ext_cfg);
                 self._roots.push_back(root);
-                root->build_index();
+                priority += 1;
             }
         }
+
+        if (pool == &null) || (self._roots.size() <= 1) {
+            // single-threaded fallback
+            for root: *SearchRoot in self._roots {
+                root->build_index(&null);
+            }
+            Logger::info(Logger::Stage::Preprocessor,
+                f"ImportResolver::build_index: complete roots={self._roots.size()}");
+            self._index_completed.store(true, std::MemoryOrder::release);
+            return;
+        }
+
+        // parallel: each root gets its own task on group 0
+        var pending = std::Atomic::<usize>(self._roots.size());
+
+        for root: *SearchRoot in self._roots {
+            __inline_cpp("
+                pool->enqueue([root, &pending, pool, this]() {
+                    root->build_index(pool);
+                    if (pending.fetch_sub(1, std::MemoryOrder::acq_rel) == 1) {
+                        Logger::info(Logger::Stage::Preprocessor,
+                            libcxx::format(L\"ImportResolver::build_index: complete roots={}\",
+                                _roots.size()));
+                        _index_completed.store(true, std::MemoryOrder::release);
+                    }
+                }, static_cast<uint8_t>(0));
+            ");
+        }
+
+        // don't wait here - caller calls wait_for_index() when needed
     }
 
     /// \brief destructor; frees all owned search roots and optionally the extension config

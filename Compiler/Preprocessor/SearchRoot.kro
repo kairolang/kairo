@@ -17,12 +17,22 @@ import Memory::MappedFileBuffer::*;
 
 import Preprocessor::FileExtensions::*;
 import Preprocessor::DirEntry::*;
+import ThreadPool::*;
 
 class SearchRoot {
     pub var base_path: Path;
     pub var root:      *DirEntry;
     pub var priority:  u32;
     pub var ext_cfg:   *FileExtensions;
+
+    __inline_cpp("
+    private:
+        static libcxx::wstring normalize_extension_cpp(const libcxx::wstring& ext) {
+            if (!ext.empty() && ext[0] == L'.') return ext.substr(1);
+            return ext;
+        }
+    public:
+    ");
 
     fn SearchRoot(self, path: Path, priority: u32, ext_cfg: *FileExtensions) {
         self.base_path = path;
@@ -31,8 +41,71 @@ class SearchRoot {
         self.root      = std::create::<DirEntry>(path.filename(), true);
     }
 
-    fn build_index(self) {
-        self.index_recursive(self.root, self.base_path);
+    fn build_index(self, pool: *ThreadPool = &null) {
+        if pool == &null {
+            self.index_recursive(self.root, self.base_path);
+            return;
+        }
+
+        // scan top level on calling thread fast, single directory read
+        // collect immediate children, dispatch subdirs as tasks
+        __inline_cpp("
+            if (!libcxx::filesystem::exists(base_path.path_data) ||
+                !libcxx::filesystem::is_directory(base_path.path_data)) {
+                return;
+            }
+
+            struct SubdirTask {
+                string     name;
+                libcxx::filesystem::path fs_path;
+                DirEntry*       node;  // pre-allocated, owned by root after attach
+            };
+
+            vec<SubdirTask> subdirs;
+
+            try {
+                for (auto& entry : libcxx::filesystem::directory_iterator(base_path.path_data)) {
+                    auto name_raw = entry.path().filename().generic_wstring();
+                    if (name_raw.starts_with(L'.')) continue;
+
+                    if (entry.is_directory()) {
+                        auto* child_node = root->get_or_create_dir(name_raw);
+                        subdirs.push_back({ name_raw, entry.path(), child_node });
+                    } else if (entry.is_regular_file()) {
+                        auto ext_raw = entry.path().extension().generic_wstring();
+                        auto ext     = normalize_extension_cpp(ext_raw);
+                        if (ext_cfg->should_index(ext)) {
+                            auto stem     = entry.path().stem().generic_wstring();
+                            auto full     = Path(entry.path().generic_wstring(), false);
+                            auto category = ext_cfg->categorize(ext);
+                            root->insert_file(stem, full, ext, category);
+                        }
+                    }
+                }
+            } catch (...) {}
+
+            if (subdirs.empty()) return;
+
+            // dispatch one task per immediate subdir
+            std::Atomic<size_t> pending { subdirs.size() };
+
+            for (auto& sub : subdirs) {
+                auto sub_path = Path(sub.fs_path.generic_wstring(), false);
+                auto* node    = sub.node;
+                auto* self_   = this;
+
+                pool->enqueue([self_, node, sub_path, &pending]() {
+                    self_->index_recursive(node, sub_path);
+                    pending.fetch_sub(1, libcxx::memory_order::acq_rel);
+                }, static_cast<uint8_t>(0));
+            }
+
+            // spin-wait for all subtree tasks build_index is called async
+            // from ImportResolver so blocking here is fine
+            while (pending.load(libcxx::memory_order::acquire) > 0) {
+                libcxx::this_thread::yield();
+            }
+        ");
     }
 
     fn op delete (self) {
@@ -42,75 +115,54 @@ class SearchRoot {
     }
 
     priv fn index_recursive(self, node: *DirEntry, dir: Path) {
-        if !dir.exists() || !dir.is_directory() {
-            return;
-        }
+        if !dir.exists() || !dir.is_directory() { return; }
 
-        var iter = libcxx::filesystem::directory_iterator(dir.full_path().raw_string());
-        var end  = libcxx::filesystem::directory_iterator();
+        __inline_cpp("
+            try {
+                for (auto& entry : libcxx::filesystem::directory_iterator(dir.path_data)) {
+                    auto name_raw = entry.path().filename().generic_wstring();
+                    if (name_raw.starts_with(L'.')) continue;
 
-        while iter != end {
-            var entry      = *iter;
-            var entry_path = entry.path();
-            var name_raw   = entry_path.filename().generic_wstring();
-
-            if name_raw.starts_with(".".raw_string()) {
-                ++iter;
-                continue;
-            }
-
-            if entry.is_directory() {
-                var child_path = Path(entry_path.generic_wstring(), false);
-                var child_node = node->get_or_create_dir(name_raw);
-                self.index_recursive(child_node, child_path);
-            } else if entry.is_regular_file() {
-                var ext = self.normalize_extension(entry_path.extension().generic_wstring());
-
-                if self.ext_cfg->should_index(ext) {
-                    var stem      = entry_path.stem().generic_wstring();
-                    var full_path = Path(entry_path.generic_wstring(), false);
-                    var category  = self.ext_cfg->categorize(ext);
-
-                    node->insert_file(stem, full_path, ext, category);
+                    if (entry.is_directory()) {
+                        auto child_path = Path(entry.path().generic_wstring(), false);
+                        auto* child_node = node->get_or_create_dir(name_raw);
+                        index_recursive(child_node, child_path);
+                    } else if (entry.is_regular_file()) {
+                        auto ext_raw = entry.path().extension().generic_wstring();
+                        auto ext     = normalize_extension_cpp(ext_raw);
+                        if (ext_cfg->should_index(ext)) {
+                            auto stem     = entry.path().stem().generic_wstring();
+                            auto full     = Path(entry.path().generic_wstring(), false);
+                            auto category = ext_cfg->categorize(ext);
+                            node->insert_file(stem, full, ext, category);
+                        }
+                    }
                 }
-            }
-
-            ++iter;
-        }
+            } catch (...) {}
+        ");
     }
 
     priv fn normalize_extension(self, ext: string) -> string {
         if (ext.size() > 0) && (ext.raw_string()[0] == '.') {
             return ext.raw_string().substr(1);
         }
-
         return ext;
     }
 
     fn traverse(self, segments: vec::<string>) -> *DirEntry {
         var current = self.root;
-
         for i in range::<usize>(0, segments.size()) {
-            var seg = segments[i];
+            var seg     = segments[i];
             var is_last = (i == segments.size() - 1);
-
             if is_last {
-                // last segment could be file or dir
                 var child = current->find_dir(seg);
-                if child != &null {
-                    return child;
-                }
-                // try as file stem
+                if child != &null { return child; }
                 return current->find_by_stem(seg);
             } else {
-                // intermediate segments must be directories
                 current = current->find_dir(seg);
-                if current == &null {
-                    return &null;
-                }
+                if current == &null { return &null; }
             }
         }
-
         return current;
     }
 }

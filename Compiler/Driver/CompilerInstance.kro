@@ -170,7 +170,7 @@ class CompilerInstance {
     ///   - SM before consumers: consumers need it for source context.
     ///   - Command last: CLI parsing may emit diagnostics into the engine.
     fn CompilerInstance(self, argc: i32, argv: *(*kairo::std::Legacy::char)) {
-        self._pool   = std::create::<ThreadPool>(std::Thread::hardware_concurrency());
+        self._pool   = std::create::<ThreadPool>(8);
         self._vfm    = std::create::<VirtualFileManager>();
         self._diag   = std::create::<DiagEngine>();
         self._sm     = std::create::<SourceManager>(self._pool, self._vfm);
@@ -321,7 +321,7 @@ class CompilerInstance {
         var resolver = rb.create_ptr(self._pool);
         finally { std::destroy(resolver); }
 
-        resolver->wait_for_index();
+        // resolver->wait_for_index(); for now
 
         Logger::info(Logger::Stage::Driver,
             f"CompilerInstance::execute: {self._inv.input_files.size()} file(s)");
@@ -487,7 +487,7 @@ fn FrontendAction::_preprocess() -> bool {
             f"-D defines ({pp_opts.defines.size()}) not yet implemented; ignored");
     }
 
-    if !self._pp->preprocess_file(self._file_id, self.module_base) {
+    if !self._pp->preprocess(self._file_id, self.module_base) {
         self.result.error_count = self._ci->diag()->error_count();
         self.result.warn_count  = self._ci->diag()->warn_count();
         self.result.had_fatal   = self._ci->diag()->has_fatal();
