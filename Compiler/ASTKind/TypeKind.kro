@@ -130,7 +130,7 @@ enum TypeKind derives u8 {
 
     /// Qualified type modifier wrapper:  const T | unsafe T | async T | eval T
     /// Wraps an inner type with a single modifier.
-    /// Multiple modifiers nest:  const unsafe T → ModifiedType(const, ModifiedType(unsafe, T))
+    /// Multiple modifiers nest:  const unsafe T -> ModifiedType(const, ModifiedType(unsafe, T))
     /// Node: QualifiedModifierType Modifier enum + inner TypeRef.
     QualifiedModifierType,
 
