@@ -16,9 +16,12 @@
 import Preprocessor::MacroDefinition::*;
 
 class MacroSymbolTable {
+    var     _mu:   std::SharedMutex;
     pub var table: map::<ModulePath, map::<IdentifierToken, MacroDefinition>>; ///< scope path string -> macro name -> MacroDefinition
 
     fn insert_macro(self, macro_def: MacroDefinition) -> bool {
+        var wlock = std::UniqueLock(self._mu);
+
         var scope_map_it = self.table.find(macro_def.scope);
         if scope_map_it == self.table.end() {
             // No macros in this scope yet, create new map
@@ -38,6 +41,8 @@ class MacroSymbolTable {
     }
 
     fn find_macro(self, scope: ModulePath, name: IdentifierToken) -> *MacroDefinition {
+        var rlock = std::SharedLock(self._mu);
+
         var scope_map_it = self.table.find(scope);
         if scope_map_it != self.table.end() {
             var scope_map = &(scope_map_it->second);

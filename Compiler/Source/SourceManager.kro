@@ -73,6 +73,7 @@ class SourceManager {
     priv var _total_b:    u64 = 0;            ///< total bytes mapped
     priv var _pool:      *ThreadPool;         ///< background worker pool
     priv var _vfile_mgr: *VirtualFileManager; ///< underlying virtual filesystem
+    priv var _load_mu:    std::Mutex;       ///< mutex for synchronizing file loads
 
     ///
     /// \brief constructs a new SourceManager with pool and vfile manager.
@@ -130,6 +131,8 @@ class SourceManager {
     /// - schedules async line-index build on the thread pool.
     ///
     fn load_file(self, path: Path, skip_indexing: bool = false) -> FileID /* file_id */ {
+        var lock = std::LockGuard(self._load_mu); // synchronize file loading
+
         for i in range::<usize>(0, self._files.size()) {
             var f = self._files[i];
 

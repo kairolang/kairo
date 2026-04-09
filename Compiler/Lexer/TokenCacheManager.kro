@@ -16,9 +16,10 @@ import Lexer::Lex::*;
 class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     var _kv_s:        map::<u32, *Lexer>;
     var _old_buffers: vec::<*(TokenBuffer::<512>)>;
-    var _pool: *ThreadPool;
-    var _sm:   *SourceManager;
-    var _diag: *DiagEngine;
+    var _pool:       *ThreadPool;
+    var _sm:         *SourceManager;
+    var _diag:       *DiagEngine;
+    var _lex_mu:      std::SharedMutex;
 
     fn TokenCacheManager(self, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) {
         self._sm   = sm;
@@ -27,6 +28,17 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     }
 
     fn lex_file(self, fid: u32) -> bool {
+        __inline_cpp("{");
+            // fast path: check under shared lock
+            var rlock = std::SharedLock(self._lex_mu);
+            if self._kv_s.contains(fid) {
+                Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: cache hit fid={fid}");
+                return self._kv_s[fid] != &null;
+            }
+        __inline_cpp("}");
+
+        var wlock = std::UniqueLock(self._lex_mu);
+
         if self._kv_s.contains(fid) {
             Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: cache hit fid={fid}");
             return self._kv_s[fid] != &null;
@@ -53,6 +65,8 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     }
 
     fn get_tokens(self, fid: u32) -> *(TokenBuffer::<512>) {
+        var rlock = std::SharedLock(self._lex_mu);
+
         if !(self._kv_s.contains(fid)) {
             return &null;
         }
@@ -65,6 +79,8 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     }
 
     fn get_lexer(self, fid: u32) -> *Lexer {
+        var rlock = std::SharedLock(self._lex_mu);
+
         if !self._kv_s.contains(fid) { return &null; }
         return self._kv_s[fid];
     }
