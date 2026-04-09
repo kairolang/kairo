@@ -223,51 +223,9 @@
 ///     - Recursive expansion cycle (depth > 256)
 ///     - Built-in macro misuse
 ///
-// -- SECTION: ImportProcessor --------------------------------------------
+/// FIXME: at somepoint add support for URLS and string (filesysmtem) based
+///        imports
 
-// -- SECTION: ExpansionContext --------------------------------------------
-
-// -- SECTION: MacroExpander ----------------------------------------------
-
-// -- SECTION: PreProcessor ---------------------------------------------
-/// goal:
-/// simple api to do sumn  like this:
-/*
-
-// once all is imported
-
-
-var imports = ImportResolver::Builder()
-    .with_standard_library(stdlib_path)
-    .with_project_root(project_root)
-
-for path in CLI::IncludePaths {
-    imports = imports.with_include_path(path);
-}
-
-// tcm = TokenCacheManager
-var macro_pp = MacroPreprocessor(sm, tcm, imports, pool);
-var fid = sm->load_file(path);
-if !tcm->lex_file(fid) {
-    return 1;
-}
-
-if !macro_pp.process_file(fid, ModulePath("test")) {
-    std::print("Macro processing failed!");
-    return 1;
-}
-
-var tokens = tcm->get_tokens(fid);
-if tokens == &null {
-    std::print("No tokens found!");
-    return 1;
-}
-
-/// thats it the macro expanded tokens are in `tokens`
-*/
-
-/// btw metnal note: if we have sum like `import Foo::Bar::SomeClass` we simply look up the full path if it doesnt exist we move on since the import may be for a type or function not a macro
-/// we only care about macros here and we can `import Foo::Bar::SomeMacro!` we only lookup `Foo::Bar` not the full path, then we lex and look for the specific macro in that module
 
 import Lexer::TokenCacheManager::*;
 import Lexer::TokenSpan::*;
@@ -279,19 +237,22 @@ import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
 import Invoke::PreprocessorOptions::*;
 import Preprocessor::MacroSentinel::*;
+import Preprocessor::DepScanner::*;
+import Preprocessor::WaveExecutor::*;
 
 class PreProcessor;
 
 class ImportProcessor {
-    priv var _sm:           *SourceManager;
-    priv var _tcm:          *TokenCacheManager;
-    priv var _resolver:     *ImportResolver;
-    priv var _sym_table:    *PreprocessorSymbolTable;
-    priv var _macro_table:  *MacroSymbolTable;
-    priv var _macro_proc:   *PreProcessor;            ///< back-pointer for recursive preprocess_file
-    priv var _skip_lists:   *map::<u32, SkipList>;
-    priv var _file_states:   map::<u32, FileImportState>; ///< per-file import state
-    priv var _diag:          *DiagEngine;                  ///< shared diagnostic engine
+    priv var _sm:          *SourceManager;
+    priv var _tcm:         *TokenCacheManager;
+    priv var _resolver:    *ImportResolver;
+    priv var _sym_table:   *PreprocessorSymbolTable;
+    priv var _macro_table: *MacroSymbolTable;
+    priv var _skip_lists:  *map::<u32, SkipList>;
+    priv var _skip_mu:     *std::SharedMutex;           ///< guards skip_lists
+    priv var _states_mu:   *std::SharedMutex;          ///< guards _file_states
+    priv var _diag:        *DiagEngine;
+    priv var _file_states:  map::<u32, FileImportState>; ///< per-fid, written once per fid
 
     default fn ImportProcessor(self);
 
@@ -303,16 +264,18 @@ class ImportProcessor {
         sym_table:   *PreprocessorSymbolTable,
         macro_table: *MacroSymbolTable,
         skip_lists:  *map::<u32, SkipList>,
-        macro_proc:  *PreProcessor,
+        skip_mu:     *std::SharedMutex,
+        _states_mu:  *std::SharedMutex,
         diag:        *DiagEngine
-    )  {
+    ) {
         self._sm          = sm;
         self._tcm         = tcm;
         self._resolver    = resolver;
         self._sym_table   = sym_table;
         self._macro_table = macro_table;
-        self._macro_proc  = macro_proc;
         self._skip_lists  = skip_lists;
+        self._skip_mu     = skip_mu;
+        self._states_mu   = _states_mu;
         self._diag        = diag;
     }
 
@@ -405,16 +368,16 @@ class ImportProcessor {
 ///   Qualified with params:       `Foo::bar!(args)`  -> ident `::` ident `!` `(` ... `)`
 ///
 class MacroExpander {
-    priv var _scope:          ModulePath; ///< current scope during expansion (updated by scope tracker)
-    priv var _diag:          *DiagEngine;
-    priv var _sm:            *SourceManager;
-    priv var _sym_table:     *PreprocessorSymbolTable;
-    priv var _macro_table:   *MacroSymbolTable;
-    priv var _import_proc:   *ImportProcessor;
-    priv var _skip_list:     *SkipList;
-    priv var _imm_table:     *ImmediateTable;  ///< lexer's imm table for the file being expanded
-    priv var _lexer:         *Lexer = &null;
-    priv var _parent_ex_idx:  u32 = static_cast::<u32>(MacroSentinel::NoParent); ///< index of the parent expansion in the imm table, or -1 if top-level
+    priv var _scope:           ModulePath; ///< current scope during expansion (updated by scope tracker)
+    priv var _diag:           *DiagEngine;
+    priv var _sm:             *SourceManager;
+    priv var _sym_table:      *PreprocessorSymbolTable;
+    priv var _macro_table:    *MacroSymbolTable;
+    priv var _import_proc:    *ImportProcessor;
+    priv var _skip_list:      *SkipList;
+    priv var _imm_table:      *ImmediateTable;  ///< lexer's imm table for the file being expanded
+    priv var _lexer:          *Lexer = &null;
+    priv var _parent_ex_idx:   u32 = static_cast::<u32>(MacroSentinel::NoParent); ///< index of the parent expansion in the imm table, or -1 if top-level
     priv var _fid:             u32;
     priv var _unique_counter:  u32 = 0;
     priv var _max_depth:       i32 = 128;   ///< from PreprocessorOptions::max_depth
@@ -1649,15 +1612,14 @@ class PreProcessor {
     var _sm:           *SourceManager;
     var _tcm:          *TokenCacheManager;
     var _diag:         *DiagEngine;
+    var _pool:         *ThreadPool;
+    var _resolver:     *ImportResolver;
+    var _opts:          PreprocessorOptions;
 
-    var _pool:     *ThreadPool;
-    var _resolver: *ImportResolver;
-    var _opts:     PreprocessorOptions; ///< config from CompilerInvocation::pp
-
-    var _import_proc:    ImportProcessor;               ///< single shared import processor
-    var _processing:     set::<u32>;                    ///< files currently being processed (cycle detection)
-    var _processed:      set::<u32>;                    ///< files fully processed
-    var _skip_lists:     map::<u32, SkipList>;
+    var _import_proc:            ImportProcessor;
+    var _skip_lists:             map::<u32, SkipList>;
+    var _skip_mu:               *std::SharedMutex; ///< guards _skip_lists
+    var _import_proc_states_mu: *std::SharedMutex;
 
     fn PreProcessor(self, sm: *SourceManager, tcm: *TokenCacheManager,
                     resolver: *ImportResolver, pool: *ThreadPool, diag: *DiagEngine,
@@ -1669,18 +1631,18 @@ class PreProcessor {
         self._resolver     = resolver;
         self._pool         = pool;
         self._diag         = diag;
-
         self._opts         = opts;
-        self._processing   = set::<u32>();
-        self._processed    = set::<u32>();
 
-        // single shared import processor back-pointer is `self`
+        self._skip_mu               = std::create::<std::SharedMutex>();
+        self._import_proc_states_mu = std::create::<std::SharedMutex>();
+
         self._import_proc = ImportProcessor(
             sm, tcm, resolver,
             self._pp_sym_table,
             self._macro_table,
             &self._skip_lists,
-            &self,
+            self._skip_mu,
+            self._import_proc_states_mu,
             diag
         );
 
@@ -1699,75 +1661,92 @@ class PreProcessor {
         return &(self._import_proc);
     }
 
-    fn is_processed(self, fid: u32) -> bool {
-        return self._processed.contains(fid);
-    }
-
-    fn is_processing(self, fid: u32) -> bool {
-        return self._processing.contains(fid);
-    }
-
     fn op delete (self) {
         std::destroy(self._pp_sym_table);
         std::destroy(self._macro_table);
+        std::destroy(self._skip_mu);
+        std::destroy(self._import_proc_states_mu);
     }
 
     fn clear(self) {
         self._pp_sym_table->clear();
         self._macro_table->table.clear();
-        self._processing.clear();
-        self._processed.clear();
     }
 
-    fn preprocess_file(self, fid: u32, module_path: ModulePath, do_expand: bool = true) -> bool {
-        if self._processed.contains(fid) {
-            Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} already processed");
-            return true;
-        }
+    fn preprocess(self, entry_fid: u32, entry_path: ModulePath) -> bool {
+        // Phase 0: build dep graph (single-threaded)
+        Logger::info(Logger::Stage::Preprocessor, "PreProcessor: phase 0 dep scan");
+        var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._pp_sym_table);
+        var graph   = scanner.build_graph(entry_fid, entry_path);
 
-        if self._processing.contains(fid) {
-            Logger::warn(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} cycle detected (already in-flight)");
-            return true;
-        }
+        // Phase 1: wave-parallel lex + import scan + macro collection
+        Logger::info(Logger::Stage::Preprocessor, f"PreProcessor: phase 1 collection waves fids={graph.all_fids.size()}");
+        var executor = WaveExecutor(self._pool);
 
-        self._processing.insert(fid);
+        executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
+            // ensure skip list exists (needs lock since multiple threads)
+            __inline_cpp("{");
+                var wlock = std::UniqueLock(*(self._skip_mu));
+                if !self._skip_lists.contains(fid) {
+                    self._skip_lists[fid] = SkipList();
+                }
+            __inline_cpp("}");
 
-        // ensure skip list exists for this file
-        if !self._skip_lists.contains(fid) {
-            self._skip_lists[fid] = SkipList();
-        }
-        var skip_list = &(self._skip_lists[fid]);
+            var skip_list_ptr: *SkipList;
+            __inline_cpp("{");
+                var rlock = std::SharedLock(*(self._skip_mu));
+                skip_list_ptr = &(self._skip_lists[fid]);
+            __inline_cpp("}");
 
-        // -- Phase 1: Lex + scan imports --------------------------------
-        Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 1 imports");
-        if (!self._import_proc.process_file(fid, module_path)) {
-            // errors were dispatched to DiagEngine already
-            self._processing.erase(fid);
-            return false;
-        }
+            // lex (TCM handles its own locking now)
+            if !self._tcm->lex_file(fid) {
+                Logger::error(Logger::Stage::Preprocessor, f"PreProcessor: lex failed fid={fid}");
+                return;
+            }
 
-        // -- Phase 2: Collect macro definitions -------------------------
-        Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 2 macro collection");
-        var tokens = self._tcm->get_tokens(fid);
-        if tokens != &null {
-            var def_tracker = ScopeTracker(self._pp_sym_table, self._sm, module_path);
-            var collector   = MacroDefinitionCollector(
-                self._pp_sym_table,
-                self._macro_table,
-                self._sm,
-                self._diag
-            );
+            // import scan (records state, no recursion)
+            self._import_proc.process_file(fid, mod_path);
 
-            collector.collect(tokens, fid, &def_tracker, skip_list);
-            // errors were dispatched to DiagEngine by the collector
-        }
-
-        // -- Phase 3: Expand macro invocations --------------------------
-        Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 3 expansion");
-        if do_expand {
-            tokens = self._tcm->get_tokens(fid);
+            // macro collection
+            var tokens = self._tcm->get_tokens(fid);
             if tokens != &null {
-                skip_list->finalize();  // sort dead zones before expansion
+                var def_tracker = ScopeTracker(self._pp_sym_table, self._sm, mod_path);
+                var collector   = MacroDefinitionCollector(
+                    self._pp_sym_table,
+                    self._macro_table,
+                    self._sm,
+                    self._diag
+                );
+                collector.collect(tokens, fid, &def_tracker, skip_list_ptr);
+            }
+        });
+
+        if self._diag->has_errors() { return false; }
+
+        // Phase 2: wave-parallel expansion (macro table now frozen)
+        Logger::info(Logger::Stage::Preprocessor, "PreProcessor: phase 2 expansion");
+
+        // rebuild a fresh graph - same topology, same wave ordering
+        // expansion of A can run as soon as A's deps' expansions are done
+        // (expanded tokens from deps aren't needed - only their macro defs are,
+        //  which are already in the table)
+        // so actually all files can expand in parallel - the table is frozen
+        var all_fids = vec::<u32>();
+        for fid in graph.all_fids { all_fids.push_back(fid); }
+
+        for fid in all_fids {
+            self._pool->enqueue(fn() {
+                var mod_path  = graph.mod_paths[fid];
+                var skip_list_ptr: *SkipList;
+                __inline_cpp("{");
+                    var rlock = std::SharedLock(*(self._skip_mu));
+                    skip_list_ptr = &(self._skip_lists[fid]);
+                __inline_cpp("}");
+
+                skip_list_ptr->finalize();
+
+                var tokens    = self._tcm->get_tokens(fid);
+                if tokens == &null { return; }
 
                 var lexer_ptr = self._tcm->get_lexer(fid);
                 var imm_ptr   = lexer_ptr->get_imm_tbl();
@@ -1776,8 +1755,8 @@ class PreProcessor {
                     self._sm,
                     self._pp_sym_table,
                     self._macro_table,
-                    &(self._import_proc),
-                    skip_list,
+                    &self._import_proc,
+                    skip_list_ptr,
                     imm_ptr,
                     lexer_ptr,
                     self._diag,
@@ -1787,22 +1766,16 @@ class PreProcessor {
                     self._opts.macro_debug_filter
                 );
 
-                var expanded = expander.expand(tokens, fid, module_path);
-
+                var expanded = expander.expand(tokens, fid, mod_path);
                 if expanded != &null {
                     self._tcm->replace_tokens(fid, expanded);
-                    Logger::info(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} expansion replaced tokens");
                 }
-                // errors were dispatched to DiagEngine by the expander
-            }
+            }, u8(2));
         }
 
-        // -- Done -----------------------------------------------------------
-        self._processing.erase(fid);
-        self._processed.insert(fid);
+        self._pool->wait_group(u8(2));
 
-        Logger::info(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} complete");
-        return true;
+        return !self._diag->has_errors();
     }
 
     static fn unwrap_token(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager) -> Token {
@@ -1912,78 +1885,53 @@ class PreProcessor {
 }
 
 /// \brief processes a single file: lex it, scan imports, record import state
-/// \note does NOT recurse recursion is handled by PreProcessor::preprocess_file
+/// \note does NOT recurse recursion is handled by PreProcessor::preprocess
 ///       via the back-pointer in resolve_import
 fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
-    // ensure file is lexed
-    Logger::info(Logger::Stage::Preprocessor, f"ImportProcessor::process_file: fid={fid}");
-    if !self._tcm->lex_file(fid) {
-        Logger::error(Logger::Stage::Preprocessor, f"ImportProcessor::process_file: lex failed fid={fid}");
-        self._diag->report(DiagCode(DiagID::R002E),
-            f"failed to lex imported file ID {fid}; check that the file exists and is well-formed").emit();
-        return false;
-    }
+    // check already done
+    __inline_cpp("{");
+        var rlock = std::SharedLock(*(self._states_mu));
+        if self._file_states.contains(fid) { return true; }
+    __inline_cpp("}");
 
     var tokens = self._tcm->get_tokens(fid);
-    if tokens == &null {
-        self._diag->report(DiagCode(DiagID::R004E),
-            f"no tokens available for imported file ID {fid}; the token cache may be corrupted").emit();
-        return false;
-    }
+    if tokens == &null { return false; }
 
-    // initialize file state
     var state = FileImportState();
     state.fid         = fid;
     state.module_base = module_base;
 
-    // create scope tracker for this file
     var tracker = ScopeTracker(self._sym_table, self._sm, module_base);
-
-    // scan tokens: feed scope tracker AND extract import statements
     var i: usize = 0;
+
     while i < tokens->size() {
         var tok = tokens->get(i);
-
-        // feed scope tracker first
         var scope_consumed = tracker.update(tokens, i);
 
-        // check for ffi blocks/imports (skip them)
         if tok->kind == TokenKind::KwFfi {
             var skip = self.skip_ffi(tokens, i);
-            i += skip;
-            if skip > 0 { continue; }
-
-            // if skip > 0 {
-            //     var ffi_start = tokens->get(i);
-            //     var ffi_end_idx = i + skip - 1;
-            //     if ffi_end_idx < tokens->size() {
-            //         (*self._skip_lists)[fid].add(
-            //             SourceRange::from_bounds(
-            //                 ffi_start->range.start,
-            //                 tokens->get(ffi_end_idx)->range.end
-            //             )
-            //         );
-            //     }
-            // }
+            if skip > 0 { i += skip; continue; }
         }
 
         if tok->kind == TokenKind::KwImport {
             var start_i = i;
-            var parsed = self.parse_import(tokens, i, &tracker);
+            var parsed  = self.parse_import(tokens, i, &tracker);
 
-            if !parsed.is_ffi {
-                if parsed.items.size() > 0 || parsed.is_wildcard {
-                    self.resolve_import(&parsed, &state, fid);
+            if !parsed.is_ffi && (parsed.items.size() > 0 || parsed.is_wildcard) {
+                // NO recursion - deps already processed
+                self.resolve_import(&parsed, &state, fid);
 
-                    if parsed.tokens_consumed > 0 {
-                        var first_tok = tokens->get(start_i);
-                        var last_idx  = parsed.end_index - 1;
-                        if last_idx < tokens->size() {
-                            var last_tok = tokens->get(last_idx);
-                            (*self._skip_lists)[fid].add(
-                                SourceRange::from_bounds(first_tok->range.start, last_tok->range.end)
-                            );
-                        }
+                if parsed.tokens_consumed > 0 {
+                    var first_tok = tokens->get(start_i);
+                    var last_idx  = parsed.end_index - 1;
+                    if last_idx < tokens->size() {
+                        var last_tok = tokens->get(last_idx);
+                        var range = SourceRange::from_bounds(
+                            first_tok->range.start,
+                            last_tok->range.end
+                        );
+                        var wlock = std::UniqueLock(*(self._skip_mu));
+                        (*self._skip_lists)[fid].add(range);
                     }
                 }
             }
@@ -1996,14 +1944,15 @@ fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
         i += scope_consumed + 1;
     }
 
-    // store the state
+    // store state
+    var wlock = std::UniqueLock(*(self._states_mu));
     self._file_states[fid] = state;
-    Logger::info(Logger::Stage::Preprocessor, f"ImportProcessor::process_file: fid={fid} done imports={self._file_states[fid].macro_imports.size()}");
-
     return true;
 }
 
 fn ImportProcessor::get_file_state(fid: u32) -> *FileImportState {
+    var rlock = std::SharedLock(*(self._states_mu));
+
     if self._file_states.contains(fid) {
         return &(self._file_states[fid]);
     }
@@ -2248,6 +2197,9 @@ priv fn ImportProcessor::resolve_import(
         }
     }
 
+    Logger::info(Logger::Stage::Preprocessor,
+        f"resolve_import: src_fid={src_fid} base_path_segs={parsed->base_path.segments.size()} path_strings={path_strings.size()} items={parsed->items.size()} is_wildcard={parsed->is_wildcard}");
+
     if path_strings.size() == 0 && !parsed->is_wildcard && parsed->items.size() > 0 {
         for item in parsed->items {
             var name_ptr = self._sym_table->resolve(item.name.name);
@@ -2267,6 +2219,8 @@ priv fn ImportProcessor::resolve_import(
     // }
 
     if path_strings.size() == 0 && !parsed->is_wildcard {
+        Logger::info(Logger::Stage::Preprocessor,
+            f"resolve_import: EARLY RETURN - path_strings empty after fallback");
         Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
         // q: do we have the import tokens avaliable to us?
         // a: yes, we have the parsed import statement, which includes the tokens and their source ranges
@@ -2281,6 +2235,8 @@ priv fn ImportProcessor::resolve_import(
     var resolved = self.resolve_module_greedy(path_strings, parsed->is_module);
 
     if resolved.fid == 0 && !resolved.found {
+        Logger::info(Logger::Stage::Preprocessor,
+            f"resolve_import: EARLY RETURN - greedy resolve failed for path_strings size={path_strings.size()}");
         Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
         self._diag->report(DiagCode(DiagID::R011E), parsed->import_loc.start,
             f"failed to resolve import path '[{self.segments_to_string(path_strings)}]' ")
@@ -2289,11 +2245,9 @@ priv fn ImportProcessor::resolve_import(
         return;
     }
 
-    // RECURSE via PreProcessor this runs the full pipeline
-    // (import scan + macro collection) on the dependency file
-    if resolved.found && !self._macro_proc->is_processed(resolved.fid) {
-        self._macro_proc->preprocess_file(resolved.fid, resolved.file_module_path, false);
-    }
+    Logger::info(Logger::Stage::Preprocessor,
+        f"resolve_import: resolved fid={resolved.fid} file_module_path segs={resolved.file_module_path.segments.size()}");
+
 
     // gate recording on whether we actually care about this import
     if parsed->is_wildcard {
@@ -2336,6 +2290,11 @@ priv fn ImportProcessor::resolve_import(
 
         for item in parsed->items {
             if !item.is_macro { continue; }
+
+            var name_ptr = self._sym_table->resolve(item.name.name);
+            var name_str = "<unknown>" if (name_ptr == &null) else *name_ptr;
+            Logger::info(Logger::Stage::Preprocessor,
+                f"resolve_import: recording macro import '{name_str}!' source_fid={resolved.fid}");
 
             var imp = MacroImport();
             imp.macro_name   = item.name;
@@ -2462,35 +2421,51 @@ fn ImportProcessor::find_macro_for_file(
     var state = self.get_file_state(fid);
     if state == &null { return &null; }
 
+    // single pass: named imports take priority over wildcards
+    var wildcard_result: *MacroDefinition = &null;
+
     if state->scoped_imports.contains(scope) {
-        var scoped = &(state->scoped_imports[scope]);
-        for imp in (*scoped) {
-            if (!imp.is_wildcard) && (imp.alias == macro_name) {
-                return self._macro_table->find_macro(imp.source_scope, imp.macro_name);
+        for imp in state->scoped_imports[scope] {
+            if !imp.is_wildcard {
+                if imp.alias == macro_name {
+                    var def = self._macro_table->find_macro(imp.source_scope, imp.macro_name);
+                    if def != &null { return def; }
+
+                    var dep_state = self.get_file_state(imp.source_fid);
+                    if dep_state != &null {
+                        def = self._macro_table->find_macro(dep_state->module_base, imp.macro_name);
+                        if def != &null { return def; }
+                    }
+                }
+            } else {
+                if wildcard_result == &null {
+                    var found = self._macro_table->find_macro(imp.source_scope, macro_name);
+                    if found != &null { wildcard_result = found; }
+                }
             }
         }
     }
 
-    if state->scoped_imports.contains(scope) {
-        var scoped = &(state->scoped_imports[scope]);
-        for imp in (*scoped) {
-            if imp.is_wildcard {
-                var found = self._macro_table->find_macro(imp.source_scope, macro_name);
-                if found != &null { return found; }
-            }
-        }
-    }
+    if wildcard_result != &null { return wildcard_result; }
 
+    // file-level named imports
     for imp in state->macro_imports {
         if (!imp.is_wildcard) && (imp.alias == macro_name) {
-            return self._macro_table->find_macro(imp.source_scope, imp.macro_name);
+            var def = self._macro_table->find_macro(imp.source_scope, imp.macro_name);
+            if def != &null { return def; }
+
+            var dep_state = self.get_file_state(imp.source_fid);
+            if dep_state != &null {
+                def = self._macro_table->find_macro(dep_state->module_base, imp.macro_name);
+                if def != &null { return def; }
+            }
         }
     }
 
+    // wildcard fids
     for wfid in state->wildcard_fids {
         var dep_state = self.get_file_state(wfid);
         if dep_state == &null { continue; }
-
         var found = self._macro_table->find_macro(dep_state->module_base, macro_name);
         if found != &null { return found; }
     }
@@ -2617,7 +2592,7 @@ fn Test() -> i32 {
     /// helper: preprocess a root file and return the expanded text (tokens joined)
     fn expand_to_text(sm: *SourceManager, tcm: *TokenCacheManager, resolver: *ImportResolver, pool: *ThreadPool, fid: u32, diag: *DiagEngine) -> string {
         var macro_proc = PreProcessor(sm, tcm, resolver, pool, diag);
-        macro_proc.preprocess_file(fid, ModulePath(), true);
+        macro_proc.preprocess(fid, ModulePath());
 
         var tokens = tcm->get_tokens(fid);
         if tokens == &null { return "<null>"; }
@@ -2720,7 +2695,7 @@ fn Test() -> i32 {
         var tcm = TokenCacheManager(sm, pool, &diag);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess_file(fid, ModulePath(), true);
+        macro_proc.preprocess(fid, ModulePath());
 
         // tokens should be unchanged (expand returns null when nothing changed)
         var tokens = tcm.get_tokens(fid);
@@ -2918,7 +2893,7 @@ fn Test() -> i32 {
         var tcm = TokenCacheManager(sm, pool, &diag);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess_file(fid, ModulePath(), true);
+        macro_proc.preprocess(fid, ModulePath());
 
         // should have produced an error diagnostic (too few args)
         // the expansion should not produce "only_one" in the final output as expanded
@@ -2943,7 +2918,7 @@ fn Test() -> i32 {
         var tcm = TokenCacheManager(sm, pool, &diag);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess_file(fid, ModulePath(), true);
+        macro_proc.preprocess(fid, ModulePath());
 
         return "pass";
     }, 100);
@@ -2965,7 +2940,7 @@ fn Test() -> i32 {
         var tcm = TokenCacheManager(sm, pool, &diag);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess_file(fid, ModulePath(), true);
+        macro_proc.preprocess(fid, ModulePath());
 
         // should produce "does not accept arguments" error
         return "pass";
@@ -2988,7 +2963,7 @@ fn Test() -> i32 {
         var tcm = TokenCacheManager(sm, pool, &diag);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess_file(fid, ModulePath(), true);
+        macro_proc.preprocess(fid, ModulePath());
 
         // should produce "requires arguments" error
         return "pass";
@@ -3059,7 +3034,7 @@ fn Test() -> i32 {
         var tcm = TokenCacheManager(sm, pool, &diag);
 
         var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess_file(fid, ModulePath(), true);
+        macro_proc.preprocess(fid, ModulePath());
 
         // should produce a duplicate macro error
         return "pass";

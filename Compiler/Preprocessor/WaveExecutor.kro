@@ -1,0 +1,61 @@
+/// --- The Kairo Project ------- Compiler/Preprocessor/WaveExecutor.kro --- ///
+///
+///   Wave-parallel executor for DepGraph traversal.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Preprocessor::DepScanner::*;
+import Preprocessor::ModulePath::*;
+import ThreadPool::*;
+
+class WaveExecutor {
+    priv var _pool: *ThreadPool;
+
+    fn WaveExecutor(self, pool: *ThreadPool) {
+        self._pool = pool;
+    }
+
+    /// \brief Runs waves until all fids are processed.
+    /// \param graph        the dep graph (mutated in-place - in_degree decremented)
+    /// \param task_fn      called once per fid with (fid, mod_path)
+    ///                     MUST be thread-safe: multiple calls run concurrently
+    fn run(
+        self,
+        graph:   *DepGraph,
+        task_fn:  std::Function::<void, u32, ModulePath>
+    ) {
+        var ready = graph->roots();
+
+        while ready.size() > 0 {
+            for fid in ready {
+                var mod_path = graph->mod_paths[fid];
+                self._pool->enqueue(fn() {
+                    task_fn(fid, mod_path);
+                }, u8(1));
+            }
+
+            // drain this wave - worker_loop decrements group 1 after each task
+            self._pool->wait_group(u8(1));
+
+            // compute next wave
+            var next = vec::<u32>();
+            for fid in ready {
+                for dependent in graph->rdeps[fid] {
+                    graph->in_degree[dependent] -= 1;
+                    if graph->in_degree[dependent] == 0 {
+                        next.push_back(dependent);
+                    }
+                }
+            }
+
+            ready = next;
+        }
+    }
+}

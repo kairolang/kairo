@@ -1,0 +1,315 @@
+/// --- The Kairo Project ------------------ Preprocessor/DepScanner.kro --- ///
+///
+///   Single-threaded single file DAG builder.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Lexer::TokenCacheManager::*;
+import Preprocessor::ImportResolver::*;
+import Preprocessor::SkipList::*;
+import Source::SourceManager::*;
+import Preprocessor::ScopeTracker::*;
+import Preprocessor::ModulePath::*;
+
+struct DepEdge {
+    var from_fid:        u32;
+    var to_fid:          u32;
+    var to_module_path:  ModulePath;
+}
+
+class DepGraph {
+    pub var deps:      map::<u32, set::<u32>>;   ///< fid -> fids it depends on
+    pub var rdeps:     map::<u32, set::<u32>>;   ///< fid -> fids that depend on it
+    pub var in_degree: map::<u32, i32>;          ///< fid -> number of unprocessed deps
+    pub var mod_paths: map::<u32, ModulePath>;   ///< fid -> its module path
+    pub var all_fids:  set::<u32>;               ///< every fid in the graph
+
+    fn add_node(self, fid: u32, path: ModulePath) {
+        if !self.all_fids.contains(fid) {
+            self.all_fids.insert(fid);
+            self.deps[fid]      = set::<u32>();
+            self.rdeps[fid]     = set::<u32>();
+            self.in_degree[fid] = 0;
+            self.mod_paths[fid] = path;
+        }
+    }
+
+    fn add_edge(self, from: u32, to: u32) {
+        if !(self.deps[from].contains(to)) {
+            (self.deps[from]).insert(to);
+            (self.rdeps[to]).insert(from);
+            (self.in_degree[from]) += 1;
+        }
+    }
+
+    fn roots(self) -> vec::<u32> {
+        var result = vec::<u32>();
+        for fid in self.all_fids {
+            if self.in_degree[fid] == 0 {
+                result.push_back(fid);
+            }
+        }
+        return result;
+    }
+}
+
+class DepScanner {
+    priv var _sm:          *SourceManager;
+    priv var _tcm:         *TokenCacheManager;
+    priv var _resolver:    *ImportResolver;
+    priv var _sym_table:   *PreprocessorSymbolTable;
+    priv var _visiting:    set::<u32>;   ///< cycle detection
+
+    fn DepScanner(
+        self,
+        sm:        *SourceManager,
+        tcm:       *TokenCacheManager,
+        resolver:  *ImportResolver,
+        sym_table: *PreprocessorSymbolTable
+    ) {
+        self._sm        = sm;
+        self._tcm       = tcm;
+        self._resolver  = resolver;
+        self._sym_table = sym_table;
+    }
+
+    /// \brief entry point - builds the full dep graph rooted at entry_fid
+    fn build_graph(self, entry_fid: u32, entry_path: ModulePath) -> DepGraph {
+        var graph = DepGraph();
+        self.visit(entry_fid, entry_path, &graph);
+        return graph;
+    }
+
+    priv fn visit(self, fid: u32, mod_path: ModulePath, graph: *DepGraph) {
+        if graph->all_fids.contains(fid) { return; }
+        if self._visiting.contains(fid)  { return; } // cycle
+
+        graph->add_node(fid, mod_path);
+        self._visiting.insert(fid);
+
+        // lex if needed - single-threaded here so no lock needed
+        if !self._tcm->lex_file(fid) {
+            self._visiting.erase(fid);
+            return;
+        }
+
+        var tokens = self._tcm->get_tokens(fid);
+        if tokens == &null {
+            self._visiting.erase(fid);
+            return;
+        }
+
+        var tracker = ScopeTracker(self._sym_table, self._sm, mod_path);
+        var i: usize = 0;
+
+        while i < tokens->size() {
+            var tok = tokens->get(i);
+            var scope_consumed = tracker.update(tokens, i);
+
+            // skip ffi entirely
+            if tok->kind == TokenKind::KwFfi {
+                var skip = self.skip_ffi(tokens, i);
+                if skip > 0 { i += skip; continue; }
+            }
+
+            if tok->kind == TokenKind::KwImport {
+                var dep_fids = self.scan_import(tokens, i, &tracker);
+                for dep in dep_fids {
+                    graph->add_edge(fid, dep.fid);
+                    self.visit(dep.fid, dep.mod_path, graph);
+                }
+                // advance past the import statement
+                i = self.skip_import(tokens, i);
+                continue;
+            }
+
+            i += scope_consumed + 1;
+        }
+
+        self._visiting.erase(fid);
+    }
+
+    struct DepResult {
+        var fid:      u32;
+        var mod_path: ModulePath;
+    }
+
+    priv fn scan_import(
+        self,
+        tokens:  *(TokenBuffer::<512>),
+        start:   usize,
+        tracker: *ScopeTracker
+    ) -> vec::<DepResult> {
+        var result = vec::<DepResult>();
+        var j = start + 1;
+
+        if j >= tokens->size() { return result; }
+
+        // skip `module` qualifier
+        var is_module = false;
+        if tokens->get(j)->kind == TokenKind::KwModule {
+            is_module = true;
+            j += 1;
+        }
+
+        // collect path segments until we hit something that isn't ident::
+        var segments = vec::<string>();
+        while j < tokens->size() {
+            var t = tokens->get(j);
+            if t->kind == TokenKind::LitIdentifier {
+                segments.push_back(self._sm->get_text(t->range));
+                j += 1;
+                // peek for ::
+                if j < tokens->size() && tokens->get(j)->kind == TokenKind::OpColonColon {
+                    j += 1;
+                    // peek for { or * - grouped/wildcard
+                    if j < tokens->size() {
+                        var after = tokens->get(j);
+                        if after->kind == TokenKind::OpLBrace {
+                            // grouped import - resolve base path
+                            var dep = self.resolve_segments(segments, is_module);
+                            if dep.fid != 0 { result.push_back(dep); }
+                            return result;
+                        }
+                        if after->kind == TokenKind::OpStar {
+                            var dep = self.resolve_segments(segments, is_module);
+                            if dep.fid != 0 { result.push_back(dep); }
+                            return result;
+                        }
+                    }
+                    continue;
+                }
+                break;
+            }
+            if t->kind == TokenKind::OpStar {
+                var dep = self.resolve_segments(segments, is_module);
+                if dep.fid != 0 { result.push_back(dep); }
+                return result;
+            }
+            if t->kind == TokenKind::OpLBrace {
+                var dep = self.resolve_segments(segments, is_module);
+                if dep.fid != 0 { result.push_back(dep); }
+                return result;
+            }
+            break;
+        }
+
+        if segments.size() > 0 {
+            // last segment might be the item name, try full path first
+            // then drop last segment (it's the item, not the module)
+            var dep = self.resolve_segments(segments, is_module);
+            if dep.fid != 0 {
+                result.push_back(dep);
+                return result;
+            }
+            // try base path (all but last)
+            if segments.size() > 1 {
+                var base = vec::<string>();
+                for k in usize(0) .. usize(segments.size() - 1) {
+                    base.push_back(segments[k]);
+                }
+                dep = self.resolve_segments(base, is_module);
+                if dep.fid != 0 { result.push_back(dep); }
+            }
+        }
+
+        return result;
+    }
+
+    priv fn resolve_segments(self, segments: vec::<string>, is_module: bool) -> DepResult {
+        var result = DepResult();
+        result.fid = 0;
+
+        if segments.size() == 0 { return result; }
+
+        var resolved: std::Expected::<Path, ResolveError>;
+        if is_module {
+            resolved = self._resolver->resolve_module_dir(segments);
+        } else {
+            resolved = self._resolver->resolve_module(segments);
+        }
+
+        if !resolved.check() {
+            if resolved.err() == ResolveError::AmbiguousModule {
+                var retry = self._resolver->resolve_module(segments);
+                if retry.check() {
+                    var fid = self._sm->load_file(*retry);
+                    if fid != 0 {
+                        result.fid = fid;
+                        result.mod_path = self.segments_to_module_path(segments);
+                    }
+                }
+            }
+            return result;
+        }
+
+        var fid = self._sm->load_file(*resolved);
+        if fid != 0 {
+            result.fid      = fid;
+            result.mod_path = self.segments_to_module_path(segments);
+        }
+
+        return result;
+    }
+
+    priv fn segments_to_module_path(self, segments: vec::<string>) -> ModulePath {
+        var path = ModulePath();
+        for seg in segments {
+            var ident = IdentifierToken();
+            ident.name  = self._sym_table->intern(seg);
+            ident.token = &null;
+            path.segments.push_back(ident);
+        }
+        return path;
+    }
+
+    priv fn skip_ffi(self, tokens: *(TokenBuffer::<512>), start: usize) -> usize {
+        if start >= tokens->size() { return 0; }
+        var tok = tokens->get(start);
+        if tok->kind != TokenKind::KwFfi { return 0; }
+        var j = start + 1;
+        if j >= tokens->size() { return 1; }
+        if tokens->get(j)->kind != TokenKind::LitString { return 0; }
+        j += 1;
+        if j >= tokens->size() { return j - start; }
+        var after = tokens->get(j);
+        if after->kind == TokenKind::KwImport {
+            while j < tokens->size() {
+                if tokens->get(j)->kind == TokenKind::OpSemicolon { return (j + 1) - start; }
+                j += 1;
+            }
+            return j - start;
+        }
+        if after->kind == TokenKind::OpLBrace {
+            var depth: i32 = 1;
+            j += 1;
+            while j < tokens->size() && depth > 0 {
+                if tokens->get(j)->kind == TokenKind::OpLBrace { depth += 1; }
+                if tokens->get(j)->kind == TokenKind::OpRBrace { depth -= 1; }
+                j += 1;
+            }
+            return j - start;
+        }
+        return 1;
+    }
+
+    priv fn skip_import(self, tokens: *(TokenBuffer::<512>), start: usize) -> usize {
+        var j = start + 1;
+        var depth: i32 = 0;
+        while j < tokens->size() {
+            var k = tokens->get(j)->kind;
+            if k == TokenKind::OpLBrace  { depth += 1; }
+            if k == TokenKind::OpRBrace  { depth -= 1; }
+            if k == TokenKind::OpSemicolon && depth == 0 { return j + 1; }
+            j += 1;
+        }
+        return j;
+    }
+}
