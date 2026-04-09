@@ -54,6 +54,7 @@ class ThreadPool {
     class PartitionQueue;
     class Task;
 
+    __inline_cpp("public:");
     /// Type aliases for brevity
     type FunctionT   = SmallFunction::<64>;
 
@@ -281,27 +282,25 @@ class ThreadPool {
         /// \param v Task to enqueue (moved).
         /// \return `true` if the task was successfully enqueued, otherwise `false` if full.
         ///
-        inline fn push(self, v: Task) -> bool {
+        inline fn push(self, v: ref!(Task)) -> bool {
             var pos = self._enqueue_pos.load(std::MemoryOrder::relaxed);
 
             while true {
                 var idx  = static_cast::<usize>(pos & self._mask);
                 var cell = &self._buf[idx];
                 var seq  = cell->seq.load(std::MemoryOrder::acquire);
-                var dif = static_cast::<i64>(seq) - static_cast::<i64>(pos);
+                var dif  = static_cast::<i64>(seq) - static_cast::<i64>(pos);
 
                 if dif == 0 {
                     if self._enqueue_pos.compare_exchange_weak(
-                            pos, pos + 1,
-                            std::MemoryOrder::acq_rel,
-                            std::MemoryOrder::relaxed)
-                    { // write payload then publish seq
+                        pos, pos + 1,
+                        std::MemoryOrder::acq_rel,
+                        std::MemoryOrder::relaxed) {
+
                         cell->val = std::Memory::move(v);
                         cell->seq.store(pos + 1, std::MemoryOrder::release);
                         return true;
                     }
-
-                    // CAS failed -> retry pos reload
                 } else if dif < 0 {
                     return false;
                 } else {
@@ -445,48 +444,35 @@ class ThreadPool {
     /// \see wait_group, is_completed
     ///
     inline fn enqueue(self, _fn: FunctionT, group: u8 = 0) {
-        if !self._active.load(std::MemoryOrder::relaxed) {
-            return;
-        }
+        if !self._active.load(std::MemoryOrder::relaxed) { return; }
 
-        __inline_cpp("
-            thread_local size_t local_qid = static_cast<size_t>(-1);
-        ");
+        // increment BEFORE task is visible to any worker
+        self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
+
+        __inline_cpp("thread_local size_t local_qid = static_cast<size_t>(-1);");
 
         if local_qid == static_cast::<usize>(-1) {
-            // distribute threads but STICK to one queue after
-            var tid =  libcxx::this_thread::get_id();
+            var tid = libcxx::this_thread::get_id();
             local_qid = static_cast::<usize>(fnv1a64_bytes(tid) % self._count);
         }
 
         var qid = local_qid;
 
-        // --- build task once ---
         var task = Task();
         task._fn    = std::Memory::move(_fn);
         task._group = group;
 
-        // --- fast path: push to primary queue ---
-        if (self._queues[qid]->push(std::Memory::move(task))) {
-            self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
-            return;
-        }
+        // push takes ref, task stays valid across failed attempts
+        if self._queues[qid]->push(task) { return; }
 
-        // --- one fallback queue only ---
         var alt = (qid + 1) % self._count;
-        if (self._queues[alt]->push(std::Memory::move(task))) {
-            self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
-            return;
-        }
+        if self._queues[alt]->push(task) { return; }
 
         Logger::warn(Logger::Stage::ThreadPool, f"ThreadPool::enqueue: qid={qid} full, spinning (group={group})");
 
-        // --- final fallback: spin until primary has a slot ---
-        while !self._queues[qid]->push(std::Memory::move(task)) {
+        while !self._queues[qid]->push(task) {
             _thread_pause();
         }
-
-        self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
     }
 
     ///
