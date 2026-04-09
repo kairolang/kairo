@@ -39,9 +39,9 @@ import Source::SourceManager::*;
 ///   - name lookup for FFI-imported C++ symbols
 ///
 
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 //  ENUMS
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 
 type ClangSymbolKind = clang_detail::SymKind;;
 
@@ -57,9 +57,9 @@ enum GenericDisambig derives u8 {
     Unknown,
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 //  DATA STRUCTS
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 
 ///
 /// \struct ClangSymbol
@@ -122,9 +122,9 @@ struct ArityMatch {
     var needs_type_args: bool = false;
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 //  SYMBOL TABLE
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 
 ///
 /// \class ClangSymbolTable
@@ -305,9 +305,9 @@ class ClangSymbolTable {
     }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 //  CLANG BRIDGEpersistent clang infrastructure
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 
 ///
 /// \struct ClangBridgeConfig
@@ -399,9 +399,9 @@ class ClangBridge {
     }
 }
 
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 //  SYMBOL EXTRACTOR
-// ═════════════════════════════════════════════════════════════════════════════
+// =============================================================================
 
 ///
 /// \class SymbolExtractor
@@ -499,7 +499,7 @@ class SymbolExtractor {
         return table;
     }
 
-    // ── internal ─────────────────────────────────────────────────────────
+    // -- internal ---------------------------------------------------------
 
     priv static fn _convert(
         raw:   *clang_detail::RawSymbolTable,
@@ -551,7 +551,7 @@ class SymbolExtractor {
 fn Test() -> i32 {
     var suite = Assert("ClangBridge Tests");
 
-    // ── setup: build a minimal bridge ────────────────────────────────────
+    // -- setup: build a minimal bridge ------------------------------------
     var cfg = ClangBridgeConfig {};
     (cfg.cxx_std)              = "c++26";
     (cfg.suppress_diagnostics) = true;
@@ -570,7 +570,7 @@ fn Test() -> i32 {
         }
     }
 
-    // ── 1. bridge construction ────────────────────────────────────────────
+    // -- 1. bridge construction --------------------------------------------
     suite.equal::<string>("bridge create returns non-null", "pass", fn () -> string {
         if bridge == &null {
             return "ClangBridge::create returned nullcheck target triple / resource_dir";
@@ -586,7 +586,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // ── 2. extract from a header with known symbols ───────────────────────
+    // -- 2. extract from a header with known symbols -----------------------
     // write a temp header with known contents
     static var hdr_content: libcxx::string = std::string_to_nstring(
           "namespace test_ns {\n"
@@ -626,7 +626,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // ── 3. symbol table correctness ───────────────────────────────────────
+    // -- 3. symbol table correctness ---------------------------------------
     suite.equal::<string>("simple_func is found and callable", "pass", fn () -> string {
         if tbl.empty() { return "table empty, skipping"; }
 
@@ -754,8 +754,8 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // ── 4. disambiguate_generic ───────────────────────────────────────────
-    suite.equal::<string>("disambiguate_generic: identity → IsGeneric", "pass", fn () -> string {
+    // -- 4. disambiguate_generic -------------------------------------------
+    suite.equal::<string>("disambiguate_generic: identity -> IsGeneric", "pass", fn () -> string {
         if tbl.empty() { return "table empty, skipping"; }
 
         var name = "identity";
@@ -767,7 +767,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    suite.equal::<string>("disambiguate_generic: add → IsLessThan", "pass", fn () -> string {
+    suite.equal::<string>("disambiguate_generic: add -> IsLessThan", "pass", fn () -> string {
         if tbl.empty() { return "table empty, skipping"; }
 
         var name = "add";
@@ -779,7 +779,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    suite.equal::<string>("disambiguate_generic: unknown name → Unknown", "pass", fn () -> string {
+    suite.equal::<string>("disambiguate_generic: unknown name -> Unknown", "pass", fn () -> string {
         var name = "__nonexistent_xyz__";
         var result = tbl.disambiguate_generic(&name);
 
@@ -789,7 +789,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // ── 5. check_arity ────────────────────────────────────────────────────
+    // -- 5. check_arity ----------------------------------------------------
     suite.equal::<string>("check_arity: add(2) matches", "pass", fn () -> string {
         if tbl.empty() { return "table empty, skipping"; }
 
@@ -826,7 +826,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // ── 6. qualified lookup ───────────────────────────────────────────────
+    // -- 6. qualified lookup -----------------------------------------------
     suite.equal::<string>("qualified lookup: test_ns::add found", "pass", fn () -> string {
         if tbl.empty() { return "table empty, skipping"; }
 
@@ -849,7 +849,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // ── 7. null bridge safety ─────────────────────────────────────────────
+    // -- 7. null bridge safety ---------------------------------------------
     suite.equal::<string>("extract with null bridge returns empty table", "pass", fn () -> string {
         var p = Path(std::nstring_to_string(tmp_path_str), false);
         var t = SymbolExtractor::extract(&null, p);
@@ -885,7 +885,7 @@ fn Test() -> i32 {
             }
         ");
 
-        // ── bridge with correct include paths ────────────────────────────────
+        // -- bridge with correct include paths --------------------------------
         var stdlib_cfg = ClangBridgeConfig {};
         (stdlib_cfg.cxx_std)              = "c++26";
         (stdlib_cfg.suppress_diagnostics) = true;
@@ -985,7 +985,7 @@ fn Test() -> i32 {
 
         // std::print("=== End Symbols ===\n");
 
-        // ── spot checkskairo string API since lookup now takes *string ─────
+        // -- spot checkskairo string API since lookup now takes *string -----
         var vec_name  = "vector";
         var vec_res   = stl.lookup_qualified(&vec_name);
         if vec_res.kind == LookupResultKind::NotFound {

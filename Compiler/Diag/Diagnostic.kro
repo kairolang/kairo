@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ----------------- Compiler/Diag/Diagnostic.kro --- ///
 ///
-///   <short description>
+///   Diagnostic instance and associated label and fix-it types.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -16,34 +16,59 @@ ffi "c++" import "Types.hh";
 import Diag::DiagCode::*;
 import Source::SourceRange::*;
 
+/// Source annotation attached to a \c Diagnostic.
+///
+/// Labels mark source ranges with an underline style and optional message.
+/// The \c PrettyConsumer renders \c StrikeThrough using Unicode combining
+/// characters; all other consumers fall back to ASCII.
 struct DiagLabel {
+    /// Underline style applied to \c range in rendered output.
     enum Style derives u8 {
-        Primary,       // ^^^
-        Secondary,     // +++
-        Highlight,     // ---
-        StrikeThrough, // ~~~ (also use ascii strikethourch only the PrettyConsumer will render it as a strikethrough)
+        Primary,       ///< Primary caret span.              ^^^
+        Secondary,     ///< Secondary span.                  +++
+        Highlight,     ///< Highlighted region.              ---
+        StrikeThrough, ///< Struck-out region (ASCII + Unicode in pretty mode). ~~~
     }
 
     pub var range: SourceRange;
-    pub var text:  string; // "" = just underline, no text
+    pub var text:  string; ///< Annotation message. Empty string = underline only.
     pub var style: Style;
 }
 
+/// A suggested edit attached to a \c Diagnostic.
+///
+/// Describes a single source replacement: remove \c range and insert
+/// \c replacement in its place. \c message is shown to the user explaining
+/// the intent of the fix.
 struct FixIt {
-    pub var range:       SourceRange; // what to replace
-    pub var replacement: string;      // what to insert
-    pub var message:     string;      // "change the return type to 'i32' "
+    pub var range:       SourceRange;
+    pub var replacement: string;
+    pub var message:     string; ///< e.g. "change the return type to 'i32' "
 }
 
+
+/// A single emitted diagnostic.
+///
+/// Carries the \c DiagCode, a human-readable message, an optional source
+/// location, zero or more source labels, zero or more fix-it hints, and
+/// zero or more child diagnostics (notes attached to a parent error or
+/// warning).
+///
+/// Children are owned by the parent and destroyed in \c op delete.
+/// Vectors are pre-reserved at construction to avoid small-size reallocations
+/// on the common path.
 class Diagnostic {
     pub var code:     DiagCode;
     pub var message:  string;
     pub var loc:      SourceLocation;
     pub var has_loc:  bool;
-    pub var labels:   vec::<DiagLabel>;
-    pub var fixits:   vec::<FixIt>;
-    pub var children: vec::<*Diagnostic>;
+    pub var labels:   vec::<DiagLabel>;  ///< Source annotations, in source order.
+    pub var fixits:   vec::<FixIt>;      ///< Suggested edits.
+    pub var children: vec::<*Diagnostic>; ///< Attached notes, owned by this diagnostic.
 
+    // --- Constructors ----------------------------------------------------- //
+
+    /// Constructs an empty, invalid diagnostic.
     fn Diagnostic(self) {
         self.code    = DiagCode();
         self.message = "";
@@ -53,6 +78,7 @@ class Diagnostic {
         self.children.reserve(2);
     }
 
+    /// Constructs a diagnostic with a known location.
     fn Diagnostic(self, _code: DiagCode, _loc: SourceLocation, _msg: string) {
         self.code    = _code;
         self.message = _msg;
@@ -63,6 +89,7 @@ class Diagnostic {
         self.children.reserve(2);
     }
 
+    /// Constructs a location-less diagnostic (e.g. linker or internal errors).
     fn Diagnostic(self, _code: DiagCode, _msg: string) {
         self.code    = _code;
         self.message = _msg;
@@ -72,6 +99,9 @@ class Diagnostic {
         self.children.reserve(2);
     }
 
+    // --- Destructor ------------------------------------------------------- //
+
+    /// Recursively destroys all owned child diagnostics.
     fn op delete (self) {
         for var i: usize = 0; i < self.children.size(); ++i {
             std::destroy(self.children[i]);

@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project --------------- Compiler/Diag/DiagConsumer.kro --- ///
 ///
-///   <short description>
+///   Diagnostic output sink interface.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -13,10 +13,28 @@
 
 import Diag::Diagnostic::*;
 
+/// Abstract sink that receives fully-formed \c Diagnostic objects from
+/// \c DiagEngine.
+///
+/// Concrete implementations format and route diagnostics to stderr, stdout,
+/// a file, or an in-memory string buffer. The \c finalize_* methods flush
+/// any buffered output to the chosen destination; only one should be called
+/// per consumer lifetime.
+///
+/// All methods are no-ops by default subclasses override only what they need.
 class DiagConsumer {
-    virtual fn handle(self, diag: *Diagnostic) { 0; };
-    virtual fn finalize_to_stderr(self) { 0; };
-    virtual fn finalize_to_stdout(self) { 0; };
-    virtual fn finalize_to_file(self, path: string) { 0; };
-    virtual fn finalize_to_string(self) -> string { 0; };
+    /// Called once per diagnostic in emission order.
+    virtual fn handle(self, diag: *Diagnostic) { 0; }
+
+    /// Flush buffered diagnostics to stderr.
+    virtual fn finalize_to_stderr(self) { 0; }
+
+    /// Flush buffered diagnostics to stdout.
+    virtual fn finalize_to_stdout(self) { 0; }
+
+    /// Flush buffered diagnostics to \p path, overwriting any existing file.
+    virtual fn finalize_to_file(self, path: string) { 0; }
+
+    /// Flush buffered diagnostics into a returned string.
+    virtual fn finalize_to_string(self) -> string { 0; }
 }

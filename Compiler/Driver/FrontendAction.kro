@@ -10,44 +10,54 @@
 ///   Copyright (c) 2026 Kairo Software Foundation
 ///
 /// ------------------------------------------------------------------------ ///
-
 ///
-/// Driver Layer 3 - FrontendAction
-/// ================================
+/// Driver Layer 3 FrontendAction
+/// ===============================
 ///
-/// A FrontendAction represents the compilation of a single source file.
-/// It is the Kairo equivalent of clang::FrontendAction - a self-contained
-/// unit that CompilerInstance creates and runs, or hands to a worker thread.
+/// FrontendAction owns the compilation pipeline for a single source file.
+/// CompilerInstance constructs one per input file and calls run(), which
+/// advances the file through every requested stage in order:
+///
+///   Load -> Lex -> Preprocess -> Parse -> Sema -> Codegen
+///
+/// Each stage is gated by FrontendOptions. A stop-at flag (stops_at_preprocess,
+/// stops_at_parse, stops_at_sema) causes run() to mark the TU Done and return
+/// without running later stages. A stage returning false halts the pipeline
+/// and marks the TU Failed. A fatal diagnostic additionally sets
+/// BatchResult::aborted, causing execute() to skip remaining input files.
+///
+/// Post-stage dump flags (print_tokens, print_macros, print_imports, print_ast,
+/// print_ir, print_bcir) are checked at each stage boundary and are orthogonal
+/// to the stop-at flags they do not halt the pipeline.
 ///
 /// Clang-style layer map
-/// ─────────────────────
-///   Layer 1  CompilerInvocation   strongly-typed options  (Invoke::*)
-///   Layer 2  CompilerInstance     shared resources        (Driver::CompilerInstance)
-///   Layer 3  FrontendAction       per-file pipeline       (this file)
+/// ----------------------
+///   Layer 1  CompilerInvocation   Strongly-typed options     (Invoke::*)
+///   Layer 2  CompilerInstance     Shared resource hub        (Driver::CompilerInstance)
+///   Layer 3  FrontendAction       Per-file pipeline executor (this file)
 ///
-/// Sync-free design
-/// ─────────────────
-///   FrontendAction contains no mutexes, atomics, or condition variables.
-///
-///   Borrows (read-only after construction):
+/// Ownership
+/// ----------
+///   Borrows (non-owning, valid for the lifetime of CompilerInstance::execute):
 ///     CompilerInstance  - DiagEngine, SourceManager, TCM, ThreadPool, invocation
-///     ImportResolver    - owned by CompilerInstance; fully indexed before dispatch
+///     ImportResolver    - fully indexed before the first action is dispatched
 ///
 ///   Owns:
-///     PreProcessor      - allocated at _preprocess(), freed by destructor.
-///                         Kept alive after the preprocess stage so the dump
-///                         helpers (_dump_macros, _dump_imports) can access it.
+///     PreProcessor      - allocated at _preprocess(), freed by the destructor.
+///                         Kept alive after preprocessing so _dump_macros() and
+///                         _dump_imports() can access it.
+///
+/// Sync-free design
+/// -----------------
+///   FrontendAction contains no mutexes, atomics, or condition variables.
 ///
 /// Async-ready path (future)
-/// ──────────────────────────
-///   Phase 1  (synchronous, main thread)
-///     _load() and _lex() touch shared SM and TCM, so they stay on the
-///     calling thread before workers are available.
+/// --------------------------
+///   Phase 1 - Load and lex write to shared SM and TCM; they must run on the
+///   driver thread.
 ///
-///   Phase 2  (dispatchable)
-///     Everything from _preprocess() onward only reads SM/TCM and owns all
-///     mutable state privately.  A future parallel dispatcher can hand each
-///     FrontendAction to the pool after Phase 1 completes.
-///     DiagEngine writes will be replaced by a per-action capture + merge.
+///   Phase 2 - Preprocess through codegen read SM/TCM and own all mutable
+///   state privately. Once SM/TCM are read-only from that point forward, each
+///   FrontendAction can be handed to the ThreadPool after Phase 1 completes.
+///   DiagEngine writes will be replaced by a per-action capture + merge step.
 ///
-

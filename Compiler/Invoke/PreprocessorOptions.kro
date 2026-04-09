@@ -24,35 +24,35 @@ import Command::ParsedArgs::*;
 class PreprocessorOptions {
     __inline_cpp("public:");
 
-    // ── macro system limits ───────────────────────────────────────────────
+    // -- macro system limits -----------------------------------------------
     pub var max_depth:         i32    = 128;       ///< --cmax-macro-depth
     pub var max_expansions:    i32    = 65536;     ///< --cmax-macro-expansions; 0 = unlimited
     pub var max_backtrace:     i32    = 8;         ///< --cmax-macro-backtrace
     pub var trace_depth:       i32    = 0;         ///< --cmacro-trace-depth; 0 = unlimited
 
-    // ── import / module limits ────────────────────────────────────────────
+    // -- import / module limits --------------------------------------------
     pub var max_import_depth:  i32    = 512;       ///< --cmax-import-depth
 
-    // ── source limits ─────────────────────────────────────────────────────
+    // -- source limits -----------------------------------------------------
     pub var max_file_size_mb:  i32    = 256;       ///< --cmax-file-size-mb
     pub var max_token_count:   i32    = 0;         ///< --cmax-token-count; 0 = unlimited
     pub var max_string_length: i32    = 0;         ///< --cmax-string-length; 0 = unlimited
 
-    // ── debug / trace ─────────────────────────────────────────────────────
+    // -- debug / trace -----------------------------------------------------
     pub var macro_debug:          bool   = false;  ///< --macro-debug
     pub var macro_debug_filter:   string = "";     ///< --macro-debug-filter
 
-    // ── feature toggles ───────────────────────────────────────────────────
+    // -- feature toggles ---------------------------------------------------
     pub var track_origins:     bool   = true;      ///< -ftrack-macro-origins (default on)
 
-    // ── prelude ───────────────────────────────────────────────────────────
+    // -- prelude -----------------------------------------------------------
     pub var prelude_path:      string = "";        ///< --prelude
     pub var no_prelude:        bool   = false;     ///< --no-prelude / --freestanding
 
-    // ── CLI defines: each entry is "NAME" or "NAME=VALUE" ─────────────────
+    // -- CLI defines: each entry is "NAME" or "NAME=VALUE" -----------------
     pub var defines:           vec::<string>;      ///< -D flags
 
-    // ── forced includes prepended before every source file ────────────────
+    // -- forced includes prepended before every source file ----------------
     pub var force_includes:    vec::<string>;      ///< --force-include
 
     static fn from_args(args: ref!(ParsedArgs)) -> PreprocessorOptions {

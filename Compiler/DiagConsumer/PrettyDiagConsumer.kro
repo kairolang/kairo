@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project - Compiler/DiagConsumer/PrettyDiagConsumer.kro --- ///
 ///
-///   <short description>
+///   ANSI-colored diagnostic consumer.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -17,11 +17,30 @@ import Diag::Diagnostic::*;
 import Diag::DiagConsumer::*;
 import Source::SourceManager::*;
 
+/// ANSI-colored diagnostic consumer.
+///
+/// Extends \c BasicDiagConsumer with color, bold text, and right-aligned
+/// line numbers. Color is automatically disabled when writing to a file or
+/// non-tty stream, or when the \c NO_COLOR environment variable is set.
+///
+/// \c StrikeThrough labels are rendered with Unicode combining strikethrough
+/// characters in addition to the \c ~ glyph underline.
+///
+/// Color can be forced off at any time via \c set_color(false), which zeroes
+/// all ANSI escape fields. This cannot be reversed construct a new consumer
+/// if re-enabling is needed.
+///
+/// \c _sm may be null; source snippets and \c --> lines are omitted when so.
 class PrettyDiagConsumer derives DiagConsumer {
     priv var _diags: vec::<*Diagnostic>;
     priv var _sm:    *SourceManager;
 
-    // ANSI codes
+    // --- ANSI escape codes --------------------------------------------------
+    //
+    // Zeroed by set_color(false). All render paths gate on the `color` bool
+    // passed down from finalize_* rather than reading these fields directly,
+    // so color state is consistent within a single finalize call.
+
     priv var RESET:    string = "\x1b[0m";
     priv var BOLD:     string = "\x1b[1m";
     priv var DIM:      string = "\x1b[2;37m";
@@ -33,20 +52,27 @@ class PrettyDiagConsumer derives DiagConsumer {
     priv var MAGENTA:  string = "\x1b[35m";
     priv var WHITE:    string = "\x1b[37m";
 
+    // --- Constructors --------------------------------------------------------
+
     fn PrettyDiagConsumer(self, sm: *SourceManager) {
         self._diags.reserve(32);
         self._sm = sm;
     }
 
+    /// Constructs without a \c SourceManager. Source snippets will be omitted.
     fn PrettyDiagConsumer(self) {
         self._diags.reserve(32);
         self._sm = &null;
     }
 
+    // --- DiagConsumer interface ----------------------------------------------
+
     fn handle(self, diag: *Diagnostic) {
         self._diags.push_back(diag);
     }
 
+    /// Renders to stderr. Color enabled if stderr is a tty and \c NO_COLOR
+    /// is not set.
     fn finalize_to_stderr(self) {
         var color = self.detect_color_stderr();
         for var i: usize = 0; i < self._diags.size(); ++i {
@@ -54,6 +80,8 @@ class PrettyDiagConsumer derives DiagConsumer {
         }
     }
 
+    /// Renders to stdout. Color enabled if stdout is a tty and \c NO_COLOR
+    /// is not set.
     fn finalize_to_stdout(self) {
         var color = self.detect_color_stdout();
         for var i: usize = 0; i < self._diags.size(); ++i {
@@ -61,6 +89,7 @@ class PrettyDiagConsumer derives DiagConsumer {
         }
     }
 
+    /// Renders to \p path with color disabled.
     fn finalize_to_file(self, path: string) {
         var out: string;
         for var i: usize = 0; i < self._diags.size(); ++i {
@@ -71,6 +100,7 @@ class PrettyDiagConsumer derives DiagConsumer {
         f.close();
     }
 
+    /// Renders to a string with color disabled.
     fn finalize_to_string(self) -> string {
         var out: string;
         for var i: usize = 0; i < self._diags.size(); ++i {
@@ -79,33 +109,37 @@ class PrettyDiagConsumer derives DiagConsumer {
         return out;
     }
 
+    /// Disables all ANSI color output by zeroing escape code fields.
+    /// Irreversible on this instance.
     fn set_color(self, enable: bool) {
         if !enable {
-            (self.RESET) = "";
-            (self.BOLD) = "";
-            (self.DIM) = "";
-            (self.BOLD_RED) = "";
-            (self.RED) = "";
-            (self.YELLOW) = "";
-            (self.CYAN) = "";
-            (self.BLUE) = "";
-            (self.MAGENTA) = "";
-            (self.WHITE) = "";
+            self.RESET    = "";
+            self.BOLD     = "";
+            self.DIM      = "";
+            self.BOLD_RED = "";
+            self.RED      = "";
+            self.YELLOW   = "";
+            self.CYAN     = "";
+            self.BLUE     = "";
+            self.MAGENTA  = "";
+            self.WHITE    = "";
         }
-
-        return;
     }
 
+    // --- Rendering -----------------------------------------------------------
+
+    /// Renders a single diagnostic and all its children.
+    /// \p color controls whether ANSI escapes are emitted.
     priv fn render(self, diag: *Diagnostic, sm: *SourceManager, color: bool) -> string {
         const var NL = "\n";
         var out: string;
 
         var sev      = diag->code.severity();
         var sev_str  = self.severity_string(sev, color);
-        var code_str = (severity_color(sev) + ((diag->code) as string) + RESET) if (color) else ((diag->code) as string);
         var sev_col  = self.severity_color(sev);
-        var arrow    = ( f"{BOLD}{WHITE}-->{RESET}" ) if ( color ) else ( "-->");
-        var pipe     = ( f"{BOLD}{WHITE}|{RESET}"   ) if ( color ) else ( "|");
+        var code_str = (severity_color(sev) + ((diag->code) as string) + RESET) if (color) else ((diag->code) as string);
+        var arrow    = ( f"{BOLD}{WHITE}-->{RESET}" ) if ( color ) else ( "-->" );
+        var pipe     = ( f"{BOLD}{WHITE}|{RESET}"   ) if ( color ) else ( "|"   );
 
         // "error [SC041E]: message"
         out += f"{sev_str} [{code_str}]: {diag->message}" + NL;
@@ -122,7 +156,7 @@ class PrettyDiagConsumer derives DiagConsumer {
 
         for var i: usize = 0; i < diag->fixits.size(); ++i {
             var fi      = diag->fixits[i];
-            var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix");
+            var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
             out += f"  > {fix_pfx}: {fi.message}" + NL;
         }
 
@@ -147,7 +181,7 @@ class PrettyDiagConsumer derives DiagConsumer {
 
             for var j: usize = 0; j < child->fixits.size(); ++j {
                 var cf      = child->fixits[j];
-                var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix");
+                var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
                 out += f"    > {fix_pfx}: {cf.message}" + NL;
             }
         }
@@ -155,6 +189,11 @@ class PrettyDiagConsumer derives DiagConsumer {
         return out;
     }
 
+    /// Sorts \p labels by source line (insertion sort) and renders each as a
+    /// source-line row followed by a colored underline row.
+    ///
+    /// Line numbers are right-aligned to the width of the largest line number
+    /// in the label set, keeping the pipe column stable.
     priv fn render_labels(
         self,
         labels:   ref!(vec::<DiagLabel>),
@@ -166,7 +205,7 @@ class PrettyDiagConsumer derives DiagConsumer {
         const var NL = "\n";
         var out: string;
 
-        var pipe = ( f"{BOLD}{WHITE}|{RESET}" ) if ( color ) else ( "|");
+        var pipe = ( f"{BOLD}{WHITE}|{RESET}" ) if ( color ) else ( "|" );
 
         // build sorted index ascending by line
         var order: vec::<usize>;
@@ -188,37 +227,36 @@ class PrettyDiagConsumer derives DiagConsumer {
             order[static_cast::<usize>(j + 1)] = key;
         }
 
+        // compute max line-number width once for right-alignment
+        var max_line_width: usize = 1;
+        for var k: usize = 0; k < labels.size(); ++k {
+            var w = f"{sm->get_line_col(labels[k].range.start).line}".length();
+            if w > max_line_width { max_line_width = w; }
+        }
+
         for var i: usize = 0; i < order.size(); ++i {
             var label     = labels[order[i]];
             var start_lc  = sm->get_line_col(label.range.start);
             var end_lc    = sm->get_line_col(label.range.end);
             var line_text = sm->get_full_line(label.range.start);
 
-            // pick glyph color: primary uses severity color, secondary uses dim
-            var glyph_col = ((sev_col) if (label.style == DiagLabel::Style::Primary) else (DIM))
+            // primary labels use the severity color; secondary labels use dim
+            var glyph_col  = ((sev_col) if (label.style == DiagLabel::Style::Primary) else (DIM))
                 if color else "";
 
             var line_num_str = f"{start_lc.line}";
+            var pad_count    = max_line_width - line_num_str.length();
+            var num_pad      = string(' ', pad_count);
+            var line_col     = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "" );
+            var reset_col    = ( RESET            ) if ( color ) else ( "" );
 
-            // right-align line numbers to keep pipe column stable across labels
-            // compute max line number width across all labels in this set
-            var max_line_width: usize = 1;
-            for var k: usize = 0; k < labels.size(); ++k {
-                var lc  = sm->get_line_col(labels[k].range.start);
-                var w   = f"{lc.line}".length();
-                if w > max_line_width { max_line_width = w; }
-            }
-
-            var pad_count  = max_line_width - line_num_str.length();
-            var num_pad    = string(' ', pad_count);
-            var line_col   = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "");
-            var reset_col  = ( RESET ) if ( color ) else ( "");
+            // prefix_raw has no ANSI codes used to compute underline padding
             var prefix_raw = f"{indent}{num_pad}{line_num_str} | ";
             var prefix_vis = f"{indent}{num_pad}{line_col}{line_num_str} {pipe} {reset_col}";
 
             out += prefix_vis + line_text + NL;
 
-            // underline row - pad by raw prefix length (no ANSI codes)
+            // underline row - pad by raw prefix length
             var pad       = string(' ', prefix_raw.length());
             var start_col = start_lc.column;
             var end_col   = end_lc.column;
@@ -228,19 +266,15 @@ class PrettyDiagConsumer derives DiagConsumer {
 
             if start_col > line_text.length() { start_col = line_text.length(); }
             if end_col   > line_text.length() { end_col   = line_text.length(); }
-            if end_col   <= start_col         { end_col   = start_col + 1; }
+            if end_col   <= start_col         { end_col   = start_col + 1;      }
 
             var glyph     = self.label_char(label.style);
             var underline = string(' ', start_col) + string(glyph, end_col - start_col);
 
-            if color {
-                out += pad + glyph_col + underline + RESET;
-            } else {
-                out += pad + underline;
-            }
+            out += pad + ( f"{glyph_col}{underline}{RESET}" if color else underline );
 
             if label.text.length() > 0 {
-                var label_col = ( f"{glyph_col}{BOLD}" ) if ( color ) else ( "");
+                var label_col = ( f"{glyph_col}{BOLD}" ) if ( color ) else ( "" );
                 out += " " + label_col + label.text + reset_col;
             }
 
@@ -250,6 +284,9 @@ class PrettyDiagConsumer derives DiagConsumer {
         return out;
     }
 
+    // --- Helpers -------------------------------------------------------------
+
+    /// Returns the ANSI color code for \p sev. Empty string when color is off.
     priv fn severity_color(self, sev: DiagSeverity) -> string {
         switch sev {
         case DiagSeverity::Fatal   { return BOLD_RED; }
@@ -277,10 +314,8 @@ class PrettyDiagConsumer derives DiagConsumer {
         case DiagSeverity::Ignored { label = "ignored"; }
         default                    { label = "unknown"; }
         }
-
         if !color { return label; }
-        var col = self.severity_color(sev);
-        return f"{col}{BOLD}{label}{RESET}";
+        return f"{self.severity_color(sev)}{BOLD}{label}{RESET}";
     }
 
     priv fn label_char(self, style: DiagLabel::Style) -> char {
@@ -293,12 +328,14 @@ class PrettyDiagConsumer derives DiagConsumer {
         }
     }
 
+    /// Returns true if stdout is a tty and \c NO_COLOR is not set.
     priv fn detect_color_stdout(self) -> bool {
         if libcxx::getenv(r"NO_COLOR") { return false; }
         if !(isatty(fileno(stdout)))   { return false; }
         return true;
     }
 
+    /// Returns true if stderr is a tty and \c NO_COLOR is not set.
     priv fn detect_color_stderr(self) -> bool {
         if libcxx::getenv(r"NO_COLOR") { return false; }
         if !(isatty(fileno(stderr)))   { return false; }

@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project -- Compiler/DiagConsumer/BasicDiagConsumer.kro --- ///
 ///
-///   <short description>
+///   Plain-text diagnostic consumer.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -10,6 +10,17 @@
 ///   Copyright (c) 2026 Kairo Software Foundation
 ///
 /// ------------------------------------------------------------------------ ///
+///
+/// Buffers diagnostics on \c handle() and renders them as plain ASCII text
+///   on finalization. Suitable for non-interactive output, CI logs, and
+///   file sinks. For ANSI-colored terminal output use \c PrettyDiagConsumer.
+///
+///   \c SourceManager is optional pass \c &null to suppress source snippets.
+///   If provided, source locations are rendered as \c filename:line:column and
+///   source labels are rendered as underlined snippets with carets and
+///   optional messages.
+///
+/// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Types.hh";
 
@@ -17,19 +28,43 @@ import Diag::Diagnostic::*;
 import Diag::DiagConsumer::*;
 import Source::SourceManager::*;
 
+/// Plain-text diagnostic consumer no color, no ANSI codes.
+///
+/// Buffers all received \c Diagnostic pointers and renders them on demand
+/// via one of the \c finalize_* methods. The consumer does not own the
+/// diagnostics; lifetime is managed by \c DiagEngine.
+///
+/// \c _sm may be null. When null, source snippets and \c --> location lines
+/// are omitted from output.
+///
+/// \par Output format
+/// \code
+///   error [SC041E]: message
+///     --> file.kro:10:5
+///     10 | <source line>
+///            ^^^ label text
+///      > fix: suggestion
+///      > note [SC021N]: child message
+///         --> file.kro:8:1
+/// \endcode
 class BasicDiagConsumer derives DiagConsumer {
-    priv var _diags: vec::<*Diagnostic>;
-    priv var _sm:    *SourceManager;
+    priv var _diags: vec::<*Diagnostic>; ///< Non-owning; pointers owned by DiagEngine.
+    priv var _sm:    *SourceManager;     ///< Optional. Null suppresses location/snippet output.
+
+    // --- Constructors --------------------------------------------------------
 
     fn BasicDiagConsumer(self, sm: *SourceManager) {
         self._diags.reserve(32);
         self._sm = sm;
     }
 
+    /// Constructs without a \c SourceManager. Source snippets will be omitted.
     fn BasicDiagConsumer(self) {
         self._diags.reserve(32);
         self._sm = &null;
     }
+
+    // --- DiagConsumer interface ----------------------------------------------
 
     fn handle(self, diag: *Diagnostic) {
         self._diags.push_back(diag);
@@ -65,6 +100,9 @@ class BasicDiagConsumer derives DiagConsumer {
         return out;
     }
 
+    // --- Rendering -----------------------------------------------------------
+
+    /// Renders a single diagnostic and all its children to a plain-text string.
     priv fn render(self, diag: *Diagnostic, sm: *SourceManager) -> string {
         const var NL = "\n";
         var out: string;
@@ -115,6 +153,8 @@ class BasicDiagConsumer derives DiagConsumer {
         return out;
     }
 
+    /// Sorts \p labels by source line (insertion sort label counts are tiny)
+    /// and renders each as a source-line + underline row.
     priv fn render_labels(
         self,
         labels: ref!(vec::<DiagLabel>),
@@ -133,7 +173,7 @@ class BasicDiagConsumer derives DiagConsumer {
 
         // insertion sort - label counts are tiny, no need for anything heavier
         for var i: usize = 1; i < order.size(); ++i {
-            var key = order[i];
+            var key      = order[i];
             var key_line = sm->get_line_col(labels[key].range.start).line;
             var j: isize = static_cast::<isize>(i) - 1;
             while j >= 0 {
@@ -165,7 +205,7 @@ class BasicDiagConsumer derives DiagConsumer {
 
             if start_col > line_text.length() { start_col = line_text.length(); }
             if end_col   > line_text.length() { end_col   = line_text.length(); }
-            if end_col   <= start_col         { end_col   = start_col + 1; }
+            if end_col   <= start_col         { end_col   = start_col + 1;      }
 
             var glyph     = self.label_char(label.style);
             var underline = string(' ', start_col) + string(glyph, end_col - start_col);
@@ -181,6 +221,8 @@ class BasicDiagConsumer derives DiagConsumer {
 
         return out;
     }
+
+    // --- Helpers -------------------------------------------------------------
 
     priv fn severity_string(self, sev: DiagSeverity) -> string {
         switch sev {

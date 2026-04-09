@@ -21,14 +21,14 @@ import Command::ParsedArgs::*;
 class CodeGenOptions {
     __inline_cpp("public:");
 
-    // ── optimisation ──────────────────────────────────────────────────────
+    // -- optimisation ------------------------------------------------------
     pub var opt_level:             i32    = 0;
     pub var opt_size:              bool   = false;
     pub var opt_size_z:            bool   = false;
     pub var lto:                   string = "off";
     pub var profile:               string = "debug";
 
-    // ── debug info ────────────────────────────────────────────────────────
+    // -- debug info --------------------------------------------------------
     pub var debug_info:            bool   = false;
     pub var no_debug_info:         bool   = false;
     pub var dwarf_version:         i32    = 5;
@@ -36,11 +36,11 @@ class CodeGenOptions {
     pub var debug_macros:          bool   = false;
     pub var embed_source:          bool   = false;
 
-    // ── strip ─────────────────────────────────────────────────────────────
+    // -- strip -------------------------------------------------------------
     pub var strip:                 bool   = false;
     pub var strip_debug:           bool   = false;
 
-    // ── inliner / loop limits (from --c* config flags) ────────────────────
+    // -- inliner / loop limits (from --c* config flags) --------------------
     pub var max_inline_depth:      i32    = 256;
     pub var inline_cost:           f64    = 225.0;
     pub var max_unroll_count:      i32    = 0;
@@ -49,7 +49,7 @@ class CodeGenOptions {
     pub var max_codegen_passes:    i32    = 0;
     pub var max_object_size_mb:    i32    = 512;
 
-    // ── misc codegen ──────────────────────────────────────────────────────
+    // -- misc codegen ------------------------------------------------------
     pub var save_temps:            bool   = false;
     pub var signed_wrap:           bool   = false;
     pub var unsigned_trap:         bool   = false;

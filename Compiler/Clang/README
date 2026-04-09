@@ -10,7 +10,7 @@ Kairo Source (.kro)          C++ Headers (.h/.hpp)
        v                            v
 #--------------#            #------------------#
 |  Kairo Lexer |            |  Clang parses    |
-|  (SIMD, UTF8)|            |  headers → stubs |
+|  (SIMD, UTF8)|            |  headers -> stubs |
 #------#-------#            #--------#---------#
        v                             |
 #--------------#                     |
@@ -23,7 +23,7 @@ Kairo Source (.kro)          C++ Headers (.h/.hpp)
        v                             |
 #--------------#                     |
 | Kairo Parser |                     |
-| → Kairo AST  |                     |
+| -> Kairo AST  |                     |
 #------#-------#                     |
        v                             |
 #----------------------#             |
@@ -52,7 +52,7 @@ Kairo Source (.kro)          C++ Headers (.h/.hpp)
 #----------------------#
 | Clang Parser         |
 |  - parses token      |
-|    stream → Clang AST|
+|    stream -> Clang AST|
 #------#---------------#
        v
 #----------------------#
@@ -69,7 +69,7 @@ Kairo Source (.kro)          C++ Headers (.h/.hpp)
        v
 #----------------------#
 | Clang Codegen        |
-|  → LLVM IR           |
+|  -> LLVM IR           |
 #------#---------------#
        v
 #----------------------#
@@ -247,7 +247,7 @@ Runs as a sub-pass of sema, after type resolution, before token emission.
 
 ---
 
-### 7. Token Emitter (Kairo AST → clang::Token stream)
+### 7. Token Emitter (Kairo AST -> clang::Token stream)
 
 **Status:** Not started (this is the core lowering layer)
 
@@ -262,14 +262,14 @@ auto fid = SM.createFileID(
 );
 
 // Each emitted token gets a mapped location
-// Kairo line 42, col 10 → clang::SourceLocation pointing into "module.kro"
+// Kairo line 42, col 10 -> clang::SourceLocation pointing into "module.kro"
 auto loc = SM.translateLineCol(fid, 42, 10);
 token.setLocation(loc);
 ```
 
 This means Clang's diagnostic output automatically points to `.kro` source files with correct line/column. No error remapping needed for most cases.
 
-**Lowering rules (Kairo construct → C++ tokens):**
+**Lowering rules (Kairo construct -> C++ tokens):**
 
 ```
 Kairo                          C++ tokens
@@ -299,7 +299,7 @@ trait Trait { ... }             (concept or vtable struct - TBD)
 
 ---
 
-### 8. Clang Pipeline (Parser → Sema → Codegen)
+### 8. Clang Pipeline (Parser -> Sema -> Codegen)
 
 **Status:** Provided by Clang - no implementation needed
 
@@ -406,7 +406,7 @@ Examples:
 
 Each diagnostic belongs to a `DiagCategory`. When an error fires, its category can be poisoned for a source scope. Subsequent errors in the same category and scope are suppressed. Different categories still fire independently.
 
-Example: lexer error in a string → poisons `Lexical` for that scope → parser errors about malformed tokens in that region are suppressed → but type errors in unrelated code still fire.
+Example: lexer error in a string -> poisons `Lexical` for that scope -> parser errors about malformed tokens in that region are suppressed -> but type errors in unrelated code still fire.
 
 ---
 
@@ -469,7 +469,7 @@ Phase 1 - Foundation (current)
   [x] Diagnostic Engine
   
 Phase 2 - Frontend
-  [ ] Parser → Kairo AST
+  [ ] Parser -> Kairo AST
   [ ] Basic Sema (Kairo-only, no C++ interop)
   [ ] Token Emitter (trivial subset: fn, var, if, while, for)
   [ ] Clang pipeline integration (verify round-trip)

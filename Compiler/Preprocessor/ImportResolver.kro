@@ -854,27 +854,27 @@ fn Test() -> i32 {
 
     // create directory structure:
     // hlx_import_test/
-    //   ├── std/
-    //   │   ├── io.kro
-    //   │   ├── mem/
-    //   │   │   ├── module.kro
-    //   │   │   └── alloc.kro
-    //   │   └── net.kro
-    //   ├── mylib.hlib
-    //   ├── util.kro
-    //   ├── cpp/
-    //   │   ├── helper.hpp
-    //   │   ├── helper.cpp
-    //   │   └── legacy.h
-    //   ├── Assets/
-    //   │   ├── config.json
-    //   │   ├── data.txt
-    //   │   └── README
-    //   └── Makefile
+    //   ├-- std/
+    //   │   ├-- io.kro
+    //   │   ├-- mem/
+    //   │   │   ├-- module.kro
+    //   │   │   └-- alloc.kro
+    //   │   └-- net.kro
+    //   ├-- mylib.hlib
+    //   ├-- util.kro
+    //   ├-- cpp/
+    //   │   ├-- helper.hpp
+    //   │   ├-- helper.cpp
+    //   │   └-- legacy.h
+    //   ├-- Assets/
+    //   │   ├-- config.json
+    //   │   ├-- data.txt
+    //   │   └-- README
+    //   └-- Makefile
     //
     // hlx_include_test/
-    //   ├── util.kro (conflict - should lose to cwd)
-    //   └── extra.kro (unique - should be found)
+    //   ├-- util.kro (conflict - should lose to cwd)
+    //   └-- extra.kro (unique - should be found)
 
     libcxx::filesystem::create_directories(test_root / libcxx::filesystem::path(r"std/mem"));
     libcxx::filesystem::create_directories(test_root / libcxx::filesystem::path(r"cpp"));

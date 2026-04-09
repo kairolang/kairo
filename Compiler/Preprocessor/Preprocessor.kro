@@ -22,39 +22,39 @@
 /// Pipeline
 /// --------
 ///
-///    ┌──────────────────┐
+///    ┌------------------┐
 ///    │ Token Stream     │
-///    └────────┬─────────┘
+///    └--------┬---------┘
 ///             │
 ///             ▼
-///   ┌─────────────────────────────┐
+///   ┌-----------------------------┐
 ///   │ 1. Collect Definitions      │
 ///   │    - Walk tokens            │
 ///   │    - Track module scope     │
 ///   │    - Register macro!(...){} │
 ///   │    - Register macro!{}      │
 ///   │    - Store body tokens      │
-///   └─────────────────────────────┘
+///   └-----------------------------┘
 ///             │
 ///             ▼
-///   ┌─────────────────────────────┐
+///   ┌-----------------------------┐
 ///   │ 2. Track Imports            │
 ///   │    - Record use decls       │
 ///   │    - Map alias -> origin     │
 ///   │    - No expansion yet       │
-///   └─────────────────────────────┘
+///   └-----------------------------┘
 ///             │
 ///             ▼
-///   ┌─────────────────────────────┐
+///   ┌-----------------------------┐
 ///   │ 3. Resolve Invocations      │
 ///   │    - Match ident! or ident!(│
 ///   │    - Qualified: exact lookup│
 ///   │    - Unqualified: scoped    │
 ///   │    - Validate delimiters    │
-///   └─────────────────────────────┘
+///   └-----------------------------┘
 ///             │
 ///             ▼
-///   ┌─────────────────────────────┐
+///   ┌-----------------------------┐
 ///   │ 4. Expand Tokens            │
 ///   │    - Substitute params      │
 ///   │    - Handle defaults        │
@@ -62,15 +62,15 @@
 ///   │    - Paste body tokens      │
 ///   │    - Recurse if nested      │
 ///   │    - Detect cycles          │
-///   └─────────────────────────────┘
+///   └-----------------------------┘
 ///             │
 ///             ▼
-///   ┌─────────────────────────────┐
+///   ┌-----------------------------┐
 ///   │ 5. Return Expanded          │
 ///   │    - Modified stream        │
 ///   │    - Preserve locations     │
 ///   │    - Report errors          │
-///   └─────────────────────────────┘
+///   └-----------------------------┘
 ///
 /// Definition Syntax
 /// -----------------
@@ -223,13 +223,13 @@
 ///     - Recursive expansion cycle (depth > 256)
 ///     - Built-in macro misuse
 ///
-// ── SECTION: ImportProcessor ────────────────────────────────────────────
+// -- SECTION: ImportProcessor --------------------------------------------
 
-// ── SECTION: ExpansionContext ────────────────────────────────────────────
+// -- SECTION: ExpansionContext --------------------------------------------
 
-// ── SECTION: MacroExpander ──────────────────────────────────────────────
+// -- SECTION: MacroExpander ----------------------------------------------
 
-// ── SECTION: PreProcessor ─────────────────────────────────────────────
+// -- SECTION: PreProcessor ---------------------------------------------
 /// goal:
 /// simple api to do sumn  like this:
 /*
@@ -856,7 +856,7 @@ class MacroExpander {
 
             var tok = tokens->get(i);
 
-            // ── detect invocation ───────────────────────────────────────
+            // -- detect invocation ---------------------------------------
             var invoke = self.detect_invocation(tokens, i);
 
             if !invoke.found {
@@ -865,7 +865,7 @@ class MacroExpander {
                 continue;
             }
             
-            // ── try builtins first ──────────────────────────────────────
+            // -- try builtins first --------------------------------------
             var builtin_result = self.try_builtin(tokens, invoke, &ctx);
             if builtin_result != &null {
                 for j in usize(0) .. usize(builtin_result->size()) {
@@ -955,7 +955,7 @@ class MacroExpander {
         var tok = tokens->get(i);
         if self.get_effective_kind(tok) != TokenKind::LitIdentifier { return result; }
 
-        // ── try to parse a path: ident (:: ident)* ─────────────────────
+        // -- try to parse a path: ident (:: ident)* ---------------------
         var path_idents = vec::<usize>(); // indices of identifier tokens in the path
         path_idents.push_back(i);
 
@@ -968,7 +968,7 @@ class MacroExpander {
             j += 2;
         }
 
-        // ── expect `!` after the last identifier ───────────────────────
+        // -- expect `!` after the last identifier -----------------------
         if j >= tokens->size() { return result; }
         if self.get_effective_kind(tokens->get(j)) != TokenKind::OpExclaim { return result; }
 
@@ -1000,7 +1000,7 @@ class MacroExpander {
 
         j = bang_idx + 1; // past `!`
 
-        // ── check for argument list `(` ... `)` ────────────────────────
+        // -- check for argument list `(` ... `)` ------------------------
         if (j < tokens->size()) && (self.get_effective_kind(tokens->get(j)) == TokenKind::OpLParen) {
             result.has_args   = true;
             result.args_start = j; // index of `(`
@@ -1074,7 +1074,7 @@ class MacroExpander {
         if name_ptr == &null { return &null; }
         var name = *name_ptr;
 
-        // ── source location builtins ────────────────────────────────────────
+        // -- source location builtins ----------------------------------------
         if name == "file" {
             return self.builtin_file(invoke);
         }
@@ -1088,23 +1088,23 @@ class MacroExpander {
             return self.builtin_module_path(invoke);
         }
 
-        // ── variadic helpers ────────────────────────────────────────────────
+        // -- variadic helpers ------------------------------------------------
         if name == "count"   { return self.builtin_count(tokens, invoke); }
         if name == "first"   { return self.builtin_first(tokens, invoke); }
         if name == "last"    { return self.builtin_last(tokens, invoke); }
         if name == "rest"    { return self.builtin_rest(tokens, invoke); }
         if name == "init"    { return self.builtin_init(tokens, invoke); }
 
-        // ── token manipulation ──────────────────────────────────────────────
+        // -- token manipulation ----------------------------------------------
         if name == "concat"      { return self.builtin_concat(tokens, invoke); }
         if name == "stringify"   { return self.builtin_stringify(tokens, invoke); }
         if name == "unstringify" { return self.builtin_unstringify(tokens, invoke); }
 
-        // ── hygiene ─────────────────────────────────────────────────────────
+        // -- hygiene ---------------------------------------------------------
         if name == "defined"  { return self.builtin_defined(tokens, invoke); }
         if name == "undef"    { return self.builtin_undef(tokens, invoke); }
 
-        // ── code gen / deferred ─────────────────────────────────────────────
+        // -- code gen / deferred ---------------------------------------------
         // these emit placeholder tokens; real work happens in later passes
         if name == "todo"        { return self.builtin_todo(tokens, invoke); }
         if name == "unreachable" { return self.builtin_unreachable(tokens, invoke); }
@@ -1113,7 +1113,7 @@ class MacroExpander {
         if name == "include_str" { return self.builtin_include_str(tokens, invoke); }
         if name == "embed"       { return self.builtin_embed(tokens, invoke); }
 
-        // ── diagnostics (deferred emit nothing now) ───────────────────────
+        // -- diagnostics (deferred emit nothing now) -----------------------
         if name == "error"   { return self.builtin_diag(tokens, invoke, DiagSeverity::Error); }
         if name == "warning" { return self.builtin_diag(tokens, invoke, DiagSeverity::Warning); }
         if name == "note"    { return self.builtin_diag(tokens, invoke, DiagSeverity::Note); }
@@ -1203,7 +1203,7 @@ class MacroExpander {
             return &null;
         }
 
-        // ── re-scan expansion for nested invocations ────────────────────
+        // -- re-scan expansion for nested invocations --------------------
 
         var saved_fid = self._fid;
         self._fid = def->source_fid;
@@ -1315,7 +1315,7 @@ class MacroExpander {
         def:    *MacroDefinition,
         ctx:    *ExpansionContext
     ) -> *(TokenBuffer::<512>) {
-        // ── pre-expand entire argument list (inside-out) ────────────
+        // -- pre-expand entire argument list (inside-out) ------------
         var arg_buf = std::create::<TokenBuffer::<512>>();
         for j in usize(invoke.args_start + 1) .. usize(invoke.args_end - 1) {
             arg_buf->append(*(tokens->get(j)));
@@ -1329,11 +1329,11 @@ class MacroExpander {
     
         self._active_macros = saved_active;
 
-        // ── parse arguments from (possibly expanded) buffer ─────────
+        // -- parse arguments from (possibly expanded) buffer ---------
         var args_end_idx = final_buf->size() - 1;
         var args = self.parse_arguments(final_buf, 0, args_end_idx);
 
-        // ── bind parameters ─────────────────────────────────────────
+        // -- bind parameters -----------------------------------------
         var bindings = map::<SymbolID, TokenSpan>();
         var variadic = vec::<TokenSpan>();
 
@@ -1399,10 +1399,10 @@ class MacroExpander {
         ctx->param_bindings    = bindings;
         ctx->variadic_bindings = variadic;
 
-        // ── substitute ──────────────────────────────────────────────
+        // -- substitute ----------------------------------------------
         var result = self.substitute_body(def, ctx);
 
-        // ── cleanup pre-expanded buffers ────────────────────────────
+        // -- cleanup pre-expanded buffers ----------------------------
         if expanded_args != &null { std::destroy(expanded_args); }
         std::destroy(arg_buf);
 
@@ -1479,7 +1479,7 @@ class MacroExpander {
             var tok  = body.get(i);
             var kind = self.get_effective_kind(tok);
 
-            // ── ...vals  (variadic splice) ──────────────────────────────
+            // -- ...vals  (variadic splice) ------------------------------
             if kind == TokenKind::OpEllipsis && (i + 1) < body.size() {
                 var next      = body.get(i + 1);
                 var next_kind = self.get_effective_kind(next);
@@ -1514,7 +1514,7 @@ class MacroExpander {
                 }
             }
 
-            // ── identifier → param binding ──────────────────────────────
+            // -- identifier -> param binding ------------------------------
             if kind == TokenKind::LitIdentifier {
                 var tok_name = self._sym_table->intern(self._sm->get_text(tok->range));
 
@@ -1532,7 +1532,7 @@ class MacroExpander {
                 }
             }
 
-            // ── passthrough ─────────────────────────────────────────────
+            // -- passthrough ---------------------------------------------
             output->append(self.wrap_token(*tok,
                 def->name.name,
                 ctx->invoke_loc,
@@ -1738,7 +1738,7 @@ class PreProcessor {
         }
         var skip_list = &(self._skip_lists[fid]);
 
-        // ── Phase 1: Lex + scan imports ────────────────────────────────
+        // -- Phase 1: Lex + scan imports --------------------------------
         Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 1 imports");
         if (!self._import_proc.process_file(fid, module_path)) {
             // errors were dispatched to DiagEngine already
@@ -1746,7 +1746,7 @@ class PreProcessor {
             return false;
         }
 
-        // ── Phase 2: Collect macro definitions ─────────────────────────
+        // -- Phase 2: Collect macro definitions -------------------------
         Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 2 macro collection");
         var tokens = self._tcm->get_tokens(fid);
         if tokens != &null {
@@ -1762,7 +1762,7 @@ class PreProcessor {
             // errors were dispatched to DiagEngine by the collector
         }
 
-        // ── Phase 3: Expand macro invocations ──────────────────────────
+        // -- Phase 3: Expand macro invocations --------------------------
         Logger::debug(Logger::Stage::Preprocessor, f"PreProcessor::preprocess_file: fid={fid} phase 3 expansion");
         if do_expand {
             tokens = self._tcm->get_tokens(fid);
@@ -1797,7 +1797,7 @@ class PreProcessor {
             }
         }
 
-        // ── Done ───────────────────────────────────────────────────────────
+        // -- Done -----------------------------------------------------------
         self._processing.erase(fid);
         self._processed.insert(fid);
 

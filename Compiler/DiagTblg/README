@@ -1,29 +1,142 @@
-# this folder contains the list of all diagnostics
+# DiagTblg Diagnostic Table Sources
 
-if you want to regenerate the diagnostics file (Compiler/Diagnostics/DiagRegistry.kro) you can run the following command from the root of the repo:
+This directory contains the TOML source tables for every diagnostic the Kairo
+compiler can emit. The tables are consumed by `Scripts/gen_diag.py` to produce
+`Compiler/Diag/DiagRegistry.kro`, which is the authoritative registry used at
+compile time.
+
+**Do not edit `DiagRegistry.kro` directly.** All diagnostic changes go here.
+
+---
+
+## Regenerating the registry
+
+From the repo root:
 
 ```bash
-./Scripts/gen_diag.py Compiler/Diagnostics/DiagGen/*.diag.toml > Compiler/Diagnostics/DiagRegistry.kro
+python3 Scripts/gen_diag.py Compiler/DiagTblg > Compiler/Diag/DiagRegistry.kro
 ```
 
-the following categories are used:
-    - Syntax [S]
-    - Uncategorized Errors [U]
-    - Code Generation Errors [C]
-    - Memory [M]
-    - Resolution [R]
-    - Linker [L]
-    - Semantic [SC]
-    - Portability/Platform [P]
-    - Lowering [CL]
-    - Optimization [OPT]
-    - Internal [I]
-With the following severity levels:
-    - Ignored [I]
-    - Remark  [R]
-    - Verbose [V]
-    - Note    [N]
-    - Debug   [D]
-    - Warning [W]
-    - Error   [E]
-    - Fatal   [F]
+Run this after any addition, removal, or modification to a `.diag.toml` file
+and commit both the table change and the regenerated registry together.
+
+---
+
+## File layout
+
+Each file covers one diagnostic category. One category per file, no exceptions.
+
+| File                      | Category              | Code  |
+|---------------------------|-----------------------|-------|
+| `Syntax.diag.toml`        | Syntax                | `S`   |
+| `Uncategorized.diag.toml` | Uncategorized         | `U`   |
+| `CodeGen.diag.toml`       | Code generation       | `C`   |
+| `Memory.diag.toml`        | Memory                | `M`   |
+| `Resolution.diag.toml`    | Resolution            | `R`   |
+| `Linker.diag.toml`        | Linker                | `L`   |
+| `Semantic.diag.toml`      | Semantic              | `SC`  |
+| `Portability.diag.toml`   | Portability           | `P`   |
+| `Lowering.diag.toml`      | Lowering (Clang/LLVM) | `CL`  |
+| `Optimization.diag.toml`  | Optimization          | `OPT` |
+| `Internal.diag.toml`      | Internal              | `I`   |
+
+---
+
+## Diagnostic ID format
+
+Every emitted diagnostic has a string ID of the form:
+
+```
+<category><number><severity>
+```
+
+Examples: `SC041E`, `S003W`, `CL012F`, `OPT001R`
+
+- **Category code** from the table above.
+- **Number** three-digit, zero-padded (`001`–`999`).
+- **Severity suffix** single character from the table below.
+
+### Severity levels
+
+Ordered by impact, lowest to highest:
+
+| Severity  | Suffix | Meaning                                                 |
+|-----------|--------|---------------------------------------------------------|
+| Ignored   | `I`    | Suppressed entirely no output.                        |
+| Remark    | `R`    | Informational output from optimisation passes.          |
+| Verbose   | `V`    | Shown only in verbose mode (`--verbose`).               |
+| Note      | `N`    | Subordinate annotation attached to a parent diagnostic. |
+| Debug     | `D`    | Debug-build only stripped in release.                 |
+| Warning   | `W`    | Recoverable compilation continues.                    |
+| Error     | `E`    | Hard error current translation unit fails.            |
+| Fatal     | `F`    | Unrecoverable compiler terminates immediately.        |
+
+---
+
+## Table format
+
+Each diagnostic entry looks like this:
+
+```toml
+[SC041]
+brief = "return type mismatch"
+group = "type-checking"
+
+    [SC041.E]
+    explain = """
+    # return type mismatch
+    ...
+    """
+
+    [SC041.W]
+    explain = """
+    ...
+    """
+```
+
+### Fields
+
+| Field     | Required           | Description |
+|-----------|--------------------|-------------|
+| `brief`   | Yes                | One-line summary shown in `--explain` listings and IDE tooltips. No period.            |
+| `group`   | Yes                | Suppression group name used with `-W<group>` / `--suppress <group>`. Use `kebab-case`. |
+| `explain` | Yes (per severity) | Long-form Markdown explanation shown by `kairo --explain <ID>`. See below.             |
+
+### `explain` format
+
+Each `explain` block is Markdown. Follow this structure:
+
+```markdown
+# <short title matching brief>
+<one paragraph describing what went wrong and why it is an error>
+
+## Example
+<minimal reproducer with inline comment showing the bad line>
+
+## How to fix
+<concrete steps to resolve the diagnostic>
+```
+
+Keep examples minimal one bad case is enough. Do not repeat the brief in the
+opening paragraph verbatim.
+
+---
+
+## Adding a new diagnostic
+
+1. Choose the correct category file.
+2. Pick the next unused three-digit number in that file.
+3. Add the `[CAT###]` block with `brief` and `group`.
+4. Add at least one severity sub-block (usually `[CAT###.E]`) with `explain`.
+5. Regenerate the registry and commit both files.
+
+Numbers are not reused after a diagnostic is removed. Mark removed diagnostics
+with `removed = true` and leave the slot empty rather than renumbering.
+
+---
+
+## The `Uncategorized` category
+
+`U` codes are a temporary holding area. Every diagnostic in
+`Uncategorized.diag.toml` must be triaged into a real category before the
+release it appears in is cut. `U` codes must never ship in a stable release.

@@ -774,7 +774,7 @@ group = "syntax"
     ensure that every closing delimiter matches its corresponding opener: `(` pairs with `)`, `[` with `]`, and `{` with `}`.
     """
 
-# ── Macro definition errors (S036-S044) ─────────────────────────────────────
+# -- Macro definition errors (S036-S044) -------------------------------------
 
 [S036]
 brief = "expected macro name or identifier in macro definition"

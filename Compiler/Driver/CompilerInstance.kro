@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project --------- Compiler/Driver/CompilerInstance.kro --- ///
 ///
-///   <short description>
+///   Driver Layer 2 shared resource owner and pipeline dispatcher.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -10,44 +10,44 @@
 ///   Copyright (c) 2026 Kairo Software Foundation
 ///
 /// ------------------------------------------------------------------------ ///
-
 ///
-/// Driver Layer 2 - CompilerInstance
-/// ====================================
+///   Three-layer driver map
+///   ----------------------
+///   Layer 1  CompilerInvocation   Strongly-typed options         (Invoke::*)
+///   Layer 2  CompilerInstance     Shared resource hub            (this file)
+///   Layer 3  FrontendAction       Per-file pipeline executor     (Driver::FrontendAction)
 ///
-/// CompilerInstance is the hub of a compilation.  It owns every shared
-/// resource, parses the CLI, builds a CompilerInvocation, and drives the
-/// per-file FrontendAction pipeline.
-///
-/// Clang-style layer map
-/// ─────────────────────
-///   Layer 1  CompilerInvocation   strongly-typed options  (Invoke::*)
-///   Layer 2  CompilerInstance     shared resources        (this file)
-///   Layer 3  FrontendAction       per-file pipeline       (Driver::FrontendAction)
-///
-/// Ownership
-/// ──────────
-///   All heap resources are owned and destroyed in reverse-dependency order.
+///   Ownership
+///   ---------
+///   Resources are constructed in dependency order and destroyed in reverse.
 ///   No resource is accessed after its destructor runs.
 ///
-///   Created here:
+///   Constructed here:
 ///     ThreadPool, VirtualFileManager, DiagEngine, SourceManager,
 ///     TokenCacheManager, PrettyDiagConsumer, BasicDiagConsumer, Command
 ///
-///   Created in execute():
-///     ImportResolver  - needs cwd + invocation paths; short-lived per call.
+///   Constructed in execute():
+///     ImportResolver - needs cwd and invocation paths; short-lived per call.
+///     FrontendAction - one per input file; heap-allocated for future async dispatch.
 ///
-/// CLI integration
-/// ────────────────
-///   _apply_invocation() maps every invocation field that has a live
-///   subsystem setter.  Fields without a subsystem (codegen, target, …) are
-///   stored in the invocation for when those subsystems are implemented.
+///   CLI integration
+///   ---------------
+///   _apply_invocation() maps every invocation field that has a live subsystem
+///   setter. Fields without a live subsystem are stored in the invocation for
+///   when those subsystems are implemented.
 ///
-/// Thread count note
-/// ──────────────────
-///   ThreadPool is created with hardware_concurrency() because it is
-///   constructed before the CLI is parsed.  When ThreadPool gains a resize()
-///   API, _apply_invocation() will apply inv.frontend.thread_count there.
+///   Thread count
+///   ------------
+///   ThreadPool is constructed with hardware_concurrency() before CLI parsing.
+///   When the pool gains a resize() API, _apply_invocation() will apply
+///   inv.frontend.thread_count there.
+///
+///   Async upgrade path (FrontendAction)
+///   -------------------------------------
+///   Phase 1 (current): Load and lex touch shared SM/TCM and run on the driver
+///   thread. Subsequent stages (preprocess -> codegen) are per-file and will be
+///   dispatchable to the pool once SM/TCM are read-only from that point forward.
+///   The execute() loop below is where pool enqueueing will be inserted.
 ///
 
 import Diag::DiagEngine::*;
@@ -67,20 +67,28 @@ import Preprocessor::Preprocessor::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 
-class CompilerInstance; // forward declaration to break circular dependency with FrontendAction
+class CompilerInstance; // forward breaks the CI ↔ FrontendAction cycle
 
+/// Per-file pipeline executor.
+///
+/// Owned by \c CompilerInstance::execute() for the lifetime of one input file.
+/// Advances through \c TUStage in order, honouring \c FrontendOptions stop-at
+/// points and post-stage dump flags at each boundary.
+///
+/// Stages are strictly sequential on the calling thread. Load and lex must run
+/// on the driver thread (shared SM/TCM writes). Preprocess through codegen are
+/// per-file and will be async-dispatchable to the \c ThreadPool in a future
+/// phase once SM/TCM are read-only.
+///
+/// \c _ci and \c _resolver are non-owning borrows valid for the lifetime of
+/// \c execute(). \c _pp is owned and destroyed with the action.
 class FrontendAction {
-    // Forward declaration to break circular dependency between these two.
-    // FrontendAction needs CompilerInstance for the constructor, but
-    // CompilerInstance needs FrontendAction for the execute() loop.
-    // The pointer is only used in the constructor and never dereferenced
-    // in this file, so it's safe to leave it as an opaque pointer here.
     pub var path:        Path;
     pub var module_base: ModulePath;
     pub var result:      TUResult;
 
-    priv var _ci:       *CompilerInstance; ///< non-owning borrow
-    priv var _resolver: *ImportResolver;   ///< non-owning borrow
+    priv var _ci:       *CompilerInstance; ///< non-owning borrow from execute()
+    priv var _resolver: *ImportResolver;   ///< non-owning borrow from execute()
     priv var _pp:       *PreProcessor;     ///< owned; null until _preprocess()
     priv var _stage:    TUStage;
     priv var _file_id:  u32;
@@ -89,8 +97,8 @@ class FrontendAction {
         self,
         path:        Path,
         module_base: ModulePath,
-        ci:         *CompilerInstance,
-        resolver:   *ImportResolver
+        ci:          *CompilerInstance,
+        resolver:    *ImportResolver
     ) {
         self.path        = path;
         self.module_base = module_base;
@@ -102,7 +110,6 @@ class FrontendAction {
         self.result.path = path.full_path();
     }
 
-
     fn op delete (self) {
         if self._pp != &null {
             std::destroy(self._pp);
@@ -110,27 +117,35 @@ class FrontendAction {
         }
     }
 
+    /// Executes the pipeline. See \c FrontendAction::run() below.
     fn run(self);
-    fn stage(self)   -> TUStage { return self._stage; }
-    fn file_id(self) -> u32     { return self._file_id; }
+
+    fn stage(self)   -> TUStage { return self._stage;                  }
+    fn file_id(self) -> u32     { return self._file_id;                }
     fn ok(self)      -> bool    { return self._stage == TUStage::Done; }
     fn failed(self)  -> bool    { return self._stage == TUStage::Failed; }
 
     priv fn _fatal(self, msg: string) -> bool;
-    priv fn _load(self) -> bool;
-    priv fn _lex(self) -> bool;
-    priv fn _preprocess(self) -> bool;
-    priv fn _parse(self) -> bool;
-    priv fn _sema(self) -> bool;
-    priv fn _codegen(self) -> bool;
+    priv fn _load(self)        -> bool;
+    priv fn _lex(self)         -> bool;
+    priv fn _preprocess(self)  -> bool;
+    priv fn _parse(self)       -> bool;
+    priv fn _sema(self)        -> bool;
+    priv fn _codegen(self)     -> bool;
     priv fn _dump_tokens(self);
     priv fn _dump_macros(self);
     priv fn _dump_imports(self);
 }
 
+/// Shared resource hub for a single compilation.
+///
+/// Constructed once per \c main() invocation. Owns all subsystems, parses the
+/// CLI, builds a \c CompilerInvocation, and drives \c FrontendAction execution
+/// via \c execute(). Destruction releases all resources in reverse-dependency
+/// order.
 class CompilerInstance {
-    // ── owned resources ───────────────────────────────────────────────────
-    //   Destruction order is the reverse of construction order below.
+    // --- Owned resources -------------------------------------------------
+    //   Listed in construction order; destroyed in reverse.
     priv var _pool:   *ThreadPool;
     priv var _vfm:    *VirtualFileManager;
     priv var _diag:   *DiagEngine;
@@ -140,18 +155,21 @@ class CompilerInstance {
     priv var _basic:  *BasicDiagConsumer;
     priv var _cmd:    *Command;
 
-    // ── CLI state ─────────────────────────────────────────────────────────
+    // --- CLI state -------------------------------------------------------
     priv var _parsed: ParsedArgs;
     priv var _inv:    CompilerInvocation;
 
+    // --- Constructors ----------------------------------------------------
+
+    /// Constructs all subsystems, parses \p argv, and applies the resulting
+    /// invocation to live subsystems via \c _apply_invocation().
+    ///
+    /// Construction order rationale:
+    ///   - Pool first: SM and TCM hold a pointer to it.
+    ///   - DiagEngine before consumers: consumers register into it.
+    ///   - SM before consumers: consumers need it for source context.
+    ///   - Command last: CLI parsing may emit diagnostics into the engine.
     fn CompilerInstance(self, argc: i32, argv: *(*kairo::std::Legacy::char)) {
-        // ── 1. Infrastructure (pool → diag → SM → TCM → consumers) ───────
-        //
-        //   Pool is created first because SM and TCM hold a pointer to it.
-        //   Consumers are created after SM because they need it for source
-        //   context display.  DiagEngine is independent but consumers register
-        //   into it, so it must exist before them.
-        //
         self._pool   = std::create::<ThreadPool>(std::Thread::hardware_concurrency());
         self._vfm    = std::create::<VirtualFileManager>();
         self._diag   = std::create::<DiagEngine>();
@@ -159,23 +177,22 @@ class CompilerInstance {
         self._tcm    = std::create::<TokenCacheManager>(self._sm, self._pool, self._diag);
         self._pretty = std::create::<PrettyDiagConsumer>(self._sm);
         self._basic  = std::create::<BasicDiagConsumer>(self._sm);
-        self._diag->add_consumer(self._pretty);   // pretty is the default
+        self._diag->add_consumer(self._pretty); // pretty is the default consumer
 
-        // ── 2. Parse CLI ──────────────────────────────────────────────────
-        self._cmd = std::create::<Command>(argc, argv, self._diag);
+        self._cmd    = std::create::<Command>(argc, argv, self._diag);
         register_kairo_flags(self._cmd);
         self._parsed = self._cmd->parse();
 
-        // ── 3. Build invocation + apply settings to live subsystems ───────
         if self._parsed.ok {
             self._inv = CompilerInvocation::from_args(self._parsed);
             self._apply_invocation();
         }
     }
 
+    // --- Destructor ------------------------------------------------------
+
+    /// Destroys all resources in reverse-construction order.
     fn op delete (self) {
-        // Destroy in reverse-construction order so no resource outlives its
-        // dependencies.
         if self._cmd    != &null { std::destroy(self._cmd);    self._cmd    = &null; }
         if self._tcm    != &null { std::destroy(self._tcm);    self._tcm    = &null; }
         if self._pretty != &null {
@@ -194,18 +211,22 @@ class CompilerInstance {
         if self._pool   != &null { std::destroy(self._pool);   self._pool   = &null; }
     }
 
-    fn diag(self)       -> *DiagEngine          { return self._diag; }
-    fn sm(self)         -> *SourceManager       { return self._sm;   }
-    fn tcm(self)        -> *TokenCacheManager   { return self._tcm;  }
-    fn pool(self)       -> *ThreadPool          { return self._pool; }
-    fn invocation(self) -> ref!(CompilerInvocation) { return self._inv; }
+    // --- Accessors -------------------------------------------------------
 
-    fn wants_help(self)    -> bool { return self._parsed.get_bool("help"); }
-    fn wants_version(self) -> bool { return self._parsed.get_bool("version"); }
+    fn diag(self)       -> *DiagEngine              { return self._diag; }
+    fn sm(self)         -> *SourceManager           { return self._sm;   }
+    fn tcm(self)        -> *TokenCacheManager       { return self._tcm;  }
+    fn pool(self)       -> *ThreadPool              { return self._pool; }
+    fn invocation(self) -> ref!(CompilerInvocation) { return self._inv;  }
+
+    // --- CLI query helpers -----------------------------------------------
+
+    fn wants_help(self)    -> bool { return self._parsed.get_bool("help");               }
+    fn wants_version(self) -> bool { return self._parsed.get_bool("version");            }
     fn wants_explain(self) -> bool { return !self._parsed.get_string("explain").empty(); }
-    fn args_ok(self)       -> bool { return self._parsed.ok; }
+    fn args_ok(self)       -> bool { return self._parsed.ok;                             }
 
-    /// True when an info flag is present whose subsystem is not yet live.
+    /// True when any info flag is present whose subsystem is not yet live.
     fn wants_info_query(self) -> bool {
         return self._parsed.get_bool("print-targets")
             || self._parsed.get_bool("print-cpus")
@@ -216,6 +237,8 @@ class CompilerInstance {
             || self._parsed.get_bool("print-pass-pipeline")
             || self._parsed.get_bool("print-cfg");
     }
+
+    // --- Identity actions ------------------------------------------------
 
     fn print_help(self) {
         self._cmd->print_help();
@@ -228,6 +251,8 @@ class CompilerInstance {
         std::print(f"installed at:      {((std::get_exe_path()).parent_path()).generic_wstring()}");
     }
 
+    /// Resolves and renders the long-form explanation for a diagnostic code.
+    /// Returns 1 if the code is unknown.
     fn run_explain(self) -> i32 {
         var code = self._parsed.get_string("explain");
 
@@ -236,23 +261,26 @@ class CompilerInstance {
             var last: usize = code.raw_string().find_last_not_of(" \t\n\r\f\v".raw());
             code = code.raw_string().substr(first, (last - first + 1));
         }
+
         var diag_id = diag_from_string(code);
         var explain = diag_explain(diag_id);
         if explain.empty() {
             std::eprint(f"error: unknown diagnostic code '{code}' ");
             return 1;
         }
+
         var r = TermRenderer(true, 80);
         std::print(r.render(explain));
         return 0;
     }
 
+    /// Handles info-query flags. Currently implements \c --print-cfg;
+    /// all other flags are no-ops until their subsystems exist.
     fn run_info_query(self) -> i32 {
         if self._parsed.get_bool("print-cfg") {
             for s: string in self._parsed.get_list("cfg") { std::print(s); }
             return 0;
         }
-        // remaining info flags: no-op until subsystems exist
         return 0;
     }
 
@@ -260,24 +288,14 @@ class CompilerInstance {
         self._pretty->finalize_to_stderr();
     }
 
+    // --- Compilation pipeline --------------------------------------------
+
+    /// Compiles all input files described by the invocation.
     ///
-    /// \brief Compile all input files described by the invocation.
-    ///
-    /// Builds an ImportResolver from the search paths in the invocation, then
-    /// runs a FrontendAction for each input file.  Results are collected into
-    /// a BatchResult.
-    ///
-    /// Async upgrade path
-    /// ───────────────────
-    ///   Phase 1 (currently inlined into FrontendAction::run):
-    ///     Load + lex - touches shared SM/TCM, must stay on this thread.
-    ///
-    ///   Phase 2 (future, when parallel dispatch lands):
-    ///     Each FrontendAction can be handed to the pool after load + lex
-    ///     because SM/TCM are read-only from that point and every action
-    ///     owns its own PreProcessor.  The loop below is where the
-    ///     enqueueing will happen.
-    ///
+    /// Builds an \c ImportResolver from the search paths in the invocation,
+    /// then runs a \c FrontendAction for each input file. A fatal diagnostic
+    /// in any file sets \c BatchResult::aborted and skips remaining files.
+    /// Results are collected into the returned \c BatchResult.
     fn execute(self, cwd: Path) -> BatchResult {
         var result = BatchResult();
         var t0     = libcxx::chrono::steady_clock::now();
@@ -296,7 +314,7 @@ class CompilerInstance {
             return result;
         }
 
-        // ── build resolver from invocation search paths ───────────────────
+        // Build ImportResolver from invocation search paths.
         var rb = ImportResolver::Builder().cwd(cwd);
         for dir: string in self._inv.include_dirs { rb.add_include(Path(dir)); }
         for dir: string in self._inv.macro_paths  { rb.add_include(Path(dir)); }
@@ -306,17 +324,15 @@ class CompilerInstance {
         resolver->wait_for_index();
 
         Logger::info(Logger::Stage::Driver,
-            f"CompilerInstance::execute: {self._inv.input_files.size()} file(s) ");
+            f"CompilerInstance::execute: {self._inv.input_files.size()} file(s)");
 
-        // ── run each file through the pipeline ────────────────────────────
         result.tu_results.reserve(self._inv.input_files.size());
 
         for path_str: string in self._inv.input_files {
-            // A fatal from a previous file aborts remaining work.
             if result.aborted { break; }
 
-            // Heap-allocated so the pointer can later be handed to the pool
-            // for async dispatch (Phase 2 above) without ownership issues.
+            // Heap-allocated so the pointer can be handed to the pool for
+            // async dispatch in a future phase without ownership issues.
             var action = std::create::<FrontendAction>(
                 Path(path_str),
                 ModulePath(),
@@ -339,60 +355,49 @@ class CompilerInstance {
         return result;
     }
 
-    ///
-    /// \brief Apply invocation settings to live subsystems.
-    ///
-    /// Called once after the invocation is built.  Fields whose subsystem
-    /// does not yet exist are silently accepted (stored in the invocation for
-    /// future use).  Any flag that has a live setter is applied here.
-    ///
+    // --- Private ---------------------------------------------------------
+
+    /// Maps invocation fields to live subsystem setters. Called once after
+    /// the invocation is built. Fields whose subsystem does not yet exist are
+    /// silently accepted stored in the invocation for future use.
     priv fn _apply_invocation(self) {
-        var d = self._inv.diag;
+        var d  = self._inv.diag;
         var fe = self._inv.frontend;
 
-        // ── diagnostic output format ──────────────────────────────────────
         if d.format == "basic" {
             self._diag->remove_consumer(self._pretty);
             self._diag->add_consumer(self._basic);
         }
 
-        // ── diagnostic rendering options ──────────────────────────────────
         if d.no_color { self._pretty->set_color(false); }
 
-        // ── diagnostic engine limits ──────────────────────────────────────
         self._diag->set_error_limit(u32(d.max_errors));
         self._diag->set_warnings_as_errors(d.warnings_as_errors);
 
-        // ── verbosity ─────────────────────────────────────────────────────
-        //   Logger was initialised at Level::Trace in main(); quiet it down
-        //   unless the user explicitly asked for verbose output.
+        // Logger was initialised at Trace in main(); quiet it down unless
+        // the user asked for verbose output.
         if !fe.verbose {
             Logger::set_level(Logger::Level::Warn);
         }
 
-        // ── thread count ──────────────────────────────────────────────────
-        //   ThreadPool is created before CLI parsing so it always starts
-        //   with hardware_concurrency().  Apply thread_count when pool
-        //   gains a resize() API.
-        //   TODO: self._pool->resize(usize(fe.thread_count))
+        // TODO: self._pool->resize(usize(fe.thread_count))
+        //   Apply when ThreadPool gains a resize() API.
     }
 }
 
+// =========================================================================
+//  FrontendAction out-of-line definitions
+// =========================================================================
 
+/// Executes the full pipeline on the calling thread.
 ///
-/// \class FrontendAction
+/// Stages are gated by \c FrontendOptions. A stage returning false halts the
+/// pipeline and leaves \c _stage at \c Failed. An early-exit stop-at flag
+/// advances \c _stage to \c Done and returns without running further stages.
 ///
-/// \brief Per-file compilation unit.
-///
-/// Runs Load → Lex → Preprocess → Parse → Sema → Codegen, honouring the
-/// FrontendOptions stop-at points and post-stage dump flags at each boundary.
-///
-///
-/// \brief Execute the full pipeline on the calling thread.
-///
-/// Stages are gated by FrontendOptions.  A stage returning false halts
-/// the pipeline; an early-exit flag advances _stage to Done and returns.
-///
+/// Load and lex run on the driver thread (shared SM/TCM writes). Preprocess
+/// through codegen are per-file and will be async-dispatchable in a future
+/// phase.
 fn FrontendAction::run() {
     var t0 = libcxx::chrono::steady_clock::now();
     finally {
@@ -409,11 +414,11 @@ fn FrontendAction::run() {
     Logger::info(Logger::Stage::Driver,
         f"FrontendAction: begin '{self.path.full_path()}' ");
 
-    // ── Phase 1: shared-state stages (must run on the driver thread) ──
+    // Phase 1: shared-state stages driver thread only.
     if !self._load() { return; }
     if !self._lex()  { return; }
 
-    // ── Phase 2: per-file stages (async-dispatchable in the future) ───
+    // Phase 2: per-file stages async-dispatchable in a future phase.
     if !self._preprocess() { return; }
     var fe = ((self._ci->invocation()).frontend);
     if fe.stops_at_preprocess() { self._stage = TUStage::Done; return; }
@@ -432,10 +437,10 @@ fn FrontendAction::run() {
 }
 
 // =========================================================================
-//  Pipeline stages
-//  Each returns true to continue or false to halt.
+//  Pipeline stages each returns true to continue, false to halt.
 // =========================================================================
 
+/// Emits a fatal diagnostic, marks the TU as failed, and returns false.
 fn FrontendAction::_fatal(msg: string) -> bool {
     self._ci->diag()->report(DiagID::U001F, msg).emit();
     self.result.had_fatal = true;
@@ -443,6 +448,7 @@ fn FrontendAction::_fatal(msg: string) -> bool {
     return false;
 }
 
+/// Registers the source file with \c SourceManager and obtains a file ID.
 fn FrontendAction::_load() -> bool {
     self._stage   = TUStage::Loading;
     self._file_id = self._ci->sm()->load_file(self.path);
@@ -452,6 +458,7 @@ fn FrontendAction::_load() -> bool {
     return true;
 }
 
+/// Produces the raw token stream via \c TokenCacheManager.
 fn FrontendAction::_lex() -> bool {
     self._stage = TUStage::Lexing;
     if !self._ci->tcm()->lex_file(self._file_id) {
@@ -460,6 +467,8 @@ fn FrontendAction::_lex() -> bool {
     return true;
 }
 
+/// Expands macros and resolves imports, producing a clean token stream.
+/// Owns a \c PreProcessor instance for the lifetime of this stage.
 fn FrontendAction::_preprocess() -> bool {
     self._stage = TUStage::Preprocessing;
 
@@ -495,7 +504,6 @@ fn FrontendAction::_preprocess() -> bool {
         return false;
     }
 
-    // ── post-preprocess dumps ─────────────────────────────────────────
     var fe = self._ci->invocation().frontend;
     if fe.print_tokens  { self._dump_tokens();  }
     if fe.print_macros  { self._dump_macros();  }
@@ -504,6 +512,7 @@ fn FrontendAction::_preprocess() -> bool {
     return true;
 }
 
+/// Parse stage not yet implemented.
 fn FrontendAction::_parse() -> bool {
     self._stage = TUStage::Parsing;
     if self._ci->invocation().frontend.print_ast {
@@ -513,6 +522,7 @@ fn FrontendAction::_parse() -> bool {
     return true;
 }
 
+/// Semantic analysis stage not yet implemented.
 fn FrontendAction::_sema() -> bool {
     self._stage = TUStage::Sema;
     var fe = self._ci->invocation().frontend;
@@ -522,6 +532,7 @@ fn FrontendAction::_sema() -> bool {
     return true;
 }
 
+/// Code generation stage not yet implemented.
 fn FrontendAction::_codegen() -> bool {
     self._stage = TUStage::Codegen;
     var fe = self._ci->invocation().frontend;

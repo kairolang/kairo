@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project --------------- Compiler/Diag/DiagSeverity.kro --- ///
 ///
-///   <short description>
+///   Diagnostic severity levels, used as the suffix component of a diagnostic ID.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -11,14 +11,36 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// Severities are ordered by increasing impact: \c Ignored through \c Fatal.
+/// The suffix character appended to a diagnostic ID corresponds to the first
+/// letter of the severity name (e.g. \c E for \c Error, \c W for \c Warning).
+///
+/// \note \c Count is a sentinel not a valid severity.
 enum DiagSeverity derives u8 {
+    /// Diagnostic is suppressed entirely.
     Ignored,
+    
+    /// A remark informational, typically from optimisation passes.
     Remark,
+    
+    /// Verbose-mode output, not shown in normal builds.
     Verbose,
+    
+    /// An attached note, always subordinate to a parent diagnostic.
     Note,
+    
+    /// Debug-only output, stripped in release builds.
     Debug,
+    
+    /// A recoverable warning compilation continues.
     Warning,
+    
+    /// A hard error compilation of the current unit fails.
     Error,
+    
+    /// An unrecoverable error the compiler must terminate immediately.
     Fatal,
-    Count, /// Total number of severities.  Not a valid severity.
+    
+    /// Sentinel total number of severities. Not a valid severity.
+    Count,
 }

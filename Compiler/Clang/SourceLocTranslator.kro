@@ -17,7 +17,7 @@ import Source::SourceRange::*;
 import Source::SourceManager::*;
 
 ///
-/// \brief kairo SourceLocation → clang::SourceLocation.
+/// \brief kairo SourceLocation -> clang::SourceLocation.
 ///
 /// \param loc   valid kairo SourceLocation.
 /// \param sm    kairo SourceManager that owns loc.
@@ -44,7 +44,7 @@ fn to_clang_source_loc(
 }
 
 ///
-/// \brief clang::SourceLocation → kairo SourceLocation.
+/// \brief clang::SourceLocation -> kairo SourceLocation.
 ///
 /// \param loc   valid clang::SourceLocation.
 /// \param csm   clang SourceManager that owns loc.

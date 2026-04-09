@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project -------------- Compiler/Driver/BatchResult.kro --- ///
 ///
-///   <short description>
+///   Aggregate result for a multi-file compilation batch.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -13,28 +13,34 @@
 
 import Driver::TUResult::*;
 
+/// Aggregate result returned by \c CompilerInstance::execute().
+///
+/// Collects per-file \c TUResult records and accumulates totals across all
+/// input files. \c aborted is set when any file emits a fatal diagnostic,
+/// causing \c execute() to skip remaining files.
 class BatchResult {
     __inline_cpp("public:");
-
-    pub var tu_results:    vec::<TUResult>; ///< one entry per input file
-    pub var total_errors:  u32 = 0;
-    pub var total_warnings:u32 = 0;
-    pub var aborted:       bool = false;    ///< true if a fatal triggered early exit
-    pub var elapsed_ms:    f64  = 0.0;
+    pub var tu_results:     vec::<TUResult>; ///< One entry per input file, in order.
+    pub var total_errors:   u32  = 0;
+    pub var total_warnings: u32  = 0;
+    pub var aborted:        bool = false;    ///< True if a fatal triggered early exit.
+    pub var elapsed_ms:     f64  = 0.0;     ///< Total wall time for the batch.
 
     fn BatchResult(self) {
         self.tu_results.reserve(8);
     }
 
+    /// Returns true if the batch completed without errors or abort.
     fn ok(self) -> bool {
         return (!self.aborted) && (self.total_errors == 0);
     }
 
+    /// Returns a one-line human-readable summary of the batch result.
     fn summary(self) -> string {
-        var s = f"{self.tu_results.size()} file(s): ";
-        s += f"{self.total_errors} error(s), {self.total_warnings} warning(s)";
+        var s  = f"{self.tu_results.size()} file(s): ";
+            s += f"{self.total_errors} error(s), {self.total_warnings} warning(s)";
         if self.aborted { s += " [ABORTED - fatal error]"; }
-        s += f" ({self.elapsed_ms:.1}ms)";
+            s += f" ({self.elapsed_ms:.1}ms)";
         return s;
     }
 }

@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ----------------- Compiler/Driver/TUResult.kro --- ///
 ///
-///   <short description>
+///   Per-translation-unit pipeline result record.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -13,24 +13,19 @@
 
 import Driver::TUStage::*;
 
+/// Result record for a single translation unit, returned by \c FrontendAction.
 ///
-/// \class TUResult
-///
-/// \brief Per-TU result record returned after pipeline execution.
-///
-/// Owned by the caller (CompilerInstance::execute). Immutable after the
-/// FrontendAction transitions to Done / Failed.
-///
+/// Owned by \c BatchResult after \c execute() completes. All fields are
+/// immutable once \c FrontendAction transitions to \c Done or \c Failed.
 class TUResult {
     __inline_cpp("public:");
-
-    pub var path:         string;      ///< canonical source path
-    pub var stage:        TUStage;     ///< stage reached before halt or Done
-    pub var file_id:      u32;         ///< SourceManager file ID (u32(-1) if load failed)
-    pub var error_count:  u32;         ///< errors attributed to this TU at time of halt
-    pub var warn_count:   u32;         ///< warnings attributed to this TU
-    pub var had_fatal:    bool;        ///< true if this TU emitted a fatal diagnostic
-    pub var elapsed_ms:   f64;         ///< wall time from dispatch to completion
+    pub var path:         string;  ///< Canonical source path.
+    pub var stage:        TUStage; ///< Last stage reached before halt or Done.
+    pub var file_id:      u32;     ///< SourceManager ID. \c u32(-1) if load failed.
+    pub var error_count:  u32;     ///< Errors attributed to this TU at halt time.
+    pub var warn_count:   u32;     ///< Warnings attributed to this TU at halt time.
+    pub var had_fatal:    bool;    ///< True if this TU emitted a fatal diagnostic.
+    pub var elapsed_ms:   f64;     ///< Wall time from dispatch to completion.
 
     fn TUResult(self) {
         self.path        = "";

@@ -48,67 +48,67 @@ class ClangFlagTranslator {
         // argv[0] = clang++ (caller may override to a full path)
         argv.push_back("clang++");
 
-        // ── profile preset (fires first, individual flags override) ────
+        // -- profile preset (fires first, individual flags override) ----
         self._emit_profile(args, &argv);
 
-        // ── language standard ──────────────────────────────────────────
+        // -- language standard ------------------------------------------
         self._emit_std(args, &argv);
 
-        // ── floating point ABI + semantics ─────────────────────────────
+        // -- floating point ABI + semantics -----------------------------
         self._emit_fp(args, &argv);
 
-        // ── target triple + machine ────────────────────────────────────
+        // -- target triple + machine ------------------------------------
         self._emit_target(args, &argv);
 
-        // ── optimisation (individual flags override profile baseline) ──
+        // -- optimisation (individual flags override profile baseline) --
         self._emit_opt(args, &argv);
 
-        // ── debug info ─────────────────────────────────────────────────
+        // -- debug info -------------------------------------------------
         self._emit_debug(args, &argv);
 
-        // ── output ─────────────────────────────────────────────────────
+        // -- output -----------------------------------------------------
         self._emit_output(args, &argv);
 
-        // ── include paths ──────────────────────────────────────────────
+        // -- include paths ----------------------------------------------
         self._emit_includes(args, &argv);
 
-        // ── library paths + link libs ──────────────────────────────────
+        // -- library paths + link libs ----------------------------------
         self._emit_link(args, &argv);
 
-        // ── defines ───────────────────────────────────────────────────
+        // -- defines ---------------------------------------------------
         self._emit_defines(args, &argv);
 
-        // ── feature flags (-f*) ───────────────────────────────────────
+        // -- feature flags (-f*) ---------------------------------------
         self._emit_features(args, &argv);
 
-        // ── sanitizers ────────────────────────────────────────────────
+        // -- sanitizers ------------------------------------------------
         self._emit_sanitizers(args, &argv);
 
-        // ── instrumentation ───────────────────────────────────────────
+        // -- instrumentation -------------------------------------------
         self._emit_instrumentation_extras(args, &argv);
 
-        // ── LTO ───────────────────────────────────────────────────────
+        // -- LTO -------------------------------------------------------
         self._emit_lto(args, &argv);
 
-        // ── hardening ─────────────────────────────────────────────────
+        // -- hardening -------------------------------------------------
         self._emit_hardening(args, &argv);
 
-        // ── warnings ──────────────────────────────────────────────────
+        // -- warnings --------------------------------------------------
         self._emit_warnings(args, &argv);
 
-        // ── platform-specific ─────────────────────────────────────────
+        // -- platform-specific -----------------------------------------
         self._emit_platform(args, &argv);
 
-        // ── WASM ──────────────────────────────────────────────────────
+        // -- WASM ------------------------------------------------------
         self._emit_wasm(args, &argv);
 
-        // ── reproducible builds ───────────────────────────────────────
+        // -- reproducible builds ---------------------------------------
         self._emit_repro(args, &argv);
 
-        // ── raw passthroughs ──────────────────────────────────────────
+        // -- raw passthroughs ------------------------------------------
         self._emit_passthrough(args, &argv);
 
-        // ── input file (always last) ──────────────────────────────────
+        // -- input file (always last) ----------------------------------
         argv.push_back(input_file);
 
         return argv;
@@ -156,7 +156,7 @@ class ClangFlagTranslator {
 
         argv->push_back(f"-std={std_ver}");
 
-        // cxx-abi → -fc++-abi=itanium or -fc++-abi=microsoft
+        // cxx-abi -> -fc++-abi=itanium or -fc++-abi=microsoft
         var cxx_abi = args->get_string("cxx-abi");
         if cxx_abi == "msvc" {
             argv->push_back("-fc++-abi=microsoft");
@@ -198,7 +198,7 @@ class ClangFlagTranslator {
             argv->push_back("-fno-rtti");
         }
 
-        // no-fp → -msoft-float
+        // no-fp -> -msoft-float
         if args->get_bool("no-fp") {
             argv->push_back("-msoft-float");
         }
@@ -321,7 +321,7 @@ class ClangFlagTranslator {
 
         var mfeatures = args->get_string("mfeatures");
         if !mfeatures.empty() {
-            // mfeatures is +avx2,+bmi2,-sse4.1 → becomes -march=... suffix or -mattr
+            // mfeatures is +avx2,+bmi2,-sse4.1 -> becomes -march=... suffix or -mattr
             // clang accepts this as part of -march or via -Xclang -target-feature
             // safest portable form: forward as -Xclang -target-feature per feature
             // but comma-split is complex; forward as -mattr= for now
@@ -363,14 +363,14 @@ class ClangFlagTranslator {
             argv->push_back("-Oz");
         }
 
-        // inline threshold → -mllvm -inline-threshold=N
+        // inline threshold -> -mllvm -inline-threshold=N
         if args->cfg_is_set("inline-cost-threshold") {
             var thresh = args->get_cfg_f64("inline-cost-threshold");
             argv->push_back("-mllvm");
             argv->push_back(f"-inline-threshold={static_cast::<i32>(thresh)}");
         }
 
-        // max inline depth → -mllvm -inlinehint-threshold=N (closest clang equivalent)
+        // max inline depth -> -mllvm -inlinehint-threshold=N (closest clang equivalent)
         if args->cfg_is_set("max-inline-depth") {
             var depth = args->get_cfg_i32("max-inline-depth");
             argv->push_back("-mllvm");
@@ -654,7 +654,7 @@ class ClangFlagTranslator {
     // =========================================================================
 
     priv fn _emit_includes(self, args: *ParsedArgs, argv: *vec::<string>) {
-        // --include-dirs → -I
+        // --include-dirs -> -I
         if args->is_set("include-dirs") {
             var dirs = args->get_list("include-dirs");
             for d: string in dirs {
@@ -662,7 +662,7 @@ class ClangFlagTranslator {
             }
         }
 
-        // --ffi-include → -I (FFI headers go on the regular include path)
+        // --ffi-include -> -I (FFI headers go on the regular include path)
         if args->is_set("ffi-include") {
             var dirs = args->get_list("ffi-include");
             for d: string in dirs {
@@ -670,7 +670,7 @@ class ClangFlagTranslator {
             }
         }
 
-        // --cxx-include → -cxx-isystem (system-level C++ headers)
+        // --cxx-include -> -cxx-isystem (system-level C++ headers)
         if args->is_set("cxx-include") {
             var dirs = args->get_list("cxx-include");
             for d: string in dirs {
@@ -679,7 +679,7 @@ class ClangFlagTranslator {
             }
         }
 
-        // --force-include → -include
+        // --force-include -> -include
         if args->is_set("force-include") {
             var files = args->get_list("force-include");
             for f: string in files {
@@ -688,7 +688,7 @@ class ClangFlagTranslator {
             }
         }
 
-        // --prelude → -include (custom prelude forwarded as a forced include)
+        // --prelude -> -include (custom prelude forwarded as a forced include)
         var prelude = args->get_string("prelude");
         if !prelude.empty() && !args->get_bool("no-prelude") {
             argv->push_back("-include");
@@ -715,7 +715,7 @@ class ClangFlagTranslator {
             }
         }
 
-        // --link-libs supports qualifiers: -l static:foo → -Wl,-Bstatic -lfoo -Wl,-Bdynamic
+        // --link-libs supports qualifiers: -l static:foo -> -Wl,-Bstatic -lfoo -Wl,-Bdynamic
         if args->is_set("link-libs") {
             var libs = args->get_list("link-libs");
             for lib: string in libs {
@@ -828,8 +828,8 @@ class ClangFlagTranslator {
         if args->is_set("cfg") {
             var cfgs = args->get_list("cfg");
             for c: string in cfgs {
-                // cfg "name" → -D__KAIRO_CFG_NAME
-                // cfg "name=value" → -D__KAIRO_CFG_NAME=value
+                // cfg "name" -> -D__KAIRO_CFG_NAME
+                // cfg "name=value" -> -D__KAIRO_CFG_NAME=value
                 if (c.raw_string().find('=')) != string::npos {
                     var eq   = c.raw_string().find('=');
                     var name = c.raw_string().substr(0, eq);
@@ -847,7 +847,7 @@ class ClangFlagTranslator {
     // =========================================================================
 
     priv fn _emit_features(self, args: *ParsedArgs, argv: *vec::<string>) {
-        // implicit conversions → -fno-implicit-conversions (clang extension)
+        // implicit conversions -> -fno-implicit-conversions (clang extension)
         var feat_conv = args->get_feature("implicit-conv");
         if feat_conv == 0 {
             argv->push_back("-fno-implicit-conversions");
@@ -893,7 +893,7 @@ class ClangFlagTranslator {
         // const-checks: kairo-only, not forwarded
         // track-macro-origins: kairo-only, not forwarded
 
-        // overflow checks: --no-overflow → -ftrapv (in all modes)
+        // overflow checks: --no-overflow -> -ftrapv (in all modes)
         if args->get_bool("no-overflow") {
             argv->push_back("-ftrapv");
         }
@@ -1035,7 +1035,7 @@ class ClangFlagTranslator {
             argv->push_back("-w");
         }
 
-        // --warn list → -W{name}
+        // --warn list -> -W{name}
         if args->is_set("warn") {
             var warns = args->get_list("warn");
             for w: string in warns {
@@ -1043,7 +1043,7 @@ class ClangFlagTranslator {
             }
         }
 
-        // --allow → -Wno-{name}
+        // --allow -> -Wno-{name}
         if args->is_set("allow") {
             var allows = args->get_list("allow");
             for a: string in allows {
@@ -1051,7 +1051,7 @@ class ClangFlagTranslator {
             }
         }
 
-        // --deny → -Werror={name}
+        // --deny -> -Werror={name}
         if args->is_set("deny") {
             var denies = args->get_list("deny");
             for d: string in denies {
@@ -1059,7 +1059,7 @@ class ClangFlagTranslator {
             }
         }
 
-        // --error-format pretty|basic|json|msvc → clang diagnostic format
+        // --error-format pretty|basic|json|msvc -> clang diagnostic format
         var efmt = args->get_string("error-format");
         if efmt == "json" {
             argv->push_back("-fdiagnostics-format=json");
@@ -1078,13 +1078,13 @@ class ClangFlagTranslator {
             argv->push_back("-fdiagnostics-absolute-paths");
         }
 
-        // max errors → -ferror-limit=N
+        // max errors -> -ferror-limit=N
         var max_err = args->get_cfg_i32("max-errors");
         if max_err > 0 {
             argv->push_back(f"-ferror-limit={max_err}");
         }
 
-        // template backtrace depth → -ftemplate-backtrace-limit=N
+        // template backtrace depth -> -ftemplate-backtrace-limit=N
         var tmpl_bt = args->get_cfg_i32("max-generic-backtrace");
         if tmpl_bt > 0 {
             argv->push_back(f"-ftemplate-backtrace-limit={tmpl_bt}");
@@ -1113,7 +1113,7 @@ class ClangFlagTranslator {
     // =========================================================================
 
     priv fn _emit_platform(self, args: *ParsedArgs, argv: *vec::<string>) {
-        // ── macOS / Darwin ────────────────────────────────────────────────
+        // -- macOS / Darwin ------------------------------------------------
         var macos_min = args->get_string("macos-version-min");
         if !macos_min.empty() {
             argv->push_back(f"-mmacos-version-min={macos_min}");
@@ -1162,7 +1162,7 @@ class ClangFlagTranslator {
             argv->push_back(f"-Wl,-headerpad,{headerpad}");
         }
 
-        // ── Windows / PE-COFF ─────────────────────────────────────────────
+        // -- Windows / PE-COFF ---------------------------------------------
         var subsystem = args->get_string("subsystem");
         if !subsystem.empty() && subsystem != "console" {
             argv->push_back(f"-Wl,/subsystem:{subsystem}");
@@ -1244,7 +1244,7 @@ class ClangFlagTranslator {
             if !any_wasm { return; }
         }
 
-        // collect enabled wasm features → -mattr=+feature,...
+        // collect enabled wasm features -> -mattr=+feature,...
         var feats: vec::<string>;
 
         if args->get_feature("wasm-bulk-memory")     == 1 { feats.push_back("+bulk-memory"); }

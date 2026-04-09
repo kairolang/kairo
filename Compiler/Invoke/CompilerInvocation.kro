@@ -34,7 +34,7 @@ import Invoke::TargetOptions::*;
 class CompilerInvocation {
     __inline_cpp("public:");
 
-    // ── sub-option structs (one per subsystem) ────────────────────────────
+    // -- sub-option structs (one per subsystem) ----------------------------
     pub var lang:     LangOptions;
     pub var diag:     DiagnosticOptions;
     pub var pp:       PreprocessorOptions;
@@ -42,16 +42,16 @@ class CompilerInvocation {
     pub var frontend: FrontendOptions;
     pub var target:   TargetOptions;
 
-    // ── input files & search paths ────────────────────────────────────────
+    // -- input files & search paths ----------------------------------------
     pub var input_files:    vec::<string>;
-    pub var include_dirs:   vec::<string>; ///< -I → Kairo ImportResolver
-    pub var ffi_includes:   vec::<string>; ///< --ffi-include → clang passthrough
-    pub var cxx_includes:   vec::<string>; ///< --cxx-include → clang passthrough
-    pub var macro_paths:    vec::<string>; ///< --macro-search-path → resolver
+    pub var include_dirs:   vec::<string>; ///< -I -> Kairo ImportResolver
+    pub var ffi_includes:   vec::<string>; ///< --ffi-include -> clang passthrough
+    pub var cxx_includes:   vec::<string>; ///< --cxx-include -> clang passthrough
+    pub var macro_paths:    vec::<string>; ///< --macro-search-path -> resolver
     pub var working_dir:    string = "";
     pub var input_encoding: string = "utf-8";
 
-    // ── link paths & libraries ────────────────────────────────────────────
+    // -- link paths & libraries --------------------------------------------
     pub var lib_dirs:       vec::<string>;
     pub var link_libs:      vec::<string>;
 

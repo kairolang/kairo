@@ -1377,7 +1377,7 @@ class Lexer {
             }
         }
 
-        // ── git conflict marker detection ──────────────────────────────
+        // -- git conflict marker detection ------------------------------
         // check for 7+ repeated '<', '=', '>'
         if (C1.chr == '<') || (C1.chr == '>') || (C1.chr == '=') {
             var conflict_char = C1.chr;

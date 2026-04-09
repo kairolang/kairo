@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project -------------------- Compiler/Driver/kairo.kro --- ///
 ///
-///   <short description>
+///   Compiler driver entry point.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -10,25 +10,22 @@
 ///   Copyright (c) 2026 Kairo Software Foundation
 ///
 /// ------------------------------------------------------------------------ ///
-
 ///
-/// Driver entry point - 3-layer Clang-style pipeline
-/// ==================================================
+///   Three-layer Clang-style driver pipeline
+///   -----------------------------------------
+///   Layer 1  CompilerInvocation  Strongly-typed option structs  (Invoke::*)
+///   Layer 2  CompilerInstance    Shared resource owner          (Driver::CompilerInstance)
+///   Layer 3  FrontendAction      Per-file pipeline executor     (driven by FrontendOptions)
 ///
-///   Layer 1  CompilerInvocation  - strongly-typed options (Invoke::*)
-///   Layer 2  CompilerInstance    - shared state owner    (Driver::CompilerInstance)
-///   Layer 3  FrontendAction      - pipeline strategy     (driven by FrontendOptions)
+///   main() is intentionally thin:
+///     1. Global runtime setup (locale, Logger).
+///     2. Construct CompilerInstance parses argv, wires all shared resources.
+///     3. Handle identity/info early exits via CI query methods.
+///     4. Call ci->execute(cwd) to run the compilation pipeline.
+///     5. Flush diagnostics and global teardown.
 ///
-/// main() is intentionally thin.  Its responsibilities:
-///
-///   1. Global runtime setup (locale, Logger).
-///   2. Create CompilerInstance (which owns arg parsing + all shared resources).
-///   3. Handle identity/info early exits via CI's query methods.
-///   4. Call ci->execute(cwd) for actual compilation.
-///   5. Global teardown (Logger flush).
-///
-/// Any new driver feature should live in CompilerInstance or the Invocation
-/// sub-option structs, NOT here.
+///   All new driver behaviour belongs in CompilerInstance or the Invocation
+///   sub-option structs, not here.
 ///
 
 import Driver::CompilerInstance::*;
@@ -36,16 +33,16 @@ import Driver::CompilerInstance::*;
 fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     Logger::init(Logger::Level::Trace);
 
-    // Force eager locale init on the main thread before any workers start.
-    // Wide string machinery resolves lazily on Linux and will segfault if
-    // first called from a worker thread with a shallow stack.
+    // Force eager locale initialisation on the main thread before any workers
+    // start. Wide-string machinery on Linux resolves lazily and will segfault
+    // if first called from a worker thread with a shallow stack.
     __inline_cpp("
         ::setlocale(LC_ALL, \"\");
         (void)::wcslen(L\"\");
         libcxx::use_facet<libcxx::ctype<wchar_t>>(libcxx::locale());
     ");
 
-    // Global teardown: runs after main() returns (or on unwind).
+    // Global teardown runs after main() returns or on unwind.
     finally {
         GlobalRecycler::shutdown_allocator_runtime();
         Logger::set_dump_path(
@@ -55,56 +52,36 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         Logger::shutdown();
     }
 
-    // ── Layer 2: CompilerInstance owns everything ─────────────────────────
+    // --- Layer 2: CompilerInstance owns everything ------------------------
     //
     // Construction parses argv, builds a CompilerInvocation, and wires all
-    // shared resources (DiagEngine, SourceManager, TCM, ThreadPool, …).
-    //
+    // shared resources (DiagEngine, SourceManager, TCM, ThreadPool, ...).
     var ci = std::create::<CompilerInstance>(argc, argv);
     finally { std::destroy(ci); }
 
-    // ── Identity: help / version / explain ───────────────────────────────
+    // --- Identity: help / version / explain ------------------------------
     //   These exit before any compilation state is needed.
+    if ci->wants_help()    { ci->print_help();    return 0; }
+    if ci->wants_version() { ci->print_version(); return 0; }
+    if ci->wants_explain() { return ci->run_explain();      }
 
-    if ci->wants_help() {
-        ci->print_help();
-        return 0;
-    }
+    // --- Info queries: --print-targets, --print-cfg, etc. ----------------
+    //   Most are stubs until their subsystems exist. run_info_query() handles
+    //   the implemented subset (currently --print-cfg).
+    if ci->wants_info_query() { return ci->run_info_query(); }
 
-    if ci->wants_version() {
-        ci->print_version();
-        return 0;
-    }
-
-    if ci->wants_explain() {
-        return ci->run_explain();
-    }
-
-    // ── Info queries: --print-targets, --print-cfg, etc. ─────────────────
-    //   Most of these are stubs until their subsystems exist; run_info_query()
-    //   handles the ones that are implemented (currently --print-cfg).
-
-    if ci->wants_info_query() {
-        return ci->run_info_query();
-    }
-
-    // ── Validate CLI args ────────────────────────────────────────────────
-
+    // --- Validate CLI args -----------------------------------------------
     if !ci->args_ok() {
         ci->flush_errors();
         return 1;
     }
 
-    // ── Layer 3: execute the FrontendAction ──────────────────────────────
+    // --- Layer 3: execute the FrontendAction pipeline --------------------
     //
-    // The action is encoded in CompilerInvocation::frontend.action and
-    // FrontendOptions::stops_at_* helpers.  FrontendAction gates each stage
-    // against these flags, driven by CompilerInstance::execute().
-
+    // The action strategy is encoded in CompilerInvocation::frontend.action.
+    // FrontendOptions::stops_at_* helpers gate each pipeline stage.
     var cwd    = Path::cwd();
     var result = ci->execute(cwd);
-
-    // ── Flush diagnostics to stderr ───────────────────────────────────────
 
     if ci->diag()->has_errors() {
         ci->flush_errors();

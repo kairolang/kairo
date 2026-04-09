@@ -52,14 +52,14 @@ class TermRenderer {
             var line = lines[i];
             var trimmed = self.trim(line);
 
-            // ── fenced code block ───────────────────────────────
+            // -- fenced code block -------------------------------
             if self.starts_with(trimmed, "```") {
                 if in_code_block {
                     // closing fence - draw bottom border
                     out += self.style(DIM);
                     out += "  └";
                     for _ in u32(0) .. self._width - 4 {
-                        out += "─";
+                        out += "-";
                     }
                     out += "┘";
                     out += self.style(RESET);
@@ -92,17 +92,17 @@ class TermRenderer {
                 }
                 
                 if header.length() > 0 {
-                    out += "─";
+                    out += "-";
                     out += self.style(RESET + BOLD);
                     out += header;
                     out += self.style(RESET + DIM);
                     var remaining = self._width - 3 - static_cast::<u32>(header.length()) - 2;
                     for _ in u32(0) .. remaining {
-                        out += "─";
+                        out += "-";
                     }
                 } else {
                     for _ in u32(0) .. self._width - 4 {
-                        out += "─";
+                        out += "-";
                     }
                 }
                 

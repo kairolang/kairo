@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ------------------ Compiler/Driver/TUStage.kro --- ///
 ///
-///   <short description>
+///   Translation-unit pipeline stage enumeration.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -11,23 +11,20 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// Pipeline lifecycle stage for a \c FrontendAction.
 ///
-/// \enum TUStage
-///
-/// \brief Tracks the lifecycle stage of a FrontendAction.
-///
-/// Stages are strictly ordered - a FrontendAction may only advance forward.
-/// A stage returning false halts the pipeline and leaves the stage at Failed.
-/// A fatal diagnostic in any file sets BatchResult::aborted, skipping later files.
-///
+/// Stages are strictly ordered a \c FrontendAction may only advance forward.
+/// A stage method returning false halts the pipeline and leaves the stage at
+/// \c Failed. A fatal diagnostic in any file sets \c BatchResult::aborted,
+/// causing \c execute() to skip all remaining input files.
 enum TUStage derives u8 {
-    Pending,       ///< constructed, not yet run
-    Loading,       ///< SourceManager::load_file in progress
-    Lexing,        ///< TokenCacheManager::lex_file in progress
-    Preprocessing, ///< PreProcessor::preprocess_file in progress
-    Parsing,       ///< Parser (not yet implemented)
-    Sema,          ///< Semantic analysis (not yet implemented)
-    Codegen,       ///< Code generation (not yet implemented)
-    Done,          ///< all requested stages completed successfully
-    Failed,        ///< halted due to a diagnostic error
+    Pending,        ///< Constructed, not yet dispatched.
+    Loading,        ///< SourceManager::load_file in progress.
+    Lexing,         ///< TokenCacheManager::lex_file in progress.
+    Preprocessing,  ///< PreProcessor::preprocess_file in progress.
+    Parsing,        ///< Parser not yet implemented.
+    Sema,           ///< Semantic analysis not yet implemented.
+    Codegen,        ///< Code generation not yet implemented.
+    Done,           ///< All requested stages completed successfully.
+    Failed,         ///< Halted due to a diagnostic error or fatal.
 }

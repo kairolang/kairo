@@ -270,7 +270,7 @@ class TokenText {
         if kind == TokenKind::TkNewLine    { return TokenText("\n",  tok_range, true, false); }
         if kind == TokenKind::TkWhitespace { return TokenText(" ",   tok_range, true, false); }
 
-        // ── punctuation canonical spacing ───────────────────────────────────
+        // -- punctuation canonical spacing -----------------------------------
         if kind == TokenKind::OpComma      { return TokenText(",",   tok_range, true, false); }
         if kind == TokenKind::OpSemicolon  { return TokenText(";",   tok_range, true, false); }
         if kind == TokenKind::OpLParen     { return TokenText("(",   tok_range, true, false); }

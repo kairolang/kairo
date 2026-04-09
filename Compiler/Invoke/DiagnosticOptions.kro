@@ -21,7 +21,7 @@ import Command::ParsedArgs::*;
 class DiagnosticOptions {
     __inline_cpp("public:");
 
-    // ── formatting ────────────────────────────────────────────────────────
+    // -- formatting --------------------------------------------------------
     pub var format:             string = "pretty"; ///< pretty|basic|json|msvc
     pub var no_color:           bool   = false;
     pub var show_ids:           bool   = false;    ///< print DiagCode alongside every message
@@ -29,7 +29,7 @@ class DiagnosticOptions {
     pub var absolute_paths:     bool   = false;
     pub var show_context:       bool   = true;     ///< print surrounding source lines
 
-    // ── budget limits (from --c* config flags) ────────────────────────────
+    // -- budget limits (from --c* config flags) ----------------------------
     pub var max_errors:         i32    = 20;       ///< 0 = unlimited
     pub var max_warnings:       i32    = 0;        ///< 0 = unlimited
     pub var max_notes:          i32    = 0;        ///< 0 = unlimited
@@ -37,7 +37,7 @@ class DiagnosticOptions {
     pub var max_suggestions:    i32    = 5;
     pub var tab_width:          i32    = 4;
 
-    // ── severity overrides ────────────────────────────────────────────────
+    // -- severity overrides ------------------------------------------------
     pub var warnings_as_errors: bool   = false;    ///< --Werror
     pub var suppress_warnings:  bool   = false;    ///< -w
     pub var Wall:               bool   = false;

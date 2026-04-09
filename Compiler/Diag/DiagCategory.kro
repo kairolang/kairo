@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project --------------- Compiler/Diag/DiagCategory.kro --- ///
 ///
-///   <short description>
+///   Diagnostic category codes, used as the first component of a diagnostic ID.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -11,17 +11,48 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+/// Each category has a short alphabetic code that appears in the diagnostic ID
+/// string: \c S001E means category \c Syntax, code \c 001, severity \c Error.
+///
+/// \note \c Count is a sentinel not a valid category.
 enum DiagCategory derives u8 {
-    Syntax,         // S
-    Uncategorized,  // U
-    CodeGen,        // C
-    Memory,         // M
-    Resolution,     // R
-    Linker,         // L
-    Semantic,       // SC
-    Portability,    // P
-    Lowering,       // CL
-    Optimization,   // OPT
-    Internal,       // I
-    Count,          /// Total number of categories.  Not a valid category.
+    /// Parser and lexer diagnostics. Code: \c S
+    Syntax,
+
+    /// Diagnostics not yet assigned to a category. Code: \c U
+    ///
+    /// \warning This is a temporary fallback and should never appear in
+    /// production diagnostics. All diagnostics must be triaged into a
+    /// real category before stabilisation.
+    Uncategorized,
+
+    /// Code generation diagnostics. Code: \c C
+    CodeGen,
+
+    /// Memory model and allocation diagnostics. Code: \c M
+    Memory,
+
+    /// Name and symbol resolution diagnostics. Code: \c R
+    Resolution,
+
+    /// Linker diagnostics. Code: \c L
+    Linker,
+
+    /// Semantic analysis diagnostics. Code: \c SC
+    Semantic,
+
+    /// Portability diagnostics. Code: \c P
+    Portability,
+
+    /// Diagnostics originating from Clang during lowering to LLVM IR. Code: \c CL
+    Lowering,
+
+    /// Optimisation-pass diagnostics. Code: \c OPT
+    Optimization,
+
+    /// Internal compiler errors and assertions. Code: \c I
+    Internal,
+
+    /// Sentinel total number of categories. Not a valid category.
+    Count,
 }

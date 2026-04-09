@@ -228,6 +228,9 @@ inline char32_t normalize_char32(char32_t ch) noexcept {
             return U' ';
 
         // mathematical alphabets: 𝐀-𝑧 -> A-z
+        // FIXME: remove this users might use mathematical alphanumerics
+        //        intentionally, but for now we want to avoid confusion with
+        //        ASCII letters and digits.
         default:
             if (ch >= 0x1D400 && ch <= 0x1D419) {
                 return U'A' + (ch - 0x1D400);

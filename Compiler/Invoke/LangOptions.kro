@@ -26,7 +26,7 @@ class LangOptions {
 
     pub var edition:         string = "2025";
 
-    // ── hard kill-switches ────────────────────────────────────────────────
+    // -- hard kill-switches ------------------------------------------------
     pub var no_assert:       bool = false;
     pub var no_finally:      bool = false;
     pub var no_exceptions:   bool = false;
@@ -46,7 +46,7 @@ class LangOptions {
     pub var no_default_libs: bool = false;
     pub var no_crt:          bool = false;
 
-    // ── -f / -fno- feature toggles ────────────────────────────────────────
+    // -- -f / -fno- feature toggles ----------------------------------------
     // -1 = unset (profile default applies), 0 = disabled, 1 = enabled
     pub var verify_interfaces:   i32 = -1;
     pub var const_checks:        i32 = -1;
