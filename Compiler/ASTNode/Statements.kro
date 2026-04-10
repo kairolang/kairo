@@ -12,6 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 import ASTNode::Base::*;
+import AST::ASTContext::*;
+import AST::Support::*;
 
 enum InlineBlockLang derives u8 {
     /// Clang: -x assembler-with-cpp

@@ -37,6 +37,8 @@
 
 
 import ASTNode::Base::*;
+import AST::ASTContext::*;
+import AST::Support::*;
 import ASTNode::PrimaryExpressions::*;
 
 /// Represents the address space of a type when `HasAddressSpace` is set.

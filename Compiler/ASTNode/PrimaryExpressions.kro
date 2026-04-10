@@ -12,6 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 import ASTNode::Base::*;
+import AST::ASTContext::*;
+import AST::Support::*;
 
 class NamedIdentExpr derives Expr {
     pub var name:  Token;

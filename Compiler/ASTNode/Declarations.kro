@@ -12,6 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 import ASTNode::Base::*;
+import AST::ASTContext::*;
+import AST::Support::*;
 
 class <T> ReDeclarable {
     var first:    *T;   // canonical first decl seen

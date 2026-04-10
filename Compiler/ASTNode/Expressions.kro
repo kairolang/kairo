@@ -72,6 +72,8 @@
 
 
 import ASTNode::Base::*;
+import AST::ASTContext::*;
+import AST::Support::*;
 import ASTNode::PrimaryExpressions::*;
 
 class PrimitiveLiteralExpr derives Expr { // does not cover string
