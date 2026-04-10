@@ -48,4 +48,14 @@ class TokenSpan {
     fn tokens(self) -> *TokenBuffer::<512> {
         return self._buffer;
     }
+
+    // we only give back a copy not a ptr for that we use get()
+    fn op [] (self, index: usize) -> Token {
+        var token_ptr = self.get(index);
+        if token_ptr == &null {
+            return Token();
+        }
+
+        return *token_ptr;
+    }
 }

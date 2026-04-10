@@ -135,4 +135,11 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     fn get_fid_for_token(self, tok: Token, sm: *SourceManager) -> u32 {
         return sm->get_fid(tok.range.start);
     }
+
+    fn get_imm_table_for_fid(self, fid: u32) -> *ImmediateTable {
+        if !self._kv_s.contains(fid) { return &null; }
+        var lexer = self._kv_s[fid];
+        if lexer == &null { return &null; }
+        return lexer->get_imm_tbl();
+    }
 }
