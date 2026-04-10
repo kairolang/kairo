@@ -69,9 +69,9 @@ class ArenaAllocator {
         var resets:          usize = 0;
     }
 
-    var head:      *ArenaBlock;
-    var block_size: usize;
     var stats:      Stats;
+    var head:       own::<ArenaBlock>;
+    var block_size: usize;
 
     fn ArenaAllocator(self) {
         self.block_size = (1 << 10); // 1 KiB default block size
@@ -79,9 +79,8 @@ class ArenaAllocator {
     }
 
     fn ArenaAllocator(self, blk_sz: usize) {
-        (self.head)       = std::create::<ArenaBlock>(blk_sz);
+        (self.head)     = std::create::<ArenaBlock>(blk_sz);
         self.block_size = blk_sz;
-        Logger::debug(Logger::Stage::Driver, f"ArenaAllocator::ArenaAllocator: block_size={blk_sz}B");
     }
 
     // move and copy constructor
@@ -89,14 +88,14 @@ class ArenaAllocator {
         self.head       = other.head;
         self.block_size = other.block_size;
         self.stats      = other.stats;
-        (other.head) = &null;
+        (other.head)    = &null;
     }
 
     fn ArenaAllocator(self, other: mref!(ArenaAllocator)) {
         self.head       = other.head;
         self.block_size = other.block_size;
         self.stats      = other.stats;
-        (other.head) = &null;
+        (other.head)    = &null;
     }
 
     fn op = (self, other: ref!(ArenaAllocator)) {
@@ -105,7 +104,7 @@ class ArenaAllocator {
             self.head       = other.head;
             self.block_size = other.block_size;
             self.stats      = other.stats;
-            (other.head) = &null;
+            (other.head)    = &null;
         }
     }
 
@@ -115,7 +114,7 @@ class ArenaAllocator {
             self.head       = other.head;
             self.block_size = other.block_size;
             self.stats      = other.stats;
-            (other.head) = &null;
+            (other.head)    = &null;
         }
     }
 
@@ -125,7 +124,6 @@ class ArenaAllocator {
         }
         self.head       = std::create::<ArenaBlock>(blk_sz);
         self.block_size = blk_sz;
-        Logger::debug(Logger::Stage::Driver, f"ArenaAllocator::init: block_size={blk_sz}B");
     }
 
     fn op delete (self) {
@@ -172,7 +170,6 @@ class ArenaAllocator {
 
     fn destroy(self) {
         if self.head == &null {
-            Logger::trace(Logger::Stage::Driver, f"ArenaAllocator::destroy: slabs={self.stats.slab_count} allocs={self.stats.alloc_calls} bytes={self.stats.bytes_allocated}B resets={self.stats.resets}");
             return;
         }
 
@@ -222,7 +219,6 @@ class ArenaAllocator {
         ((self.head)) = blk;
 
         ++(self.stats.slab_count);
-        Logger::trace(Logger::Stage::Driver, f"ArenaAllocator::expand: slab={self.stats.slab_count} req={sz}B block_size={req}B total_allocated={self.stats.bytes_allocated}B");
         return (self.head)->try_alloc(sz, align);
     }
 }

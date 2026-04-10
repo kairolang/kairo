@@ -81,7 +81,7 @@ class ThreadPool {
 
     priv var _count:   usize = 0;
     priv var _threads: vec::<Thread>;
-    priv var _queues:  vec::<*PartitionQueue>;
+    priv var _queues:  vec::<own::<PartitionQueue>>;
     priv var _groups:  array::<std::Atomic::<u64>, 256> = array::<std::Atomic::<u64>, 256>();
     priv var _rr:      std::Atomic::<usize> = std::Atomic::<usize>(0);
     priv var _active:  std::Atomic::<bool>  = std::Atomic::<bool>(true);
@@ -157,7 +157,7 @@ class ThreadPool {
     class PartitionQueue {
         struct Cell;
 
-        priv var _buf: vec::<Cell>;
+        priv var _buf:  vec::<Cell>;
         priv var _mask: u64 = 0;
         priv var _cap:  u64 = 0;
 
@@ -384,6 +384,19 @@ class ThreadPool {
         for gi in range::<usize>(0, 256) {
             self._groups[gi].store(0, std::MemoryOrder::relaxed);
         }
+
+        __inline_cpp("
+            // Increase default stack size for all worker threads to handle
+            // deep macro expansion recursion (cycle detection fires before
+            // stack exhaustion but needs headroom for the recursive calls).
+            {
+                pthread_attr_t attr;
+                pthread_attr_init(&attr);
+                pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
+                pthread_setattr_default_np(&attr);
+                pthread_attr_destroy(&attr);
+            }
+        ");
 
         for _ in range::<usize>(0, n) {
             var q = std::create_unique::<PartitionQueue>(DEFAULT_QUEUE_SIZE);
