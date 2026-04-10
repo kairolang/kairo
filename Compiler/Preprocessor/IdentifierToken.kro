@@ -20,7 +20,7 @@ type SymbolID = u32;;
 
 class IdentifierToken {
     pub var name:  SymbolID;
-    pub var token: *Token;
+    pub var token: obs::<Token>; ///< pointer to the original identifier token
 
     fn IdentifierToken(self, name: SymbolID, token: *Token) {
         self.name = name;

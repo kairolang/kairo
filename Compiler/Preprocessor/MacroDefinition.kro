@@ -23,8 +23,8 @@ class MacroDefinition {
     pub var body:           TokenSpan; ///< raw token span for the macro body
     pub var name:           IdentifierToken; ///< macro name we cant use a token here since a token doesnt store the text only kind range and imm data which is not sufficient
     pub var definition_loc: SourceRange; ///< source location of the macro definition (for error reporting)
-    pub var accepts_params: bool;        ///< does this macro accept parameters (true if defined with parens)
     pub var source_fid:     u32;
+    pub var accepts_params: bool;        ///< does this macro accept parameters (true if defined with parens)
 
     const fn as_string(self, s: *PreprocessorSymbolTable) -> string {
         return f"MacroDefinition(name='{self.name.as_string(s)}', scope='{self.scope.as_string(s)}', params={self.params.as_string(s)}, body={self.body}, definition_loc={self.definition_loc}, accepts_params={self.accepts_params})";

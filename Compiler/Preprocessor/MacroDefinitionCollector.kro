@@ -55,12 +55,12 @@ import Diag::DiagRegistry::*;
 ///   - The body is stored as a raw TokenSpan (start/end indices into the token buffer)
 ///
 class MacroDefinitionCollector {
-    priv var _sym_table:   *PreprocessorSymbolTable;
-    priv var _macro_table: *MacroSymbolTable;
-    priv var _sm:          *SourceManager;
-    priv var _skip_list:   *SkipList;
+    priv var _sym_table:   obs::<PreprocessorSymbolTable>;
+    priv var _macro_table: obs::<MacroSymbolTable>;
+    priv var _sm:          obs::<SourceManager>;
+    priv var _skip_list:   obs::<SkipList>;
+    priv var _diag:        obs::<DiagEngine>;
     priv var _current_fid: u32;
-    priv var _diag:        *DiagEngine;
 
     fn MacroDefinitionCollector(
         self,

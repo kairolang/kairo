@@ -28,13 +28,13 @@ class ParsedImport {
         pub var is_macro:   bool = false;      ///< true if name ends with `!`
     }
 
-    pub var base_path:   ModulePath;       ///< the module path prefix (everything before the last segment or group)
-    pub var items:       vec::<Item>;       ///< individual import items (1 for simple, N for grouped)
-    pub var is_wildcard: bool = false;      ///< true for `import Foo::Bar::*`
-    pub var is_module:   bool = false;      ///< true for `import module Foo::Bar`
-    pub var is_ffi:      bool = false;      ///< true for `ffi "..." import ...`
-    pub var import_loc:  SourceRange;       ///< full source range of the import statement
-    pub var scope:       ModulePath;        ///< scope where this import appears (from ScopeTracker)
+    pub var items:           vec::<Item>;  ///< individual import items (1 for simple, N for grouped)
+    pub var scope:           ModulePath;   ///< scope where this import appears (from ScopeTracker)
+    pub var base_path:       ModulePath;   ///< the module path prefix (everything before the last segment or group)
+    pub var import_loc:      SourceRange;  ///< full source range of the import statement
     pub var tokens_consumed: usize = 0;
-    pub var end_index: usize = 0;
+    pub var end_index:       usize = 0;
+    pub var is_wildcard:     bool = false; ///< true for `import Foo::Bar::*`
+    pub var is_module:       bool = false; ///< true for `import module Foo::Bar`
+    pub var is_ffi:          bool = false; ///< true for `ffi "..." import ...`
 }

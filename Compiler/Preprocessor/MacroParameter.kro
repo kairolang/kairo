@@ -26,7 +26,7 @@ class MacroParameter {
     }
 
     pub var name:          IdentifierToken;
-    pub var has_default:   bool = false;
+    pub var has_default:   bool         = false;
     pub var is_variadic:   VariadicType = VariadicType::None;
     pub var default_value: TokenSpan;
 

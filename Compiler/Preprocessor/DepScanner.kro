@@ -18,6 +18,15 @@ import Source::SourceManager::*;
 import Preprocessor::ScopeTracker::*;
 import Preprocessor::ModulePath::*;
 
+// FIXME: on a big project root with many files, DepScanner makes a lot of
+//        temporary allocations (178k with 280k files) which adds up to a
+//        significant portion of the runtime (848ms of 2.5s total).
+//
+// This is mostly due to the map/set usage in DepGraph and the temporary
+//     vectors/strings in scan_import. We should optimize this by using more
+//     efficient data structures (e.g. flat_hash_map) and by reusing memory
+//     where possible (e.g. string interning for module paths).
+
 struct DepEdge {
     var from_fid:        u32;
     var to_fid:          u32;
@@ -61,10 +70,10 @@ class DepGraph {
 }
 
 class DepScanner {
-    priv var _sm:          *SourceManager;
-    priv var _tcm:         *TokenCacheManager;
-    priv var _resolver:    *ImportResolver;
-    priv var _sym_table:   *PreprocessorSymbolTable;
+    priv var _sm:          obs::<SourceManager>;
+    priv var _tcm:         obs::<TokenCacheManager>;
+    priv var _resolver:    obs::<ImportResolver>;
+    priv var _sym_table:   obs::<PreprocessorSymbolTable>;
     priv var _visiting:    set::<u32>;   ///< cycle detection
 
     fn DepScanner(
@@ -122,8 +131,8 @@ class DepScanner {
             if tok->kind == TokenKind::KwImport {
                 var dep_fids = self.scan_import(tokens, i, &tracker);
                 for dep in dep_fids {
-                    graph->add_edge(fid, dep.fid);
                     self.visit(dep.fid, dep.mod_path, graph);
+                    graph->add_edge(fid, dep.fid);
                 }
                 // advance past the import statement
                 i = self.skip_import(tokens, i);

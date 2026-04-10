@@ -21,9 +21,9 @@ import ThreadPool::*;
 
 class SearchRoot {
     pub var base_path: Path;
-    pub var root:      *DirEntry;
+    pub var ext_cfg:   obs::<FileExtensions>;
+    pub var root:      own::<DirEntry>;
     pub var priority:  u32;
-    pub var ext_cfg:   *FileExtensions;
 
     __inline_cpp("
     private:

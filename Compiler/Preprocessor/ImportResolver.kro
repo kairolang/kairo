@@ -54,6 +54,8 @@
 //      walk phase alone takes up seconds of time, since kairo/ has all of llvm
 //      and all of libc source in its search paths its awfully slow to index.
 
+ffi "c++" import "Types.hh";
+
 import Path::*;
 import FileSystem::*;
 import Memory::MappedFileBuffer::*;
@@ -90,11 +92,11 @@ enum ResolveError {
 /// \note the resolver uses raw pointers (`*T`) rather than managed handles.
 ///       ensure the resolver outlives any references to returned paths.
 class ImportResolver {
-    priv var _roots:           vec::<*SearchRoot>;       ///< priority-sorted search roots (index 0 = cwd)
     priv var _cache:           map::<string, Path>;      ///< resolution cache keyed by "prefix:seg1::seg2::..."
-    priv var _ext_cfg:         *FileExtensions;          ///< file extension classification config
-    priv var _owns_ext_cfg:    bool;                     ///< true if destructor should free `_ext_cfg`
+    priv var _roots:           vec::<own::<SearchRoot>>; ///< priority-sorted search roots (index 0 = cwd)
+    priv var _ext_cfg:         oot::<FileExtensions>;    ///< file extension classification config
     priv var _index_completed: std::Atomic::<bool>;      ///< set to true when indexing finishes
+    priv var _owns_ext_cfg:    bool;                     ///< true if destructor should free `_ext_cfg`
 
     __inline_cpp("public:");
 

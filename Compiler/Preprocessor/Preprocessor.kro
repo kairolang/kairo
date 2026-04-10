@@ -243,16 +243,16 @@ import Preprocessor::WaveExecutor::*;
 class PreProcessor;
 
 class ImportProcessor {
-    priv var _sm:          *SourceManager;
-    priv var _tcm:         *TokenCacheManager;
-    priv var _resolver:    *ImportResolver;
-    priv var _sym_table:   *PreprocessorSymbolTable;
-    priv var _macro_table: *MacroSymbolTable;
-    priv var _skip_lists:  *map::<u32, SkipList>;
-    priv var _skip_mu:     *std::SharedMutex;           ///< guards skip_lists
-    priv var _states_mu:   *std::SharedMutex;          ///< guards _file_states
-    priv var _diag:        *DiagEngine;
     priv var _file_states:  map::<u32, FileImportState>; ///< per-fid, written once per fid
+    priv var _sm:           obs::<SourceManager>;
+    priv var _tcm:          obs::<TokenCacheManager>;
+    priv var _resolver:     obs::<ImportResolver>;
+    priv var _sym_table:    obs::<PreprocessorSymbolTable>;
+    priv var _macro_table:  obs::<MacroSymbolTable>;
+    priv var _skip_lists:   obs::<map::<u32, SkipList>>;
+    priv var _skip_mu:      obs::<std::SharedMutex>; ///< guards skip_lists
+    priv var _states_mu:    obs::<std::SharedMutex>; ///< guards _file_states
+    priv var _diag:         obs::<DiagEngine>;
 
     default fn ImportProcessor(self);
 
@@ -1706,6 +1706,8 @@ class PreProcessor {
 
             // import scan (records state, no recursion)
             self._import_proc.process_file(fid, mod_path);
+            Logger::info(Logger::Stage::Preprocessor,
+                f"phase1 task: fid={fid} skip_list size after process_file={skip_list_ptr->size()}");
 
             // macro collection
             var tokens = self._tcm->get_tokens(fid);
@@ -1735,42 +1737,54 @@ class PreProcessor {
         for fid in graph.all_fids { all_fids.push_back(fid); }
 
         for fid in all_fids {
-            self._pool->enqueue(fn() {
-                var mod_path  = graph.mod_paths[fid];
-                var skip_list_ptr: *SkipList;
-                __inline_cpp("{");
-                    var rlock = std::SharedLock(*(self._skip_mu));
-                    skip_list_ptr = &(self._skip_lists[fid]);
-                __inline_cpp("}");
+            var mod_path = graph.mod_paths[fid];
 
-                skip_list_ptr->finalize();
+            __inline_cpp("
+            {
+                auto captured_fid      = fid;
+                auto captured_mod_path = mod_path;
+                auto captured_self     = this;
+                _pool->enqueue([captured_fid, captured_mod_path, captured_self]() {
+                    SkipList* skip_list_ptr = nullptr;
+                    {
+                        std::SharedLock<std::SharedMutex> rlock(*captured_self->_skip_mu);
+                        skip_list_ptr = &(captured_self->_skip_lists[captured_fid]);
+                    }
 
-                var tokens    = self._tcm->get_tokens(fid);
-                if tokens == &null { return; }
+                    Logger::info(Logger::Stage::Preprocessor,
+                        libcxx::format(L\"phase2 task: fid={} skip_list size before finalize={}\",
+                            captured_fid,
+                            captured_self->_skip_lists[captured_fid].size()));
+                    skip_list_ptr->finalize();
 
-                var lexer_ptr = self._tcm->get_lexer(fid);
-                var imm_ptr   = lexer_ptr->get_imm_tbl();
+                    auto* tokens = captured_self->_tcm->get_tokens(captured_fid);
+                    if (!tokens) return;
 
-                var expander = MacroExpander(
-                    self._sm,
-                    self._pp_sym_table,
-                    self._macro_table,
-                    &self._import_proc,
-                    skip_list_ptr,
-                    imm_ptr,
-                    lexer_ptr,
-                    self._diag,
-                    self._opts.max_depth,
-                    self._opts.max_expansions,
-                    self._opts.macro_debug,
-                    self._opts.macro_debug_filter
-                );
+                    auto* lexer_ptr = captured_self->_tcm->get_lexer(captured_fid);
+                    auto* imm_ptr   = lexer_ptr->get_imm_tbl();
 
-                var expanded = expander.expand(tokens, fid, mod_path);
-                if expanded != &null {
-                    self._tcm->replace_tokens(fid, expanded);
-                }
-            }, u8(2));
+                    MacroExpander expander(
+                        captured_self->_sm,
+                        captured_self->_pp_sym_table,
+                        captured_self->_macro_table,
+                        &captured_self->_import_proc,
+                        skip_list_ptr,
+                        imm_ptr,
+                        lexer_ptr,
+                        captured_self->_diag,
+                        captured_self->_opts.max_depth,
+                        captured_self->_opts.max_expansions,
+                        captured_self->_opts.macro_debug,
+                        captured_self->_opts.macro_debug_filter
+                    );
+
+                    auto* expanded = expander.expand(tokens, captured_fid, captured_mod_path);
+                    if (expanded) {
+                        captured_self->_tcm->replace_tokens(captured_fid, expanded);
+                    }
+                }, static_cast<uint8_t>(2));
+            }
+            ");
         }
 
         self._pool->wait_group(u8(2));
@@ -2584,7 +2598,7 @@ fn Test() -> i32 {
         store[name] = libcxx::string(nd);
         return sm->load_virtual(
             Path(name, false),
-            reinterpret_cast::<std::const_ptr::<u8>>(store[name].data()),
+            reinterpret_cast::<std::ConstPtr::<u8>>(store[name].data()),
             src.size()
         );
     }

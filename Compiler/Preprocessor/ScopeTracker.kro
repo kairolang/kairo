@@ -23,19 +23,20 @@ enum ModuleVisibility derives u8 {
 }
 
 class ScopeTracker {
-    struct Frame {
+    struct Frame { // 38 bytes before padding - total size 48 bytes after padding
         var path:        ModulePath;        ///< full module path at this frame
         var brace_depth: i32;               ///< brace depth when frame was pushed
         var visibility:  ModuleVisibility;  ///< visibility of this module block
         var is_global:   bool;              ///< true if `module :: { }`
     }
 
-    priv var _sym_table:   *PreprocessorSymbolTable; ///< for interning identifiers
+    /// total size of members: 116 bytes or 928 bits (after padding its 128 bytes)
     priv var _file_base:   ModulePath;               ///< base path from filename (e.g., Baz from baz.kro)
-    priv var _stack:       vec::<Frame>;             ///< scope stack
-    priv var _brace_depth: i32;                      ///< current brace nesting level
     priv var _current:     ModulePath;               ///< cached current scope
-    priv var _sm:         *SourceManager;            ///< source manager for error reporting
+    priv var _stack:       vec::<Frame>;             ///< scope stack
+    priv var _sym_table:   obs::<PreprocessorSymbolTable>; ///< for interning identifiers
+    priv var _sm:          obs::<SourceManager>;            ///< source manager for error reporting
+    priv var _brace_depth: i32;                      ///< current brace nesting level
 
     /// \brief constructs tracker with file's base module path
     /// \param sym_table symbol table for interning identifiers

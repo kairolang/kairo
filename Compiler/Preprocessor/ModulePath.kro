@@ -16,7 +16,7 @@
 import Preprocessor::PreprocessorSymbolTable::*;
 import Preprocessor::IdentifierToken::*;
 
-class ModulePath {
+class ModulePath { // 256-bit class (32 bytes - max)
     pub var segments: vec::<IdentifierToken>; ///< each segment is an identifier token this does not include the "::" tokens
 
     const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
