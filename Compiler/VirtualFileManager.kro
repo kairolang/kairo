@@ -58,8 +58,8 @@ import ThreadPool::*;
 class VirtualFileManager {
     class Segment; ///< forward declaration of Segment class.
     
-    priv var _parents:       vec::<*MappedFileBuffer> = vec::<*MappedFileBuffer>();
-    priv var _segments:      vec::<*Segment>          = vec::<*Segment>();
+    priv var _parents:       vec::<own::<MappedFileBuffer>> = vec::<own::<MappedFileBuffer>>();
+    priv var _segments:      vec::<own::<Segment>>          = vec::<own::<Segment>>();
     priv var _next_fid:      u32   = 0;
     priv var _global_offset: usize = 0;
 
@@ -250,7 +250,7 @@ class VirtualFileManager {
     /// \param size size of the data buffer in bytes.
     /// \return file id assigned to the new segment.
     ///
-    fn register_virtual(self, fake_path: Path, data: std::const_ptr::<u8>, size: usize) -> u32 {
+    fn register_virtual(self, fake_path: Path, data: std::ConstPtr::<u8>, size: usize) -> u32 {
         var seg_fid = self._next_fid;
         self._next_fid += 1;
         var seg = std::create::<Segment>(seg_fid, Path(fake_path.full_path()), 0, size);

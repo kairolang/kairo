@@ -51,8 +51,8 @@ import Memory::MMapRegion::*;
 /// a raw pointer or an `MMapRegion`.
 ///
 class UTF8View {
-    var data: std::const_ptr::<u8>;  ///< pointer to utf-8 data.
-    var size: usize;                 ///< data length in bytes.
+    var data: const_obs::<u8>; ///< pointer to utf-8 data.
+    var size: usize;           ///< data length in bytes.
 
     ///
     /// \brief constructs from a raw pointer and byte size.
