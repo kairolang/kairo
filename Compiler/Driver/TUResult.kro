@@ -20,12 +20,12 @@ import Driver::TUStage::*;
 class TUResult {
     __inline_cpp("public:");
     pub var path:         string;  ///< Canonical source path.
-    pub var stage:        TUStage; ///< Last stage reached before halt or Done.
+    pub var elapsed_ms:   f64;     ///< Wall time from dispatch to completion.
     pub var file_id:      u32;     ///< SourceManager ID. \c u32(-1) if load failed.
     pub var error_count:  u32;     ///< Errors attributed to this TU at halt time.
     pub var warn_count:   u32;     ///< Warnings attributed to this TU at halt time.
+    pub var stage:        TUStage; ///< Last stage reached before halt or Done.
     pub var had_fatal:    bool;    ///< True if this TU emitted a fatal diagnostic.
-    pub var elapsed_ms:   f64;     ///< Wall time from dispatch to completion.
 
     fn TUResult(self) {
         self.path        = "";

@@ -49,6 +49,56 @@
 ///   dispatchable to the pool once SM/TCM are read-only from that point forward.
 ///   The execute() loop below is where pool enqueueing will be inserted.
 ///
+///   Driver Layer 3 FrontendAction
+///   ===============================
+///
+///   FrontendAction owns the compilation pipeline for a single source file.
+///   CompilerInstance constructs one per input file and calls run(), which
+///   advances the file through every requested stage in order:
+///
+///     Load -> Lex -> Preprocess -> Parse -> Sema -> Codegen
+///
+///   Each stage is gated by FrontendOptions. A stop-at flag (stops_at_preprocess,
+///   stops_at_parse, stops_at_sema) causes run() to mark the TU Done and return
+///   without running later stages. A stage returning false halts the pipeline
+///   and marks the TU Failed. A fatal diagnostic additionally sets
+///   BatchResult::aborted, causing execute() to skip remaining input files.
+///
+///   Post-stage dump flags (print_tokens, print_macros, print_imports, print_ast,
+///   print_ir, print_bcir) are checked at each stage boundary and are orthogonal
+///   to the stop-at flags they do not halt the pipeline.
+///
+///   Clang-style layer map
+///   ----------------------
+///     Layer 1  CompilerInvocation   Strongly-typed options     (Invoke::*)
+///     Layer 2  CompilerInstance     Shared resource hub        (Driver::CompilerInstance)
+///     Layer 3  FrontendAction       Per-file pipeline executor (this file)
+///
+///   Ownership
+///   ----------
+///     Borrows (non-owning, valid for the lifetime of CompilerInstance::execute):
+///       CompilerInstance  - DiagEngine, SourceManager, TCM, ThreadPool, invocation
+///       ImportResolver    - fully indexed before the first action is dispatched
+///
+///     Owns:
+///       PreProcessor      - allocated at _preprocess(), freed by the destructor.
+///                           Kept alive after preprocessing so _dump_macros() and
+///                           _dump_imports() can access it.
+///
+///   Sync-free design
+///   -----------------
+///     FrontendAction contains no mutexes, atomics, or condition variables.
+///
+///   Async-ready path (future)
+///   --------------------------
+///     Phase 1 - Load and lex write to shared SM and TCM; they must run on the
+///     driver thread.
+///
+///     Phase 2 - Preprocess through codegen read SM/TCM and own all mutable
+///     state privately. Once SM/TCM are read-only from that point forward, each
+///     FrontendAction can be handed to the ThreadPool after Phase 1 completes.
+///     DiagEngine writes will be replaced by a per-action capture + merge step.
+///
 
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
@@ -66,6 +116,9 @@ import Driver::TUStage::*;
 import Preprocessor::Preprocessor::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
+ffi "c++" import "llvm/Support/raw_ostream.h";
+ffi "c++" import "llvm/Support/Threading.h";
+ffi "c++" import "llvm/TargetParser/Triple.h";
 
 class CompilerInstance; // forward breaks the CI ↔ FrontendAction cycle
 
@@ -85,20 +138,21 @@ class CompilerInstance; // forward breaks the CI ↔ FrontendAction cycle
 class FrontendAction {
     pub var path:        Path;
     pub var module_base: ModulePath;
+    priv var _ci:        obs::<CompilerInstance>; ///< non-owning borrow from execute()
+    priv var _resolver:  obs::<ImportResolver>;   ///< non-owning borrow from execute()
+    priv var _pp:        own::<PreProcessor>;     ///< owned; null until _preprocess()
+    priv var _file_id:   u32;
     pub var result:      TUResult;
-
-    priv var _ci:       *CompilerInstance; ///< non-owning borrow from execute()
-    priv var _resolver: *ImportResolver;   ///< non-owning borrow from execute()
-    priv var _pp:       *PreProcessor;     ///< owned; null until _preprocess()
-    priv var _stage:    TUStage;
-    priv var _file_id:  u32;
+    priv var _stage:     TUStage;
 
     fn FrontendAction(
         self,
         path:        Path,
         module_base: ModulePath,
-        ci:          *CompilerInstance,
-        resolver:    *ImportResolver
+        ci:         *CompilerInstance,
+        resolver:   *ImportResolver // one single import resolver for the full
+                                     // batch; shared among all actions and threads,
+                                     // fully indexed before the first action runs
     ) {
         self.path        = path;
         self.module_base = module_base;
@@ -154,6 +208,7 @@ class CompilerInstance {
     priv var _pretty: *PrettyDiagConsumer;
     priv var _basic:  *BasicDiagConsumer;
     priv var _cmd:    *Command;
+    priv var _imp:    *ImportResolver;
 
     // --- CLI state -------------------------------------------------------
     priv var _parsed: ParsedArgs;
@@ -170,16 +225,14 @@ class CompilerInstance {
     ///   - SM before consumers: consumers need it for source context.
     ///   - Command last: CLI parsing may emit diagnostics into the engine.
     fn CompilerInstance(self, argc: i32, argv: *(*kairo::std::Legacy::char)) {
-        self._pool   = std::create::<ThreadPool>(8);
         self._vfm    = std::create::<VirtualFileManager>();
-        self._diag   = std::create::<DiagEngine>();
-        self._sm     = std::create::<SourceManager>(self._pool, self._vfm);
-        self._tcm    = std::create::<TokenCacheManager>(self._sm, self._pool, self._diag);
-        self._pretty = std::create::<PrettyDiagConsumer>(self._sm);
-        self._basic  = std::create::<BasicDiagConsumer>(self._sm);
+        self._diag   = std::create::<DiagEngine>        ();
+        self._pretty = std::create::<PrettyDiagConsumer>();
         self._diag->add_consumer(self._pretty); // pretty is the default consumer
 
-        self._cmd    = std::create::<Command>(argc, argv, self._diag);
+        // no sm for now since we only want cli diags
+        self._cmd = std::create::<Command>(argc, argv, self._diag);
+
         register_kairo_flags(self._cmd);
         self._parsed = self._cmd->parse();
 
@@ -187,6 +240,17 @@ class CompilerInstance {
             self._inv = CompilerInvocation::from_args(self._parsed);
             self._apply_invocation();
         }
+
+        self._pool = std::create::<ThreadPool>(usize(
+                    (llvm::hardware_concurrency().compute_thread_count())
+            if   (self._inv.frontend.thread_count == 0)
+            else (self._inv.frontend.thread_count)
+        ));
+
+        self._sm     = std::create::<SourceManager>     (self._pool, self._vfm);
+        self._tcm    = std::create::<TokenCacheManager> (self._sm, self._pool, self._diag);
+        self._basic  = std::create::<BasicDiagConsumer> (self._sm);
+        self._pretty->attach_source_manager(self._sm);
     }
 
     // --- Destructor ------------------------------------------------------
@@ -195,16 +259,19 @@ class CompilerInstance {
     fn op delete (self) {
         if self._cmd    != &null { std::destroy(self._cmd);    self._cmd    = &null; }
         if self._tcm    != &null { std::destroy(self._tcm);    self._tcm    = &null; }
+        
         if self._pretty != &null {
             self._diag->remove_consumer(self._pretty);
             std::destroy(self._pretty);
             self._pretty = &null;
         }
+
         if self._basic  != &null {
             self._diag->remove_consumer(self._basic);
             std::destroy(self._basic);
             self._basic  = &null;
         }
+
         if self._sm     != &null { std::destroy(self._sm);     self._sm     = &null; }
         if self._diag   != &null { std::destroy(self._diag);   self._diag   = &null; }
         if self._vfm    != &null { std::destroy(self._vfm);    self._vfm    = &null; }
@@ -240,13 +307,22 @@ class CompilerInstance {
 
     // --- Identity actions ------------------------------------------------
 
+    fn get_target_triple(self) -> string {
+        var triple = llvm::Triple(llvm::sys::getProcessTriple());
+        if (triple.getVendor()) == (llvm::Triple::UnknownVendor) && (triple.isOSLinux()) {
+            triple.setVendor(llvm::Triple::PC);
+        }
+
+        return std::nstring_to_string(triple.getTriple());
+    }
+
     fn print_help(self) {
         self._cmd->print_help();
     }
 
     fn print_version(self) {
         std::print(f"installed version: {VERSION}");
-        std::print(f"target triple:     {llvm::sys::getProcessTriple()}");
+        std::print(f"target triple:     {self.get_target_triple()}");
         std::print(f"thread model:      {std::get_thread_model()}");
         std::print(f"installed at:      {((std::get_exe_path()).parent_path()).generic_wstring()}");
     }
@@ -289,6 +365,14 @@ class CompilerInstance {
     }
 
     // --- Compilation pipeline --------------------------------------------
+    // the step to index, and create the shared instance
+    fn index(self, cwd: Path) {
+        var rb = ImportResolver::Builder().cwd(cwd);
+        for dir: string in self._inv.include_dirs { rb.add_include(Path(dir)); }
+        for dir: string in self._inv.macro_paths  { rb.add_include(Path(dir)); }
+
+        self._imp = rb.create_ptr(self._pool);
+    }
 
     /// Compiles all input files described by the invocation.
     ///
@@ -296,9 +380,12 @@ class CompilerInstance {
     /// then runs a \c FrontendAction for each input file. A fatal diagnostic
     /// in any file sets \c BatchResult::aborted and skips remaining files.
     /// Results are collected into the returned \c BatchResult.
-    fn execute(self, cwd: Path) -> BatchResult {
+    fn execute(self) -> BatchResult {
+        assert((self._imp != &null) && r"initialize() must be called before execute()");
+
         var result = BatchResult();
         var t0     = libcxx::chrono::steady_clock::now();
+
         finally {
             var t1 = libcxx::chrono::steady_clock::now();
             result.elapsed_ms = static_cast::<f64>(
@@ -314,15 +401,6 @@ class CompilerInstance {
             return result;
         }
 
-        // Build ImportResolver from invocation search paths.
-        var rb = ImportResolver::Builder().cwd(cwd);
-        for dir: string in self._inv.include_dirs { rb.add_include(Path(dir)); }
-        for dir: string in self._inv.macro_paths  { rb.add_include(Path(dir)); }
-        var resolver = rb.create_ptr(self._pool);
-        finally { std::destroy(resolver); }
-
-        // resolver->wait_for_index(); for now
-
         Logger::info(Logger::Stage::Driver,
             f"CompilerInstance::execute: {self._inv.input_files.size()} file(s)");
 
@@ -331,14 +409,13 @@ class CompilerInstance {
         for path_str: string in self._inv.input_files {
             if result.aborted { break; }
 
-            // Heap-allocated so the pointer can be handed to the pool for
-            // async dispatch in a future phase without ownership issues.
             var action = std::create::<FrontendAction>(
                 Path(path_str),
                 ModulePath(),
                 &self,
-                resolver
+                self._imp
             );
+
             finally { std::destroy(action); }
 
             action->run();
@@ -379,9 +456,6 @@ class CompilerInstance {
         if !fe.verbose {
             Logger::set_level(Logger::Level::Warn);
         }
-
-        // TODO: self._pool->resize(usize(fe.thread_count))
-        //   Apply when ThreadPool gains a resize() API.
     }
 }
 
@@ -487,12 +561,13 @@ fn FrontendAction::_preprocess() -> bool {
             f"-D defines ({pp_opts.defines.size()}) not yet implemented; ignored");
     }
 
-    if !self._pp->preprocess(self._file_id, self.module_base) {
+    var pp_res = self._pp->preprocess(self._file_id, self.module_base);
+
+    if !pp_res {
         self.result.error_count = self._ci->diag()->error_count();
         self.result.warn_count  = self._ci->diag()->warn_count();
         self.result.had_fatal   = self._ci->diag()->has_fatal();
         self._stage = TUStage::Failed;
-        return false;
     }
 
     self.result.error_count = self._ci->diag()->error_count();
@@ -509,7 +584,7 @@ fn FrontendAction::_preprocess() -> bool {
     if fe.print_macros  { self._dump_macros();  }
     if fe.print_imports { self._dump_imports(); }
 
-    return true;
+    return pp_res;
 }
 
 /// Parse stage not yet implemented.
@@ -550,14 +625,61 @@ fn FrontendAction::_codegen() -> bool {
 fn FrontendAction::_dump_tokens() {
     var tokens = self._ci->tcm()->get_tokens(self._file_id);
     if tokens == &null {
-        std::print(f"-- tokens: {self.path.full_path()} (none) --");
+        std::print(f"-- token stream: {self.path.full_path()} (none) --");
         return;
     }
+
+    var lexer_ptr = self._ci->tcm()->get_lexer(self._file_id);
+    var imm_tbl   = (lexer_ptr->get_imm_tbl()) if (lexer_ptr != &null) else (&null);
+    var sm        = self._ci->sm();
+
     std::print(f"-- token stream: {self.path.full_path()} ({tokens->size()} tokens) --");
-    for i in usize(0) .. tokens->size() {
-        var tok  = tokens->get(i);
-        var text = self._ci->tcm()->get_text(*tok);
-        std::print(f"  [{i}] {tok->kind} '{text}' @ {tok->range}");
+
+    for var i: usize = 0; i < tokens->size(); ++i {
+        var tok       = tokens->get(i);
+        var kind      = tok->kind;
+        var imm       = tok->imm;
+        var tok_range = tok->range;
+
+        // unwrap macro expansion to get real kind/imm/range
+        if (tok->kind == TokenKind::TkMacroExpand)
+        && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
+        && (imm_tbl != &null) {
+            var info  = imm_tbl->get::<Immediate::MacroExpansionInfo>(tok->imm);
+            kind      = info->original_kind;
+            imm       = info->original_imm;
+            tok_range = info->def_range;
+        }
+
+        // compute display text
+        var text: string;
+
+        if (tok->kind == TokenKind::TkMacroExpand)
+        && (tok->imm >= static_cast::<u32>(MacroSentinel::Threshold)) {
+            if      tok->imm == static_cast::<u32>(MacroSentinel::Todo)         { text = "<todo>";        }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Unreachable)  { text = "<unreachable>"; }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Include)      { text = "<include>";     }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::IncludeStr)   { text = "<include_str>"; }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Embed)        { text = "<embed>";       }
+            else                                                                { text = "<sentinel>";    }
+        } else if kind == TokenKind::LitInt && imm_tbl != &null {
+            var int_data = imm_tbl->get::<Immediate::IntData>(imm);
+            text = f"{int_data->value_lo}";
+        } else if (kind == TokenKind::LitIdentifier)
+               && (imm > 0)
+               && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
+            text = f"__unique_{imm}";
+        } else if kind == TokenKind::OpComma {
+            text = ",";
+        } else {
+            text = sm->get_text(tok_range);
+        }
+        
+        if tok->kind == TokenKind::TkMacroExpand {
+            std::print(f"  [{i}] MACRO EXPANDED '{text}' @ {tok->range}");
+        } else {
+            std::print(f"  [{i}] {tok->readable_kind()} '{text}' @ {tok->range}");
+        }
     }
 }
 

@@ -40,6 +40,21 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         ::setlocale(LC_ALL, \"\");
         (void)::wcslen(L\"\");
         libcxx::use_facet<libcxx::ctype<wchar_t>>(libcxx::locale());
+        { // Force narrow char locale facets used by stringstream/to_string
+            libcxx::ostringstream oss;
+            oss << 1UL << 1.0;
+            (void)oss.str();
+        }
+        libcxx::use_facet<libcxx::num_put<char>>(libcxx::locale());
+        libcxx::use_facet<libcxx::num_get<char>>(libcxx::locale());
+
+        {
+            pthread_attr_t attr;
+            pthread_attr_init(&attr);
+            pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
+            pthread_setattr_default_np(&attr);
+            pthread_attr_destroy(&attr);
+        }
     ");
 
     // Global teardown runs after main() returns or on unwind.
@@ -76,12 +91,13 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         return 1;
     }
 
+    ci->index(Path::cwd());
+
     // --- Layer 3: execute the FrontendAction pipeline --------------------
     //
     // The action strategy is encoded in CompilerInvocation::frontend.action.
     // FrontendOptions::stops_at_* helpers gate each pipeline stage.
-    var cwd    = Path::cwd();
-    var result = ci->execute(cwd);
+    var result = ci->execute();
 
     if ci->diag()->has_errors() {
         ci->flush_errors();
