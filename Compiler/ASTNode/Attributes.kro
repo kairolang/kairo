@@ -12,3 +12,5 @@
 /// ------------------------------------------------------------------------ ///
 
 import ASTNode::Base::*;
+import AST::ASTContext::*;
+import AST::Support::*;
