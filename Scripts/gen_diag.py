@@ -98,7 +98,7 @@ def main():
         "////////////////////////////////////////////////////////////////////////////////",
         "",
         "import EvalHash::*;",
-        "import Diagnostics::DiagMeta::*;",
+        "import Diag::DiagMeta::*;",
         "",
         "enum DiagID derives u32 {",
         "  Invalid = 0,"
@@ -115,12 +115,12 @@ def main():
         brief_esc = brief.replace('"', '\\"')
         lines.append(f"    case DiagID::{code} {{")
         lines.append(f"      return DiagMeta{{")
-        lines.append(f"        category: DiagCategory::{cat},")
-        lines.append(f"        severity: DiagSeverity::{sev},")
+        lines.append(f'        brief: "{brief_esc}",')
+        lines.append(f'        group: "{group}",')
         lines.append(f"        number: {num},")
         lines.append(f"        hash: static_cast::<u32>(compute_hash::<r\"{code}\">()),")
-        lines.append(f'        brief: "{brief_esc}",')
-        lines.append(f'        group: "{group}"')
+        lines.append(f"        category: DiagCategory::{cat},")
+        lines.append(f"        severity: DiagSeverity::{sev}")
         lines.append(f"      }};")
         lines.append(f"    }}")
     lines.append("  }")
