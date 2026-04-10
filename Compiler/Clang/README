@@ -439,7 +439,7 @@ Kairo              C++
 *const T           const T*
 ref!(T)            T&
 const ref!(T)      const T&
-std::const_ptr<T>  const T*
+std::ConstPtr<T>  const T*
 ```
 
 ### Standard Library Bridge

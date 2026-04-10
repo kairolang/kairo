@@ -1,15 +1,17 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
-///
-///   <short description>
-///
-///   Part of the Kairo Project, under the Apache License v2.0 with the
-///   Kairo Runtime Library Exception.
-///
-///   See: https://kairo-lang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
-///   Copyright (c) 2026 Kairo Software Foundation
-///
-/// ------------------------------------------------------------------------ ///
+///--- The Kairo Project ----------------------------------------------------///
+///                                                                          ///
+///   Part of the Kairo Project, under the Attribution 4.0 International     ///
+///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
+///   and create derivative works, even for commercial purposes, provided    ///
+///   that you give appropriate credit, and indicate if changes were made.   ///
+///                                                                          ///
+///   For more information on the license terms and requirements, please     ///
+///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
+///                                                                          ///
+///   SPDX-License-Identifier: Apache-2.0                                    ///
+///   Copyright (c) 2026 The Kairo Project (Apache-2.0)                      ///
+///                                                                          ///
+///------------------------------------------------------------ KAIRO -------///
 
 ////////////////////////////////////////////////////////////////////////////////
 ///--------------------------------------------------------------------------///
@@ -169,1402 +171,1402 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
     case DiagID::Invalid { return DiagMeta{}; }
     case DiagID::C001W {
       return DiagMeta{
-        category: DiagCategory::CodeGen,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"C001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::CodeGen,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::C001I {
       return DiagMeta{
-        category: DiagCategory::CodeGen,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"C001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::CodeGen,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::C001R {
       return DiagMeta{
-        category: DiagCategory::CodeGen,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"C001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::CodeGen,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::C001V {
       return DiagMeta{
-        category: DiagCategory::CodeGen,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"C001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::CodeGen,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::C001N {
       return DiagMeta{
-        category: DiagCategory::CodeGen,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"C001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::CodeGen,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::C001D {
       return DiagMeta{
-        category: DiagCategory::CodeGen,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"C001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::CodeGen,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::C001E {
       return DiagMeta{
-        category: DiagCategory::CodeGen,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"C001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::CodeGen,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::C001F {
       return DiagMeta{
-        category: DiagCategory::CodeGen,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"C001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::CodeGen,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::OPT001W {
       return DiagMeta{
-        category: DiagCategory::Optimization,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"OPT001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Optimization,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::OPT001I {
       return DiagMeta{
-        category: DiagCategory::Optimization,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"OPT001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Optimization,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::OPT001R {
       return DiagMeta{
-        category: DiagCategory::Optimization,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"OPT001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Optimization,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::OPT001V {
       return DiagMeta{
-        category: DiagCategory::Optimization,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"OPT001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Optimization,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::OPT001N {
       return DiagMeta{
-        category: DiagCategory::Optimization,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"OPT001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Optimization,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::OPT001D {
       return DiagMeta{
-        category: DiagCategory::Optimization,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"OPT001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Optimization,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::OPT001E {
       return DiagMeta{
-        category: DiagCategory::Optimization,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"OPT001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Optimization,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::OPT001F {
       return DiagMeta{
-        category: DiagCategory::Optimization,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"OPT001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Optimization,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::U001W {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"U001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::U001I {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"U001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::U001R {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"U001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::U001V {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"U001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::U001N {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"U001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::U001D {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"U001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::U001E {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"U001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::U001F {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"U001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::U002E {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Error,
+        brief: "unknown or unrecognized command-line flag",
+        group: "cli",
         number: 2,
         hash: static_cast::<u32>(compute_hash::<r"U002E">()),
-        brief: "unknown or unrecognized command-line flag",
-        group: "cli"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::U003E {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Error,
+        brief: "invalid command-line flag syntax",
+        group: "cli",
         number: 3,
         hash: static_cast::<u32>(compute_hash::<r"U003E">()),
-        brief: "invalid command-line flag syntax",
-        group: "cli"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::U004E {
       return DiagMeta{
-        category: DiagCategory::Uncategorized,
-        severity: DiagSeverity::Error,
+        brief: "command-line flag requires a value",
+        group: "cli",
         number: 4,
         hash: static_cast::<u32>(compute_hash::<r"U004E">()),
-        brief: "command-line flag requires a value",
-        group: "cli"
+        category: DiagCategory::Uncategorized,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::M001W {
       return DiagMeta{
-        category: DiagCategory::Memory,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"M001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Memory,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::M001I {
       return DiagMeta{
-        category: DiagCategory::Memory,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"M001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Memory,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::M001R {
       return DiagMeta{
-        category: DiagCategory::Memory,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"M001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Memory,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::M001V {
       return DiagMeta{
-        category: DiagCategory::Memory,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"M001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Memory,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::M001N {
       return DiagMeta{
-        category: DiagCategory::Memory,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"M001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Memory,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::M001D {
       return DiagMeta{
-        category: DiagCategory::Memory,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"M001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Memory,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::M001E {
       return DiagMeta{
-        category: DiagCategory::Memory,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"M001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Memory,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::M001F {
       return DiagMeta{
-        category: DiagCategory::Memory,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"M001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Memory,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::L001W {
       return DiagMeta{
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"L001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::L001I {
       return DiagMeta{
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"L001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::L001R {
       return DiagMeta{
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"L001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::L001V {
       return DiagMeta{
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"L001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::L001N {
       return DiagMeta{
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"L001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::L001D {
       return DiagMeta{
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"L001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::L001E {
       return DiagMeta{
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"L001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::L001F {
       return DiagMeta{
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"L001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::I001W {
       return DiagMeta{
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"I001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::I001I {
       return DiagMeta{
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"I001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::I001R {
       return DiagMeta{
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"I001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::I001V {
       return DiagMeta{
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"I001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::I001N {
       return DiagMeta{
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"I001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::I001D {
       return DiagMeta{
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"I001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::I001E {
       return DiagMeta{
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"I001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::I001F {
       return DiagMeta{
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"I001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::P001W {
       return DiagMeta{
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"P001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::P001I {
       return DiagMeta{
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"P001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::P001R {
       return DiagMeta{
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"P001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::P001V {
       return DiagMeta{
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"P001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::P001N {
       return DiagMeta{
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"P001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::P001D {
       return DiagMeta{
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"P001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::P001E {
       return DiagMeta{
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"P001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::P001F {
       return DiagMeta{
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"P001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::S001W {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Syntax",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"S001W">()),
-        brief: "place holder diagnostics",
-        group: "Syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::S001I {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Syntax",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"S001I">()),
-        brief: "place holder diagnostics",
-        group: "Syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::S001R {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Syntax",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"S001R">()),
-        brief: "place holder diagnostics",
-        group: "Syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::S001V {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Syntax",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"S001V">()),
-        brief: "place holder diagnostics",
-        group: "Syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::S001N {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Syntax",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"S001N">()),
-        brief: "place holder diagnostics",
-        group: "Syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::S001D {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Syntax",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"S001D">()),
-        brief: "place holder diagnostics",
-        group: "Syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::S001E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Syntax",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"S001E">()),
-        brief: "place holder diagnostics",
-        group: "Syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S001F {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Syntax",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"S001F">()),
-        brief: "place holder diagnostics",
-        group: "Syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::S041E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "return type mismatch",
+        group: "type-check",
         number: 41,
         hash: static_cast::<u32>(compute_hash::<r"S041E">()),
-        brief: "return type mismatch",
-        group: "type-check"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S041W {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Warning,
+        brief: "return type mismatch",
+        group: "type-check",
         number: 41,
         hash: static_cast::<u32>(compute_hash::<r"S041W">()),
-        brief: "return type mismatch",
-        group: "type-check"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::S011E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "invalid token in lexical parsing",
+        group: "syntax",
         number: 11,
         hash: static_cast::<u32>(compute_hash::<r"S011E">()),
-        brief: "invalid token in lexical parsing",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S012E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unterminated string literal",
+        group: "syntax",
         number: 12,
         hash: static_cast::<u32>(compute_hash::<r"S012E">()),
-        brief: "unterminated string literal",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S013E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unterminated character literal",
+        group: "syntax",
         number: 13,
         hash: static_cast::<u32>(compute_hash::<r"S013E">()),
-        brief: "unterminated character literal",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S014E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unterminated block comment",
+        group: "syntax",
         number: 14,
         hash: static_cast::<u32>(compute_hash::<r"S014E">()),
-        brief: "unterminated block comment",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S019E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unclosed parenthesis",
+        group: "syntax",
         number: 19,
         hash: static_cast::<u32>(compute_hash::<r"S019E">()),
-        brief: "unclosed parenthesis",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S020E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unclosed bracket",
+        group: "syntax",
         number: 20,
         hash: static_cast::<u32>(compute_hash::<r"S020E">()),
-        brief: "unclosed bracket",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S021E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unclosed brace",
+        group: "syntax",
         number: 21,
         hash: static_cast::<u32>(compute_hash::<r"S021E">()),
-        brief: "unclosed brace",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S015E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "missing string or character literal delimiter",
+        group: "syntax",
         number: 15,
         hash: static_cast::<u32>(compute_hash::<r"S015E">()),
-        brief: "missing string or character literal delimiter",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S016E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unmatched closing brace in format string",
+        group: "syntax",
         number: 16,
         hash: static_cast::<u32>(compute_hash::<r"S016E">()),
-        brief: "unmatched closing brace in format string",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S017E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "invalid escape sequence in string literal",
+        group: "syntax",
         number: 17,
         hash: static_cast::<u32>(compute_hash::<r"S017E">()),
-        brief: "invalid escape sequence in string literal",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S018E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "newline in format string interpolation expression",
+        group: "syntax",
         number: 18,
         hash: static_cast::<u32>(compute_hash::<r"S018E">()),
-        brief: "newline in format string interpolation expression",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S022E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "brace escape not valid outside format string",
+        group: "syntax",
         number: 22,
         hash: static_cast::<u32>(compute_hash::<r"S022E">()),
-        brief: "brace escape not valid outside format string",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S023E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "malformed hex escape sequence",
+        group: "syntax",
         number: 23,
         hash: static_cast::<u32>(compute_hash::<r"S023E">()),
-        brief: "malformed hex escape sequence",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S024E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "hex escape value out of byte range",
+        group: "syntax",
         number: 24,
         hash: static_cast::<u32>(compute_hash::<r"S024E">()),
-        brief: "hex escape value out of byte range",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S025E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "octal escape sequence in non-byte string",
+        group: "syntax",
         number: 25,
         hash: static_cast::<u32>(compute_hash::<r"S025E">()),
-        brief: "octal escape sequence in non-byte string",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S026E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "octal escape must have 1 to 3 digits",
+        group: "syntax",
         number: 26,
         hash: static_cast::<u32>(compute_hash::<r"S026E">()),
-        brief: "octal escape must have 1 to 3 digits",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S027E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "octal escape value out of byte range",
+        group: "syntax",
         number: 27,
         hash: static_cast::<u32>(compute_hash::<r"S027E">()),
-        brief: "octal escape value out of byte range",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S028E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "malformed unicode escape sequence",
+        group: "syntax",
         number: 28,
         hash: static_cast::<u32>(compute_hash::<r"S028E">()),
-        brief: "malformed unicode escape sequence",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S029E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unicode escape not valid in byte string",
+        group: "syntax",
         number: 29,
         hash: static_cast::<u32>(compute_hash::<r"S029E">()),
-        brief: "unicode escape not valid in byte string",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S030E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unicode escape value out of valid codepoint range",
+        group: "syntax",
         number: 30,
         hash: static_cast::<u32>(compute_hash::<r"S030E">()),
-        brief: "unicode escape value out of valid codepoint range",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S031E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unicode escape encodes a surrogate code point",
+        group: "syntax",
         number: 31,
         hash: static_cast::<u32>(compute_hash::<r"S031E">()),
-        brief: "unicode escape encodes a surrogate code point",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S032E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "backspace escape not valid in byte string",
+        group: "syntax",
         number: 32,
         hash: static_cast::<u32>(compute_hash::<r"S032E">()),
-        brief: "backspace escape not valid in byte string",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S033E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unknown or unrecognized escape sequence",
+        group: "syntax",
         number: 33,
         hash: static_cast::<u32>(compute_hash::<r"S033E">()),
-        brief: "unknown or unrecognized escape sequence",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S034E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unexpected closing delimiter with no matching opener",
+        group: "syntax",
         number: 34,
         hash: static_cast::<u32>(compute_hash::<r"S034E">()),
-        brief: "unexpected closing delimiter with no matching opener",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S035E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "mismatched opening and closing delimiters",
+        group: "syntax",
         number: 35,
         hash: static_cast::<u32>(compute_hash::<r"S035E">()),
-        brief: "mismatched opening and closing delimiters",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S036E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "expected macro name or identifier in macro definition",
+        group: "syntax",
         number: 36,
         hash: static_cast::<u32>(compute_hash::<r"S036E">()),
-        brief: "expected macro name or identifier in macro definition",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S037E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "expected '!' sigil after macro name",
+        group: "syntax",
         number: 37,
         hash: static_cast::<u32>(compute_hash::<r"S037E">()),
-        brief: "expected '!' sigil after macro name",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S038E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "expected opening brace for macro body",
+        group: "syntax",
         number: 38,
         hash: static_cast::<u32>(compute_hash::<r"S038E">()),
-        brief: "expected opening brace for macro body",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S039E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unterminated or unmatched brace in macro body",
+        group: "syntax",
         number: 39,
         hash: static_cast::<u32>(compute_hash::<r"S039E">()),
-        brief: "unterminated or unmatched brace in macro body",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S040E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "duplicate macro definition in the same scope",
+        group: "syntax",
         number: 40,
         hash: static_cast::<u32>(compute_hash::<r"S040E">()),
-        brief: "duplicate macro definition in the same scope",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S042E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "invalid token or ordering in macro parameter list",
+        group: "syntax",
         number: 42,
         hash: static_cast::<u32>(compute_hash::<r"S042E">()),
-        brief: "invalid token or ordering in macro parameter list",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S043E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "unterminated macro parameter list",
+        group: "syntax",
         number: 43,
         hash: static_cast::<u32>(compute_hash::<r"S043E">()),
-        brief: "unterminated macro parameter list",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::S044E {
       return DiagMeta{
-        category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error,
+        brief: "empty or missing default value expression in macro parameter",
+        group: "syntax",
         number: 44,
         hash: static_cast::<u32>(compute_hash::<r"S044E">()),
-        brief: "empty or missing default value expression in macro parameter",
-        group: "syntax"
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R001W {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"R001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::R001I {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"R001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::R001R {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"R001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::R001V {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"R001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::R001N {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"R001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::R001D {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"R001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::R001E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"R001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R001F {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"R001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::R003E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "undefined macro",
+        group: "macro",
         number: 3,
         hash: static_cast::<u32>(compute_hash::<r"R003E">()),
-        brief: "undefined macro",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R003W {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Warning,
+        brief: "undefined macro",
+        group: "macro",
         number: 3,
         hash: static_cast::<u32>(compute_hash::<r"R003W">()),
-        brief: "undefined macro",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::R003N {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Note,
+        brief: "undefined macro",
+        group: "macro",
         number: 3,
         hash: static_cast::<u32>(compute_hash::<r"R003N">()),
-        brief: "undefined macro",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::R002E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "failed to lex imported file",
+        group: "import",
         number: 2,
         hash: static_cast::<u32>(compute_hash::<r"R002E">()),
-        brief: "failed to lex imported file",
-        group: "import"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R004E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "no tokens available for imported file",
+        group: "import",
         number: 4,
         hash: static_cast::<u32>(compute_hash::<r"R004E">()),
-        brief: "no tokens available for imported file",
-        group: "import"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R005W {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Warning,
+        brief: "ambiguous module path",
+        group: "import",
         number: 5,
         hash: static_cast::<u32>(compute_hash::<r"R005W">()),
-        brief: "ambiguous module path",
-        group: "import"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::R006E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "macro invoked without required arguments",
+        group: "macro",
         number: 6,
         hash: static_cast::<u32>(compute_hash::<r"R006E">()),
-        brief: "macro invoked without required arguments",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R007E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "macro invoked with arguments but accepts none",
+        group: "macro",
         number: 7,
         hash: static_cast::<u32>(compute_hash::<r"R007E">()),
-        brief: "macro invoked with arguments but accepts none",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R008E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "macro expansion error",
+        group: "macro",
         number: 8,
         hash: static_cast::<u32>(compute_hash::<r"R008E">()),
-        brief: "macro expansion error",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R009E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "builtin macro misuse",
+        group: "macro",
         number: 9,
         hash: static_cast::<u32>(compute_hash::<r"R009E">()),
-        brief: "builtin macro misuse",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R010E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "user-emitted diagnostic via error!() macro",
+        group: "macro",
         number: 10,
         hash: static_cast::<u32>(compute_hash::<r"R010E">()),
-        brief: "user-emitted diagnostic via error!() macro",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::R010W {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Warning,
+        brief: "user-emitted diagnostic via error!() macro",
+        group: "macro",
         number: 10,
         hash: static_cast::<u32>(compute_hash::<r"R010W">()),
-        brief: "user-emitted diagnostic via error!() macro",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::R010N {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Note,
+        brief: "user-emitted diagnostic via error!() macro",
+        group: "macro",
         number: 10,
         hash: static_cast::<u32>(compute_hash::<r"R010N">()),
-        brief: "user-emitted diagnostic via error!() macro",
-        group: "macro"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::R011E {
       return DiagMeta{
-        category: DiagCategory::Resolution,
-        severity: DiagSeverity::Error,
+        brief: "failed to resolve import path",
+        group: "import",
         number: 11,
         hash: static_cast::<u32>(compute_hash::<r"R011E">()),
-        brief: "failed to resolve import path",
-        group: "import"
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::CL001W {
       return DiagMeta{
-        category: DiagCategory::Lowering,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"CL001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Lowering,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::CL001I {
       return DiagMeta{
-        category: DiagCategory::Lowering,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"CL001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Lowering,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::CL001R {
       return DiagMeta{
-        category: DiagCategory::Lowering,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"CL001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Lowering,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::CL001V {
       return DiagMeta{
-        category: DiagCategory::Lowering,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"CL001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Lowering,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::CL001N {
       return DiagMeta{
-        category: DiagCategory::Lowering,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"CL001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Lowering,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::CL001D {
       return DiagMeta{
-        category: DiagCategory::Lowering,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"CL001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Lowering,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::CL001E {
       return DiagMeta{
-        category: DiagCategory::Lowering,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"CL001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Lowering,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::CL001F {
       return DiagMeta{
-        category: DiagCategory::Lowering,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"CL001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Lowering,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::SC001W {
       return DiagMeta{
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Warning,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"SC001W">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::SC001I {
       return DiagMeta{
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Ignored,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"SC001I">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Ignored
       };
     }
     case DiagID::SC001R {
       return DiagMeta{
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Remark,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"SC001R">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Remark
       };
     }
     case DiagID::SC001V {
       return DiagMeta{
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Verbose,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"SC001V">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Verbose
       };
     }
     case DiagID::SC001N {
       return DiagMeta{
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Note,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"SC001N">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Note
       };
     }
     case DiagID::SC001D {
       return DiagMeta{
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Debug,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"SC001D">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Debug
       };
     }
     case DiagID::SC001E {
       return DiagMeta{
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Error,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"SC001E">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Error
       };
     }
     case DiagID::SC001F {
       return DiagMeta{
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Fatal,
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
         number: 1,
         hash: static_cast::<u32>(compute_hash::<r"SC001F">()),
-        brief: "place holder diagnostics",
-        group: "Uncategorized"
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Fatal
       };
     }
   }

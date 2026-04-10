@@ -18,8 +18,8 @@ import Lexer::Token::*;
 class <const CHUNK_SIZE: usize> TokenBuffer {
     struct Chunk; ///< forward declaration
 
-    type TokenPtr  = *Token;
-    type ChunkBuff = *Chunk;
+    type TokenPtr  = obs::<Token>;
+    type ChunkBuff = view::<Chunk>;
 
     /// we allocate tokens in chunks of CHUNK_SIZE tokens then store the base
     /// pointer and the data. this allows us to avoid moving tokens around

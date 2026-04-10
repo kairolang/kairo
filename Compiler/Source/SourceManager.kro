@@ -68,12 +68,12 @@ type FileID = u32;;
 ///   - fetching views, buffers, and metadata
 ///
 class SourceManager {
-    pub  var _line_table: SourceLineTable;    ///< global line mapping table
-    priv var _files:      vec::<*SourceFile>; ///< all loaded files
-    priv var _total_b:    u64 = 0;            ///< total bytes mapped
-    priv var _pool:      *ThreadPool;         ///< background worker pool
-    priv var _vfile_mgr: *VirtualFileManager; ///< underlying virtual filesystem
-    priv var _load_mu:    std::Mutex;       ///< mutex for synchronizing file loads
+    pub  var _line_table: SourceLineTable;           ///< global line mapping table
+    priv var _files:      vec::<own::<SourceFile>>;  ///< all loaded files
+    priv var _total_b:    u64 = 0;                   ///< total bytes mapped
+    priv var _pool:       obs::<ThreadPool>;         ///< background worker pool
+    priv var _vfile_mgr:  obs::<VirtualFileManager>; ///< underlying virtual filesystem
+    priv var _load_mu:    std::Mutex;                ///< mutex for synchronizing file loads
 
     ///
     /// \brief constructs a new SourceManager with pool and vfile manager.
@@ -83,7 +83,7 @@ class SourceManager {
     ///
     /// \throws RuntimeError if either argument is null.
     ///
-    fn SourceManager(self, pool: *ThreadPool, vfile_mgr: *VirtualFileManager) {
+    fn SourceManager(self, pool: obs::<ThreadPool>, vfile_mgr: *VirtualFileManager) {
         if pool == &null {
             std::crash(std::Error::RuntimeError(
                 "SourceManager: A valid ThreadPool is required"
@@ -186,7 +186,7 @@ class SourceManager {
     /// \note The caller is responsible for ensuring the data pointer
     ///       remains valid for the lifetime of the virtual file.
     ///
-    fn load_virtual(self, fake_path: Path, data: std::const_ptr::<u8>, size: usize) -> FileID {
+    fn load_virtual(self, fake_path: Path, data: std::ConstPtr::<u8>, size: usize) -> FileID {
         var fid = _vfile_mgr->register_virtual(fake_path, data, size);
         
         _line_table.register_file(fid, size);
@@ -366,7 +366,7 @@ class SourceManager {
     ///
     /// \brief resolves a raw pointer back to file id + offset.
     ///
-    fn resolve_ptr(self, ptr: std::const_ptr::<u8>)
+    fn resolve_ptr(self, ptr: std::ConstPtr::<u8>)
         -> VirtualFileManager::SegmentResolve
     {
         return _vfile_mgr->resolve_ptr(const_cast::<*u8>(ptr));
@@ -719,13 +719,13 @@ fn Test() -> i32 {
 
     var fid0 = sm->load_virtual(
         Path("test_file0.kro", false),
-        reinterpret_cast::<std::const_ptr::<u8>>(data0.data()),
+        reinterpret_cast::<std::ConstPtr::<u8>>(data0.data()),
         file0_str.size()
     );
 
     var fid1 = sm->load_virtual(
         Path("test_file1.kro", false),
-        reinterpret_cast::<std::const_ptr::<u8>>(data1.data()),
+        reinterpret_cast::<std::ConstPtr::<u8>>(data1.data()),
         file1_str.size()
     );
 

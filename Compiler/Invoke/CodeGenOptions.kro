@@ -16,51 +16,49 @@ import Command::ParsedArgs::*;
 ///
 /// \class CodeGenOptions
 ///
-/// \brief Controls optimisation, debug info, and code generation behaviour.
+/// \brief Controls optimization, debug info, and code generation behaviour.
 ///
 class CodeGenOptions {
     __inline_cpp("public:");
-
-    // -- optimisation ------------------------------------------------------
-    pub var opt_level:             i32    = 0;
-    pub var opt_size:              bool   = false;
-    pub var opt_size_z:            bool   = false;
-    pub var lto:                   string = "off";
-    pub var profile:               string = "debug";
-
-    // -- debug info --------------------------------------------------------
-    pub var debug_info:            bool   = false;
-    pub var no_debug_info:         bool   = false;
-    pub var dwarf_version:         i32    = 5;
-    pub var split_dwarf:           bool   = false;
-    pub var debug_macros:          bool   = false;
-    pub var embed_source:          bool   = false;
-
-    // -- strip -------------------------------------------------------------
-    pub var strip:                 bool   = false;
-    pub var strip_debug:           bool   = false;
-
-    // -- inliner / loop limits (from --c* config flags) --------------------
-    pub var max_inline_depth:      i32    = 256;
-    pub var inline_cost:           f64    = 225.0;
-    pub var max_unroll_count:      i32    = 0;
-    pub var max_for_unroll:        i32    = 1024;
-    pub var max_lambda_capture:    i32    = 1024;
-    pub var max_codegen_passes:    i32    = 0;
-    pub var max_object_size_mb:    i32    = 512;
-
     // -- misc codegen ------------------------------------------------------
-    pub var save_temps:            bool   = false;
-    pub var signed_wrap:           bool   = false;
-    pub var unsigned_trap:         bool   = false;
-    pub var strict_aliasing:       bool   = false;
-    pub var instrument_functions:  bool   = false;
     pub var fp_model:              string = "precise";
     pub var fp_contract:           string = "off";
     pub var thread_model:          string = "posix";
     pub var unwind_tables:         string = "sync";
     pub var rtlib:                 string = "compiler-rt";
     pub var unwindlib:             string = "";
+    // -- optimization ------------------------------------------------------
+    pub var lto:                   string = "off";
+    pub var profile:               string = "debug";
+    // -- inliner / loop limits (from --c* config flags) --------------------
+    pub var inline_cost:           f64    = 225.0;
+    pub var max_inline_depth:      i32    = 256;
+    pub var max_unroll_count:      i32    = 0;
+    pub var max_for_unroll:        i32    = 1024;
+    pub var max_lambda_capture:    i32    = 1024;
+    pub var max_codegen_passes:    i32    = 0;
+    pub var max_object_size_mb:    i32    = 512;
+    // -- optimization ------------------------------------------------------
+    pub var opt_level:             i32    = 0;
+    pub var opt_size:              bool   = false;
+    pub var opt_size_z:            bool   = false;
+
+    // -- debug info --------------------------------------------------------
+    pub var dwarf_version:         i32    = 5;
+    pub var debug_info:            bool   = false;
+    pub var no_debug_info:         bool   = false;
+    pub var split_dwarf:           bool   = false;
+    pub var debug_macros:          bool   = false;
+    pub var embed_source:          bool   = false;
+    // -- strip -------------------------------------------------------------
+    pub var strip:                 bool   = false;
+    pub var strip_debug:           bool   = false;
+    // -- misc codegen ------------------------------------------------------
+    pub var save_temps:            bool   = false;
+    pub var signed_wrap:           bool   = false;
+    pub var unsigned_trap:         bool   = false;
+    pub var strict_aliasing:       bool   = false;
+    pub var instrument_functions:  bool   = false;
 
     static fn from_args(args: ref!(ParsedArgs)) -> CodeGenOptions {
         var o = CodeGenOptions();

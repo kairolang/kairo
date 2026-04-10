@@ -12,10 +12,10 @@
 /// ------------------------------------------------------------------------ ///
 
 class Assert {
-    var passes: usize = 0;
-    var fails:  usize = 0;
+    var passes:      usize = 0;
+    var fails:       usize = 0;
     var overhead_ns: i64;
-    var name: string;
+    var name:        string;
 
     /// we can count the number of tests run by checking passes + fails
     fn Assert(self, n: string) {

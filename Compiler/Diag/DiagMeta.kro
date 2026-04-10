@@ -34,12 +34,12 @@ import Diag::DiagSeverity::*;
 /// Severity suffixes: E, W, N, I, R, V, D, F.
 /// The numeric component is always zero-padded to three digits.
 struct DiagMeta {
-    var category: DiagCategory;
-    var severity: DiagSeverity;
-    var number:   u32;    ///< Three-digit diagnostic number, e.g. 041.
-    var hash:     u32;    ///< Unique ID encoding category - number - severity.
     var brief:    string; ///< Short human-readable description.
     var group:    string; ///< Suppression group name, e.g. \c "unused-variable".
+    var number:   u32;    ///< Three-digit diagnostic number, e.g. 041.
+    var hash:     u32;    ///< Unique ID encoding category - number - severity.
+    var category: DiagCategory;
+    var severity: DiagSeverity;
 
     // --- Comparisons ------------------------------------------------------ //
 

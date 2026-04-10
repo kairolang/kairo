@@ -49,10 +49,10 @@ ffi "c++" import "Types.hh";
 /// `MappedFileBuffer` and the virtual filesystem.
 ///
 class MMapRegion {
-    pub var _data: *u8    = &null;  ///< pointer to mapped region.
-    pub var _size:  usize = 0;      ///< mapped region size (in bytes).
-    pub var _valid: bool  = false;  ///< indicates mapping success.
-    pub var _owns:  bool  = true;        ///< true if region owns the mapping.
+    pub var _data:  own::<u8> = &null;  ///< pointer to mapped region.
+    pub var _size:  usize     = 0;      ///< mapped region size (in bytes).
+    pub var _valid: bool      = false;  ///< indicates mapping success.
+    pub var _owns:  bool      = true;   ///< true if region owns the mapping.
 
     ///
     /// \brief default constructor.

@@ -11,15 +11,15 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Lexer::Lex::*;
+import Lexer::Lexer::*;
 
 class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
-    var _kv_s:        map::<u32, *Lexer>;
-    var _old_buffers: vec::<*(TokenBuffer::<512>)>;
-    var _pool:       *ThreadPool;
-    var _sm:         *SourceManager;
-    var _diag:       *DiagEngine;
     var _lex_mu:      std::SharedMutex;
+    var _kv_s:        libcxx::unordered_map::<u32, own::<Lexer>>;
+    var _old_buffers: vec::<view::<TokenBuffer::<512>>>;
+    var _pool:        obs::<ThreadPool>;
+    var _sm:          obs::<SourceManager>;
+    var _diag:        obs::<DiagEngine>;
 
     fn TokenCacheManager(self, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) {
         self._sm   = sm;

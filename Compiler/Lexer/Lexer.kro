@@ -57,22 +57,22 @@ enum LastTokenKind derives u8 {
 ///  - supports f-strings, byte strings, nested comments, and unicode
 class Lexer {
     /// lowkey this formatting style looks a lot better tbh
+    pub var _balance   :  BalanceTracker;
+    var _imm_tbl       :  ImmediateTable;
     var _tokens        :  TokenBuffer::<512> = TokenBuffer::<512>();
     var _file_buffer   :  MemoryBuffer;
-    var _imm_tbl       :  ImmediateTable;
-    var _sm            : *SourceManager;
-    var _pool          : *ThreadPool = &null;
+    var cached_data    :  std::ConstPtr::<u8> = &null; // used for lex_slice to avoid repeated file_data() calls
+    var _pool          :  opt::<ThreadPool>   = &null;
+    var _sm            :  obs::<SourceManager>;
+    var _last_text     :  obs::<Token>      = &null;
+    var _diag          :  obs::<DiagEngine> = &null;
     var _cursor        :  usize = 0; // last pos is always file_size - 1
     var _last_token    :  usize = 0;
-    var _fid           :  u32   = 0;
     var _end_pos       :  usize = 0;
-    var _initialized   :  bool  = false;
+    var _fid           :  u32   = 0;
     var _last_kind     :  LastTokenKind = LastTokenKind::None;
-    var _last_text     : *Token = &null;
-    var _last_was_bang :  bool = false;
-    pub var _balance   :  BalanceTracker;
-    var _diag          : *DiagEngine = &null;
-    var cached_data    :  std::const_ptr::<u8> = &null; // used for lex_slice to avoid repeated file_data() calls
+    var _last_was_bang :  bool          = false;
+    var _initialized   :  bool          = false;
 
     /// \brief lightweight handle over string/char immediates
     /// \details abstracts over StringData vs CharData
@@ -559,7 +559,7 @@ class Lexer {
         return self._cursor > (self.file_size() - 1);
     }
 
-    inline priv fn current_data(self) -> std::const_ptr::<u8> {
+    inline priv fn current_data(self) -> std::ConstPtr::<u8> {
         return self.file_data() + self._cursor;
     }
 
@@ -575,7 +575,7 @@ class Lexer {
         return self._file_buffer.size();
     }
 
-    inline priv fn file_data(self) -> std::const_ptr::<u8> {
+    inline priv fn file_data(self) -> std::ConstPtr::<u8> {
         if self.cached_data == &null {
             if !self._file_buffer.is_valid() {
                 return &null;
@@ -625,7 +625,7 @@ class Lexer {
 
     /// 1 would be the immediate next char
     inline priv fn peek_char32(self, offset: isize = 0) -> DecodeResult {
-        var data: std::const_ptr::<u8> = self.current_data();
+        var data: std::ConstPtr::<u8> = self.current_data();
         var size: usize                = self.remaining_offset() + 1;
 
         if offset < 0 {
@@ -660,7 +660,7 @@ class Lexer {
         var res = array::<DecodeResult, N>();
         res.fill(DecodeResult('\0', 0));
 
-        var data: std::const_ptr::<u8> = self.current_data();
+        var data: std::ConstPtr::<u8> = self.current_data();
         var remain: usize = self.remaining_offset() + 1;
 
         if remain == 0 {
@@ -783,7 +783,7 @@ class Lexer {
 
                 var ptr = data + consumed;
                 var chunk: __m128i =
-                    _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(ptr));
+                    _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(ptr));
 
                 var hi = _mm_movemask_epi8(chunk);
                 if hi == 0 {
@@ -902,20 +902,12 @@ class Lexer {
 
     inline priv fn create_error_token(self, start: SourceLocation, expected: TokenKind, kind: TokenKind = TokenKind::TkError) -> Token {
         self._last_kind = LastTokenKind::None;
-        return {
-            .range : self.create_source_range(start),
-            .kind  : kind,
-            .imm   : static_cast::<u32>(expected)
-        };
+        return Token(self.create_source_range(start), kind, static_cast::<u32>(expected));
     }
 
     inline priv fn create_unrecognized_token(self, start: SourceLocation, kind: TokenKind = TokenKind::TkUnknown) -> Token {
         self._last_kind = LastTokenKind::None;
-        return {
-            .range : self.create_source_range(start),
-            .kind  : kind,
-            .imm   : 0
-        };
+        return Token(self.create_source_range(start), kind, u32(-1));
     }
 
     var _last_advanced: isize = 0;
@@ -2207,7 +2199,7 @@ fn Test() -> i32 {
         data = libcxx::string(temp_data);
 
         var path  = Path(temp_path.generic_wstring(), false);
-        var ptr   = reinterpret_cast::<std::const_ptr::<u8>>(data.data());
+        var ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(data.data());
         var fid   = sm->load_virtual(path, ptr, data.size());
         var lexer = std::create::<Lexer>(sm, pool, diag);
 

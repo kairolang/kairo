@@ -71,7 +71,7 @@ class Command {
         var t: array::<bool, 256> = array::<bool, 256>();
 
         t['W'] = true; // -Wall  -Wextra  -Wno-...         (warnings)
-        t['O'] = true; // -O0  -O1  -O2  -O3  -Os  -Oz   (optimisation)
+        t['O'] = true; // -O0  -O1  -O2  -O3  -Os  -Oz   (optimization)
         t['f'] = true; // -funsafe  -fno-...  -fPIC  -fPIE  (feature toggles + codegen)
         t['m'] = true; // -march  -mcpu  -mabi  -mtune    (machine/target)
         t['X'] = true; // -Xcxx  -Xlinker  -Xassembler    (passthrough)
@@ -101,9 +101,9 @@ class Command {
 
     // -- members -----------------------------------------------------------
 
-    priv var _diag:  *DiagEngine;
-    priv var _table: vec::<FlagDef>;
     priv var _args:  vec::<string>; ///< copy of argv for parsing (owned by Command)
+    priv var _table: vec::<FlagDef>;
+    priv var _diag:  obs::<DiagEngine>;
 
     // -- constructor -------------------------------------------------------
 

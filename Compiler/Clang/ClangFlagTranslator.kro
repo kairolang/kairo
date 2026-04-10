@@ -60,7 +60,7 @@ class ClangFlagTranslator {
         // -- target triple + machine ------------------------------------
         self._emit_target(args, &argv);
 
-        // -- optimisation (individual flags override profile baseline) --
+        // -- optimization (individual flags override profile baseline) --
         self._emit_opt(args, &argv);
 
         // -- debug info -------------------------------------------------

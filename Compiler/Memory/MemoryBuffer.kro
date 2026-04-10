@@ -46,7 +46,7 @@ import UTF8View::*;
 /// file management subsystems.
 ///
 class MemoryBuffer {
-    priv var _data: std::const_ptr::<u8> = &null; ///< pointer to raw data bytes.
+    priv var _data: std::ConstPtr::<u8> = &null; ///< pointer to raw data bytes.
     priv var _size: usize = 0;                    ///< total byte size of buffer.
 
     ///
@@ -60,7 +60,7 @@ class MemoryBuffer {
     /// \param data pointer to constant byte memory.
     /// \param size total number of bytes available.
     ///
-    fn MemoryBuffer(self, data: std::const_ptr::<u8>, size: usize) {
+    fn MemoryBuffer(self, data: std::ConstPtr::<u8>, size: usize) {
         self._data = data;
         self._size = size;
     }
@@ -76,7 +76,7 @@ class MemoryBuffer {
     ///
     /// \brief returns pointer to underlying byte data.
     ///
-    inline fn data(self) -> std::const_ptr::<u8> {
+    inline fn data(self) -> std::ConstPtr::<u8> {
         return self._data;
     }
 

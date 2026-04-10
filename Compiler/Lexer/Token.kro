@@ -22,7 +22,7 @@ import TokenKind::*;
 ///      total          = 16 bytes + 0 bytes padding
 ///
 /// on 32-bit alignment is 4 bytes, total size is still 16 bytes
-struct Token { // size=16B, align=4
+class Token { // size=16B, align=4
     pub var range: SourceRange = SourceRange();          ///< source location range
     pub var kind:  TokenKind   = TokenKind::TkUnknown;   ///< token kind
     pub var imm:   u32         = -1;                     ///< immediate value index in ImmediateTable, or -1 if none
@@ -42,7 +42,18 @@ struct Token { // size=16B, align=4
         Substitutable,
         Eof,
         Unknown,
+    }
 
+    fn Token(self) {
+        self.kind  = TokenKind::TkUnknown;
+        self.range = SourceRange();
+        self.imm   = u32(-1);
+    }
+
+    fn Token(self, range: SourceRange, kind: TokenKind = TokenKind::TkUnknown, imm: u32 = -1) {
+        self.kind  = kind;
+        self.range = range;
+        self.imm   = imm;
     }
 
     const fn op == (self, other: Token) -> bool {
@@ -138,38 +149,36 @@ struct Token { // size=16B, align=4
     const fn op as (self) -> string {
         return f"Token(kind: '{token_kind_to_string(self.kind)}', kind[hash]: 0x{to_hex_string(static_cast::<u32>(self.kind))}, range: {self.range}, imm: 0x{to_hex_string((self.imm) as u64)})";
     }
+
+    fn has_imm(self) -> bool {
+        return self.imm != u32(-1);
+    }
+
+    fn is_valid(self) -> bool {
+        return self.kind != TokenKind::TkUnknown;
+    }
+
+    fn is_eof(self) -> bool {
+        return self.kind == TokenKind::TkEof;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == TokenKind::TkError;
+    }
+
+    fn error_expected_kind(self) -> TokenKind {
+        return static_cast::<TokenKind>(self.imm);
+    }
+
+    fn start_loc(self) -> SourceLocation {
+        return self.range.start;
+    }
+
+    fn end_loc(self) -> SourceLocation {
+        return self.range.end;
+    }
+
+    fn readable_kind(self) -> string {
+        return token_kind_to_readable_string(self.kind);
+    }
 } //Token end
-
-module TokenUtils {
-    fn has_imm(tok: Token) -> bool {
-        return tok.imm != u32(-1);
-    }
-
-    fn is_valid(tok: Token) -> bool {
-        return tok.kind != TokenKind::TkUnknown;
-    }
-
-    fn is_eof(tok: Token) -> bool {
-        return tok.kind == TokenKind::TkEof;
-    }
-
-    fn is_error(tok: Token) -> bool {
-        return tok.kind == TokenKind::TkError;
-    }
-
-    fn error_expected_kind(tok: Token) -> TokenKind {
-        return static_cast::<TokenKind>(tok.imm);
-    }
-
-    fn start_loc(tok: Token) -> SourceLocation {
-        return tok.range.start;
-    }
-
-    fn end_loc(tok: Token) -> SourceLocation {
-        return tok.range.end;
-    }
-
-    fn readable_kind(tok: Token) -> string {
-        return token_kind_to_readable_string(tok.kind);
-    }
-}

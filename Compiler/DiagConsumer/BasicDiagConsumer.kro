@@ -48,8 +48,8 @@ import Source::SourceManager::*;
 ///         --> file.kro:8:1
 /// \endcode
 class BasicDiagConsumer derives DiagConsumer {
-    priv var _diags: vec::<*Diagnostic>; ///< Non-owning; pointers owned by DiagEngine.
-    priv var _sm:    *SourceManager;     ///< Optional. Null suppresses location/snippet output.
+    priv var _diags: vec::<obs::<Diagnostic>>; ///< Non-owning; pointers owned by DiagEngine.
+    priv var _sm:    opt::<SourceManager>;     ///< Optional. Null suppresses location/snippet output.
 
     // --- Constructors --------------------------------------------------------
 

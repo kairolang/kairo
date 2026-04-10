@@ -32,8 +32,8 @@ import Source::SourceManager::*;
 ///
 /// \c _sm may be null; source snippets and \c --> lines are omitted when so.
 class PrettyDiagConsumer derives DiagConsumer {
-    priv var _diags: vec::<*Diagnostic>;
-    priv var _sm:    *SourceManager;
+    priv var _diags: vec::<obs::<Diagnostic>>;
+    priv var _sm:    opt::<SourceManager>;
 
     // --- ANSI escape codes --------------------------------------------------
     //
@@ -69,6 +69,10 @@ class PrettyDiagConsumer derives DiagConsumer {
 
     fn handle(self, diag: *Diagnostic) {
         self._diags.push_back(diag);
+    }
+
+    fn attach_source_manager(self, sm: *SourceManager) {
+        self._sm = sm;
     }
 
     /// Renders to stderr. Color enabled if stderr is a tty and \c NO_COLOR
@@ -144,7 +148,7 @@ class PrettyDiagConsumer derives DiagConsumer {
         // "error [SC041E]: message"
         out += f"{sev_str} [{code_str}]: {diag->message}" + NL;
 
-        if diag->has_loc && sm != &null {
+        if (diag->has_loc) && (sm != &null) {
             var loc_info = sm->get_line_col(diag->loc);
             var filename = sm->get_filename(diag->loc);
             out += f"  {arrow} {filename}:{loc_info.line}:{loc_info.column}" + NL;

@@ -29,18 +29,18 @@ class BalanceTracker {
     }
     
     struct BalanceError {
-        var kind     : BalanceErrorKind;
         var loc      : SourceLocation;
+        var open_loc : SourceLocation;
         var expected : TokenKind;
         var found    : TokenKind;
-        var open_loc : SourceLocation;
+        var kind     : BalanceErrorKind;
         var is_macro : bool;
     }
     
+    var stack           : std::Memory::buffer::<Entry, 512>; // static const and initialized in class is not supported in stage(0)
+    pub var errors      : libcxx::deque::<BalanceError>;
+    var stack_size      : usize = 0;
     const MAX_STACK_SIZE: usize = 512;
-    var stack      : std::Memory::buffer::<Entry, 512>; // static const and initialized in class is not supported in stage(0)
-    var stack_size : usize = 0;
-    pub var errors : libcxx::deque::<BalanceError>;
     
     inline fn push(self, kind: TokenKind, loc: SourceLocation, is_macro: bool = false) {
         if self.stack_size < MAX_STACK_SIZE {
@@ -53,11 +53,11 @@ class BalanceTracker {
         } else {
             // overflow = unrecoverable nesting
             self.errors.push_back(BalanceError{
-                kind: BalanceErrorKind::Unclosed,
                 loc: loc,
+                open_loc: loc,
                 expected: TokenKind::TkUnknown,
                 found: TokenKind::TkUnknown,
-                open_loc: loc,
+                kind: BalanceErrorKind::Unclosed,
                 is_macro: is_macro
             });
         }
@@ -66,11 +66,11 @@ class BalanceTracker {
     inline fn pop(self, closer: TokenKind, loc: SourceLocation) -> bool {
         if self.stack_size == 0 {
             self.errors.push_back(BalanceError{
-                kind: BalanceErrorKind::Unexpected,
                 loc: loc,
+                open_loc: SourceLocation(),
                 expected: TokenKind::TkUnknown,
                 found: closer,
-                open_loc: SourceLocation(),
+                kind: BalanceErrorKind::Unexpected,
                 is_macro: false
             });
             return false;
@@ -106,11 +106,11 @@ class BalanceTracker {
 
                 var unclosed = self.stack[i];
                 self.errors.push_back(BalanceError{
-                    kind: BalanceErrorKind::Unclosed,
                     loc: unclosed.loc,
+                    open_loc: unclosed.loc,
                     expected: BalanceTracker::get_closer(unclosed.kind),
                     found: TokenKind::TkUnknown,
-                    open_loc: unclosed.loc,
+                    kind: BalanceErrorKind::Unclosed,
                     is_macro: unclosed.is_macro
                 });
             }
@@ -120,11 +120,11 @@ class BalanceTracker {
         } else {
             // mismatched
             self.errors.push_back(BalanceError{
-                kind: BalanceErrorKind::Mismatched,
                 loc: loc,
+                open_loc: top.loc,
                 expected: expected,
                 found: closer,
-                open_loc: top.loc,
+                kind: BalanceErrorKind::Mismatched,
                 is_macro: top.is_macro
             });
 
@@ -139,11 +139,11 @@ class BalanceTracker {
             var top = self.stack[self.stack_size - 1];
 
             self.errors.push_back(BalanceError{
-                kind: BalanceErrorKind::Unclosed,
                 loc: top.loc,
+                open_loc: top.loc,
                 expected: BalanceTracker::get_closer(top.kind),
                 found: TokenKind::TkUnknown,
-                open_loc: top.loc,
+                kind: BalanceErrorKind::Unclosed,
                 is_macro: top.is_macro
             });
 

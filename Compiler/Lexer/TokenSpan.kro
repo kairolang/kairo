@@ -15,7 +15,7 @@
 import Lexer::TokenBuffer::*;
 
 class TokenSpan {
-    var _buffer: *TokenBuffer::<512>;
+    var _buffer: view::<TokenBuffer::<512>>;
     var _start:  usize;
     var _length: usize;
 

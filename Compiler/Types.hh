@@ -93,6 +93,99 @@
 #include "KLog.hh"
 
 namespace kairo {
+/// \brief Owning pointer. This object is responsible for the lifetime of the
+///        pointee. Must be explicitly freed in the destructor or op delete.
+///        Non-null by convention if the pointee may be absent, use Oot<T>.
+///
+/// \invariant Must appear in op delete / destructor cleanup.
+/// \invariant Must never be copied without transferring ownership.
+/// \example
+///   own<MacroSymbolTable> _macro_table; ///< freed in op delete
+template <typename T>
+using own = T *;
+
+template <typename T>
+using const_own = const T *;
+
+template <typename T>
+using volatile_own = volatile T *;
+
+/// \brief Observing pointer. Non-owning reference to an object whose lifetime
+///        is guaranteed by another owner. This pointer must not outlive the
+///        owning object. Non-null by convention if the pointee may be absent,
+///        use opt<T>.
+///
+/// \invariant Must never be passed to std::destroy or freed.
+/// \invariant Should be accompanied by a comment stating who owns the pointee
+///            and what lifetime guarantee applies.
+/// \example
+///   obs<SourceManager> _sm; ///< owned by CompilerInstance, outlives this
+template <typename T>
+using obs = T *;
+
+template <typename T>
+using const_obs = const T *;
+
+template <typename T>
+using volatile_obs = volatile T *;
+
+/// \brief Optional observing pointer. Non-owning reference that may be null.
+///        Used when the pointee is either absent or conditionally available.
+///        Callers must null-check before dereferencing.
+///
+/// \invariant Must never be passed to std::destroy or freed.
+/// \invariant Must be null-checked at every dereference site.
+/// \example
+///   opt<DiagEngine> _diag; ///< null until initialize() is called
+template <typename T>
+using opt = T *;
+
+template <typename T>
+using const_opt = const T *;
+
+template <typename T>
+using volatile_opt = volatile T *;
+
+/// \brief Optional owning pointer. Owns the pointee if non-null. Responsible
+///        for freeing it in the destructor. Used when the owned object is
+///        lazily initialized or conditionally present.
+///
+/// \invariant Must be freed in op delete if non-null: if (_p) std::destroy(_p)
+/// \invariant Must be null-checked before dereferencing.
+/// \invariant Must never be copied without transferring ownership.
+/// \example
+///   oot<ImmediateTable> _imm; ///< null until initialize() called, owned
+template <typename T>
+using oot = T *;
+
+template <typename T>
+using const_oot = const T *;
+
+template <typename T>
+using volatile_oot = volatile T *;
+
+/// \brief View pointer. Non-owning pointer into the interior of a larger
+///        allocation owned elsewhere. Distinct from obs<T> which points to
+///        a complete object view<T> points into the middle of a buffer,
+///        array, or arena-allocated slab. The pointed-to memory is valid only
+///        as long as the containing allocation is alive.
+///
+/// \invariant Must never be passed to std::destroy or freed.
+/// \invariant Must never be used to access before the view start or after
+///            the view end bounds are the caller's responsibility.
+/// \invariant Should be accompanied by a comment stating what allocation
+///            backs this view and who owns it.
+/// \example
+///   view<Token> _body; ///< slice into TokenBuffer owned by TCM
+template <typename T>
+using view = T *;
+
+template <typename T>
+using const_view = const T *;
+
+template <typename T>
+using volatile_view = volatile T *;
+
 ///
 /// \class SmallFunction
 /// \brief Fixed-capacity callable wrapper for small, move-only lambdas.
@@ -346,7 +439,8 @@ template <typename M>
 using UniqueLock = libcxx::unique_lock<M>;
 
 ///
-/// \brief Alias for shared locking mechanism allowing multiple concurrent readers.
+/// \brief Alias for shared locking mechanism allowing multiple concurrent
+/// readers.
 ///
 /// \see libcxx::shared_lock
 ///
@@ -462,7 +556,15 @@ using nullptr_t = decltype(nullptr);
 /// \tparam T Underlying pointer type.
 ///
 template <typename T>
-using const_ptr = const T *;
+using ConstPtr = const T *;
+
+///
+/// \brief Alias for volatile-qualified pointer type.
+///
+/// \tparam T Underlying pointer type.
+///
+template <typename T>
+using VolatilePtr = volatile T *;
 
 ///
 /// \brief Restrict qualifier macro for pointer optimization.
@@ -839,31 +941,31 @@ inline libcxx::filesystem::path get_exe_path() noexcept {
 
 inline string get_default_target_triple() noexcept {
 #if defined(__aarch64__) || defined(_M_ARM64)
-#   if defined(__APPLE__)
-        return L"aarch64-apple-macosx11.0.0";
-#   elif defined(__linux__)
-        return L"aarch64-unknown-linux-gnu";
-#   elif defined(_WIN32)
-        return L"aarch64-pc-windows-msvc";
-#   else
-        return L"aarch64-unknown-unknown";
-#   endif
+#if defined(__APPLE__)
+    return L"aarch64-apple-macosx11.0.0";
+#elif defined(__linux__)
+    return L"aarch64-unknown-linux-gnu";
+#elif defined(_WIN32)
+    return L"aarch64-pc-windows-msvc";
+#else
+    return L"aarch64-unknown-unknown";
+#endif
 #elif defined(__x86_64__) || defined(_M_X64)
-#   if defined(__APPLE__)
-        return L"x86_64-apple-macosx10.15.0";
-#   elif defined(__linux__)
-        return L"x86_64-unknown-linux-gnu";
-#   elif defined(_WIN32)
-        return L"x86_64-pc-windows-msvc";
-#   else
-        return L"x86_64-unknown-unknown";
-#   endif
+#if defined(__APPLE__)
+    return L"x86_64-apple-macosx10.15.0";
+#elif defined(__linux__)
+    return L"x86_64-unknown-linux-gnu";
+#elif defined(_WIN32)
+    return L"x86_64-pc-windows-msvc";
+#else
+    return L"x86_64-unknown-unknown";
+#endif
 #elif defined(__riscv)
-#   if defined(__riscv_xlen) && (__riscv_xlen == 64)
-        return L"riscv64-unknown-linux-gnu";
-#   else
-        return L"riscv32-unknown-linux-gnu";
-#   endif
+#if defined(__riscv_xlen) && (__riscv_xlen == 64)
+    return L"riscv64-unknown-linux-gnu";
+#else
+    return L"riscv32-unknown-linux-gnu";
+#endif
 #elif defined(__wasm32__)
     return L"wasm32-unknown-unknown";
 #elif defined(__wasm64__)

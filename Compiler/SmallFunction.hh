@@ -71,7 +71,6 @@ SmallFunction<InlineSize>::SmallFunction(F &&f) {
     emplace(libcxx::forward<F>(f));
 }
 
-
 template <size_t InlineSize>
 SmallFunction<InlineSize>::SmallFunction(SmallFunction &&other) noexcept {
     move_from(std::Memory::move(other));
@@ -121,9 +120,7 @@ void SmallFunction<InlineSize>::emplace(F &&f) {
         (*reinterpret_cast<const FnT *>(s))();
     };
 
-    _destroy = [](void *s) noexcept {
-        reinterpret_cast<FnT *>(s)->~FnT();
-    };
+    _destroy = [](void *s) noexcept { reinterpret_cast<FnT *>(s)->~FnT(); };
 }
 
 template <size_t InlineSize>

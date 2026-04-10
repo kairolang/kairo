@@ -100,14 +100,14 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("borrow-check",   "",  "borrow-check",   "borrow checker severity: warn|error|off (default: warn in debug, error in release)","");
     cmd->define::<FlagKind::String>("amt-mode",       "",  "amt-mode",       "AMT violation reporting independent of --borrow-check: warn|error|silent",         "");
     cmd->define::<FlagKind::String>("amt-report-file","",  "amt-report-file","write all AMT decisions and rewrites to this file for auditing",                   "");
-    cmd->define::<FlagKind::String>("lto",            "",  "lto",            "link-time optimisation: off|thin|full (default: off)",                             "off");
+    cmd->define::<FlagKind::String>("lto",            "",  "lto",            "link-time optimization: off|thin|full (default: off)",                             "off");
     cmd->define::<FlagKind::String>("panic-handler",  "",  "panic-handler",  "symbol name of a custom panic handler (for --no-stdlib targets)",                  "");
 
     // =========================================================================
     //  OPTIMISATION
     // =========================================================================
 
-    cmd->define::<FlagKind::I32>  ("opt",             "O", "",               "optimisation level: 0 (none), 1 (basic), 2 (standard), 3 (aggressive)",           0, 0, 3);
+    cmd->define::<FlagKind::I32>  ("opt",             "O", "",               "optimization level: 0 (none), 1 (basic), 2 (standard), 3 (aggressive)",           0, 0, 3);
     cmd->define::<FlagKind::Bool> ("opt-size",        "",  "Os",             "optimise for binary size",                                                          false);
     cmd->define::<FlagKind::Bool> ("opt-size-z",      "",  "Oz",             "aggressively optimise for binary size (slower code, smallest output)",             false);
     cmd->define::<FlagKind::Bool> ("debug-info",      "g", "",               "emit DWARF debug information",                                                      false);
@@ -166,10 +166,10 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("exceptions",         "C++ style exception handling");
     cmd->define::<FlagKind::Feature>("unsafe",             "permit unsafe{} blocks");
 
-    // -- codegen / optimisation (off by default unless noted) -----------------
+    // -- codegen / optimization (off by default unless noted) -----------------
     cmd->define::<FlagKind::Feature>("inline",             "function inlining (on)");
     cmd->define::<FlagKind::Feature>("force-inline",       "honour @force_inline() directives (on)");
-    cmd->define::<FlagKind::Feature>("tail-call",          "tail call optimisation");
+    cmd->define::<FlagKind::Feature>("tail-call",          "tail call optimization");
     cmd->define::<FlagKind::Feature>("dead-code-elim",     "dead code elimination (on)");
     cmd->define::<FlagKind::Feature>("vectorize",          "auto-vectorisation (loop + SLP)");
     cmd->define::<FlagKind::Feature>("unroll-loops",       "loop unrolling");
@@ -227,7 +227,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     cmd->define::<FlagKind::StringList>("define",     "D", "",              "define a compile-time macro: -DNAME or -DNAME=VALUE (repeatable)");
     cmd->define::<FlagKind::StringList>("cfg",        "",  "cfg",           "set a named config flag for conditional compilation: --cfg name or --cfg name=value (repeatable)");
-    cmd->define::<FlagKind::String>    ("profile-use","",  "profile-use",   "path to .profdata file for PGO-guided optimisation",                                "");
+    cmd->define::<FlagKind::String>    ("profile-use","",  "profile-use",   "path to .profdata file for PGO-guided optimization",                                "");
     cmd->define::<FlagKind::String>    ("coverage-format","","coverage-format","coverage output format: lcov|gcov|llvm (default: llvm)",                         "llvm");
     cmd->define::<FlagKind::StringList>("coverage-prefix-map","","coverage-prefix-map","remap source paths in coverage output (repeatable)");
 
@@ -375,7 +375,7 @@ fn register_kairo_flags(cmd: *Command) {
     //  DEVELOPER / DUMP INTERNALS
     // =========================================================================
 
-    cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump LLVM IR before and after optimisation passes",                            false);
+    cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump LLVM IR before and after optimization passes",                            false);
     cmd->define::<FlagKind::Bool>  ("print-bcir",       "",  "print-bcir",       "dump BCIR before and after borrow-check lowering",                             false);
     cmd->define::<FlagKind::Bool>  ("print-ast",        "",  "print-ast",        "dump AST after parsing",                                                       false);
     cmd->define::<FlagKind::Bool>  ("print-sema",       "",  "print-sema",       "dump IR after semantic analysis",                                              false);
@@ -446,7 +446,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::I32>("max-string-length",         "maximum allowed string literal length in characters (0 = unlimited)",      0,       0,    2147483647);
 
     //  codegen
-    cmd->define_cfg::<FlagKind::I32>("max-codegen-passes",        "maximum LLVM optimisation passes to run (0 = pipeline default)",           0,       0,    1024);
+    cmd->define_cfg::<FlagKind::I32>("max-codegen-passes",        "maximum LLVM optimization passes to run (0 = pipeline default)",           0,       0,    1024);
     cmd->define_cfg::<FlagKind::I32>("max-object-size-mb",        "reject object files larger than this size in MB (0 = unlimited)",          512,     0,    65536);
 
     //  borrow checker / AMT
@@ -532,8 +532,8 @@ fn register_test_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("mabi",          "",  "mabi",         "target ABI",                                      "");
     cmd->define::<FlagKind::String>("mtune",         "",  "mtune",        "tune for CPU",                                    "");
 
-    // -- optimisation ----------------------------------------------------------
-    cmd->define::<FlagKind::I32>("opt",           "O", "",             "optimisation level",                              0, 0, 3);
+    // -- optimization ----------------------------------------------------------
+    cmd->define::<FlagKind::I32>("opt",           "O", "",             "optimization level",                              0, 0, 3);
     cmd->define::<FlagKind::Bool>("opt-size",      "",  "Os",           "optimise for size",                               false);
     cmd->define::<FlagKind::Bool>("opt-size-z",    "",  "Oz",           "aggressively optimise for size",                  false);
     cmd->define::<FlagKind::Bool>("debug",         "g", "",             "emit debug symbols",                              false);
@@ -554,7 +554,7 @@ fn register_test_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("inline",          "function inlining (-finline / -fno-inline)");
     cmd->define::<FlagKind::Feature>("const-checks",    "const correctness checks (-fconst-checks / -fno-const-checks)");
     cmd->define::<FlagKind::Feature>("dead-code-elim",  "dead code elimination (-fdead-code-elim / -fno-dead-code-elim)");
-    cmd->define::<FlagKind::Feature>("tail-call",       "tail call optimisation (-ftail-call / -fno-tail-call)");
+    cmd->define::<FlagKind::Feature>("tail-call",       "tail call optimization (-ftail-call / -fno-tail-call)");
     cmd->define::<FlagKind::Feature>("union-inference", "union type inference (-funion-inference / -fno-union-inference)");
     cmd->define::<FlagKind::Feature>("export",          "module export (-fexport / -fno-export)");
     cmd->define::<FlagKind::String>("std",             "",  "std", "language standard (e.g. kairo25)",  "");
@@ -575,7 +575,7 @@ fn register_test_flags(cmd: *Command) {
     // -- misc ------------------------------------------------------------------
     cmd->define::<FlagKind::Bool>("save-temps",    "",  "save-temps",            "keep intermediate files",                false);
     cmd->define::<FlagKind::Bool>("coverage",      "",  "coverage",              "enable coverage instrumentation",        false);
-    cmd->define::<FlagKind::Bool>("dump-passes",   "",  "dump-passes",           "dump optimisation passes",               false);
+    cmd->define::<FlagKind::Bool>("dump-passes",   "",  "dump-passes",           "dump optimization passes",               false);
     cmd->define::<FlagKind::F64>("threshold",     "",  "threshold",             "inlining threshold",                     1.0, 0.0, 1.0);
 
     // -- config flags  (--c{key}=value, query via get_cfg_*) ------------------

@@ -158,7 +158,7 @@ class MappedFileBuffer {
         self._region._size  = size;
         self._region._valid = (data != &null);
         self._region._owns  = false;
-        self._view          = MemoryBuffer(data as std::const_ptr::<u8>, size);
+        self._view          = MemoryBuffer(data as std::ConstPtr::<u8>, size);
         self._owns_region   = false;
     }
 }

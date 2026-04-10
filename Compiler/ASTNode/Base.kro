@@ -12,14 +12,14 @@
 /// ------------------------------------------------------------------------ ///
 
 import Source::SourceRange::*;
-import ASTKind::DeclContextKind::*;
-import ASTKind::ASTContext::*;
+import AST::DeclContextKind::*;
+import AST::ASTContext::*;
+import AST::Support::*;
 import ASTKind::DeclKind::*;
 import ASTKind::ExprKind::*;
 import ASTKind::TypeKind::*;
 import ASTKind::StmtKind::*;
 import ASTKind::PatternKind::*;
-import ASTKind::Support::*;
 
 class Expr {
     pub var kind:          ExprKind    = ExprKind::RecoveryExpr;

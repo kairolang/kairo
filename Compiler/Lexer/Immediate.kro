@@ -303,9 +303,9 @@ module Int128 {
 /// \brief arbitrary precision integer for literals exceeding 128 bits
 /// \details uses a limb array with least-significant limb first (little-endian)
 class BigInt {
-    pub var sign:  i8;
     pub var limbs: libcxx::deque::<u64>;
     pub var bits:  usize;
+    pub var sign:  i8;
 
     fn BigInt(self) {
         self.sign = 1;
@@ -385,10 +385,10 @@ class BigInt {
 /// \brief arbitrary precision float for literals exceeding native precision
 /// \details stores mantissa as BigInt with separate exponent
 class BigFloat {
-    pub var sign:      i8;
     pub var mantissa:  BigInt;
-    pub var exponent:  i64;
     pub var precision: usize;
+    pub var exponent:  i64;
+    pub var sign:      i8;
     pub var is_hex:    bool;
 
     fn BigFloat(self) {
@@ -1130,10 +1130,10 @@ module Immediate {
         pub var exprs: libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>; // exprs tokens
                 // along with the start and end from { and }
 
-        pub var prefix: Token;
-        pub var suffix: Token;
-        pub var body:   SourceRange; // string range excl quotes prefix and suffix
-        pub var next:   u32; // for chained strings, contains the next imm string idx
+        pub var body:        SourceRange; // string range excl quotes prefix and suffix
+        pub var prefix:      Token;
+        pub var suffix:      Token;
+        pub var next:        u32; // for chained strings, contains the next imm string idx
         pub var prefix_kind: TextPrefixKind;
 
         priv var _evaluation_status_cb: fn (bool);
@@ -1158,11 +1158,11 @@ module Immediate {
         pub var exprs: libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>; // exprs tokens
                 // along with the start and end from { and }
 
-        pub var prefix: Token;
-        pub var suffix: Token;
-        pub var body:   SourceRange; // string range excl quotes prefix and suffix
+        pub var prefix:      Token;
+        pub var suffix:      Token;
+        pub var body:        SourceRange; // string range excl quotes prefix and suffix
         pub var prefix_kind: TextPrefixKind;
-        pub var next:   u32; // for chained strings, contains the next imm string idx
+        pub var next:        u32; // for chained strings, contains the next imm string idx
 
         priv var _evaluation_status_cb: fn (bool);
 
@@ -1182,25 +1182,25 @@ module Immediate {
     }
 
     class MacroExpansionInfo {
-        pub var original_kind: TokenKind;  ///< original token kind before expansion
-        pub var original_imm:  u32;        ///< original imm index (-1 if none)
-        pub var macro_name:    u32;        ///< which macro produced this token
         pub var invoke_range:  SourceRange;///< source range of the invocation site
         pub var def_range:     SourceRange;///< source range in the macro definition body
+        pub var original_kind: TokenKind;  ///< original token kind before expansion
+        pub var original_imm:  u32;        ///< original imm index (-1 if none)
         pub var parent_idx:    u32;        ///< index of parent MacroExpansionInfo (-1 = root)
+        pub var macro_name:    u32;        ///< which macro produced this token
     }
 }
 
 class ImmediateTable {
     const MAX_IMMEDIATES: u32 = ((-1) as u32);
 
-    var int_literals:     *(ArenaList::<Immediate::IntData>);
-    var float_literals:   *(ArenaList::<Immediate::FloatData>);
-    var char_literals:    *(ArenaList::<Immediate::CharData>);
-    var string_literals:  *(ArenaList::<Immediate::StringData>);
-    var macro_expansions: *(ArenaList::<Immediate::MacroExpansionInfo>);
-    var source_manager:   *SourceManager = &null;
-    var is_evaluating:     std::Atomic::<bool> = false;
+    var int_literals:      own::<ArenaList::<Immediate::IntData>>;
+    var float_literals:    own::<ArenaList::<Immediate::FloatData>>;
+    var char_literals:     own::<ArenaList::<Immediate::CharData>>;
+    var string_literals:   own::<ArenaList::<Immediate::StringData>>;
+    var macro_expansions:  own::<ArenaList::<Immediate::MacroExpansionInfo>>;
+    var source_manager:    obs::<SourceManager> = &null;
+    var is_evaluating:     std::Atomic::<bool>  = false;
 
     fn initialize(self, sm: *SourceManager) {
         self.source_manager   = sm;

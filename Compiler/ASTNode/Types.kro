@@ -11,15 +11,15 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-//    [ ] NamedType                                                          ///
+//    [x] NamedType                                                          ///
 //    [ ] GenericParamType                                                   ///
 //    [ ] GenericInstanceType                                                ///
 //    [ ] TypeOfType                                                         ///
 //    [ ] PackType                                                           ///
 //    [ ] PointerType                                                        ///
 //    [ ] NullableType                                                       ///
-//    [ ] PanicType                                                          ///
-//    [ ] MutableType                                                        ///
+//    [ ] AtomicType                                                         ///
+//    [ ] ConstType                                                          ///
 //    [ ] TupleType                                                          ///
 //    [ ] FixedArrayType                                                     ///
 //    [ ] VectorType                                                         ///
@@ -40,7 +40,7 @@ import ASTNode::Base::*;
 import ASTNode::PrimaryExpressions::*;
 
 /// Represents the address space of a type when `HasAddressSpace` is set.
-/// Stored in `ExtQuals`, not directly in `TypeQualifiers`.
+/// Stored in `ExtQuals`, not directly in `TypeQual`.
 enum AddressSpace derives u32 {
     /// Default address space for conventional targets.
     Generic  = 0,
@@ -55,16 +55,17 @@ enum AddressSpace derives u32 {
 }
 
 /// Extended qualifiers node only allocated when `HasAddressSpace` is set.
-/// Kept separate to avoid bloating `TypeQualifiers` in the common case.
+/// Kept separate to avoid bloating `TypeQual` in the common case.
 class ExtQuals {
-    var address_space: AddressSpace;
+    pub var address_space: AddressSpace;
 
     fn ExtQuals(self, space: AddressSpace) {
         self.address_space = space;
     }
 }
 
-class <T> TypeQualifiers {
+class <T> TypeQual {
+    __inline_cpp("public:");
     enum Flags derives u8 {
         /// No qualifiers applied.
         None = 0,
@@ -113,19 +114,19 @@ class <T> TypeQualifiers {
     // -----------------------------------------------------------------------
 
     /// Default: no qualifiers, no address space.
-    fn TypeQualifiers(self) {
+    fn TypeQual(self) {
         self.flags = Flags::None;
         self.ext   = &null;
     }
 
     /// Construct from a known flag set, no address space.
-    fn TypeQualifiers(self, f: Flags) {
+    fn TypeQual(self, f: Flags) {
         self.flags = f;
         self.ext   = &null;
     }
 
     /// Construct with flags and an address space.
-    fn TypeQualifiers(self, f: Flags, space: AddressSpace, ctx: *ASTContext) {
+    fn TypeQual(self, f: Flags, space: AddressSpace, ctx: *ASTContext) {
         self.flags = ((f) | (Flags::HasAddressSpace));
         self.ext   = ctx->alloc::<ExtQuals>();
         (self.ext->address_space) = space;
@@ -145,7 +146,7 @@ class <T> TypeQualifiers {
 
     /// Returns the address space. Panics if HasAddressSpace is not set.
     const fn address_space(self) -> AddressSpace {
-        assert(self.has_address_space(), "address_space() called on TypeQualifiers without HasAddressSpace");
+        assert((self.has_address_space()) && r"address_space() called on TypeQual without HasAddressSpace");
         return self.ext->address_space;
     }
 
@@ -205,7 +206,7 @@ class <T> TypeQualifiers {
 
     /// Returns true if self is at least as qualified as `other`.
     /// Address space must match exactly if present on either side.
-    const fn is_superset_of(self, const other: TypeQualifiers<T>) -> bool {
+    const fn is_superset_of(self, const other: TypeQual::<T>) -> bool {
         if ((self.flags) & (other.flags)) != (other.flags) {
             return false;
         }
@@ -220,7 +221,7 @@ class <T> TypeQualifiers {
     //  Operator overloads
     // -----------------------------------------------------------------------
 
-    const fn op == (self, const other: TypeQualifiers<T>) -> bool {
+    const fn op == (self, const other: TypeQual::<T>) -> bool {
         if self.flags != other.flags { return false; }
         if self.has_address_space() && other.has_address_space() {
             return (self.ext->address_space) == (other.ext->address_space);
@@ -228,18 +229,18 @@ class <T> TypeQualifiers {
         return true;
     }
 
-    const fn op != (self, const other: TypeQualifiers<T>) -> bool {
+    const fn op != (self, const other: TypeQual::<T>) -> bool {
         return !(self == other);
     }
 
     /// Merge flags only does NOT merge address space.
     /// If either operand has an address space, use merge_with(other, ctx) instead.
-    fn op |= (self, const other: TypeQualifiers) {
+    fn op |= (self, const other: TypeQual) {
         assert((!other.has_address_space()) && r"use merge_with() to merge address spaces");
         self.flags |= other.flags;
     }
 
-    const fn op | (self, const other: TypeQualifiers) -> TypeQualifiers {
+    const fn op | (self, const other: TypeQual) -> TypeQual {
         assert((!other.has_address_space()) && r"use merge_with() to merge address spaces");
         var result = self;
         result.flags |= other.flags;
@@ -248,7 +249,7 @@ class <T> TypeQualifiers {
 
     /// Full qualifier merge including address space.
     /// Self's address space wins if both have one.
-    fn merge_with(self, const other: TypeQualifiers, ctx: *ASTContext) {
+    fn merge_with(self, const other: TypeQual, ctx: *ASTContext) {
         self.flags |= other.flags;
         if (other.has_address_space()) && (!self.has_address_space()) {
             self.set_address_space(other.ext->address_space, ctx);
@@ -265,53 +266,32 @@ class NamedType derives Type {
         range:            SourceRange,
         name:             NamedIdentExpr
     ) -> *NamedType {
-        var node = ctx.alloc::<NamedType>();
+        var node = ctx->alloc::<NamedType>();
         /// from Type
-        node.kind = TypeKind::NamedType;
-        node.range = range;
-        node.qualified_type = &null; // set by sema for associated types
+        node->kind           = TypeKind::NamedType;
+        node->range          = range;
+        node->qualified_type = &null; // set by sema for associated types
         /// from NamedType
-        node.name = name;
+        node->name = name;
         return node;
     }
 
-    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool
-    /* OVERRIDE */ static fn expr_kind() -> TypeKind {
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return (ptr->kind) == TypeKind::NamedType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
         return TypeKind::NamedType;
     }
 
-    fn get_name(self) -> Identifier { return self.name; }
+    fn get_name(self) -> NamedIdentExpr { return self.name; }
 }
 
-
-class MapType derives Type {
-    // Node: MapType key TypeRef + value TypeRef.
-    pub var key_type:   *Type;
-    pub var value_type: *Type;
-
-    static fn create(
-        ctx:             *ASTContext,
-        range:            SourceRange,
-        key_type:        *Type,
-        value_type:      *Type
-    ) -> *MapType {
-        var node = ctx.alloc::<MapType>();
-        /// from Type
-        node.kind = TypeKind::MapType;
-        node.range = range;
-        node.qualified_type = &null; // set by sema for associated types
-        /// from MapType
-        node.key_type = key_type;
-        node.value_type = value_type;
-        return node;
-    }
-
-    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool 
-    /* OVERRIDE */ static fn expr_kind() -> TypeKind {
-        return TypeKind::MapType;
-    }
-
-    fn get_key_type(self)   -> *Type { return self.key_type; }
-    fn get_value_type(self) -> *Type { return self.value_type; }
-}
-
+//    [ ] GenericParamType                                                   ///
+//    [ ] GenericInstanceType                                                ///
+//    [ ] TypeOfType                                                         ///
+//    [ ] PackType                                                           ///
+//    [ ] PointerType                                                        ///
+//    [ ] NullableType                                                       ///
+//    [ ] AtomicType                                                         ///
+//    [ ] ConstType                                                          ///

@@ -62,7 +62,9 @@ import Source::SourceRange::*;
 class SourceLineTable {
     class FileEntry; ///< forward declaration
 
-    priv var _file_table: std::Atomic::<*vec::<*FileEntry>> = std::Atomic::<*vec::<*FileEntry>>(&null);
+    priv var _file_table: std::Atomic::<oot::<vec::<oot::<FileEntry>>>> = std::Atomic::<oot::<vec::<oot::<FileEntry>>>>(&null);
+    //                                  ^ owned     ^ owned if not null
+    //                                if not null
     priv var _file_count: std::Atomic::<u64>   = std::Atomic::<u64>(0);
     priv var _active:     std::Atomic::<bool>  = std::Atomic::<bool>(false);
 
@@ -78,7 +80,7 @@ class SourceLineTable {
         pub var file_size:  u32; ///< total size in bytes.
         pub var file_id:    u32; ///< file index in table.
         pub var ready:      std::Atomic::<bool> = std::Atomic::<bool>(false);
-        pub var lines:      std::Atomic::<*vec::<u32>> = std::Atomic::<*vec::<u32>>(&null);
+        pub var lines:      std::Atomic::<oot::<vec::<u32>>> = std::Atomic::<oot::<vec::<u32>>>(&null);
 
         ///
         /// \brief default constructor.
@@ -309,12 +311,12 @@ class SourceLineTable {
             const nl: __m128i = _mm_set1_epi8(static_cast::<std::Legacy::char>('\n'));
 
             for (; (i + STRIDE * 4) <= size; i += (STRIDE * 4)) {
-                _mm_prefetch(reinterpret_cast::<std::const_ptr::<std::Legacy::char>>(data + i + 128), _MM_HINT_T0);
+                _mm_prefetch(reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(data + i + 128), _MM_HINT_T0);
 
-                var c0: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i));
-                var c1: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i + 16));
-                var c2: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i + 32));
-                var c3: __m128i = _mm_loadu_si128(reinterpret_cast::<std::const_ptr::<__m128i>>(data + i + 48));
+                var c0: __m128i = _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(data + i));
+                var c1: __m128i = _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(data + i + 16));
+                var c2: __m128i = _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(data + i + 32));
+                var c3: __m128i = _mm_loadu_si128(reinterpret_cast::<std::ConstPtr::<__m128i>>(data + i + 48));
 
                 var m0: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c0, nl));
                 var m1: u32 = _mm_movemask_epi8(_mm_cmpeq_epi8(c1, nl));

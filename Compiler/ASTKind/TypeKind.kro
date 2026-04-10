@@ -72,11 +72,11 @@ enum TypeKind derives u8 {
 
     /// Never / bottom type functions that don't return
     /// Written as 'panic' in Kairo: fn diverge() -> panic
-    PanicType,
+    AtomicType,
 
     /// Mutable type: mutable T
     /// Distinct from raw pointer mutable types have value semantics and are not unsafe by default.
-    MutableType,
+    ConstType,
 
     /// -----------------------------------------------------------------------
     ///  Collection types  [5 .. 9]

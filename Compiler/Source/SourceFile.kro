@@ -46,10 +46,10 @@ import Memory::MemoryBuffer::*;
 /// underlying buffer.
 ///
 class SourceFile {
-    pub var path:        Path;              ///< filesystem path of the file.
-    pub var buffer:     *MappedFileBuffer;  ///< pointer to mapped memory region.
-    pub var base_offset: usize = 0;         ///< base offset within global space.
-    pub var size_bytes:  usize = 0;         ///< size of the file in bytes.
+    pub var path:        Path;                     ///< filesystem path of the file.
+    pub var buffer:      view::<MappedFileBuffer>; ///< pointer to mapped memory region.
+    pub var base_offset: usize = 0;                ///< base offset within global space.
+    pub var size_bytes:  usize = 0;                ///< size of the file in bytes.
 
     ///
     /// \brief constructs a `SourceFile` from an existing mapped buffer.

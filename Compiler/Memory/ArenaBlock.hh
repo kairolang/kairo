@@ -55,11 +55,11 @@ namespace kairo {
 ///   destroy()    o(1)
 ///
 struct alignas(64) ArenaBlock {
-    std::Byte  *ptr;
-    size_t      offset{};
-    size_t      capacity;
-    size_t      high_water{};
-    ArenaBlock *next{};
+    view<std::Byte> ptr;
+    size_t          offset{};
+    size_t          capacity;
+    size_t          high_water{};
+    obs<ArenaBlock> next{};
 
     explicit ArenaBlock(size_t cap) noexcept
         : ptr(alloc_block(cap))

@@ -63,7 +63,7 @@ Ordered by impact, lowest to highest:
 | Severity  | Suffix | Meaning                                                 |
 |-----------|--------|---------------------------------------------------------|
 | Ignored   | `I`    | Suppressed entirely no output.                        |
-| Remark    | `R`    | Informational output from optimisation passes.          |
+| Remark    | `R`    | Informational output from optimization passes.          |
 | Verbose   | `V`    | Shown only in verbose mode (`--verbose`).               |
 | Note      | `N`    | Subordinate annotation attached to a parent diagnostic. |
 | Debug     | `D`    | Debug-build only stripped in release.                 |

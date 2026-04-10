@@ -43,51 +43,48 @@ enum FrontendActionKind derives u8 {
 // =============================================================================
 
 class FrontendOptions {
-    // -- primary action ----------------------------------------------------
-    pub var action:              FrontendActionKind = FrontendActionKind::EmitObj;
-
     // -- output ------------------------------------------------------------
     pub var output:              string = "";
     pub var out_dir:             string = "";
     pub var entry:               string = "main";
     pub var emit:                string = "obj";
-    pub var shared:              bool   = false;
-    pub var static_:             bool   = false;
-    pub var no_entry:            bool   = false;
-    pub var dll:                 bool   = false;
-    pub var save_temps:          bool   = false;
-
+    // -- verbosity / timing ------------------------------------------------
+    pub var time_trace:          string = "";
+    pub var stats_file:          string = "";
+    // -- concurrency -------------------------------------------------------
+    pub var thread_count:        i32    = 0; ///< 0 = hardware concurrency
+    pub var max_threads:         i32    = 0; ///< 0 = no cap
+    // -- primary action ----------------------------------------------------
+    pub var action:              FrontendActionKind = FrontendActionKind::EmitObj;
     // -- verbosity / timing ------------------------------------------------
     pub var verbose:             bool   = false;
     pub var quiet:               bool   = false;
     pub var suppress:            bool   = false;
     pub var time_passes:         bool   = false;
-    pub var time_trace:          string = "";
     pub var print_stats:         bool   = false;
-    pub var stats_file:          string = "";
-
-    // -- concurrency -------------------------------------------------------
-    pub var thread_count:        i32    = 0; ///< 0 = hardware concurrency
-    pub var max_threads:         i32    = 0; ///< 0 = no cap
-
     // -- post-stage dump flags (independent of primary action) -------------
     pub var print_tokens:        bool   = false; ///< dump token stream after preprocessing
     pub var print_macros:        bool   = false; ///< dump macro symbol table after preprocessing
     pub var print_imports:       bool   = false; ///< dump import resolution graph
     pub var print_ast:           bool   = false; ///< dump AST after parsing
     pub var print_sema:          bool   = false; ///< dump IR after sema
-    pub var print_ir:            bool   = false; ///< dump LLVM IR pre/post optimisation
+    pub var print_ir:            bool   = false; ///< dump LLVM IR pre/post optimization
     pub var print_bcir:          bool   = false; ///< dump BCIR pre/post borrow-check lowering
     pub var print_generics:      bool   = false; ///< dump generic instantiations
     pub var dump_type_info:      bool   = false; ///< dump inferred expression types after sema
     pub var print_regalloc:      bool   = false; ///< dump register allocation decisions
     pub var print_pass_pipeline: bool   = false; ///< dump LLVM pass pipeline
-
     // -- verification passes -----------------------------------------------
     pub var verify_ir:           bool   = false;
     pub var verify_bcir:         bool   = false;
     pub var bcir_verbose:        bool   = false;
     pub var bcir_stats:          bool   = false;
+    // -- output ------------------------------------------------------------
+    pub var shared:              bool   = false;
+    pub var static_:             bool   = false;
+    pub var no_entry:            bool   = false;
+    pub var dll:                 bool   = false;
+    pub var save_temps:          bool   = false;
 
     // -- helpers -----------------------------------------------------------
 

@@ -24,8 +24,20 @@ import Command::ParsedArgs::*;
 class LangOptions {
     __inline_cpp("public:");
 
-    pub var edition:         string = "2025";
+    pub var edition:         string = "2026";
 
+    // -- -f / -fno- feature toggles ----------------------------------------
+    // -1 = unset (profile default applies), 0 = disabled, 1 = enabled
+    pub var verify_interfaces:   i32 = -1;
+    pub var const_checks:        i32 = -1;
+    pub var overflow_checks:     i32 = -1;
+    pub var strict_null:         i32 = -1;
+    pub var implicit_conv:       i32 = -1;
+    pub var rtti:                i32 = -1;
+    pub var track_macro_origins: i32 = -1;
+    pub var union_inference:     i32 = -1;
+    pub var exceptions:          i32 = -1;
+    pub var unsafe_feature:      i32 = -1;
     // -- hard kill-switches ------------------------------------------------
     pub var no_assert:       bool = false;
     pub var no_finally:      bool = false;
@@ -45,19 +57,6 @@ class LangOptions {
     pub var no_stdlib:       bool = false;
     pub var no_default_libs: bool = false;
     pub var no_crt:          bool = false;
-
-    // -- -f / -fno- feature toggles ----------------------------------------
-    // -1 = unset (profile default applies), 0 = disabled, 1 = enabled
-    pub var verify_interfaces:   i32 = -1;
-    pub var const_checks:        i32 = -1;
-    pub var overflow_checks:     i32 = -1;
-    pub var strict_null:         i32 = -1;
-    pub var implicit_conv:       i32 = -1;
-    pub var rtti:                i32 = -1;
-    pub var track_macro_origins: i32 = -1;
-    pub var union_inference:     i32 = -1;
-    pub var exceptions:          i32 = -1;
-    pub var unsafe_feature:      i32 = -1;
 
     static fn from_args(args: ref!(ParsedArgs)) -> LangOptions {
         var o = LangOptions();

@@ -30,8 +30,8 @@ struct DiagLabel {
         StrikeThrough, ///< Struck-out region (ASCII + Unicode in pretty mode). ~~~
     }
 
-    pub var range: SourceRange;
     pub var text:  string; ///< Annotation message. Empty string = underline only.
+    pub var range: SourceRange;
     pub var style: Style;
 }
 
@@ -41,9 +41,9 @@ struct DiagLabel {
 /// \c replacement in its place. \c message is shown to the user explaining
 /// the intent of the fix.
 struct FixIt {
-    pub var range:       SourceRange;
     pub var replacement: string;
     pub var message:     string; ///< e.g. "change the return type to 'i32' "
+    pub var range:       SourceRange;
 }
 
 
@@ -58,13 +58,13 @@ struct FixIt {
 /// Vectors are pre-reserved at construction to avoid small-size reallocations
 /// on the common path.
 class Diagnostic {
-    pub var code:     DiagCode;
     pub var message:  string;
-    pub var loc:      SourceLocation;
-    pub var has_loc:  bool;
+    pub var children: vec::<own::<Diagnostic>>; ///< Attached notes, owned by this diagnostic.
     pub var labels:   vec::<DiagLabel>;  ///< Source annotations, in source order.
     pub var fixits:   vec::<FixIt>;      ///< Suggested edits.
-    pub var children: vec::<*Diagnostic>; ///< Attached notes, owned by this diagnostic.
+    pub var loc:      SourceLocation;
+    pub var code:     DiagCode;
+    pub var has_loc:  bool;
 
     // --- Constructors ----------------------------------------------------- //
 

@@ -20,7 +20,7 @@ enum DiagSeverity derives u8 {
     /// Diagnostic is suppressed entirely.
     Ignored,
     
-    /// A remark informational, typically from optimisation passes.
+    /// A remark informational, typically from optimization passes.
     Remark,
     
     /// Verbose-mode output, not shown in normal builds.

@@ -28,12 +28,12 @@ class TargetOptions {
     pub var mtune:     string = ""; ///< --mtune
     pub var mabi:      string = ""; ///< --mabi
     pub var mfeatures: string = ""; ///< --mfeatures (e.g. +avx2,-sse4.1)
-    pub var m32:       bool   = false;
-    pub var m64:       bool   = false;
     pub var cxx_std:   string = "c++20";
     pub var cxx_abi:   string = "itanium";
     pub var sysroot:   string = "";
     pub var pic_level: i32    = 0;
+    pub var m32:       bool   = false;
+    pub var m64:       bool   = false;
 
     static fn from_args(args: ref!(ParsedArgs)) -> TargetOptions {
         var o = TargetOptions();

@@ -64,18 +64,18 @@ import Memory::ArenaAllocator::*;
 class <T> ArenaList {
 
     struct Chunk {
-        var base:     *T;
+        var base:     own::<T>;
         var count:    usize;
         var capacity: usize;
     }
 
-    priv var _arena:       *ArenaAllocator = &null; ///< non-null = external (not owned)
-    priv var _owned_arena: ArenaAllocator;           ///< only used when arena is internal
-    priv var _chunks:      *Chunk  = &null;
-    priv var _chunk_count: usize   = 0;
-    priv var _total:       usize   = 0;
-    priv var _chunk_cap:   usize   = 0;
-    priv var _slab_size:   usize   = 0;
+    priv var _owned_arena: ArenaAllocator;                ///< only used when arena is internal
+    priv var _arena:       opt::<ArenaAllocator> = &null; ///< non-null = external (not owned)
+    priv var _chunks:      oot::<Chunk>          = &null;
+    priv var _chunk_count: usize                 = 0;
+    priv var _total:       usize                 = 0;
+    priv var _chunk_cap:   usize                 = 0;
+    priv var _slab_size:   usize                 = 0;
 
     __inline_cpp("static constexpr usize DESCRIPTOR_INIT = 8");
 

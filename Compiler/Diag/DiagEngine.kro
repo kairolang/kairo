@@ -70,8 +70,8 @@ class DiagBuilder;
 /// \note All label and fix-it methods return \c ref!(DiagBuilder) to
 ///       support method chaining.
 class DiagBuilder {
-    priv var _engine:  *DiagEngine;
-    priv var _diag:    *Diagnostic;
+    priv var _engine:  obs::<DiagEngine>;
+    priv var _diag:    own::<Diagnostic>;
     priv var _emitted: bool;
 
     // --- Constructors --------------------------------------------------------
@@ -303,8 +303,9 @@ class DiagEngine {
         var scope:    SourceRange;
     }
 
-    priv var _consumers:          vec::<*DiagConsumer>;
-    priv var _all_diags:          vec::<*Diagnostic>; ///< Owns all emitted diagnostics.
+    priv var _poisoned:           vec::<PoisonEntry>;
+    priv var _consumers:          vec::<obs::<DiagConsumer>>;
+    priv var _all_diags:          vec::<own::<Diagnostic>>; ///< Owns all emitted diagnostics.
     priv var _error_count:        u32  = 0;
     priv var _warn_count:         u32  = 0;
     priv var _note_count:         u32  = 0;
@@ -316,7 +317,6 @@ class DiagEngine {
     priv var _suppressed_count:   u32  = 0;
     priv var _error_limit:        u32  = 50; ///< Max errors before suppression kicks in.
     priv var _warnings_as_errors: bool = false;
-    priv var _poisoned:           vec::<PoisonEntry>;
 
     // --- Constructors --------------------------------------------------------
 
