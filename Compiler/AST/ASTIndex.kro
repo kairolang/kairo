@@ -14,3 +14,163 @@
 ///   Copyright (c) 2026 Kairo Software Foundation
 ///
 /// ------------------------------------------------------------------------ ///
+
+import ASTNode::Base::*;
+import ASTNode::PrimaryExpressions::*;
+import AST::DeclContextKind::*;
+import AST::ASTContext::*;
+import ASTNode::Program::*;
+
+
+/// so we need to start here this takes in an ASTContext, and a HoistedScope then
+class ASTParse {
+    priv var _ctx:          obs::<ASTContext>;
+    priv var _hoisted:      own::<HoistedScope>;    // built by ASTIndex, read by parser
+    priv var _program:      own::<Program>;
+
+    // token state
+    priv var _c_idx:         usize = 0;  // current token index in span
+    priv var _current:       Token;
+    priv var _peek:          Token;
+    priv var _span:          TokenSpan;
+
+    // error recovery state
+    priv var _error_count:  u32;   // snapshot of diag error count at parse start
+    priv var _depth:        u32;   // recursion depth guard
+
+    fn ASTParse(self, ctx: *ASTContext) {
+        self._ctx      = ctx;
+        self._hoisted  = ctx->alloc::<HoistedScope>();
+        self._program  = ctx->alloc_init::<Program>(ctx->fid, ctx);
+        self._span     = ctx->get_tokens();
+        ctx->hoisted = self._hoisted; // circular ref, but safe since ASTParse is short-lived
+    }
+
+    fn index(self) {
+        // build the HoistedScope index from the ASTContext's hoisted declarations
+        // by walking the AST and recording all Decl nodes in the TopLevel, ignoring
+        // Stmts and Exprs. this is a separate step from parsing to allow
+        // the parser to disambiguate.
+        
+        // this function is the acctual parsing logic that walks the AST and fills in the HoistedScope with Decl nodes
+        self._current = self._span[0];
+        self._peek = ((self._span[1]) if (self._span.len > 1) else (Token()));
+
+    }
+
+    // during indexing we dont give a shit
+    // about qualifiers, specifiers, or anything
+    // all we care about is name, does it have generics (if so how much)
+    // and where is it in the source (for error reporting)
+    // along with its qualified path for lookup during parsing
+    fn index_module(self);
+    fn index_fn(self);
+    fn index_class(self);
+    fn index_struct(self);
+    fn index_enum(self);
+    fn index_interface(self);
+    fn index_extend(self);
+    fn index_var(self);
+    fn index_type_alias(self);
+    fn index_import(self);
+    fn 
+
+    fn parse(self) -> obs::<Program>;
+
+    priv fn parse_toplevel_item(self)  -> TopLevelItem;
+    priv fn parse_import(self)         -> *Decl;
+    priv fn parse_module(self)         -> *Decl;
+
+    priv fn parse_decl(self)           -> *Decl;
+    priv fn parse_fn_decl(self)        -> *Decl;
+    priv fn parse_class_decl(self)     -> *Decl;
+    priv fn parse_struct_decl(self)    -> *Decl;
+    priv fn parse_enum_decl(self)      -> *Decl;
+    priv fn parse_interface_decl(self) -> *Decl;
+    priv fn parse_extend_decl(self)    -> *Decl;
+    priv fn parse_var_decl(self)       -> *Decl;   // var / const
+    priv fn parse_type_alias(self)     -> *Decl;
+
+    priv fn parse_stmt(self)           -> *Stmt;
+    priv fn parse_block(self)          -> *Stmt;
+    priv fn parse_if_stmt(self)        -> *Stmt;
+    priv fn parse_while_stmt(self)     -> *Stmt;
+    priv fn parse_for_stmt(self)       -> *Stmt;
+    priv fn parse_loop_stmt(self)      -> *Stmt;
+    priv fn parse_match_stmt(self)     -> *Stmt;
+    priv fn parse_return_stmt(self)    -> *Stmt;
+    priv fn parse_break_stmt(self)     -> *Stmt;
+    priv fn parse_continue_stmt(self)  -> *Stmt;
+    priv fn parse_panic_stmt(self)     -> *Stmt;
+    priv fn parse_try_stmt(self)       -> *Stmt;
+    priv fn parse_assert_stmt(self)    -> *Stmt;
+    priv fn parse_finally_stmt(self)   -> *Stmt;
+
+    priv fn parse_expr(self, min_bp: u8 = 0) -> *Expr;
+    priv fn parse_prefix(self)         -> *Expr;   // unary, literals, grouping
+    priv fn parse_postfix(self, lhs: *Expr) -> *Expr;
+    priv fn parse_call_expr(self, callee: *Expr) -> *Expr;
+    priv fn parse_index_expr(self, base: *Expr)  -> *Expr;
+    priv fn parse_field_expr(self, base: *Expr)  -> *Expr;
+    priv fn parse_cast_expr(self)      -> *Expr;
+    priv fn parse_if_expr(self)        -> *Expr;   // if as expression
+    priv fn parse_match_expr(self)     -> *Expr;
+    priv fn parse_closure_expr(self)   -> *Expr;
+    priv fn parse_yield_expr(self)     -> *Expr;
+    priv fn parse_await_expr(self)     -> *Expr;
+    priv fn parse_spawn_expr(self)     -> *Expr;
+
+    priv fn parse_type(self)           -> *Type;
+    priv fn parse_ptr_type(self)       -> *Type;   // *T / unsafe *T
+    priv fn parse_fn_type(self)        -> *Type;
+    priv fn parse_generic_args(self)   -> *Type;   // <T, U>
+
+    priv fn advance(self)              -> Token {
+        if (self._current != &null) {
+            self._current = self._span[]
+        }
+
+        return *self._current;
+    }
+    priv fn peek(self)                 -> Token;   // _peek, no consume
+    
+    priv fn expect(self, kind: TokenKind) -> Token; // consume or emit diag + recovery token
+    
+    /// this does a deep check (so expanding macroexpanded tokens too)
+    
+    priv fn check(self, kind: TokenKind)  -> bool;
+    priv fn match_tok(self, kind: TokenKind) -> bool; // consume if matches, else false
+
+    priv fn skip_until_decl_sync(self);
+    priv fn skip_until_stmt_sync(self);
+    priv fn skip_until_expr_sync(self);
+    priv fn skip_until_block_sync(self);
+    priv fn skip_until_toplevel_sync(self);
+
+    priv fn skip_until(self, sync_fn: fn(Token) -> bool); // generic skip until sync, takes a function that checks if a token is a sync point
+    priv fn balanced_skip_until(self, sync_fn: fn(Token) -> bool) {
+        // like skip_until, but tracks balanced delimiters to avoid syncing on tokens inside nested structures
+        var depth = 0;
+
+        while (self._current != &null) {
+            if (sync_fn(*self._current) && depth == 0) {
+                return;
+            }
+
+            if (self.check(TokenKind::LParen) || self.check(TokenKind::LBrace) || self.check(TokenKind::LBracket)) {
+                depth += 1;
+            } else if (self.check(TokenKind::RParen) || self.check(TokenKind::RBrace) || self.check(TokenKind::RBracket)) {
+                if (depth > 0) {
+                    depth -= 1;
+                }
+            }
+
+            self.advance();
+        }
+    }
+
+
+    priv fn error_count_snapshot(self) -> u32;
+    priv fn errors_since(self, snapshot: u32) -> bool;
+    priv fn depth_guard(self) -> bool;   // returns false if _depth > MAX_DEPTH
+}
