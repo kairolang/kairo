@@ -161,6 +161,8 @@ class ASTIndex {
         var name = self.expect(TokenKind::TkIdent);
         self.skip_until_balanced(SkipUntil::EndLine);
 
+        var name_str = self.get_text(name.imm);
+
         var entry         = HoistedEntry{};
         entry.kind        = HoistedKind::TypeAlias;
         entry.num_params  = 0;
@@ -176,6 +178,14 @@ class ASTIndex {
     priv fn parse_macro(self);
     priv fn parse_proc_macro(self);
     priv fn parse_import(self);
+
+    priv fn get_text(self, tok: *Token) -> TokenText {
+        if tok == &null {
+            return TokenText("", tok->range, false, false);
+        }
+
+        return TokenText::resolve_basic((*tok), self._ctx->sm);
+    }
 
     fn resolve_deep(self, tok: *Token) -> Token {
         var kind = tok->kind;
@@ -335,7 +345,7 @@ class ASTIndex {
 
         if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
                                                  // the imm of this token stores the
-            resolved_kind = static_cast::<TokenKind>(resolved->imm);
+            resolved_kind = static_cast::<TokenKind>(resolved.imm);
         }
 
         return resolved_kind == kind;
@@ -362,7 +372,7 @@ class ASTIndex {
 
         if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
                                                  // the imm of this token stores the
-            resolved_kind = static_cast::<TokenKind>(resolved->imm);
+            resolved_kind = static_cast::<TokenKind>(resolved.imm);
         }
 
         if resolved_kind == kind {

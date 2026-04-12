@@ -227,7 +227,21 @@ class TokenText {
         self.is_marker = marker;
     }
 
-    static static fn resolve(
+    static fn resolve_basic(
+        tok: Token,
+        sm:  *SourceManager
+    ) -> TokenText {
+        var kind  = tok.kind;
+        var range = tok.range;
+
+        if kind == TokenKind::TkNewLine    { return TokenText("\n",  range, true, false); }
+        if kind == TokenKind::TkWhitespace { return TokenText(" ",   range, true, false); }
+
+        return TokenText(sm->get_text(tok.range), tok.range, false, false);
+    }
+
+
+    static fn resolve(
         tok:     Token,
         sm:      *SourceManager,
         imm_tbl: *ImmediateTable
