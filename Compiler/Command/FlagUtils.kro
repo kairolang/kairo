@@ -17,13 +17,13 @@
 
 enum FlagKind derives u8 {
     Bool,        ///< presence flag; no value             -v / --verbose
-    String,     ///< arbitrary string value              --output=path
-    I32,        ///< signed integer, optional bounds     -O2  --jobs=8
-    F64,        ///< floating-point, optional bounds     --threshold=0.75
-    Path,       ///< single file path                    --prelude=path
-    PathList,   ///< positional files (vec); no flag prefix
-    StringList, ///< repeatable string; each occurrence appends   -I dir
-    Feature,    ///< toggle pair: -f{name} / -fno-{name}  -> i32 -1/0/1
+    String,      ///< arbitrary string value              --output=path
+    I32,         ///< signed integer, optional bounds     -O2  --jobs=8
+    F64,         ///< floating-point, optional bounds     --threshold=0.75
+    Path,        ///< single file path                    --prelude=path
+    PathList,    ///< positional files (vec); no flag prefix
+    StringList,  ///< repeatable string; each occurrence appends   -I dir
+    Feature,     ///< toggle pair: -f{name} / -fno-{name}  -> i32 -1/0/1
 }
 
 class FlagValue {

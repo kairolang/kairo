@@ -54,6 +54,8 @@ class FrontendOptions {
     // -- concurrency -------------------------------------------------------
     pub var thread_count:        i32    = 0; ///< 0 = hardware concurrency
     pub var max_threads:         i32    = 0; ///< 0 = no cap
+    pub var max_expr_depth:      i32    = 0x7FFFFFFE; ///< recursion depth guard for expression parsing
+    pub var max_scope_depth:     i32    = 0x7FFFFFFE; ///< recursion depth guard for scope nesting (e.g. nested functions)
     // -- primary action ----------------------------------------------------
     pub var action:              FrontendActionKind = FrontendActionKind::EmitObj;
     // -- verbosity / timing ------------------------------------------------
@@ -112,24 +114,26 @@ class FrontendOptions {
 
     static fn from_args(args: ref!(ParsedArgs)) -> FrontendOptions {
         var o = FrontendOptions();
-        (o.output)        = args.get_string("output");
-        (o.out_dir)       = args.get_string("out-dir");
-        (o.entry)         = args.get_string("entry");
-        (o.emit)          = args.get_string("emit");
-        (o.shared)        = args.get_bool("shared");
-        (o.static_)       = args.get_bool("static");
-        (o.no_entry)      = args.get_bool("no-entry");
-        (o.dll)           = args.get_bool("dll");
-        (o.save_temps)    = args.get_bool("save-temps");
-        (o.verbose)       = args.get_bool("verbose");
-        (o.quiet)         = args.get_bool("quiet");
-        (o.suppress)      = args.get_bool("suppress");
-        (o.time_passes)   = args.get_bool("time-passes");
-        (o.time_trace)    = args.get_string("time-trace");
-        (o.print_stats)   = args.get_bool("print-stats");
-        (o.stats_file)    = args.get_string("stats-file");
-        (o.thread_count)  = args.get_i32("threads");
-        (o.max_threads)   = args.get_cfg_i32("max-threads");
+        (o.output)          = args.get_string("output");
+        (o.out_dir)         = args.get_string("out-dir");
+        (o.entry)           = args.get_string("entry");
+        (o.emit)            = args.get_string("emit");
+        (o.shared)          = args.get_bool("shared");
+        (o.static_)         = args.get_bool("static");
+        (o.no_entry)        = args.get_bool("no-entry");
+        (o.dll)             = args.get_bool("dll");
+        (o.save_temps)      = args.get_bool("save-temps");
+        (o.verbose)         = args.get_bool("verbose");
+        (o.quiet)           = args.get_bool("quiet");
+        (o.suppress)        = args.get_bool("suppress");
+        (o.time_passes)     = args.get_bool("time-passes");
+        (o.time_trace)      = args.get_string("time-trace");
+        (o.print_stats)     = args.get_bool("print-stats");
+        (o.stats_file)      = args.get_string("stats-file");
+        (o.thread_count)    = args.get_i32("threads");
+        (o.max_expr_depth)  = args.get_cfg_i32("max-expr-depth");
+        (o.max_scope_depth) = args.get_cfg_i32("max-scope-depth");
+        (o.max_threads)     = args.get_cfg_i32("max-threads");
 
         // -- post-stage dump flags -----------------------------------------
         (o.print_tokens)        = args.get_bool("print-tokens");

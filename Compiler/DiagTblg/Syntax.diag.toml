@@ -50,14 +50,14 @@ group = "type-check"
     - correct usage:
     ```kairo
     fn add(a: i32, b: i32) -> i32 {
-        return a + b; // this is correct, as the return type matches the declared type
+        return a + b // this is correct, as the return type matches the declared type
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn add(a: i32, b: i32) -> i32 {
-        return "a" + "b"; // this is incorrect, since the return type is a string, not an i32
+        return "a" + "b" // this is incorrect, since the return type is a string, not an i32
     }
     ```
 
@@ -78,14 +78,14 @@ group = "type-check"
     - correct usage:
     ```kairo
     fn add(a: i32, b: i32) -> i32 {
-        return a + b; // this is correct, as the return type matches the declared type
+        return a + b // this is correct, as the return type matches the declared type
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn add(a: i32, b: i32) -> i32 {
-        return a + b as f32; // this is incorrect, since the return type is f32, not an i32. an implicit conversion will be applied, but it is better to ensure that the return types match exactly. in this case it might round the result to the wrong value which would be unexpected behavior.
+        return a + b as f32 // this is incorrect, since the return type is f32, not an i32. an implicit conversion will be applied, but it is better to ensure that the return types match exactly. in this case it might round the result to the wrong value which would be unexpected behavior.
     }
     ```
 
@@ -113,14 +113,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        var x = 10; // this is correct syntax
+        var x = 10 // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        var x = $129$; // this is incorrect syntax, as the token #129# is invalid in kairo, the lexer does not recognize `$` as a valid token.
+        var x = $129$ // this is incorrect syntax, as the token #129# is invalid in kairo, the lexer does not recognize `$` as a valid token.
     }
     ```
 
@@ -145,14 +145,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        var s = "hello world"; // this is correct syntax
+        var s = "hello world" // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        var s = "hello world; // this is incorrect syntax, as the string literal is not properly terminated with a closing quote.
+        var s = "hello world // this is incorrect syntax, as the string literal is not properly terminated with a closing quote.
     }
     ```
 
@@ -175,14 +175,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        var c = 'a'; // this is correct syntax
+        var c = 'a' // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        var c = 'a; // this is incorrect syntax, as the character literal is not properly terminated with a closing quote.
+        var c = 'a // this is incorrect syntax, as the character literal is not properly terminated with a closing quote.
     }
     ```
 
@@ -206,7 +206,7 @@ group = "syntax"
     ```kairo
     fn main() {
         /* this is a block comment */
-        var x = 10; // this is correct syntax
+        var x = 10 // this is correct syntax
     }
     ```
 
@@ -214,7 +214,7 @@ group = "syntax"
     ```kairo
     fn main() {
         /* this is a block comment
-        var x = 10; // this is incorrect syntax, as the block comment is not properly terminated with a closing delimiter.
+        var x = 10 // this is incorrect syntax, as the block comment is not properly terminated with a closing delimiter.
     }
     ```
 
@@ -239,14 +239,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        var x = (10 + 20); // this is correct syntax
+        var x = (10 + 20) // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        var x = (10 + 20; // this is incorrect syntax, as the opening parenthesis is not properly closed with a closing parenthesis.
+        var x = (10 + 20 // this is incorrect syntax, as the opening parenthesis is not properly closed with a closing parenthesis.
     }
     ```
 
@@ -269,14 +269,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        var arr = [1, 2, 3]; // this is correct syntax
+        var arr = [1, 2, 3] // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        var arr = [1, 2, 3; // this is incorrect syntax, as the opening bracket is not properly closed with a closing bracket.
+        var arr = [1, 2, 3 // this is incorrect syntax, as the opening bracket is not properly closed with a closing bracket.
     }
     ```
 
@@ -299,14 +299,14 @@ group = "syntax"
     - correct usage:
     ```kairo
     fn main() {
-        var obj = { key: "value" }; // this is correct syntax
+        var obj = { key: "value" } // this is correct syntax
     }
     ```
 
     - incorrect usage:
     ```kairo
     fn main() {
-        var obj = { key: "value"; // this is incorrect syntax, as the opening brace is not properly closed with a closing brace.
+        var obj = { key: "value" // this is incorrect syntax, as the opening brace is not properly closed with a closing brace.
     }
     ```
 
@@ -330,14 +330,14 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var s = "hello";
-    var c = 'x';
-    var f = f"result: {x}";
+    var s = "hello"
+    var c = 'x'
+    var f = f"result: {x}"
     ```
 
     - incorrect usage:
     ```kairo
-    var s = f 42;  // 'f' prefix not followed by a quote
+    var s = f 42  // 'f' prefix not followed by a quote
     ```
 
     ## how to fix
@@ -360,12 +360,12 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var msg = f"value: {x}";
+    var msg = f"value: {x}"
     ```
 
     - incorrect usage:
     ```kairo
-    var msg = f"value: }x{";  // unmatched `}`
+    var msg = f"value: }x{"  // unmatched `}`
     ```
 
     ## how to fix
@@ -389,12 +389,12 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var s = "line one\\nline two";  // \\n is a valid escape
+    var s = "line one\\nline two"  // \\n is a valid escape
     ```
 
     - incorrect usage:
     ```kairo
-    var s = "bad \\q here";  // \\q is not a recognized escape sequence
+    var s = "bad \\q here"  // \\q is not a recognized escape sequence
     ```
 
     ## how to fix
@@ -416,14 +416,14 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var msg = f"result: {compute()}";
+    var msg = f"result: {compute()}"
     ```
 
     - incorrect usage:
     ```kairo
     var msg = f"result: {
         compute()
-    }";  // newline inside { } is not allowed
+    }"  // newline inside { } is not allowed
     ```
 
     ## how to fix
@@ -446,12 +446,12 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var escaped = f"literal brace: \\{";  // valid in f-string
+    var escaped = f"literal brace: \\{"  // valid in f-string
     ```
 
     - incorrect usage:
     ```kairo
-    var s = "literal brace: \\{";  // invalid; \\{ only works in f-strings
+    var s = "literal brace: \\{"  // invalid \\{ only works in f-strings
     ```
 
     ## how to fix
@@ -474,13 +474,13 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var tab = "\\x09";  // horizontal tab (U+0009)
+    var tab = "\\x09"  // horizontal tab (U+0009)
     ```
 
     - incorrect usage:
     ```kairo
-    var bad = "\\xGG";  // G is not a hex digit
-    var bad2 = "\\x9";  // only one digit; two are required
+    var bad = "\\xGG"  // G is not a hex digit
+    var bad2 = "\\x9"  // only one digit two are required
     ```
 
     ## how to fix
@@ -502,12 +502,12 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var byte = b"\\xFF";  // maximum valid byte escape
+    var byte = b"\\xFF"  // maximum valid byte escape
     ```
 
     - incorrect usage:
     ```kairo
-    var bad = b"\\x1FF";  // 0x1FF > 0xFF; too large for a byte escape
+    var bad = b"\\x1FF"  // 0x1FF > 0xFF too large for a byte escape
     ```
 
     ## how to fix
@@ -529,12 +529,12 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var byte_str = b"\\101";  // byte value 0x41 = 'A'
+    var byte_str = b"\\101"  // byte value 0x41 = 'A'
     ```
 
     - incorrect usage:
     ```kairo
-    var s = "\\101";  // octal escapes require a byte string
+    var s = "\\101"  // octal escapes require a byte string
     ```
 
     ## how to fix
@@ -571,7 +571,7 @@ group = "syntax"
 
     - incorrect usage:
     ```kairo
-    var bad = b"\\400";  // octal 0o400 = 256 > 0xFF
+    var bad = b"\\400"  // octal 0o400 = 256 > 0xFF
     ```
 
     ## how to fix
@@ -593,14 +593,14 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var euro = "\\u20AC";    // U+20AC EURO SIGN
-    var emoji = "\\U0001F600"; // U+1F600 GRINNING FACE
+    var euro = "\\u20AC"    // U+20AC EURO SIGN
+    var emoji = "\\U0001F600" // U+1F600 GRINNING FACE
     ```
 
     - incorrect usage:
     ```kairo
-    var bad = "\\u20";     // too few digits
-    var bad2 = "\\uXXXX";  // X is not a hex digit
+    var bad = "\\u20"     // too few digits
+    var bad2 = "\\uXXXX"  // X is not a hex digit
     ```
 
     ## how to fix
@@ -622,13 +622,13 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var s = "\\u0041";    // valid in a regular string
-    var b = b"\\x41";    // use byte escapes in byte strings
+    var s = "\\u0041"    // valid in a regular string
+    var b = b"\\x41"    // use byte escapes in byte strings
     ```
 
     - incorrect usage:
     ```kairo
-    var bad = b"\\u0041";  // unicode escape in a byte string
+    var bad = b"\\u0041"  // unicode escape in a byte string
     ```
 
     ## how to fix
@@ -650,7 +650,7 @@ group = "syntax"
 
     - incorrect usage:
     ```kairo
-    var bad = "\\U00200000";  // 0x200000 > 0x10FFFF
+    var bad = "\\U00200000"  // 0x200000 > 0x10FFFF
     ```
 
     ## how to fix
@@ -672,7 +672,7 @@ group = "syntax"
 
     - incorrect usage:
     ```kairo
-    var bad = "\\uD800";  // surrogate half; not a valid scalar value
+    var bad = "\\uD800"  // surrogate half not a valid scalar value
     ```
 
     ## how to fix
@@ -694,13 +694,13 @@ group = "syntax"
 
     - correct usage:
     ```kairo
-    var s = "\\b";      // backspace in a regular string
-    var b = b"\\x08";   // use the explicit byte value in a byte string
+    var s = "\\b"      // backspace in a regular string
+    var b = b"\\x08"   // use the explicit byte value in a byte string
     ```
 
     - incorrect usage:
     ```kairo
-    var bad = b"\\b";   // \\b not valid in byte string
+    var bad = b"\\b"   // \\b not valid in byte string
     ```
 
     ## how to fix
@@ -722,7 +722,7 @@ group = "syntax"
 
     - incorrect usage:
     ```kairo
-    var bad = "hello \\w world";  // \\w is not a valid escape
+    var bad = "hello \\w world"  // \\w is not a valid escape
     ```
 
     ## how to fix
@@ -745,7 +745,7 @@ group = "syntax"
 
     - incorrect usage:
     ```kairo
-    var x = 10);   // `)` has no matching `(`
+    var x = 10)   // `)` has no matching `(`
     ```
 
     ## how to fix
@@ -767,7 +767,7 @@ group = "syntax"
 
     - incorrect usage:
     ```kairo
-    var arr = [1, 2, 3);  // opened with `[` but closed with `)`
+    var arr = [1, 2, 3)  // opened with `[` but closed with `)`
     ```
 
     ## how to fix
@@ -984,4 +984,45 @@ group = "syntax"
 
     ## how to fix
     provide a valid token expression after `=`, e.g. `a = 0` or `a = "default"`.
+    """
+
+# AST --------------------------------------------------------------------------
+
+[S045] # for chained errors, like a macro expansion we have both the error and the warning
+       # the error is for excepted a token but got something else, the warning is for the fact that we are in a macro expansion and the error is defined in the macro definition but we are seeing it in the macro expansion
+brief = "unexpected token in parsing"
+group = "ast"
+    [S045.E]
+    explain = """
+    # unexpected token in parsing
+
+    this error occurs when the parser encounters a token that is not valid in the current parsing context. this can happen due to syntax errors, missing tokens, or incorrect token ordering.
+
+    ## example
+
+    - correct usage:
+    ```kairo
+    fn main() {
+        var x = 10 // this is correct syntax
+    }
+    ```
+
+    - incorrect usage:
+    ```kairo
+    fn main() {
+        var x = 10 129$ // this is incorrect syntax, as the token #129# is
+                        // invalid in kairo, the parser does not recognize
+                        // `129$` as a valid token.
+    }
+    ```
+
+    ## how to fix
+    check the syntax of your code and ensure that all tokens are valid and correctly placed. look for missing punctuation, incorrect token ordering, or other syntax issues that may be causing the error.
+    """
+
+    [S045.N]
+    explain = """
+    # note on macro expansions and error locations
+
+    when an error occurs inside a macro expansion, the primary error message will be reported at the location of the macro expansion (where the macro is invoked), while a secondary note will indicate the location of the original error in the macro definition. this helps clarify that the error originates from the macro definition but is being triggered by its use.
     """

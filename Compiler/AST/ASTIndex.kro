@@ -20,29 +20,40 @@ import ASTNode::PrimaryExpressions::*;
 import AST::DeclContextKind::*;
 import AST::ASTContext::*;
 import ASTNode::Program::*;
+import Diag::DiagEngine::*;
+import Diag::DiagRegistry::*;
 
-
-/// so we need to start here this takes in an ASTContext, and a HoistedScope then
-class ASTParse {
+class ASTIndex {
+    priv var _scope_path:   vec::<string>;
     priv var _ctx:          obs::<ASTContext>;
     priv var _hoisted:      own::<HoistedScope>;    // built by ASTIndex, read by parser
     priv var _program:      own::<Program>;
+    priv var _diag:         obs::<DiagEngine>;
+    priv var _imm:          obs::<ImmediateTable>;
 
     // token state
-    priv var _c_idx:         usize = 0;  // current token index in span
-    priv var _current:       Token;
-    priv var _peek:          Token;
+    priv var _peek:          obs::<Token>;
+    priv var _current:       obs::<Token>;
     priv var _span:          TokenSpan;
+    priv var _c_idx:         usize = 0;  // current token index in span
 
     // error recovery state
-    priv var _error_count:  u32;   // snapshot of diag error count at parse start
     priv var _depth:        u32;   // recursion depth guard
+    priv var _error_count:  u32;   // snapshot of diag error count at parse start
 
-    fn ASTParse(self, ctx: *ASTContext) {
+    priv var _max_scope_depth: u32;
+    priv var _scope_depth:     u32 = 0;
+
+    fn ASTIndex(self, ctx: *ASTContext) {
         self._ctx      = ctx;
         self._hoisted  = ctx->alloc::<HoistedScope>();
         self._program  = ctx->alloc_init::<Program>(ctx->fid, ctx);
         self._span     = ctx->get_tokens();
+        self._diag     = ctx->diags;
+        self._imm      = ctx->get_imm_table();
+        self._scope_path.reserve(32); // just enough to avoid early resizes during indexing
+        self._error_count = self._diag->error_count();
+        self._max_scope_depth = ctx->ci->frontend.max_scope_depth;
         ctx->hoisted = self._hoisted; // circular ref, but safe since ASTParse is short-lived
     }
 
@@ -53,9 +64,56 @@ class ASTParse {
         // the parser to disambiguate.
         
         // this function is the acctual parsing logic that walks the AST and fills in the HoistedScope with Decl nodes
-        self._current = self._span[0];
-        self._peek = ((self._span[1]) if (self._span.len > 1) else (Token()));
+        self._current = (self._span.get(0)) if (self._span.size() > 0) else (&null);
+        self._peek    = (self._span.get(1)) if (self._span.size() > 1) else (&null);
 
+        var iterations = 0; // this is to prevent infinite loops in pathological cases
+
+        while self._current != &null {
+            ++iterations;
+            if (iterations > (_span.size() << 2)) { // we should never need to iterate more than 4 times the number of tokens,
+                                                    // if we do something is very wrong and we should bail to prevent infinite loop
+                self.report(
+                    DiagID::I002F,
+                    self._current->range,
+                    "excessive iterations during AST indexing, aborting to prevent infinite loop"
+                ).first(self._current->range)
+                 .note(DiagID::S045N, f"AST indexing truncated after {iterations} iterations")
+                 .emit();
+                
+                break;
+            }
+
+            // switch self._current->kind {
+            //     /// quals/specs, attributes, that need speical handling
+            //     /// all these can be scoped, we just need to get inside the scope mark that we are inside this scope and continue
+            //     case TokenKind::KwFfi:
+
+            //     case TokenKind::KwPub:
+            //     case TokenKind::KwPriv:
+            //     case TokenKind::KwProt:
+
+            //     case TokenKind::KwEval:
+            //     case TokenKind::KwUnsafe:
+
+            //     case /// decl starts
+            //     case TokenKind::KwVar:
+            //     case TokenKind::KwConst:
+            //     case TokenKind::KwFn:
+            //     case TokenKind::KwOp:
+            //     case TokenKind::KwClass:
+            //     case TokenKind::KwEnum:
+            //     case TokenKind::KwType:
+            //     case TokenKind::KwStruct:
+            //     case TokenKind::KwInterface:
+            //     case TokenKind::KwExtend:
+            //     case TokenKind::KwModule:
+            //     case TokenKind::KwMacro:
+            //     case TokenKind::KwImport:
+
+            //     default:
+            // }
+        }
     }
 
     // during indexing we dont give a shit
@@ -63,114 +121,426 @@ class ASTParse {
     // all we care about is name, does it have generics (if so how much)
     // and where is it in the source (for error reporting)
     // along with its qualified path for lookup during parsing
-    fn index_module(self);
-    fn index_fn(self);
-    fn index_class(self);
-    fn index_struct(self);
-    fn index_enum(self);
-    fn index_interface(self);
-    fn index_extend(self);
-    fn index_var(self);
-    fn index_type_alias(self);
-    fn index_import(self);
-    fn 
+    priv fn parse_fn(self) {
+        // so for all generic realted syntax
+        // we have a point of recovery
+        // if we have a case like `fn <T, Z: bool = gen() > 10> foo() {}`
+        // where 1. the exper must be in perns so its techinally an illigal state
+        // but we cant check that cuz, we need the index, to parse exprs.
+        // the ast handles that state and errors, but here we have a mode of recovery
+        // once we are in the generic we keep balanaced skipping will we hit each semi colon
+        // then we parse the next few tokens if we see the pattern of Ident COLON ... =
+        // we are now in a revory state
+        // in our case we have 1, so we can safly count 2 params (coma + 1)
+        // but our next jump atempt would fail, so our (both exit and sync)
+        // cond will be hitting a ) { in while being balanced
+        // then we backtrack to get the name and num of func params
+        // this is our only point of recovery
+    }
 
-    fn parse(self) -> obs::<Program>;
 
-    priv fn parse_toplevel_item(self)  -> TopLevelItem;
-    priv fn parse_import(self)         -> *Decl;
-    priv fn parse_module(self)         -> *Decl;
+    fn parse_generic_params(self, num_params: *usize) -> bool { // true we if we failed to parse and jumped to recovery state
+        var count: usize = 0;
+        var depth: usize = 0;
+    }
 
-    priv fn parse_decl(self)           -> *Decl;
-    priv fn parse_fn_decl(self)        -> *Decl;
-    priv fn parse_class_decl(self)     -> *Decl;
-    priv fn parse_struct_decl(self)    -> *Decl;
-    priv fn parse_enum_decl(self)      -> *Decl;
-    priv fn parse_interface_decl(self) -> *Decl;
-    priv fn parse_extend_decl(self)    -> *Decl;
-    priv fn parse_var_decl(self)       -> *Decl;   // var / const
-    priv fn parse_type_alias(self)     -> *Decl;
-
-    priv fn parse_stmt(self)           -> *Stmt;
-    priv fn parse_block(self)          -> *Stmt;
-    priv fn parse_if_stmt(self)        -> *Stmt;
-    priv fn parse_while_stmt(self)     -> *Stmt;
-    priv fn parse_for_stmt(self)       -> *Stmt;
-    priv fn parse_loop_stmt(self)      -> *Stmt;
-    priv fn parse_match_stmt(self)     -> *Stmt;
-    priv fn parse_return_stmt(self)    -> *Stmt;
-    priv fn parse_break_stmt(self)     -> *Stmt;
-    priv fn parse_continue_stmt(self)  -> *Stmt;
-    priv fn parse_panic_stmt(self)     -> *Stmt;
-    priv fn parse_try_stmt(self)       -> *Stmt;
-    priv fn parse_assert_stmt(self)    -> *Stmt;
-    priv fn parse_finally_stmt(self)   -> *Stmt;
-
-    priv fn parse_expr(self, min_bp: u8 = 0) -> *Expr;
-    priv fn parse_prefix(self)         -> *Expr;   // unary, literals, grouping
-    priv fn parse_postfix(self, lhs: *Expr) -> *Expr;
-    priv fn parse_call_expr(self, callee: *Expr) -> *Expr;
-    priv fn parse_index_expr(self, base: *Expr)  -> *Expr;
-    priv fn parse_field_expr(self, base: *Expr)  -> *Expr;
-    priv fn parse_cast_expr(self)      -> *Expr;
-    priv fn parse_if_expr(self)        -> *Expr;   // if as expression
-    priv fn parse_match_expr(self)     -> *Expr;
-    priv fn parse_closure_expr(self)   -> *Expr;
-    priv fn parse_yield_expr(self)     -> *Expr;
-    priv fn parse_await_expr(self)     -> *Expr;
-    priv fn parse_spawn_expr(self)     -> *Expr;
-
-    priv fn parse_type(self)           -> *Type;
-    priv fn parse_ptr_type(self)       -> *Type;   // *T / unsafe *T
-    priv fn parse_fn_type(self)        -> *Type;
-    priv fn parse_generic_args(self)   -> *Type;   // <T, U>
-
-    priv fn advance(self)              -> Token {
-        if (self._current != &null) {
-            self._current = self._span[]
+    priv fn parse_class(self);
+    priv fn parse_struct(self);
+    priv fn parse_interface(self);
+    priv fn parse_module(self);
+    priv fn parse_extend(self);
+    
+    priv fn parse_type_alias(self) {
+        var num_generic_params: usize = 0;
+        var tok  = self.expect(TokenKind::KwType);
+        
+        if self.match_tok(TokenKind::OpLt) {
+            num_generic_params = self.parse_generic_params(&num_generic_params);
         }
 
-        return *self._current;
+        var name = self.expect(TokenKind::TkIdent);
+        self.skip_until_balanced(SkipUntil::EndLine);
+
+        var entry         = HoistedEntry{};
+        entry.kind        = HoistedKind::TypeAlias;
+        entry.num_params  = 0;
+        entry.is_foreign  = false;
+        entry.extended    = false;
+        entry.decl.origin = SourceRange(tok.range.start, name_tok.range.end);
+
+        self.hoist(name_str, entry);
     }
-    priv fn peek(self)                 -> Token;   // _peek, no consume
-    
-    priv fn expect(self, kind: TokenKind) -> Token; // consume or emit diag + recovery token
-    
-    /// this does a deep check (so expanding macroexpanded tokens too)
-    
-    priv fn check(self, kind: TokenKind)  -> bool;
-    priv fn match_tok(self, kind: TokenKind) -> bool; // consume if matches, else false
 
-    priv fn skip_until_decl_sync(self);
-    priv fn skip_until_stmt_sync(self);
-    priv fn skip_until_expr_sync(self);
-    priv fn skip_until_block_sync(self);
-    priv fn skip_until_toplevel_sync(self);
+    priv fn parse_enum(self);
+    priv fn parse_var(self);
+    priv fn parse_macro(self);
+    priv fn parse_proc_macro(self);
+    priv fn parse_import(self);
 
-    priv fn skip_until(self, sync_fn: fn(Token) -> bool); // generic skip until sync, takes a function that checks if a token is a sync point
-    priv fn balanced_skip_until(self, sync_fn: fn(Token) -> bool) {
-        // like skip_until, but tracks balanced delimiters to avoid syncing on tokens inside nested structures
-        var depth = 0;
+    fn resolve_deep(self, tok: *Token) -> Token {
+        var kind = tok->kind;
+        var imm  = tok->imm;
+        var iter: u32 = 0;
 
-        while (self._current != &null) {
-            if (sync_fn(*self._current) && depth == 0) {
+        while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
+            if (iter) >= (self._ctx->ci->pp.max_depth) {
+                self.report(DiagID::I002F, tok->range,
+                    "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
+                ).note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
+                 .emit();
+                return Token(tok->range, TokenKind::TkUnknown, 0);
+            }
+
+            if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
+                return Token(tok->range, TokenKind::TkMacroExpand, imm);
+            }
+
+            var info = self._imm->get::<Immediate::MacroExpansionInfo>(imm);
+            kind     = info->original_kind;
+            imm      = info->original_imm;
+            iter    += 1;
+        }
+
+        return Token(tok->range, kind, imm);
+    }
+
+    fn resolve_kind_deep(self, tok: *Token) -> TokenKind {
+        return self.resolve_deep(tok).kind;
+    }
+
+    fn resolve_kind_shallow(self, tok: *Token) -> TokenKind {
+        if tok == &null {
+            return TokenKind::TkUnknown;
+        }
+
+        if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) {
+            return tok->kind;
+        }
+
+        if tok->imm >= static_cast::<u32>(MacroSentinel::Threshold) {
+            return TokenKind::TkMacroExpand;
+        }
+
+        if self._imm == &null {
+            return TokenKind::TkUnknown;
+        }
+
+        var info = self._imm->get::<Immediate::MacroExpansionInfo>(tok->imm);
+        return info->original_kind;
+    }
+
+    fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
+        if tok == &null {
+            return;
+        }
+
+        if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) {
+            return;
+        }
+
+        var kind = tok->kind;
+        var imm  = tok->imm;
+        var depth: u32 = 0;
+
+        while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
+            if depth >= static_cast::<u32>(self._ctx->ci->pp.max_backtrace) {
+                builder->note(DiagID::S045N, tok->range.start,
+                    f"macro expansion chain truncated after {depth} levels"
+                );
                 return;
             }
 
-            if (self.check(TokenKind::LParen) || self.check(TokenKind::LBrace) || self.check(TokenKind::LBracket)) {
-                depth += 1;
-            } else if (self.check(TokenKind::RParen) || self.check(TokenKind::RBrace) || self.check(TokenKind::RBracket)) {
-                if (depth > 0) {
-                    depth -= 1;
+            if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
+                builder->note(DiagID::S045N, tok->range.start,
+                    f"expanded from compiler-internal macro sentinel"
+                );
+                return;
+            }
+
+            if self._imm == &null {
+                return;
+            }
+
+            var info = self._imm->get::<Immediate::MacroExpansionInfo>(imm);
+
+            builder->note(DiagID::S045N, info->def_range.start,
+                f"expanded from macro defined here (depth {depth})"
+            );
+
+            kind  = info->original_kind;
+            imm   = info->original_imm;
+            depth += 1;
+        }
+    }
+
+    priv fn advance(self) -> *Token {
+        var tok = self._current;
+
+        if (self._c_idx + 1) < (self._span.size()) {
+            self._c_idx += 1;
+        }
+
+        self._current = self._span.get(self._c_idx);
+
+        if (self._c_idx + 1) < (self._span.size()) {
+            self._peek = self._span.get(self._c_idx + 1);
+        } else {
+            self._peek = &null;
+        }
+
+        return tok; // return the token we just advanced from
+    }
+
+    inline priv fn peek(self) -> *Token {
+        return self._peek;
+    }
+
+    inline priv fn current(self) -> *Token {
+        return self._current;
+    }
+
+    inline priv fn last(self) -> *Token {
+        if (self._span.size()) > 0 {
+            return self._span.get(self._span.size() - 1);
+        }
+        
+        return &null;
+    }
+
+    inline priv fn is_eof(self) -> bool {
+        return (self.current() != &null) && (self.current()->kind == TokenKind::TkEof);
+    }
+
+    inline priv fn first(self) -> *Token {
+        if (self._span.size()) > 0 {
+            return self._span.get(0);
+        }
+        
+        return &null;
+    }
+    
+    priv fn check(self, kind: TokenKind)  -> bool {
+        var tok = self.current();
+        if tok == &null {
+            return false;
+        }
+
+        var resolved = self.resolve_deep(tok);
+        var resolved_kind = resolved.kind;
+        
+        if resolved_kind == TokenKind::AtComment { // we brush these off
+            self.advance();
+            return self.check(kind);
+        }
+
+        if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
+                                                 // the imm of this token stores the
+            resolved_kind = static_cast::<TokenKind>(resolved->imm);
+        }
+
+        return resolved_kind == kind;
+    }
+
+    priv fn match_tok(self, kind: TokenKind) -> bool {
+        if self.check(kind) {
+            self.advance();
+            return true;
+        }
+
+        return false;
+    }
+
+    inline priv fn expect(self, kind: TokenKind) -> Token {
+        var tok = self.current();
+        var resolved = self.resolve_deep(tok);
+        var resolved_kind = resolved.kind;
+
+        if resolved_kind == TokenKind::AtComment { // we brush these off
+            self.advance();
+            return self.expect(kind);
+        }
+
+        if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
+                                                 // the imm of this token stores the
+            resolved_kind = static_cast::<TokenKind>(resolved->imm);
+        }
+
+        if resolved_kind == kind {
+            self.advance();
+            return (*tok);
+        }
+
+        self.report(DiagID::S045E, tok->range,
+            f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
+        ).emit();
+
+        if tok->kind == TokenKind::TkMacroExpand {
+            var builder = self.report(DiagID::S045N, tok->range,
+                f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
+            );
+            self.attach_macro_expansion_chain(&builder, tok);
+            builder.emit();
+        }
+
+        var err     = Token();
+        err.kind    = TokenKind::TkError;
+        err.range   = tok->range;
+        err.imm     = static_cast::<u32>(kind);
+        return err;
+    }
+
+    priv fn skip_until_decl_sync(self) {
+        while !self.is_eof() {
+            var kind = self.resolve_kind_deep(self.current());
+
+            switch kind {
+                // --- fn's ---
+                case TokenKind::KwFn:
+                case TokenKind::KwOp: /// this means the user is defined op syntax wrong
+                // --------
+                case TokenKind::KwClass:
+                // --------
+                case TokenKind::KwStruct:
+                // --------
+                case TokenKind::KwEnum:
+                // --------
+                case TokenKind::KwInterface:
+                // --------
+                case TokenKind::KwType:
+                // --- vars ----
+                case TokenKind::KwVar:
+                case TokenKind::KwConst:
+                case TokenKind::KwStatic:
+                case TokenKind::KwThread:
+                // --------
+                case TokenKind::KwModule:
+                // --------
+                case TokenKind::KwExtend:
+                // --------
+                case TokenKind::KwMacro:
+                // --------
+                case TokenKind::KwImport:
+                // case TokenKind::KwFfi:
+                // for now we avoid ffi
+                case TokenKind::TkEof { return; }
+                default { self.advance(); }
+            }
+        }
+    }
+
+    priv fn sync_generic_params(self) {
+        var depth: u32 = 0;
+
+        while !self.is_eof() {
+            var tok = self.current();
+
+            switch tok->kind {
+                case TokenKind::OpLBrace:
+                case TokenKind::OpLParen:
+                case TokenKind::OpLSquare {
+                    depth += 1;
+                    self.advance();
                 }
+
+                case TokenKind::OpRBrace:
+                case TokenKind::OpRParen:
+                case TokenKind::OpRSquare {
+                    if depth > 0 {
+                        depth -= 1;
+                        self.advance();
+                    } else {
+                        return; // unmatched close, stop here, let caller handle it
+                    }
+                }
+
+                case TokenKind::OpSemicolon:
+                case TokenKind::TkNewLine {
+                    if depth == 0 {
+                        return; // don't consume, caller may need it
+                    }
+                    self.advance();
+                }
+
+                default {
+                    self.advance();
+                }
+            }
+        }
+    }
+
+    enum SkipUntil {
+        LBrace, RBrace,
+        LParen, RParen,
+        LBracket, RBracket,
+        Brace, Paren, Bracket,
+        Eof, EndLine // semi or newline
+    }
+
+    priv fn skip_until_balanced(self, kind: SkipUntil, starting: u32 = 0) {
+        var depth: u32 = starting;
+
+        while !self.is_eof() {
+            var tok = self.current();
+
+            switch tok->kind {
+                case TokenKind::OpLBrace:
+                case TokenKind::OpLParen:
+                case TokenKind::OpLSquare {
+                    depth += 1;
+                }
+
+                case TokenKind::OpRBrace:
+                case TokenKind::OpRParen:
+                case TokenKind::OpRSquare {
+                    if depth > 0 { depth -= 1; }
+                }
+
+                default {
+                    break;
+                }
+            }
+
+            // now check match at depth 0
+            if depth == 0 {
+                var matches = false;
+                switch kind {
+                    case SkipUntil::LBrace   { matches = (tok->kind == TokenKind::OpLBrace);   }
+                    case SkipUntil::RBrace   { matches = (tok->kind == TokenKind::OpRBrace);   }
+                    case SkipUntil::LParen   { matches = (tok->kind == TokenKind::OpLParen);   }
+                    case SkipUntil::RParen   { matches = (tok->kind == TokenKind::OpRParen);   }
+                    case SkipUntil::LBracket { matches = (tok->kind == TokenKind::OpLSquare);  }
+                    case SkipUntil::RBracket { matches = (tok->kind == TokenKind::OpRSquare);  }
+                    case SkipUntil::Brace    { matches = (tok->kind == TokenKind::OpLBrace)
+                                                    || (tok->kind == TokenKind::OpRBrace);   }
+                    case SkipUntil::Paren    { matches = (tok->kind == TokenKind::OpLParen)
+                                                    || (tok->kind == TokenKind::OpRParen);   }
+                    case SkipUntil::Bracket  { matches = (tok->kind == TokenKind::OpLSquare)
+                                                    || (tok->kind == TokenKind::OpRSquare);  }
+                    case SkipUntil::Eof      { matches = (tok->kind == TokenKind::TkEof);      }
+                    case SkipUntil::EndLine  { matches = (tok->kind == TokenKind::OpSemicolon)
+                                                    || (tok->kind == TokenKind::TkNewLine); }
+                }
+
+                if matches { return; }
             }
 
             self.advance();
         }
     }
 
+    priv fn hoist(self, name: string, entry: HoistedEntry) {
+        if self._scope_path.empty() {
+            self._hoisted->insert(name, entry);
+        } else {
+            self._hoisted->insert_into(&self._scope_path, name, entry);
+        }
+    }
 
-    priv fn error_count_snapshot(self) -> u32;
-    priv fn errors_since(self, snapshot: u32) -> bool;
-    priv fn depth_guard(self) -> bool;   // returns false if _depth > MAX_DEPTH
+    inline fn report(self, code: DiagCode, loc: SourceRange, msg: string) -> ref!(DiagBuilder) {
+        return self._diag->report(code, loc.start, msg).first(loc);
+    }
+
+    inline fn report(self, id: DiagID, loc: SourceRange, msg: string) -> ref!(DiagBuilder) {
+        return self._diag->report(id, loc.start, msg).first(loc);
+    }
 }

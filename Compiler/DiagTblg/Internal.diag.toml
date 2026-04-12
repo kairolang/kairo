@@ -32,3 +32,23 @@ group = "Uncategorized"
     explain = "This is placeholder diagnostics. (Error)"
     [I001.F]
     explain = "This is placeholder diagnostics. (Fatal)"
+
+[I002]
+brief = "fatal error regrading the ast, the message should be self-explanatory"
+group = "ast"
+    [I002.F]
+    explain = """
+    # fatal error regarding the AST
+
+    this diagnostic indicates a critical issue with the Abstract Syntax Tree (AST) that prevents the compiler from proceeding. the message should provide specific details about the nature of the problem.
+
+    ## common causes
+
+    - malformed AST nodes
+    - invalid references within the AST
+    - internal compiler bugs affecting AST construction or manipulation
+
+    ## how to fix
+
+    review the error message for specific details about the issue. if the message is unclear, consider enabling verbose diagnostics for more context. if you believe this is a compiler bug, please report it to the Kairo development team with a minimal reproducible example.
+    """

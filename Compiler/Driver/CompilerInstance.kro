@@ -150,7 +150,7 @@ class FrontendAction {
         path:        Path,
         module_base: ModulePath,
         ci:         *CompilerInstance,
-        resolver:   *ImportResolver // one single import resolver for the full
+        resolver:   *ImportResolver  // one single import resolver for the full
                                      // batch; shared among all actions and threads,
                                      // fully indexed before the first action runs
     ) {
