@@ -560,9 +560,6 @@ void LSPServer::start_debounce_thread() {
 std::string LSPServer::compile_and_get_cxx(const std::string              &kro_file,
                                            const std::vector<std::string> &kairo_args,
                                            bool                            force_recompile) {
-    // compile into temporaries first don't nuke state until we succeed
-    chdir("/Volumes/Foundry/helix/kairo");
-
     error::HAS_ERRORED = false;
     error::ERRORS.clear();
     COMPILE_ACTIONS.clear();
@@ -753,7 +750,7 @@ void LSPServer::collect_and_publish_clangd_diags(const std::string &cxx_uri,
     }
 
     json best;  // best non-empty diag set we've seen
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
 
     while (std::chrono::steady_clock::now() < deadline) {
         int  remaining_ms = (int)std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -926,15 +923,22 @@ void LSPServer::write_compile_commands(const std::string              &cxx_path,
 
 // shared compile + clangd-open logic used by didOpen and didChange
 void LSPServer::sync_file(const std::string &kro_file, const std::vector<std::string> &kairo_args) {
-    std::lock_guard<std::mutex> lock(_compile_mutex);
-    std::string cxx_path = compile_and_get_cxx(kro_file, kairo_args, true);
-    if (cxx_path.empty()) {
-        publish_ast_errors(kro_file);
-        return;
+    std::string cxx_path;
+    std::string cxx_uri_snapshot;
+    
+    {
+        std::lock_guard<std::mutex> lock(_compile_mutex);
+        cxx_path = compile_and_get_cxx(kro_file, kairo_args, true);
+        if (cxx_path.empty()) {
+            publish_ast_errors(kro_file);
+            return;
+        }
+        clear_diagnostics(kro_file);
+        open_in_clangd(cxx_path);
+        cxx_uri_snapshot = _last_cxx_uri;
     }
-    clear_diagnostics(kro_file);
-    open_in_clangd(cxx_path);
-    collect_and_publish_clangd_diags(_last_cxx_uri, kro_file);
+    // poll clangd OUTSIDE the lock so shutdown/hover/etc aren't blocked
+    collect_and_publish_clangd_diags(cxx_uri_snapshot, kro_file);
 }
 
 void LSPServer::handle_did_open(const json &msg) {
