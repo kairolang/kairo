@@ -39,10 +39,17 @@ static std::string DEBUG_PATH =
 // debug log
 // ─────────────────────────────────────────────────────────────────────────────
 
+static std::ofstream *g_log = nullptr;
+
 static void dbg(const std::string &msg) {
-    static std::ofstream log(DEBUG_PATH, std::ios::out | std::ios::trunc);
-    log << msg << "\n";
-    log.flush();
+    if (!g_log || !g_log->is_open()) return;
+    *g_log << msg << "\n";
+    g_log->flush();
+}
+
+static void dbg_init(const std::string &path) {
+    static std::ofstream log_file(path, std::ios::trunc);
+    g_log = &log_file;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -522,6 +529,34 @@ json LSPServer::remap_response_locations(const json &val) const {
 // compile pipeline
 // ─────────────────────────────────────────────────────────────────────────────
 
+void LSPServer::start_debounce_thread() {
+    _debounce_thread = std::thread([this] {
+        while (true) {
+            std::unique_lock<std::mutex> lock(_debounce_mutex);
+
+            _debounce_cv.wait(lock, [this] {
+                return _debounce_pending || _debounce_stop;
+            });
+
+            if (_debounce_stop) return;
+
+            while (_debounce_cv.wait_for(lock, std::chrono::milliseconds(500))
+                   == std::cv_status::no_timeout) {
+                if (_debounce_stop) return;
+            }
+
+            if (!_debounce_pending) continue;
+
+            _debounce_pending = false;
+            std::string              kro  = _pending_kro_file;
+            std::vector<std::string> args = _pending_kairo_args;
+            lock.unlock();
+
+            sync_file(kro, args);
+        }
+    });
+}
+
 std::string LSPServer::compile_and_get_cxx(const std::string              &kro_file,
                                            const std::vector<std::string> &kairo_args,
                                            bool                            force_recompile) {
@@ -841,6 +876,9 @@ json LSPServer::handle_initialize(const json &msg) {
 
     std::filesystem::create_directories(_cache_dir);
 
+    std::ofstream ct(std::filesystem::path(_cache_dir) / ".clang-tidy");
+    ct << "---\nChecks: '-*'\n";
+
     int id = msg.value("id", 0);
 
     if (msg.contains("params") && msg["params"].contains("rootUri"))
@@ -853,6 +891,7 @@ json LSPServer::handle_initialize(const json &msg) {
         clangd.initialize(_root_uri.empty() ? "file:///tmp" : _root_uri);
     }
 
+    start_debounce_thread();
     return make_result_response(
         id,
         {{"capabilities",
@@ -887,6 +926,7 @@ void LSPServer::write_compile_commands(const std::string              &cxx_path,
 
 // shared compile + clangd-open logic used by didOpen and didChange
 void LSPServer::sync_file(const std::string &kro_file, const std::vector<std::string> &kairo_args) {
+    std::lock_guard<std::mutex> lock(_compile_mutex);
     std::string cxx_path = compile_and_get_cxx(kro_file, kairo_args, true);
     if (cxx_path.empty()) {
         publish_ast_errors(kro_file);
@@ -917,6 +957,25 @@ void LSPServer::handle_did_save(const json &msg) {
         return;
     std::string kro_file = uri_to_path(msg["params"]["textDocument"].value("uri", ""));
     sync_file(kro_file, _last_kairo_args);
+}
+
+void LSPServer::handle_did_change(const json &msg) {
+    if (!msg.contains("params")) return;
+    std::string kro_file = uri_to_path(msg["params"]["textDocument"].value("uri", ""));
+
+    std::vector<std::string> args;
+    {
+        std::lock_guard<std::mutex> clock(_compile_mutex);
+        args = _last_kairo_args;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(_debounce_mutex);
+        _pending_kro_file   = kro_file;
+        _pending_kairo_args = args;
+        _debounce_pending   = true;
+    }
+    _debounce_cv.notify_one();
 }
 
 void LSPServer::handle_did_close(const json &msg) {
@@ -1228,7 +1287,7 @@ std::optional<json> LSPServer::dispatch(const json &msg) {
         return std::nullopt;
     }
     if (method == "textDocument/didChange") {
-        handle_did_save(msg);
+        handle_did_change(msg);
         return std::nullopt;
     }
     if (method == "textDocument/didClose") {
@@ -1303,10 +1362,7 @@ void LSPServer::run() {
 
     // we make a new dbg file on each run to avoid interleaving logs from multiple runs which can be
     // confusing DEBUG_PATH is set at the top of this file
-    if (!DEBUG_PATH.empty()) {  // only create dbg file if debugging is enabled
-        std::ofstream dbg_file(DEBUG_PATH, std::ios::trunc);  // truncate to start fresh
-        dbg_file.close();
-    }
+    dbg_init(DEBUG_PATH);
 
     while (true) {
         auto msg = read_lsp_message();
@@ -1317,6 +1373,14 @@ void LSPServer::run() {
         if (response)
             write_lsp_message(*response);
     }
+    
+    {
+        std::lock_guard<std::mutex> lock(_debounce_mutex);
+        _debounce_stop = true;
+    }
+    _debounce_cv.notify_one();
+    if (_debounce_thread.joinable()) _debounce_thread.join();
+
 
     clangd.stop();
 }

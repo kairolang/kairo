@@ -7,6 +7,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
+#include <condition_variable>
+#include <thread>
 
 #include "controller/include/tooling/tooling.hh"
 
@@ -92,6 +95,17 @@ class LSPServer {
     std::string              _last_kro_file;  // absolute path
     std::vector<std::string> _last_kairo_args;
 
+    std::thread              _debounce_thread;
+    std::mutex               _debounce_mutex;
+    std::condition_variable  _debounce_cv;
+    bool                     _debounce_pending = false;
+    bool                     _debounce_stop    = false;
+    std::string              _pending_kro_file;
+    std::vector<std::string> _pending_kairo_args;
+    std::mutex               _compile_mutex;
+
+    void start_debounce_thread();
+
     // ── wire protocol ─────────────────────────────────────────────────────────
     static std::optional<json> read_lsp_message();
     static void                write_lsp_message(const json &msg);
@@ -104,6 +118,7 @@ class LSPServer {
     json handle_initialize(const json &msg);
     void handle_did_open(const json &msg);
     void handle_did_save(const json &msg);
+    void handle_did_change(const json &msg);
     void handle_did_close(const json &msg);
     json handle_hover(const json &msg);
     json handle_definition(const json &msg);
