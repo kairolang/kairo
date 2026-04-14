@@ -119,15 +119,20 @@ class <T> ArenaList {
 
     fn set_allocator(self, arena: *ArenaAllocator, slab_size: usize = 256) {
         if self._arena == (&self._owned_arena) {
-            Logger::fatal(Logger::Stage::Driver,
-                "ArenaList::set_allocator: cannot set external allocator on owned ArenaList");
-            std::crash(std::Error::RuntimeError(
-                "ArenaList::set_allocator: cannot set external allocator on owned ArenaList"
-            ));
+            // only block if we've actually allocated into the owned arena
+            if self._owned_arena.stats.alloc_calls > 0 {
+                Logger::fatal(Logger::Stage::Driver,
+                    "ArenaList::set_allocator: cannot set external allocator on owned ArenaList after allocation");
+                std::crash(std::Error::RuntimeError(
+                    "ArenaList::set_allocator: cannot set external allocator on owned ArenaList after allocation"
+                ));
+            }
+            // pristine owned arena safe to replace, destroy it first
+            self._owned_arena.destroy();
         }
-        
+
         self._slab_size = slab_size if slab_size > 0 else 256;
-        self._arena = arena;
+        self._arena     = arena;
 
         self.alloc_descriptor_table(DESCRIPTOR_INIT);
         self.alloc_slab();

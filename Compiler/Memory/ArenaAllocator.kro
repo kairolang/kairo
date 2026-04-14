@@ -69,7 +69,7 @@ class ArenaAllocator {
         var resets:          usize = 0;
     }
 
-    var stats:      Stats;
+    pub var stats:      Stats;
     var head:       own::<ArenaBlock>;
     var block_size: usize;
 
