@@ -110,4 +110,13 @@ class SkipList {
     fn clear(self) {
         self._ranges.clear();
     }
+
+    fn dump(self) {
+        std::print(f"=== SkipList Dump ({self._ranges.size()} ranges) ===");
+        for var i: usize = 0; i < self._ranges.size(); ++i {
+            var r = self._ranges[i];
+            std::print(f"  [{i}] start={r.start.raw()} end={r.end.raw()} (span={r.end.raw() - r.start.raw()})");
+        }
+        std::print("=== End SkipList ===");
+    }
 }

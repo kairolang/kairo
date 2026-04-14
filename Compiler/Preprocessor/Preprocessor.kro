@@ -823,8 +823,13 @@ class MacroExpander {
             var invoke = self.detect_invocation(tokens, i);
 
             if !invoke.found {
-                output->append(*tok);
-                i += scope_consumed + 1;
+                var end = i + scope_consumed + 1;
+                
+                for var k: usize = i; k < end; ++k {
+                    output->append(*(tokens->get(k)));
+                }
+                
+                i = end;
                 continue;
             }
             

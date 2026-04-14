@@ -146,6 +146,10 @@ class MacroDefinitionCollector {
 
         var name_tok = tokens->get(j);
         if name_tok->kind != TokenKind::LitIdentifier {
+            if name_tok->kind == TokenKind::OpAt {
+                return 0;
+            }
+
             self.error(name_tok, "expected identifier for macro name");
             return 0;
         }

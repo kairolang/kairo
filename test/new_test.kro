@@ -1,4 +1,436 @@
 // ============================================================
+// ASTIndex generic parameter parsing + hoisting test suite
+// ============================================================
+
+// --- 1. Basic: no generics ---
+fn plain()
+
+// --- 2. Single generic param ---
+fn <T> single() -> T
+
+// --- 3. Two params ---
+fn <T, U> two_params() -> T
+
+// --- 4. Three params ---
+fn <A, B, C> three_params()
+
+// --- 5. Constrained param ---
+fn <T: usize> constrained() -> T
+
+// --- 6. Multiple constraints ---
+fn <T: usize, U: string> multi_constrained()
+
+// --- 7. Default value, simple ---
+fn <T = u32> defaulted() -> T
+
+// --- 8. Default with nested generic ---
+fn <T = std::vec<u32>> nested_default() -> T
+
+// --- 9. Two params, second has nested generic default ---
+fn <K, V = std::map<K, string>> map_default() -> V
+
+// --- 10. Triple-nested generic in default (>> and > closing) ---
+fn <T = std::vec<std::vec<u8>>> deep_nested() -> T
+
+// --- 11. Trailing comma ---
+fn <T, U,> trailing_comma()
+
+// --- 12. Single param trailing comma ---
+fn <T,> single_trailing()
+
+// --- 13. Empty generics ---
+fn <> empty_generics()
+
+// --- 14. Multi-line basic ---
+fn <
+    T,
+    U
+> multiline_basic() -> T
+
+// --- 15. Multi-line with constraints ---
+fn <
+    T: usize,
+    U: string,
+    V: bool
+> multiline_constrained()
+
+// --- 16. Multi-line with nested generics ---
+fn <
+    T: std::vec<u8>,
+    U: std::vec<T>
+> multiline_nested() -> U
+
+// --- 17. Multi-line with defaults and nesting ---
+fn <
+    K,
+    V = std::map<K, std::vec<u8>>
+> multiline_complex() -> V
+
+// --- 18. Param with complex type expression in constraint ---
+fn <T: fn(u32) -> bool> callable_constraint()
+
+// --- 19. Multiple nested generics in one param ---
+fn <T = std::map<std::vec<u8>, std::vec<u16>>> double_nested_default() -> T
+
+// --- 20. Generic fn followed immediately by non-generic fn ---
+fn <T> before_plain() -> T
+fn after_generic()
+
+// --- 21. var hoisting mixed with generic fns ---
+var x: u32
+fn <T> after_var() -> T
+const y: string
+fn <A, B> after_const()
+
+// --- 22. enum hoisting (no generics allowed, but test tolerance) ---
+enum Color { Red, Green, Blue }
+
+// --- 23. type alias with generics ---
+type <T> Alias = std::vec<T>
+
+// --- 24. type alias no generics ---
+type Plain = u32
+
+// --- 25. Everything in sequence: stress the index loop ---
+fn <T> stress_a() -> T
+fn stress_b()
+var z: bool
+fn <A, B, C> stress_c()
+type <X> StressAlias = std::map<X, u32>
+enum StressEnum { One, Two }
+fn <T = std::vec<std::vec<std::vec<u8>>>> stress_deep() -> T
+fn stress_final()
+
+// ============================================================
+// ASTIndex module + scope hoisting test suite
+// ============================================================
+
+// --- 1. Basic module with fn ---
+module Foo {
+    fn bar()
+    fn <T> baz() -> T
+    var x: u32
+    type <T> Alias = std::vec<T>
+}
+
+// --- 2. Nested module ---
+module Outer {
+    module Inner {
+        fn inner_fn()
+        var inner_var: u32
+    }
+    fn outer_fn()
+}
+
+// --- 3. Qualified module name ---
+module Foo::Bar {
+    fn qux()
+    var qux_var: u32
+}
+
+// --- 4. Deeply qualified ---
+module A::B::C {
+    fn deep_fn()
+    type DeepAlias = u32
+}
+
+// --- 5. Global namespace root ---
+module ::Root {
+    fn root_fn()
+}
+
+// --- 6. Global namespace qualified ---
+module ::Root::Sub {
+    fn root_sub_fn()
+}
+
+// --- 7. Global root inside a nested module (must land at root, not under Outer2) ---
+module Outer2 {
+    fn outer2_fn()
+    module ::EscapedToRoot {
+        fn escaped_fn()
+    }
+}
+
+// --- 8. Same qualified path declared twice (split definition) ---
+module Split::Ns {
+    fn first_fn()
+}
+module Split::Ns {
+    fn second_fn()
+}
+
+// --- 9. Module with enum and type alias ---
+module WithTypes {
+    enum Status { Ok, Err }
+    type <T> Result = std::vec<T>
+    fn process()
+}
+
+// --- 10. Deeply nested inline modules ---
+module L1 {
+    module L2 {
+        module L3 {
+            module L4 {
+                fn bottom()
+                var bottom_var: u32
+            }
+        }
+    }
+}
+
+// --- 11. Module forward decl (no body) ---
+module ForwardOnly;
+
+// --- 12. Mix of root-level and module-level decls ---
+fn root_level_fn()
+module MixedNs {
+    fn ns_fn()
+    var ns_var: bool
+}
+fn another_root_fn()
+
+// ============================================================
+// parse_fn / parse_name — operator + qualified impl test suite
+// ============================================================
+
+// --- 1. Plain fn, sanity check ---
+fn plain_sanity()
+
+// --- 2. Basic operator decl ---
+fn op +()
+fn op -()
+fn op *()
+fn op /()
+fn op %()
+fn op ==()
+fn op !=()
+fn op <()
+fn op >()
+fn op <=()
+fn op >=()
+
+// --- 3. Generic operator decl ---
+fn <T> op +()
+fn <T, U> op ==()
+
+// --- 4. Qualified impl — current scope, should NOT be hoisted ---
+fn Foo::bar()
+fn Foo::op +()
+fn Foo::baz()
+
+// --- 5. Deeply qualified impl — should NOT be hoisted ---
+fn Foo::Bar::baz()
+fn Foo::Bar::op +()
+fn Foo::Bar::Baz::qux()
+
+// --- 6. Global qualified impl — should NOT be hoisted ---
+fn ::Foo::bar()
+fn ::Foo::op +()
+fn ::Foo::Bar::baz()
+fn ::Foo::Bar::op -()
+
+// --- 7. Generic qualified impl — should NOT be hoisted ---
+fn <T> Foo::bar()
+fn <T, U> Foo::op +()
+fn <T> ::Foo::bar()
+
+// --- 8. Operator decls mixed with plain fns ---
+fn before_op()
+fn op []()
+fn op ()()
+fn after_op()
+
+// --- 9. Operators in a module scope ---
+module OpModule {
+    fn op +()
+    fn op -()
+    fn plain_in_module()
+    fn Foo::op +()      // impl, should NOT appear under OpModule
+    fn ::Root::op +()   // global impl, should NOT appear under OpModule
+}
+
+// --- 10. Stress: mix of everything ---
+fn <T> stress_plain() -> T
+fn stress_no_generic()
+fn op +=()
+fn <T> op -=()
+fn Foo::stress_impl()
+fn ::Bar::stress_global_impl()
+fn <T> Baz::stress_generic_impl()
+
+// ============================================================
+// parse_class / parse_struct / parse_interface test suite
+// ============================================================
+
+// --- 1. Basic class ---
+class Foo {
+    fn bar()
+    fn baz()
+    var x: u32
+}
+
+// --- 2. Generic class ---
+class <T> GenericFoo {
+    fn get() -> T
+    var value: T
+}
+
+// --- 3. Class with inheritance ---
+class Child derives Parent {
+    fn child_fn()
+}
+
+// --- 4. Class with multiple inheritance ---
+class Multi derives Base1, Base2, Base3 {
+    fn multi_fn()
+}
+
+// --- 5. Generic class with inheritance ---
+class <T, U> GenericChild derives Parent<T> {
+    fn generic_child_fn() -> U
+}
+
+// --- 6. Nested classes ---
+class Outer {
+    class Inner {
+        fn inner_fn()
+        var inner_var: u32
+    }
+    fn outer_fn()
+}
+
+// --- 7. Deeply nested classes ---
+class L1 {
+    class L2 {
+        class L3 {
+            fn deep_fn()
+        }
+    }
+}
+
+// --- 8. Class with nested type alias and enum ---
+class WithTypes {
+    type <T> Inner = std::vec<T>
+    enum State { Active, Inactive }
+    fn process()
+}
+
+// --- 9. Class with operators ---
+class OpClass {
+    fn op +()
+    fn op ==()
+    fn <T> op []() -> T
+}
+
+// --- 10. Forward decl class ---
+class ForwardDecl;
+
+// --- 11. Basic struct ---
+struct Point {
+    var x: f32
+    var y: f32
+    fn distance() -> f32
+}
+
+// --- 12. Generic struct ---
+struct <T> Wrapper {
+    var inner: T
+    fn get() -> T
+}
+
+// --- 13. Struct with nested struct ---
+struct Outer {
+    struct Inner {
+        var val: u32
+    }
+    var inner: Inner
+}
+
+// --- 14. Basic interface ---
+interface Drawable {
+    fn draw()
+    fn resize()
+}
+
+// --- 15. Generic interface ---
+interface <T> Container {
+    fn get() -> T
+    fn set()
+}
+
+// --- 16. Interface with inheritance ---
+interface Serializable derives Encodable, Decodable {
+    fn serialize() -> string
+}
+
+// --- 17. Specifiers before class — pub ---
+pub class PubClass {
+    fn pub_fn()
+}
+
+// --- 18. Specifiers before class — priv ---
+priv class PrivClass {
+    fn priv_fn()
+}
+
+// --- 19. Specifiers before struct ---
+pub struct PubStruct {
+    var x: u32
+}
+
+// --- 20. Specifiers before interface ---
+pub interface PubInterface {
+    fn pub_interface_fn()
+}
+
+// --- 21. Multiple specifiers ---
+pub eval class MultiSpec {
+    fn multi_spec_fn()
+}
+
+// --- 22. Specifier before generic class ---
+pub class <T> PubGeneric {
+    fn pub_generic_fn() -> T
+}
+
+// --- 23. Class inside module ---
+module ClassModule {
+    class ModuleClass {
+        fn module_class_fn()
+        class NestedInModule {
+            fn nested_fn()
+        }
+    }
+    struct ModuleStruct {
+        var val: u32
+    }
+    interface ModuleInterface {
+        fn interface_fn()
+    }
+}
+
+// --- 24. Stress: everything mixed ---
+pub class <T, U> StressClass derives Base {
+    fn stress_fn() -> T
+    fn <V> generic_method() -> V
+    fn op +()
+    var stress_var: U
+    class StressInner {
+        fn inner_stress_fn()
+        struct DeepStruct {
+            var deep_val: u32
+        }
+    }
+    type <X> StressAlias = std::vec<X>
+    enum StressState { On, Off }
+}
+
+interface SSerializable derives Encodable, Decodable
+
+class Foowar
+
+// ============================================================
 // Access specifier block (pub/priv/prot { ... }) test suite
 // ============================================================
 
@@ -170,3 +602,59 @@ class StressAccess {
     }
     fn outside_blocks()
 }
+
+macro enum_values!(name, char) {
+    name = char,
+}
+
+macro delim_tokens!(gen_mac) {
+    enum_values!(Delimiter_A, 'a')
+    enum_values!(Delimiter_B, 'b')
+    enum_values!(Delimiter_C, 'c')
+}
+
+macro @proc_macro(x: AST::Function) {
+    // this is a no-op proc macro, just testing that it can be defined and invoked without error
+    return x;
+}
+
+macro macro_enumurate!(vals...) {
+    enum Delimiters {
+        ...vals
+    }
+
+    fn length() { count!(...vals) }
+}
+
+macro_enumurate!(delim_tokens!(enum_values));
+
+
+
+// ============================================================
+// ASTIndex malformed / error recovery tests
+// ============================================================
+
+// // --- 1. Missing closing '>' — should recover, not infinite loop ---
+// fn <T bork() {
+    
+// }
+// fn foo()
+// // --- 2. Unclosed nested generic in default — recovery should kick in ---
+// fn <T: susie = std::vec<u32> broken_nest()
+// fn foo()
+
+// // --- 3. Random garbage inside generic params ---
+// fn <T, +++, U> garbage_params()
+
+// // --- 4. Semicolon inside generic params — should trigger recovery ---
+// fn <T, U: [T; 32]> semi_in_generics()
+
+// // --- 5. Decl keyword inside generics — should sync to next decl ---
+// fn <T, fn bad_inner()
+// fn foo()
+
+// // --- 6. Double comma (empty param slot) ---
+// fn <T,,U> double_comma()
+
+// // --- 7. Valid fn after a broken one — must survive and hoist ---
+// fn <T> survivor() -> T
