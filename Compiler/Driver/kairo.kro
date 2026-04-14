@@ -48,13 +48,15 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         libcxx::use_facet<libcxx::num_put<char>>(libcxx::locale());
         libcxx::use_facet<libcxx::num_get<char>>(libcxx::locale());
 
-        {
-            pthread_attr_t attr;
-            pthread_attr_init(&attr);
-            pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
-            pthread_setattr_default_np(&attr);
-            pthread_attr_destroy(&attr);
-        }
+        #if defined(__linux__)
+            {
+                pthread_attr_t attr;
+                pthread_attr_init(&attr);
+                pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
+                pthread_setattr_default_np(&attr);
+                pthread_attr_destroy(&attr);
+            }
+        #endif
     ");
 
     // Global teardown runs after main() returns or on unwind.

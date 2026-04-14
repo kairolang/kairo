@@ -80,7 +80,6 @@ class ThreadPool {
     }
 
     priv var _count:   usize = 0;
-    priv var _threads: vec::<Thread>;
     priv var _queues:  vec::<own::<PartitionQueue>>;
     priv var _groups:  array::<std::Atomic::<u64>, 256> = array::<std::Atomic::<u64>, 256>();
     priv var _rr:      std::Atomic::<usize> = std::Atomic::<usize>(0);
@@ -377,40 +376,50 @@ class ThreadPool {
         }
 
         self._count = n;
-        self._threads.reserve(n);
         self._queues.reserve(n);
-        var self_ptr: *ThreadPool = __inline_cpp("this");
 
         for gi in range::<usize>(0, 256) {
             self._groups[gi].store(0, std::MemoryOrder::relaxed);
         }
 
-        __inline_cpp("
-            // Increase default stack size for all worker threads to handle
-            // deep macro expansion recursion (cycle detection fires before
-            // stack exhaustion but needs headroom for the recursive calls).
-            {
-                pthread_attr_t attr;
-                pthread_attr_init(&attr);
-                pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
-                pthread_setattr_default_np(&attr);
-                pthread_attr_destroy(&attr);
-            }
-        ");
-
+        // Allocate all queues first before any thread can index into _queues
         for _ in range::<usize>(0, n) {
             var q = std::create_unique::<PartitionQueue>(DEFAULT_QUEUE_SIZE);
             self._queues.push_back(q.release());
         }
 
-        for i in range::<usize>(0, n) {
-            __inline_cpp("
-            _threads.emplace_back([self_ptr, i]() {
-                self_ptr->worker_loop(i);
-            })
-            ");
-            Logger::info(Logger::Stage::ThreadPool, f"ThreadPool: initialized {self._count} workers");
-        }
+        // Now spawn threads all queues are guaranteed present
+        __inline_cpp("
+            for (size_t i = 0; i < _count; ++i) {
+        #if defined(__APPLE__) || defined(__linux__)
+                pthread_attr_t attr;
+                pthread_attr_init(&attr);
+                pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
+                pthread_t tid;
+                auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
+                pthread_create(&tid, &attr, [](void* raw) -> void* {
+                    auto* p = static_cast<libcxx::pair<ThreadPool*, size_t>*>(raw);
+                    p->first->worker_loop(p->second);
+                    delete p;
+                    return nullptr;
+                }, arg);
+                pthread_attr_destroy(&attr);
+                pthread_detach(tid);
+        #elif defined(_WIN32)
+                auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
+                HANDLE h = CreateThread(nullptr, 64UL * 1024 * 1024,
+                    [](LPVOID raw) -> DWORD {
+                        auto* p = static_cast<libcxx::pair<ThreadPool*, size_t>*>(raw);
+                        p->first->worker_loop(p->second);
+                        delete p;
+                        return 0;
+                    }, arg, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+                CloseHandle(h);
+        #endif
+            }
+        ");
+
+        Logger::info(Logger::Stage::ThreadPool, f"ThreadPool: initialized {self._count} workers");
     }
 
     ///
@@ -553,18 +562,17 @@ class ThreadPool {
 
         Logger::info(Logger::Stage::ThreadPool, f"ThreadPool::shutdown: joining {self._count} workers total_pending={self.get_total_pending_tasks()}");
         
-        for t: ref!(Thread) in self._threads {
-            if t.joinable() {
-                t.join();
+        __inline_cpp("
+            while (get_total_pending_tasks() > 0) {
+                libcxx::this_thread::sleep_for(libcxx::chrono::milliseconds(1));
             }
-        }
+        ");
 
         for q: ref!(*PartitionQueue) in self._queues {
             delete q;
         }
 
         self._queues.clear();
-        self._threads.clear();
         Logger::info(Logger::Stage::ThreadPool, "ThreadPool::shutdown: complete");
     }
 
