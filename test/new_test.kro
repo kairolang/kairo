@@ -1,0 +1,172 @@
+// ============================================================
+// Access specifier block (pub/priv/prot { ... }) test suite
+// ============================================================
+
+// --- 1. Basic pub block at top level ---
+pub {
+    fn pub_block_fn()
+    var pub_block_var: u32
+}
+
+// --- 2. Basic priv block at top level ---
+priv {
+    fn priv_block_fn()
+    type PrivAlias = u32
+}
+
+// --- 3. Basic prot block at top level ---
+prot {
+    fn prot_block_fn()
+    enum ProtEnum { A, B }
+}
+
+// --- 4. Nested access blocks ---
+pub {
+    priv {
+        fn nested_access_fn()
+        var nested_access_var: u32
+    }
+    fn outer_access_fn()
+}
+
+// --- 5. Access block inside class ---
+class AccessClass {
+    pub {
+        fn public_method()
+        var public_var: u32
+    }
+    priv {
+        fn private_method()
+        var private_var: u32
+    }
+    prot {
+        fn protected_method()
+    }
+    fn default_method()
+}
+
+// --- 6. Access block inside struct ---
+struct AccessStruct {
+    pub {
+        var x: f32
+        var y: f32
+    }
+    priv {
+        /*
+        FIXME:
+        error [S045E]: expected 'identifier', found '@internal'
+           55 |         var internal: u32
+
+        we should not mark builtins as tokenkinds rather the pp should
+        see them as identifiers and let the parser decide what to do with them.
+        */
+        var inter: u32
+    }
+}
+
+// --- 7. Access block inside module ---
+module AccessModule {
+    pub {
+        fn module_pub_fn()
+        class ModulePubClass {
+            fn inner_fn()
+        }
+    }
+    priv {
+        fn module_priv_fn()
+    }
+}
+
+// --- 8. Access block with generics ---
+pub {
+    fn <T> generic_in_pub_block() -> T
+    class <T> GenericClassInBlock {
+        fn get() -> T
+    }
+    type <T> AliasInBlock = std::vec<T>
+}
+
+// --- 9. Empty access blocks ---
+pub {}
+priv {}
+prot {}
+
+// --- 10. Access block with enum + type alias + var + fn ---
+pub {
+    enum PubEnum { X, Y, Z }
+    type <T> PubType = std::vec<T>
+    var pub_var: u32
+    fn pub_fn()
+    const pub_const: string
+}
+
+// --- 11. Inline specifier mixed with block specifier ---
+pub fn inline_pub()
+pub {
+    fn block_pub()
+}
+priv fn inline_priv()
+priv {
+    fn block_priv()
+}
+
+// --- 12. Access block inside nested class inside module ---
+module DeepModule {
+    class DeepClass {
+        pub {
+            fn deep_pub_fn()
+            class DeepInner {
+                priv {
+                    var deep_priv_var: u32
+                }
+                pub {
+                    fn deep_inner_pub_fn()
+                }
+            }
+        }
+        priv {
+            var deep_class_priv: u32
+        }
+    }
+}
+
+// --- 13. Multiple consecutive access blocks in class ---
+class MultiBlock {
+    pub {
+        fn a()
+        fn b()
+    }
+    pub {
+        fn c()
+        fn d()
+    }
+    priv {
+        fn e()
+        fn f()
+    }
+}
+
+// --- 14. Access block with operator decls ---
+class OpAccessClass {
+    pub {
+        fn op +()
+        fn op ==()
+    }
+    priv {
+        fn op -()
+    }
+}
+
+// --- 15. Stress: deeply nested access blocks ---
+class StressAccess {
+    pub {
+        priv {
+            prot {
+                fn triple_nested_fn()
+                var triple_nested_var: u32
+            }
+        }
+        fn after_deep_nest()
+    }
+    fn outside_blocks()
+}

@@ -114,6 +114,7 @@ import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;
 import Preprocessor::Preprocessor::*;
+import AST::ASTIndex::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -593,7 +594,21 @@ fn FrontendAction::_parse() -> bool {
     if self._ci->invocation().frontend.print_ast {
         std::print(f"-- AST: {self.path.full_path()} (not yet implemented) --");
     }
-    // TODO(parser): var ast = Parser(ci, _file_id).parse();
+    
+    var ast_ctx = ASTContext(
+        self._file_id,
+        self._ci->sm(),
+        self._ci->tcm(),
+        self._ci->diag(),
+        self._resolver,
+        &(self._ci->invocation())
+    );
+
+    var ast_idx = ASTIndex(&ast_ctx);
+    ast_idx.index();
+
+    ast_idx.dump(); // for now we just dump since we js debugging
+
     return true;
 }
 

@@ -27,7 +27,6 @@ class ASTIndex {
     priv var _scope_path:   vec::<string>;
     priv var _ctx:          obs::<ASTContext>;
     priv var _hoisted:      own::<HoistedScope>;    // built by ASTIndex, read by parser
-    priv var _program:      own::<Program>;
     priv var _diag:         obs::<DiagEngine>;
     priv var _imm:          obs::<ImmediateTable>;
 
@@ -46,8 +45,7 @@ class ASTIndex {
 
     fn ASTIndex(self, ctx: *ASTContext) {
         self._ctx      = ctx;
-        self._hoisted  = ctx->alloc::<HoistedScope>();
-        self._program  = ctx->alloc_init::<Program>(ctx->fid, ctx);
+        self._hoisted  = ctx->alloc_init::<HoistedScope>(ctx);
         self._span     = ctx->get_tokens();
         self._diag     = ctx->diags;
         self._imm      = ctx->get_imm_table();
@@ -55,6 +53,50 @@ class ASTIndex {
         self._error_count = self._diag->error_count();
         self._max_scope_depth = ctx->ci->frontend.max_scope_depth;
         ctx->hoisted = self._hoisted; // circular ref, but safe since ASTParse is short-lived
+    }
+
+    fn dump(self) {
+        self._hoisted->dump();
+    }
+
+    priv fn dispatch_decl(self) -> bool {
+        // returns false if we hit something that should terminate the caller's loop
+        // (EOF, RBrace) caller decides what to do with it
+        switch self.resolve_kind_deep(self._current) {
+            case TokenKind::KwPub:
+            case TokenKind::KwPriv:
+            case TokenKind::KwProt {
+                self.advance(); // consume pub/priv/prot
+                if self.match_tok(TokenKind::OpLBrace) {
+                    while !self.is_eof() {
+                        if !self.dispatch_decl() { break; }
+                    }
+
+                    self.match_tok(TokenKind::OpRBrace);
+                }
+            }
+
+            case TokenKind::KwStatic:
+            case TokenKind::KwEval:
+            case TokenKind::KwVar:
+            case TokenKind::KwConst     { self.parse_var();        }
+            case TokenKind::KwClass     { self.parse_class();      }
+            case TokenKind::KwEnum      { self.parse_enum();       }
+            case TokenKind::KwType      { self.parse_type_alias(); }
+            case TokenKind::KwModule    { self.parse_module();     }
+            case TokenKind::KwStruct    { self.parse_struct();     }
+            case TokenKind::KwInterface { self.parse_interface();  }
+            case TokenKind::KwMacro     { self.parse_macro();      }
+            case TokenKind::KwImport    { self.advance();          }
+            case TokenKind::KwOp:
+            case TokenKind::KwFn        { self.parse_fn();         }
+            case TokenKind::OpRBrace:
+            case TokenKind::TkEof       { return false;            }
+
+            default { self.advance(); }
+        }
+
+        return true;
     }
 
     fn index(self) {
@@ -69,13 +111,12 @@ class ASTIndex {
 
         var iterations = 0; // this is to prevent infinite loops in pathological cases
 
-        while self._current != &null {
+        while !self.is_eof() {
             ++iterations;
             if (iterations > (_span.size() << 2)) { // we should never need to iterate more than 4 times the number of tokens,
                                                     // if we do something is very wrong and we should bail to prevent infinite loop
-                self.report(
+                self._diag->report(
                     DiagID::I002F,
-                    self._current->range,
                     "excessive iterations during AST indexing, aborting to prevent infinite loop"
                 ).first(self._current->range)
                  .note(DiagID::S045N, f"AST indexing truncated after {iterations} iterations")
@@ -84,99 +125,643 @@ class ASTIndex {
                 break;
             }
 
-            // switch self._current->kind {
-            //     /// quals/specs, attributes, that need speical handling
-            //     /// all these can be scoped, we just need to get inside the scope mark that we are inside this scope and continue
-            //     case TokenKind::KwFfi:
-
-            //     case TokenKind::KwPub:
-            //     case TokenKind::KwPriv:
-            //     case TokenKind::KwProt:
-
-            //     case TokenKind::KwEval:
-            //     case TokenKind::KwUnsafe:
-
-            //     case /// decl starts
-            //     case TokenKind::KwVar:
-            //     case TokenKind::KwConst:
-            //     case TokenKind::KwFn:
-            //     case TokenKind::KwOp:
-            //     case TokenKind::KwClass:
-            //     case TokenKind::KwEnum:
-            //     case TokenKind::KwType:
-            //     case TokenKind::KwStruct:
-            //     case TokenKind::KwInterface:
-            //     case TokenKind::KwExtend:
-            //     case TokenKind::KwModule:
-            //     case TokenKind::KwMacro:
-            //     case TokenKind::KwImport:
-
-            //     default:
-            // }
+            if !self.dispatch_decl() { break; }
         }
     }
 
-    // during indexing we dont give a shit
-    // about qualifiers, specifiers, or anything
-    // all we care about is name, does it have generics (if so how much)
-    // and where is it in the source (for error reporting)
-    // along with its qualified path for lookup during parsing
     priv fn parse_fn(self) {
-        // so for all generic realted syntax
-        // we have a point of recovery
-        // if we have a case like `fn <T, Z: bool = gen() > 10> foo() {}`
-        // where 1. the exper must be in perns so its techinally an illigal state
-        // but we cant check that cuz, we need the index, to parse exprs.
-        // the ast handles that state and errors, but here we have a mode of recovery
-        // once we are in the generic we keep balanaced skipping will we hit each semi colon
-        // then we parse the next few tokens if we see the pattern of Ident COLON ... =
-        // we are now in a revory state
-        // in our case we have 1, so we can safly count 2 params (coma + 1)
-        // but our next jump atempt would fail, so our (both exit and sync)
-        // cond will be hitting a ) { in while being balanced
-        // then we backtrack to get the name and num of func params
-        // this is our only point of recovery
-    }
+        var entry     = HoistedEntry{};
+        entry.kind    = HoistedKind::Function;
+        var tok       = self.expect(TokenKind::KwFn);
+        if tok.kind == TokenKind::TkError { return; }
 
-
-    fn parse_generic_params(self, num_params: *usize) -> bool { // true we if we failed to parse and jumped to recovery state
-        var count: usize = 0;
-        var depth: usize = 0;
-    }
-
-    priv fn parse_class(self);
-    priv fn parse_struct(self);
-    priv fn parse_interface(self);
-    priv fn parse_module(self);
-    priv fn parse_extend(self);
-    
-    priv fn parse_type_alias(self) {
-        var num_generic_params: usize = 0;
-        var tok  = self.expect(TokenKind::KwType);
-        
-        if self.match_tok(TokenKind::OpLt) {
-            num_generic_params = self.parse_generic_params(&num_generic_params);
+        // optional generic params: fn <T> foo
+        if self.match_tok(TokenKind::OpLess) {
+            var num_generic_params: usize = 0;
+            if self.parse_generic_params(&num_generic_params) {
+                return;
+            }
+            entry.num_params = num_generic_params;
         }
 
-        var name = self.expect(TokenKind::TkIdent);
-        self.skip_until_balanced(SkipUntil::EndLine);
+        // check for leading :: global impl, skip
+        if self.check(TokenKind::OpColonColon) {
+            self.skip_until_balanced(SkipUntil::EndLine);
+            return;
+        }
 
-        var name_str = self.get_text(name.imm);
+        // check for op keyword
+        if self.check(TokenKind::KwOp) {
+            // fn op + new operator decl at current scope, hoist it
+            self.advance(); // consume op
 
-        var entry         = HoistedEntry{};
-        entry.kind        = HoistedKind::TypeAlias;
-        entry.num_params  = 0;
+            var op_tok = self.current();
+            if (op_tok == &null) || (op_tok->kind == TokenKind::TkEof) {
+                self.skip_until_balanced(SkipUntil::EndLine);
+                return;
+            }
+
+            var op_name = self.get_text(self.advance()).text;
+
+            entry.kind        = HoistedKind::Operator;
+            entry.is_foreign  = false;
+            entry.extended    = false;
+            entry.decl.origin = tok.range;
+
+            self.skip_until_balanced(SkipUntil::EndLine);
+            self.hoist(op_name, entry);
+            return;
+        }
+
+        // check for Foo:: qualified impl, skip
+        if self.resolve_kind_deep(self.current()) == TokenKind::LitIdentifier {
+            if self.resolve_kind_deep(self.peek()) == TokenKind::OpColonColon {
+                self.skip_until_balanced(SkipUntil::EndLine);
+                return;
+            }
+        }
+
+        // plain fn name
+        var name_str = self.parse_name();
+        if name_str == "" {
+            self.skip_until_balanced(SkipUntil::EndLine);
+            return;
+        }
+
         entry.is_foreign  = false;
         entry.extended    = false;
-        entry.decl.origin = SourceRange(tok.range.start, name_tok.range.end);
+        entry.decl.origin = tok.range;
 
+        self.skip_until_balanced(SkipUntil::EndLine);
         self.hoist(name_str, entry);
     }
 
-    priv fn parse_enum(self);
-    priv fn parse_var(self);
-    priv fn parse_macro(self);
-    priv fn parse_proc_macro(self);
+
+    fn parse_generic_params(self, num_params: *usize) -> bool {
+        // Returns true if we had to enter recovery (malformed generics).
+        // Precondition: current token is `<`.
+        // Postcondition: current token is the one AFTER `>`, or at recovery sync point.
+        //
+        // Grammar we handle:
+        //   generic_params := '<' param (',' param)* '>'
+        //   param          := Ident (':' type_hint)? ('=' default)?
+        //   type_hint      := anything balanced (e.g. vec::<u32>, fn(T) -> U)
+        //   default        := anything balanced until ',' or '>'
+        //
+        // We don't validate any of this we just count params and skip past '>'.
+
+        // Edge case: `<>` zero params, immediately close
+        if self.match_tok(TokenKind::OpGreater) {
+            (*num_params) = 0;
+            return false;
+        }
+
+        var count:       usize = 1; // we're inside, so first param has started
+        var depth:       u32   = 0;
+        var in_recovery: bool = false;
+        var start = self.current()->range;
+        var start_idx = self._c_idx;
+
+        while !self.is_eof() {
+            var tok  = self.current();
+            var kind = self.resolve_kind_deep(tok);
+
+            if in_recovery {
+                // We are in recovery mode, trying to find a good sync point to resume normal parsing.
+                // We want to sync to the next decl or the next line/semicolon, but we also need to
+                // keep track of balanced brackets so we dont accidentally sync inside nested generics or params.
+                skip_until_balanced(SkipUntil::EndLine);
+                break;
+            }
+
+            if (self._c_idx - start_idx) > 256 {
+                in_recovery = true;
+                break;
+            }
+
+            switch kind {
+                // --- nesting openers ---
+                case TokenKind::OpLParen:
+                case TokenKind::OpLSquare:
+                case TokenKind::OpLBrace {
+                    depth += 1;
+                    self.advance();
+                }
+
+                // `<` inside: could be nested generic like vec::<u32>
+                // treat it as a nested opener
+                case TokenKind::OpLess {
+                    depth += 1;
+                    self.advance();
+                }
+
+                // `<<` double-less, counts as depth+2 (rare but handle it)
+                case TokenKind::OpLessLess {
+                    depth += 2;
+                    self.advance();
+                }
+
+                // --- nesting closers ---
+                case TokenKind::OpRParen:
+                case TokenKind::OpRSquare:
+                case TokenKind::OpRBrace {
+                    if depth > 0 {
+                        depth -= 1;
+                        self.advance();
+                    } else {
+                        // unmatched closer at depth 0 inside our generic params
+                        // something is very wrong, enter recovery
+                        in_recovery = true;
+                        break;
+                    }
+                }
+
+                // `>` could be closing our generic list, or a nested closer
+                case TokenKind::OpGreater {
+                    if depth > 0 {
+                        depth -= 1;
+                        self.advance();
+                    } else {
+                        // depth 0 this closes our generic param list
+                        self.advance(); // consume the `>`
+                        (*num_params) = count;
+                        return false;  // success
+                    }
+                }
+
+                // `>>` closing two levels: one nested, one ours
+                // e.g. `<T, Z: vec::<u32>>` the `>>` closes vec's and ours
+                case TokenKind::OpGreaterGreater {
+                    if depth >= 2 {
+                        depth -= 2;
+                        self.advance();
+                    } else if depth == 1 {
+                        // inner `>` closes nested, outer `>` closes us
+                        self.advance();
+                        (*num_params) = count;
+                        return false;  // success
+                    } else {
+                        // depth 0: both close us malformed but treat as close
+                        self.advance();
+                        (*num_params) = count;
+                        return false;
+                    }
+                }
+
+                // --- comma at depth 0: param separator ---
+                case TokenKind::OpComma {
+                    if depth == 0 {
+                        count += 1;
+                        self.advance();
+
+                        // trailing comma before `>` is legal but we ignore it
+                        // its the parsers job to handle that, we just want
+                        // to make sure we dont count it as a param
+                        if self.check(TokenKind::OpGreater) {
+                            self.advance(); // consume `>`
+                            (*num_params) = count - 1; // trailing comma, don't count it
+                            return false;
+                        }
+                    } else {
+                        self.advance();
+                    }
+                }
+
+                // --- recovery trigger: hit a newline or semicolon at depth 0 ---
+                // In a well-formed generic we should never cross a line boundary
+                // without being inside brackets. If we do, the `<` was probably
+                // a comparison operator, not a generic opener.
+                case TokenKind::OpSemicolon {
+                    if depth == 0 {
+                        in_recovery = true;
+                        break;
+                    }
+                    self.advance();
+                }
+
+                // --- recovery trigger: decl keyword at depth 0 ---
+                case TokenKind::KwFn:
+                case TokenKind::KwOp {
+                    if depth == 0 {
+                        var next = self.peek();
+                        if (next == &null)
+                        || (next->kind != TokenKind::OpLess)
+                        && (next->kind != TokenKind::OpLParen) {
+                            in_recovery = true;
+                            break;
+                        }
+                    }
+
+                    self.advance();
+                }
+
+                case TokenKind::KwVar:
+                case TokenKind::KwExtend:
+                case TokenKind::KwMacro:
+                case TokenKind::KwImport:
+                case TokenKind::TkEof {
+                    if depth == 0 {
+                        in_recovery = true;
+                        break;
+                    }
+                    self.advance();
+                }
+
+                default {
+                    self.advance();
+                }
+            }
+        }
+
+        // --- recovery path ---
+        // We bailed without finding `>`. The caller needs to know.
+        // Emit a diagnostic pointing at wherever we stopped.
+        var cur = self.current();
+        if cur == &null {
+            cur = self.last();
+        }
+
+        var loc = cur->range;
+        self._diag->report(
+            DiagID::S045E,
+            "expected '>' to close generic parameters; if '<' was a comparison operator, wrap the expression in parentheses"
+        ).first((loc) | (start))
+         .emit();
+
+        // Best-effort: whatever we counted so far is still useful
+        (*num_params) = count;
+
+        // Sync to next decl boundary so the outer index loop can continue
+        self.skip_until_decl_sync();
+
+        return true; // signal recovery
+    }
+
+    priv fn parse_type_decl(self, kind: HoistedKind) {
+        var tok = self.advance(); // consume KwClass / KwStruct / KwInterface
+        if tok == &null { return; }
+
+        var entry         = HoistedEntry{};
+        entry.kind        = kind;
+        entry.is_foreign  = false;
+        entry.extended    = false;
+        entry.num_params  = HoistedEntry::NO_GENERICS;
+        entry.decl.origin = tok->range;
+
+        // optional generic params: class <T> Foo
+        if self.match_tok(TokenKind::OpLess) {
+            var num_generic_params: usize = 0;
+            if self.parse_generic_params(&num_generic_params) {
+                return; // recovery already handled
+            }
+            
+            entry.num_params = num_generic_params;
+        }
+
+        // name
+        var name = self.expect(TokenKind::LitIdentifier);
+        if name.kind == TokenKind::TkError {
+            self.skip_until_balanced(SkipUntil::EndLine);
+            return;
+        }
+
+        var name_str = self.get_text(name).text;
+
+        // hoist the type itself before walking the body
+        self.hoist(name_str, entry);
+
+        // skip past inheritance / implements list if present
+        // e.g. class Foo : Bar, Baz { or interface Foo : Bar {
+        // we don't care what's in there, just get to the {
+        if self.check(TokenKind::KwDerives) || self.check(TokenKind::KwImpl) {
+            self.skip_until_balanced(SkipUntil::EndOfDecl);
+        }
+
+        // forward decl or no body
+        if !self.check(TokenKind::OpLBrace) {
+            self.skip_until_balanced(SkipUntil::EndOfDecl);
+            return;
+        }
+
+        self.advance(); // consume {
+
+        // depth guard
+        if (self._scope_depth + 1) >= self._max_scope_depth {
+            self._diag->report(DiagID::I002F,
+                f"maximum scope nesting depth ({self._max_scope_depth}) exceeded during indexing"
+            ).first(tok->range).emit();
+            self.skip_until_balanced(SkipUntil::RBrace);
+            self.advance(); // consume }
+            return;
+        }
+
+        self._scope_path.push_back(name_str);
+        self._scope_depth += 1;
+
+        // walk body same dispatch as module but also handles members
+        while !self.is_eof() {
+            if !self.dispatch_decl() { break; }
+        }
+
+        self._scope_depth -= 1;
+        self._scope_path.pop_back();
+
+        if self.check(TokenKind::OpRBrace) {
+            self.advance(); // consume }
+        }
+    }
+
+    priv fn parse_class(self)     { self.parse_type_decl(HoistedKind::ClassType);     }
+    priv fn parse_struct(self)    { self.parse_type_decl(HoistedKind::StructType);    }
+    priv fn parse_interface(self) { self.parse_type_decl(HoistedKind::InterfaceType); }
+
+    priv fn parse_module(self) {
+        var tok = self.expect(TokenKind::KwModule);
+        if tok.kind == TokenKind::TkError { return; }
+
+        // handle leading :: (global namespace root)
+        var leading_colon = self.match_tok(TokenKind::OpColonColon);
+
+        var saved_path  = self._scope_path;
+        var saved_depth = self._scope_depth;
+
+        if leading_colon {
+            self._scope_path.clear();
+            self._scope_depth = 0;
+        }
+
+        // parse qualified name: Foo | Foo::Bar | Foo::Bar::Baz
+        var segments = vec::<string>();
+
+        var first = self.expect(TokenKind::LitIdentifier);
+        if first.kind == TokenKind::TkError {
+            self.skip_until_balanced(SkipUntil::EndLine);
+            if leading_colon {
+                self._scope_path  = saved_path;
+                self._scope_depth = saved_depth;
+            }
+            return;
+        }
+
+        segments.push_back(self.get_text(first).text);
+
+        while self.match_tok(TokenKind::OpColonColon) {
+            var seg = self.expect(TokenKind::LitIdentifier);
+            if seg.kind == TokenKind::TkError {
+                self.skip_until_balanced(SkipUntil::EndLine);
+                if leading_colon {
+                    self._scope_path  = saved_path;
+                    self._scope_depth = saved_depth;
+                }
+                return;
+            }
+            segments.push_back(self.get_text(seg).text);
+        }
+
+        // module Foo; or module Foo::Bar; no body, nothing to walk
+        if !self.check(TokenKind::OpLBrace) {
+            self.skip_until_balanced(SkipUntil::EndLine);
+            if leading_colon {
+                self._scope_path  = saved_path;
+                self._scope_depth = saved_depth;
+            }
+            return;
+        }
+
+        self.advance(); // consume `{`
+
+        // depth guard check against total depth after pushing all segments
+        if (self._scope_depth + segments.size()) >= self._max_scope_depth {
+            self._diag->report(DiagID::I002F,
+                f"maximum scope nesting depth ({self._max_scope_depth}) exceeded during indexing"
+            ).first(tok.range).emit();
+            self.skip_until_balanced(SkipUntil::RBrace);
+            self.advance(); // consume `}`
+            if leading_colon {
+                self._scope_path  = saved_path;
+                self._scope_depth = saved_depth;
+            }
+            return;
+        }
+
+        // push all segments
+        for s in segments {
+            self._scope_path.push_back(s);
+            self._scope_depth += 1;
+        }
+
+        // walk body
+        while !self.is_eof() {
+            if !self.dispatch_decl() { break; }
+        }
+
+        // pop all segments
+        for s in segments {
+            self._scope_path.pop_back();
+            self._scope_depth -= 1;
+        }
+
+        if self.check(TokenKind::OpRBrace) {
+            self.advance(); // consume `}`
+        }
+
+        if leading_colon {
+            self._scope_path  = saved_path;
+            self._scope_depth = saved_depth;
+        }
+    }
+
+    priv fn parse_name(self) -> string {
+        // check for leading :: (global impl, not a new decl)
+        if self.check(TokenKind::OpColonColon) {
+            return "";
+        }
+
+        var name     = self.expect(TokenKind::LitIdentifier);
+        if name.kind == TokenKind::TkError {
+            return "";
+        }
+
+        var name_str = self.get_text(name).text;
+
+        // check for Foo:: (qualified impl, not a new decl)
+        if self.check(TokenKind::OpColonColon) {
+            return "";
+        }
+
+        // valid terminators after a plain name
+        var kind = self.resolve_kind_deep(self.current());
+        if (kind == TokenKind::OpLParen   )
+        || (kind == TokenKind::OpLBrace   )
+        || (kind == TokenKind::TkNewLine  )
+        || (kind == TokenKind::OpSemicolon) {
+            return name_str;
+        }
+
+        return "";
+    }
+    
+    priv fn parse_type_alias(self) {
+        var entry         = HoistedEntry{};
+        entry.kind        = HoistedKind::TypeAlias;
+        var tok = self.expect(TokenKind::KwType);
+        
+        if self.match_tok(TokenKind::OpLess) {
+            var num_generic_params: usize = 0;
+            if self.parse_generic_params(&num_generic_params) {
+                return;
+            }
+
+            entry.num_params = num_generic_params;
+        }
+
+        var name = self.expect(TokenKind::LitIdentifier);
+        var name_str = self.get_text(name);
+        self.skip_until_balanced(SkipUntil::EndLine);
+
+        entry.is_foreign  = false;
+        entry.extended    = false;
+        entry.decl.origin = (tok.range);
+
+        self.hoist(name_str.text, entry);
+    }
+
+    priv fn parse_enum(self) {
+        var entry  = HoistedEntry{};
+        entry.kind = HoistedKind::EnumType;
+        var tok    = self.expect(TokenKind::KwEnum);
+
+        // enums should not be able to have generics at all
+        if self.match_tok(TokenKind::OpLess) {
+            var num_generic_params: usize = 0;
+
+            if self.parse_generic_params(&num_generic_params) {
+                // we push nothing onto the scope path since we never got a name
+                return; // we failed to parse generics
+            }
+        }
+
+        var name = self.expect(TokenKind::LitIdentifier);
+        // we move till after the body of the enum
+        self.skip_until_balanced(SkipUntil::EndLine);
+
+        var name_str = self.get_text(name);
+
+        entry.is_foreign  = false;
+        entry.extended    = false;
+        entry.decl.origin = (tok.range);
+
+        self.hoist(name_str.text, entry);
+    }
+
+    priv fn parse_var(self) {
+        var entry  = HoistedEntry{};
+        entry.kind = HoistedKind::Variable;
+        var tok    = self.current();
+
+        // consume leading modifiers (static, eval, const) they may stack
+        while true {
+            var kind = self.resolve_kind_deep(self.current());
+            if (kind == TokenKind::KwStatic)
+            || (kind == TokenKind::KwEval)
+            || (kind == TokenKind::KwConst) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
+        // after all modifiers, check what we landed on
+        var kind = self.resolve_kind_deep(self.current());
+
+        switch kind {
+            case TokenKind::KwVar {
+                self.advance(); // consume var
+            }
+
+            case TokenKind::LitIdentifier {
+                break; // no modifiers, just a plain var declaration, we can parse it
+            }
+
+            default {
+                // landed on fn/class/etc modifiers belong to that decl, not a var
+                return;
+            }
+        }
+
+        var name     = self.expect(TokenKind::LitIdentifier);
+        self.skip_until_balanced(SkipUntil::EndLine);
+
+        var name_str = self.get_text(name);
+
+        entry.is_foreign  = false;
+        entry.extended    = false;
+        entry.decl.origin = tok->range;
+
+        self.hoist(name_str.text, entry);
+    }
+
+    priv fn parse_macro(self) {
+        var tok = self.expect(TokenKind::KwMacro);
+        if tok.kind == TokenKind::TkError { return; }
+
+        var entry         = HoistedEntry{};
+        entry.is_foreign  = false;
+        entry.extended    = false;
+        entry.num_params  = HoistedEntry::NO_GENERICS;
+        entry.decl.origin = tok.range;
+
+        // optional generic params only meaningful for proc macros (@foo)
+        // if present on a basic macro (foo!) we parse and discard
+        if self.match_tok(TokenKind::OpLess) {
+            var num_generic_params: usize = 0;
+            if self.parse_generic_params(&num_generic_params) {
+                return; // recovery already handled
+            }
+            entry.num_params = num_generic_params;
+        }
+
+        var kind = self.resolve_kind_deep(self.current());
+
+        if kind == TokenKind::OpAt {
+            // @foo proc macro
+            self.advance(); // consume @
+            var name = self.expect(TokenKind::LitIdentifier);
+            if name.kind == TokenKind::TkError {
+                self.skip_until_balanced(SkipUntil::EndLine);
+                return;
+            }
+            entry.kind = HoistedKind::BasicMacro;
+            self.skip_until_balanced(SkipUntil::EndLine);
+            self.hoist(self.get_text(name).text, entry);
+
+        } else if kind == TokenKind::LitIdentifier {
+            // foo! basic macro, discard any generics we parsed
+            entry.num_params = 0;
+            var name = self.expect(TokenKind::LitIdentifier);
+            if name.kind == TokenKind::TkError {
+                self.skip_until_balanced(SkipUntil::EndLine);
+                return;
+            }
+            if !self.match_tok(TokenKind::OpExclaim) {
+                self._diag->report(DiagID::S045E,
+                    "expected '!' after macro name"
+                ).first(name.range).emit();
+                self.skip_until_balanced(SkipUntil::EndLine);
+                return;
+            }
+            entry.kind = HoistedKind::ProcMacro;
+            self.skip_until_balanced(SkipUntil::EndLine);
+            self.hoist(self.get_text(name).text, entry);
+
+        } else {
+            self._diag->report(DiagID::S045E,
+                "expected macro name after 'macro' "
+            ).first(tok.range).emit();
+            self.skip_until_balanced(SkipUntil::EndLine);
+        }
+    }
+
     priv fn parse_import(self);
 
     priv fn get_text(self, tok: *Token) -> TokenText {
@@ -187,6 +772,10 @@ class ASTIndex {
         return TokenText::resolve_basic((*tok), self._ctx->sm);
     }
 
+    priv fn get_text(self, tok: Token) -> TokenText {
+        return TokenText::resolve_basic(tok, self._ctx->sm);
+    }
+
     fn resolve_deep(self, tok: *Token) -> Token {
         var kind = tok->kind;
         var imm  = tok->imm;
@@ -194,9 +783,10 @@ class ASTIndex {
 
         while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
             if (iter) >= (self._ctx->ci->pp.max_depth) {
-                self.report(DiagID::I002F, tok->range,
+                self._diag->report(DiagID::I002F,
                     "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
-                ).note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
+                ).first(tok->range)
+                 .note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
                  .emit();
                 return Token(tok->range, TokenKind::TkUnknown, 0);
             }
@@ -288,9 +878,10 @@ class ASTIndex {
 
         if (self._c_idx + 1) < (self._span.size()) {
             self._c_idx += 1;
+            self._current = self._span.get(self._c_idx);
+        } else {
+            self._current = &null; // or keep pointing at EOF, but stop incrementing
         }
-
-        self._current = self._span.get(self._c_idx);
 
         if (self._c_idx + 1) < (self._span.size()) {
             self._peek = self._span.get(self._c_idx + 1);
@@ -298,7 +889,7 @@ class ASTIndex {
             self._peek = &null;
         }
 
-        return tok; // return the token we just advanced from
+        return tok;
     }
 
     inline priv fn peek(self) -> *Token {
@@ -318,7 +909,8 @@ class ASTIndex {
     }
 
     inline priv fn is_eof(self) -> bool {
-        return (self.current() != &null) && (self.current()->kind == TokenKind::TkEof);
+        return (self._current == &null)
+            || ((self._current->kind) == TokenKind::TkEof);
     }
 
     inline priv fn first(self) -> *Token {
@@ -328,7 +920,7 @@ class ASTIndex {
         
         return &null;
     }
-    
+
     priv fn check(self, kind: TokenKind)  -> bool {
         var tok = self.current();
         if tok == &null {
@@ -377,17 +969,17 @@ class ASTIndex {
 
         if resolved_kind == kind {
             self.advance();
-            return (*tok);
+            return resolved;
         }
 
-        self.report(DiagID::S045E, tok->range,
+        self._diag->report(DiagID::S045E,
             f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
-        ).emit();
+        ).first(tok->range).emit();
 
         if tok->kind == TokenKind::TkMacroExpand {
-            var builder = self.report(DiagID::S045N, tok->range,
+            var builder = self._diag->report(DiagID::S045N, tok->range.start,
                 f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
-            );
+            ).first(tok->range);
             self.attach_macro_expansion_chain(&builder, tok);
             builder.emit();
         }
@@ -483,7 +1075,8 @@ class ASTIndex {
         LParen, RParen,
         LBracket, RBracket,
         Brace, Paren, Bracket,
-        Eof, EndLine // semi or newline
+        Eof, EndLine, // semi or newline
+        EndOfDecl // semi or newline or rbrace
     }
 
     priv fn skip_until_balanced(self, kind: SkipUntil, starting: u32 = 0) {
@@ -491,6 +1084,33 @@ class ASTIndex {
 
         while !self.is_eof() {
             var tok = self.current();
+
+            // Check match BEFORE adjusting depth
+            if depth == 0 {
+                var matches = false;
+                switch kind {
+                    case SkipUntil::LBrace   { matches = (tok->kind == TokenKind::OpLBrace);   }
+                    case SkipUntil::RBrace   { matches = (tok->kind == TokenKind::OpRBrace);   }
+                    case SkipUntil::LParen   { matches = (tok->kind == TokenKind::OpLParen);   }
+                    case SkipUntil::RParen   { matches = (tok->kind == TokenKind::OpRParen);   }
+                    case SkipUntil::LBracket { matches = (tok->kind == TokenKind::OpLSquare);  }
+                    case SkipUntil::RBracket { matches = (tok->kind == TokenKind::OpRSquare);  }
+                    case SkipUntil::Brace    { matches = (tok->kind == TokenKind::OpLBrace)
+                                                      || (tok->kind == TokenKind::OpRBrace);   }
+                    case SkipUntil::Paren    { matches = (tok->kind == TokenKind::OpLParen)
+                                                      || (tok->kind == TokenKind::OpRParen);   }
+                    case SkipUntil::Bracket  { matches = (tok->kind == TokenKind::OpLSquare)
+                                                      || (tok->kind == TokenKind::OpRSquare);  }
+                    case SkipUntil::Eof      { matches = (tok->kind == TokenKind::TkEof);      }
+                    case SkipUntil::EndLine  { matches = (tok->kind == TokenKind::OpSemicolon)
+                                                      || (tok->kind == TokenKind::TkNewLine);  }
+                    case SkipUntil::EndOfDecl { matches = (tok->kind == TokenKind::OpSemicolon)
+                                                       || (tok->kind == TokenKind::TkNewLine)
+                                                       || (tok->kind == TokenKind::OpRBrace);  }
+                }
+
+                if matches { return; }
+            }
 
             switch tok->kind {
                 case TokenKind::OpLBrace:
@@ -505,33 +1125,7 @@ class ASTIndex {
                     if depth > 0 { depth -= 1; }
                 }
 
-                default {
-                    break;
-                }
-            }
-
-            // now check match at depth 0
-            if depth == 0 {
-                var matches = false;
-                switch kind {
-                    case SkipUntil::LBrace   { matches = (tok->kind == TokenKind::OpLBrace);   }
-                    case SkipUntil::RBrace   { matches = (tok->kind == TokenKind::OpRBrace);   }
-                    case SkipUntil::LParen   { matches = (tok->kind == TokenKind::OpLParen);   }
-                    case SkipUntil::RParen   { matches = (tok->kind == TokenKind::OpRParen);   }
-                    case SkipUntil::LBracket { matches = (tok->kind == TokenKind::OpLSquare);  }
-                    case SkipUntil::RBracket { matches = (tok->kind == TokenKind::OpRSquare);  }
-                    case SkipUntil::Brace    { matches = (tok->kind == TokenKind::OpLBrace)
-                                                    || (tok->kind == TokenKind::OpRBrace);   }
-                    case SkipUntil::Paren    { matches = (tok->kind == TokenKind::OpLParen)
-                                                    || (tok->kind == TokenKind::OpRParen);   }
-                    case SkipUntil::Bracket  { matches = (tok->kind == TokenKind::OpLSquare)
-                                                    || (tok->kind == TokenKind::OpRSquare);  }
-                    case SkipUntil::Eof      { matches = (tok->kind == TokenKind::TkEof);      }
-                    case SkipUntil::EndLine  { matches = (tok->kind == TokenKind::OpSemicolon)
-                                                    || (tok->kind == TokenKind::TkNewLine); }
-                }
-
-                if matches { return; }
+                default { break; }
             }
 
             self.advance();
@@ -544,13 +1138,5 @@ class ASTIndex {
         } else {
             self._hoisted->insert_into(&self._scope_path, name, entry);
         }
-    }
-
-    inline fn report(self, code: DiagCode, loc: SourceRange, msg: string) -> ref!(DiagBuilder) {
-        return self._diag->report(code, loc.start, msg).first(loc);
-    }
-
-    inline fn report(self, id: DiagID, loc: SourceRange, msg: string) -> ref!(DiagBuilder) {
-        return self._diag->report(id, loc.start, msg).first(loc);
     }
 }
