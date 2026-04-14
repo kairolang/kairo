@@ -46,8 +46,8 @@ class HoistedScope;
 class ASTContext {
     pub var source_path: Path;
     pub var module_base: ModulePath;
-    pub var nodes:       ArenaAllocator;
-    pub var strings:     ArenaAllocator;
+    pub var nodes:       ArenaAllocator = ArenaAllocator(1024 * 1024); // arena for AST nodes, separate from strings to allow different lifetimes
+    pub var strings:     ArenaAllocator = ArenaAllocator(1024 * sizeof(string)); // separate arena for strings to allow interning
     pub var sm:          obs::<SourceManager>;
     pub var tcm:         obs::<TokenCacheManager>; // we can get the imm table from the tcm
     pub var diags:       obs::<DiagEngine>;
@@ -157,7 +157,7 @@ class InternedStr {
 __inline_cpp("
 struct InternedStrHash {
     size_t operator()(InternedStr s) const noexcept {
-        return libcxx::hash<uint32_t>{}(s.id);
+        return libcxx::hash<u32>{}(s.id);
     }
 };
 ");
@@ -179,7 +179,6 @@ class StringInterner {
     fn StringInterner(self) {
         self._table.reserve(512);
         self._strings.reserve(512);
-        self._intern_raw(""); // id 0 = empty string sentinel
     }
 
     fn StringInterner(self, ctx: *ASTContext) {
@@ -232,10 +231,11 @@ enum HoistedKind derives u8 {
     StructType,     ///< struct Foo
     InterfaceType,  ///< interface Foo
     TypeAlias,      ///< type Foo = ...
-    Function,       ///< fn foo / fn op ...
+    Function,       ///< fn foo
+    Operator,       ///< fn op +
     Variable,       ///< var foo / const foo
-    ProcMacro,      ///< foo!
-    BasicMacro,     ///< @foo
+    ProcMacro,      ///< @foo
+    BasicMacro,     ///< foo!
     Module,         ///< namespace / module block
 }
 
@@ -252,29 +252,32 @@ class HoistedEntry {
         pub var origin: SourceRange;
     }
 
+    pub const static var NO_GENERICS: u32;
+
     pub var extend_of_name: InternedStr;
     pub var name:           InternedStr;
     pub var kind:           HoistedKind;
     pub var decl:           DeclEntry;
     pub var extend_of:      DeclEntry;
-    pub var num_params:     u32;  ///< Generic parameter count. 0 = not generic.
+    pub var num_params:     u32 = u32(-1);  ///< Generic parameter count. 0 = not generic.
     pub var is_foreign:     bool; ///< True if introduced via import.
     pub var extended:       bool; ///< True if this is an extended impl of an existing type, not a new declaration.
 
     fn is_type(self) -> bool {
         switch self.kind {
-            case HoistedKind::ClassType     { return true; }
-            case HoistedKind::EnumType      { return true; }
-            case HoistedKind::UnionType     { return true; }
-            case HoistedKind::StructType    { return true; }
-            case HoistedKind::InterfaceType { return true; }
-            case HoistedKind::TypeAlias     { return true; }
+            case HoistedKind::ClassType     { return true;  }
+            case HoistedKind::EnumType      { return true;  }
+            case HoistedKind::UnionType     { return true;  }
+            case HoistedKind::StructType    { return true;  }
+            case HoistedKind::InterfaceType { return true;  }
+            case HoistedKind::TypeAlias     { return true;  }
             default                         { return false; }
         }
     }
 
     fn is_value(self) -> bool {
         return self.kind == HoistedKind::Function
+            || self.kind == HoistedKind::Operator
             || self.kind == HoistedKind::Variable;
     }
 
@@ -283,8 +286,14 @@ class HoistedEntry {
             || self.kind == HoistedKind::BasicMacro;
     }
 
-    fn is_generic(self) -> bool { return self.num_params > 0; }
+    fn is_generic(self)   -> bool { return self.num_params != NO_GENERICS; }
+    fn is_extension(self) -> bool { return self.extended;       }
+    fn is_from_foreign(self)   -> bool { return self.is_foreign;     }
 }
+
+__inline_cpp("
+u32 HoistedEntry::NO_GENERICS = u32(-1);
+");
 
 /// One node in the hoisted scope trie.
 ///
@@ -429,8 +438,8 @@ class HoistedScope {
     priv var _ctx:      obs::<ASTContext>;
 
     fn HoistedScope(self, ctx: *ASTContext) {
-        self._ctx     = ctx;
-        self._interner.set_ctx(ctx);
+        self._ctx      = ctx;
+        self._interner = StringInterner(ctx);
     }
 
     // --- Interning -----------------------------------------------------------
@@ -530,6 +539,13 @@ class HoistedScope {
 
     fn root(self) -> *ScopeNode { return &self._root; }
 
+    fn dump(self) {
+        std::print("=== HoistedScope Dump ===");
+        self._dump_node(&self._root, "", true);
+        std::print("=========================");
+    }
+
+
     // --- Private -------------------------------------------------------------
 
     priv fn _lookup_in(self, node: *ScopeNode, key: InternedStr) -> LookupResult {
@@ -560,5 +576,79 @@ class HoistedScope {
         for var it = node->children.begin(); it != node->children.end(); ++it {
             self._collect_extensions(it->second, type_name, result);
         }
+    }
+
+    priv fn _dump_node(self, node: *ScopeNode, prefix: string, is_root: bool) {
+        var entries_it = node->entries.begin();
+        var total_entries: usize = 0;
+
+        // count total entry vectors for branching logic
+        for var it = node->entries.begin(); it != node->entries.end(); ++it {
+            total_entries += 1;
+        }
+        var total_children: usize = node->children.size();
+        var total_items: usize    = total_entries + total_children;
+
+        var item_idx: usize = 0;
+
+        // print entries
+        for var it = node->entries.begin(); it != node->entries.end(); ++it {
+            ++item_idx;
+            var is_last    = (item_idx == total_items);
+            var connector  = (("└── ") if (is_last) else ("├── "));
+            var child_pfx  = (("    ") if (is_last) else ("│   "));
+
+            var name = self._interner.get(it->first);
+            var vec  = it->second;
+
+            if vec.size() == 1 {
+                std::print(f"{prefix}{connector}{name}  [{self._kind_str(vec[0].kind)}]{self._flags_str(vec[0])}");
+            } else {
+                std::print(f"{prefix}{connector}{name}  (overloaded x{vec.size()})");
+                for var i: usize = 0; i < vec.size(); ++i {
+                    var sub_last      = (i == vec.size() - 1);
+                    var sub_connector = (("└── ") if (sub_last) else ("├── "));
+                    std::print(f"{prefix}{child_pfx}{sub_connector}[{self._kind_str(vec[i].kind)}]{self._flags_str(vec[i])}");
+                }
+            }
+        }
+
+        // print children (nested scopes)
+        for var it = node->children.begin(); it != node->children.end(); ++it {
+            ++item_idx;
+            var is_last   = (item_idx == total_items);
+            var connector = (("└── ") if (is_last) else ("├── "));
+            var child_pfx = (("    ") if (is_last) else ("│   "));
+
+            var name = self._interner.get(it->first);
+            std::print(f"{prefix}{connector}{name}/");
+            self._dump_node(it->second, prefix + child_pfx, false);
+        }
+    }
+
+    priv static fn _kind_str(kind: HoistedKind) -> string {
+        switch kind {
+            case HoistedKind::ClassType     { return "class";     }
+            case HoistedKind::EnumType      { return "enum";      }
+            case HoistedKind::UnionType     { return "union";     }
+            case HoistedKind::StructType    { return "struct";    }
+            case HoistedKind::InterfaceType { return "interface"; }
+            case HoistedKind::TypeAlias     { return "type";      }
+            case HoistedKind::Function      { return "fn";        }
+            case HoistedKind::Operator      { return "fn op";     }
+            case HoistedKind::Variable      { return "var";       }
+            case HoistedKind::ProcMacro     { return "@macro";    }
+            case HoistedKind::BasicMacro    { return "macro!";    }
+            case HoistedKind::Module        { return "module";    }
+            default                         { return "?";         }
+        }
+    }
+
+    priv static fn _flags_str(entry: ref!(HoistedEntry)) -> string {
+        var s: string = "";
+        if entry.is_generic()  { s = (s + "  <generic:" + std::to_string(entry.num_params) + ">"); }
+        if entry.is_from_foreign()  { s = (s + "  [foreign]");  }
+        if entry.extended      { s = (s + "  [extension]"); }
+        return s;
     }
 }

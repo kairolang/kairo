@@ -209,10 +209,10 @@ class <T> FrozenList {
 }
 
 class TokenText {
-    var text:      string;
-    var range:     SourceRange;
-    var is_expand: bool = false;
-    var is_marker: bool = false;
+    pub var text:      string;
+    pub var range:     SourceRange;
+    pub var is_expand: bool = false;
+    pub var is_marker: bool = false;
 
     fn TokenText(
         self,

@@ -157,6 +157,10 @@ class SourceRange {
     ///
     /// \note if one range is invalid, the other is returned unchanged.
     ///
+    /// \example merging two ranges:
+    /// lets say two ranges: A = [9, 15) and B = [12, 20)
+    /// A.merge(B) would return [9, 20) because it covers all of A and B.
+    ///
     const fn merge(self, other: SourceRange) -> SourceRange {
         if self.is_invalid() {
             return other;
