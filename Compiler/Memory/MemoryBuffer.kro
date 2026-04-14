@@ -93,7 +93,7 @@ class MemoryBuffer {
     /// \return true if `_data` is not null and `_size` > 0.
     ///
     inline fn is_valid(self) -> bool {
-        return (self._data != &null) && (self._size > 0);
+        return self._data != &null;
     }
 
     ///

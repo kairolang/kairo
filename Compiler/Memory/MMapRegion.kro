@@ -120,7 +120,7 @@ class MMapRegion {
 
             if (fsize.QuadPart) == 0 { // empty file, map to a non-null zero-length region
                 CloseHandle(hFile);
-                self._data = &null;
+                self._data = __inline_cpp("(u8*)\"\"");
                 self._size = 0;
                 _valid = true;
                 return true;
@@ -171,7 +171,10 @@ class MMapRegion {
 
             if st.st_size == 0 {
                 __inline_cpp("::close(fd)");
-                self._data = &null; self._size = 0; _valid = true; return true;
+                self._data = __inline_cpp("(u8*)\"\"");
+                self._size = 0;
+                _valid = true;
+                return true;
             }
 
             var mapping: *u8 = mmap(
