@@ -12,6 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 import Include::Base::*;
+import Lexer::Token::*;
+import Lexer::TokenBuffer::*;
 
 class BalanceTracker {
     __inline_cpp("public:");
@@ -63,7 +65,9 @@ class BalanceTracker {
         }
     }
 
-    inline fn pop(self, closer: TokenKind, loc: SourceLocation) -> bool {
+    /// Returns recovery tokens that should be appended BEFORE the closer
+    /// we never balance check fstring exprs since thats the parser job entirely
+    inline fn pop(self, closer: TokenKind, loc: SourceLocation, buff: *TokenBuffer::<512>) {
         if self.stack_size == 0 {
             self.errors.push_back(BalanceError{
                 loc: loc,
@@ -73,7 +77,7 @@ class BalanceTracker {
                 kind: BalanceErrorKind::Unexpected,
                 is_macro: false
             });
-            return false;
+            return;
         }
 
         var top = self.stack[self.stack_size - 1];
@@ -81,15 +85,15 @@ class BalanceTracker {
 
         if expected == closer {
             --self.stack_size;
-            return true;
+            return;
         }
 
-        // limited depth recovery (max 3 like before)
+        // Find matching opener in stack (limit search depth to 8)
         var matching_opener = BalanceTracker::get_opener(closer);
         var found_index: isize = -1;
 
         for var i: isize = static_cast::<isize>(self.stack_size) - 1;
-            i >= 0 && (static_cast::<usize>(self.stack_size - 1 - i) <= 3);
+            i >= 0 && (static_cast::<usize>(self.stack_size - 1 - i) <= 8);
             --i {
 
             if self.stack[static_cast::<usize>(i)].kind == matching_opener {
@@ -99,26 +103,35 @@ class BalanceTracker {
         }
 
         if found_index >= 0 {
-            // report unclosed between top and match
-            for var i: usize = static_cast::<usize>(found_index) + 1;
-                i < self.stack_size;
-                ++i {
+            // Emit synthetic closers for everything between found_index and top
+            // Go top-down (innermost first)
+            for var i: isize = static_cast::<isize>(self.stack_size) - 1;
+                i > found_index;
+                --i {
 
-                var unclosed = self.stack[i];
+                var unclosed = self.stack[static_cast::<usize>(i)];
+                var unclosed_closer = BalanceTracker::get_closer(unclosed.kind);
+
                 self.errors.push_back(BalanceError{
-                    loc: unclosed.loc,
+                    loc: loc,
                     open_loc: unclosed.loc,
-                    expected: BalanceTracker::get_closer(unclosed.kind),
+                    expected: unclosed_closer,
                     found: TokenKind::TkUnknown,
                     kind: BalanceErrorKind::Unclosed,
                     is_macro: unclosed.is_macro
                 });
+
+                buff->append(Token(
+                    SourceRange::single(loc),
+                    TokenKind::TkError,
+                    static_cast::<u32>(unclosed_closer)
+                ));
             }
 
-            // consume everything including matching opener
+            // Consume everything including the matching opener
             self.stack_size = static_cast::<usize>(found_index);
         } else {
-            // mismatched
+            // No matching opener found true mismatch
             self.errors.push_back(BalanceError{
                 loc: loc,
                 open_loc: top.loc,
@@ -128,24 +141,39 @@ class BalanceTracker {
                 is_macro: top.is_macro
             });
 
+            // Emit synthetic closer for top, then pop it
+            buff->append(Token(
+                SourceRange::single(loc),
+                TokenKind::TkError,
+                static_cast::<u32>(expected)
+            ));
+
             --self.stack_size;
         }
 
-        return false;
+        return;
     }
 
-    inline fn finalize(self) {
+    /// Appends recovery tokens for all unclosed openers at EOF
+    inline fn finalize(self, tokens: *TokenBuffer::<512>, eof_loc: SourceLocation) {
         while self.stack_size > 0 {
             var top = self.stack[self.stack_size - 1];
+            var expected = BalanceTracker::get_closer(top.kind);
 
             self.errors.push_back(BalanceError{
-                loc: top.loc,
+                loc: eof_loc,
                 open_loc: top.loc,
-                expected: BalanceTracker::get_closer(top.kind),
+                expected: expected,
                 found: TokenKind::TkUnknown,
                 kind: BalanceErrorKind::Unclosed,
                 is_macro: top.is_macro
             });
+
+            tokens->append(Token(
+                SourceRange::single(eof_loc),
+                TokenKind::TkError,
+                static_cast::<u32>(expected)
+            ));
 
             --self.stack_size;
         }

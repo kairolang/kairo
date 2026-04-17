@@ -356,7 +356,7 @@ class Lexer {
                     } else if BalanceTracker::is_opener(token.kind) {
                         self._balance.push(token.kind, token.range.start, false);
                     } else if BalanceTracker::is_closer(token.kind) {
-                        self._balance.pop(token.kind, token.range.start);
+                        self._balance.pop(token.kind, token.range.start, &(self._tokens));
                     }
                     self._last_was_bang = false;
                 }
@@ -369,15 +369,40 @@ class Lexer {
                 }
             }
 
-            if token.kind == TokenKind::TkError {
-                self._diag->report(DiagCode(DiagID::S011E), token.range.start,
-                    f"invalid token '{self._sm->get_text(token.range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token.imm))}' ")
-                    .first(token.range).emit();
-            }
+            // if token.kind == TokenKind::TkError {
+            //     self._diag->report(DiagCode(DiagID::S011E), token.range.start,
+            //         f"invalid token '{self._sm->get_text(token.range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token.imm))}' ")
+            //         .first(token.range).emit();
+            // }
+            // we do not emit errors here since some of them are expected to be handled later with better context
         }
 
-        // finalize balance checking
-        self._balance.finalize();
+        // finalize balance checking we also need to pass the buff and lock right before eof
+        self._balance.finalize(&(self._tokens), self.get_source_location());
+
+        // we do need to push all the unclosed delimiters as errors to route them through the diagnostic engine later
+        for i: BalanceTracker::BalanceError in (self._balance.errors) {
+            if i.kind == BalanceTracker::BalanceErrorKind::Unclosed {
+                var code = DiagID::S021E; // default to brace
+                if i.expected == TokenKind::OpRParen  { code = DiagID::S019E; }
+                if i.expected == TokenKind::OpRSquare { code = DiagID::S020E; }
+
+                self._diag->report(DiagCode(code), i.open_loc,
+                    f"unclosed '{token_kind_to_readable_string(i.expected)}' opened here")
+                    .first(SourceRange::single(i.open_loc)).emit();
+
+            } else if i.kind == BalanceTracker::BalanceErrorKind::Unexpected {
+                self._diag->report(DiagCode(DiagID::S034E), i.loc,
+                    f"unexpected '{token_kind_to_readable_string(i.found)}' with no matching opener")
+                    .first(SourceRange::single(i.loc)).emit();
+
+            } else if i.kind == BalanceTracker::BalanceErrorKind::Mismatched {
+                self._diag->report(DiagCode(DiagID::S035E), i.loc,
+                    f"mismatched delimiter: expected '{token_kind_to_readable_string(i.expected)}', found '{token_kind_to_readable_string(i.found)}' ")
+                    .first(SourceRange::single(i.loc))
+                    .second(SourceRange::single(i.open_loc)).emit();
+            }
+        }
 
         Logger::info(Logger::Stage::Lexer, f"Lexer::lex: fid={fid} tokens={self._tokens.size()} errors={self._diag->error_count()}");
         return true;
@@ -471,11 +496,12 @@ class Lexer {
         for var i: usize = 0; i < tokens->size(); ++i {
             var token = tokens->get(i);
 
-            if (token->kind) == TokenKind::TkError {
-                self._diag->report(DiagCode(DiagID::S011E), token->range.start,
-                    f"invalid token '{self._sm->get_text(token->range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' ")
-                    .first(token->range).emit();
-            }
+            // if (token->kind) == TokenKind::TkError {
+            //     self._diag->report(DiagCode(DiagID::S011E), token->range.start,
+            //         f"invalid token '{self._sm->get_text(token->range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' ")
+            //         .first(token->range).emit();
+            // }
+            // we handle the TkError tokens in the parser not here.
         }
 
         // now we restore state
