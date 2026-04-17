@@ -686,12 +686,18 @@ fn FrontendAction::_dump_tokens() {
             text = f"__unique_{imm}";
         } else if kind == TokenKind::OpComma {
             text = ",";
+        } else if kind == TokenKind::TkError {
+            text = "ERROR"; // we do not attempt to get the text since we might
+                            // segfault trying to read an invalid source range
+        
         } else {
             text = sm->get_text(tok_range);
         }
         
         if tok->kind == TokenKind::TkMacroExpand {
             std::print(f"  [{i}] MACRO EXPANDED '{text}' @ {tok->range}");
+        } else if tok->kind == TokenKind::TkError {
+            std::print(f"  [{i}] <error token> expected `{token_kind_to_readable_string(static_cast::<TokenKind>(tok->imm))}' @ {tok->range}");
         } else {
             std::print(f"  [{i}] {tok->readable_kind()} '{text}' @ {tok->range}");
         }

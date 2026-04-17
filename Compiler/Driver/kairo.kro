@@ -100,10 +100,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     // The action strategy is encoded in CompilerInvocation::frontend.action.
     // FrontendOptions::stops_at_* helpers gate each pipeline stage.
     var result = ci->execute();
-
-    if ci->diag()->has_errors() {
-        ci->flush_errors();
-    }
+    ci->flush_errors();
 
     if ci->invocation().frontend.verbose {
         std::eprint(f"compilation: {result.summary()}");
