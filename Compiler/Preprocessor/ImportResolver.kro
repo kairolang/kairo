@@ -178,7 +178,7 @@ class ImportResolver {
             // state is uninitialised. Async indexing bought nothing anyway since
             // CompilationBatch::run() calls wait_for_index() before dispatching
             // any TU tasks - the spin was immediate and free-threaded for zero gain.
-            resolver->build_index(cwd_path, self._include_paths, pool);
+            resolver->build_index(cwd_path, self._include_paths, &null);
             return resolver;
         }
     }
