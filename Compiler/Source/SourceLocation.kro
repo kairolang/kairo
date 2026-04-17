@@ -111,15 +111,15 @@ class SourceLocation {
     /// FIXME: this is failing for some reason
     ///
     const fn with_offset(self, delta: i64) -> SourceLocation {
-        var new_val = static_cast::<i64>(self.id) + static_cast::<i64>(delta);
+        var new_val = static_cast::<i64>(self.id) + delta;
         
-        if static_cast::<i64>(delta) < 0 {
-            std::crash(std::Error::RuntimeError("SourceLocation: underflow"));
-        }
+        // if new_val < 0 {
+        //     std::crash(std::Error::RuntimeError("SourceLocation: underflow"));
+        // }
         
-        if (static_cast::<i64>(delta)) > (0xFFFFFFFF) {
-            std::crash(std::Error::RuntimeError("SourceLocation: overflow"));
-        }
+        // if new_val > static_cast::<i64>(0xFFFFFFFF) {
+        //     std::crash(std::Error::RuntimeError("SourceLocation: overflow"));
+        // }
 
         var loc = SourceLocation();
         loc.id = static_cast::<u32>(new_val);

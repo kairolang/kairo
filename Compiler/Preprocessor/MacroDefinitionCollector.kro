@@ -199,7 +199,7 @@ class MacroDefinitionCollector {
 
         var lbrace = tokens->get(j);
         if lbrace->kind != TokenKind::OpLBrace {
-            self.error(lbrace, f"expected an opening brace for macro body, got {lbrace->kind}", DiagID::S038E);
+            self.error(lbrace, f"expected an opening brace for macro body, got {token_kind_to_readable_string(lbrace->kind)}", DiagID::S038E);
             return 0;
         }
 

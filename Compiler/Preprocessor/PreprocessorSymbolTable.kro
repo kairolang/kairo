@@ -13,6 +13,8 @@
 ///                                                                          ///
 ///------------------------------------------------------------ KAIRO -------///
 
+ffi "c++" import "Lexer/CharTable.hh";
+
 type SymbolID = u32;;
 
 class PreprocessorSymbolTable {

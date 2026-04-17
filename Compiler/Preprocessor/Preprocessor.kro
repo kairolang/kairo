@@ -828,7 +828,7 @@ class MacroExpander {
                 for var k: usize = i; k < end; ++k {
                     output->append(*(tokens->get(k)));
                 }
-                
+
                 i = end;
                 continue;
             }
@@ -1679,12 +1679,21 @@ class PreProcessor {
     }
 
     fn preprocess(self, entry_fid: u32, entry_path: ModulePath) -> bool {
+        self._resolver->wait_for_index();
+
         // Phase 0: build dep graph (single-threaded)
         Logger::info(Logger::Stage::Preprocessor, "PreProcessor: phase 0 dep scan");
+        var t0 = libcxx::chrono::high_resolution_clock::now();
+        
         var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._pp_sym_table);
         var graph   = scanner.build_graph(entry_fid, entry_path);
+        
+        var t1 = libcxx::chrono::high_resolution_clock::now();
+        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
 
         // Phase 1: wave-parallel lex + import scan + macro collection
+        t0 = libcxx::chrono::high_resolution_clock::now();
+
         Logger::info(Logger::Stage::Preprocessor, f"PreProcessor: phase 1 collection waves fids={graph.all_fids.size()}");
         var executor = WaveExecutor(self._pool);
 
@@ -1728,9 +1737,13 @@ class PreProcessor {
             }
         });
 
-        if self._diag->has_errors() { return false; }
+        if self._diag->has_fatal() { return false; }
+
+        t1 = libcxx::chrono::high_resolution_clock::now();
+        dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
 
         // Phase 2: wave-parallel expansion (macro table now frozen)
+        t0 = libcxx::chrono::high_resolution_clock::now();
         Logger::info(Logger::Stage::Preprocessor, "PreProcessor: phase 2 expansion");
 
         // rebuild a fresh graph - same topology, same wave ordering
@@ -1792,9 +1805,14 @@ class PreProcessor {
             ");
         }
 
+        t1 = libcxx::chrono::high_resolution_clock::now();
+        dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
         self._pool->wait_group(u8(2));
 
-        return !self._diag->has_errors();
+        t1 = libcxx::chrono::high_resolution_clock::now();
+        dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
+
+        return !self._diag->has_fatal();
     }
 
     static fn unwrap_token(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager) -> Token {
