@@ -878,16 +878,13 @@ void eprint(Args &&...t) {
         fwprintf(stderr, L"\n");
         return;
     }
-
-    ((fwprintf(stderr,
-               L"%ls",
-               [&]() -> const string {
-                   auto str = std::to_string(t);
-                   return str;
-               }()
-                            .raw())),
+    
+    ((([&]() { // fixed so now thers no more UB with large strings
+           auto str = std::to_string(t);
+           fwprintf(stderr, L"%ls", str.raw());
+       }())),
      ...);
-
+    
     if constexpr (sizeof...(t) > 0) {
         using LastArg =
             libcxx::tuple_element_t<sizeof...(t) - 1, tuple<Args...>>;

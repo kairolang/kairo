@@ -42,6 +42,7 @@ class ASTIndex {
 
     priv var _max_scope_depth: u32;
     priv var _scope_depth:     u32 = 0;
+    priv var _in_ffi_block:    bool = false;
 
     fn ASTIndex(self, ctx: *ASTContext) {
         self._ctx      = ctx;
@@ -60,31 +61,31 @@ class ASTIndex {
 
         // also print all the tokens we see in the from of [idx](kind)(text)
         // fully resolzed from
-        std::print("Tokens in ASTIndex span:");
-        var out: string;
-        for var i: usize = 0; i < self._span.size(); ++i {
-            var resolved_kind = self.resolve_kind_deep(self._span.get(i));
-            var original_kind = self._span.get(i)->kind;
-            var text = self.get_text(self._span.get(i)).text;
-            // for newlines we only print \n to avoid cluttering the output and [idx](Newline)
-            if resolved_kind == TokenKind::TkNewLine {
-                out += f"[{i}](newLine){text}";
-            } else {
-                if original_kind == TokenKind::TkError {
-                    out += f"[{i}]<error>({token_kind_to_string(resolved_kind)})({text})";
-                } else if original_kind == TokenKind::TkEof {
-                    out += f"[{i}]<eof>({token_kind_to_string(resolved_kind)})({text})";
-                } else if original_kind == TokenKind::TkMacroExpand {
-                    out += f"[{i}]<expand>({token_kind_to_string(resolved_kind)})({text})";
-                } else {
-                    out += f"[{i}]({token_kind_to_string(resolved_kind)})({text})";
-                }
-            }
+        // std::print("Tokens in ASTIndex span:");
+        // var out: string;
+        // for var i: usize = 0; i < self._span.size(); ++i {
+        //     var resolved_kind = self.resolve_kind_deep(self._span.get(i));
+        //     var original_kind = self._span.get(i)->kind;
+        //     var text = self.get_text(self._span.get(i)).text;
+        //     // for newlines we only print \n to avoid cluttering the output and [idx](Newline)
+        //     if resolved_kind == TokenKind::TkNewLine {
+        //         out += f"[{i}](newLine){text}";
+        //     } else {
+        //         if original_kind == TokenKind::TkError {
+        //             out += f"[{i}]<error>({token_kind_to_string(resolved_kind)})({text})";
+        //         } else if original_kind == TokenKind::TkEof {
+        //             out += f"[{i}]<eof>({token_kind_to_string(resolved_kind)})({text})";
+        //         } else if original_kind == TokenKind::TkMacroExpand {
+        //             out += f"[{i}]<expand>({token_kind_to_string(resolved_kind)})({text})";
+        //         } else {
+        //             out += f"[{i}]({token_kind_to_string(resolved_kind)})({text})";
+        //         }
+        //     }
 
-            out += " ";
-        }
+        //     out += " ";
+        // }
 
-        std::print(out);
+        // std::print(out);
     }
 
     priv fn dispatch_decl(self) -> bool {
@@ -103,24 +104,27 @@ class ASTIndex {
                     self.match_tok(TokenKind::OpRBrace);
                 }
             }
-
+            case TokenKind::KwImport    {
+                self.advance();
+                self.skip_until_balanced(SkipUntil::EndLine);
+            }
             case TokenKind::KwStatic:
             case TokenKind::KwEval:
             case TokenKind::KwVar:
-            case TokenKind::KwConst     { self.parse_var();        }
-            case TokenKind::KwClass     { self.parse_class();      }
-            case TokenKind::KwEnum      { self.parse_enum();       }
-            case TokenKind::KwType      { self.parse_type_alias(); }
-            case TokenKind::KwModule    { self.parse_module();     }
-            case TokenKind::KwStruct    { self.parse_struct();     }
-            case TokenKind::KwInterface { self.parse_interface();  }
-            case TokenKind::KwMacro     { self.parse_macro();      }
-            case TokenKind::KwImport    { self.advance();          }
+            case TokenKind::KwConst     { self.parse_var();          }
+            case TokenKind::KwClass     { self.parse_class();        }
+            case TokenKind::KwEnum      { self.parse_enum();         }
+            case TokenKind::KwType      { self.parse_type_alias();   }
+            case TokenKind::KwModule    { self.parse_module();       }
+            case TokenKind::KwStruct    { self.parse_struct();       }
+            case TokenKind::KwInterface { self.parse_interface();    }
+            case TokenKind::KwMacro     { self.parse_macro();        }
             case TokenKind::KwOp:
-            case TokenKind::KwFn        { self.parse_fn();         }
-    
+            case TokenKind::KwFn        { self.parse_fn();           }
+            case TokenKind::KwFfi       { self.parse_ffi();          }
+            case TokenKind::KwInline    { self.parse_inline_block(); }
             case TokenKind::OpRBrace:
-            case TokenKind::TkEof       { return false;            }
+            case TokenKind::TkEof       { return false;              }
 
             default { self.advance(); }
         }
@@ -786,7 +790,7 @@ class ASTIndex {
                 return;
             }
             if !self.match_tok(TokenKind::OpExclaim) {
-                self._diag->report(DiagID::S045E, name.range.start,
+                self._diag->report(DiagID::S037E, name.range.start,
                     "expected '!' after macro name"
                 ).first(name.range).emit();
                 self.skip_until_balanced(SkipUntil::EndLine);
@@ -813,14 +817,73 @@ class ASTIndex {
             self.hoist(self.get_text(name).text, entry);
 
         } else {
-            self._diag->report(DiagID::S045E, tok.range.start,
+            self._diag->report(DiagID::S036E, tok.range.start,
                 "expected macro name after 'macro' "
             ).first(tok.range).emit();
             self.skip_until_balanced(SkipUntil::EndLine);
         }
     }
 
-    inline priv fn parse_import(self);
+    priv fn parse_inline_block(self) {
+        self.advance(); // consume inline
+        if !self.check(TokenKind::LitString) { // expect string literal
+            // we just have an inline modifier still valid code
+            if self.match_tok(TokenKind::OpLBrace) {
+                while !self.is_eof() {
+                    if !self.dispatch_decl() { break; }
+                }
+
+                self.match_tok(TokenKind::OpRBrace);
+            }
+
+            return;
+        }
+        self.advance(); // consume the string
+
+        // inline "..." { ... } skip entire body
+        if self.check(TokenKind::OpLBrace) {
+            self.advance(); // consume {
+            self.skip_until_balanced(SkipUntil::RBrace);
+            self.match_tok(TokenKind::OpRBrace);
+            return;
+        }
+
+        self.skip_until_balanced(SkipUntil::EndLine);
+    }
+
+    priv fn parse_ffi(self) {
+        self.advance(); // consume ffi
+
+        if !self.check(TokenKind::LitString) {
+            self.skip_until_balanced(SkipUntil::EndLine);
+            return;
+        }
+        self.advance(); // consume the string
+
+        // ffi "c++" import ... skip entirely
+        if self.check(TokenKind::KwImport) {
+            self.skip_until_balanced(SkipUntil::EndLine);
+            return;
+        }
+
+        // ffi "c++" { ... } walk body, index decls as foreign
+        if !self.check(TokenKind::OpLBrace) {
+            self.skip_until_balanced(SkipUntil::EndLine);
+            return;
+        }
+
+        self.advance(); // consume {
+
+        var was_foreign = self._in_ffi_block;
+        self._in_ffi_block = true;
+
+        while !self.is_eof() {
+            if !self.dispatch_decl() { break; }
+        }
+
+        self._in_ffi_block = was_foreign;
+        self.match_tok(TokenKind::OpRBrace);
+    }
 
     inline priv fn get_text(self, tok: *Token) -> TokenText {
         if tok == &null {
@@ -948,6 +1011,21 @@ class ASTIndex {
         }
 
         return tok;
+    }
+
+    inline priv fn retreat(self) {
+        if self._c_idx > 0 {
+            self._c_idx -= 1;
+            self._current = self._span.get(self._c_idx);
+        } else {
+            self._current = &null; // or keep pointing at start, but stop decrementing
+        }
+
+        if self._c_idx > 0 {
+            self._peek = self._span.get(self._c_idx - 1);
+        } else {
+            self._peek = &null;
+        }
     }
 
     inline priv fn peek(self) -> *Token {
@@ -1155,6 +1233,10 @@ class ASTIndex {
     }
 
     inline priv fn hoist(self, name: string, entry: HoistedEntry) {
+        if self._in_ffi_block {
+            entry.is_foreign = true;
+        }
+
         if self._scope_path.empty() {
             self._hoisted->insert(name, entry);
         } else {
