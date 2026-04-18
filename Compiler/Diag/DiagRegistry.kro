@@ -24,6 +24,30 @@ import Diag::DiagMeta::*;
 
 enum DiagID derives u32 {
   Invalid = 0,
+  SC001W = compute_hash::<r"SC001W">(),
+  SC001I = compute_hash::<r"SC001I">(),
+  SC001R = compute_hash::<r"SC001R">(),
+  SC001V = compute_hash::<r"SC001V">(),
+  SC001N = compute_hash::<r"SC001N">(),
+  SC001D = compute_hash::<r"SC001D">(),
+  SC001E = compute_hash::<r"SC001E">(),
+  SC001F = compute_hash::<r"SC001F">(),
+  L001W = compute_hash::<r"L001W">(),
+  L001I = compute_hash::<r"L001I">(),
+  L001R = compute_hash::<r"L001R">(),
+  L001V = compute_hash::<r"L001V">(),
+  L001N = compute_hash::<r"L001N">(),
+  L001D = compute_hash::<r"L001D">(),
+  L001E = compute_hash::<r"L001E">(),
+  L001F = compute_hash::<r"L001F">(),
+  P001W = compute_hash::<r"P001W">(),
+  P001I = compute_hash::<r"P001I">(),
+  P001R = compute_hash::<r"P001R">(),
+  P001V = compute_hash::<r"P001V">(),
+  P001N = compute_hash::<r"P001N">(),
+  P001D = compute_hash::<r"P001D">(),
+  P001E = compute_hash::<r"P001E">(),
+  P001F = compute_hash::<r"P001F">(),
   C001W = compute_hash::<r"C001W">(),
   C001I = compute_hash::<r"C001I">(),
   C001R = compute_hash::<r"C001R">(),
@@ -32,14 +56,15 @@ enum DiagID derives u32 {
   C001D = compute_hash::<r"C001D">(),
   C001E = compute_hash::<r"C001E">(),
   C001F = compute_hash::<r"C001F">(),
-  OPT001W = compute_hash::<r"OPT001W">(),
-  OPT001I = compute_hash::<r"OPT001I">(),
-  OPT001R = compute_hash::<r"OPT001R">(),
-  OPT001V = compute_hash::<r"OPT001V">(),
-  OPT001N = compute_hash::<r"OPT001N">(),
-  OPT001D = compute_hash::<r"OPT001D">(),
-  OPT001E = compute_hash::<r"OPT001E">(),
-  OPT001F = compute_hash::<r"OPT001F">(),
+  I001W = compute_hash::<r"I001W">(),
+  I001I = compute_hash::<r"I001I">(),
+  I001R = compute_hash::<r"I001R">(),
+  I001V = compute_hash::<r"I001V">(),
+  I001N = compute_hash::<r"I001N">(),
+  I001D = compute_hash::<r"I001D">(),
+  I001E = compute_hash::<r"I001E">(),
+  I001F = compute_hash::<r"I001F">(),
+  I002F = compute_hash::<r"I002F">(),
   U001W = compute_hash::<r"U001W">(),
   U001I = compute_hash::<r"U001I">(),
   U001R = compute_hash::<r"U001R">(),
@@ -59,31 +84,14 @@ enum DiagID derives u32 {
   M001D = compute_hash::<r"M001D">(),
   M001E = compute_hash::<r"M001E">(),
   M001F = compute_hash::<r"M001F">(),
-  L001W = compute_hash::<r"L001W">(),
-  L001I = compute_hash::<r"L001I">(),
-  L001R = compute_hash::<r"L001R">(),
-  L001V = compute_hash::<r"L001V">(),
-  L001N = compute_hash::<r"L001N">(),
-  L001D = compute_hash::<r"L001D">(),
-  L001E = compute_hash::<r"L001E">(),
-  L001F = compute_hash::<r"L001F">(),
-  I001W = compute_hash::<r"I001W">(),
-  I001I = compute_hash::<r"I001I">(),
-  I001R = compute_hash::<r"I001R">(),
-  I001V = compute_hash::<r"I001V">(),
-  I001N = compute_hash::<r"I001N">(),
-  I001D = compute_hash::<r"I001D">(),
-  I001E = compute_hash::<r"I001E">(),
-  I001F = compute_hash::<r"I001F">(),
-  I002F = compute_hash::<r"I002F">(),
-  P001W = compute_hash::<r"P001W">(),
-  P001I = compute_hash::<r"P001I">(),
-  P001R = compute_hash::<r"P001R">(),
-  P001V = compute_hash::<r"P001V">(),
-  P001N = compute_hash::<r"P001N">(),
-  P001D = compute_hash::<r"P001D">(),
-  P001E = compute_hash::<r"P001E">(),
-  P001F = compute_hash::<r"P001F">(),
+  OPT001W = compute_hash::<r"OPT001W">(),
+  OPT001I = compute_hash::<r"OPT001I">(),
+  OPT001R = compute_hash::<r"OPT001R">(),
+  OPT001V = compute_hash::<r"OPT001V">(),
+  OPT001N = compute_hash::<r"OPT001N">(),
+  OPT001D = compute_hash::<r"OPT001D">(),
+  OPT001E = compute_hash::<r"OPT001E">(),
+  OPT001F = compute_hash::<r"OPT001F">(),
   S001W = compute_hash::<r"S001W">(),
   S001I = compute_hash::<r"S001I">(),
   S001R = compute_hash::<r"S001R">(),
@@ -105,10 +113,10 @@ enum DiagID derives u32 {
   S016E = compute_hash::<r"S016E">(),
   S017E = compute_hash::<r"S017E">(),
   S018E = compute_hash::<r"S018E">(),
-  S022E = compute_hash::<r"S022E">(),
+  S022W = compute_hash::<r"S022W">(),
   S023E = compute_hash::<r"S023E">(),
   S024E = compute_hash::<r"S024E">(),
-  S025E = compute_hash::<r"S025E">(),
+  S025W = compute_hash::<r"S025W">(),
   S026E = compute_hash::<r"S026E">(),
   S027E = compute_hash::<r"S027E">(),
   S028E = compute_hash::<r"S028E">(),
@@ -159,19 +167,251 @@ enum DiagID derives u32 {
   CL001D = compute_hash::<r"CL001D">(),
   CL001E = compute_hash::<r"CL001E">(),
   CL001F = compute_hash::<r"CL001F">(),
-  SC001W = compute_hash::<r"SC001W">(),
-  SC001I = compute_hash::<r"SC001I">(),
-  SC001R = compute_hash::<r"SC001R">(),
-  SC001V = compute_hash::<r"SC001V">(),
-  SC001N = compute_hash::<r"SC001N">(),
-  SC001D = compute_hash::<r"SC001D">(),
-  SC001E = compute_hash::<r"SC001E">(),
-  SC001F = compute_hash::<r"SC001F">(),
 }
 
 eval fn diag_meta(id: DiagID) -> DiagMeta {
   switch id {
     case DiagID::Invalid { return DiagMeta{}; }
+    case DiagID::SC001W {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"SC001W">()),
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Warning
+      };
+    }
+    case DiagID::SC001I {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"SC001I">()),
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Ignored
+      };
+    }
+    case DiagID::SC001R {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"SC001R">()),
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Remark
+      };
+    }
+    case DiagID::SC001V {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"SC001V">()),
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Verbose
+      };
+    }
+    case DiagID::SC001N {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"SC001N">()),
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Note
+      };
+    }
+    case DiagID::SC001D {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"SC001D">()),
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Debug
+      };
+    }
+    case DiagID::SC001E {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"SC001E">()),
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::SC001F {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"SC001F">()),
+        category: DiagCategory::Semantic,
+        severity: DiagSeverity::Fatal
+      };
+    }
+    case DiagID::L001W {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"L001W">()),
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Warning
+      };
+    }
+    case DiagID::L001I {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"L001I">()),
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Ignored
+      };
+    }
+    case DiagID::L001R {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"L001R">()),
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Remark
+      };
+    }
+    case DiagID::L001V {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"L001V">()),
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Verbose
+      };
+    }
+    case DiagID::L001N {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"L001N">()),
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Note
+      };
+    }
+    case DiagID::L001D {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"L001D">()),
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Debug
+      };
+    }
+    case DiagID::L001E {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"L001E">()),
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::L001F {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"L001F">()),
+        category: DiagCategory::Linker,
+        severity: DiagSeverity::Fatal
+      };
+    }
+    case DiagID::P001W {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"P001W">()),
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Warning
+      };
+    }
+    case DiagID::P001I {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"P001I">()),
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Ignored
+      };
+    }
+    case DiagID::P001R {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"P001R">()),
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Remark
+      };
+    }
+    case DiagID::P001V {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"P001V">()),
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Verbose
+      };
+    }
+    case DiagID::P001N {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"P001N">()),
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Note
+      };
+    }
+    case DiagID::P001D {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"P001D">()),
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Debug
+      };
+    }
+    case DiagID::P001E {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"P001E">()),
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::P001F {
+      return DiagMeta{
+        brief: "place holder diagnostics",
+        group: "Uncategorized",
+        number: 1,
+        hash: static_cast::<u32>(compute_hash::<r"P001F">()),
+        category: DiagCategory::Portability,
+        severity: DiagSeverity::Fatal
+      };
+    }
     case DiagID::C001W {
       return DiagMeta{
         brief: "place holder diagnostics",
@@ -252,83 +492,93 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Fatal
       };
     }
-    case DiagID::OPT001W {
+    case DiagID::I001W {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"OPT001W">()),
-        category: DiagCategory::Optimization,
+        hash: static_cast::<u32>(compute_hash::<r"I001W">()),
+        category: DiagCategory::Internal,
         severity: DiagSeverity::Warning
       };
     }
-    case DiagID::OPT001I {
+    case DiagID::I001I {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"OPT001I">()),
-        category: DiagCategory::Optimization,
+        hash: static_cast::<u32>(compute_hash::<r"I001I">()),
+        category: DiagCategory::Internal,
         severity: DiagSeverity::Ignored
       };
     }
-    case DiagID::OPT001R {
+    case DiagID::I001R {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"OPT001R">()),
-        category: DiagCategory::Optimization,
+        hash: static_cast::<u32>(compute_hash::<r"I001R">()),
+        category: DiagCategory::Internal,
         severity: DiagSeverity::Remark
       };
     }
-    case DiagID::OPT001V {
+    case DiagID::I001V {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"OPT001V">()),
-        category: DiagCategory::Optimization,
+        hash: static_cast::<u32>(compute_hash::<r"I001V">()),
+        category: DiagCategory::Internal,
         severity: DiagSeverity::Verbose
       };
     }
-    case DiagID::OPT001N {
+    case DiagID::I001N {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"OPT001N">()),
-        category: DiagCategory::Optimization,
+        hash: static_cast::<u32>(compute_hash::<r"I001N">()),
+        category: DiagCategory::Internal,
         severity: DiagSeverity::Note
       };
     }
-    case DiagID::OPT001D {
+    case DiagID::I001D {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"OPT001D">()),
-        category: DiagCategory::Optimization,
+        hash: static_cast::<u32>(compute_hash::<r"I001D">()),
+        category: DiagCategory::Internal,
         severity: DiagSeverity::Debug
       };
     }
-    case DiagID::OPT001E {
+    case DiagID::I001E {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"OPT001E">()),
-        category: DiagCategory::Optimization,
+        hash: static_cast::<u32>(compute_hash::<r"I001E">()),
+        category: DiagCategory::Internal,
         severity: DiagSeverity::Error
       };
     }
-    case DiagID::OPT001F {
+    case DiagID::I001F {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"OPT001F">()),
-        category: DiagCategory::Optimization,
+        hash: static_cast::<u32>(compute_hash::<r"I001F">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Fatal
+      };
+    }
+    case DiagID::I002F {
+      return DiagMeta{
+        brief: "fatal error regrading the ast, the message should be self-explanatory",
+        group: "ast",
+        number: 2,
+        hash: static_cast::<u32>(compute_hash::<r"I002F">()),
+        category: DiagCategory::Internal,
         severity: DiagSeverity::Fatal
       };
     }
@@ -522,253 +772,83 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Fatal
       };
     }
-    case DiagID::L001W {
+    case DiagID::OPT001W {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"L001W">()),
-        category: DiagCategory::Linker,
+        hash: static_cast::<u32>(compute_hash::<r"OPT001W">()),
+        category: DiagCategory::Optimization,
         severity: DiagSeverity::Warning
       };
     }
-    case DiagID::L001I {
+    case DiagID::OPT001I {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"L001I">()),
-        category: DiagCategory::Linker,
+        hash: static_cast::<u32>(compute_hash::<r"OPT001I">()),
+        category: DiagCategory::Optimization,
         severity: DiagSeverity::Ignored
       };
     }
-    case DiagID::L001R {
+    case DiagID::OPT001R {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"L001R">()),
-        category: DiagCategory::Linker,
+        hash: static_cast::<u32>(compute_hash::<r"OPT001R">()),
+        category: DiagCategory::Optimization,
         severity: DiagSeverity::Remark
       };
     }
-    case DiagID::L001V {
+    case DiagID::OPT001V {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"L001V">()),
-        category: DiagCategory::Linker,
+        hash: static_cast::<u32>(compute_hash::<r"OPT001V">()),
+        category: DiagCategory::Optimization,
         severity: DiagSeverity::Verbose
       };
     }
-    case DiagID::L001N {
+    case DiagID::OPT001N {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"L001N">()),
-        category: DiagCategory::Linker,
+        hash: static_cast::<u32>(compute_hash::<r"OPT001N">()),
+        category: DiagCategory::Optimization,
         severity: DiagSeverity::Note
       };
     }
-    case DiagID::L001D {
+    case DiagID::OPT001D {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"L001D">()),
-        category: DiagCategory::Linker,
+        hash: static_cast::<u32>(compute_hash::<r"OPT001D">()),
+        category: DiagCategory::Optimization,
         severity: DiagSeverity::Debug
       };
     }
-    case DiagID::L001E {
+    case DiagID::OPT001E {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"L001E">()),
-        category: DiagCategory::Linker,
+        hash: static_cast::<u32>(compute_hash::<r"OPT001E">()),
+        category: DiagCategory::Optimization,
         severity: DiagSeverity::Error
       };
     }
-    case DiagID::L001F {
+    case DiagID::OPT001F {
       return DiagMeta{
         brief: "place holder diagnostics",
         group: "Uncategorized",
         number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"L001F">()),
-        category: DiagCategory::Linker,
-        severity: DiagSeverity::Fatal
-      };
-    }
-    case DiagID::I001W {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"I001W">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Warning
-      };
-    }
-    case DiagID::I001I {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"I001I">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Ignored
-      };
-    }
-    case DiagID::I001R {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"I001R">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Remark
-      };
-    }
-    case DiagID::I001V {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"I001V">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Verbose
-      };
-    }
-    case DiagID::I001N {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"I001N">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Note
-      };
-    }
-    case DiagID::I001D {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"I001D">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Debug
-      };
-    }
-    case DiagID::I001E {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"I001E">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Error
-      };
-    }
-    case DiagID::I001F {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"I001F">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Fatal
-      };
-    }
-    case DiagID::I002F {
-      return DiagMeta{
-        brief: "fatal error regrading the ast, the message should be self-explanatory",
-        group: "ast",
-        number: 2,
-        hash: static_cast::<u32>(compute_hash::<r"I002F">()),
-        category: DiagCategory::Internal,
-        severity: DiagSeverity::Fatal
-      };
-    }
-    case DiagID::P001W {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"P001W">()),
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Warning
-      };
-    }
-    case DiagID::P001I {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"P001I">()),
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Ignored
-      };
-    }
-    case DiagID::P001R {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"P001R">()),
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Remark
-      };
-    }
-    case DiagID::P001V {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"P001V">()),
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Verbose
-      };
-    }
-    case DiagID::P001N {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"P001N">()),
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Note
-      };
-    }
-    case DiagID::P001D {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"P001D">()),
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Debug
-      };
-    }
-    case DiagID::P001E {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"P001E">()),
-        category: DiagCategory::Portability,
-        severity: DiagSeverity::Error
-      };
-    }
-    case DiagID::P001F {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"P001F">()),
-        category: DiagCategory::Portability,
+        hash: static_cast::<u32>(compute_hash::<r"OPT001F">()),
+        category: DiagCategory::Optimization,
         severity: DiagSeverity::Fatal
       };
     }
@@ -982,14 +1062,14 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Error
       };
     }
-    case DiagID::S022E {
+    case DiagID::S022W {
       return DiagMeta{
         brief: "brace escape not valid outside format string",
         group: "syntax",
         number: 22,
-        hash: static_cast::<u32>(compute_hash::<r"S022E">()),
+        hash: static_cast::<u32>(compute_hash::<r"S022W">()),
         category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::S023E {
@@ -1012,14 +1092,14 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Error
       };
     }
-    case DiagID::S025E {
+    case DiagID::S025W {
       return DiagMeta{
         brief: "octal escape sequence in non-byte string",
         group: "syntax",
         number: 25,
-        hash: static_cast::<u32>(compute_hash::<r"S025E">()),
+        hash: static_cast::<u32>(compute_hash::<r"S025W">()),
         category: DiagCategory::Syntax,
-        severity: DiagSeverity::Error
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::S026E {
@@ -1522,92 +1602,36 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Fatal
       };
     }
-    case DiagID::SC001W {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"SC001W">()),
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Warning
-      };
-    }
-    case DiagID::SC001I {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"SC001I">()),
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Ignored
-      };
-    }
-    case DiagID::SC001R {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"SC001R">()),
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Remark
-      };
-    }
-    case DiagID::SC001V {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"SC001V">()),
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Verbose
-      };
-    }
-    case DiagID::SC001N {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"SC001N">()),
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Note
-      };
-    }
-    case DiagID::SC001D {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"SC001D">()),
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Debug
-      };
-    }
-    case DiagID::SC001E {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"SC001E">()),
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Error
-      };
-    }
-    case DiagID::SC001F {
-      return DiagMeta{
-        brief: "place holder diagnostics",
-        group: "Uncategorized",
-        number: 1,
-        hash: static_cast::<u32>(compute_hash::<r"SC001F">()),
-        category: DiagCategory::Semantic,
-        severity: DiagSeverity::Fatal
-      };
-    }
   }
   return DiagMeta{};
 }
 
 eval fn diag_explain(id: DiagID) -> string {
   switch id {
+    case DiagID::SC001W { return "This is placeholder diagnostics. (Warning)"; }
+    case DiagID::SC001I { return "This is placeholder diagnostics. (Info)"; }
+    case DiagID::SC001R { return "This is placeholder diagnostics. (Remark)"; }
+    case DiagID::SC001V { return "This is placeholder diagnostics. (Verbose)"; }
+    case DiagID::SC001N { return "This is placeholder diagnostics. (Note)"; }
+    case DiagID::SC001D { return "This is placeholder diagnostics. (Debug)"; }
+    case DiagID::SC001E { return "This is placeholder diagnostics. (Error)"; }
+    case DiagID::SC001F { return "This is placeholder diagnostics. (Fatal)"; }
+    case DiagID::L001W { return "This is placeholder diagnostics. (Warning)"; }
+    case DiagID::L001I { return "This is placeholder diagnostics. (Info)"; }
+    case DiagID::L001R { return "This is placeholder diagnostics. (Remark)"; }
+    case DiagID::L001V { return "This is placeholder diagnostics. (Verbose)"; }
+    case DiagID::L001N { return "This is placeholder diagnostics. (Note)"; }
+    case DiagID::L001D { return "This is placeholder diagnostics. (Debug)"; }
+    case DiagID::L001E { return "This is placeholder diagnostics. (Error)"; }
+    case DiagID::L001F { return "This is placeholder diagnostics. (Fatal)"; }
+    case DiagID::P001W { return "This is placeholder diagnostics. (Warning)"; }
+    case DiagID::P001I { return "This is placeholder diagnostics. (Info)"; }
+    case DiagID::P001R { return "This is placeholder diagnostics. (Remark)"; }
+    case DiagID::P001V { return "This is placeholder diagnostics. (Verbose)"; }
+    case DiagID::P001N { return "This is placeholder diagnostics. (Note)"; }
+    case DiagID::P001D { return "This is placeholder diagnostics. (Debug)"; }
+    case DiagID::P001E { return "This is placeholder diagnostics. (Error)"; }
+    case DiagID::P001F { return "This is placeholder diagnostics. (Fatal)"; }
     case DiagID::C001W { return "This is placeholder diagnostics. (Warning)"; }
     case DiagID::C001I { return "This is placeholder diagnostics. (Info)"; }
     case DiagID::C001R { return "This is placeholder diagnostics. (Remark)"; }
@@ -1616,14 +1640,15 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::C001D { return "This is placeholder diagnostics. (Debug)"; }
     case DiagID::C001E { return "This is placeholder diagnostics. (Error)"; }
     case DiagID::C001F { return "This is placeholder diagnostics. (Fatal)"; }
-    case DiagID::OPT001W { return "This is placeholder diagnostics. (Warning)"; }
-    case DiagID::OPT001I { return "This is placeholder diagnostics. (Info)"; }
-    case DiagID::OPT001R { return "This is placeholder diagnostics. (Remark)"; }
-    case DiagID::OPT001V { return "This is placeholder diagnostics. (Verbose)"; }
-    case DiagID::OPT001N { return "This is placeholder diagnostics. (Note)"; }
-    case DiagID::OPT001D { return "This is placeholder diagnostics. (Debug)"; }
-    case DiagID::OPT001E { return "This is placeholder diagnostics. (Error)"; }
-    case DiagID::OPT001F { return "This is placeholder diagnostics. (Fatal)"; }
+    case DiagID::I001W { return "This is placeholder diagnostics. (Warning)"; }
+    case DiagID::I001I { return "This is placeholder diagnostics. (Info)"; }
+    case DiagID::I001R { return "This is placeholder diagnostics. (Remark)"; }
+    case DiagID::I001V { return "This is placeholder diagnostics. (Verbose)"; }
+    case DiagID::I001N { return "This is placeholder diagnostics. (Note)"; }
+    case DiagID::I001D { return "This is placeholder diagnostics. (Debug)"; }
+    case DiagID::I001E { return "This is placeholder diagnostics. (Error)"; }
+    case DiagID::I001F { return "This is placeholder diagnostics. (Fatal)"; }
+    case DiagID::I002F { return "# fatal error regarding the AST\n\nthis diagnostic indicates a critical issue with the Abstract Syntax Tree (AST) that prevents the compiler from proceeding. the message should provide specific details about the nature of the problem.\n\n## common causes\n\n- malformed AST nodes\n- invalid references within the AST\n- internal compiler bugs affecting AST construction or manipulation\n\n## how to fix\n\nreview the error message for specific details about the issue. if the message is unclear, consider enabling verbose diagnostics for more context. if you believe this is a compiler bug, please report it to the Kairo development team with a minimal reproducible example."; }
     case DiagID::U001W { return "This is placeholder diagnostics. (Warning)"; }
     case DiagID::U001I { return "This is placeholder diagnostics. (Info)"; }
     case DiagID::U001R { return "This is placeholder diagnostics. (Remark)"; }
@@ -1643,31 +1668,14 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::M001D { return "This is placeholder diagnostics. (Debug)"; }
     case DiagID::M001E { return "This is placeholder diagnostics. (Error)"; }
     case DiagID::M001F { return "This is placeholder diagnostics. (Fatal)"; }
-    case DiagID::L001W { return "This is placeholder diagnostics. (Warning)"; }
-    case DiagID::L001I { return "This is placeholder diagnostics. (Info)"; }
-    case DiagID::L001R { return "This is placeholder diagnostics. (Remark)"; }
-    case DiagID::L001V { return "This is placeholder diagnostics. (Verbose)"; }
-    case DiagID::L001N { return "This is placeholder diagnostics. (Note)"; }
-    case DiagID::L001D { return "This is placeholder diagnostics. (Debug)"; }
-    case DiagID::L001E { return "This is placeholder diagnostics. (Error)"; }
-    case DiagID::L001F { return "This is placeholder diagnostics. (Fatal)"; }
-    case DiagID::I001W { return "This is placeholder diagnostics. (Warning)"; }
-    case DiagID::I001I { return "This is placeholder diagnostics. (Info)"; }
-    case DiagID::I001R { return "This is placeholder diagnostics. (Remark)"; }
-    case DiagID::I001V { return "This is placeholder diagnostics. (Verbose)"; }
-    case DiagID::I001N { return "This is placeholder diagnostics. (Note)"; }
-    case DiagID::I001D { return "This is placeholder diagnostics. (Debug)"; }
-    case DiagID::I001E { return "This is placeholder diagnostics. (Error)"; }
-    case DiagID::I001F { return "This is placeholder diagnostics. (Fatal)"; }
-    case DiagID::I002F { return "# fatal error regarding the AST\n\nthis diagnostic indicates a critical issue with the Abstract Syntax Tree (AST) that prevents the compiler from proceeding. the message should provide specific details about the nature of the problem.\n\n## common causes\n\n- malformed AST nodes\n- invalid references within the AST\n- internal compiler bugs affecting AST construction or manipulation\n\n## how to fix\n\nreview the error message for specific details about the issue. if the message is unclear, consider enabling verbose diagnostics for more context. if you believe this is a compiler bug, please report it to the Kairo development team with a minimal reproducible example."; }
-    case DiagID::P001W { return "This is placeholder diagnostics. (Warning)"; }
-    case DiagID::P001I { return "This is placeholder diagnostics. (Info)"; }
-    case DiagID::P001R { return "This is placeholder diagnostics. (Remark)"; }
-    case DiagID::P001V { return "This is placeholder diagnostics. (Verbose)"; }
-    case DiagID::P001N { return "This is placeholder diagnostics. (Note)"; }
-    case DiagID::P001D { return "This is placeholder diagnostics. (Debug)"; }
-    case DiagID::P001E { return "This is placeholder diagnostics. (Error)"; }
-    case DiagID::P001F { return "This is placeholder diagnostics. (Fatal)"; }
+    case DiagID::OPT001W { return "This is placeholder diagnostics. (Warning)"; }
+    case DiagID::OPT001I { return "This is placeholder diagnostics. (Info)"; }
+    case DiagID::OPT001R { return "This is placeholder diagnostics. (Remark)"; }
+    case DiagID::OPT001V { return "This is placeholder diagnostics. (Verbose)"; }
+    case DiagID::OPT001N { return "This is placeholder diagnostics. (Note)"; }
+    case DiagID::OPT001D { return "This is placeholder diagnostics. (Debug)"; }
+    case DiagID::OPT001E { return "This is placeholder diagnostics. (Error)"; }
+    case DiagID::OPT001F { return "This is placeholder diagnostics. (Fatal)"; }
     case DiagID::S001W { return "This is placeholder diagnostics. (Warning)"; }
     case DiagID::S001I { return "This is placeholder diagnostics. (Info)"; }
     case DiagID::S001R { return "This is placeholder diagnostics. (Remark)"; }
@@ -1689,10 +1697,10 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::S016E { return "# unmatched `}` in format string literal\n\nthis error occurs when a standalone `}` is found inside an f-string literal but there is no matching opening `{`.\nin a format string, `{` opens an interpolation expression and `}` closes it. a lone `}` with no corresponding `{`\nis invalid.\n\n## example\n\n- correct usage:\n```kairo\nvar msg = f\"value: {x}\"\n```\n\n- incorrect usage:\n```kairo\nvar msg = f\"value: }x{\"  // unmatched `}`\n```\n\n## how to fix\nremove the stray `}`, or if you intended a literal brace, escape it as `\\}` (only valid when `\\{`/`\\}` escape is\nsupported) or restructure the interpolation expression."; }
     case DiagID::S017E { return "# invalid escape sequence in string literal\n\nthis error occurs when the lexer encounters a backslash (`\\`) followed by a character that does not form a valid\nescape sequence in the current string context. the specific problem (unknown character, wrong string type, etc.)\nis described in the accompanying message.\n\n## example\n\n- correct usage:\n```kairo\nvar s = \"line one\\nline two\"  // \\n is a valid escape\n```\n\n- incorrect usage:\n```kairo\nvar s = \"bad \\q here\"  // \\q is not a recognized escape sequence\n```\n\n## how to fix\nconsult the list of valid escape sequences for your string type and correct or remove the invalid escape."; }
     case DiagID::S018E { return "# newline inside format string expression\n\nthis error occurs when a raw newline character appears inside the interpolation expression `{...}` of a format\nstring. format string expressions must be on a single line.\n\n## example\n\n- correct usage:\n```kairo\nvar msg = f\"result: {compute()}\"\n```\n\n- incorrect usage:\n```kairo\nvar msg = f\"result: {\n    compute()\n}\"  // newline inside { } is not allowed\n```\n\n## how to fix\nmove the expression to a single line, or assign the value to a temporary variable before the format string."; }
-    case DiagID::S022E { return "# `\\{` or `\\}` escape invalid in non-format string\n\nthis error occurs when the escape sequences `\\{` or `\\}` are used inside a regular (non-format) string literal.\nthese escapes are only meaningful in format strings (`f\"...\"`) where `{` and `}` have special interpolation meaning.\nin a plain string they are unrecognized.\n\n## example\n\n- correct usage:\n```kairo\nvar escaped = f\"literal brace: \\{\"  // valid in f-string\n```\n\n- incorrect usage:\n```kairo\nvar s = \"literal brace: \\{\"  // invalid \\{ only works in f-strings\n```\n\n## how to fix\nuse a format string prefix (`f\"...\"`) if you need to write a literal brace character via `\\{`/`\\}`, or simply\ninclude the brace as a plain character in a regular string."; }
+    case DiagID::S022W { return "# `\\{` or `\\}` escape invalid in non-format string\n\nthis error occurs when the escape sequences `\\{` or `\\}` are used inside a regular (non-format) string literal.\nthese escapes are only meaningful in format strings (`f\"...\"`) where `{` and `}` have special interpolation meaning.\nin a plain string they are unrecognized.\n\n## example\n\n- correct usage:\n```kairo\nvar escaped = f\"literal brace: \\{\"  // valid in f-string\n```\n\n- incorrect usage:\n```kairo\nvar s = \"literal brace: \\{\"  // invalid \\{ only works in f-strings\n```\n\n## how to fix\nuse a format string prefix (`f\"...\"`) if you need to write a literal brace character via `\\{`/`\\}`, or simply\ninclude the brace as a plain character in a regular string."; }
     case DiagID::S023E { return "# malformed `\\x` hex escape sequence\n\nthis error occurs when a `\\x` escape sequence is not followed by exactly two valid hexadecimal digits.\nthe `\\x` escape requires exactly two hex digits in the range `0`-`9`, `a`-`f`, or `A`-`F`.\n\n## example\n\n- correct usage:\n```kairo\nvar tab = \"\\x09\"  // horizontal tab (U+0009)\n```\n\n- incorrect usage:\n```kairo\nvar bad = \"\\xGG\"  // G is not a hex digit\nvar bad2 = \"\\x9\"  // only one digit two are required\n```\n\n## how to fix\nsupply exactly two hexadecimal digits after `\\x`, e.g. `\\x0A` for a newline."; }
     case DiagID::S024E { return "# `\\x` hex escape out of byte range\n\nthis error occurs when the value encoded by a `\\xHH` escape sequence exceeds 0xFF (255). the `\\x` form is\nlimited to single-byte values.\n\n## example\n\n- correct usage:\n```kairo\nvar byte = b\"\\xFF\"  // maximum valid byte escape\n```\n\n- incorrect usage:\n```kairo\nvar bad = b\"\\x1FF\"  // 0x1FF > 0xFF too large for a byte escape\n```\n\n## how to fix\nuse a value in the range `0x00`-`0xFF`, or switch to a unicode escape (`\\u`) for larger codepoints."; }
-    case DiagID::S025E { return "# octal escape only valid in byte strings\n\nthis error occurs when an octal escape sequence (`\\0`-`\\777`) appears in a regular (non-byte) string literal.\noctal escapes encode raw byte values and are only permitted in byte string literals (`b\"...\"`).\n\n## example\n\n- correct usage:\n```kairo\nvar byte_str = b\"\\101\"  // byte value 0x41 = \'A\'\n```\n\n- incorrect usage:\n```kairo\nvar s = \"\\101\"  // octal escapes require a byte string\n```\n\n## how to fix\nprefix the string with `b` to make it a byte string, or use a unicode escape (`\\u0041`) in a regular string."; }
+    case DiagID::S025W { return "# octal escape only valid in byte strings\n\nthis error occurs when an octal escape sequence (`\\0`-`\\777`) appears in a regular (non-byte) string literal.\noctal escapes encode raw byte values and are only permitted in byte string literals (`b\"...\"`).\n\n## example\n\n- correct usage:\n```kairo\nvar byte_str = b\"\\101\"  // byte value 0x41 = \'A\'\n```\n\n- incorrect usage:\n```kairo\nvar s = \"\\101\"  // octal escapes require a byte string\n```\n\n## how to fix\nprefix the string with `b` to make it a byte string, or use a unicode escape (`\\u0041`) in a regular string."; }
     case DiagID::S026E { return "# octal escape has wrong digit count\n\nthis error occurs when an octal escape sequence contains fewer than 1 or more than 3 octal digits.\nvalid octal escapes are `\\0` through `\\377` (1-3 digits in the range `0`-`7`).\n\n## how to fix\nwrite between 1 and 3 octal digits following the backslash, e.g. `\\7`, `\\07`, or `\\007`."; }
     case DiagID::S027E { return "# octal escape out of byte range\n\nthis error occurs when the value encoded by an octal escape sequence exceeds 0xFF (255, i.e., octal 377).\noctal escapes are limited to single-byte values.\n\n## example\n\n- incorrect usage:\n```kairo\nvar bad = b\"\\400\"  // octal 0o400 = 256 > 0xFF\n```\n\n## how to fix\nuse an octal value in the range `\\0`-`\\377`, or switch to a `\\x` hex escape."; }
     case DiagID::S028E { return "# malformed `\\u` or `\\U` unicode escape sequence\n\nthis error occurs when a `\\u` or `\\U` escape sequence is not followed by the required number of valid\nhexadecimal digits. `\\u` requires exactly 4 hex digits and `\\U` requires exactly 8 hex digits.\n\n## example\n\n- correct usage:\n```kairo\nvar euro = \"\\u20AC\"    // U+20AC EURO SIGN\nvar emoji = \"\\U0001F600\" // U+1F600 GRINNING FACE\n```\n\n- incorrect usage:\n```kairo\nvar bad = \"\\u20\"     // too few digits\nvar bad2 = \"\\uXXXX\"  // X is not a hex digit\n```\n\n## how to fix\nuse exactly 4 hex digits for `\\u` or exactly 8 hex digits for `\\U`."; }
@@ -1743,14 +1751,6 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::CL001D { return "This is placeholder diagnostics. (Debug)"; }
     case DiagID::CL001E { return "This is placeholder diagnostics. (Error)"; }
     case DiagID::CL001F { return "This is placeholder diagnostics. (Fatal)"; }
-    case DiagID::SC001W { return "This is placeholder diagnostics. (Warning)"; }
-    case DiagID::SC001I { return "This is placeholder diagnostics. (Info)"; }
-    case DiagID::SC001R { return "This is placeholder diagnostics. (Remark)"; }
-    case DiagID::SC001V { return "This is placeholder diagnostics. (Verbose)"; }
-    case DiagID::SC001N { return "This is placeholder diagnostics. (Note)"; }
-    case DiagID::SC001D { return "This is placeholder diagnostics. (Debug)"; }
-    case DiagID::SC001E { return "This is placeholder diagnostics. (Error)"; }
-    case DiagID::SC001F { return "This is placeholder diagnostics. (Fatal)"; }
   }
   return "";
 }
@@ -1798,6 +1798,8 @@ module Diag {
         switch num {
           case 1 { return DiagID::S001W; }
           case 41 { return DiagID::S041W; }
+          case 22 { return DiagID::S022W; }
+          case 25 { return DiagID::S025W; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for S and severity Warning")); }
         }
       }
@@ -1816,10 +1818,8 @@ module Diag {
           case 16 { return DiagID::S016E; }
           case 17 { return DiagID::S017E; }
           case 18 { return DiagID::S018E; }
-          case 22 { return DiagID::S022E; }
           case 23 { return DiagID::S023E; }
           case 24 { return DiagID::S024E; }
-          case 25 { return DiagID::S025E; }
           case 26 { return DiagID::S026E; }
           case 27 { return DiagID::S027E; }
           case 28 { return DiagID::S028E; }

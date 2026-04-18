@@ -1,0 +1,157 @@
+/// --- The Kairo Project ------------ Compiler/AST/GlobalHoistedScope.kro --- ///
+///
+///   Global symbol table aggregating HoistedScope instances from all indexed
+///   files. Used for cross-file symbol resolution before parsing.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import AST::ASTContext::*;
+import Preprocessor::ModulePath::*;
+import Preprocessor::Preprocessor::*;
+import AST::ASTIndex::*;
+
+/// Aggregates all file-level HoistedScope instances for cross-file lookup.
+/// Owns all ASTContext instances created during the index phase.
+/// Read-only after all files are registered.
+class GlobalHoistedScope {
+    /// Entry in the global scope table, one per indexed file.
+    __inline_cpp("public:");
+    struct GlobalScopeEntry {
+        pub var fid:      u32;
+        pub var ctx:      own::<ASTContext>;
+        pub var hoisted:  obs::<HoistedScope>;  // points into ctx
+        pub var mod_path: ModulePath;
+    }
+
+    priv var _by_fid: libcxx::unordered_map::<u32, GlobalScopeEntry>;
+    priv var _mu:     std::SharedMutex;
+
+    fn GlobalHoistedScope(self) {
+        self._by_fid.reserve(128);
+    }
+
+    fn op delete (self) {
+        for var it = self._by_fid.begin(); it != self._by_fid.end(); ++it {
+            if it->second.ctx != &null {
+                std::destroy(it->second.ctx);
+            }
+        }
+    }
+
+    // --- Registration (index phase) ------------------------------------------
+
+    fn index_file(
+        self,
+        fid:      u32,
+        sm:       *SourceManager,
+        tcm:      *TokenCacheManager,
+        diag:     *DiagEngine,
+        resolver: *ImportResolver,
+        ci:       *CompilerInvocation
+    ) {
+        // skip if already indexed (multiple TUs may share deps)
+        __inline_cpp("{");
+            var rlock = std::SharedLock(self._mu);
+            if self._by_fid.count(fid) > 0 { return; }
+        __inline_cpp("}");
+
+        var ctx     = std::create::<ASTContext>(fid, sm, tcm, diag, resolver, ci);
+        var ast_idx = ASTIndex(ctx);
+        ast_idx.index();
+
+        var lock = std::LockGuard(self._mu);
+
+        // double-check after acquiring write lock
+        if self._by_fid.count(fid) > 0 {
+            std::destroy(ctx);
+            return;
+        }
+
+        var entry: GlobalScopeEntry;
+        entry.fid     = fid;
+        entry.ctx     = ctx;
+        entry.hoisted = ctx->hoisted;
+
+        self._by_fid.insert(libcxx::make_pair(fid, entry));
+    }
+
+    // --- Lookup (parse phase, read-only) -------------------------------------
+
+    fn get_scope(self, fid: u32) -> *HoistedScope {
+        var it = self._by_fid.find(fid);
+        if it == self._by_fid.end() { return &null; }
+        return it->second.hoisted;
+    }
+
+    fn get_context(self, fid: u32) -> *ASTContext {
+        var it = self._by_fid.find(fid);
+        if it == self._by_fid.end() { return &null; }
+        return it->second.ctx;
+    }
+
+    /// Looks up an unqualified name in a specific file's scope.
+    fn lookup_in(self, fid: u32, name: string) -> LookupResult {
+        var scope = self.get_scope(fid);
+        if scope == &null { return LookupResult::not_found(); }
+        return scope->lookup(name);
+    }
+
+    /// Cross-file qualified lookup. Caller resolves the fid from ImportProcessor,
+    /// then walks remaining segments in that file's HoistedScope.
+    ///
+    /// Example: parser sees `Foo::Bar::Baz`
+    ///   1. Ask ImportProcessor: what fid does `Foo::Bar` resolve to?
+    ///   2. Call lookup_in(fid, "Baz")
+    ///   OR pass all segments here and we walk them in the scope trie:
+    fn lookup_in(self, fid: u32, segments: *vec::<string>) -> LookupResult {
+        var scope = self.get_scope(fid);
+        if scope == &null { return LookupResult::not_found(); }
+        return scope->lookup(segments);
+    }
+
+    fn all_fids(self) -> vec::<u32> {
+        var result = vec::<u32>();
+        result.reserve(self._by_fid.size());
+        for var it = self._by_fid.begin(); it != self._by_fid.end(); ++it {
+            result.push_back(it->first);
+        }
+        return result;
+    }
+
+    fn size(self) -> usize {
+        return self._by_fid.size();
+    }
+
+    fn has_fid(self, fid: u32) -> bool {
+        return self._by_fid.count(fid) > 0;
+    }
+
+    // --- Debug ---------------------------------------------------------------
+
+    fn dump(self) {
+        std::print("=== GlobalHoistedScope Dump ===");
+        std::print(f"Registered files: {self._by_fid.size()}");
+        std::print("");
+
+        for var it = self._by_fid.begin(); it != self._by_fid.end(); ++it {
+            var fid   = it->first;
+            var entry = &it->second;
+            std::print(f"[fid={fid}]");
+
+            if entry->hoisted != &null {
+                entry->hoisted->dump();
+            }
+
+            std::print("");
+        }
+
+        std::print("=== End GlobalHoistedScope ===");
+    }
+}
