@@ -1880,7 +1880,7 @@ class Lexer {
                     self.get_source_location()
                 );
 
-                self._diag->report(DiagCode(DiagID::S022E), range.start,
+                self._diag->report(DiagCode(DiagID::S022W), range.start,
                     "'\\{' and '\\}' escapes are only valid inside format strings (f\"...\"); remove the backslash or use an f-string prefix")
                     .first(range).emit();
                 return false;
@@ -1949,7 +1949,7 @@ class Lexer {
                         self.get_source_location()
                     );
 
-                    self._diag->report(DiagCode(DiagID::S025E), range.start,
+                    self._diag->report(DiagCode(DiagID::S025W), range.start,
                         f"octal escape '{self._sm->get_text(range)}' is only valid in byte strings (b\"...\"); use '\\u' for unicode codepoints")
                         .first(range).emit();
                     return false;

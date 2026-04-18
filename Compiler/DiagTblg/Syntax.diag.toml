@@ -434,7 +434,7 @@ group = "syntax"
 brief = "brace escape not valid outside format string"
 group = "syntax"
 
-    [S022.E]
+    [S022.W]
     explain = """
     # `\\{` or `\\}` escape invalid in non-format string
 
@@ -518,7 +518,7 @@ group = "syntax"
 brief = "octal escape sequence in non-byte string"
 group = "syntax"
 
-    [S025.E]
+    [S025.W]
     explain = """
     # octal escape only valid in byte strings
 

@@ -115,6 +115,7 @@ import Driver::TUResult::*;
 import Driver::TUStage::*;
 import Preprocessor::Preprocessor::*;
 import AST::ASTIndex::*;
+import AST::GlobalHoistedScope::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -137,32 +138,35 @@ class CompilerInstance; // forward breaks the CI ↔ FrontendAction cycle
 /// \c _ci and \c _resolver are non-owning borrows valid for the lifetime of
 /// \c execute(). \c _pp is owned and destroyed with the action.
 class FrontendAction {
-    pub var path:        Path;
-    pub var module_base: ModulePath;
-    priv var _ci:        obs::<CompilerInstance>; ///< non-owning borrow from execute()
-    priv var _resolver:  obs::<ImportResolver>;   ///< non-owning borrow from execute()
-    priv var _pp:        own::<PreProcessor>;     ///< owned; null until _preprocess()
-    priv var _file_id:   u32;
-    pub var result:      TUResult;
-    priv var _stage:     TUStage;
+    pub var path:           Path;
+    pub var module_base:    ModulePath;
+    priv var _ci:           obs::<CompilerInstance>;   ///< non-owning borrow from execute()
+    priv var _resolver:     obs::<ImportResolver>;     ///< non-owning borrow from execute()
+    priv var _global_scope: obs::<GlobalHoistedScope>; ///< non-owning borrow from CompilerInstance
+    priv var _pp:           own::<PreProcessor>;       ///< owned; null until _preprocess()
+    priv var _file_id:      u32;
+    pub var result:         TUResult;
+    priv var _stage:        TUStage;
 
     fn FrontendAction(
         self,
         path:        Path,
         module_base: ModulePath,
-        ci:         *CompilerInstance,
-        resolver:   *ImportResolver  // one single import resolver for the full
+        g_scope:    *GlobalHoistedScope,
+        resolver:   *ImportResolver, // one single import resolver for the full
                                      // batch; shared among all actions and threads,
                                      // fully indexed before the first action runs
+        ci:         *CompilerInstance
     ) {
-        self.path        = path;
-        self.module_base = module_base;
-        self._ci         = ci;
-        self._resolver   = resolver;
-        self._pp         = &null;
-        self._stage      = TUStage::Pending;
-        self._file_id    = u32(-1);
-        self.result.path = path.full_path();
+        self.path          = path;
+        self.module_base   = module_base;
+        self._ci           = ci;
+        self._resolver     = resolver;
+        self._global_scope = g_scope;
+        self._pp           = &null;
+        self._stage        = TUStage::Pending;
+        self._file_id      = u32(-1);
+        self.result.path   = path.full_path();
     }
 
     fn op delete (self) {
@@ -201,15 +205,16 @@ class FrontendAction {
 class CompilerInstance {
     // --- Owned resources -------------------------------------------------
     //   Listed in construction order; destroyed in reverse.
-    priv var _pool:   *ThreadPool;
-    priv var _vfm:    *VirtualFileManager;
-    priv var _diag:   *DiagEngine;
-    priv var _sm:     *SourceManager;
-    priv var _tcm:    *TokenCacheManager;
-    priv var _pretty: *PrettyDiagConsumer;
-    priv var _basic:  *BasicDiagConsumer;
-    priv var _cmd:    *Command;
-    priv var _imp:    *ImportResolver;
+    priv var _pool:    *ThreadPool;
+    priv var _vfm:     *VirtualFileManager;
+    priv var _diag:    *DiagEngine;
+    priv var _sm:      *SourceManager;
+    priv var _tcm:     *TokenCacheManager;
+    priv var _pretty:  *PrettyDiagConsumer;
+    priv var _basic:   *BasicDiagConsumer;
+    priv var _cmd:     *Command;
+    priv var _imp:     *ImportResolver;
+    priv var _g_scope: *GlobalHoistedScope;
 
     // --- CLI state -------------------------------------------------------
     priv var _parsed: ParsedArgs;
@@ -248,9 +253,10 @@ class CompilerInstance {
             else (self._inv.frontend.thread_count)
         ));
 
-        self._sm     = std::create::<SourceManager>     (self._pool, self._vfm);
-        self._tcm    = std::create::<TokenCacheManager> (self._sm, self._pool, self._diag);
-        self._basic  = std::create::<BasicDiagConsumer> (self._sm);
+        self._sm      = std::create::<SourceManager>     (self._pool, self._vfm);
+        self._tcm     = std::create::<TokenCacheManager> (self._sm, self._pool, self._diag);
+        self._g_scope = std::create::<GlobalHoistedScope>();
+        self._basic   = std::create::<BasicDiagConsumer> (self._sm);
         self._pretty->attach_source_manager(self._sm);
     }
 
@@ -258,8 +264,9 @@ class CompilerInstance {
 
     /// Destroys all resources in reverse-construction order.
     fn op delete (self) {
-        if self._cmd    != &null { std::destroy(self._cmd);    self._cmd    = &null; }
-        if self._tcm    != &null { std::destroy(self._tcm);    self._tcm    = &null; }
+        if self._cmd     != &null { std::destroy(self._cmd);     self._cmd     = &null; }
+        if self._g_scope != &null { std::destroy(self._g_scope); self._g_scope = &null; }
+        if self._tcm     != &null { std::destroy(self._tcm);     self._tcm     = &null; }
         
         if self._pretty != &null {
             self._diag->remove_consumer(self._pretty);
@@ -281,11 +288,12 @@ class CompilerInstance {
 
     // --- Accessors -------------------------------------------------------
 
-    fn diag(self)       -> *DiagEngine              { return self._diag; }
-    fn sm(self)         -> *SourceManager           { return self._sm;   }
-    fn tcm(self)        -> *TokenCacheManager       { return self._tcm;  }
-    fn pool(self)       -> *ThreadPool              { return self._pool; }
-    fn invocation(self) -> ref!(CompilerInvocation) { return self._inv;  }
+    fn diag(self)         -> *DiagEngine              { return self._diag;    }
+    fn sm(self)           -> *SourceManager           { return self._sm;      }
+    fn tcm(self)          -> *TokenCacheManager       { return self._tcm;     }
+    fn pool(self)         -> *ThreadPool              { return self._pool;    }
+    fn global_scope(self) -> *GlobalHoistedScope      { return self._g_scope; }
+    fn invocation(self)   -> ref!(CompilerInvocation) { return self._inv;     }
 
     // --- CLI query helpers -----------------------------------------------
 
@@ -413,8 +421,9 @@ class CompilerInstance {
             var action = std::create::<FrontendAction>(
                 Path(path_str),
                 ModulePath(),
-                &self,
-                self._imp
+                self._g_scope,
+                self._imp,
+                &self
             );
 
             finally { std::destroy(action); }
@@ -591,23 +600,33 @@ fn FrontendAction::_preprocess() -> bool {
 /// Parse stage not yet implemented.
 fn FrontendAction::_parse() -> bool {
     self._stage = TUStage::Parsing;
+
+    var imp  = self._pp->get_import_processor();
+    var fids = imp->get_processed_fids();
+
+    for fid: u32 in fids {
+        __inline_cpp("
+            auto captured_fid  = fid;
+            auto captured_self = this;
+            _ci->pool()->enqueue([captured_fid, captured_self]() {
+                captured_self->_global_scope->index_file(
+                    captured_fid,
+                    captured_self->_ci->sm(),
+                    captured_self->_ci->tcm(),
+                    captured_self->_ci->diag(),
+                    captured_self->_resolver,
+                    &(captured_self->_ci->invocation())
+                );
+            }, u8(5));
+        ");
+    }
+
+    self._ci->pool()->wait_group(u8(5));
+
     if self._ci->invocation().frontend.print_ast {
         std::print(f"-- AST: {self.path.full_path()} (not yet implemented) --");
+        self._global_scope->dump();
     }
-    
-    var ast_ctx = ASTContext(
-        self._file_id,
-        self._ci->sm(),
-        self._ci->tcm(),
-        self._ci->diag(),
-        self._resolver,
-        &(self._ci->invocation())
-    );
-
-    var ast_idx = ASTIndex(&ast_ctx);
-    ast_idx.index();
-
-    ast_idx.dump(); // for now we just dump since we js debugging
 
     return true;
 }

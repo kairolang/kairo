@@ -18,7 +18,6 @@ import Memory::ArenaList::*;
 import Source::SourceManager::*;
 import Lexer::TokenCacheManager::*;
 import Lexer::Immediate::*;
-import AST::HoistedScope::*;
 import Preprocessor::ModulePath::*;
 import Preprocessor::ImportResolver::*;
 import ASTNode::Base::*;

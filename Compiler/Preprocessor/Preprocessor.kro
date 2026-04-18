@@ -331,6 +331,17 @@ class ImportProcessor {
 
     priv fn segments_to_string(self, segments: vec::<string>) -> string;
 
+    fn get_processed_fids(self) -> vec::<u32> {
+        var fids = vec::<u32>();
+        fids.reserve(self._file_states.size());
+
+        for entry in self._file_states {
+            fids.push_back(entry.first);
+        }
+        
+        return fids;
+    }
+
     fn dump_state(self) -> string;
 }
 
