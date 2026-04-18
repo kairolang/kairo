@@ -203,7 +203,7 @@ class SourceLocation {
     /// \return formatted string like `SourceLocation(id: 12345)`.
     ///
     const fn op as (self) -> string {
-        return f"SourceLocation(id: {self.id})";
+        return f"{self.id}";
     }
 
     ///

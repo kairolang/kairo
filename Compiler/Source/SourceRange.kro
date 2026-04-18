@@ -197,7 +197,7 @@ class SourceRange {
     /// \return formatted string like `SourceRange(start: <start>, end: <end>)`.
     ///
     const fn op as (self) -> string {
-        return f"SourceRange(start: {(self.start) as string}, end: {(self.end) as string})";
+        return f"[{(self.start) as string}, {(self.end) as string})";
     }
 
     ///
