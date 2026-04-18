@@ -338,7 +338,7 @@ class ImportProcessor {
         for entry in self._file_states {
             fids.push_back(entry.first);
         }
-        
+
         return fids;
     }
 
@@ -2248,7 +2248,7 @@ priv fn ImportProcessor::resolve_import(
     Logger::info(Logger::Stage::Preprocessor,
         f"resolve_import: src_fid={src_fid} base_path_segs={parsed->base_path.segments.size()} path_strings={path_strings.size()} items={parsed->items.size()} is_wildcard={parsed->is_wildcard}");
 
-    if path_strings.size() == 0 && !parsed->is_wildcard && parsed->items.size() > 0 {
+    if (path_strings.size() == 0) && (!parsed->is_wildcard) && (parsed->items.size() > 0) {
         for item in parsed->items {
             var name_ptr = self._sym_table->resolve(item.name.name);
             if name_ptr != &null {
@@ -2266,15 +2266,13 @@ priv fn ImportProcessor::resolve_import(
     //     std::print(f"Resolving import '{debug_path}' from file ID {src_fid}\n");
     // }
 
-    if path_strings.size() == 0 && !parsed->is_wildcard {
+    if (path_strings.size() == 0) && (!parsed->is_wildcard) {
         Logger::info(Logger::Stage::Preprocessor,
             f"resolve_import: EARLY RETURN - path_strings empty after fallback");
         Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
-        // q: do we have the import tokens avaliable to us?
-        // a: yes, we have the parsed import statement, which includes the tokens and their source ranges
-        // q: how do we get the soruce range of the import statement? SourceRange has a op | overload for union, so we can use that to get the range of the entire import statement
+        
         self._diag->report(DiagCode(DiagID::R011E), parsed->import_loc.start,
-            f"failed to resolve import path '[{self.segments_to_string(path_strings)}]' ")
+            f"failed to resolve import path '{self.segments_to_string(path_strings)}' ")
             .first(parsed->import_loc)
             .emit();
         return;
@@ -2282,13 +2280,23 @@ priv fn ImportProcessor::resolve_import(
 
     var resolved = self.resolve_module_greedy(path_strings, parsed->is_module);
 
-    if resolved.fid == 0 && !resolved.found {
+    if (resolved.fid == 0) && (!resolved.found) {
         Logger::info(Logger::Stage::Preprocessor,
             f"resolve_import: EARLY RETURN - greedy resolve failed for path_strings size={path_strings.size()}");
         Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
-        self._diag->report(DiagCode(DiagID::R011E), parsed->import_loc.start,
-            f"failed to resolve import path '[{self.segments_to_string(path_strings)}]' ")
-            .first(parsed->import_loc)
+        // we need the full lines loc out starty is the parsed->import_loc.start
+        var start_loc = parsed->import_loc.start;
+        var loc       = parsed->import_loc;
+        for item in parsed->items {
+            var tok = item.name.token;
+            if tok != &null {
+                loc = ((loc) | (tok->range));
+            }
+        }
+        
+        self._diag->report(DiagCode(DiagID::R011E), start_loc,
+            f"failed to resolve import path '{self.segments_to_string(path_strings)}' ")
+            .first(loc)
             .emit();
         return;
     }

@@ -130,6 +130,11 @@ class ASTContext {
     fn alloc_string(self, s: string) -> *string {
         return self.alloc_init::<string>(s);
     }
+
+    fn reset_for_reparse(self) {
+        self.nodes.reset_fast();
+        self.hoisted = &null;
+    }
 }
 
 
