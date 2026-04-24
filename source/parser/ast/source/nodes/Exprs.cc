@@ -2126,44 +2126,44 @@ int get_precedence(const __TOKEN_N::Token &tok) {
         case __TOKEN_N::OPERATOR_MOD:
         case __TOKEN_N::OPERATOR_POW:
         case __TOKEN_N::OPERATOR_MAT:
-            return 12;
+            return 13;
 
         case __TOKEN_N::OPERATOR_ADD:
         case __TOKEN_N::OPERATOR_SUB:
-            return 11;
+            return 12;
 
         case __TOKEN_N::OPERATOR_BITWISE_L_SHIFT:
         case __TOKEN_N::OPERATOR_BITWISE_R_SHIFT:
-            return 10;
+            return 11;
 
         case __TOKEN_N::PUNCTUATION_OPEN_ANGLE:
         case __TOKEN_N::PUNCTUATION_CLOSE_ANGLE:
         case __TOKEN_N::OPERATOR_GREATER_THAN_EQUALS:
         case __TOKEN_N::OPERATOR_LESS_THAN_EQUALS:
-            return 9;
+            return 10;
 
         case __TOKEN_N::OPERATOR_EQUAL:
         case __TOKEN_N::OPERATOR_NOT_EQUAL:
         case __TOKEN_N::OPERATOR_REF_EQUAL:
-            return 8;
+            return 9;
 
         case __TOKEN_N::OPERATOR_BITWISE_AND:
-            return 7;
+            return 8;
         case __TOKEN_N::OPERATOR_BITWISE_XOR:
-            return 6;
+            return 7;
         case __TOKEN_N::OPERATOR_BITWISE_OR:
-            return 5;
+            return 6;
 
         case __TOKEN_N::OPERATOR_LOGICAL_AND:
-            return 4;
+            return 5;
         case __TOKEN_N::OPERATOR_LOGICAL_XOR:
-            return 3;
+            return 4;
         case __TOKEN_N::OPERATOR_LOGICAL_OR:
-            return 2;
+            return 3;
 
         case __TOKEN_N::OPERATOR_RANGE:
         case __TOKEN_N::OPERATOR_RANGE_INCLUSIVE:
-            return 1;
+            return 2;
 
         // All assignments — right-associative, lowest meaningful precedence
         case __TOKEN_N::OPERATOR_ASSIGN:
@@ -2188,11 +2188,11 @@ int get_precedence(const __TOKEN_N::Token &tok) {
         case __TOKEN_N::OPERATOR_NAND_ASSIGN:
         case __TOKEN_N::OPERATOR_XOR_ASSIGN:
         case __TOKEN_N::OPERATOR_NOT_ASSIGN:
-            return 0;
+            return 1;
 
         case __TOKEN_N::OTHERS:
         default:
-            return -1;
+            return 0;
     }
 }
 
