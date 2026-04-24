@@ -397,6 +397,10 @@ CX_VISIT_IMPL(ArrayLiteralExpr) {
     BRACE_DELIMIT(COMMA_SEP(values););
 }
 
+CX_VISIT_IMPL(InlineBlockExpr) {
+    ADD_TOKEN_AS_TOKEN(CXX_INLINE_CODE, node.content);
+}
+
 CX_VISIT_IMPL(TupleLiteralExpr) {
     if ((!node.values.empty() && (node.values.size() > 0) &&
         (node.values[0]->getNodeType() == __AST_NODE::nodes::Type)) || node.in_type) {

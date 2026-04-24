@@ -236,6 +236,8 @@ AST_BASE_IMPL(Expression, parse_primary) {  // NOLINT(readability-function-cogni
         node = parse<AsyncThreading>();
     } else if (tok.token_kind() == __TOKEN_N::OPERATOR_SCOPE) {
         node = parse<ScopePathExpr>(nullptr, true);
+    } else if (tok.token_kind() == __TOKEN_N::KEYWORD_INLINE) {
+        node = parse<InlineBlockExpr>();
     } else {
         return std::unexpected(
             PARSE_ERROR_MSG("Expected an expression, but found an unexpected token '" +
@@ -248,7 +250,7 @@ AST_BASE_IMPL(Expression, parse_primary) {  // NOLINT(readability-function-cogni
 // ---------------------------------------------------------------------------------------------- //
 
 parser ::ast ::ParseResult<> parser::ast::node::Expression::parse(
-    bool in_requires) {  // NOLINT(readability-function-cognitive-complexity)
+    bool in_requires, int min_precedence) {  // NOLINT(readability-function-cognitive-complexity)
     IS_NOT_EMPTY;        /// simple macro to check if the iterator is empty, expands to:
                          /// if(iter.remaining_n() == 0) { return std::unexpected(...); }
 
@@ -373,6 +375,10 @@ parser ::ast ::ParseResult<> parser::ast::node::Expression::parse(
 
             default:
                 if (is_excepted(tok, IS_BINARY_OPERATOR)) {
+                    if (get_precedence(tok) <= min_precedence) {
+                        continue_loop = false;
+                        break;
+                    }
                     expr = parse<BinaryExpr>(expr, get_precedence(tok));
                     RETURN_IF_ERROR(expr);
                 } else if (is_excepted(tok, IS_UNARY_OPERATOR)) {
@@ -399,6 +405,89 @@ parser ::ast ::ParseResult<> parser::ast::node::Expression::parse(
 }
 
 // ---------------------------------------------------------------------------------------------- //
+
+AST_NODE_IMPL(Expression, InlineBlockExpr) {
+    IS_NOT_EMPTY;
+
+    IS_EXCEPTED_TOKEN(__TOKEN_N::KEYWORD_INLINE);
+    auto marker = CURRENT_TOK;
+    iter.advance();
+
+    IS_EXCEPTED_TOKEN(__TOKEN_N::LITERAL_STRING);
+    __TOKEN_N::Token lang = CURRENT_TOK;
+    iter.advance();
+
+    IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_OPEN_BRACE);
+    u32 last_end = CURRENT_TOK.offset() + CURRENT_TOK.length();
+    iter.advance();
+
+    int depth = 1;
+    std::string raw_content;
+    u32 prev_line = CURRENT_TOK.line_number();
+    u32 prev_col  = 0;
+    u32 prev_len  = 0;
+
+    __TOKEN_N::Token first_content_tok = marker;
+    bool captured_first = false;
+
+    while (depth > 0 && iter.remaining_n() > 0) {
+        __TOKEN_N::Token cur = CURRENT_TOK;
+
+        if (cur.token_kind() == __TOKEN_N::PUNCTUATION_OPEN_BRACE) {
+            depth++;
+        } else if (cur.token_kind() == __TOKEN_N::PUNCTUATION_CLOSE_BRACE) {
+            depth--;
+            if (depth == 0) break;
+        }
+
+        if (!captured_first) {
+            first_content_tok = cur;
+            captured_first = true;
+        }
+
+        u32 cur_line = cur.line_number();
+        u32 cur_col = cur.column_number();
+
+        if (prev_line == 0) {
+            // first token, no prefix
+        } else if (cur_line > prev_line) {
+            // new line(s)
+            for (u32 i = 0; i < cur_line - prev_line; i++) {
+                raw_content += '\n';
+            }
+            // indent to column
+            for (u32 i = 1; i < cur_col; i++) {
+                raw_content += ' ';
+            }
+        } else {
+            // same line, fill gap
+            u32 expected_col = prev_col + prev_len;
+            if (cur_col > expected_col) {
+                for (u32 i = 0; i < cur_col - expected_col; i++) {
+                    raw_content += ' ';
+                }
+            }
+        }
+
+        raw_content += cur.value();
+        prev_line = cur_line;
+        prev_col = cur_col;
+        prev_len = cur.length();
+        iter.advance();
+    }
+
+    IS_EXCEPTED_TOKEN(__TOKEN_N::PUNCTUATION_CLOSE_BRACE);
+    iter.advance();
+
+    __TOKEN_N::Token content(token::tokens::LITERAL_STRING, raw_content, first_content_tok);
+    return make_node<InlineBlockExpr>(lang, content);
+}
+
+AST_NODE_IMPL_VISITOR(Jsonify, InlineBlockExpr) {
+    json.section("InlineBlockExpr")
+        .add("lang", node.lang)
+        .add("content", node.content);
+}
 
 // make a parse f-string method to parse f"string {expr} string"
 
@@ -627,7 +716,7 @@ AST_NODE_IMPL(Expression, BinaryExpr, ParseResult<> lhs, int min_precedence) {
 
         iter.advance();
 
-        ParseResult<> rhs = parse();
+        ParseResult<> rhs = parse(false, precedence);
         RETURN_IF_ERROR(rhs);
 
         tok = CURRENT_TOK;
@@ -2029,6 +2118,8 @@ bool is_excepted(const __TOKEN_N::Token &tok, const std::unordered_set<__TOKEN_T
 
 int get_precedence(const __TOKEN_N::Token &tok) {
     switch (tok.token_kind()) {
+        case __TOKEN_N::OPERATOR_ARROW:
+            return 14;
         case __TOKEN_N::OPERATOR_MUL:
         case __TOKEN_N::OPERATOR_DIV:
         case __TOKEN_N::OPERATOR_MOD:

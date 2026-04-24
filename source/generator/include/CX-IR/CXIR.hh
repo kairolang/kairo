@@ -467,6 +467,7 @@ __CXIR_CODEGEN_BEGIN {
         void visit(parser::ast::node::FunctionCallExpr &node) override;
         void visit(parser::ast::node::ArrayLiteralExpr &node) override;
         void visit(parser::ast::node::TupleLiteralExpr &node) override;
+        void visit(parser::ast::node::InlineBlockExpr &node) override;
         void visit(parser::ast::node::SetLiteralExpr &node) override;
         void visit(parser::ast::node::MapPairExpr &node) override;
         void visit(parser::ast::node::MapLiteralExpr &node) override;

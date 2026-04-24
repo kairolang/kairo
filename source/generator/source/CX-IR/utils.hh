@@ -197,6 +197,8 @@ inline void add_visibility(generator::CXIR::CXIR *self, const T &decl) {
         } else {
             add_public(self);
         }
+    } else {
+        add_public(self);
     }
 }
 

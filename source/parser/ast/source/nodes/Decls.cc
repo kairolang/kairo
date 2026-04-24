@@ -1468,6 +1468,11 @@ AST_BASE_IMPL(Declaration, parse) {
             break;
         }
 
+        if (tok == __TOKEN_N::KEYWORD_INLINE &&
+            (HAS_NEXT_TOK && NEXT_TOK == __TOKEN_N::LITERAL_STRING)) {
+            break;
+        }
+
         modifiers->push_back(tok);  /// add the modifier to the list
         iter.advance();             /// advance the iterator
 
@@ -1517,6 +1522,9 @@ AST_BASE_IMPL(Declaration, parse) {
             return parse<StructDecl>(modifiers);
         case __TOKEN_N::KEYWORD_MODULE:
             return parse<ModuleDecl>(modifiers);
+        case __TOKEN_N::KEYWORD_INLINE:
+        // if we get here, next token is a string literal (inline "c++" {})
+            return state_parser.parse(modifiers);
         default:
             return state_parser.parse(modifiers);
     }

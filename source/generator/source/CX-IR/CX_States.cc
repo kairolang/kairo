@@ -146,8 +146,18 @@ CX_VISIT_IMPL(IfState) {
             );                              //
         }
 
-        if (node.body != nullptr) {
-            node.body->body->accept(*this);
+        if (node.body != nullptr && node.body->body != nullptr) {
+            for (const auto &i : node.body->body->body) {
+                if (i != nullptr) {
+                    if (i->getNodeType() == __AST_NODE::nodes::LetDecl) {
+                        __AST_N::NodeT<__AST_NODE::LetDecl> let_node = __AST_N::as<__AST_NODE::LetDecl>(i);
+                        visit(*let_node, true);
+                    } else {
+                        i->accept(*this);
+                    }
+                }
+                tokens.push_back(std::make_unique<CX_Token>(cxir_tokens::CXX_SEMICOLON));
+            }
         }
 
         if (!node.else_body.empty()) {
@@ -171,8 +181,18 @@ CX_VISIT_IMPL(IfState) {
                     }
                 }
 
-                if (else_body->body != nullptr) {
-                    else_body->body->body->accept(*this);
+                if (else_body->body != nullptr && else_body->body->body != nullptr) {
+                    for (const auto &i : else_body->body->body->body) {
+                        if (i != nullptr) {
+                            if (i->getNodeType() == __AST_NODE::nodes::LetDecl) {
+                                __AST_N::NodeT<__AST_NODE::LetDecl> let_node = __AST_N::as<__AST_NODE::LetDecl>(i);
+                                visit(*let_node, true);
+                            } else {
+                                i->accept(*this);
+                            }
+                        }
+                        tokens.push_back(std::make_unique<CX_Token>(cxir_tokens::CXX_SEMICOLON));
+                    }
                 }
             }
         }
@@ -372,26 +392,41 @@ CX_VISIT_IMPL(BreakState) {
 
 CX_VISIT_IMPL(BlockState) {
     // -> (statement ';')*
-    if (!node.body.empty()) {
-        for (const auto &i : node.body) {
-            if (i != nullptr) {
-                if (i->getNodeType() == __AST_NODE::nodes::LetDecl) {
-                    __AST_N::NodeT<__AST_NODE::LetDecl> node = __AST_N::as<__AST_NODE::LetDecl>(i);
-                    visit(*node, true);
-                } else {
-                    i->accept(*this);
+    BRACE_DELIMIT(                                 //
+        if (!node.body.empty()) {
+            for (const auto &i : node.body) {
+                if (i != nullptr) {
+                    if (i->getNodeType() == __AST_NODE::nodes::LetDecl) {
+                        __AST_N::NodeT<__AST_NODE::LetDecl> node = __AST_N::as<__AST_NODE::LetDecl>(i);
+                        visit(*node, true);
+                    } else {
+                        i->accept(*this);
+                    }
                 }
-            }
 
-            tokens.push_back(std::make_unique<CX_Token>(cxir_tokens::CXX_SEMICOLON));
+                tokens.push_back(std::make_unique<CX_Token>(cxir_tokens::CXX_SEMICOLON));
+            }
         }
-    }
+    );
 }
 
 CX_VISIT_IMPL(SuiteState) {
     // -> '{' body '}'
     BRACE_DELIMIT(                                 //
-        if (node.body) { ADD_NODE_PARAM_BODY(); }  //
+        if (node.body && !node.body->body.empty()) {
+            for (const auto &i : node.body->body) {
+                if (i != nullptr) {
+                    if (i->getNodeType() == __AST_NODE::nodes::LetDecl) {
+                        __AST_N::NodeT<__AST_NODE::LetDecl> let_node = __AST_N::as<__AST_NODE::LetDecl>(i);
+                        visit(*let_node, true);
+                    } else {
+                        i->accept(*this);
+                    }
+                }
+
+                tokens.push_back(std::make_unique<CX_Token>(cxir_tokens::CXX_SEMICOLON));
+            }
+        }
     );
 }
 CX_VISIT_IMPL(ContinueState) {

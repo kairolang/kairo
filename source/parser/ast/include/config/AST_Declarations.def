@@ -19,6 +19,7 @@
 #define DECLS(MACRO)         \
     MACRO(RequiresParamDecl) \
     MACRO(RequiresParamList) \
+    MACRO(InlineBlockExpr)   \
     MACRO(EnumMemberDecl)    \
     MACRO(UDTDeriveDecl)     \
     MACRO(TypeBoundList)     \

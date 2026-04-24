@@ -293,7 +293,15 @@ parser ::ast ::node ::Statement ::parse(const std::shared_ptr<__TOKEN_N::TokenLi
             }
             return parse<IfState>();
 
-        } case __TOKEN_N::KEYWORD_RETURN:
+        }
+        case __TOKEN_N::KEYWORD_INLINE:
+            if (HAS_NEXT_TOK && NEXT_TOK.token_kind() == __TOKEN_N::LITERAL_STRING) {
+                return expr_parser.parse<InlineBlockExpr>();
+            } else {
+                return std::unexpected(
+                    PARSE_ERROR_MSG("Expected a string literal after 'inline' keyword"));
+            }
+        case __TOKEN_N::KEYWORD_RETURN:
             return parse<ReturnState>();
 
         case __TOKEN_N::KEYWORD_FOR:
@@ -341,6 +349,9 @@ parser ::ast ::node ::Statement ::parse(const std::shared_ptr<__TOKEN_N::TokenLi
         case __TOKEN_N::KEYWORD_CATCH:
             return std::unexpected(
                 PARSE_ERROR(CURRENT_TOK, "found dangling 'catch' without a matching 'try'"));
+
+        case __TOKEN_N::PUNCTUATION_OPEN_BRACE:
+            return parse<BlockState>();
 
         default:
             return parse<ExprState>();

@@ -50,7 +50,7 @@ __AST_NODE_BEGIN {
         Expression(Expression &&)                 = default;
         Expression &operator=(Expression &&)      = delete;
         ~Expression()                             = default;
-        p_r<> parse(bool in_requires = false);
+        p_r<> parse(bool in_requires = false, int precedence = 0);
         explicit Expression(token ::TokenList ::TokenListIter &iter)
             : iter(iter) {};
 
@@ -109,6 +109,8 @@ __AST_NODE_BEGIN {
                 return parse_Type(std ::forward<Args>(args)...);
             } else if constexpr (std ::same_as<T, AsyncThreading>) {
                 return parse_AsyncThreading(std ::forward<Args>(args)...);
+            } else if constexpr (std ::same_as<T, InlineBlockExpr>) {
+                return parse_InlineBlockExpr(std ::forward<Args>(args)...);
             }
         };
 
@@ -126,6 +128,7 @@ __AST_NODE_BEGIN {
         ParseResult<ArgumentListExpr>      parse_ArgumentListExpr();
         ParseResult<GenericInvokeExpr>     parse_GenericInvokeExpr();
         ParseResult<ArrayLiteralExpr>      parse_ArrayLiteralExpr();
+        ParseResult<InlineBlockExpr>       parse_InlineBlockExpr();
         ParseResult<TupleLiteralExpr>
         parse_TupleLiteralExpr(ParseResult<> starting_element = nullptr);
         ParseResult<SetLiteralExpr>    parse_SetLiteralExpr(ParseResult<> starting_value);

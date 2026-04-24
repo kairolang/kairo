@@ -510,6 +510,17 @@ __AST_NODE_BEGIN {
         NodeT<>            value;
         AsyncThreadingType type;
     };
+
+    class InlineBlockExpr final : public Node {
+        BASE_CORE_METHODS(InlineBlockExpr);
+
+        InlineBlockExpr(token::Token lang, token::Token content)
+            : lang(std::move(lang))
+            , content(std::move(content)) {}
+
+        token::Token lang;     // "c++", "c", "rust", etc.
+        token::Token content;  // raw text between { and }
+    };
 }
 
 #endif  // __AST_EXPRESSIONS_H__
