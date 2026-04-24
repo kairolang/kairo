@@ -2120,10 +2120,12 @@ int get_precedence(const __TOKEN_N::Token &tok) {
     switch (tok.token_kind()) {
         case __TOKEN_N::OPERATOR_ARROW:
             return 14;
+
         case __TOKEN_N::OPERATOR_MUL:
         case __TOKEN_N::OPERATOR_DIV:
         case __TOKEN_N::OPERATOR_MOD:
         case __TOKEN_N::OPERATOR_POW:
+        case __TOKEN_N::OPERATOR_MAT:
             return 12;
 
         case __TOKEN_N::OPERATOR_ADD:
@@ -2134,14 +2136,15 @@ int get_precedence(const __TOKEN_N::Token &tok) {
         case __TOKEN_N::OPERATOR_BITWISE_R_SHIFT:
             return 10;
 
-        case __TOKEN_N::OPERATOR_GREATER_THAN_EQUALS:
-        case __TOKEN_N::OPERATOR_LESS_THAN_EQUALS:
         case __TOKEN_N::PUNCTUATION_OPEN_ANGLE:
         case __TOKEN_N::PUNCTUATION_CLOSE_ANGLE:
+        case __TOKEN_N::OPERATOR_GREATER_THAN_EQUALS:
+        case __TOKEN_N::OPERATOR_LESS_THAN_EQUALS:
             return 9;
 
         case __TOKEN_N::OPERATOR_EQUAL:
         case __TOKEN_N::OPERATOR_NOT_EQUAL:
+        case __TOKEN_N::OPERATOR_REF_EQUAL:
             return 8;
 
         case __TOKEN_N::OPERATOR_BITWISE_AND:
@@ -2150,25 +2153,46 @@ int get_precedence(const __TOKEN_N::Token &tok) {
             return 6;
         case __TOKEN_N::OPERATOR_BITWISE_OR:
             return 5;
+
         case __TOKEN_N::OPERATOR_LOGICAL_AND:
             return 4;
-        case __TOKEN_N::OPERATOR_LOGICAL_OR:
-            // MISSING ?:
+        case __TOKEN_N::OPERATOR_LOGICAL_XOR:
             return 3;
-        case __TOKEN_N::OPERATOR_RANGE_INCLUSIVE:
-        case __TOKEN_N::OPERATOR_RANGE:
+        case __TOKEN_N::OPERATOR_LOGICAL_OR:
             return 2;
 
+        case __TOKEN_N::OPERATOR_RANGE:
+        case __TOKEN_N::OPERATOR_RANGE_INCLUSIVE:
+            return 1;
+
+        // All assignments — right-associative, lowest meaningful precedence
+        case __TOKEN_N::OPERATOR_ASSIGN:
         case __TOKEN_N::OPERATOR_ADD_ASSIGN:
         case __TOKEN_N::OPERATOR_SUB_ASSIGN:
         case __TOKEN_N::OPERATOR_MUL_ASSIGN:
         case __TOKEN_N::OPERATOR_DIV_ASSIGN:
         case __TOKEN_N::OPERATOR_MOD_ASSIGN:
-        case __TOKEN_N::OPERATOR_ASSIGN:
-            return 1;
+        case __TOKEN_N::OPERATOR_POWER_ASSIGN:
+        case __TOKEN_N::OPERATOR_MAT_ASSIGN:
+        case __TOKEN_N::OPERATOR_BITWISE_AND_ASSIGN:
+        case __TOKEN_N::OPERATOR_BITWISE_OR_ASSIGN:
+        case __TOKEN_N::OPERATOR_BITWISE_XOR_ASSIGN:
+        case __TOKEN_N::OPERATOR_BITWISE_NOR_ASSIGN:
+        case __TOKEN_N::OPERATOR_BITWISE_NOT_ASSIGN:
+        case __TOKEN_N::OPERATOR_BITWISE_NAND_ASSIGN:
+        case __TOKEN_N::OPERATOR_BITWISE_L_SHIFT_ASSIGN:
+        case __TOKEN_N::OPERATOR_BITWISE_R_SHIFT_ASSIGN:
+        case __TOKEN_N::OPERATOR_AND_ASSIGN:
+        case __TOKEN_N::OPERATOR_OR_ASSIGN:
+        case __TOKEN_N::OPERATOR_NOR_ASSIGN:
+        case __TOKEN_N::OPERATOR_NAND_ASSIGN:
+        case __TOKEN_N::OPERATOR_XOR_ASSIGN:
+        case __TOKEN_N::OPERATOR_NOT_ASSIGN:
+            return 0;
 
+        case __TOKEN_N::OTHERS:
         default:
-            return 0;  // Return 0 for non-binary operators
+            return -1;
     }
 }
 
