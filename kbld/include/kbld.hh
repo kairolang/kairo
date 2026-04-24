@@ -994,7 +994,7 @@ inline auto run_build_script(const fs::path &script_src,
 #if defined(__x86_64__) || defined(_M_X64)
     e.arch = "x86_64";
 #elif defined(__aarch64__) || defined(_M_ARM64)
-    e.arch = "aarch64";
+    e.arch = "arm64";
 #elif defined(__wasm__)
     e.arch = "wasm32";
 #else

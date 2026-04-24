@@ -160,7 +160,7 @@ static auto get_triple() -> std::string {
 #elif defined(__i386__) || defined(_M_IX86)
     const char *arch = "i686";
 #elif defined(__aarch64__) || defined(_M_ARM64)
-    const char *arch = "aarch64";
+    const char *arch = "arm64";
 #elif defined(__arm__) || defined(_M_ARM)
 #if defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__)
     const char *arch = "armv7";
