@@ -178,6 +178,7 @@ void cleanup_old_files(const std::filesystem::path &dir) {
     }
 }
 
+
 CXXCompileAction
 CXXCompileAction::init(CXIR &emitter, const Path &cc_out, flag::CompileFlags flags, Args cxx_args) {
     std::error_code            ec;

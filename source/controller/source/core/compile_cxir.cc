@@ -371,6 +371,91 @@ inline flag::types::Compiler identify_compiler(const std::string &version_output
     return flag::types::Compiler::Custom;
 }
 
+inline std::filesystem::path ensure_pch(const std::string     &cxx_compiler,
+                                        flag::types::Compiler  compiler_family,
+                                        bool                   is_asan,
+                                        bool                   is_clang_cl,
+                                        bool                   is_verbose) {
+    namespace fs = std::filesystem;
+
+    fs::path exe_root = __CONTROLLER_FS_N::get_exe().parent_path().parent_path();
+    fs::path core_hh  = exe_root / "core" / "include" / "core.hh";
+    fs::path pch_dir  = exe_root / "cache" / "pch";
+    fs::path pch_file = pch_dir / (is_asan ? "core.asan.pch" : "core.pch");
+
+    if (!fs::exists(core_hh))
+        return {};
+
+    if (fs::exists(pch_file)) {
+        if (fs::last_write_time(pch_file) >= fs::last_write_time(core_hh)) {
+            if (is_verbose)
+                kairo::log<LogLevel::Debug>("pch up-to-date: " + pch_file.generic_string());
+            return pch_file;
+        }
+    }
+
+    std::error_code ec;
+    fs::create_directories(pch_dir, ec);
+    if (ec) {
+        kairo::log<LogLevel::Warning>("failed to create pch cache dir: " + ec.message());
+        return {};
+    }
+
+    std::string cmd;
+    if (is_clang_cl) {
+        cmd = cxx_compiler + " ";
+        cmd += make_command(compiler_family,
+            "/TP",
+            "-Xclang", "-emit-pch",
+            "/std:c++latest",
+            "/EHsc",
+            ((is_asan) ? "/Od /RTC1" : "/O2"),
+            "/I\"" + core_hh.parent_path().parent_path().generic_string() + "\"",
+            "/D_CRT_SECURE_NO_WARNINGS",
+            "/D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
+            (is_asan ? "/fsanitize=address" : ""),
+            std::string("-o \"" + pch_file.generic_string() + "\""),
+            std::string("\"" + core_hh.generic_string() + "\"")
+        );
+    } else {
+        cmd = cxx_compiler + " ";
+        cmd += make_command(compiler_family,
+            "-x c++-header",
+            cxx::flags::stdCXX23Flag,
+            cxx::flags::enableExceptionsFlag,
+            ((is_asan)
+                ? cxx::flags::debugModeFlag
+                : cxx::flags::optimizationLevel3),
+            cxx::flags::includeFlag,
+            "\"" + core_hh.parent_path().parent_path().generic_string() + "\"",
+            "-D_CRT_SECURE_NO_WARNINGS",
+            "-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
+            (is_asan ? cxx::flags::SanitizeFlag : cxx::flags::None),
+            cxx::flags::outputFlag,
+            "\"" + pch_file.generic_string() + "\""
+        );
+        cmd += " \"" + core_hh.generic_string() + "\"";
+    }
+    cmd += " 2>&1";
+
+    if (is_verbose)
+        kairo::log<LogLevel::Debug>("building pch: " + cmd);
+
+    auto result = CXIRCompiler::exec(cmd);
+
+    if (result.return_code != 0) {
+        kairo::log<LogLevel::Warning>(
+            "pch generation failed (falling back to -include), output:\n" + result.output);
+        fs::remove(pch_file, ec);
+        return {};
+    }
+
+    if (is_verbose)
+        kairo::log<LogLevel::Progress>("built pch: " + pch_file.generic_string());
+
+    return pch_file;
+}
+
 }  // namespace
 
 CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action,
@@ -436,8 +521,6 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         return {probe, flag::ErrorType(flag::types::ErrorType::NotFound)};
     }
 
-    std::string compile_cmd = action.cxx_compiler + " ";
-
     // Platform-specific flag adjustments:
     //   - clang-cl (Windows): no -rdynamic, no -flto, no stdLibAndLinks,
     //     links CRT automatically, accepts clang-style -include / -I.
@@ -448,6 +531,16 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
 #else
         false;
 #endif
+
+    bool is_asan = action.flags.contains(EFlags(flag::types::CompileFlags::Debug));
+
+    std::filesystem::path pch_path = ensure_pch(
+        action.cxx_compiler, compiler, is_asan, is_windows_clang_cl, is_verbose
+    );
+
+    DEBUG_LOG("pch: " + (pch_path.empty() ? "fallback to -include" : pch_path.generic_string()));
+
+    std::string compile_cmd = action.cxx_compiler + " ";
 
     std::string link_path;
 #if defined(__APPLE__)
@@ -494,7 +587,9 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
             compiler,
 
             // force-include core — clang-cl uses /FI with no space before the path
-            "/FI\"" + core.generic_string() + "\"",
+            (pch_path.empty()
+                ? "/FI\"" + core.generic_string() + "\""
+                : "-Xclang -include-pch -Xclang \"" + pch_path.generic_string() + "\""),
 
             // include search path
             "/I\"" + core.parent_path().parent_path().generic_string() + "\"",
@@ -527,7 +622,9 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         compile_cmd += make_command(
             compiler,
 
-            "-include \"" + core.generic_string() + "\" ",
+            (pch_path.empty()
+                ? "-include \"" + core.generic_string() + "\" "
+                : "-include-pch \"" + pch_path.generic_string() + "\" "),
 
             cxx::flags::includeFlag,
             core.parent_path().parent_path().generic_string(),

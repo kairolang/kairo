@@ -1006,7 +1006,7 @@ inline auto run_build_script(const fs::path &script_src,
     e.triple   = e.arch + "-windows-msvc";
 #elif defined(__APPLE__)
     e.platform = "macos";
-    e.triple   = e.arch + "-darwin-macho";
+    e.triple   = e.arch + "-apple-macosx";
 #else
     e.platform = "linux";
     e.triple   = e.arch + "-linux-gnu";
