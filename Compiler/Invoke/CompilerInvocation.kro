@@ -32,7 +32,7 @@ import Invoke::TargetOptions::*;
 /// copyable and can be freely passed around by value or reference.
 ///
 class CompilerInvocation {
-    __inline_cpp("public:");
+    
 
     // -- sub-option structs (one per subsystem) ----------------------------
     pub var lang:     LangOptions;

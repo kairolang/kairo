@@ -26,10 +26,10 @@
 ///
 /// example:
 /// ```kairo
-/// __inline_cpp("{"); // for some reason stage(0) doesn't work with scopes
+/// { // for some reason stage(0) doesn't work with scopes
 ///     var t = Timer("lex phase");
 ///     lexer.run();
-/// __inline_cpp("}"); // automatically prints: "lex phase elapsed: 213 µs (0.213 ms)"
+/// } // automatically prints: "lex phase elapsed: 213 µs (0.213 ms)"
 /// ```
 ///
 /// \note

@@ -18,7 +18,7 @@ import Preprocessor::PreprocessorSymbolTable::*;
 import Lexer::TokenSpan::*;
 
 class MacroParameter {
-    __inline_cpp("public:");
+    
     enum VariadicType derives u8 {
         None,    ///< not variadic
         Named,   ///< named variadic (e.g., =...rest)

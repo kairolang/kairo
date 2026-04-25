@@ -22,7 +22,7 @@ import Command::ParsedArgs::*;
 /// debug flags so the preprocessor never reads raw flag keys.
 ///
 class PreprocessorOptions {
-    __inline_cpp("public:");
+    
 
     // -- CLI defines: each entry is "NAME" or "NAME=VALUE" -----------------
     pub var defines:            vec::<string>;      ///< -D flags

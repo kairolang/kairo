@@ -16,7 +16,7 @@ import Lexer::Token::*;
 import Lexer::TokenBuffer::*;
 
 class BalanceTracker {
-    __inline_cpp("public:");
+    
 
     struct Entry {
         var kind:     TokenKind; // 32

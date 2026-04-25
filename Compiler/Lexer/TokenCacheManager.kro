@@ -28,14 +28,14 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     }
 
     fn lex_file(self, fid: u32) -> bool {
-        __inline_cpp("{");
+        {
             // fast path: check under shared lock
             var rlock = std::SharedLock(self._lex_mu);
             if self._kv_s.contains(fid) {
                 Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: cache hit fid={fid}");
                 return self._kv_s[fid] != &null;
             }
-        __inline_cpp("}");
+        }
 
         var wlock = std::UniqueLock(self._lex_mu);
 

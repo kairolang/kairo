@@ -1710,18 +1710,18 @@ class PreProcessor {
 
         executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
             // ensure skip list exists (needs lock since multiple threads)
-            __inline_cpp("{");
+            {
                 var wlock = std::UniqueLock(*(self._skip_mu));
                 if !self._skip_lists.contains(fid) {
                     self._skip_lists[fid] = SkipList();
                 }
-            __inline_cpp("}");
+            }
 
             var skip_list_ptr: *SkipList;
-            __inline_cpp("{");
+            {
                 var rlock = std::SharedLock(*(self._skip_mu));
                 skip_list_ptr = &(self._skip_lists[fid]);
-            __inline_cpp("}");
+            }
 
             // lex (TCM handles its own locking now)
             if !self._tcm->lex_file(fid) {
@@ -1937,10 +1937,10 @@ class PreProcessor {
 ///       via the back-pointer in resolve_import
 fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
     // check already done
-    __inline_cpp("{");
+    {
         var rlock = std::SharedLock(*(self._states_mu));
         if self._file_states.contains(fid) { return true; }
-    __inline_cpp("}");
+    }
 
     var tokens = self._tcm->get_tokens(fid);
     if tokens == &null { return false; }

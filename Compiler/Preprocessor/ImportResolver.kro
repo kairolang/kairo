@@ -98,7 +98,7 @@ class ImportResolver {
     priv var _index_completed: std::Atomic::<bool>;      ///< set to true when indexing finishes
     priv var _owns_ext_cfg:    bool;                     ///< true if destructor should free `_ext_cfg`
 
-    __inline_cpp("public:");
+    
 
     /// \class Builder
     /// \brief fluent builder for constructing an `ImportResolver`

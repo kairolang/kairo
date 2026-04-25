@@ -23,12 +23,12 @@ class PreprocessorSymbolTable {
     var _mu:     std::SharedMutex;      ///< mutex for synchronizing access
 
     fn intern(self, name: string) -> SymbolID {
-        __inline_cpp("{");
+        {
             // fast path: check under shared lock
             var rlock = std::SharedLock(self._mu);
             var it = self.table.find(name);
             if it != self.table.end() { return it->second; }
-        __inline_cpp("}");
+        }
 
         var wlock = std::UniqueLock(self._mu);
 

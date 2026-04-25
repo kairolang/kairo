@@ -19,7 +19,7 @@ import Command::ParsedArgs::*;
 /// \brief Controls optimization, debug info, and code generation behaviour.
 ///
 class CodeGenOptions {
-    __inline_cpp("public:");
+    
     // -- misc codegen ------------------------------------------------------
     pub var fp_model:              string = "precise";
     pub var fp_contract:           string = "off";

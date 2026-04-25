@@ -54,7 +54,7 @@ class ThreadPool {
     class PartitionQueue;
     class Task;
 
-    __inline_cpp("public:");
+    
     /// Type aliases for brevity
     type FunctionT   = SmallFunction::<64>;
 
@@ -785,12 +785,12 @@ fn Test() -> i32 {
     /// for some reason the stage(0) parser does not allow `{}` scoped blocks
     /// so we have to use __inline_cpp to create a scope for the Timer RAII
     /// object to work correctly.
-    __inline_cpp("{");
+    {
         var startup = Timer("ThreadPool startup");
         total_tasks = 4000;
         groups = 4;
         pool.warmup();
-    __inline_cpp("}");
+    }
 
     std::print(f"Spawning {total_tasks} tasks across {groups} groups...");
 
@@ -806,14 +806,14 @@ fn Test() -> i32 {
         }
     }
 
-    __inline_cpp("{");
+    {
         var enqueue_timer = Timer("Enqueue phase");
 
         for var i: i32 = 0; i < total_tasks; ++i {
             var g: u8 = static_cast::<u8>(i % groups);
             pool.enqueue(heavy_task, g);
         }
-    __inline_cpp("}");
+    }
 
     for var g: i32 = 0; g < groups; ++g {
         var t = Timer(f"Group {g} completion");

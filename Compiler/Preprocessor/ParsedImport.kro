@@ -20,7 +20,7 @@ import Preprocessor::MacroImport::*;
 class ParsedImport {
     /// \brief a single item from a grouped import { A, B as C, Mac! }
 
-    __inline_cpp("public:");
+    
     class Item {
         pub var name:       IdentifierToken;  ///< original name
         pub var alias:      IdentifierToken;  ///< alias (same as name if no `as`)
