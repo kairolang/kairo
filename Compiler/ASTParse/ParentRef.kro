@@ -1,0 +1,120 @@
+/// --- The Kairo Project --------------------- Compiler/AST/ParentRef.kro --- ///
+///
+///   Tagged parent-pointer type. Every AST node carries one of these so
+///   LSP walkers can climb from a node to its enclosing context without
+///   rebuilding the tree.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// -------------------------------------------------------------------------- ///
+
+import ASTNode::Base::*;
+
+class TranslationUnit; // fwd
+
+enum ParentKind derives u8 {
+    None,
+    Expr,
+    Stmt,
+    Decl,
+    Type,
+    TranslationUnit,
+}
+
+/// Tagged pointer to the parent of an AST node.
+/// Covers every node kind that can legally contain another node.
+/// Sentinel: `ParentKind::None` with null pointer = no parent (root or orphan).
+class ParentRef {
+    pub var kind: ParentKind = ParentKind::None;
+    pub var ptr:  obs::<void>;
+
+    fn ParentRef(self) {
+        self.kind = ParentKind::None;
+        self.ptr  = &null;
+    }
+
+    static fn none() -> ParentRef {
+        var r = ParentRef{};
+        return r;
+    }
+
+    static fn from_expr(e: *Expr) -> ParentRef {
+        var r = ParentRef{};
+        r.kind = ParentKind::Expr;
+        r.ptr  = reinterpret_cast::<*void>(e);
+        return r;
+    }
+
+    static fn from_stmt(s: *Stmt) -> ParentRef {
+        var r = ParentRef{};
+        r.kind = ParentKind::Stmt;
+        r.ptr  = reinterpret_cast::<*void>(s);
+        return r;
+    }
+
+    static fn from_decl(d: *Decl) -> ParentRef {
+        var r = ParentRef{};
+        r.kind = ParentKind::Decl;
+        r.ptr  = reinterpret_cast::<*void>(d);
+        return r;
+    }
+
+    static fn from_type(t: *Type) -> ParentRef {
+        var r = ParentRef{};
+        r.kind = ParentKind::Type;
+        r.ptr  = reinterpret_cast::<*void>(t);
+        return r;
+    }
+
+    static fn from_tu(tu: *TranslationUnit) -> ParentRef {
+        var r = ParentRef{};
+        r.kind = ParentKind::TranslationUnit;
+        r.ptr  = reinterpret_cast::<*void>(tu);
+        return r;
+    }
+
+    fn is_none(self) -> bool { return self.kind == ParentKind::None; }
+
+    fn as_expr(self) -> *Expr {
+        assert(self.kind == ParentKind::Expr);
+        return reinterpret_cast::<*Expr>(self.ptr);
+    }
+
+    fn as_stmt(self) -> *Stmt {
+        assert(self.kind == ParentKind::Stmt);
+        return reinterpret_cast::<*Stmt>(self.ptr);
+    }
+
+    fn as_decl(self) -> *Decl {
+        assert(self.kind == ParentKind::Decl);
+        return reinterpret_cast::<*Decl>(self.ptr);
+    }
+
+    fn as_type(self) -> *Type {
+        assert(self.kind == ParentKind::Type);
+        return reinterpret_cast::<*Type>(self.ptr);
+    }
+
+    fn as_tu(self) -> *TranslationUnit {
+        assert(self.kind == ParentKind::TranslationUnit);
+        return reinterpret_cast::<*TranslationUnit>(self.ptr);
+    }
+
+    /// Returns the parent's source range regardless of concrete kind.
+    /// Used by PositionQuery and hover/definition walkers.
+    fn get_range(self) -> SourceRange {
+        switch self.kind {
+            case ParentKind::Expr            { return self.as_expr()->range; }
+            case ParentKind::Stmt            { return self.as_stmt()->range; }
+            case ParentKind::Decl            { return self.as_decl()->range; }
+            case ParentKind::Type            { return self.as_type()->range; }
+            case ParentKind::TranslationUnit { return SourceRange::invalid(); } // TU has no single range
+            default                          { return SourceRange::invalid(); }
+        }
+    }
+}

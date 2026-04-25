@@ -1,0 +1,20 @@
+
+// TypeParse.kro
+/// --- The Kairo Project ------------------ Compiler/Parser/TypeParse.kro --- ///
+///
+///   Type expression parsing mixin.
+///
+/// ------------------------------------------------------------------------- ///
+
+import ASTNode::Base::*;
+
+class <T> TypeParse {
+    fn parse_type(self, sync: SyncSet) -> *Type {
+        // TODO
+    }
+
+    fn parse_named_type(self) -> *NamedType {
+        // TODO
+    }
+}
+

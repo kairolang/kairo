@@ -1,0 +1,261 @@
+/// --- The Kairo Project ------------------- Compiler/Parser/ASTParse.kro --- ///
+///
+///   Main parser class. Derives the five sub-parser mixins and owns all
+///   parser state: token cursor, scope stack, recovery state, completion
+///   consumer, diagnostics handle, AST context.
+///
+///   Produces a TranslationUnit from a fully-indexed ASTContext.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import AST::ASTContext::*;
+import AST::ScopeStack::*;
+import AST::TranslationUnit::*;
+import AST::CodeCompleteConsumer::*;
+import AST::ParentRef::*;
+import ASTNode::Base::*;
+import ASTNode::Program::*;
+import Lexer::TokenSpan::*;
+import Lexer::Token::*;
+import Diag::DiagEngine::*;
+
+// import Parser::ExprParse::*;
+// import Parser::StmtParse::*;
+// import Parser::DeclParse::*;
+import Parser::TypeParse::*;
+// import Parser::AnnotParse::*;
+
+/// Sync-set enum. Each parse_* function declares which tokens terminate
+/// error recovery when a parse failure occurs inside it.
+enum SyncSet derives u32 {
+    None        = 0,
+    TopLevel    = 1 << 0,   // fn, class, struct, enum, module, ...
+    StmtStart   = 1 << 1,   // var, const, return, if, while, ...
+    ExprEnd     = 1 << 2,   // ;, ,, ), ]
+    BlockEnd    = 1 << 3,   // }
+    GenericEnd  = 1 << 4,   // >
+    ParenEnd    = 1 << 5,   // )
+    BracketEnd  = 1 << 6,   // ]
+    LineEnd     = 1 << 7,   // newline
+}
+
+class ASTParse derives ExprParse, StmtParse, DeclParse, TypeParse, AnnotParse {
+    // --- Context handles ----------------------------------------------------
+    pub var ctx:     obs::<ASTContext>;
+    pub var diag:    obs::<DiagEngine>;
+    pub var scope:   ScopeStack;
+    pub var cc:      obs::<CodeCompleteConsumer>;  // null for batch compile
+
+    // --- Token state --------------------------------------------------------
+    pub var span:    TokenSpan;
+    pub var c_idx:   usize = 0;
+    pub var current: obs::<Token>;
+    pub var peek_t:  obs::<Token>;
+
+    // --- Recovery state -----------------------------------------------------
+    pub var depth:            u32 = 0;           // recursion depth guard
+    pub var max_depth:        u32 = 256;
+    pub var in_recovery:      bool = false;      // cascading-suppression flag
+    pub var error_count_base: u32 = 0;           // diag count at parse start
+
+    // --- Output -------------------------------------------------------------
+    pub var tu: obs::<TranslationUnit>;
+
+    fn ASTParse(self, ctx: *ASTContext, cc: *CodeCompleteConsumer) {
+        self.ctx   = ctx;
+        self.diag  = ctx->diags;
+        self.cc    = cc;
+        self.span  = ctx->get_tokens();
+        self.scope = ScopeStack(ctx);
+        self.tu    = ctx->alloc_init::<TranslationUnit>(ctx, ctx->fid);
+
+        self.current = (self.span.get(0)) if (self.span.size() > 0) else (&null);
+        self.peek_t  = (self.span.get(1)) if (self.span.size() > 1) else (&null);
+
+        self.max_depth        = ctx->ci->frontend.max_scope_depth;
+        self.error_count_base = self.diag->error_count();
+    }
+
+    /// Entry point. Parses the entire file, returns the root TU.
+    /// On any fatal failure still returns a (possibly partial) TU.
+    fn parse(self) -> *TranslationUnit {
+        var program = self.ctx->alloc_init::<Program>(self.ctx->fid, self.ctx);
+        self.tu->set_program(program);
+
+        // Push the TU's scope as the root lexical scope.
+        self.scope.push(ScopeKind::Function, self.tu); // TODO: dedicated TU ScopeKind
+
+        var iterations: usize = 0;
+        var max_iter = self.span.size() << 2;
+
+        while !self.is_eof() {
+            ++iterations;
+            if iterations > max_iter {
+                // pathological guard same pattern as ASTIndex.
+                // TODO: emit diag.
+                break;
+            }
+
+            var item = self.dispatch_top_level();
+            if item.kind == TopLevelKind::Decl && item.as_decl() == &null {
+                break; // EOF or unrecoverable
+            }
+
+            program->add_item(item);
+        }
+
+        self.scope.pop();
+
+        self.tu->error_count = self.diag->error_count() - self.error_count_base;
+        return self.tu;
+    }
+
+    /// Dispatches to the right sub-parser based on current token.
+    /// Produces a TopLevelItem. Recovery wraps every branch.
+    priv fn dispatch_top_level(self) -> TopLevelItem {
+        // TODO: mirrors ASTIndex::dispatch_decl but builds full nodes.
+        // Skeleton stub: advance and return an empty item.
+        self.advance();
+        return TopLevelItem::from_decl(&null);
+    }
+
+    // --- Token primitives (shared by all mixins) ----------------------------
+
+    inline fn advance(self) -> *Token {
+        // TODO
+        return &null;
+    }
+
+    inline fn retreat(self) {
+        // TODO
+    }
+
+    inline fn check(self, kind: TokenKind) -> bool {
+        // TODO
+        return false;
+    }
+
+    inline fn match_tok(self, kind: TokenKind) -> bool {
+        // TODO
+        return false;
+    }
+
+    inline fn expect(self, kind: TokenKind) -> Token {
+        // TODO: emit diag on mismatch, return current token for recovery.
+        return Token{};
+    }
+
+    inline fn is_eof(self) -> bool {
+        // TODO
+        return true;
+    }
+
+    // --- Recovery primitives ------------------------------------------------
+
+    /// Tentative parse save/restore. Used for ambiguity: Foo<T>(x), etc.
+    /// Returns an opaque state; pass to commit() or rollback().
+    fn tentative_begin(self) -> usize {
+        return self.c_idx;
+    }
+
+    fn tentative_commit(self, state: usize) {
+        // no-op currently parse proceeds. State was just a saved cursor.
+    }
+
+    fn tentative_rollback(self, state: usize) {
+        self.c_idx = state;
+        self.current = (self.span.get(self.c_idx))     if (self.c_idx     < self.span.size()) else (&null);
+        self.peek_t  = (self.span.get(self.c_idx + 1)) if (self.c_idx + 1 < self.span.size()) else (&null);
+    }
+
+    /// Skip tokens until one in the sync set or EOF. Returns the matched set
+    /// or SyncSet::None if hit EOF.
+    fn skip_until(self, set: SyncSet) -> SyncSet {
+        // TODO
+        return SyncSet::None;
+    }
+
+    /// Recursion depth guard. Call before descending into a recursive parse.
+    /// Returns false if max depth exceeded emit a diag and bail.
+    fn enter_depth(self) -> bool {
+        if self.depth >= self.max_depth {
+            // TODO: diag
+            return false;
+        }
+        ++self.depth;
+        return true;
+    }
+
+    fn exit_depth(self) {
+        if self.depth > 0 { --self.depth; }
+    }
+
+    // --- Scope primitives ---------------------------------------------------
+
+    fn enter_scope(self, kind: ScopeKind, dc: *DeclContext) -> *LexicalScope {
+        return self.scope.push(kind, dc);
+    }
+
+    fn exit_scope(self) {
+        self.scope.pop();
+    }
+
+    // --- Unified lookup (lexical -> hoisted -> global) ----------------------
+
+    /// Looks up a name with full scope walking.
+    /// Not used by parser hot paths (parser uses HoistedScope directly for
+    /// disambiguation); provided for completion and hover consumers.
+    fn lookup(self, name: string) -> ParentRef {
+        // 1. lexical stack
+        var local = self.scope.lookup(name);
+        if local != &null {
+            return ParentRef::from_decl(local->decl);
+        }
+
+        // 2. hoisted scope
+        var hr = self.ctx->hoisted->lookup(name);
+        if hr.found() {
+            var entry = hr.first();
+            if entry->decl.decl != &null {
+                return ParentRef::from_decl(entry->decl.decl);
+            }
+        }
+
+        // 3. TODO: fall through to GlobalHoistedScope for imported names.
+
+        return ParentRef::none();
+    }
+
+    // --- Completion hooks ---------------------------------------------------
+
+    /// Called by mixins when the parser reaches a completion-relevant point.
+    /// No-op if no consumer is attached.
+    fn maybe_complete(self, kind: CompletionContextKind) {
+        if self.cc == &null { return; }
+
+        // TODO: only fire if self.current is at/past cc.cursor_loc.
+        self.cc->on_completion(kind, self.scope.current_dc());
+    }
+
+    fn maybe_complete_member(self, base: *Expr, is_arrow: bool) {
+        if self.cc == &null { return; }
+        self.cc->on_member_access(base, is_arrow);
+    }
+
+    fn maybe_complete_qualified(self, scope: *ScopeNode) {
+        if self.cc == &null { return; }
+        self.cc->on_qualified_name(scope);
+    }
+
+    fn maybe_complete_sighelp(self, callee: *Expr, arg_index: u32) {
+        if self.cc == &null { return; }
+        self.cc->on_signature_help(callee, arg_index);
+    }
+}

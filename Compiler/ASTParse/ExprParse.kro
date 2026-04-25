@@ -1,0 +1,27 @@
+// ExprParse.kro
+/// --- The Kairo Project ------------------ Compiler/Parser/ExprParse.kro --- ///
+///
+///   Expression parsing mixin. Pratt parser over ExprKind.
+///
+/// ------------------------------------------------------------------------- ///
+
+import ASTNode::Base::*;
+import Lexer::Token::*;
+
+class ExprParse {
+    fn parse_expr(self)                          -> *Expr { return &null; } // entry
+    fn parse_expr_prec(self, min_prec: u32)      -> *Expr { return &null; } // Pratt
+    fn parse_unary(self)                         -> *Expr { return &null; }
+    fn parse_postfix(self, lhs: *Expr)           -> *Expr { return &null; }
+    fn parse_primary(self)                       -> *Expr { return &null; }
+    fn parse_paren_expr(self)                    -> *Expr { return &null; }
+    fn parse_chain(self, head: *Expr)            -> *Expr { return &null; } // member/scope access
+    fn parse_call_args(self, callee: *Expr)      -> *Expr { return &null; }
+    fn parse_literal(self)                       -> *Expr { return &null; }
+    fn parse_ident_expr(self)                    -> *Expr { return &null; }
+    fn parse_if_expr(self)                       -> *Expr { return &null; }
+    fn parse_match_expr(self)                    -> *Expr { return &null; }
+    fn parse_lambda(self)                        -> *Expr { return &null; }
+    fn parse_struct_init(self, ty: *Type)        -> *Expr { return &null; }
+    fn parse_recovery_expr(self, recoverFrom: ExprKind) -> *Expr { return &null; }
+}

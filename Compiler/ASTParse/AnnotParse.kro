@@ -1,0 +1,16 @@
+// AnnotParse.kro
+/// --- The Kairo Project ------------------ Compiler/Parser/AnnotParse.kro --- ///
+///
+///   Attribute and annotation parsing mixin. Covers @attr(...), doc
+///   comments attached to following decls, and visibility modifiers.
+///
+/// -------------------------------------------------------------------------- ///
+
+import ASTNode::Base::*;
+
+class AnnotParse {
+    fn parse_attributes(self)    -> *Decl { return &null; } // list, attached to next decl
+    fn parse_attribute(self)     -> *Decl { return &null; } // single @name(args)
+    fn parse_doc_comment(self)   -> *Decl { return &null; } // /// block
+    fn parse_visibility(self)    -> *Decl { return &null; } // pub / priv / prot
+}

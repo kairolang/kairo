@@ -1,0 +1,111 @@
+/// --- The Kairo Project -------------------- Compiler/AST/ScopeStack.kro --- ///
+///
+///   Parse-time lexical scope stack. Tracks locals, generic parameters in
+///   scope, and captured names during parsing. Distinct from HoistedScope
+///   (which is indexer-built, file-global, and read-only during parse).
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// --------------------------------------------------------------------------- ///
+
+import AST::ASTContext::*;
+import ASTNode::Base::*;
+
+enum ScopeKind derives u8 {
+    Function,      // function body
+    Block,         // { ... }
+    GenericParams, // <T, U: Foo>
+    ForLoop,       // for-binding scope
+    MatchArm,      // match-pattern bindings
+    Lambda,        // lambda captures + params
+}
+
+/// A single entry bound at parse time. Refers to the Decl or parameter
+/// that introduced the name. Populated only once the parser has decided
+/// on the binding; never speculative.
+class LocalBinding {
+    pub var name:      string;
+    pub var decl:      obs::<Decl>;     // VarDecl, ParamDecl, TypeParamDecl, etc.
+    pub var range:     SourceRange;     // where the name was introduced
+    pub var is_param:  bool = false;
+    pub var is_tparam: bool = false;    // type parameter
+}
+
+class LexicalScope {
+    pub var kind:       ScopeKind;
+    pub var parent:     obs::<LexicalScope>;
+    pub var bindings:   libcxx::unordered_map::<string, LocalBinding>;
+    pub var dc:         obs::<DeclContext>;    // decl context this scope lives inside
+
+    fn LexicalScope(self, kind: ScopeKind, parent: *LexicalScope, dc: *DeclContext) {
+        self.kind   = kind;
+        self.parent = parent;
+        self.dc     = dc;
+        self.bindings.reserve(8);
+    }
+
+    fn bind(self, name: string, decl: *Decl, range: SourceRange) {
+        var b = LocalBinding{};
+        b.name  = name;
+        b.decl  = decl;
+        b.range = range;
+        self.bindings.insert(libcxx::make_pair(name, b));
+    }
+
+    fn lookup_local(self, name: string) -> *LocalBinding {
+        var it = self.bindings.find(name);
+        if it == self.bindings.end() { return &null; }
+        return &(it->second);
+    }
+}
+
+class ScopeStack {
+    priv var _top: obs::<LexicalScope>;
+    priv var _ctx: obs::<ASTContext>;
+
+    fn ScopeStack(self, ctx: *ASTContext) {
+        self._ctx = ctx;
+        self._top = &null;
+    }
+
+    fn push(self, kind: ScopeKind, dc: *DeclContext) -> *LexicalScope {
+        var s = self._ctx->alloc_init::<LexicalScope>(kind, self._top, dc);
+        self._top = s;
+        return s;
+    }
+
+    fn pop(self) {
+        assert(self._top != &null && r"ScopeStack::pop on empty stack");
+        self._top = self._top->parent;
+    }
+
+    fn top(self) -> *LexicalScope { return self._top; }
+
+    fn bind(self, name: string, decl: *Decl, range: SourceRange) {
+        assert(self._top != &null && r"ScopeStack::bind with no active scope");
+        self._top->bind(name, decl, range);
+    }
+
+    /// Walks the lexical stack bottom-up. Returns the innermost binding,
+    /// or null if not found. Caller falls back to HoistedScope.
+    fn lookup(self, name: string) -> *LocalBinding {
+        var s = self._top;
+        while s != &null {
+            var b = s->lookup_local(name);
+            if b != &null { return b; }
+            s = s->parent;
+        }
+        return &null;
+    }
+
+    /// Current decl context (from the top of stack).
+    fn current_dc(self) -> *DeclContext {
+        if self._top == &null { return &null; }
+        return self._top->dc;
+    }
+}

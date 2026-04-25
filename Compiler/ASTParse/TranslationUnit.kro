@@ -1,0 +1,75 @@
+/// --- The Kairo Project ---------------- Compiler/AST/TranslationUnit.kro --- ///
+///
+///   Root AST node for a single file. Wraps a Program (the item list) with
+///   file-level metadata: attributes, imports, diagnostic stats, lazy body
+///   tracking slots for future incremental work.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// -------------------------------------------------------------------------- ///
+
+import Memory::ArenaList::*;
+import AST::ASTContext::*;
+import AST::DeclContext::*;
+import ASTNode::Program::*;
+import ASTNode::Base::*;
+import Preprocessor::ModulePath::*;
+
+/// Root of a parsed file's AST. Derives DeclContext so it participates in
+/// name lookup like any other scope.
+class TranslationUnit derives DeclContext {
+    pub var ctx:          obs::<ASTContext>;
+    pub var fid:          u32;
+    pub var module_path:  ModulePath;
+    pub var program:      obs::<Program>;                   // item list
+
+    pub var imports:      ArenaList::<*Decl>;               // ImportDecl*, separate from items for LSP
+    pub var tu_attrs:     ArenaList::<*Decl>;               // AttributeDecl* at file level
+
+    // diagnostic snapshot produced by this parse pass
+    pub var error_count:  u32 = 0;
+    pub var warn_count:   u32 = 0;
+
+    // lazy-body slots: populated for every FunctionDecl whose body was
+    // parsed eagerly, so future incremental can reparse bodies in place.
+    // empty for Phase 1; reserved for Phase 2.
+    pub var body_ranges:  ArenaList::<BodyRange>;
+
+    struct BodyRange {
+        pub var decl:       obs::<Decl>;    // the FunctionDecl (or other body-bearing decl)
+        pub var tok_start:  usize;          // inclusive
+        pub var tok_end:    usize;          // exclusive
+    }
+
+    fn TranslationUnit(self, ctx: *ASTContext, fid: u32) {
+        self.init_dc(DeclContextKind::TranslationUnit, ctx, &null);
+        self.ctx = ctx;
+        self.fid = fid;
+        self.imports.set_allocator(&(ctx->nodes));
+        self.tu_attrs.set_allocator(&(ctx->nodes));
+        self.body_ranges.set_allocator(&(ctx->nodes));
+    }
+
+    fn set_program(self, p: *Program) {
+        self.program = p;
+    }
+
+    fn add_import(self, d: *Decl)   { self.imports.push(d); }
+    fn add_tu_attr(self, d: *Decl)  { self.tu_attrs.push(d); }
+    fn record_body_range(self, d: *Decl, start: usize, end: usize) {
+        var br = BodyRange{};
+        br.decl      = d;
+        br.tok_start = start;
+        br.tok_end   = end;
+        self.body_ranges.push(br);
+    }
+
+    fn get_filename(self) -> string {
+        return self.ctx->sm->get_filename(self.fid);
+    }
+}

@@ -1,0 +1,41 @@
+/// --- The Kairo Project ------------------ Compiler/AST/PositionQuery.kro --- ///
+///
+///   Given a byte offset in a source file, find the innermost AST node
+///   whose range contains it. Foundation for hover, definition, references,
+///   and all other position-based LSP walkers.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Source::SourceRange::*;
+import ASTNode::Base::*;
+import AST::TranslationUnit::*;
+import AST::ParentRef::*;
+
+class PositionQuery {
+    /// Finds the innermost node covering `loc` in `tu`.
+    /// Returns a ParentRef whose kind tells you what you got; None if out of bounds.
+    /// O(depth). Relies on parent pointers + accurate ranges.
+    static fn innermost_at(tu: *TranslationUnit, loc: SourceLocation) -> ParentRef {
+        // TODO: walk the Program's items, find the one whose range covers loc,
+        //       then descend via kind-specific children until no child covers loc.
+        //       Return that node as a ParentRef.
+        //
+        //       Skeleton only. Implementation comes after the AST is fleshed out
+        //       enough to have children-enumeration per node kind.
+        return ParentRef::none();
+    }
+
+    /// Walks from `node` up the parent chain, returning the first ancestor
+    /// of the given parent-kind. Null if none.
+    static fn enclosing(node: ParentRef, kind: ParentKind) -> ParentRef {
+        // TODO: climb .parent pointers, match on ParentKind.
+        return ParentRef::none();
+    }
+}

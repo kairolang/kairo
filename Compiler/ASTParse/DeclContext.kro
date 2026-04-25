@@ -1,0 +1,81 @@
+/// --- The Kairo Project ------------------ Compiler/AST/DeclContext.kro --- ///
+///
+///   Mixin base for AST nodes that own a lexical scope of declarations.
+///   TranslationUnit, ModuleDecl, ClassDecl, StructDecl, EnumDecl,
+///   InterfaceDecl, FunctionDecl, and BlockStmt all derive this.
+///
+///   Provides uniform name lookup and child-decl enumeration.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Memory::ArenaList::*;
+import AST::ASTContext::*;
+import ASTNode::Base::*;
+
+enum DeclContextKind derives u8 {
+    TranslationUnit,
+    Module,
+    Class,
+    Struct,
+    Enum,
+    Union,
+    Interface,
+    Function,
+    Block,
+}
+
+/// A scope that owns declarations.
+/// Mixed into concrete decl nodes (ClassDecl, FunctionDecl, etc).
+class DeclContext {
+    pub var dc_kind:   DeclContextKind;
+    pub var dc_parent: obs::<DeclContext>;      // lexical parent scope
+    pub var dc_decls:  ArenaList::<*Decl>;      // owned decls, in source order
+    pub var dc_scope:  obs::<ScopeNode>;        // hoisted scope node, if applicable
+
+    fn init_dc(self, kind: DeclContextKind, ctx: *ASTContext, parent: *DeclContext) {
+        self.dc_kind   = kind;
+        self.dc_parent = parent;
+        self.dc_decls.set_allocator(&(ctx->nodes));
+        self.dc_scope  = &null;
+    }
+
+    fn add_decl(self, d: *Decl) {
+        self.dc_decls.push(d);
+    }
+
+    fn parent_context(self) -> *DeclContext {
+        return self.dc_parent;
+    }
+
+    fn context_kind(self) -> DeclContextKind {
+        return self.dc_kind;
+    }
+
+    /// Walks up the parent chain looking for a context of the given kind.
+    /// Returns null if none found.
+    fn enclosing(self, kind: DeclContextKind) -> *DeclContext {
+        var c = self.dc_parent;
+        while c != &null {
+            if c->dc_kind == kind { return c; }
+            c = c->dc_parent;
+        }
+        return &null;
+    }
+
+    fn is_translation_unit(self) -> bool { return self.dc_kind == DeclContextKind::TranslationUnit; }
+    fn is_function(self)        -> bool { return self.dc_kind == DeclContextKind::Function;        }
+    fn is_type_scope(self)      -> bool {
+        return self.dc_kind == DeclContextKind::Class
+            || self.dc_kind == DeclContextKind::Struct
+            || self.dc_kind == DeclContextKind::Enum
+            || self.dc_kind == DeclContextKind::Union
+            || self.dc_kind == DeclContextKind::Interface;
+    }
+}
