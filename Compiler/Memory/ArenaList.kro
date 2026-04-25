@@ -138,6 +138,10 @@ class <T> ArenaList {
         self.alloc_slab();
     }
 
+    fn has_allocator(self) -> bool {
+        return self._arena != &null;
+    }
+
     fn push(self, val: T) -> *T {
         self.ensure_space();
         var chunk = &self._chunks[self._chunk_count - 1];

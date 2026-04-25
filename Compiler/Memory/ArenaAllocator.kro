@@ -152,6 +152,14 @@ class ArenaAllocator {
         }
     ");
 
+    __inline_cpp("
+        template <typename T, typename ...Args>
+        T *alloc_init(Args &&...args) {
+            void *mem = alloc(sizeof(T), alignof(T));
+            return ::new (mem) T(libcxx::forward<Args>(args)...);
+        }
+    ");
+
     fn reset(self) {
         ++(self.stats.resets);
 

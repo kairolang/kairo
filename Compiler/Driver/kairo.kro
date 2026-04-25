@@ -103,7 +103,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     ci->flush_errors();
 
     if ci->invocation().frontend.verbose {
-        std::eprint(f"compilation: {result.summary()}");
+        std::eprintln(f"compilation: {result.summary()}");
     }
 
     return 0 if result.ok() else 1;
