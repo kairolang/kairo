@@ -875,6 +875,22 @@ sleep_while(F &&condition)  // NOLINT(cppcoreguidelines-missing-std-forward)
 template <typename... Args>
 void eprint(Args &&...t) {
     if constexpr (sizeof...(t) == 0) {
+        fwprintf(stderr, L"");
+        return;
+    }
+    
+    ((([&]() { // fixed so now thers no more UB with large strings
+           auto str = std::to_string(t);
+           fwprintf(stderr, L"%ls", str.raw());
+       }())),
+     ...);
+
+     // no newlines
+}
+
+template <typename... Args>
+void eprintln(Args &&...t) {
+    if constexpr (sizeof...(t) == 0) {
         fwprintf(stderr, L"\n");
         return;
     }

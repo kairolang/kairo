@@ -23,21 +23,22 @@ import EvalHash::*;
 ///      (Bi) - Builtin, (Lit) - Literal
 enum TokenKind derives u32 {
     ///===----------------------------------------------------------------===///
-    ///   Special tokens                  (Reserved values = 0x00 - 0x23)
+    /// # Special tokens                  (Reserved values = 0x00 - 0x23)
     ///===----------------------------------------------------------------===///
-    TkUnknown     = 0x001, // (unrecognized)
-    TkEof         = 0x002, // (end of file)
-    TkError       = 0x003, // (lexing error)
-    AtComment     = 0x004, // (comment)
-    TkNewLine     = 0x005, // (newline)
-    TkWhitespace  = 0x006, // (whitespace)                      RESERVED/UNUSED
-    TkFileStart   = 0x007, // (start of file)
-    TkFileEnd     = 0x008, // (end of file)
-    TkGenerated   = 0x009, // (generated code marker)
-    TkMacroExpand = 0x00a, // (macro expansion marker)
+    TkUnknown      = 0x001, // (unrecognized)
+    TkEof          = 0x002, // (end of file)
+    TkError        = 0x003, // (lexing error)
+    AtComment      = 0x004, // (comment)
+    TkNewLine      = 0x005, // (newline)
+    TkWhitespace   = 0x006, // (whitespace)                      RESERVED/UNUSED
+    TkFileStart    = 0x007, // (start of file)
+    TkFileEnd      = 0x008, // (end of file)
+    TkGenerated    = 0x009, // (generated code marker)
+    TkMacroExpand  = 0x00a, // (macro expansion marker)
+    TkCodeComplete = 0x00b, // (code completion marker)
 
     ///===----------------------------------------------------------------===///
-    //    Special tokens Continued        (Reserved values = 0x24 - 0xFE)
+    /// # Special tokens Continued        (Reserved values = 0x24 - 0xFE)
     ///===----------------------------------------------------------------===///
     LitIdentifier    = 0x024,  // <identifier>
     LitInt           = 0x026,  // e.g. "123", "0xFFF", "0b1010", "0o1298"
@@ -49,7 +50,7 @@ enum TokenKind derives u32 {
 
     LitNull          = compute_hash::<r"null">(),
     ///===----------------------------------------------------------------===///
-    ///   Punctuators
+    /// # Punctuators
     ///               "#" is valid within identifiers, so we treat it as such
     ///               "$" is an illegal token in kairo
     ///
@@ -110,7 +111,7 @@ enum TokenKind derives u32 {
     OpEllipsis        = compute_hash::<r"...">(),  // "..."
 
     ///===----------------------------------------------------------------===///
-    ///   Assignment operators (Clang-compatible)
+    /// # Assignment operators (Clang-compatible)
     ///===----------------------------------------------------------------===///
     OpPlusEqual           = compute_hash::<r"+=">(),  // "+="
     OpMinusEqual          = compute_hash::<r"-=">(),  // "-="
@@ -125,7 +126,7 @@ enum TokenKind derives u32 {
     OpAtEqual             = compute_hash::<r"@=">(),  // "@="   NOT (clang-comp)
 
     ///===----------------------------------------------------------------===///
-    ///   Logical / comparison operators (Clang-compatible)
+    /// # Logical / comparison operators (Clang-compatible)
     ///===----------------------------------------------------------------===///
     OpLessEqualGreater = compute_hash::<r"<=>">(), // "<=>" (spaceship operator)
     OpEqualEqualEqual  = compute_hash::<r"===">(), // "==="     NOT (clang-comp)
@@ -215,7 +216,7 @@ enum TokenKind derives u32 {
     KwFalse      = compute_hash::<r"false">(),     // "false"
 
     ///===----------------------------------------------------------------===///
-    ///   Binary operators
+    /// # Binary operators
     ///===----------------------------------------------------------------===///
     KwIn     = compute_hash::<r"in">(),     // "in"
     KwAs     = compute_hash::<r"as">(),     // "as"
@@ -232,7 +233,7 @@ enum TokenKind derives u32 {
     KwXorEq  = compute_hash::<r"xor_eq">(), // "xor_eq"
 
     ///===----------------------------------------------------------------===///
-    ///   Primitive types
+    /// # Primitive types
     ///===----------------------------------------------------------------===///
     AtVoid  = compute_hash::<r"void">(),  // "void"
     AtBool  = compute_hash::<r"bool">(),  // "bool"
@@ -260,7 +261,7 @@ enum TokenKind derives u32 {
     AtI256  = compute_hash::<r"i256">(),  // "i256"
 
     ///===----------------------------------------------------------------===///
-    ///   Unary keywords
+    /// # Unary keywords
     ///===----------------------------------------------------------------===///
     KwAwait    = compute_hash::<r"await">(),      // "await"
     KwThread   = compute_hash::<r"thread">(),     // "thread" // this is for thread_local storage, not thread spawning
@@ -274,7 +275,7 @@ enum TokenKind derives u32 {
     KwTypeOf   = compute_hash::<r"typeof">(),     // "typeof"
 
     ///===----------------------------------------------------------------===///
-    ///   Builtins
+    /// # Builtins
     ///===----------------------------------------------------------------===///
     BiFile         = compute_hash::<r"__file__">(),     // "__file__"
     BiLine         = compute_hash::<r"__line__">(),     // "__line__"
@@ -296,9 +297,9 @@ enum TokenKind derives u32 {
     BiAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
 };
 
-//****************************************************************************//
-//           MAKE SURE TO KEEP THIS IN SYNC WITH THE ENUM ABOVE               //
-//****************************************************************************//
+/******************************************************************************/
+/**         # MAKE SURE TO KEEP THIS IN SYNC WITH THE ENUM ABOVE              */
+/******************************************************************************/
 
 fn is_valid_token_kind(kind: u32) -> bool {
     switch static_cast::<TokenKind>(kind) {
@@ -400,9 +401,9 @@ fn is_valid_token_kind(kind: u32) -> bool {
     }
 }
 
-//****************************************************************************//
-//           MAKE SURE TO KEEP THIS IN SYNC WITH THE ENUM ABOVE               //
-//****************************************************************************//
+/******************************************************************************/
+/**         # MAKE SURE TO KEEP THIS IN SYNC WITH THE ENUM ABOVE              */
+/******************************************************************************/
 
 fn token_kind_to_string(kind: TokenKind) -> string {
     switch kind {

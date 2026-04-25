@@ -130,7 +130,7 @@ class VirtualFileManager {
         }
     }
 
-    __inline_cpp("public:");
+    
     ///
     /// \struct FileHandle
     /// \brief lightweight view representing full file content.

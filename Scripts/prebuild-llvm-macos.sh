@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="${KBLD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 BUILD_DIR="${KBLD_BUILD_DIR:-$ROOT/build}"
-TRIPLE="aarch64-apple-macosx"
+TRIPLE="arm64-apple-macosx" # ${KBLD_TRIPLE} at somepoint when we change macosx to macho
 MODE="${KBLD_MODE:-release}"
 JOBS="$(sysctl -n hw.logicalcpu)"
 

@@ -1,20 +1,5 @@
 # Building Kairo from Source
 
-## Quick Install (recommended)
-
-```bash
-# Unix (macOS, Linux)
-curl -sSL https://github.com/kairolang/kairo/blob/canary/helix-0.1.1+bc.251007/Scripts/install.sh | bash
-
-# Windows (PowerShell)
-curl -sSL https://github.com/kairolang/kairo/blob/canary/helix-0.1.1+bc.251007/Scripts/install.sh | iex
-```
-
-The script will walk you through everything: install location, permissions, and optionally the VSCode extension.
-
-> [!NOTE]
-> The installer hasn't been fully battle-tested yet. If something breaks, follow the manual steps below and open an issue.
-
 ---
 
 ## Manual Setup
@@ -25,7 +10,6 @@ The script will walk you through everything: install location, permissions, and 
 git clone https://github.com/kairolang/kairo/
 cd kairo
 git submodule update --init --recursive # this will take a while since it clones the entire LLVM repo, but it's necessary
-cd lib-helix && git checkout main && cd ..
 ```
 
 ### 2. Build the Stage 0 compiler (this branch is for the Stage 1 compiler, which is still in development)
@@ -35,35 +19,32 @@ git checkout archive/beta-helix-0.0.1
 xmake
 ```
 
-### 2.1 Optional: Build the Stage 1 compiler (in development)
+## 2.1 Add the stage0 compiler to PATH (recommended)
+
+**Linux / macOS:**
+```bash
+echo 'export PATH="$PATH:'$(ls -d $(pwd)/build/release/*/bin)'"' >> ~/."${SHELL##*/}rc"
+```
+This resolves the build path and appends it to your shell config (`~/.bashrc`, `~/.zshrc`, etc.) automatically.
+
+**Windows (PowerShell):**
+```powershell
+$binPath = (Get-ChildItem -Directory ".\build\release\*\bin").FullName
+[Environment]::SetEnvironmentVariable("Path", "$env:Path;$binPath", "User")
+```
+This adds the build path to your user PATH variable. Powershell only, if you're using Command Prompt, you'll need to add it manually via System Properties.
+
+### 2.2 Optional: Build the Stage 1 compiler (in development)
 
 ```bash
 git checkout canary
-kbld
+kbld  # kbld must be in path otherwise use `./build/release/<platform>/bin/kbld` directly
 
 # you can also test files that contain `fn Test() -> i32 { ... }` as the entry point, but note that this is not the standard entry point for Kairo programs.
 kbld test Compiler/Lexer/Lexer.kro
 ```
 
-
 Output lands in `./build/release/<platform>/bin/`: `kairo` and `kbld`.
-
-### 3. Add the stage0 compiler to PATH (recommended)
-
-**Linux / macOS:**
-```bash
-export PATH="$PATH:/path/to/kairo/build/release/<platform>/bin"
-```
-Add that line to your `.bashrc` or `.zshrc` to make it permanent.
-
-**Linux only: optional symlink:**
-```bash
-sudo ln -s /path/to/kairo/build/release/<platform>/bin/kairo /usr/local/bin/kairo
-sudo ln -s /path/to/kairo/build/release/<platform>/bin/kbld  /usr/local/bin/kbld
-```
-
-**Windows:**
-Add the bin directory (e.g. `C:\...\build\release\windows-x64\bin`) to your system environment PATH.
 
 ---
 
