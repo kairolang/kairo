@@ -20,11 +20,11 @@ import Lexer::TokenCacheManager::*;
 import Lexer::Immediate::*;
 import Preprocessor::ModulePath::*;
 import Preprocessor::ImportResolver::*;
-import ASTNode::Base::*;
 import Lexer::TokenSpan::*;
 import Invoke::CompilerInvocation::*;
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
+import AST::InternedStr::*;
 
 /// \brief Forward declaration required by ASTContext.
 ///
@@ -137,35 +137,6 @@ class ASTContext {
     }
 }
 
-
-/// Lightweight interned string handle.
-/// Equality and hashing are O(1) integer operations.
-/// Zero is the sentinel for the empty string.
-class InternedStr {
-    pub var id: u32;
-
-    const fn op ==(self, other: InternedStr) -> bool { return self.id == other.id; }
-    const fn op !=(self, other: InternedStr) -> bool { return self.id != other.id; }
-
-    fn is_empty(self) -> bool { return self.id == 0; }
-
-    static fn invalid() -> InternedStr {
-        var s = InternedStr{};
-        s.id  = u32(-1);
-        return s;
-    }
-
-    fn is_valid(self) -> bool { return self.id != u32(-1); }
-}
-
-__inline_cpp("
-struct InternedStrHash {
-    size_t operator()(InternedStr s) const noexcept {
-        return libcxx::hash<u32>{}(s.id);
-    }
-};
-");
-
 /// Arena-backed string intern table.
 ///
 /// Every unique string is stored exactly once. Repeated \c intern() calls
@@ -252,7 +223,6 @@ enum HoistedKind derives u8 {
 /// locally in the file being indexed.
 class HoistedEntry {
     struct DeclEntry { // 128 bits
-        pub var decl:   obs::<Decl>;
         pub var origin: SourceRange;
     }
 
@@ -567,7 +537,7 @@ class HoistedScope {
         for var it = node->entries.begin(); it != node->entries.end(); ++it {
             for var i: usize = 0; i < it->second.size(); ++i {
                 var entry = &it->second[i];
-                if entry->extended && entry->extend_of.decl != &null {
+                if entry->extended {
                     var extended_name = self._interner.intern(
                         self._interner.get(entry->name)
                     );

@@ -22,7 +22,7 @@ import AST::ASTIndex::*;
 /// Read-only after all files are registered.
 class GlobalHoistedScope {
     /// Entry in the global scope table, one per indexed file.
-    __inline_cpp("public:");
+    
     struct GlobalScopeEntry {
         pub var fid:      u32;
         pub var ctx:      own::<ASTContext>;
@@ -57,10 +57,10 @@ class GlobalHoistedScope {
         ci:       *CompilerInvocation
     ) {
         // skip if already indexed (multiple TUs may share deps)
-        __inline_cpp("{");
+        {
             var rlock = std::SharedLock(self._mu);
             if self._by_fid.count(fid) > 0 { return; }
-        __inline_cpp("}");
+        }
 
         var ctx     = std::create::<ASTContext>(fid, sm, tcm, diag, resolver, ci);
         var ast_idx = ASTIndex(ctx);

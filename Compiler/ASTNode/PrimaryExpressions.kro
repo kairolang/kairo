@@ -15,29 +15,73 @@ import ASTNode::Base::*;
 import AST::ASTContext::*;
 import AST::Support::*;
 
-class NamedIdentExpr derives Expr {
-    pub var name:  Token;
-    pub var ctx:  *ASTContext;
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the Kairo
+///   Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt SPDX-License-Identifier:
+///   Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION Copyright (c) 2026 Kairo Software
+///   Foundation
+///
+/// ------------------------------------------------------------------------ ///
 
+import ASTNode::Base::*;
+import AST::ASTContext::*;
+import AST::Support::*;
+
+/// \class NamedIdentExpr
+/// \brief represents a single identifier used as an expression.
+///
+/// \details this is the base representation for any name that appears in an
+///          expression
+/// context without qualification or explicit grouping. examples include:
+/// ```kairo
+/// var x = foo; // foo is a NamedIdentExpr print(bar); // bar is a
+/// NamedIdentExpr
+/// ```
+/// during sema, this is resolved to a specific declaration (e.g., a local
+/// variable, a function, or a member via implicit `self`). if the name is part
+/// of a dotted access, it is typically wrapped by a `ChainExpr`.
+class NamedIdentExpr derives Expr {
+    pub var name: Token; ///< the identifier token.
+
+    /// \brief allocates and initializes a new NamedIdentExpr.
+    ///
+    /// \param ctx   ASTContext whose arena will back the allocation.
+    /// \param range the full source range of the expression.
+    /// \param name  the identifier token.
     static fn create(
-        ctx: *ASTContext,
+        ctx:   *ASTContext,
         range: SourceRange,
-        name: Token
+        name:  Token
     ) -> *NamedIdentExpr {
         var node = ctx->alloc::<NamedIdentExpr>();
+
         // from Expr
-        node->kind     = ExprKind::NamedIdentExpr;
-        node->range    = range;
+        node->kind  = ExprKind::NamedIdentExpr;
+        node->range = range;
+
         // from NamedIdentExpr
-        node->name     = name;
-        node->ctx      = ctx;
+        node->name = name;
+        node->ctx  = ctx;
+
         return node;
     }
 
+    /// \brief creates a NamedIdentExpr wrapped in a RecoveryExpr kind.
+    ///
+    /// \details used when the parser identifies a name where an expression is
+    ///          expected,
+    /// but surrounding context indicates a syntax error. this allows sema to
+    /// still perform lookups for diagnostics while signaling that the AST
+    /// branch is malformed.
     static fn create_error(
-        ctx: *ASTContext,
+        ctx:   *ASTContext,
         range: SourceRange,
-        name: Token
+        name:  Token
     ) -> *NamedIdentExpr {
         var node            = create(ctx, range, name);
         node->kind          = ExprKind::RecoveryExpr;
@@ -45,105 +89,123 @@ class NamedIdentExpr derives Expr {
         return node;
     }
 
-    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+    /* OVERRIDE */
+    static fn classof(ptr: *Expr) -> bool {
         return ptr->kind == ExprKind::NamedIdentExpr;
     }
 
-    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+    /* OVERRIDE */
+    static fn expr_kind() -> ExprKind {
         return ExprKind::NamedIdentExpr;
     }
 
+    /// \brief extracts the string content of the identifier.
+    ///
+    /// \details uses the stored `ctx` and `name` token to slice the source
+    ///          buffer.
     fn get_name(self) -> TokenText {
         return TokenText::from_token(self.name, self.ctx);
     }
 }
 
-/// ChainExpr Parser MUST validate only a primary expession can appear in the segments
-//    NullLiteralExpr
-//    ImplConformanceExpr
-//    DerivesRelationExpr
-//    InlineTryCatchExpr
-//    RangeExpr
-//    AwaitExpr
-//    SpawnExpr
-//    ThreadExpr
-//    SizeOfExpr
-//    AlignOfExpr
-//    TypeOfExpr
-//    EvalExpr
-//    DeleteExpr
-//    PackExpansionExpr
-//    DestructuringBindingExpr
-//    MatchBindingExpr
-//    TypeCastExpr
-//    InlineBlockExpr
-// this is now a hard one to solve something like:
-// std::option::Option::<i32>::Some().inst()[190].other
-// needs to be represted in a flat format so smea is easy for that to happen
-// we need to store *Expr <SegmentSeparator> *Expr <SegmentSeparator> *Expr
-// where the *Expr has to be bounded to a subset of expressions that can appear in a
-// segment.
+/// \class ChainExpr
+/// \brief represents a sequence of member accesses, method calls, subscripts,
+///        and scoping.
+///
+/// \details flattens hierarchical accesses into a linear list of segments to
+///          simplify
+///          semantic analysis and lowering. a `ChainExpr` covers everything
+///          from simple variable paths (`std::io::print`) to complex optional
+///          chaining and pointer dereferences (`ptr?->member.method()[0]`).
+///
+/// the parser enforces that each segment's `expr` is a valid primary expression
+/// or permitted postfix component.
+///
+/// \example
+/// `a.b::c[0]` results in four segments:
+/// 1. `None`       + `NamedIdentExpr(a)`
+/// 2. `Dot`        + `NamedIdentExpr(b)`
+/// 3. `ColonColon` + `NamedIdentExpr(c)`
+/// 4. `None`       + `SubscriptExpr([0])`
 class ChainExpr derives Expr {
-    __inline_cpp("public:");
+    
+
+    /// \enum SegmentSeparator
+    /// \brief the operator prefixing a specific segment in the chain.
     enum SegmentSeparator derives u8 {
-        None = 0,          // for the first segment which has no separator
-        Dot,               // .
-        Arrow,             // ->
-        DotStar,           // .*
-        ArrowStar,         // ->*
-        ColonColon,        // ::
-        QuestionDot,       // ?.
-        QuestionArrow,     // ?->
-        QuestionArrowStar, // ?->*
-        QuestionDotStar,   // ?.*
+        None = 0,          ///< first segment or a segment following a
+                           ///  bracket/paren.
+        Dot,               ///< `.` member access or method call.
+        Arrow,             ///< `->` pointer member access.
+        DotStar,           ///< `.*` pointer-to-member via object.
+        ArrowStar,         ///< `->*` pointer-to-member via pointer.
+        ColonColon,        ///< `::` scope resolution.
+        QuestionDot,       ///< `?.` optional member access.
+        QuestionArrow,     ///< `?->` optional pointer access.
+        QuestionArrowStar, ///< `?->*` optional pointer-to-member via pointer.
+        QuestionDotStar,   ///< `?.*` optional pointer-to-member via object.
     }
 
+    /// \enum SegmentKind
+    /// \brief cached categorization of the segment's expression.
+    ///
+    /// \details allows sema to dispatch logic based on the role of the segment
+    ///          without performing a full recursive check of the `expr` node
+    ///          kind.
     enum SegmentKind derives u8 {
-        PrimaryExpr = 0,   // a primary expression segment like a variable or literal
-        FieldAccess, // .field or ->field
-        MethodCall, // .method() or ->method() (we can derive what kind of call it is from separator)
-        Subscript,   // [expr]
-        GroupingExpr, // (expr)
-        
+        PrimaryExpr = 0, ///< variable name, literal, or complex primary.
+        FieldAccess,     ///< segment resolved to a field or property.
+        MethodCall,      ///< segment representing a function call on a
+                         ///  receiver.
+        Subscript,       ///< array or index access `[]`.
+        GroupingExpr,    ///< sub-expression wrapped in `()`.
     }
 
-    struct ChainSegment { // <SegmentSeparator> <Expr (primary)>
-        var sep:      SegmentSeparator;
-        var expr:    *Expr;
-        var range:    SourceRange;
-        var seg_kind: SegmentKind; // without needed toread the full experkinds
+    /// \struct ChainSegment
+    /// \brief a single link in the expression chain.
+    struct ChainSegment {
+        var sep:      SegmentSeparator; ///< operator used to reach this
+                                        ///  segment.
+        var expr:     *Expr;            ///< the expression content of this
+                                        ///  segment.
+        var range:    SourceRange;      ///< range covering the separator and
+                                        ///  the expression.
+        var seg_kind: SegmentKind;      ///< semantic role of this segment.
 
-        var resolved_type: *Type;
-        var resolved_decl: *Decl;
+        var resolved_type: *Type; ///< resulting type after evaluating this
+                                  ///  segment.
+        var resolved_decl: *Decl; ///< the declaration (Field, Method, Var) this
+                                  ///  segment refers to.
     }
 
     pub var segments: FrozenList::<ChainSegment>;
-    pub var ctx: *ASTContext;
-    
+
+    /// \brief allocates a new ChainExpr from a temporary vector of segments.
     static fn create(
-        ctx: *ASTContext,
-        range: SourceRange,
-        segments: *vec::<ChainSegment> // a temp stack allocated vector
+        ctx:      *ASTContext,
+        range:    SourceRange,
+        segments: *vec::<ChainSegment>
     ) -> *ChainExpr {
-        var node = ctx->alloc::<ChainExpr>();
-        // from Expr
-        node->kind     = ExprKind::ChainExpr;
-        node->range    = range;
-        // from ChainExpr
+        var node   = ctx->alloc::<ChainExpr>();
+        node->kind  = ExprKind::ChainExpr;
+        node->range = range;
+
         var arr = ctx->alloc_array::<ChainSegment>(segments->size());
         for var i: usize = 0; i < segments->size(); ++i {
             arr[i] = (*segments)[i];
         }
 
         node->segments.from_raw(arr, segments->size());
-        node->ctx   = ctx;
+        node->ctx = ctx;
         return node;
     }
 
+    /// \brief creates a ChainExpr node tagged as a RecoveryExpr for error
+    ///        resilience.
     static fn create_error(
-        ctx: *ASTContext,
-        range: SourceRange,
-        segments: *vec::<ChainSegment> // a temp stack allocated vector
+        ctx:      *ASTContext,
+        range:    SourceRange,
+        segments: *vec::<ChainSegment>
     ) -> *ChainExpr {
         var node            = create(ctx, range, segments);
         node->kind          = ExprKind::RecoveryExpr;
@@ -151,11 +213,11 @@ class ChainExpr derives Expr {
         return node;
     }
 
-    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+    static fn classof(ptr: *Expr) -> bool {
         return ptr->kind == ExprKind::ChainExpr;
     }
 
-    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+    static fn expr_kind() -> ExprKind {
         return ExprKind::ChainExpr;
     }
 
@@ -183,22 +245,26 @@ class ChainExpr derives Expr {
         return self.segments[0];
     }
 
-    // all the seps must be a scope separator (::) for this to be true, which
-    // means this chain is just a path and not an actual chained expression with
-    // member accesses or method calls, so we can optimize it as a simple path
-    // in sema and codegen
+    /// \brief returns true if the chain consists solely of scope resolutions.
+    ///
+    /// \details used to identify if this is a static path (e.g.,
+    ///          `namespace::Type`)
+    ///          rather than a value-producing member access chain.
     fn is_scoped_only(self) -> bool {
         return self.segments.all(fn(x: *ChainSegment) -> bool {
             return x->sep == SegmentSeparator::ColonColon;
         });
     }
 
+    /// \brief checks if any segment uses standard member access operators.
     fn has_method_calls(self) -> bool {
         return self.segments.any(fn(x: *ChainSegment) -> bool {
             return x->sep == SegmentSeparator::Dot || x->sep == SegmentSeparator::Arrow;
         });
     }
 
+    /// \brief checks for the presence of optional chaining operators (e.g.,
+    ///        `?.`).
     fn has_optional_chaining(self) -> bool {
         return self.segments.any(fn(x: *ChainSegment) -> bool {
             return (x->sep == SegmentSeparator::QuestionDot)
@@ -208,6 +274,7 @@ class ChainExpr derives Expr {
         });
     }
 
+    /// \brief checks if any segment performs a non-optional member access.
     fn has_member_access(self) -> bool {
         return self.segments.any(fn(x: *ChainSegment) -> bool {
             return (x->sep == SegmentSeparator::Dot)
@@ -217,6 +284,7 @@ class ChainExpr derives Expr {
         });
     }
 
+    /// \brief returns true if the chain starts with a leading `::`.
     fn accesses_global_scope(self) -> bool {
         if (self.segments.is_empty()) {
             return false;
@@ -226,31 +294,61 @@ class ChainExpr derives Expr {
     }
 }
 
+/// \class GroupingExpr
+/// \brief represents an expression wrapped in parentheses.
+///
+/// \details grouping expressions are primarily used to override operator
+///          precedence
+///          or to clarify evaluation order in the source. example: `(x + y) *
+///          z`. the `GroupingExpr` node preserves the source range of the
+///          parentheses, which is critical for accurate diagnostics and
+///          refactoring tools.
+///
+/// during sema, the grouping is typically transparent to type checking, though
+/// it may influence value category or disambiguate syntax in specific contexts
+/// like `(a).b` vs `a.b`.
 class GroupingExpr derives Expr {
-    pub var sub_expr: *Expr;
+    pub var sub_expr: *Expr; ///< the expression contained within the
+                             ///  parentheses.
 
+    /// \brief creates a new GroupingExpr node in the provided ASTContext.
+    ///
+    /// \param ctx       the context used for arena allocation.
+    /// \param range the source range covering the parentheses and the inner
+    ///        expression.
+    /// \param sub_expr  the inner expression node.
     static fn create(
-        ctx: *ASTContext,
-        range: SourceRange,
+        ctx:      *ASTContext,
+        range:    SourceRange,
         sub_expr: *Expr
     ) -> *GroupingExpr {
         var node = ctx->alloc::<GroupingExpr>();
+
         // from Expr
-        node->kind     = ExprKind::GroupingExpr;
-        node->range    = range;
+        node->kind  = ExprKind::GroupingExpr;
+        node->range = range;
+
         // from GroupingExpr
         node->sub_expr = sub_expr;
+
         return node;
     }
 
+    /// \brief creates a GroupingExpr node marked for error recovery.
+    ///
+    /// \details used by the parser when a grouping structure is detected but
+    ///          the internal expression or the closing parenthesis is
+    ///          malformed. sets the kind to `RecoveryExpr` while preserving the
+    ///          intended `GroupingExpr` kind in `recovery_kind`.
     static fn create_error(
-        ctx: *ASTContext,
-        range: SourceRange,
+        ctx:      *ASTContext,
+        range:    SourceRange,
         sub_expr: *Expr
     ) -> *GroupingExpr {
         var node            = create(ctx, range, sub_expr);
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::GroupingExpr;
+
         return node;
     }
 
@@ -267,8 +365,28 @@ class GroupingExpr derives Expr {
     }
 }
 
+/// \struct NamedValue
+/// \brief associates a value expression with an optional identifier and its
+///        resolved type.
+///
+/// \details used primarily in structure and class initializers to represent
+///          field-value
+///          pairs. for example, in `Point { x: 10, y: 20 }`, each pair is a
+///          `NamedValue`. it also appears in function call arguments when using
+///          named parameters.
+///
+/// lowering logic treats a `NamedValue` with an invalid `name` token as a
+/// positional entry, whereas a valid `name` triggers name-based member lookup
+/// or parameter binding.
 struct NamedValue {
-    var name:        Token; // can be an invalid token if no name is present
+    /// name of the field or parameter. NOTE: can be an invalid token if no name
+    /// is present (e.g., positional arguments).
+    var name:       Token;
+
+    /// the expression assigned to this name or position.
     var value:      *Expr;
+
+    /// the type of the field or parameter this value is being assigned to.
+    /// populated by sema; null until then.
     var field_type: *Type;
 }

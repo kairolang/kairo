@@ -13,17 +13,21 @@
 
 import Source::SourceRange::*;
 import AST::DeclContextKind::*;
+import AST::Mixin::TypeQual::*;
+import AST::Mixin::Annotation::*;
 import ASTKind::DeclKind::*;
 import ASTKind::ExprKind::*;
 import ASTKind::TypeKind::*;
 import ASTKind::StmtKind::*;
 import ASTKind::PatternKind::*;
+import AST::ASTContext::*;
 
-class Expr {
+class Expr derives Annotation::<Expr> {
     pub var kind:          ExprKind    = ExprKind::RecoveryExpr;
     pub var range:         SourceRange = SourceRange::invalid();
     // for error nodes, the kind of expr we were trying to parse (for better error messages)
     pub var recovery_kind: ExprKind    = ExprKind::RecoveryExpr;
+    pub var ctx:          *ASTContext  = &null; // set by sema for type resolution and other context-dependent queries
 
     enum ValueCategory derives u8 {
         Unknown,  // not yet resolved by sema
@@ -71,7 +75,7 @@ class Expr {
     }
 }
 
-class Stmt {
+class Stmt derives Annotation::<Stmt> {
     pub var kind:          StmtKind    = StmtKind::RecoveryStmt;
     pub var range:         SourceRange = SourceRange::invalid();
     // for error nodes, the kind of stmt we were trying to parse (for better error messages)
@@ -102,7 +106,7 @@ class Stmt {
     }
 }
 
-class Decl {
+class Decl derives VisibilityAnnotation::<Decl>, Annotation::<Decl> {
     pub var kind:          DeclKind    = DeclKind::RecoveryDecl;
     pub var range:         SourceRange = SourceRange::invalid();
     // for error nodes, the kind of stmt we were trying to parse (for better error messages)
@@ -133,7 +137,7 @@ class Decl {
     }
 }
 
-class Type {
+class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qualifiers
     pub var kind:            TypeKind    = TypeKind::RecoveryType;
     pub var range:           SourceRange = SourceRange::invalid();
     // for error nodes, the kind of stmt we were trying to parse (for better error messages)
