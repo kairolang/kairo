@@ -18,7 +18,7 @@ import Driver::TUStage::*;
 /// Owned by \c BatchResult after \c execute() completes. All fields are
 /// immutable once \c FrontendAction transitions to \c Done or \c Failed.
 class TUResult {
-    __inline_cpp("public:");
+    
     pub var path:         string;  ///< Canonical source path.
     pub var elapsed_ms:   f64;     ///< Wall time from dispatch to completion.
     pub var file_id:      u32;     ///< SourceManager ID. \c u32(-1) if load failed.

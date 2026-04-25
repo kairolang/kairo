@@ -27,7 +27,7 @@ enum FlagKind derives u8 {
 }
 
 class FlagValue {
-    __inline_cpp("public:");
+    
 
     pub var kind:        FlagKind = FlagKind::Bool;
     pub var is_set:      bool     = false; ///< true when supplied on CLI

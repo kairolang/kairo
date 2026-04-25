@@ -19,7 +19,7 @@ import Driver::TUResult::*;
 /// input files. \c aborted is set when any file emits a fatal diagnostic,
 /// causing \c execute() to skip remaining files.
 class BatchResult {
-    __inline_cpp("public:");
+    
     pub var tu_results:     vec::<TUResult>; ///< One entry per input file, in order.
     pub var elapsed_ms:     f64  = 0.0;     ///< Total wall time for the batch.
     pub var total_errors:   u32  = 0;

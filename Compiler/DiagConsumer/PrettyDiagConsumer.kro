@@ -130,8 +130,8 @@ class PrettyDiagConsumer derives DiagConsumer {
     fn finalize_to_stdout(self) {
         var color = self.detect_color_stdout();
         var out = self.render_all(color);
-        std::print("");
-        std::print(out);
+        std::print("", std::endl(""));
+        std::print(out, std::endl(""));
     }
 
     fn finalize_to_file(self, path: string) {

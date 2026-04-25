@@ -350,7 +350,7 @@ class CompilerInstance {
         var diag_id = diag_from_string(code);
         var explain = diag_explain(diag_id);
         if explain.empty() {
-            std::eprint(f"error: unknown diagnostic code '{code}' ");
+            std::eprintln(f"error: unknown diagnostic code '{code}' ");
             return 1;
         }
 

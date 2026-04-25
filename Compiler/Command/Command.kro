@@ -59,7 +59,7 @@ import Command::ParsedArgs::*;
 // =============================================================================
 
 class Command {
-    __inline_cpp("public:");
+    
 
     // -- compile-time long-single-dash prefix table -------------------------
     //

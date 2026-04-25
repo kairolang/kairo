@@ -18,7 +18,7 @@
 import Command::FlagUtils::*;
 
 class ParsedArgs {
-    __inline_cpp("public:");
+    
 
     pub var files: vec::<string>; ///< positional file paths
     pub var ok:    bool = true;   ///< false if required fields missing / bounds violated
