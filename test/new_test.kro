@@ -288,11 +288,18 @@ class Multi derives Base1, Base2, Base3 {
 
 // --- 5. Generic class with inheritance ---
 class <T, U> GenericChild derives Parent<T> {
-    fn generic_child_fn() -> U
+    fn generic_child_fn() -> class U
+
+    module Foo {
+    var name = 19;
+    }
+
+    var ojas = Foo::name;
+
 }
 
 // --- 6. Nested classes ---
-class Outer {
+class gpoo {
     class Inner {
         fn inner_fn()
         var inner_var: u32
@@ -628,33 +635,478 @@ macro macro_enumurate!(vals...) {
 
 macro_enumurate!(delim_tokens!(enum_values));
 
+// ============================================================
+// FFI block hoisting test suite
+// ============================================================
 
+// --- 1. Basic ffi block with fn ---
+ffi "c++" {
+    fn c_malloc() -> *u8
+    fn c_free()
+}
+
+// --- 2. FFI block with class ---
+ffi "c++" {
+    class CppString {
+        fn c_str() -> *u8
+        fn length() -> usize
+    }
+}
+
+// --- 3. FFI block with struct ---
+ffi "c++" {
+    struct CppVec3 {
+        var x: f32
+        var y: f32
+        var z: f32
+    }
+}
+
+// --- 4. FFI block with mixed decls ---
+ffi "c++" {
+    fn printf()
+    fn scanf()
+    struct FILE {
+        var fd: i32
+    }
+    type size_t = u64
+    enum CppError { Ok, Fail }
+}
+
+// --- 5. FFI import — should be skipped entirely ---
+ffi "c++" import "stdio.h"
+ffi "c++" import "vector"
+ffi "c" import "math.h"
+
+// --- 6. FFI block with access specifiers ---
+ffi "c++" {
+    pub {
+        fn public_c_fn()
+    }
+    priv {
+        fn private_c_fn()
+    }
+}
+
+// --- 7. FFI block with nested class ---
+ffi "c++" {
+    class CppOuter {
+        class CppInner {
+            fn inner_method()
+        }
+        fn outer_method()
+    }
+}
+
+// --- 8. FFI block with operators ---
+ffi "c++" {
+    class CppMatrix {
+        fn op +()
+        fn op *()
+        fn op ==()
+    }
+}
+
+// --- 9. FFI block with generics ---
+ffi "c++" {
+    class <T> CppVector {
+        fn push_back()
+        fn size() -> usize
+    }
+    fn <T> cpp_swap()
+}
+
+// --- 10. Empty ffi block ---
+ffi "c++" {}
+
+// --- 11. FFI block inside module ---
+module FfiModule {
+    ffi "c++" {
+        fn module_ffi_fn()
+        class ModuleFfiClass {
+            fn method()
+        }
+    }
+}
+
+// --- 12. FFI with different language strings ---
+ffi "c" {
+    fn c_only_fn()
+}
+ffi "objc" {
+    fn objc_fn()
+}
+
+// --- 13. Multiple ffi blocks ---
+ffi "c++" {
+    fn first_ffi_fn()
+}
+ffi "c++" {
+    fn second_ffi_fn()
+}
+
+// ============================================================
+// Inline block test suite (should skip everything)
+// ============================================================
+
+// --- 1. Basic inline block ---
+inline "c++" {
+    void* raw_ptr = nullptr;
+    int x = 42;
+}
+
+// --- 2. Inline block with braces inside ---
+inline "c++" {
+    if (true) {
+        int y = 0;
+    }
+    for (int i = 0; i < 10; i++) {
+        printf("%d", i);
+    }
+}
+
+// --- 3. Inline asm ---
+inline "asm" {
+    mov rax, 0
+    ret
+}
+
+// --- 4. Inline block inside class ---
+class WithInline {
+    fn kairo_method()
+    inline "c++" {
+        void* internal_ptr;
+    }
+    fn another_method()
+}
+
+// --- 5. Inline block inside module ---
+module InlineModule {
+    fn module_fn()
+    inline "c++" {
+        static int counter = 0;
+    }
+    fn after_inline()
+}
+
+// --- 6. Inline block inside ffi block (nested skip) ---
+ffi "c++" {
+    fn ffi_fn_before()
+    inline "c++" {
+        // raw c++ that should be completely ignored
+        template<typename T> T identity(T x) { return x; }
+    }
+    fn ffi_fn_after()
+}
+
+// --- 7. Empty inline block ---
+inline "c++" {}
+
+// --- 8. Multiple inline blocks ---
+inline "c++" { int a = 1; }
+inline "asm" { nop }
+inline "c++" { int b = 2; }
+
+// --- 9. Inline block between decls ---
+fn before_inline()
+inline "c++" { some_c_code(); }
+fn after_inline()
+
+// ============================================================
+// Macro + hoisting interaction tests
+// ============================================================
+
+// --- 1. Macro expanding to a single fn ---
+macro make_fn!(name) {
+    fn name()
+}
+make_fn!(generated_fn);
+
+// --- 2. Macro expanding to multiple decls ---
+macro make_pair!(name_a, name_b) {
+    fn name_a()
+    fn name_b()
+}
+make_pair!(pair_first, pair_second);
+
+// --- 3. Macro expanding to a class ---
+macro make_class!(name) {
+    class name {
+        fn method()
+        var value: u32
+    }
+}
+make_class!(GeneratedClass);
+
+// --- 4. Macro expanding to enum ---
+macro make_enum!(name, a, b, c) {
+    enum name { a, b, c }
+}
+make_enum!(GeneratedEnum, X, Y, Z);
+
+// --- 5. Macro expanding to type alias ---
+macro make_alias!(name, target) {
+    type name = target
+}
+make_alias!(MyInt, u32);
+
+// --- 6. Macro expanding inside a module ---
+module MacroInModule {
+    macro local_make!(name) {
+        fn name()
+    }
+    local_make!(module_generated);
+}
+
+// --- 7. Macro expanding inside a class ---
+class MacroInClass {
+    macro field!(name, ty) {
+        var name: ty
+    }
+    field!(x, u32);
+    field!(y, f32);
+    fn regular_method()
+}
+
+// --- 8. Variadic macro expanding multiple fns ---
+macro make_fns!(names...) {
+    fn ...names()
+}
+make_fns!(va_fn_a, va_fn_b, va_fn_c);
+
+// --- 9. Nested macro invocation ---
+macro wrapper!(inner_name) {
+    make_fn!(inner_name)
+}
+wrapper!(doubly_generated);
+
+// --- 10. Macro with struct ---
+macro make_struct!(name) {
+    struct name {
+        var val: u32
+    }
+}
+make_struct!(GeneratedStruct);
+
+// --- 11. Macro with interface ---
+macro make_interface!(name) {
+    interface name {
+        fn required_method()
+    }
+}
+make_interface!(GeneratedInterface);
+
+// --- 12. Macro expanding var + fn together ---
+macro make_var_fn!(var_name, fn_name) {
+    var var_name: u32
+    fn fn_name()
+}
+make_var_fn!(gen_var, gen_fn);
+
+// --- 13. Macro inside ffi block ---
+ffi "c++" {
+    macro ffi_make!(name) {
+        fn name()
+    }
+    ffi_make!(ffi_generated);
+}
+
+// --- 14. Macro and non-macro decls interleaved ---
+fn before_macro_section()
+macro mid_make!(name) {
+    fn name()
+}
+mid_make!(mid_generated);
+fn after_macro_section()
+var between_macros: u32
+mid_make!(mid_generated_2);
+class AfterMacros {
+    fn after_macro_method()
+}
+
+// --- 15. Count builtin in expanded context ---
+macro counted_enum!(name, vals...) {
+    enum name {
+        ...vals
+    }
+    fn name_count() { count!(...vals) }
+}
+counted_enum!(Colors, Red, Green, Blue);
 
 // ============================================================
 // ASTIndex malformed / error recovery tests
 // ============================================================
 
-// // --- 1. Missing closing '>' — should recover, not infinite loop ---
-// fn <T bork() {
-    
-// }
-// fn foo()
-// // --- 2. Unclosed nested generic in default — recovery should kick in ---
-// fn <T: susie = std::vec<u32> broken_nest()
-// fn foo()
+// --- 1. Missing closing '>' — should recover, not infinite loop ---
+fn <T bork()
+fn recovery_after_bad_generic()
 
-// // --- 3. Random garbage inside generic params ---
-// fn <T, +++, U> garbage_params()
+// --- 2. Unclosed nested generic in default — recovery should kick in ---
+fn <T = std::vec<u32> broken_nest()
+fn recovery_after_broken_nest()
 
-// // --- 4. Semicolon inside generic params — should trigger recovery ---
-// fn <T, U: [T; 32]> semi_in_generics()
+// --- 3. Random garbage inside generic params ---
+fn <T, +++, U> garbage_params()
+fn recovery_after_garbage()
 
-// // --- 5. Decl keyword inside generics — should sync to next decl ---
-// fn <T, fn bad_inner()
-// fn foo()
+// --- 4. Decl keyword inside generics — should sync to next decl ---
+fn <T, fn bad_inner()
+fn recovery_after_decl_in_generic()
 
-// // --- 6. Double comma (empty param slot) ---
-// fn <T,,U> double_comma()
+// --- 5. Double comma (empty param slot) ---
+fn <T,,U> double_comma()
 
-// // --- 7. Valid fn after a broken one — must survive and hoist ---
-// fn <T> survivor() -> T
+// --- 6. Valid fn after a broken one — must survive and hoist ---
+fn <T> survivor_after_errors() -> T
+
+// --- 7. Missing class name ---
+class {
+    fn orphan_method()
+}
+fn after_nameless_class()
+
+// --- 8. Missing struct name ---
+struct {
+    var orphan_var: u32
+}
+fn after_nameless_struct()
+
+// --- 9. Missing module name ---
+module {
+    fn orphan_module_fn()
+}
+fn after_nameless_module()
+
+// --- 10. Unclosed class body ---
+class Unclosed {
+    fn inside_unclosed()
+    // no closing brace
+
+// --- 11. Fn after unclosed class — should still hoist ---
+fn after_unclosed_class()
+
+// --- 12. Unclosed module body ---
+module UnclosedMod {
+    fn inside_unclosed_mod()
+
+fn after_unclosed_mod()
+
+// --- 13. Extra closing braces ---
+fn before_extra_brace()
+}
+fn after_extra_brace()
+
+// --- 14. Empty file sections (consecutive newlines) ---
+
+
+fn after_empty_lines()
+
+// --- 15. Keyword as identifier (should error but recover) ---
+fn fn()
+fn class()
+fn after_keyword_as_name()
+
+// --- 16. Operator with missing parens ---
+fn op +
+fn after_bad_op()
+
+// --- 17. Nested unclosed generics ---
+fn <T = std::vec<std::map<K, fn after_deeply_broken()
+fn recovery_after_deep_break()
+
+// --- 18. Class with broken inheritance ---
+class BrokenChild derives {
+    fn broken_child_fn()
+}
+fn after_broken_inheritance()
+
+// --- 19. Module with broken qualified name ---
+module Foo:: {
+    fn broken_qual_fn()
+}
+fn after_broken_qual()
+
+// --- 20. Type alias missing name ---
+type = u32
+fn after_nameless_type()
+
+// --- 21. Enum missing name ---
+enum { A, B, C }
+fn after_nameless_enum()
+
+// --- 22. Var missing name ---
+var : u32
+fn after_nameless_var()
+
+// --- 23. Macro missing bang ---
+macro broken_macro(x) {
+    fn x()
+}
+fn after_broken_macro()
+
+// --- 24. FFI missing string ---
+ffi {
+    fn ffi_no_string()
+}
+fn after_ffi_no_string()
+
+// --- 25. FFI with broken body ---
+ffi "c++" {
+    fn valid_ffi()
+    class {
+        fn nameless_ffi_class_method()
+    }
+    fn after_nameless_in_ffi()
+}
+
+// --- 26. Inline block missing string ---
+inline {
+    fn should_not_appear()
+}
+fn after_inline_no_string()
+
+// --- 27. Deeply nested unclosed braces ---
+class A {
+    class B {
+        class C {
+            fn deep_fn()
+// all three unclosed
+fn after_triple_unclosed()
+
+// --- 28. Access block with broken content ---
+pub {
+    fn <broken_fn()
+    fn recovery_in_pub_block()
+}
+fn after_broken_pub_block()
+
+// --- 29. Module with ffi with inline — nested recovery ---
+module RecoveryModule {
+    ffi "c++" {
+        fn valid_in_ffi()
+        inline "c++" {
+            // garbage { { { {
+        }
+        fn after_inline_in_ffi()
+    }
+    fn after_ffi_in_module()
+}
+
+// --- 30. Stress: alternating valid and broken decls ---
+fn valid_1()
+fn <T broken_2()
+fn valid_3()
+class { fn broken_4() }
+fn valid_5()
+module :: {
+    fn in_global_anon()
+}
+fn valid_6()
+ffi "c++" { fn ffi_valid() }
+fn valid_7()
+type <> EmptyGenericType = u32
+fn valid_8()
+enum StressRecoveryEnum { A, B }
+fn valid_final()
+
+

@@ -1,0 +1,400 @@
+/// --- The Kairo Project -------------- Compiler/AST/Mixin/TypeQual.kro --- ///
+///
+///   Type qualifier storage used by Type. Carries a small bitfield of
+///   qualifier flags, optional extended qualifiers (address space), and
+///   per-qualifier source ranges for diagnostics and fix-its.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Memory::ArenaList::*;
+import Source::SourceRange::*;
+import AST::InternedStr::*;
+
+/// Represents the address space of a type when HasAddressSpace is set.
+/// Stored in ExtQuals, not directly in TypeQual.
+enum AddressSpace derives u32 {
+    /// Default address space for conventional targets.
+    Generic  = 0,
+    /// GPU global memory (OpenCL/CUDA).
+    Global   = 1,
+    /// GPU local/shared memory (OpenCL local, CUDA shared).
+    Local    = 2,
+    /// GPU private memory (OpenCL private).
+    Private  = 3,
+    /// GPU constant memory.
+    Constant = 4,
+}
+
+/// Extended qualifiers node. Only allocated when an extended qualifier is
+/// active (currently: address space). Kept out of TypeQual's inline storage
+/// to avoid bloating the common case.
+///
+/// ArenaAllocator-allocated from ASTContext::nodes.
+class ExtQuals {
+    pub var address_space:       AddressSpace = AddressSpace::Generic;
+    pub var address_space_range: SourceRange  = SourceRange::invalid();
+
+    fn ExtQuals(self) { }
+
+    fn ExtQuals(self, space: AddressSpace, range: SourceRange) {
+        self.address_space       = space;
+        self.address_space_range = range;
+    }
+}
+
+/// Per-qualifier source location. Populated by the parser when a qualifier
+/// keyword is consumed. Diagnostics use these to point at the exact keyword
+/// and emit fix-its that remove a single qualifier.
+///
+/// Stored in a small ArenaList on TypeQual. For types with no qualifiers,
+/// the list is empty and costs only the list header (24 bytes).
+class QualSpan {
+    pub var qual_flag: u16;          // which flag this span belongs to
+    pub var range:     SourceRange;
+
+    fn QualSpan(self) { }
+
+    fn QualSpan(self, f: u16, r: SourceRange) {
+        self.qual_flag = f;
+        self.range     = r;
+    }
+}
+
+/// CRTP mixin: concrete Type nodes derive TypeQual::<SelfType> to get
+/// inline qualifier storage + flag/span APIs.
+class <T> TypeQual {
+    
+    enum Flags derives u16 {
+        /// No qualifiers applied.
+        None       = 0,
+
+        // --- Data qualifiers ------------------------------------------------
+
+        /// Immutable binding. Prevents mutation of the qualified type after
+        /// initialization. Type-level const (binding-level const lives on
+        /// Decl).
+        IsConst    = 1 << 0,
+
+        /// Volatile access every read/write goes to memory, no caching or
+        /// reordering. Required for memory-mapped I/O and signal handlers.
+        IsVolatile = 1 << 1,
+
+        /// No-alias hint the compiler may assume no other pointer aliases
+        /// this memory. Equivalent to C99 restrict.
+        IsRestrict = 1 << 2,
+
+        /// Atomic access. All reads/writes indivisible. Lowered to LLVM
+        /// atomic IR. Sema validates layout before codegen.
+        IsAtomic   = 1 << 3,
+
+        /// Unsafe qualifier. Applies to any type (Kairo has unsafe
+        /// overloading). On pointer types it selects the raw-pointer
+        /// representation; on other types it permits otherwise-restricted
+        /// operations. Treated as a regular qualifier for equality and
+        /// merging; semantic meaning is type-kind specific.
+        IsUnsafe   = 1 << 4,
+
+        // --- Compile-time qualifier ----------------------------------------
+
+        /// Compile-time evaluation required. The qualified value must be
+        /// fully known at compile time. Set by the `eval` keyword.
+        IsEval     = 1 << 5,
+
+        // --- Effect qualifiers (preserved through sema, desugared at
+        //     codegen into Future<T> / Generator<T> / similar) --------------
+
+        /// Async effect function returning a value via await. Desugars to
+        /// Future<T> at codegen. Primarily valid on function return types.
+        IsAsync    = 1 << 6,
+
+        /// Yield effect function returning a value via yield. Desugars to
+        /// Generator<T> / Iterator<T> at codegen. Primarily valid on
+        /// function return types.
+        IsYield    = 1 << 7,
+
+        // --- Extended-qualifier presence bit -------------------------------
+
+        /// An ExtQuals node is attached. Currently only used for address
+        /// space; leaves room for future extended qualifiers.
+        HasExtQuals = 1 << 15,
+
+        // --- Masks ---------------------------------------------------------
+
+        /// Data qualifiers only (properties of the value's representation).
+        DataMask   = (IsConst | IsVolatile | IsRestrict | IsAtomic | IsUnsafe),
+
+        /// C-style CVR subset. For remove_cvr.
+        CVRMask    = (IsConst | IsVolatile | IsRestrict),
+
+        /// Effect qualifiers only.
+        EffectMask = (IsAsync | IsYield),
+    }
+
+    pub var flags: Flags     = Flags::None;
+    pub var ext:   *ExtQuals = &null;           // null unless HasExtQuals set
+    pub var spans: ArenaList::<QualSpan>;       // per-qualifier source ranges
+
+    // -----------------------------------------------------------------------
+    //  Construction
+    // -----------------------------------------------------------------------
+
+    fn TypeQual(self) { }
+
+    fn TypeQual(self, f: Flags) {
+        self.flags = f;
+    }
+
+    fn TypeQual(self, f: Flags, space: AddressSpace, space_range: SourceRange) {
+        self.flags = (f | Flags::HasExtQuals);
+    }
+
+    /// Called once by the owning Type to attach the spans ArenaList to the
+    /// context's node arena. Required before any add_* call that records a
+    /// source range. Skip if this TypeQual will never track ranges (rare).
+    fn init_spans(self, allocator: *ArenaAllocator) {
+        self.spans.set_allocator(allocator);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Flag queries
+    // -----------------------------------------------------------------------
+
+    const fn is_const(self)    -> bool { return (self.flags & Flags::IsConst)    != Flags::None; }
+    const fn is_volatile(self) -> bool { return (self.flags & Flags::IsVolatile) != Flags::None; }
+    const fn is_restrict(self) -> bool { return (self.flags & Flags::IsRestrict) != Flags::None; }
+    const fn is_atomic(self)   -> bool { return (self.flags & Flags::IsAtomic)   != Flags::None; }
+    const fn is_unsafe(self)   -> bool { return (self.flags & Flags::IsUnsafe)   != Flags::None; }
+    const fn is_eval(self)     -> bool { return (self.flags & Flags::IsEval)     != Flags::None; }
+    const fn is_async(self)    -> bool { return (self.flags & Flags::IsAsync)    != Flags::None; }
+    const fn is_yield(self)    -> bool { return (self.flags & Flags::IsYield)    != Flags::None; }
+
+    const fn has_ext_quals(self)     -> bool { return (self.flags & Flags::HasExtQuals) != Flags::None; }
+    const fn has_address_space(self) -> bool { return self.has_ext_quals() && self.ext != &null; }
+
+    const fn has_any_qualifiers(self) -> bool { return self.flags != Flags::None; }
+    const fn has_any_data(self)       -> bool { return (self.flags & Flags::DataMask)   != Flags::None; }
+    const fn has_any_effect(self)     -> bool { return (self.flags & Flags::EffectMask) != Flags::None; }
+
+    const fn address_space(self) -> AddressSpace {
+        assert(self.has_address_space() && r"address_space() called on TypeQual without address space");
+        return self.ext->address_space;
+    }
+
+    // -----------------------------------------------------------------------
+    //  Source-range queries
+    // -----------------------------------------------------------------------
+
+    /// Returns the source range where `flag` was written, or invalid range
+    /// if not found. Use for precise diagnostics and fix-its.
+    fn qual_range(self, flag: Flags) -> SourceRange {
+        for var i: usize = 0; i < self.spans.size(); ++i {
+            var span = self.spans.get(i);
+            if (span->qual_flag & static_cast::<u16>(flag)) != 0 {
+                return span->range;
+            }
+        }
+        return SourceRange::invalid();
+    }
+
+    const fn address_space_range(self) -> SourceRange {
+        if !self.has_address_space() { return SourceRange::invalid(); }
+        return self.ext->address_space_range;
+    }
+
+    // -----------------------------------------------------------------------
+    //  Flag mutation with source range tracking
+    //
+    //  The range-taking overloads record the source range of the qualifier
+    //  keyword for diagnostics. The no-range overloads are for programmatic
+    //  additions (e.g., sema inferring `const` on an immutable binding)
+    //  where no source-level keyword exists.
+    // -----------------------------------------------------------------------
+
+    fn add_const(self, range: SourceRange) {
+        self.flags |= Flags::IsConst;
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsConst), range));
+    }
+    fn add_const(self) { self.flags |= Flags::IsConst; }
+
+    fn add_volatile(self, range: SourceRange) {
+        self.flags |= Flags::IsVolatile;
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsVolatile), range));
+    }
+    fn add_volatile(self) { self.flags |= Flags::IsVolatile; }
+
+    fn add_restrict(self, range: SourceRange) {
+        self.flags |= Flags::IsRestrict;
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsRestrict), range));
+    }
+    fn add_restrict(self) { self.flags |= Flags::IsRestrict; }
+
+    fn add_atomic(self, range: SourceRange) {
+        self.flags |= Flags::IsAtomic;
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsAtomic), range));
+    }
+    fn add_atomic(self) { self.flags |= Flags::IsAtomic; }
+
+    fn add_unsafe(self, range: SourceRange) {
+        self.flags |= Flags::IsUnsafe;
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsUnsafe), range));
+    }
+    fn add_unsafe(self) { self.flags |= Flags::IsUnsafe; }
+
+    fn add_eval(self, range: SourceRange) {
+        self.flags |= Flags::IsEval;
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsEval), range));
+    }
+    fn add_eval(self) { self.flags |= Flags::IsEval; }
+
+    fn add_async(self, range: SourceRange) {
+        self.flags |= Flags::IsAsync;
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsAsync), range));
+    }
+    fn add_async(self) { self.flags |= Flags::IsAsync; }
+
+    fn add_yield(self, range: SourceRange) {
+        self.flags |= Flags::IsYield;
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsYield), range));
+    }
+    fn add_yield(self) { self.flags |= Flags::IsYield; }
+
+    // --- Removal (spans are not removed from the list; queries just skip
+    //     entries whose flag is no longer set) ---------------------------
+
+    fn remove_const(self)    { self.flags &= ~Flags::IsConst;    }
+    fn remove_volatile(self) { self.flags &= ~Flags::IsVolatile; }
+    fn remove_restrict(self) { self.flags &= ~Flags::IsRestrict; }
+    fn remove_atomic(self)   { self.flags &= ~Flags::IsAtomic;   }
+    fn remove_unsafe(self)   { self.flags &= ~Flags::IsUnsafe;   }
+    fn remove_eval(self)     { self.flags &= ~Flags::IsEval;     }
+    fn remove_async(self)    { self.flags &= ~Flags::IsAsync;    }
+    fn remove_yield(self)    { self.flags &= ~Flags::IsYield;    }
+
+    /// Set or replace the address space. Allocates ExtQuals if needed.
+    fn set_address_space(self, space: AddressSpace, range: SourceRange, new_ext: *ExtQuals) {
+        if self.ext == &null {
+            assert((new_ext != &null) && r"Must provide ExtQuals node for initial assignment");
+            self.ext = new_ext;
+            self.ext->address_space       = space;
+            self.ext->address_space_range = range;
+        } else {
+            self.ext->address_space       = space;
+            self.ext->address_space_range = range;
+        }
+        self.flags |= Flags::HasExtQuals;
+    }
+
+    /// Remove the address space qualifier. ExtQuals is abandoned (arena
+    /// reclaims on TU reset); pointer is nulled so queries stay consistent.
+    fn remove_address_space(self) {
+        self.ext    = &null;
+        self.flags &= ~Flags::HasExtQuals;
+    }
+
+    /// Strip C-style CVR (const, volatile, restrict). Preserves atomic,
+    /// unsafe, effects, address space.
+    fn remove_cvr(self) {
+        self.flags &= ~Flags::CVRMask;
+    }
+
+    /// Strip all data qualifiers. Preserves effects, address space.
+    fn remove_data(self) {
+        self.flags &= ~Flags::DataMask;
+    }
+
+    /// Strip effect qualifiers. Preserves data, address space.
+    fn remove_effects(self) {
+        self.flags &= ~Flags::EffectMask;
+    }
+
+    /// Strip everything including address space. Span list is cleared too.
+    fn remove_all(self) {
+        self.flags = Flags::None;
+        self.ext   = &null;
+        self.spans.clear();
+    }
+
+    // -----------------------------------------------------------------------
+    //  Comparison
+    // -----------------------------------------------------------------------
+
+    /// True if self has at least all the qualifiers of other. If other has
+    /// an address space, self must have the same address space.
+    const fn is_superset_of(self, const other: TypeQual::<T>) -> bool {
+        if (self.flags & other.flags) != other.flags {
+            return false;
+        }
+        if other.has_address_space() {
+            if !self.has_address_space() { return false; }
+            if self.ext->address_space != other.ext->address_space {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    const fn op == (self, const other: TypeQual::<T>) -> bool {
+        if self.flags != other.flags { return false; }
+        if self.has_address_space() {
+            return self.ext->address_space == other.ext->address_space;
+        }
+        return true;
+    }
+
+    const fn op != (self, const other: TypeQual::<T>) -> bool {
+        return !(self == other);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Merging
+    //
+    //  NOTE: merging does NOT copy source spans. If you need precise spans
+    //        on a merged result, call add_*(range) explicitly after merging,
+    //        or use merge_with_spans() which preserves both sets.
+    // -----------------------------------------------------------------------
+
+    /// Merge flags only. Does not merge address space or spans.
+    fn op |= (self, const other: TypeQual::<T>) {
+        assert(!self.has_ext_quals() && !other.has_ext_quals()
+               && r"use merge_with() when address spaces may be involved");
+        self.flags |= other.flags;
+    }
+
+    const fn op | (self, const other: TypeQual::<T>) -> TypeQual::<T> {
+        assert(!self.has_ext_quals() && !other.has_ext_quals()
+               && r"use merge_with() when address spaces may be involved");
+        var result = TypeQual::<T>(self.flags | other.flags);
+        return result;
+    }
+
+    /// Full merge including address space. If both have one, self's wins.
+    /// Does not merge spans.
+    fn merge_with(self, const other: TypeQual::<T>, allocator: *ArenaAllocator) {
+        self.flags |= (other.flags & ~Flags::HasExtQuals);
+
+        if other.has_address_space() && !self.has_address_space() {
+            // Decoupled allocation:
+            var new_ext = allocator->alloc_init::<ExtQuals>(
+                other.ext->address_space,
+                other.ext->address_space_range
+            );
+            self.ext   = new_ext;
+            self.flags |= Flags::HasExtQuals;
+        }
+    }
+
+    /// Full merge including spans.
+    fn merge_with_spans(self, other: TypeQual::<T>, allocator: *ArenaAllocator) {
+        self.merge_with(other, allocator);
+        for var i: usize = 0; i < other.spans.size(); ++i {
+            self.spans.push(*other.spans.get(i));
+        }
+    }
+}
