@@ -30,34 +30,46 @@
 
 import Driver::CompilerInstance::*;
 
-fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
-    Logger::init(Logger::Level::Trace);
+ffi "c++" import "llvm/Support/InitLLVM.h";
+ffi "c++" import "llvm/Support/Locale.h";
+
+fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
+    static var init_llvm = llvm::InitLLVM(argc, argv);
+
+    llvm::setBugReportMsg(
+        r"PLEASE submit a bug report to https://github.com/kairolang/kairo/issues and include the crash backtrace.\n"
+    );
 
     // Force eager locale initialisation on the main thread before any workers
     // start. Wide-string machinery on Linux resolves lazily and will segfault
     // if first called from a worker thread with a shallow stack.
-    __inline_cpp("
-        ::setlocale(LC_ALL, \"\");
-        (void)::wcslen(L\"\");
-        libcxx::use_facet<libcxx::ctype<wchar_t>>(libcxx::locale());
-        { // Force narrow char locale facets used by stringstream/to_string
-            libcxx::ostringstream oss;
-            oss << 1UL << 1.0;
-            (void)oss.str();
-        }
-        libcxx::use_facet<libcxx::num_put<char>>(libcxx::locale());
-        libcxx::use_facet<libcxx::num_get<char>>(libcxx::locale());
+    inline "c++" {
+        ::setlocale(LC_ALL, "");
+        (void)::wcslen(WIDE_STR(""));
+    }
 
-        #if defined(__linux__)
-            {
-                pthread_attr_t attr;
-                pthread_attr_init(&attr);
-                pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
-                pthread_setattr_default_np(&attr);
-                pthread_attr_destroy(&attr);
-            }
-        #endif
-    ");
+    libcxx::use_facet::<libcxx::ctype::<char>>(libcxx::locale());
+    libcxx::use_facet::<libcxx::num_put::<std::Legacy::char>>(libcxx::locale());
+    libcxx::use_facet::<libcxx::num_get::<std::Legacy::char>>(libcxx::locale());
+
+    { // Force narrow char locale facets used by stringstream/to_string
+        var oss: libcxx::ostringstream;
+        oss << static_cast::<usize>(1) << 1.0;
+        oss.str();
+    }
+
+    const eval if defined(__linux__) {
+        var attr: pthread_attr_t;
+        pthread_attr_init(&attr);
+        pthread_attr_setstacksize(&attr, static_cast::<usize>(64 * 1024 * 1024));
+        pthread_setattr_default_np(&attr);
+        pthread_attr_destroy(&attr);
+    }
+}
+
+fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
+    Logger::init(Logger::Level::Trace);
+    init_runtime(argc, argv);
 
     // Global teardown runs after main() returns or on unwind.
     finally {
@@ -75,6 +87,9 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     // shared resources (DiagEngine, SourceManager, TCM, ThreadPool, ...).
     var ci = std::create::<CompilerInstance>(argc, argv);
     finally { std::destroy(ci); }
+
+    var p: *i32 = &null;
+    (*p) = 42;
 
     // --- Identity: help / version / explain ------------------------------
     //   These exit before any compilation state is needed.

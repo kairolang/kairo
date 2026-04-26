@@ -92,6 +92,8 @@
 
 #include "KLog.hh"
 
+#define WIDE_STR(s) L##s
+
 namespace kairo {
 /// \brief Owning pointer. This object is responsible for the lifetime of the
 ///        pointee. Must be explicitly freed in the destructor or op delete.

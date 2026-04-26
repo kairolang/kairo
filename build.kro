@@ -65,8 +65,8 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
         var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n' "]).stdout_str;
         var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n' "]).stdout_str;
         t.passthrough("-I" + inc)
-         .passthrough("-I" + prefix + "/include")
-         .passthrough("-I" + prefix + "/tools/clang/include")
+         .include("-I" + prefix + "/include")
+         .include("-I" + prefix + "/tools/clang/include")
          .passthrough("-L" + libdir);
 
         t.passthrough("-fno-lto")
@@ -81,6 +81,8 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
     if platform() == "macos" {
         t.passthrough("\\\x27-Wl,-rpath,\\@loader_path/../lib\\\x27");
     }
+
+    t.passthrough("-g");
 }
 
 fn main() -> i32 {
