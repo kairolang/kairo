@@ -444,11 +444,14 @@ inline auto cache_stale(const string &key, const vec<string> &paths) -> bool {
             continue;
 
 #if defined(_WIN32) && defined(_MSC_VER)
-        auto file_ns =
-            libcxx::chrono::duration_cast<libcxx::chrono::nanoseconds>(ftime.time_since_epoch())
+        auto file_sec =
+            libcxx::chrono::duration_cast<libcxx::chrono::seconds>(ftime.time_since_epoch())
                 .count();
-        constexpr libcxx::int64_t kEpochDiff = 11644473600LL * 1'000'000'000LL;
-        libcxx::int64_t           ns         = file_ns - kEpochDiff;
+        auto file_ns_part =
+            libcxx::chrono::duration_cast<libcxx::chrono::nanoseconds>(ftime.time_since_epoch())
+                .count() % 1'000'000'000LL;
+        constexpr libcxx::int64_t kEpochDiffSeconds = 11644473600LL;
+        libcxx::int64_t           ns = (file_sec - kEpochDiffSeconds) * 1'000'000'000LL + file_ns_part;
 #else
         auto            sctp = libcxx::chrono::file_clock::to_sys(ftime);
         libcxx::int64_t ns =

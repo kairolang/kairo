@@ -790,13 +790,13 @@ static auto build_waves(const std::vector<Target> &targets, const std::vector<st
     for (auto &name : order) {
         int d = 0;
         for (auto &dep : by_name[name]->deps)
-            d = std::max(d, depth[dep] + 1);
+            d = (std::max)(d, depth[dep] + 1);
         depth[name] = d;
     }
 
     int max_depth = 0;
     for (auto &[_, d] : depth)
-        max_depth = std::max(max_depth, d);
+        max_depth = (std::max)(max_depth, d);
 
     std::vector<std::vector<std::string>> waves(max_depth + 1);
     for (auto &name : order)

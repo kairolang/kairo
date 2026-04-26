@@ -352,7 +352,6 @@ target("kbld")
         add_ldflags("-stdlib=libc++", "-lc++", "-lc++abi", { force = true })
     end
 
-    set_policy("build.optimization.lto", true)
 target_end()
 
 target("kairo") -- target config defined in the config seciton
