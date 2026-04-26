@@ -409,6 +409,7 @@ inline std::filesystem::path ensure_pch(const std::string     &cxx_compiler,
             "-Xclang", "-emit-pch",
             "/std:c++latest",
             "/EHsc",
+            "/c",
             ((is_asan) ? "/Od /RTC1" : "/O2"),
             "/I\"" + core_hh.parent_path().parent_path().generic_string() + "\"",
             "/D_CRT_SECURE_NO_WARNINGS",
@@ -435,8 +436,8 @@ inline std::filesystem::path ensure_pch(const std::string     &cxx_compiler,
             "\"" + pch_file.generic_string() + "\""
         );
         cmd += " \"" + core_hh.generic_string() + "\"";
+        cmd += " 2>&1";
     }
-    cmd += " 2>&1";
 
     if (is_verbose)
         kairo::log<LogLevel::Debug>("building pch: " + cmd);
@@ -465,11 +466,13 @@ CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action
     this->dry_run = dry_run;
     CompileResult ret;
 
-    action.cxx_compiler = resolve_compiler(action.cxx_compiler, is_verbose);
+    action.cxx_compiler =  resolve_compiler(action.cxx_compiler, is_verbose);
     if (action.cxx_compiler.empty()) {
         error::HAS_ERRORED = true;
         return {};
     }
+
+    action.cxx_compiler = "\"" + action.cxx_compiler + "\"";
 
     try {
         ret = CXIR_CXX(action);
@@ -490,6 +493,7 @@ CXIRCompiler::CompileResult CXIRCompiler::compile_CXIR(CXXCompileAction &&action
         DEBUG_LOG("unknown exception in CXIR_CXX");
         throw;
     }
+
 
     action.cleanup();
     return ret;
@@ -680,14 +684,20 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
 
     // caller-supplied extra flags
     for (const auto &flag : action.cxx_args) {
-        compile_cmd += flag + " ";
+        if (is_windows_clang_cl && flag == "-include") {
+            compile_cmd += "/FI";
+        } else {
+            compile_cmd += flag;
+        }
+        compile_cmd += " ";
     }
 
     // primary source file
     compile_cmd += "\"" + action.cc_source.generic_string() + "\"";
 
     // merge stderr into stdout so exec() captures everything
-    compile_cmd += " 2>&1";
+    if (!is_windows_clang_cl)  // clang-cl needs the redirection inside the cmd /c string
+        compile_cmd += " 2>&1";
 
     DEBUG_LOG("compile command: " + compile_cmd);
 
@@ -699,7 +709,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
 
 #if defined(_WIN32) || defined(_WIN64)
     // exec() on Windows doesn't go through a shell, so redirects need cmd /c
-    std::string shell_cmd      = "cmd.exe /c \"" + compile_cmd + " 2>&1\"";
+    std::string shell_cmd      = "cmd.exe /c \"" + compile_cmd + " \"";
     ExecResult  compile_result = exec(shell_cmd);
 #else
     compile_cmd += " 2>&1";

@@ -58,7 +58,7 @@ CXIRCompiler::ExecResult CXIRCompiler::exec(const std::string &cmd) {
                        &pi)) {
         CloseHandle(hReadPipe);
         CloseHandle(hWritePipe);
-        throw std::runtime_error("CreateProcess failed! Error: " + std::to_string(GetLastError()));
+        return {.output = "", .return_code = -1};
     }
 
     CloseHandle(hWritePipe);
