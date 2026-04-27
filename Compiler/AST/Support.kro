@@ -96,7 +96,7 @@ import Lexer::Token::*;
 class <T> FrozenList {
     pub var items: *T    = &null;
     pub var count: usize = 0;
-    pub var MAX:   usize = __inline_cpp("libcxx::numeric_limits<usize>::max()");
+    pub var MAX:   usize = __inline_cpp("(libcxx::numeric_limits<usize>::max)()");
 
     ///
     /// \brief Freeze an ArenaList into a FrozenList, allocating the
