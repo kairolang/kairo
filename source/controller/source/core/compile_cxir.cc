@@ -605,6 +605,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         // suppress CRT deprecation warnings (harmless on non-Windows)
         "-D_CRT_SECURE_NO_WARNINGS",
         "-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
+        "-Wno-parentheses-equality",
 
         // sanitizer in debug mode
         (action.flags.contains(flag::types::CompileFlags::Debug)
