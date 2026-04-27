@@ -40,7 +40,7 @@ fn version_macro(target: string, suffix: string) -> string {
 
 fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: string) -> void {
     if path_exists(llvm_build + "/include") {
-        // submodule build existsuse it
+        // submodule build exists — use it
         t.include(llvm_build + "/include")
          .include(llvm_src   + "/llvm/include")
          .include(llvm_src   + "/clang/include")
@@ -50,23 +50,35 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
 
         t.passthrough("-fno-lto")
          .passthrough("-lclang-cpp")
-         .passthrough("-lLLVM")
-         .passthrough("-llldELF")
-         .passthrough("-llldMachO")
-         .passthrough("-llldCOFF")
-         .passthrough("-llldMinGW")
-         .passthrough("-llldWasm")
-         .passthrough("-llldCommon");
+         .passthrough("-lLLVM");
+    } else if platform() == "windows" {
+        // no submodule build — try system LLVM via llvm-config.exe
+        var inc    = run(["llvm-config", "--includedir"]).stdout_str;
+        var libdir = run(["llvm-config", "--libdir"]).stdout_str;
+        var prefix = run(["llvm-config", "--prefix"]).stdout_str;
+
+        if (inc.is_empty()) || (libdir.is_empty()) || (prefix.is_empty()) {
+            log::error("LLVM not found. Either:\n"
+                + "  1. Run the prebuild: powershell Scripts/prebuild-llvm-windows.ps1\n"
+                + "  2. Install LLVM and ensure llvm-config.exe is on PATH");
+        }
+
+        t.include(inc)
+         .include(prefix + "/include")
+         .include(prefix + "/tools/clang/include")
+         .passthrough("-L" + libdir);
+
+        t.passthrough("-fno-lto")
+         .passthrough("-lclang-cpp")
+         .passthrough("-lLLVM");
     } else {
-        /// at some point we do need to always require the submodule build,
-        /// but for now fallback to system llvm if not present, as we need
-        /// clang-tools-extra, and prebuilt llvm, does not include that.
+        // POSIX fallback — system llvm-config via sh
         var inc    = run(["sh", "-c", "llvm-config --includedir | tr -d '\\n' "]).stdout_str;
         var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n' "]).stdout_str;
         var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n' "]).stdout_str;
-        t.passthrough("-I" + inc)
-         .include("-I" + prefix + "/include")
-         .include("-I" + prefix + "/tools/clang/include")
+        t.include(inc)
+         .include(prefix + "/include")
+         .include(prefix + "/tools/clang/include")
          .passthrough("-L" + libdir);
 
         t.passthrough("-fno-lto")
@@ -106,6 +118,9 @@ fn main() -> i32 {
     }
     if platform() == "macos" {
         llvm_prebuild = "bash Scripts/prebuild-llvm-macos.sh";
+    }
+    if platform() == "windows" {
+        llvm_prebuild = "powershell -ExecutionPolicy Bypass -File Scripts/prebuild-llvm-windows.ps1";
     }
 
     // we also need to add

@@ -2,7 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ROOT      = if ($env:KBLD_ROOT)      { $env:KBLD_ROOT }      else { Split-Path (Split-Path $PSScriptRoot -Parent) -Parent }
+$ROOT      = if ($env:KBLD_ROOT)      { $env:KBLD_ROOT }      else { Split-Path $PSScriptRoot -Parent }
 $BUILD_DIR = if ($env:KBLD_BUILD_DIR) { $env:KBLD_BUILD_DIR } else { Join-Path $ROOT "build" }
 $TRIPLE    = if ($env:KBLD_TRIPLE)    { $env:KBLD_TRIPLE }    else { "x86_64-windows-msvc" }
 $MODE      = if ($env:KBLD_MODE)      { $env:KBLD_MODE }      else { "release" }
@@ -108,16 +108,16 @@ $cmakeArgs = @(
     "-B `"$LLVM_BUILD`""
     "-G Ninja"
     "-DCMAKE_BUILD_TYPE=Release"
-    "-DCMAKE_C_COMPILER=clang-cl"
-    "-DCMAKE_CXX_COMPILER=clang-cl"
+    "-DCMAKE_C_COMPILER=clang"
+    "-DCMAKE_CXX_COMPILER=clang++"
     "-DCMAKE_LINKER=lld-link"
-    "-DLLVM_ENABLE_PROJECTS=clang;lld"
+    "-DLLVM_ENABLE_PROJECTS=clang;lld;clang-tools-extra"
     "-DLLVM_TARGETS_TO_BUILD=`"$TARGETS`""
     "-DLLVM_BUILD_LLVM_DYLIB=ON"
     "-DLLVM_LINK_LLVM_DYLIB=ON"
     "-DLLVM_ENABLE_RTTI=ON"
     "-DLLVM_ENABLE_EH=ON"
-    "-DLLVM_USE_CRT_RELEASE=MT"
+    "-DLLVM_USE_CRT_RELEASE=MD"
     "-DLLVM_INCLUDE_TESTS=OFF"
     "-DLLVM_INCLUDE_EXAMPLES=OFF"
     "-DLLVM_INCLUDE_BENCHMARKS=OFF"
@@ -126,12 +126,12 @@ $cmakeArgs = @(
     "-DLLVM_ENABLE_ZLIB=OFF"
     "-DLLVM_ENABLE_ZSTD=OFF"
     "-DLLVM_ENABLE_LIBXML2=OFF"
-    "-DLLVM_ENABLE_LTO=OFF"
+    "-DLLVM_ENABLE_LTO=ON"
     "-DLLVM_PARALLEL_LINK_JOBS=$JOBS"
 ) -join " "
 
 $ninjaCmd = "ninja -C `"$LLVM_BUILD`" -j$JOBS"
-$batchCmd = "`"$vsDevCmd`" -arch=x64 -host_arch=x64 && cmake $cmakeArgs && $ninjaCmd"
+$batchCmd = "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 && cmake $cmakeArgs && $ninjaCmd"
 
 Write-Host "[llvm] configuring and building..."
 Write-Host "[llvm] cmd: $batchCmd"
