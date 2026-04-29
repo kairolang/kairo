@@ -40,16 +40,17 @@ fn version_macro(target: string, suffix: string) -> string {
 
 fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: string) -> void {
     if path_exists(llvm_build + "/include") {
-        t.include(llvm_build + "/include");
-        t.include(llvm_src   + "/llvm/include");
-        t.include(llvm_src   + "/clang/include");
-        t.include(llvm_build + "/tools/clang/include");
+        t.passthrough("-I" + llvm_build + "/include");
+        t.passthrough("-I" + llvm_src   + "/llvm/include");
+        t.passthrough("-I" + llvm_src   + "/clang/include");
+        t.passthrough("-I" + llvm_build + "/tools/clang/include");
         t.passthrough("-L" + llvm_build + "/lib");
         t.passthrough("-L" + out_lib);
 
         t.passthrough("-fno-lto");
 
         if platform() == "windows" {
+            t.passthrough("-DNOMINMAX"); // avoid conflicts with std::min and std::max
             t.passthrough("-lclangBasic").passthrough("-lclangDriver").passthrough("-lclangFrontend")
              .passthrough("-lclangFrontendTool").passthrough("-lclangCodeGen").passthrough("-lclangSema")
              .passthrough("-lclangAnalysis").passthrough("-lclangAST").passthrough("-lclangParse")
@@ -97,9 +98,9 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
                 log::warn("LLVM not found. Run: powershell Scripts/prebuild-llvm-windows.ps1");
             }
 
-            t.include(inc);
-            t.include(prefix + "/include");
-            t.include(prefix + "/tools/clang/include");
+            t.passthrough("-I" + inc);
+            t.passthrough("-I" + prefix + "/include");
+            t.passthrough("-I" + prefix + "/tools/clang/include");
             t.passthrough("-L" + libdir)
              .passthrough("-fno-lto")
              .passthrough("-lclang-cpp")
@@ -108,9 +109,9 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
             var inc    = run(["sh", "-c", "llvm-config --includedir | tr -d '\\n' "]).stdout_str;
             var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n' "]).stdout_str;
             var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n' "]).stdout_str;
-            t.include(inc);
-            t.include(prefix + "/include");
-            t.include(prefix + "/tools/clang/include");
+            t.passthrough("-I" + inc);
+            t.passthrough("-I" + prefix + "/include");
+            t.passthrough("-I" + prefix + "/tools/clang/include");
             t.passthrough("-L" + libdir)
              .passthrough("-fno-lto")
              .passthrough("-lclang-cpp")
