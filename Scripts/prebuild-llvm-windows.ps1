@@ -4,13 +4,13 @@ $ErrorActionPreference = 'Stop'
 
 $ROOT      = if ($env:KBLD_ROOT)      { $env:KBLD_ROOT }      else { Split-Path $PSScriptRoot -Parent }
 $BUILD_DIR = if ($env:KBLD_BUILD_DIR) { $env:KBLD_BUILD_DIR } else { Join-Path $ROOT "build" }
-$TRIPLE    = if ($env:KBLD_TRIPLE)    { $env:KBLD_TRIPLE }    else { "x86_64-windows-msvc" }
+$TRIPLE    = "x86_64-pc-windows-msvc"
 $MODE      = if ($env:KBLD_MODE)      { $env:KBLD_MODE }      else { "release" }
 $JOBS      = if ($env:LINK_JOBS)      { $env:LINK_JOBS }      else { $env:NUMBER_OF_PROCESSORS }
 
 $LLVM_SRC    = Join-Path $ROOT "Lib\llvm-runtimes"
 $LLVM_BUILD  = Join-Path $BUILD_DIR "llvm"
-$LLVM_MARKER = Join-Path $LLVM_BUILD "bin\LLVM.dll"
+$LLVM_MARKER = Join-Path $LLVM_BUILD "lib\LLVMCore.lib"
 $OUT_LIB     = Join-Path $BUILD_DIR "$TRIPLE\$MODE\lib"
 $TARGETS     = if ($env:LLVM_TARGETS) { $env:LLVM_TARGETS } else { "X86;AArch64;WebAssembly" }
 
@@ -111,22 +111,21 @@ $cmakeArgs = @(
     "-DCMAKE_C_COMPILER=clang"
     "-DCMAKE_CXX_COMPILER=clang++"
     "-DCMAKE_LINKER=lld-link"
-    "-DLLVM_ENABLE_PROJECTS=clang;lld;clang-tools-extra"
+    "-DLLVM_ENABLE_PROJECTS=clang;lld"
     "-DLLVM_TARGETS_TO_BUILD=`"$TARGETS`""
-    "-DLLVM_BUILD_LLVM_DYLIB=ON"
-    "-DLLVM_LINK_LLVM_DYLIB=ON"
     "-DLLVM_ENABLE_RTTI=ON"
     "-DLLVM_ENABLE_EH=ON"
-    "-DLLVM_USE_CRT_RELEASE=MD"
     "-DLLVM_INCLUDE_TESTS=OFF"
     "-DLLVM_INCLUDE_EXAMPLES=OFF"
     "-DLLVM_INCLUDE_BENCHMARKS=OFF"
     "-DLLVM_BUILD_TOOLS=OFF"
+    "-DCLANG_BUILD_TOOLS=OFF"
+    "-DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF"
     "-DLLVM_ENABLE_BINDINGS=OFF"
     "-DLLVM_ENABLE_ZLIB=OFF"
     "-DLLVM_ENABLE_ZSTD=OFF"
     "-DLLVM_ENABLE_LIBXML2=OFF"
-    "-DLLVM_ENABLE_LTO=ON"
+    "-DLLVM_ENABLE_LTO=OFF"
     "-DLLVM_PARALLEL_LINK_JOBS=$JOBS"
 ) -join " "
 
