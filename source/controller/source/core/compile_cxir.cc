@@ -408,6 +408,7 @@ inline std::filesystem::path ensure_pch(const std::string     &cxx_compiler,
         (is_asan ? cxx::flags::debugModeFlag : cxx::flags::optimizationLevel3),
         cxx::flags::includeFlag,
         "\"" + core_hh.parent_path().parent_path().generic_string() + "\"",
+        "-DNOMINMAX",
         "-D_CRT_SECURE_NO_WARNINGS",
         "-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
         (is_asan ? cxx::flags::SanitizeFlag : cxx::flags::None),
@@ -603,6 +604,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         (is_windows ? cxx::flags::None : cxx::flags::stdLibAndLinks),
 
         // suppress CRT deprecation warnings (harmless on non-Windows)
+        "-DNOMINMAX", // avoid conflicts with std::min and std::max on Windows
         "-D_CRT_SECURE_NO_WARNINGS",
         "-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
         "-Wno-parentheses-equality",
