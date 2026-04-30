@@ -67,35 +67,6 @@ Install it in VSCode (you can do that by heading to the Extensions tab, clicking
 
 **NOTE:** If you open a `.kro` file before configuring the extension, it will annoy you with popups asking for the Kairo path. So ideally, configure the extension first before opening any Kairo files.
 
-### Configure
-
-```bash
-python config.py
-```
-
-The script will ask for:
-- Path to the stage 0 compiler: e.g. `../kairo/build/release/<platform>/bin/kairo`
-- Your Python path: e.g. `C:\Python311\python.exe` *(Windows only, usually auto-detected)*
-- Path to the LSP server file: e.g. `C:\Users\user\Desktop\kairo-lsp\server\server.py` *(usually auto-detected)*
-
-It'll output something like:
-
-```json
-{
-    "kairo.path": "C:\\Users\\user\\Desktop\\kairo\\build\\release\\windows-x64\\bin\\kairo.exe",
-    "kairo.pythonPath": "C:\\Python311\\python.exe",
-    "kairo.serverPath": "C:\\Users\\user\\Desktop\\kairo-lsp\\server\\server.py"
-}
-```
-
-Copy those values into your VSCode settings: either via the UI (`Ctrl+Shift+P` -> search `kairo`) or directly in `settings.json` (`Ctrl+Shift+P` -> `Preferences: Open Settings (JSON)`).
-
-### Install the extension
-
-Extensions tab (`Ctrl+Shift+X`) -> three dots -> `Install from VSIX...` -> select the `.vsix` file you just built.
-
-Restart VSCode, open a `.kro` file: it should activate automatically.
-
 ---
 
 ## Debugging
