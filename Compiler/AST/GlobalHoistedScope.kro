@@ -49,7 +49,7 @@ class GlobalHoistedScope {
 
     fn index_file(
         self,
-        fid:      u32,
+        fid:       u32,
         sm:       *SourceManager,
         tcm:      *TokenCacheManager,
         diag:     *DiagEngine,

@@ -76,8 +76,9 @@ class <T> VisibilityAnnotation {
 /// a member of this enum.
 enum AnnotationKind derives u8 {
     Attribute = 0,  ///< @inline, @deprecated, etc.
-    DocComment,     ///< /// ... attached to the following declaration
-    LineComment,    ///< //  ... kept for formatter round-trip only
+    DocComment,     ///< /// ... attached to the following declaration,
+                    ///  is concatenated into one token if multiple lines
+    LineComment,    ///< //  ... kept for tools that want to preserve non-doc comments
     BlockComment,   ///< /*  ... */
 }
 
