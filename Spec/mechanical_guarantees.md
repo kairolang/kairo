@@ -152,4 +152,6 @@ baz.unsafe get(5); // error: no unsafe version of get
 ```
 
 # Virtual and Dynamic Dispatch
-Kairo DOES not expose internal vtable mechanisms, and it does not have a virtual keyword. instead, override is a keyword that indicates that a method is intended to override. 
+Kairo DOES not expose internal vtable mechanisms, and it does not have a virtual keyword. instead, override is a keyword that indicates that a method is intended to override.
+
+(this is a maybe, implementation specific)

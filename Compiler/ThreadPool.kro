@@ -60,8 +60,10 @@ class ThreadPool {
 
     /// C++ threading alias for std::thread, the alias is in a __inline_cpp
     /// block to avoid stage(0) parser issues with the 'thread' keyword.
-    __inline_cpp("using  Thread = libcxx::thread");
-    __inline_cpp("static constexpr size_t DEFAULT_QUEUE_SIZE = 1 << 14");
+    inline "c++" {
+        using Thread = libcxx::thread;
+        static constexpr size_t DEFAULT_QUEUE_SIZE = 1 << 14;
+    }
 
     ///
     /// Cache line size detection for alignment
@@ -72,11 +74,17 @@ class ThreadPool {
     ///       not even eval (constexpr) variables.
     ///
     const eval if defined(__x86_64__) || defined(__aarch64__) || defined(__riscv) {
-        __inline_cpp("static constexpr size_t CACHE_LINE = 64");
+        inline "c++" {
+            static constexpr size_t CACHE_LINE = 64;
+        }
     } else if defined(__powerpc64__) {
-        __inline_cpp("static constexpr size_t CACHE_LINE = 128");
+        inline "c++" {
+        static constexpr size_t CACHE_LINE = 128;
+        }
     } else {
-        __inline_cpp("static constexpr size_t CACHE_LINE = 32");
+        inline "c++" {
+            static constexpr size_t CACHE_LINE = 32;
+        }
     }
 
     priv var _count:   usize = 0;
@@ -211,35 +219,35 @@ class ThreadPool {
         ///
         /// \see PartitionQueue, Task, ThreadPool
         ///
-        __inline_cpp("
-        struct alignas(CACHE_LINE) Cell {
-            std::Atomic<u64> seq {0};
-            Task        val;
+        inline "c++" {
+            struct alignas(CACHE_LINE) Cell {
+                std::Atomic<u64> seq {0};
+                Task        val;
 
-            Cell() = default;
+                Cell() = default;
 
-            Cell(Cell&& other) noexcept {
-                auto seq_val = other.seq.load(libcxx::memory_order::relaxed);
-                seq.store(seq_val, libcxx::memory_order::relaxed);
-
-                val = std::Memory::move(other.val);
-            }
-
-            Cell &operator=(Cell&& other) noexcept {
-                if (this != &other) {
+                Cell(Cell&& other) noexcept {
                     auto seq_val = other.seq.load(libcxx::memory_order::relaxed);
                     seq.store(seq_val, libcxx::memory_order::relaxed);
 
                     val = std::Memory::move(other.val);
                 }
 
-                return *this;
-            }
+                Cell &operator=(Cell&& other) noexcept {
+                    if (this != &other) {
+                        auto seq_val = other.seq.load(libcxx::memory_order::relaxed);
+                        seq.store(seq_val, libcxx::memory_order::relaxed);
 
-            Cell           (const Cell&) = delete;
-            Cell &operator=(const Cell&) = delete;
+                        val = std::Memory::move(other.val);
+                    }
+
+                    return *this;
+                }
+
+                Cell           (const Cell&) = delete;
+                Cell &operator=(const Cell&) = delete;
+            };
         }
-        ");
 
         ///
         /// \brief Constructs a partitioned queue with the specified capacity.
@@ -389,9 +397,9 @@ class ThreadPool {
         }
 
         // Now spawn threads all queues are guaranteed present
-        __inline_cpp("
+        const eval if defined(__APPLE__) || defined(__linux__) {
+            inline "c++" {
             for (size_t i = 0; i < _count; ++i) {
-        #if defined(__APPLE__) || defined(__linux__)
                 pthread_attr_t attr;
                 pthread_attr_init(&attr);
                 pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
@@ -405,20 +413,24 @@ class ThreadPool {
                 }, arg);
                 pthread_attr_destroy(&attr);
                 pthread_detach(tid);
-        #elif defined(_WIN32)
-                auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
-                HANDLE h = CreateThread(nullptr, 64UL * 1024 * 1024,
-                    [](LPVOID raw) -> DWORD {
-                        auto* p = static_cast<libcxx::pair<ThreadPool*, size_t>*>(raw);
-                        p->first->worker_loop(p->second);
-                        delete p;
-                        return 0;
-                    }, arg, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
-                CloseHandle(h);
-        #endif
             }
-        ");
-
+            }
+        } else if defined(_WIN32) {
+            inline "c++" {
+            for (size_t i = 0; i < _count; ++i) {
+                auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
+                    HANDLE h = CreateThread(nullptr, 64UL * 1024 * 1024,
+                        [](LPVOID raw) -> DWORD {
+                            auto* p = static_cast<libcxx::pair<ThreadPool*, size_t>*>(raw);
+                            p->first->worker_loop(p->second);
+                            delete p;
+                            return 0;
+                        }, arg, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+                    CloseHandle(h);
+            }
+            }
+        }
+        
         Logger::info(Logger::Stage::ThreadPool, f"ThreadPool: initialized {self._count} workers");
     }
 
@@ -437,9 +449,9 @@ class ThreadPool {
     inline static fn fnv1a64_bytes(const tid: ref!(std::Thread::id)) -> u64 {
         var h: u64 = 0xcbf29ce484222325;
 
-        __inline_cpp("
+        inline "c++" {
             static constexpr size_t TID_SIZE = sizeof(libcxx::thread::id);
-        ");
+        }
 
         var buf: std::Memory::buffer::<u8, TID_SIZE>;
         libcxx::memcpy(buf, &tid, TID_SIZE);
@@ -471,7 +483,9 @@ class ThreadPool {
         // increment BEFORE task is visible to any worker
         self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
 
-        __inline_cpp("thread_local size_t local_qid = static_cast<size_t>(-1);");
+        inline "c++" {
+            thread_local size_t local_qid = static_cast<size_t>(-1);
+        }
 
         if local_qid == static_cast::<usize>(-1) {
             var tid = libcxx::this_thread::get_id();
@@ -562,11 +576,11 @@ class ThreadPool {
 
         Logger::info(Logger::Stage::ThreadPool, f"ThreadPool::shutdown: joining {self._count} workers total_pending={self.get_total_pending_tasks()}");
         
-        __inline_cpp("
+        inline "c++" {
             while (get_total_pending_tasks() > 0) {
                 libcxx::this_thread::sleep_for(libcxx::chrono::milliseconds(1));
             }
-        ");
+        }
 
         for q: ref!(*PartitionQueue) in self._queues {
             delete q;
@@ -647,7 +661,10 @@ class ThreadPool {
                     _thread_pause();
                     ++spins;
                 } else {
-                    __inline_cpp("libcxx::this_thread::yield()");
+                    inline "c++" {
+                        libcxx::this_thread::yield();
+                    }
+                    
                     spins = 0;
                 }
             }
