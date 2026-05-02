@@ -86,10 +86,9 @@ var vec6: **const Vec<i32> = ...; // this is a mutable vec6, which is a mutable 
 Kairos mem saftry is simple normal pointers are tracked by the BCIR and AMT and have their aliasing and mutability properties enforced by the type system. the runtime also tracks pointers since a nomral pointer in kairo would be a Fat Pointer, a pointer + size, no other meta, but its enough to be proveable safe at both runtime and compile time. but sometimes you just want to do raw pointer stuff, and for that we have raw pointers, which are not tracked by the BCIR or AMT, and have no guarantees about safety or aliasing.
 
 ```kairo
-/// raw only exists in one place, and its for pointers
-var x: raw *i32 = ...; // x is a raw pointer to an i32, it has no guarantees about safety or aliasing
+var x: unsafe *i32 = ...; // x is a raw pointer to an i32, it has no guarantees about safety or aliasing
 *x = 10; // invlaid outside a raw block, raw pointers cannot be dereferenced or used in any way that would require safety guarantees outside of a raw block
-raw {
+unsafe {
     *x = 10; // valid, we are in a raw block, we can use raw pointers
 }
 
@@ -150,8 +149,18 @@ var baz = Baz { data: ... };
 baz.get(5); // valid, calls the only version of get, which is safe
 baz.unsafe get(5); // error: no unsafe version of get
 ```
+Modifiers:
+static, unsafe, virtual
 
-# Virtual and Dynamic Dispatch
-Kairo DOES not expose internal vtable mechanisms, and it does not have a virtual keyword. instead, override is a keyword that indicates that a method is intended to override.
+Specifiers:
+async, noreturn, inline, eval, override, final, panic
 
-(this is a maybe, implementation specific)
+Visibility:
+pub, prot, priv
+
+full type system grammer:
+```ebnf
+TypeQualifier ::= "const" | "volatile" | "atomic" | "restrict" | "unsafe" | "eval" | "async" | "yield"
+
+Type ::= TypeQualifier* Type
+```
