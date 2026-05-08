@@ -172,7 +172,7 @@ fn main() -> i32 {
         .skip_dirs(["build", "Lib", "private"]);
 
     var kairo = Target("kairo")
-        .entry("Compiler/Driver/kairo.kro")
+        .entry("Compiler/Driver/Kairo.kro")
         .includes(["Compiler", "Lib/bootstrap/lib-helix/core"])
         .define(KAIRO_VERSION)
         .passthrough("-fno-lto")

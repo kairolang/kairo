@@ -506,6 +506,16 @@ class HoistedScope {
         return self._root.get_child(name);
     }
 
+    fn enter(self, segments: *vec::<string>) -> *ScopeNode {
+        var node = &self._root;
+        for s in *segments {
+            var k = self._interner.intern(s);
+            node  = node->get_child(k);
+            if node == &null { return &null; }
+        }
+        return node;
+    }
+
     /// Quick boolean queries on root scope.
     fn is_type(self, name: string)  -> bool { return self.lookup(name).is_type();  }
     fn is_value(self, name: string) -> bool { return self.lookup(name).is_value(); }

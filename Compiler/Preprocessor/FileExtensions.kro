@@ -62,20 +62,12 @@ class FileExtensions {
     }
 
     fn categorize(self, ext: string) -> FileCategory {
-        if self.contains(self._kairo_source, ext) {
-            return FileCategory::KairoSource;
-        }
-        if self.contains(self._kairo_lib, ext) {
-            return FileCategory::KairoLibrary;
-        }
-        if self.contains(self._cxx_source, ext) {
-            return FileCategory::CxxSource;
-        }
-        if self.contains(self._cxx_header, ext) {
-            return FileCategory::CxxHeader;
-        }
-
-        return FileCategory::Other;
+        if ext.empty()                            { return FileCategory::CxxHeader; }
+        if self.contains(self._kairo_source, ext) { return FileCategory::KairoSource; }
+        if self.contains(self._kairo_lib, ext)    { return FileCategory::KairoLibrary; }
+        if self.contains(self._cxx_source, ext)   { return FileCategory::CxxSource; }
+        if self.contains(self._cxx_header, ext)   { return FileCategory::CxxHeader; }
+        return FileCategory::Ignored;
     }
 
     fn should_index(self, ext: string) -> bool {

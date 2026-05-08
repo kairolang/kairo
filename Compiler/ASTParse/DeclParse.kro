@@ -7,24 +7,10 @@
 
 import ASTNode::Base::*;
 
-class DeclParse {
-    fn parse_fn_decl(self)           -> *Decl { return &null; }
-    fn parse_var_decl(self)          -> *Decl { return &null; }
-    fn parse_const_decl(self)        -> *Decl { return &null; }
-    fn parse_class_decl(self)        -> *Decl { return &null; }
-    fn parse_struct_decl(self)       -> *Decl { return &null; }
-    fn parse_enum_decl(self)         -> *Decl { return &null; }
-    fn parse_union_decl(self)        -> *Decl { return &null; }
-    fn parse_interface_decl(self)    -> *Decl { return &null; }
-    fn parse_type_alias_decl(self)   -> *Decl { return &null; }
-    fn parse_module_decl(self)       -> *Decl { return &null; }
-    fn parse_import_decl(self)       -> *Decl { return &null; }
-    fn parse_macro_decl(self)        -> *Decl { return &null; }
-    fn parse_ffi_block(self)         -> *Decl { return &null; }
-    fn parse_inline_block(self)      -> *Decl { return &null; }
-    fn parse_extend_decl(self)       -> *Decl { return &null; }
-    fn parse_generic_params(self)    -> *Decl { return &null; } // TypeParamListDecl
-    fn parse_fn_params(self)         -> *Decl { return &null; } // ParamListDecl
-    fn parse_fn_body(self, fn_decl: *Decl)      { } // fills body in place
-    fn parse_recovery_decl(self, rk: DeclKind)  -> *Decl { return &null; }
+class <T> DeclParse {
+    priv inline fn dyn(self) -> *T {
+        return static_cast::<*T>(&self);
+    }
+
+    fn parse_decl(self) -> *Decl { return &null; }
 }

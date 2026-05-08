@@ -110,6 +110,13 @@ class <T> FrozenList {
         self.items = l->freeze(arena);
     }
 
+    fn from_vec(self, v: *vec::<T>, ctx: *ASTContext) {
+        var arr = ctx->alloc_array::<T>(v->size());
+        for var i: usize = 0; i < v->size(); ++i {
+            arr[i] = (*v)[i];
+        }
+    }
+
     ///
     /// \brief Create directly from a raw pointer + count.
     /// Use when you already have an arena-allocated array.

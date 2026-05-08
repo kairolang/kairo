@@ -138,11 +138,33 @@ class Decl derives VisibilityAnnotation::<Decl>, Annotation::<Decl> {
 }
 
 class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qualifiers
+    enum TypeFlags derives u8 {
+        None                      = 0,
+        /// Type contains a template type parameter — meaning changes per instantiation.
+        /// Set on GenericParamType itself and propagates up through any type that
+        /// contains one. Sema defers checking of dependent types until instantiation.
+        IsDependent               = 1 << 0,
+        /// Dependent on a template parameter in a way that affects instantiation
+        /// but not necessarily the type's meaning. Superset of IsDependent.
+        /// Example: sizeof(T) is instantiation-dependent even if T is known size.
+        IsInstantiationDependent  = 1 << 1,
+        /// Contains a pack parameter (...Ts) that has not yet been expanded.
+        /// Sema uses this to validate where pack expansion is legal.
+        /// Must be cleared after a PackExpansionType consumes the pack.
+        ContainsUnexpandedPack    = 1 << 2,
+        /// Type involves a runtime-variable size (VLA or similar).
+        /// You said no VLAs so this is future-proofing / FFI import only.
+        IsVariablyModified        = 1 << 3,
+    }
+    
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var size_bits:       usize       = 0;
+    pub var align_bits:      usize       = 0;
+    pub var canonical:      *Type        = &null; // for types that are qualified by another type, e.g. associated types like T::Item or pointer types like *T
     pub var kind:            TypeKind    = TypeKind::RecoveryType;
     pub var range:           SourceRange = SourceRange::invalid();
-    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
     pub var recovery_kind:   TypeKind    = TypeKind::RecoveryType;
-    pub var qualified_type: *Type       = &null; // for types that are qualified by another type, e.g. associated types like T::Item or pointer types like *T
+    pub var type_flags:      TypeFlags   = TypeFlags::None;
 
     fn is_valid(self) -> bool {
         return self.kind != TypeKind::RecoveryType;
@@ -160,8 +182,36 @@ class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qual
         return self.kind;
     }
 
-    fn get_qualified_type(self) -> *Type {
-        return self.qualified_type;
+    fn get_canonical_type(self) -> *Type {
+        return self.canonical;
+    }
+
+    fn is_dependent(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::IsDependent))
+         != TypeFlags::None;
+    }
+    
+    fn is_instantiation_dependent(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::IsInstantiationDependent))
+         != TypeFlags::None;
+    }
+    
+    fn contains_unexpanded_pack(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::ContainsUnexpandedPack))
+         != TypeFlags::None;
+    }
+    
+    fn is_variably_modified(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::IsVariablyModified))
+         != TypeFlags::None;
     }
 
     static fn classof(ptr: *Type) -> bool {

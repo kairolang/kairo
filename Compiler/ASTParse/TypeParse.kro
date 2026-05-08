@@ -1,20 +1,35 @@
-
 // TypeParse.kro
-/// --- The Kairo Project ------------------ Compiler/Parser/TypeParse.kro --- ///
-///
+/// --- The Kairo Project ----------------------------------------------- ///
 ///   Type expression parsing mixin.
 ///
-/// ------------------------------------------------------------------------- ///
+///   Handles: *T, atomic T, Foo, Foo<T>, (T1, T2), (T) -> U
+///   (const/atomic/unsafe/eval/async are TypeQual flags, not wrapper nodes)
+///   Derives from ASTParse which provides: check, match_tok, expect,
+///   advance, ctx, diag, is_eof, current, peek_t, c_idx, depth, etc.
+///
+/// --------------------------------------------------------------------- ///
 
 import ASTNode::Base::*;
+import ASTNode::Types::*;
+import ASTNode::PrimaryExpressions::*;
+import AST::ASTContext::*;
+import Diag::DiagEngine::*;
+import Diag::DiagRegistry::*;
+import Source::SourceRange::*;
+import TokenKind::*;
 
 class <T> TypeParse {
-    fn parse_type(self, sync: SyncSet) -> *Type {
-        // TODO
+    var current_attr_stack: vec::<Token>;
+
+    priv inline fn dyn(self) -> *T {
+        return static_cast::<*T>(&self);
     }
 
-    fn parse_named_type(self) -> *NamedType {
-        // TODO
+    // ------------------------------------------------------------------
+    //  parse_type — top-level type expression entry point
+    // ------------------------------------------------------------------
+
+    fn parse_type(self) -> *Type {
+        
     }
 }
-

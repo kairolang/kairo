@@ -38,9 +38,8 @@
 ///
 ///   Thread count
 ///   ------------
-///   ThreadPool is constructed with hardware_concurrency() before CLI parsing.
-///   When the pool gains a resize() API, _apply_invocation() will apply
-///   inv.frontend.thread_count there.
+///   ThreadPool is constructed after CLI parsing so thread_count from invocation
+///   can be applied at construction time.
 ///
 ///   Async upgrade path (FrontendAction)
 ///   -------------------------------------

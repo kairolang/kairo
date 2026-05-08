@@ -70,7 +70,6 @@ class QualSpan {
 /// CRTP mixin: concrete Type nodes derive TypeQual::<SelfType> to get
 /// inline qualifier storage + flag/span APIs.
 class <T> TypeQual {
-    
     enum Flags derives u16 {
         /// No qualifiers applied.
         None       = 0,

@@ -7,18 +7,10 @@
 
 import ASTNode::Base::*;
 
-class StmtParse {
-    fn parse_stmt(self)                -> *Stmt { return &null; }
-    fn parse_block(self)               -> *Stmt { return &null; } // BlockStmt
-    fn parse_if_stmt(self)             -> *Stmt { return &null; }
-    fn parse_while_stmt(self)          -> *Stmt { return &null; }
-    fn parse_for_stmt(self)            -> *Stmt { return &null; }
-    fn parse_return_stmt(self)         -> *Stmt { return &null; }
-    fn parse_break_stmt(self)          -> *Stmt { return &null; }
-    fn parse_continue_stmt(self)       -> *Stmt { return &null; }
-    fn parse_expr_stmt(self)           -> *Stmt { return &null; }
-    fn parse_defer_stmt(self)          -> *Stmt { return &null; }
-    fn parse_finally_stmt(self)        -> *Stmt { return &null; }
-    fn parse_switch_stmt(self)         -> *Stmt { return &null; }
-    fn parse_recovery_stmt(self)       -> *Stmt { return &null; }
+class <T> StmtParse {
+    priv inline fn dyn(self) -> *T {
+        return static_cast::<*T>(&self);
+    }
+
+    fn parse_stmt(self) -> *Stmt { return &null; }
 }

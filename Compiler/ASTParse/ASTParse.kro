@@ -46,6 +46,37 @@ enum SyncSet derives u32 {
     LineEnd     = 1 << 7,   // newline
 }
 
+
+/*
+
+--syntax-only
+--type-check-only
+-E / --preprocess
+--no-prelude
+--no-modules
+--no-generics
+--no-eval
+--no-yield
+--no-unsafe
+--no-exceptions / -f[no-]exceptions
+--no-ffi / --no-cxx
+--no-assert
+--no-finally
+--edition
+--force-include
+--prelude
+
+--no-prelude + --prelude
+--cmax-macro-depth / --cmax-macro-expansions
+--macro-search-path
+-D / --cfg
+
+
+
+*/
+
+
+
 class ASTParse derives ExprParse, StmtParse, DeclParse, TypeParse, AnnotParse {
     // --- Context handles ----------------------------------------------------
     pub var ctx:     obs::<ASTContext>;
@@ -137,24 +168,184 @@ class ASTParse derives ExprParse, StmtParse, DeclParse, TypeParse, AnnotParse {
         // TODO
     }
 
-    inline fn check(self, kind: TokenKind) -> bool {
-        // TODO
+    inline priv fn check(self, kind: TokenKind)  -> bool {
+        var tok = self.current();
+        if tok == &null {
+            return false;
+        }
+
+        var resolved = self.resolve_deep(tok);
+        var resolved_kind = resolved.kind;
+
+        if resolved_kind == TokenKind::AtComment { // we brush these off
+            self.advance();
+            return self.check(kind);
+        }
+
+        if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
+                                                 // the imm of this token stores the
+            resolved_kind = static_cast::<TokenKind>(resolved.imm);
+        }
+
+        return resolved_kind == kind;
+    }
+
+    inline priv fn match_tok(self, kind: TokenKind) -> bool {
+        if self.check(kind) {
+            self.advance();
+            return true;
+        }
+
         return false;
     }
 
-    inline fn match_tok(self, kind: TokenKind) -> bool {
-        // TODO
-        return false;
+    inline priv fn expect(self, kind: TokenKind) -> Token {
+        var tok = self.current();
+        var resolved = self.resolve_deep(tok);
+        var resolved_kind = resolved.kind;
+
+        if resolved_kind == TokenKind::AtComment { // we brush these off
+            self.advance();
+            return self.expect(kind);
+        }
+
+        if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
+                                                 // the imm of this token stores the
+            resolved_kind = static_cast::<TokenKind>(resolved.imm);
+        }
+
+        if resolved_kind == kind {
+            self.advance();
+            return resolved;
+        }
+
+        self._diag->report(DiagID::S045E, tok->range.start,
+            f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
+        ).first(tok->range).emit();
+
+        if tok->kind == TokenKind::TkMacroExpand {
+            var builder = self._diag->report(DiagID::S045N, tok->range.start,
+                f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
+            ).first(tok->range);
+            self.attach_macro_expansion_chain(&builder, tok);
+            builder.emit();
+        }
+
+        var err     = Token();
+        err.kind    = TokenKind::TkError;
+        err.range   = tok->range;
+        err.imm     = static_cast::<u32>(kind);
+        return err;
     }
 
-    inline fn expect(self, kind: TokenKind) -> Token {
-        // TODO: emit diag on mismatch, return current token for recovery.
-        return Token{};
+    inline priv fn resolve_deep(self, tok: *Token) -> Token {
+        var kind = tok->kind;
+        var imm  = tok->imm;
+        var iter: u32 = 0;
+
+        while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
+            if (iter) >= (self._ctx->ci->pp.max_depth) {
+                self._diag->report(DiagID::I002F, tok->range.start,
+                    "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
+                ).first(tok->range)
+                 .note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
+                 .emit();
+                return Token(tok->range, TokenKind::TkUnknown, 0);
+            }
+
+            if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
+                return Token(tok->range, TokenKind::TkMacroExpand, imm);
+            }
+
+            var info = self._imm->get::<Immediate::MacroExpansionInfo>(imm);
+            kind     = info->original_kind;
+            imm      = info->original_imm;
+            iter    += 1;
+        }
+
+        return Token(tok->range, kind, imm);
     }
 
-    inline fn is_eof(self) -> bool {
-        // TODO
-        return true;
+    inline priv fn resolve_kind_deep(self, tok: *Token) -> TokenKind {
+        return self.resolve_deep(tok).kind;
+    }
+
+    inline priv fn resolve_kind_shallow(self, tok: *Token) -> TokenKind {
+        if tok == &null {
+            return TokenKind::TkUnknown;
+        }
+
+        if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) {
+            return tok->kind;
+        }
+
+        if tok->imm >= static_cast::<u32>(MacroSentinel::Threshold) {
+            return TokenKind::TkMacroExpand;
+        }
+
+        if self._imm == &null {
+            return TokenKind::TkUnknown;
+        }
+
+        var info = self._imm->get::<Immediate::MacroExpansionInfo>(tok->imm);
+        return info->original_kind;
+    }
+
+    inline priv fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
+        if tok == &null {
+            return;
+        }
+
+        if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) {
+            return;
+        }
+
+        var kind = tok->kind;
+        var imm  = tok->imm;
+        var depth: u32 = 0;
+
+        while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
+            if depth >= static_cast::<u32>(self._ctx->ci->pp.max_backtrace) {
+                builder->note(DiagID::S045N, tok->range.start,
+                    f"macro expansion chain truncated after {depth} levels"
+                );
+                return;
+            }
+
+            if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
+                builder->note(DiagID::S045N, tok->range.start,
+                    f"expanded from compiler-internal macro sentinel"
+                );
+                return;
+            }
+
+            if self._imm == &null {
+                return;
+            }
+
+            var info = self._imm->get::<Immediate::MacroExpansionInfo>(imm);
+
+            builder->note(DiagID::S045N, info->def_range.start,
+                f"expanded from macro defined here (depth {depth})"
+            );
+
+            kind  = info->original_kind;
+            imm   = info->original_imm;
+            depth += 1;
+        }
+    }
+
+    inline priv fn is_eof(self) -> bool {
+        return (self._current == &null)
+            || ((self._current->kind) == TokenKind::TkEof);
+    }
+
+    inline priv fn first(self) -> *Token {
+        if (self._span.size()) > 0 {
+            return self._span.get(0);
+        }
+
+        return &null;
     }
 
     // --- Recovery primitives ------------------------------------------------
@@ -168,6 +359,7 @@ class ASTParse derives ExprParse, StmtParse, DeclParse, TypeParse, AnnotParse {
     fn tentative_commit(self, state: usize) {
         // no-op currently parse proceeds. State was just a saved cursor.
     }
+
 
     fn tentative_rollback(self, state: usize) {
         self.c_idx = state;

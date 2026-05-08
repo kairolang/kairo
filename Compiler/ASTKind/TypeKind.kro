@@ -21,6 +21,29 @@
 ///     [10]       Callable type
 ///     [11 .. 12] Compiler-inserted types
 ///
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+///
+///   TypeKind
+///
+///   Ranges:
+///     [0]        Error sentinel
+///     [1 .. 2]   Named / resolved types
+///     [3 .. 4]   Pointer / optional types
+///     [5 .. 9]   Collection types
+///     [10]       Callable type
+///     [11 .. 12] Compiler-inserted types
+///
 enum TypeKind derives u8 {
     /// -----------------------------------------------------------------------
     ///  Sentinel
@@ -39,9 +62,16 @@ enum TypeKind derives u8 {
     /// Node: NamedType
     NamedType,
 
+    /// An associated type reference like T::Item
+    /// Node: DependentNameType base TypeRef + name Identifier.
+    DependentNameType,
+
     /// T inside fn foo<T>(x: T)unresolved generic param
     /// distinct from NamedType which resolves to a concrete TypeDecl
     GenericParamType,
+
+    /// Post-substitution wrapper for instantiation diagnostics.
+    SubstGenericParamType,
 
     /// An explicitly generic instantiation:  Vec<i32> | Map<str, i32>
     /// Node: GenericInstanceType base NamedType + TypeRef arg list.
@@ -53,30 +83,24 @@ enum TypeKind derives u8 {
 
     /// Variadic pack type: ...T
     /// used in variadic generic signatures
-    PackType,
+    VariadicPackType,
+
+    /// Pack expansion type: T... (unexpanded pack in type position)
+    /// used in variadic generic signatures and variadic tuple types
+    PackExpansionType,
 
     /// -----------------------------------------------------------------------
     ///  Pointer / optional types  [3 .. 4]
     /// -----------------------------------------------------------------------
 
-    /// Fat pointer type:  *T | **T
+    /// Fat pointer type:
     /// Node: PointerType pointee TypeRef.
     PointerType,
     
-    // unsafe pointer type is not needed since unsafe is an attribute that can apply to any type.
-
     /// Nullable (optional) type:  T?
     /// Lowered to std::Optional<T> by sema unless --explicit-aliasing.
     /// Node: NullableType inner TypeRef.
     NullableType,
-
-    /// Never / bottom type functions that don't return
-    /// Written as 'panic' in Kairo: fn diverge() -> panic
-    AtomicType,
-
-    /// Mutable type: mutable T
-    /// Distinct from raw pointer mutable types have value semantics and are not unsafe by default.
-    ConstType,
 
     /// -----------------------------------------------------------------------
     ///  Collection types  [5 .. 9]
@@ -86,7 +110,7 @@ enum TypeKind derives u8 {
     /// Node: TupleType element TypeRef array.
     TupleType,
 
-    /// Fixed-size array type:  [6 of i32]
+    /// Fixed-size array type:  [i32; 6]
     /// Node: FixedArrayType element TypeRef + size Expr*.
     FixedArrayType,
 
@@ -104,19 +128,15 @@ enum TypeKind derives u8 {
 
     /// Self type inside class/interface bodies
     /// refers to the implementing type
-    SelfType,
+    SelfType, // const can be attached here
 
     /// -----------------------------------------------------------------------
     ///  Callable type  [10]
     /// -----------------------------------------------------------------------
 
-    /// Function pointer type:  fn(i32, str) -> bool
+    /// Function pointer type:  fn(i32, str) -> bool (explicit capture control is a part of the expression syntax, not the type syntax)
     /// Node: FunctionPointerType param TypeRef array + return TypeRef.
     FunctionPointerType,
-
-    /// type of fn(...) { } with captures
-    /// distinct from FunctionPointerType which has no captures
-    ClosureType,
 
     /// -----------------------------------------------------------------------
     ///  Compiler-inserted types  [11 .. 12]
@@ -128,20 +148,17 @@ enum TypeKind derives u8 {
     /// Node: InferredType
     InferredType,
 
-    /// Qualified type modifier wrapper:  const T | unsafe T | async T | eval T
-    /// Wraps an inner type with a single modifier.
-    /// Multiple modifiers nest:  const unsafe T -> ModifiedType(const, ModifiedType(unsafe, T))
-    /// Node: QualifiedModifierType Modifier enum + inner TypeRef.
-    QualifiedModifierType,
-
     // T& from C++ headers
     CXXLValueRefType,
 
     // T&& from C++ headers
     CXXRValueRefType,
 
-    // opaque type from ffi "c++"sema treats as black box
+    // opaque type from ffi "c++" sema treats as black box
     OpaqueFFIType,
+
+    // Expression in the Type position like vec<i32, 12> where 12 is a const expression
+    TypeExpr,
 
     /// -----------------------------------------------------------------------
     ///  Marker

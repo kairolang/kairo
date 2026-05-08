@@ -27,8 +27,6 @@ enum FlagKind derives u8 {
 }
 
 class FlagValue {
-    
-
     pub var kind:        FlagKind = FlagKind::Bool;
     pub var is_set:      bool     = false; ///< true when supplied on CLI
     pub var is_required: bool     = false; ///< true when no default (must appear)

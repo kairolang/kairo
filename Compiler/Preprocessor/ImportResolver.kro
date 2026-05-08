@@ -239,17 +239,19 @@ class ImportResolver {
         var pending = std::Atomic::<usize>(self._roots.size());
 
         for root: *SearchRoot in self._roots {
-            __inline_cpp("
+            inline "c++" {
                 pool->enqueue([root, &pending, pool, this]() {
                     root->build_index(pool);
                     if (pending.fetch_sub(1, std::MemoryOrder::acq_rel) == 1) {
                         Logger::info(Logger::Stage::Preprocessor,
-                            libcxx::format(L\"ImportResolver::build_index: complete roots={}\",
-                                _roots.size()));
+                            libcxx::format(
+                                WIDE_STR("ImportResolver::build_index: complete roots={}"),
+                                _roots.size()
+                            ));
                         _index_completed.store(true, std::MemoryOrder::release);
                     }
                 }, static_cast<uint8_t>(0));
-            ");
+            }
         }
 
         // don't wait here - caller calls wait_for_index() when needed
