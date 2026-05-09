@@ -16,10 +16,9 @@
 /// ------------------------------------------------------------------------ ///
 
 import AST::ASTContext::*;
-import AST::ScopeStack::*;
 import AST::TranslationUnit::*;
 import AST::CodeCompleteConsumer::*;
-import AST::ParentRef::*;
+import AST::DeclContext::*;
 import ASTNode::Base::*;
 import ASTNode::Program::*;
 import Lexer::TokenSpan::*;
@@ -30,7 +29,7 @@ import Parser::ExprParse::*;
 import Parser::StmtParse::*;
 import Parser::DeclParse::*;
 import Parser::TypeParse::*;
-import Parser::AnnotParse::*;
+// import Parser::AnnotParse::*;
 
 /// Sync-set enum. Each parse_* function declares which tokens terminate
 /// error recovery when a parse failure occurs inside it.
@@ -48,7 +47,6 @@ enum SyncSet derives u32 {
 
 
 /*
-
 --syntax-only
 --type-check-only
 -E / --preprocess
@@ -70,19 +68,112 @@ enum SyncSet derives u32 {
 --cmax-macro-depth / --cmax-macro-expansions
 --macro-search-path
 -D / --cfg
-
-
-
 */
 
+enum ScopeKind derives u8 {
+    Function,      // function body
+    Block,         // { ... }
+    GenericParams, // <T, U: Foo>
+    ForLoop,       // for-binding scope
+    MatchArm,      // match-pattern bindings
+    Lambda,        // lambda captures + params
+}
+
+/// A single entry bound at parse time. Refers to the Decl or parameter
+/// that introduced the name. Populated only once the parser has decided
+/// on the binding; never speculative.
+class LocalBinding {
+    pub var name:      string;
+    pub var decl:      obs::<Decl>;     // VarDecl, ParamDecl, TypeParamDecl, etc.
+    pub var range:     SourceRange;     // where the name was introduced
+    pub var is_param:  bool = false;
+    pub var is_tparam: bool = false;    // type parameter
+}
+
+class LexicalScope {
+    pub var kind:       ScopeKind;
+    pub var parent:     obs::<LexicalScope>;
+    pub var bindings:   libcxx::unordered_map::<string, LocalBinding>;
+    pub var dc:         obs::<DeclContext>;    // decl context this scope lives inside
+
+    fn LexicalScope(self, kind: ScopeKind, parent: *LexicalScope, dc: *DeclContext) {
+        self.kind   = kind;
+        self.parent = parent;
+        self.dc     = dc;
+        self.bindings.reserve(8);
+    }
+
+    fn bind(self, name: string, decl: *Decl, range: SourceRange) {
+        var b = LocalBinding{};
+        b.name  = name;
+        b.decl  = decl;
+        b.range = range;
+        self.bindings.insert(libcxx::make_pair(name, b));
+    }
+
+    fn lookup_local(self, name: string) -> *LocalBinding {
+        var it = self.bindings.find(name);
+        if it == self.bindings.end() { return &null; }
+        return &(it->second);
+    }
+}
+
+class ScopeStack {
+    pub var _top: obs::<LexicalScope>;
+    pub var ctx: obs::<ASTContext>;
+
+    fn ScopeStack(self) {
+        self.ctx = &null;
+        self._top = &null;
+    }
+
+    fn set_ctx(self, ctx: *ASTContext) {
+        self.ctx = ctx;
+    }
+
+    fn push(self, kind: ScopeKind, dc: *DeclContext) -> *LexicalScope {
+        var s = self.ctx->alloc_init::<LexicalScope>(kind, self._top, dc);
+        self._top = s;
+        return s;
+    }
+
+    fn pop(self) {
+        assert((self._top != &null) && r"ScopeStack::pop on empty stack");
+        self._top = self._top->parent;
+    }
+
+    fn top(self) -> *LexicalScope { return self._top; }
+
+    fn bind(self, name: string, decl: *Decl, range: SourceRange) {
+        assert((self._top != &null) && r"ScopeStack::bind with no active scope");
+        self._top->bind(name, decl, range);
+    }
+
+    /// Walks the lexical stack bottom-up. Returns the innermost binding,
+    /// or null if not found. Caller falls back to HoistedScope.
+    fn lookup(self, name: string) -> *LocalBinding {
+        var s = self._top;
+        while s != &null {
+            var b = s->lookup_local(name);
+            if b != &null { return b; }
+            s = s->parent;
+        }
+        return &null;
+    }
+
+    /// Current decl context (from the top of stack).
+    fn current_dc(self) -> *DeclContext {
+        if self._top == &null { return &null; }
+        return self._top->dc;
+    }
+}
 
 
 class ASTParse
   derives ExprParse::<ASTParse>,
           StmtParse::<ASTParse>,
           DeclParse::<ASTParse>,
-          TypeParse::<ASTParse>,
-          AnnotParse::<ASTParse> {
+          TypeParse::<ASTParse> {
 
             
     // --- Context handles ----------------------------------------------------
@@ -94,25 +185,28 @@ class ASTParse
     // --- Token state --------------------------------------------------------
     pub var span:    TokenSpan;
     pub var c_idx:   usize = 0;
+    pub var imm:     obs::<ImmediateTable>;
     pub var current: obs::<Token>;
     pub var peek_t:  obs::<Token>;
-
-    // --- Recovery state -----------------------------------------------------
-    pub var depth:            u32 = 0;           // recursion depth guard
-    pub var max_depth:        u32 = 256;
-    pub var in_recovery:      bool = false;      // cascading-suppression flag
-    pub var error_count_base: u32 = 0;           // diag count at parse start
 
     // --- Output -------------------------------------------------------------
     pub var tu: obs::<TranslationUnit>;
 
-    fn ASTParse(self, ctx: *ASTContext, cc: *CodeCompleteConsumer) {
+    // --- Recovery state -----------------------------------------------------
+    pub var depth:            u32 = 0;           // recursion depth guard
+    pub var max_depth:        u32 = 256;
+    pub var error_count_base: u32 = 0;           // diag count at parse start
+    pub var in_recovery:      bool = false;      // cascading-suppression flag
+
+
+    fn ASTParse(self, ctx: *ASTContext, cc: *CodeCompleteConsumer, g_scope: *GlobalHoistedScope) {
         self.ctx   = ctx;
         self.diag  = ctx->diags;
+        self.imm   = ctx->get_imm_table();
         self.cc    = cc;
         self.span  = ctx->get_tokens();
-        self.scope = ScopeStack(ctx);
-        self.tu    = ctx->alloc_init::<TranslationUnit>(ctx, ctx->fid);
+        self.tu    = ctx->alloc_init::<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, g_scope);
+        self.scope.set_ctx(ctx);
 
         self.current = (self.span.get(0)) if (self.span.size() > 0) else (&null);
         self.peek_t  = (self.span.get(1)) if (self.span.size() > 1) else (&null);
@@ -121,33 +215,27 @@ class ASTParse
         self.error_count_base = self.diag->error_count();
     }
 
-    /// Entry point. Parses the entire file, returns the root TU.
-    /// On any fatal failure still returns a (possibly partial) TU.
     fn parse(self) -> *TranslationUnit {
         var program = self.ctx->alloc_init::<Program>(self.ctx->fid, self.ctx);
-        self.tu->set_program(program);
+        self.tu->program = program;           // direct assignment, not set_program()
 
-        // Push the TU's scope as the root lexical scope.
-        self.scope.push(ScopeKind::Function, self.tu); // TODO: dedicated TU ScopeKind
+        self.scope.push(ScopeKind::Function, self.tu);
 
         var iterations: usize = 0;
         var max_iter = self.span.size() << 2;
 
-        while !self.is_eof() {
-            ++iterations;
-            if iterations > max_iter {
-                // pathological guard same pattern as ASTIndex.
-                // TODO: emit diag.
-                break;
-            }
+        // while !self.is_eof() {
+        //     ++iterations;
+        //     if iterations > max_iter { break; }
 
-            var item = self.dispatch_top_level();
-            if item.kind == TopLevelKind::Decl && item.as_decl() == &null {
-                break; // EOF or unrecoverable
-            }
+        //     var item = self.dispatch_top_level();
+        //     if item.kind == TopLevelKind::Decl && item.as_decl() == &null {
+        //         break;
+        //     }
 
-            program->add_item(item);
-        }
+        //     program->add_item(item);
+        // }
+        self.parse_type();
 
         self.scope.pop();
 
@@ -155,29 +243,25 @@ class ASTParse
         return self.tu;
     }
 
-    /// Dispatches to the right sub-parser based on current token.
-    /// Produces a TopLevelItem. Recovery wraps every branch.
-    priv fn dispatch_top_level(self) -> TopLevelItem {
-        // TODO: mirrors ASTIndex::dispatch_decl but builds full nodes.
-        // Skeleton stub: advance and return an empty item.
+    pub fn dispatch_top_level(self) -> TopLevelItem {
         self.advance();
         return TopLevelItem::from_decl(&null);
     }
 
     // --- Token primitives (shared by all mixins) ----------------------------
 
-    inline priv fn advance(self) -> *Token {
+    inline pub fn advance(self) -> *Token {
         var tok = self.current;
 
-        if (self.c_idx + 1) < (self._span.size()) {
+        if (self.c_idx + 1) < (self.span.size()) {
             self.c_idx += 1;
-            self.current = self._span.get(self.c_idx);
+            self.current = self.span.get(self.c_idx);
         } else {
             self.current = &null; // or keep pointing at EOF, but stop incrementing
         }
 
-        if (self.c_idx + 1) < (self._span.size()) {
-            self.peek_t = self._span.get(self.c_idx + 1);
+        if (self.c_idx + 1) < (self.span.size()) {
+            self.peek_t = self.span.get(self.c_idx + 1);
         } else {
             self.peek_t = &null;
         }
@@ -185,22 +269,22 @@ class ASTParse
         return tok;
     }
 
-    inline priv fn retreat(self) {
+    inline pub fn retreat(self) {
         if self.c_idx > 0 {
             self.c_idx -= 1;
-            self.current = self._span.get(self.c_idx);
+            self.current = self.span.get(self.c_idx);
         } else {
             self.current = &null; // or keep pointing at start, but stop decrementing
         }
 
         if self.c_idx > 0 {
-            self.peek_t = self._span.get(self.c_idx - 1);
+            self.peek_t = self.span.get(self.c_idx - 1);
         } else {
             self.peek_t = &null;
         }
     }
 
-    inline priv fn check(self, kind: TokenKind)  -> bool {
+    inline pub fn check(self, kind: TokenKind)  -> bool {
         var tok = self.current;
         if tok == &null {
             return false;
@@ -222,7 +306,7 @@ class ASTParse
         return resolved_kind == kind;
     }
 
-    inline priv fn match_tok(self, kind: TokenKind) -> bool {
+    inline pub fn match_tok(self, kind: TokenKind) -> bool {
         if self.check(kind) {
             self.advance();
             return true;
@@ -231,7 +315,7 @@ class ASTParse
         return false;
     }
 
-    inline priv fn expect(self, kind: TokenKind) -> Token {
+    inline pub fn expect(self, kind: TokenKind) -> Token {
         var tok = self.current;
         var resolved = self.resolve_deep(tok);
         var resolved_kind = resolved.kind;
@@ -251,12 +335,12 @@ class ASTParse
             return resolved;
         }
 
-        self._diag->report(DiagID::S045E, tok->range.start,
+        self.diag->report(DiagID::S045E, tok->range.start,
             f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
         ).first(tok->range).emit();
 
         if tok->kind == TokenKind::TkMacroExpand {
-            var builder = self._diag->report(DiagID::S045N, tok->range.start,
+            var builder = self.diag->report(DiagID::S045N, tok->range.start,
                 f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
             ).first(tok->range);
             self.attach_macro_expansion_chain(&builder, tok);
@@ -270,14 +354,14 @@ class ASTParse
         return err;
     }
 
-    inline priv fn resolve_deep(self, tok: *Token) -> Token {
+    inline pub fn resolve_deep(self, tok: *Token) -> Token {
         var kind = tok->kind;
         var imm  = tok->imm;
         var iter: u32 = 0;
 
         while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
-            if (iter) >= (self._ctx->ci->pp.max_depth) {
-                self._diag->report(DiagID::I002F, tok->range.start,
+            if (iter) >= (self.ctx->ci->pp.max_depth) {
+                self.diag->report(DiagID::I002F, tok->range.start,
                     "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
                 ).first(tok->range)
                  .note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
@@ -289,7 +373,7 @@ class ASTParse
                 return Token(tok->range, TokenKind::TkMacroExpand, imm);
             }
 
-            var info = self._imm->get::<Immediate::MacroExpansionInfo>(imm);
+            var info = self.imm->get::<Immediate::MacroExpansionInfo>(imm);
             kind     = info->original_kind;
             imm      = info->original_imm;
             iter    += 1;
@@ -298,11 +382,11 @@ class ASTParse
         return Token(tok->range, kind, imm);
     }
 
-    inline priv fn resolve_kind_deep(self, tok: *Token) -> TokenKind {
+    inline pub fn resolve_kind_deep(self, tok: *Token) -> TokenKind {
         return self.resolve_deep(tok).kind;
     }
 
-    inline priv fn resolve_kind_shallow(self, tok: *Token) -> TokenKind {
+    inline pub fn resolve_kind_shallow(self, tok: *Token) -> TokenKind {
         if tok == &null {
             return TokenKind::TkUnknown;
         }
@@ -315,15 +399,15 @@ class ASTParse
             return TokenKind::TkMacroExpand;
         }
 
-        if self._imm == &null {
+        if self.imm == &null {
             return TokenKind::TkUnknown;
         }
 
-        var info = self._imm->get::<Immediate::MacroExpansionInfo>(tok->imm);
+        var info = self.imm->get::<Immediate::MacroExpansionInfo>(tok->imm);
         return info->original_kind;
     }
 
-    inline priv fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
+    inline pub fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
         if tok == &null {
             return;
         }
@@ -337,7 +421,7 @@ class ASTParse
         var depth: u32 = 0;
 
         while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
-            if depth >= static_cast::<u32>(self._ctx->ci->pp.max_backtrace) {
+            if depth >= static_cast::<u32>(self.ctx->ci->pp.max_backtrace) {
                 builder->note(DiagID::S045N, tok->range.start,
                     f"macro expansion chain truncated after {depth} levels"
                 );
@@ -351,11 +435,11 @@ class ASTParse
                 return;
             }
 
-            if self._imm == &null {
+            if self.imm == &null {
                 return;
             }
 
-            var info = self._imm->get::<Immediate::MacroExpansionInfo>(imm);
+            var info = self.imm->get::<Immediate::MacroExpansionInfo>(imm);
 
             builder->note(DiagID::S045N, info->def_range.start,
                 f"expanded from macro defined here (depth {depth})"
@@ -367,14 +451,14 @@ class ASTParse
         }
     }
 
-    inline priv fn is_eof(self) -> bool {
+    inline pub fn is_eof(self) -> bool {
         return (self.current == &null)
             || ((self.current->kind) == TokenKind::TkEof);
     }
 
-    inline priv fn first(self) -> *Token {
-        if (self._span.size()) > 0 {
-            return self._span.get(0);
+    inline pub fn first(self) -> *Token {
+        if (self.span.size()) > 0 {
+            return self.span.get(0);
         }
 
         return &null;
@@ -437,22 +521,15 @@ class ASTParse
     /// Not used by parser hot paths (parser uses HoistedScope directly for
     /// disambiguation); provided for completion and hover consumers.
     fn lookup(self, name: string) -> ParentRef {
-        // 1. lexical stack
         var local = self.scope.lookup(name);
         if local != &null {
             return ParentRef::from_decl(local->decl);
         }
 
-        // 2. hoisted scope
         var hr = self.ctx->hoisted->lookup(name);
         if hr.found() {
-            var entry = hr.first();
-            if entry->decl.decl != &null {
-                return ParentRef::from_decl(entry->decl.decl);
-            }
+            return ParentRef::from_hoisted(hr.first());
         }
-
-        // 3. TODO: fall through to GlobalHoistedScope for imported names.
 
         return ParentRef::none();
     }
