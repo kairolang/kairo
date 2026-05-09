@@ -21,50 +21,210 @@ import TokenKind::*;
 class <T> TypeParse { // T = ASTParse
     var current_attr_stack: vec::<Token>;
 
+
+    //QUESTION - is it better to just store dyn in a variable instead of calling the function everytime 
     priv inline fn dyn(self) -> *T {
         return static_cast::<*T>(&self);
     }
 
     // ------------------------------------------------------------------
-    //  parse_type — top-level type expression entry point
+    //  parse_type top-level type expression entry point
     // ------------------------------------------------------------------
     
-    fn parse_type(self) -> *Type {
         /// all the starters we can  have:
         /// - `*` for pointer types
         /// - `atomic` for atomic types
         /// - `(` for tuple types or grouping types
         /// - `const`/`unsafe`/`eval`/`async` for type qualifiers (modifiers)
-        /// - an identifier for nominal types (structs, enums, type aliases, etc.)
+        /// - an identifier for nominal types
         /// - `[` for either list or array type
         /// - `fn` for function types
         /// - `...` for variadic types (e.g. varargs in C)
         /// these are all primary types
-        var ty: *Type = &null;
+    fn parse_type(self) -> *Type {
         var cur = dyn()->current;
-        
-        if cur == &null {
-            return &null; // caller handles error
+        if (cur == &null) || (dyn()->is_eof()) {
+            return &null;
         }
 
-        while !(dyn()->is_eof()) {
-            cur = dyn()->current;
+        // --- leading qualifiers accumulate into a TypeQual bitfield ---
+        var quals = TypeQual::<Type>();
+        quals.init_spans(&(dyn()->ctx->nodes));
 
-            switch cur->kind {
-                case TokenKind::OpStar {
-                     0;
+        var parsing_quals = true;
+        while parsing_quals && !dyn()->is_eof() {
+            cur = dyn()->current;
+            if cur == &null { break; }
+
+            var kind = dyn()->resolve_kind_deep(cur);
+            switch kind {
+                case TokenKind::KwConst {
+                    quals.add_const(cur->range);
+                    dyn()->advance();
+                }
+                case TokenKind::KwUnsafe {
+                    quals.add_unsafe(cur->range);
+                    dyn()->advance();
+                }
+                case TokenKind::KwEval {
+                    quals.add_eval(cur->range);
+                    dyn()->advance();
+                }
+                case TokenKind::KwAtomic {
+                    quals.add_atomic(cur->range);
+                    dyn()->advance();
+                }
+                case TokenKind::KwAsync {
+                    quals.add_async(cur->range);
+                    dyn()->advance();
+                }
+                case TokenKind::KwVolatile {
+                    quals.add_volatile(cur->range);
+                    dyn()->advance();
+                }
+                default {
+                    parsing_quals = false;
                 }
             }
         }
+
+        // --- primary type ---
+        var ty: *Type = &null;
+        cur = dyn()->current;
+        if cur == &null { return &null; }
+        var kind = dyn()->resolve_kind_deep(cur);
+
+        switch kind {
+            
+            case TokenKind::OpStar {
+                ty = self.parse_pointer_type();
+            }
+            
+            case TokenKind::OpEllipsis {
+                0;
+            }
+
+            case TokenKind::OpLBrace {
+                0;
+            }
+
+            case TokenKind::OpLParen {
+                0;
+            }
+
+            case TokenKind::OpLSquare {
+                0;
+            }
+
+            case TokenKind::LitIdentifier {
+                ty = self.parse_named_type();
+            }
+
+            default {
+                dyn()->diag->report(DiagID::S045E, cur->range.start,
+                    f"expected type, found '{token_kind_to_readable_string(kind)}' "
+                ).first(cur->range).emit();
+                return &null;
+            }
+        }
+
+        if ty == &null { // something broke if we got here
+            std::eprint(f"--- IGNORE --- TypeParse::parse_type: failed to parse type at {cur->range}");
+            return &null;
+        }
+
+        // --- apply accumulated qualifiers to the parsed type ---
+        if quals.has_any_qualifiers() {
+            ty->merge_with_spans(quals, &(dyn()->ctx->nodes));
+        }
+
+        // --- apply any leading annotations from current_attr_stack ---
+        if self.current_attr_stack.size() > 0 {
+            ty->annotations.set_allocator(&(dyn()->ctx->nodes));
+            for var i: usize = 0; i < self.current_attr_stack.size(); ++i {
+                var attr_tok = self.current_attr_stack[i];
+                var attr_name = dyn()->ctx->hoisted->intern(
+                    dyn()->ctx->sm->get_text(attr_tok.range)
+                );
+                ty->add_attribute(attr_name, attr_tok.range);
+            }
+            self.current_attr_stack.clear();
+        }
+
+        return ty;
     }
     
-
     fn parse_pointer_type(self) -> *PointerType {
-        // expects current token to be `*`
-        // parses `*T` where T is any type
-        // returns a PointerType node
+        // precondition: current token is `*`
+        var star_tok = dyn()->advance(); // consume `*`
+        var start_range = star_tok->range;
 
-        var pty: *PointerType = &null;
+        // parse_type() recurses handles `**T`, `*const T`, etc.
+        // because parse_type() will see `const` as a qualifier and `*` as another pointer
+        var pointee = self.parse_type();
+        if pointee == &null {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected type after '*' "
+            ).first(start_range).emit();
+        }
 
+        var pty = PointerType::create(
+            dyn()->ctx,
+            start_range | (pointee->range),
+            pointee
+        );
+
+        // TypeQual is inherited by PointerType through Type
+        // quals were already parsed and applied by parse_type() caller
+        // so pty starts clean the *outer* parse_type() call merges quals onto
+        // whatever we return here
+
+        // Annotation init allocator must be set before any add_* calls
+        pty->annotations.set_allocator(&(dyn()->ctx->nodes));
+
+        return pty;
+    }
+
+    fn parse_named_type(self) -> *NamedType {
+        // precondition: current token is an identifier
+        var id_tok = dyn()->advance(); // consume identifier
+        var name = dyn()->ctx->hoisted->intern(
+            dyn()->ctx->sm->get_text(id_tok->range)
+        );
+
+        var nte = NamedIdentExpr::create(
+            dyn()->ctx,
+            id_tok->range,
+            *id_tok
+        );
+
+        var nt = NamedType::create(
+            dyn()->ctx,
+            id_tok->range,
+            nte
+        );
+
+        // TypeQual is inherited by NamedType through Type
+        // quals were already parsed and applied by parse_type() caller
+        // so nt starts clean the *outer* parse_type() call merges quals onto
+        // whatever we return here
+        
+        // Annotation init allocator must be set before any add_* calls
+        nte->annotations.set_allocator(&(dyn()->ctx->nodes));
+        nt->annotations.set_allocator(&(dyn()->ctx->nodes));
+        return nt;
     }
 }
+/*
+Comnpilerinstance: one job - call ASTParse with a valid ASTContext (which holds the ASTIndex graph) and GlobalHoistedScope.
+ASTParse::parse() returns a TranslationUnitDecl
+ASTParse uses a ScopeStack to manage the current DeclContext for name lookup and error reporting. It also uses the ASTContext to create new AST nodes and intern types.
+The TypeParse mixin provides the logic to parse type expressions, which can be invoked from DeclParse when parsing variable declarations, function signatures, etc. It uses the current token stream and the AST
+
+
+
+
+
+
+
+*/

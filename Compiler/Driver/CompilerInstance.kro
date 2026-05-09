@@ -114,6 +114,7 @@ import Driver::TUResult::*;
 import Driver::TUStage::*;
 import Preprocessor::Preprocessor::*;
 import AST::ASTIndex::*;
+import Parser::ASTParse::*;
 import AST::GlobalHoistedScope::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
@@ -604,9 +605,10 @@ fn FrontendAction::_parse() -> bool {
     var fids = imp->get_processed_fids();
 
     for fid: u32 in fids {
-        __inline_cpp("
+        inline "c++" {
             auto captured_fid  = fid;
             auto captured_self = this;
+            
             _ci->pool()->enqueue([captured_fid, captured_self]() {
                 captured_self->_global_scope->index_file(
                     captured_fid,
@@ -617,10 +619,18 @@ fn FrontendAction::_parse() -> bool {
                     &(captured_self->_ci->invocation())
                 );
             }, u8(5));
-        ");
+        }
     }
 
     self._ci->pool()->wait_group(u8(5));
+
+    var ctx = self._global_scope->get_context(self._file_id);
+    if ctx == &null {
+        return self._fatal(f"no ASTContext for fid {self._file_id}");
+    }
+
+    var parser = ASTParse(ctx, &null, self._global_scope);
+    var tu = parser.parse();
 
     if self._ci->invocation().frontend.print_ast {
         std::print(f"-- AST: {self.path.full_path()} (not yet implemented) --");
@@ -697,20 +707,13 @@ fn FrontendAction::_dump_tokens() {
             else                                                                { text = "<sentinel>";    }
         } else if kind == TokenKind::LitInt && imm_tbl != &null {
             var int_data = imm_tbl->get::<Immediate::IntData>(imm);
-            /*
-            pub var body:     SourceRange;
-            pub var prefix:   SourceRange;
-            pub var suffix:   SourceRange;
-
-            pub var value_lo: u64;
-            pub var value_hi: u64;
-            pub var big:      *BigInt = &null;
-
-            pub var bits:     u16;
-            pub var base:     u8;
-            pub var flags:    u8;
-            */
-            text = f"[body: {sm->get_text(int_data->body)},";''
+            // text = f"[body: {sm->get_text(int_data->body)},";
+            // text += f" prefix: {sm->get_text(int_data->prefix)},";
+            // text += f" suffix: {sm->get_text(int_data->suffix)},";
+            text = f" value: {int_data->value_hi}:{int_data->value_lo}";
+            // text += f" bits: {int_data->bits},";
+            // text += f" base: {int_data->base},";
+            // text += f" flags: {int_data->flags}]";
         } else if (kind == TokenKind::LitIdentifier)
                && (imm > 0)
                && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
