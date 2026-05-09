@@ -54,12 +54,12 @@ fn propagate_flags(parent: *Type, child: *Type) {
 ///  Sema resolves name to a TypeDecl and sets canonical.
 /// ============================================================================
 class NamedType derives Type {
-    pub var name: NamedIdentExpr;
+    pub var name: *NamedIdentExpr;
 
     static fn create(
         ctx:   *ASTContext,
         range: SourceRange,
-        name:  NamedIdentExpr
+        name:  *NamedIdentExpr
     ) -> *NamedType {
         var node         = ctx->alloc::<NamedType>();
         node->kind       = TypeKind::NamedType;
@@ -96,13 +96,13 @@ class NamedType derives Type {
 /// ============================================================================
 class DependentNameType derives Type {
     pub var qualifier: *Type;        ///< The dependent prefix, e.g. T in T::Foo.
-    pub var name:      NamedIdentExpr; ///< The member name, e.g. Foo.
+    pub var name:      *NamedIdentExpr; ///< The member name, e.g. Foo.
 
     static fn create(
         ctx:       *ASTContext,
         range:     SourceRange,
         qualifier: *Type,
-        name:      NamedIdentExpr
+        name:      *NamedIdentExpr
     ) -> *DependentNameType {
         var node         = ctx->alloc::<DependentNameType>();
         node->kind       = TypeKind::DependentNameType;
@@ -145,14 +145,14 @@ class DependentNameType derives Type {
 ///  Always dependent. Sema substitutes at instantiation.
 /// ============================================================================
 class GenericParamType derives Type {
-    pub var param_name: NamedIdentExpr; ///< The declared param name, e.g. T.
+    pub var param_name: *NamedIdentExpr; ///< The declared param name, e.g. T.
     pub var param_index: u32;           ///< Index in the generic param list.
     pub var is_pack:     bool;          ///< True if this is a variadic pack param ...T.
 
     static fn create(
         ctx:         *ASTContext,
         range:       SourceRange,
-        param_name:  NamedIdentExpr,
+        param_name:  *NamedIdentExpr,
         param_index: u32,
         is_pack:     bool
     ) -> *GenericParamType {
