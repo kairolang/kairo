@@ -17,7 +17,6 @@
 
 import ASTNode::Base::*;
 import ASTNode::PrimaryExpressions::*;
-import AST::DeclContextKind::*;
 import AST::ASTContext::*;
 import ASTNode::Program::*;
 import Diag::DiagEngine::*;

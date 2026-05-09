@@ -136,6 +136,14 @@ class <T> TypeQual {
         EffectMask = (IsAsync | IsYield),
     }
 
+    inline "c++" {
+        friend Flags operator|(Flags a, Flags b) { return static_cast<Flags>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b)); }
+        friend Flags operator&(Flags a, Flags b) { return static_cast<Flags>(static_cast<uint16_t>(a) & static_cast<uint16_t>(b)); }
+        friend Flags operator~(Flags a)          { return static_cast<Flags>(~static_cast<uint16_t>(a)); }
+        friend Flags& operator|=(Flags& a, Flags b) { a = a | b; return a; }
+        friend Flags& operator&=(Flags& a, Flags b) { a = a & b; return a; }
+    }
+
     pub var flags: Flags     = Flags::None;
     pub var ext:   *ExtQuals = &null;           // null unless HasExtQuals set
     pub var spans: ArenaList::<QualSpan>;       // per-qualifier source ranges
@@ -217,64 +225,64 @@ class <T> TypeQual {
     // -----------------------------------------------------------------------
 
     fn add_const(self, range: SourceRange) {
-        self.flags |= Flags::IsConst;
+        (self.flags) |= (Flags::IsConst);
         self.spans.push(QualSpan(static_cast::<u16>(Flags::IsConst), range));
     }
-    fn add_const(self) { self.flags |= Flags::IsConst; }
+    fn add_const(self) { (self.flags) |= (Flags::IsConst); }
 
     fn add_volatile(self, range: SourceRange) {
-        self.flags |= Flags::IsVolatile;
+        (self.flags) |= (Flags::IsVolatile);
         self.spans.push(QualSpan(static_cast::<u16>(Flags::IsVolatile), range));
     }
-    fn add_volatile(self) { self.flags |= Flags::IsVolatile; }
+    fn add_volatile(self) { (self.flags) |= (Flags::IsVolatile); }
 
     fn add_restrict(self, range: SourceRange) {
-        self.flags |= Flags::IsRestrict;
+        (self.flags) |= (Flags::IsRestrict);
         self.spans.push(QualSpan(static_cast::<u16>(Flags::IsRestrict), range));
     }
-    fn add_restrict(self) { self.flags |= Flags::IsRestrict; }
+    fn add_restrict(self) { (self.flags) |= (Flags::IsRestrict); }
 
     fn add_atomic(self, range: SourceRange) {
-        self.flags |= Flags::IsAtomic;
+        (self.flags) |= (Flags::IsAtomic);
         self.spans.push(QualSpan(static_cast::<u16>(Flags::IsAtomic), range));
     }
-    fn add_atomic(self) { self.flags |= Flags::IsAtomic; }
+    fn add_atomic(self) { (self.flags) |= (Flags::IsAtomic); }
 
     fn add_unsafe(self, range: SourceRange) {
-        self.flags |= Flags::IsUnsafe;
+        (self.flags) |= (Flags::IsUnsafe);
         self.spans.push(QualSpan(static_cast::<u16>(Flags::IsUnsafe), range));
     }
-    fn add_unsafe(self) { self.flags |= Flags::IsUnsafe; }
+    fn add_unsafe(self) { (self.flags) |= (Flags::IsUnsafe); }
 
     fn add_eval(self, range: SourceRange) {
-        self.flags |= Flags::IsEval;
+        (self.flags) |= (Flags::IsEval);
         self.spans.push(QualSpan(static_cast::<u16>(Flags::IsEval), range));
     }
-    fn add_eval(self) { self.flags |= Flags::IsEval; }
+    fn add_eval(self) { (self.flags) |= (Flags::IsEval); }
 
     fn add_async(self, range: SourceRange) {
-        self.flags |= Flags::IsAsync;
+        (self.flags) |= (Flags::IsAsync);
         self.spans.push(QualSpan(static_cast::<u16>(Flags::IsAsync), range));
     }
-    fn add_async(self) { self.flags |= Flags::IsAsync; }
+    fn add_async(self) { (self.flags) |= (Flags::IsAsync); }
 
     fn add_yield(self, range: SourceRange) {
-        self.flags |= Flags::IsYield;
+        (self.flags) |= (Flags::IsYield);
         self.spans.push(QualSpan(static_cast::<u16>(Flags::IsYield), range));
     }
-    fn add_yield(self) { self.flags |= Flags::IsYield; }
+    fn add_yield(self) { (self.flags) |= (Flags::IsYield); }
 
     // --- Removal (spans are not removed from the list; queries just skip
     //     entries whose flag is no longer set) ---------------------------
 
-    fn remove_const(self)    { self.flags &= ~Flags::IsConst;    }
-    fn remove_volatile(self) { self.flags &= ~Flags::IsVolatile; }
-    fn remove_restrict(self) { self.flags &= ~Flags::IsRestrict; }
-    fn remove_atomic(self)   { self.flags &= ~Flags::IsAtomic;   }
-    fn remove_unsafe(self)   { self.flags &= ~Flags::IsUnsafe;   }
-    fn remove_eval(self)     { self.flags &= ~Flags::IsEval;     }
-    fn remove_async(self)    { self.flags &= ~Flags::IsAsync;    }
-    fn remove_yield(self)    { self.flags &= ~Flags::IsYield;    }
+    fn remove_const(self)    { (self.flags) &= (~Flags::IsConst);    }
+    fn remove_volatile(self) { (self.flags) &= (~Flags::IsVolatile); }
+    fn remove_restrict(self) { (self.flags) &= (~Flags::IsRestrict); }
+    fn remove_atomic(self)   { (self.flags) &= (~Flags::IsAtomic);   }
+    fn remove_unsafe(self)   { (self.flags) &= (~Flags::IsUnsafe);   }
+    fn remove_eval(self)     { (self.flags) &= (~Flags::IsEval);     }
+    fn remove_async(self)    { (self.flags) &= (~Flags::IsAsync);    }
+    fn remove_yield(self)    { (self.flags) &= (~Flags::IsYield);    }
 
     /// Set or replace the address space. Allocates ExtQuals if needed.
     fn set_address_space(self, space: AddressSpace, range: SourceRange, new_ext: *ExtQuals) {
@@ -287,35 +295,35 @@ class <T> TypeQual {
             self.ext->address_space       = space;
             self.ext->address_space_range = range;
         }
-        self.flags |= Flags::HasExtQuals;
+        (self.flags) |= (Flags::HasExtQuals);
     }
 
     /// Remove the address space qualifier. ExtQuals is abandoned (arena
     /// reclaims on TU reset); pointer is nulled so queries stay consistent.
     fn remove_address_space(self) {
         self.ext    = &null;
-        self.flags &= ~Flags::HasExtQuals;
+        (self.flags) &= (~Flags::HasExtQuals);
     }
 
     /// Strip C-style CVR (const, volatile, restrict). Preserves atomic,
     /// unsafe, effects, address space.
     fn remove_cvr(self) {
-        self.flags &= ~Flags::CVRMask;
+        (self.flags) &= (~Flags::CVRMask);
     }
 
     /// Strip all data qualifiers. Preserves effects, address space.
     fn remove_data(self) {
-        self.flags &= ~Flags::DataMask;
+        (self.flags) &= (~Flags::DataMask);
     }
 
     /// Strip effect qualifiers. Preserves data, address space.
     fn remove_effects(self) {
-        self.flags &= ~Flags::EffectMask;
+        (self.flags) &= (~Flags::EffectMask);
     }
 
     /// Strip everything including address space. Span list is cleared too.
     fn remove_all(self) {
-        self.flags = Flags::None;
+        (self.flags) = (Flags::None);
         self.ext   = &null;
         self.spans.clear();
     }
