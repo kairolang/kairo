@@ -206,6 +206,7 @@ enum TokenKind derives u32 {
     KwAsync      = compute_hash::<r"async">(),     // "async"
     KwInline     = compute_hash::<r"inline">(),    // "inline"
     KwAtomic     = compute_hash::<r"atomic">(),    // "atomic"
+    KwVolatile   = compute_hash::<r"volatile">(),  // "volatile"
 
     /// Special identifiers
     KwSelf       = compute_hash::<r"self">(),      // "self"
@@ -283,7 +284,6 @@ enum TokenKind derives u32 {
     BiModule       = compute_hash::<r"__module__">(),   // "__module__"
 
     /// builtin attributes
-    BiVolatile     = compute_hash::<r"volatile">(),     // "volatile"
     BiPacked       = compute_hash::<r"packed">(),       // "packed"
     BiUnlikely     = compute_hash::<r"unlikely">(),     // "unlikely"
     BiLikely       = compute_hash::<r"likely">(),       // "likely"
@@ -384,7 +384,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::BiColumn:           case TokenKind::KwXorEq:
         case TokenKind::BiFunction:         case TokenKind::AtVoid:
         case TokenKind::BiModule:           case TokenKind::AtBool:
-        case TokenKind::BiVolatile:         case TokenKind::AtUsize:
+        case TokenKind::KwVolatile:         case TokenKind::AtUsize:
         case TokenKind::BiPacked:           case TokenKind::AtIsize:
         case TokenKind::BiUnlikely:         case TokenKind::AtF32:
         case TokenKind::BiLikely:           case TokenKind::AtF64:
@@ -577,7 +577,7 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::BiColumn {              return "bi-column"; }
         case TokenKind::BiFunction {            return "bi-function"; }
         case TokenKind::BiModule {              return "bi-module"; }
-        case TokenKind::BiVolatile {            return "bi-volatile"; }
+        case TokenKind::KwVolatile {            return "kw-volatile"; }
         case TokenKind::BiPacked {              return "bi-packed"; }
         case TokenKind::BiUnlikely {            return "bi-unlikely"; }
         case TokenKind::BiLikely {              return "bi-likely"; }
@@ -766,7 +766,7 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::BiColumn              { return "@__column__"; }
         case TokenKind::BiFunction            { return "@__function__"; }
         case TokenKind::BiModule              { return "@__module__"; }
-        case TokenKind::BiVolatile            { return "@volatile"; }
+        case TokenKind::KwVolatile            { return "@volatile"; }
         case TokenKind::BiPacked              { return "@packed"; }
         case TokenKind::BiUnlikely            { return "@unlikely"; }
         case TokenKind::BiLikely              { return "@likely"; }
@@ -944,7 +944,7 @@ fn is_builtin(kind: TokenKind) -> bool {
         case TokenKind::BiColumn:     case TokenKind::BiExperimental:
         case TokenKind::BiFunction:   case TokenKind::BiForceInline:
         case TokenKind::BiModule:     case TokenKind::BiNoInline:
-        case TokenKind::BiVolatile:   case TokenKind::BiDeprecated:
+        case TokenKind::KwVolatile:   case TokenKind::BiDeprecated:
         case TokenKind::BiPacked:     case TokenKind::BiMustUse:
         case TokenKind::BiUnlikely:   case TokenKind::BiAlignAs:
             return true;
