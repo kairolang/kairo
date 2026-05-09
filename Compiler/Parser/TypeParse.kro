@@ -1,0 +1,70 @@
+// TypeParse.kro
+/// --- The Kairo Project ----------------------------------------------- ///
+///   Type expression parsing mixin.
+///
+///   Handles: *T, atomic T, Foo, Foo<T>, (T1, T2), (T) -> U
+///   (const/atomic/unsafe/eval/async are TypeQual flags, not wrapper nodes)
+///   Derives from ASTParse which provides: check, match_tok, expect,
+///   advance, ctx, diag, is_eof, current, peek_t, c_idx, depth, etc.
+///
+/// --------------------------------------------------------------------- ///
+
+import ASTNode::Base::*;
+import ASTNode::Types::*;
+import ASTNode::PrimaryExpressions::*;
+import AST::ASTContext::*;
+import Diag::DiagEngine::*;
+import Diag::DiagRegistry::*;
+import Source::SourceRange::*;
+import TokenKind::*;
+
+class <T> TypeParse { // T = ASTParse
+    var current_attr_stack: vec::<Token>;
+
+    priv inline fn dyn(self) -> *T {
+        return static_cast::<*T>(&self);
+    }
+
+    // ------------------------------------------------------------------
+    //  parse_type — top-level type expression entry point
+    // ------------------------------------------------------------------
+    
+    fn parse_type(self) -> *Type {
+        /// all the starters we can  have:
+        /// - `*` for pointer types
+        /// - `atomic` for atomic types
+        /// - `(` for tuple types or grouping types
+        /// - `const`/`unsafe`/`eval`/`async` for type qualifiers (modifiers)
+        /// - an identifier for nominal types (structs, enums, type aliases, etc.)
+        /// - `[` for either list or array type
+        /// - `fn` for function types
+        /// - `...` for variadic types (e.g. varargs in C)
+        /// these are all primary types
+        var ty: *Type = &null;
+        var cur = dyn()->current;
+        
+        if cur == &null {
+            return &null; // caller handles error
+        }
+
+        while !(dyn()->is_eof()) {
+            cur = dyn()->current;
+
+            switch cur->kind {
+                case TokenKind::OpStar {
+                     0;
+                }
+            }
+        }
+    }
+    
+
+    fn parse_pointer_type(self) -> *PointerType {
+        // expects current token to be `*`
+        // parses `*T` where T is any type
+        // returns a PointerType node
+
+        var pty: *PointerType = &null;
+
+    }
+}

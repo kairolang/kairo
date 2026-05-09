@@ -2618,34 +2618,6 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("lex pipe operators", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("|> <|", sm, pool, &test_diag);
-        var lexer = libcxx::get::<0>(res);
-        var fid = libcxx::get::<1>(res);
-        
-        finally { std::destroy(lexer); }
-        
-        if !lexer->lex(fid) { return "lexer failed to lex"; }
-        
-        var tokens = lexer->tokens();
-        if tokens->size() != 2 {
-            return dump_tokens(tokens, 2);
-        }
-        
-        if tokens->get(0)->kind != TokenKind::OpPipeGreater {
-            return f"token 0: expected OpPipeGreater, got {token_kind_to_readable_string(tokens->get(0)->kind)}";
-        }
-        if tokens->get(1)->kind != TokenKind::OpLessPipe {
-            return f"token 1: expected OpLessPipe, got {token_kind_to_readable_string(tokens->get(1)->kind)}";
-        }
-        
-        if lexer->has_errors() {
-            return f"lexer reported {lexer->error_count()} error(s) (check DiagEngine consumer for details)";
-        }
-
-        return "pass";
-    }, 1000);
-
     // =========================================================================
     // INTEGER LITERALS
     // =========================================================================

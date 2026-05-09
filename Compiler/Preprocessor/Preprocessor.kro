@@ -1768,8 +1768,7 @@ class PreProcessor {
         for fid in all_fids {
             var mod_path = graph.mod_paths[fid];
 
-            __inline_cpp("
-            {
+            inline "c++" {{
                 auto captured_fid      = fid;
                 auto captured_mod_path = mod_path;
                 auto captured_self     = this;
@@ -1781,7 +1780,7 @@ class PreProcessor {
                     }
 
                     Logger::info(Logger::Stage::Preprocessor,
-                        libcxx::format(L\"phase2 task: fid={} skip_list size before finalize={}\",
+                        libcxx::format(WIDE_STR("phase2 task: fid={} skip_list size before finalize={}"),
                             captured_fid,
                             captured_self->_skip_lists[captured_fid].size()));
                     skip_list_ptr->finalize();
@@ -1812,8 +1811,7 @@ class PreProcessor {
                         captured_self->_tcm->replace_tokens(captured_fid, expanded);
                     }
                 }, static_cast<uint8_t>(2));
-            }
-            ");
+            }}
         }
 
         t1 = libcxx::chrono::high_resolution_clock::now();
@@ -2271,9 +2269,17 @@ priv fn ImportProcessor::resolve_import(
             f"resolve_import: EARLY RETURN - path_strings empty after fallback");
         Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
         
+        var full_loc = parsed->import_loc;
+        for item in parsed->items {
+            var tok = item.name.token;
+            if tok != &null {
+                full_loc = ((full_loc) | (tok->range));
+            }
+        }
+
         self._diag->report(DiagCode(DiagID::R011E), parsed->import_loc.start,
             f"failed to resolve import path '{self.segments_to_string(path_strings)}' ")
-            .first(parsed->import_loc)
+            .first(full_loc)
             .emit();
         return;
     }

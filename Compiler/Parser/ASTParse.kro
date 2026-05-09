@@ -26,11 +26,11 @@ import Lexer::TokenSpan::*;
 import Lexer::Token::*;
 import Diag::DiagEngine::*;
 
-// import Parser::ExprParse::*;
-// import Parser::StmtParse::*;
-// import Parser::DeclParse::*;
+import Parser::ExprParse::*;
+import Parser::StmtParse::*;
+import Parser::DeclParse::*;
 import Parser::TypeParse::*;
-// import Parser::AnnotParse::*;
+import Parser::AnnotParse::*;
 
 /// Sync-set enum. Each parse_* function declares which tokens terminate
 /// error recovery when a parse failure occurs inside it.
@@ -77,7 +77,14 @@ enum SyncSet derives u32 {
 
 
 
-class ASTParse derives ExprParse, StmtParse, DeclParse, TypeParse, AnnotParse {
+class ASTParse
+  derives ExprParse::<ASTParse>,
+          StmtParse::<ASTParse>,
+          DeclParse::<ASTParse>,
+          TypeParse::<ASTParse>,
+          AnnotParse::<ASTParse> {
+
+            
     // --- Context handles ----------------------------------------------------
     pub var ctx:     obs::<ASTContext>;
     pub var diag:    obs::<DiagEngine>;
@@ -159,17 +166,42 @@ class ASTParse derives ExprParse, StmtParse, DeclParse, TypeParse, AnnotParse {
 
     // --- Token primitives (shared by all mixins) ----------------------------
 
-    inline fn advance(self) -> *Token {
-        // TODO
-        return &null;
+    inline priv fn advance(self) -> *Token {
+        var tok = self.current;
+
+        if (self.c_idx + 1) < (self._span.size()) {
+            self.c_idx += 1;
+            self.current = self._span.get(self.c_idx);
+        } else {
+            self.current = &null; // or keep pointing at EOF, but stop incrementing
+        }
+
+        if (self.c_idx + 1) < (self._span.size()) {
+            self.peek_t = self._span.get(self.c_idx + 1);
+        } else {
+            self.peek_t = &null;
+        }
+
+        return tok;
     }
 
-    inline fn retreat(self) {
-        // TODO
+    inline priv fn retreat(self) {
+        if self.c_idx > 0 {
+            self.c_idx -= 1;
+            self.current = self._span.get(self.c_idx);
+        } else {
+            self.current = &null; // or keep pointing at start, but stop decrementing
+        }
+
+        if self.c_idx > 0 {
+            self.peek_t = self._span.get(self.c_idx - 1);
+        } else {
+            self.peek_t = &null;
+        }
     }
 
     inline priv fn check(self, kind: TokenKind)  -> bool {
-        var tok = self.current();
+        var tok = self.current;
         if tok == &null {
             return false;
         }
@@ -200,7 +232,7 @@ class ASTParse derives ExprParse, StmtParse, DeclParse, TypeParse, AnnotParse {
     }
 
     inline priv fn expect(self, kind: TokenKind) -> Token {
-        var tok = self.current();
+        var tok = self.current;
         var resolved = self.resolve_deep(tok);
         var resolved_kind = resolved.kind;
 
@@ -336,8 +368,8 @@ class ASTParse derives ExprParse, StmtParse, DeclParse, TypeParse, AnnotParse {
     }
 
     inline priv fn is_eof(self) -> bool {
-        return (self._current == &null)
-            || ((self._current->kind) == TokenKind::TkEof);
+        return (self.current == &null)
+            || ((self.current->kind) == TokenKind::TkEof);
     }
 
     inline priv fn first(self) -> *Token {

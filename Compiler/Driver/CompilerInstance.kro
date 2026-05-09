@@ -697,7 +697,20 @@ fn FrontendAction::_dump_tokens() {
             else                                                                { text = "<sentinel>";    }
         } else if kind == TokenKind::LitInt && imm_tbl != &null {
             var int_data = imm_tbl->get::<Immediate::IntData>(imm);
-            text = f"{int_data->value_lo}";
+            /*
+            pub var body:     SourceRange;
+            pub var prefix:   SourceRange;
+            pub var suffix:   SourceRange;
+
+            pub var value_lo: u64;
+            pub var value_hi: u64;
+            pub var big:      *BigInt = &null;
+
+            pub var bits:     u16;
+            pub var base:     u8;
+            pub var flags:    u8;
+            */
+            text = f"[body: {sm->get_text(int_data->body)},";''
         } else if (kind == TokenKind::LitIdentifier)
                && (imm > 0)
                && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {

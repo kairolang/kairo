@@ -85,10 +85,11 @@ enum TokenKind derives u32 {
     OpRange       = compute_hash::<r"..">(),   // ".."    NOT (clang-compatible)
     OpRangeEqual  = compute_hash::<r"..=">(),  // "..="   NOT (clang-compatible)
 
-    OpTilde       = compute_hash::<r"~">(),    // "~"
-    OpQuestion    = compute_hash::<r"?">(),    // "?"     NOT (clang-compatible)
-    OpExclaim     = compute_hash::<r"!">(),    // "!"     NOT (clang-compatible)
-    OpAt          = compute_hash::<r"@">(),    // "@"     NOT (clang-compatible)
+    OpTilde            = compute_hash::<r"~">(),    // "~"
+    OpQuestion         = compute_hash::<r"?">(),    // "?"     NOT (clang-compatible)
+    OpQuestionQuestion = compute_hash::<r"??">(),   // "??"    NOT (clang-compatible)
+    OpExclaim          = compute_hash::<r"!">(),    // "!"     NOT (clang-compatible)
+    OpAt               = compute_hash::<r"@">(),    // "@"     NOT (clang-compatible)
 
     OpEqual       = compute_hash::<r"=">(),    // "="
     OpPlusPlus    = compute_hash::<r"++">(),   // "++"
@@ -138,8 +139,6 @@ enum TokenKind derives u32 {
     OpGreaterEqual     = compute_hash::<r">=">(),  // ">="
     OpAmpAmp           = compute_hash::<r"&&">(),  // "&&"
     OpPipePipe         = compute_hash::<r"||">(),  // "||"
-    OpPipeGreater      = compute_hash::<r"|>">(),  // (`a |> f(x)`  > `f(a, x)`)
-    OpLessPipe         = compute_hash::<r"<|">(),  // (`f <| a`  > `f(a)`)
 
     ///===----------------------------------------------------------------===///
     ///   Keywords (Clang subset + Kairo)
@@ -193,7 +192,7 @@ enum TokenKind derives u32 {
     KwImpl       = compute_hash::<r"impl">(),      // "impl"
     KwDerives    = compute_hash::<r"derives">(),   // "derives"
 
-    KwRequires   = compute_hash::<r"requires">(),  // "requires"
+    KwRequires   = compute_hash::<r"where">(),  // "where"
 
     /// Access control
     KwPub        = compute_hash::<r"pub">(),       // "pub"
@@ -328,7 +327,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::OpLessEqualGreater: case TokenKind::OpEqualEqualEqual:
         case TokenKind::OpExclaimEqual:     case TokenKind::OpLessLess:
         case TokenKind::OpLessEqual:        case TokenKind::OpGreaterEqual:
-        case TokenKind::OpPipePipe:         case TokenKind::OpPipeGreater:
+        case TokenKind::OpPipePipe:         case TokenKind::OpQuestionQuestion:
         case TokenKind::KwReturn:           case TokenKind::KwBreak:
         case TokenKind::KwPanic:            case TokenKind::KwMatch:
         case TokenKind::KwDefault:          case TokenKind::KwCatch:
@@ -360,7 +359,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::KwDerives:          case TokenKind::OpEqualEqual:
         case TokenKind::KwRequires:         case TokenKind::OpGreaterGreater:
         case TokenKind::KwPub:              case TokenKind::OpAmpAmp:
-        case TokenKind::KwPriv:             case TokenKind::OpLessPipe:
+        case TokenKind::KwPriv:
         case TokenKind::KwProt:             case TokenKind::KwContinue:
         case TokenKind::KwEval:             case TokenKind::KwCase:
         case TokenKind::KwUnsafe:           case TokenKind::KwTry:
@@ -484,8 +483,7 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::OpGreaterEqual {        return "op-greater-equal"; }
         case TokenKind::OpAmpAmp {              return "op-amp-amp"; }
         case TokenKind::OpPipePipe {            return "op-pipe-pipe"; }
-        case TokenKind::OpPipeGreater {         return "op-pipe-greater"; }
-        case TokenKind::OpLessPipe {            return "op-less-pipe"; }
+        case TokenKind::OpQuestionQuestion {    return "op-question-question"; }
         case TokenKind::KwReturn {              return "kw-return"; }
         case TokenKind::KwBreak {               return "kw-break"; }
         case TokenKind::KwContinue {            return "kw-continue"; }
@@ -674,8 +672,7 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::OpGreaterEqual        { return ">="; }
         case TokenKind::OpAmpAmp              { return "&&"; }
         case TokenKind::OpPipePipe            { return "||"; }
-        case TokenKind::OpPipeGreater         { return "|>"; }
-        case TokenKind::OpLessPipe            { return "<|"; }
+        case TokenKind::OpQuestionQuestion    { return "??"; }
         case TokenKind::KwReturn              { return "return"; }
         case TokenKind::KwBreak               { return "break"; }
         case TokenKind::KwContinue            { return "continue"; }
@@ -882,8 +879,8 @@ fn is_binary_operator(kind: TokenKind) -> bool {
         case TokenKind::OpGreaterEqual:     case TokenKind::OpArrow:
         case TokenKind::OpAmpAmp:           case TokenKind::OpArrowStar:
         case TokenKind::OpPipePipe:         case TokenKind::OpQuestionArrow:
-        case TokenKind::OpPipeGreater:      case TokenKind::OpQuestionArrowStar:
-        case TokenKind::OpLessPipe:         case TokenKind::OpQuestionDotStar:
+        case TokenKind::OpQuestionArrowStar: case TokenKind::OpQuestionQuestion:
+        case TokenKind::OpQuestionDotStar:
         case TokenKind::OpPlusEqual:        case TokenKind::OpCaretEqual:
         case TokenKind::OpMinusEqual:       case TokenKind::OpComma:
         case TokenKind::OpStarEqual:        case TokenKind::OpDot:
