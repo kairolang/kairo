@@ -70,13 +70,12 @@ class NamedType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *NamedType {
-        var node          = ctx->alloc::<NamedType>();
-        node->kind         = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
-        node->range        = range;
+        var node            = ctx->alloc::<NamedType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::NamedType;
+        node->range         = range;
         return node;
     }
 
@@ -120,12 +119,11 @@ class DependentNameType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *DependentNameType {
-        var node           = ctx->alloc::<DependentNameType>();
+        var node            = ctx->alloc::<DependentNameType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::DependentNameType;
         node->range         = range;
         return node;
     }
@@ -178,12 +176,11 @@ class GenericParamType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *GenericParamType {
-        var node           = ctx->alloc::<GenericParamType>();
+        var node            = ctx->alloc::<GenericParamType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::GenericParamType;
         node->range         = range;
         return node;
     }
@@ -228,12 +225,11 @@ class SubstGenericParamType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *SubstGenericParamType {
-        var node           = ctx->alloc::<SubstGenericParamType>();
+        var node            = ctx->alloc::<SubstGenericParamType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::SubstGenericParamType;
         node->range         = range;
         return node;
     }
@@ -277,12 +273,11 @@ class GenericInstanceType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *GenericInstanceType {
-        var node           = ctx->alloc::<GenericInstanceType>();
+        var node            = ctx->alloc::<GenericInstanceType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::GenericInstanceType;
         node->range         = range;
         return node;
     }
@@ -320,12 +315,11 @@ class TypeOfType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *TypeOfType {
-        var node           = ctx->alloc::<TypeOfType>();
+        var node            = ctx->alloc::<TypeOfType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::TypeOfType;
         node->range         = range;
         return node;
     }
@@ -367,12 +361,11 @@ class VariadicPackType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *VariadicPackType {
-        var node           = ctx->alloc::<VariadicPackType>();
+        var node            = ctx->alloc::<VariadicPackType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::VariadicPackType;
         node->range         = range;
         return node;
     }
@@ -423,12 +416,11 @@ class PackExpansionType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *PackExpansionType {
-        var node           = ctx->alloc::<PackExpansionType>();
+        var node            = ctx->alloc::<PackExpansionType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::PackExpansionType;
         node->range         = range;
         return node;
     }
@@ -466,12 +458,11 @@ class PointerType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *PointerType {
-        var node           = ctx->alloc::<PointerType>();
+        var node            = ctx->alloc::<PointerType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::PointerType;
         node->range         = range;
         return node;
     }
@@ -507,12 +498,11 @@ class NullableType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *NullableType {
-        var node           = ctx->alloc::<NullableType>();
+        var node            = ctx->alloc::<NullableType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::NullableType;
         node->range         = range;
         return node;
     }
@@ -550,12 +540,11 @@ class TupleType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *TupleType {
-        var node           = ctx->alloc::<TupleType>();
+        var node            = ctx->alloc::<TupleType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::TupleType;
         node->range         = range;
         return node;
     }
@@ -612,12 +601,11 @@ class FixedArrayType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *FixedArrayType {
-        var node           = ctx->alloc::<FixedArrayType>();
+        var node            = ctx->alloc::<FixedArrayType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::FixedArrayType;
         node->range         = range;
         return node;
     }
@@ -653,12 +641,11 @@ class VectorType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *VectorType {
-        var node           = ctx->alloc::<VectorType>();
+        var node            = ctx->alloc::<VectorType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::VectorType;
         node->range         = range;
         return node;
     }
@@ -698,12 +685,11 @@ class MapType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *MapType {
-        var node           = ctx->alloc::<MapType>();
+        var node            = ctx->alloc::<MapType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::MapType;
         node->range         = range;
         return node;
     }
@@ -739,12 +725,11 @@ class SetType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *SetType {
-        var node           = ctx->alloc::<SetType>();
+        var node            = ctx->alloc::<SetType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::SetType;
         node->range         = range;
         return node;
     }
@@ -779,12 +764,11 @@ class SelfType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *SelfType {
-        var node           = ctx->alloc::<SelfType>();
+        var node            = ctx->alloc::<SelfType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::SelfType;
         node->range         = range;
         return node;
     }
@@ -840,12 +824,11 @@ class FunctionPointerType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *FunctionPointerType {
-        var node           = ctx->alloc::<FunctionPointerType>();
+        var node            = ctx->alloc::<FunctionPointerType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::FunctionPointerType;
         node->range         = range;
         return node;
     }
@@ -881,12 +864,11 @@ class InferredType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *InferredType {
-        var node           = ctx->alloc::<InferredType>();
+        var node            = ctx->alloc::<InferredType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::InferredType;
         node->range         = range;
         return node;
     }
@@ -922,12 +904,11 @@ class CXXLValueRefType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *CXXLValueRefType {
-        var node           = ctx->alloc::<CXXLValueRefType>();
+        var node            = ctx->alloc::<CXXLValueRefType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::CXXLValueRefType;
         node->range         = range;
         return node;
     }
@@ -963,12 +944,11 @@ class CXXRValueRefType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *CXXRValueRefType {
-        var node           = ctx->alloc::<CXXRValueRefType>();
+        var node            = ctx->alloc::<CXXRValueRefType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::CXXRValueRefType;
         node->range         = range;
         return node;
     }
@@ -1004,12 +984,11 @@ class OpaqueFFIType derives Type {
 
     static fn create_error(
         ctx:           *ASTContext,
-        range:         SourceRange,
-        recovery_kind: TypeKind
+        range:         SourceRange
     ) -> *OpaqueFFIType {
         var node           = ctx->alloc::<OpaqueFFIType>();
         node->kind          = TypeKind::RecoveryType;
-        node->recovery_kind = recovery_kind;
+        node->recovery_kind = TypeKind::OpaqueFFIType;
         node->range         = range;
         return node;
     }
@@ -1035,6 +1014,17 @@ class TypeExpr derives Type {
         node->kind  = TypeKind::TypeExpr;
         node->range = range;
         node->expr  = expr;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *TypeExpr {
+        var node            = ctx->alloc::<TypeExpr>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::TypeExpr;
+        node->range         = range;
         return node;
     }
 

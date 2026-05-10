@@ -284,7 +284,43 @@ class ASTParse
         }
     }
 
-    inline pub fn check(self, kind: TokenKind)  -> bool {
+    inline pub fn prev(self) -> Token {
+        if self.c_idx > 0 {
+            return resolve_fully(self.span.get(self.c_idx - 1));
+        }
+        return Token();
+    }
+
+    inline pub fn cur(self) -> Token {
+        return resolve_fully(self.current);
+    }
+
+    inline pub fn peek(self) -> Token {
+        if (self.peek_t != &null) {
+            return resolve_fully(self.peek_t);
+        }
+
+        return Token();
+    }
+
+    inline pub fn resolve_fully(self, tok: *Token) -> Token {
+        if tok == &null {
+            return false;
+        }
+
+        var resolved = self.resolve_deep(tok);
+        var resolved_kind = resolved.kind;
+
+        if resolved_kind == TokenKind::AtComment { // we should be accumulating these into attributes, but for now just brush them off so they don't interfere with parsing
+            self.advance();
+            return self.resolve_fully(self.current);
+        }
+
+        resolved.kind = resolved_kind;
+        return resolved;
+    }
+
+    inline pub fn check(self, kind: TokenKind) -> bool {
         var tok = self.current;
         if tok == &null {
             return false;
@@ -293,17 +329,43 @@ class ASTParse
         var resolved = self.resolve_deep(tok);
         var resolved_kind = resolved.kind;
 
-        if resolved_kind == TokenKind::AtComment { // we brush these off
+        if resolved_kind == TokenKind::AtComment { // we should be accumulating these into attributes, but for now just brush them off so they don't interfere with parsing
             self.advance();
             return self.check(kind);
         }
 
         if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
                                                  // the imm of this token stores the
+            self.diag->report(DiagID::S045E, tok->range.start,
+                f"unexpected token found where '{token_kind_to_readable_string(static_cast::<TokenKind>(resolved.imm))}' expected"
+            ).first(tok->range).emit();
             resolved_kind = static_cast::<TokenKind>(resolved.imm);
         }
 
         return resolved_kind == kind;
+    }
+
+    inline pub fn check_prev(self, kind: TokenKind) -> bool {
+        var tok = self.prev();
+        if tok == &null {
+            return false;
+        }
+
+        var resolved = self.resolve_deep(tok);
+        var resolved_kind = resolved.kind;
+
+        if resolved_kind == TokenKind::AtComment { // we should be accumulating these into attributes, but for now just brush them off so they don't interfere with parsing
+            
+            return self.check(kind);
+        }
+
+        if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
+                                                 // the imm of this token stores the
+            self.diag->report(DiagID::S045E, tok->range.start,
+                f"unexpected token found where '{token_kind_to_readable_string(static_cast::<TokenKind>(resolved.imm))}' expected"
+            ).first(tok->range).emit();
+            resolved_kind = static_cast::<TokenKind>(resolved.imm);
+        }
     }
 
     inline pub fn match_tok(self, kind: TokenKind) -> bool {

@@ -20,9 +20,8 @@ import TokenKind::*;
 
 class <T> TypeParse { // T = ASTParse
     var current_attr_stack: vec::<Token>;
+    var inferred_type_counter: u32 = 0;
 
-
-    //QUESTION - is it better to just store dyn in a variable instead of calling the function everytime 
     priv inline fn dyn(self) -> *T {
         return static_cast::<*T>(&self);
     }
@@ -41,10 +40,27 @@ class <T> TypeParse { // T = ASTParse
         /// - `fn` for function types
         /// - `...` for variadic types (e.g. varargs in C)
         /// these are all primary types
-    fn parse_type(self) -> *Type {
+    fn parse_type(self, is_inferred: bool = false) -> *Type {
         var cur = dyn()->current;
         if (cur == &null) || (dyn()->is_eof()) {
             return &null;
+        }
+
+        if is_inferred {
+            var prev_tok = dyn()->prev();
+            if prev_tok == &null {
+                dyn()->diag->report(DiagID::S045E, cur->range.start,
+                    "unexpected start of input, expected expression"
+                ).emit();
+                return &null;
+            }
+            var rt = InferredType::create(
+                dyn()->ctx,
+                prev_tok->range,
+                inferred_type_counter
+            );
+            ++inferred_type_counter;
+            return rt;
         }
 
         // --- leading qualifiers accumulate into a TypeQual bitfield ---
@@ -95,7 +111,6 @@ class <T> TypeParse { // T = ASTParse
         var kind = dyn()->resolve_kind_deep(cur);
 
         switch kind {
-            
             case TokenKind::OpStar {
                 ty = self.parse_pointer_type();
             }
@@ -108,8 +123,8 @@ class <T> TypeParse { // T = ASTParse
                 0;
             }
 
-            case TokenKind::OpLParen {
-                0;
+            case TokenKind::OpLParen { // tuple or grouping, tuple if we have a comma after a type, grouping if not
+                ty = self.dispatch_tuple_grouping_disambiguate();
             }
 
             case TokenKind::OpLSquare {
@@ -117,7 +132,7 @@ class <T> TypeParse { // T = ASTParse
             }
 
             case TokenKind::LitIdentifier {
-                ty = self.parse_named_type();
+                ty = self.parse_qual_type();
             }
 
             default {
@@ -130,7 +145,8 @@ class <T> TypeParse { // T = ASTParse
 
         if ty == &null { // something broke if we got here
             std::eprint(f"--- IGNORE --- TypeParse::parse_type: failed to parse type at {cur->range}");
-            return &null;
+            return &null; // this is the only case we return null, all other cases have enough context
+                          // to emit a valid node and clean diag.
         }
 
         // --- apply accumulated qualifiers to the parsed type ---
@@ -150,6 +166,9 @@ class <T> TypeParse { // T = ASTParse
             }
             self.current_attr_stack.clear();
         }
+
+
+        /// we need one more pass after parsing the primary type to handle any trailing such as ? for optionals
 
         return ty;
     }
@@ -185,7 +204,9 @@ class <T> TypeParse { // T = ASTParse
         return pty;
     }
 
-    fn parse_named_type(self) -> *NamedType {
+    // TODO: once expr chain parsing is done replace this logic with a call to
+    //       parse a ChainExpr(qualified: true) instead
+    fn parse_qual_type(self) -> *NamedType {
         // precondition: current token is an identifier
         var id_tok = dyn()->advance(); // consume identifier
         var name = dyn()->ctx->hoisted->intern(
@@ -214,17 +235,67 @@ class <T> TypeParse { // T = ASTParse
         nt->annotations.set_allocator(&(dyn()->ctx->nodes));
         return nt;
     }
+
+    fn dispatch_tuple_grouping_disambiguate(self) -> *Type {
+        // precondition: current token is `(`
+        var lparen_tok = dyn()->advance(); // consume `(`
+        var start_range = lparen_tok->range;
+
+        var first_ty = self.parse_type();
+        if first_ty == &null {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected type after '(' "
+            ).first(start_range).emit();
+            // asuume tuple
+            return TupleType::create_error(
+                dyn()->ctx,
+                start_range
+            );
+        }
+
+        if dyn()->peek(TokenKind::OpComma) {
+            // --- tuple type ---
+
+        var elms: vec::<*Type>;
+        elms.reserve(8); // common case is small tuples, avoid some reallocs
+
+        while dyn()->match_tok(TokenKind::OpComma) {
+            dyn()->advance(); // consume comma
+            var next_ty = self.parse_type();
+            if next_ty == &null {
+                dyn()->diag->report(DiagID::S045E, start_range.start,
+                    "expected type after ',' in tuple type "
+                ).first(start_range).emit();
+                // assume tuple with error element
+                return TupleType::create_error(
+                    dyn()->ctx,
+                    start_range
+                );
+            }
+        }
+
 }
+
 /*
-Comnpilerinstance: one job - call ASTParse with a valid ASTContext (which holds the ASTIndex graph) and GlobalHoistedScope.
-ASTParse::parse() returns a TranslationUnitDecl
-ASTParse uses a ScopeStack to manage the current DeclContext for name lookup and error reporting. It also uses the ASTContext to create new AST nodes and intern types.
-The TypeParse mixin provides the logic to parse type expressions, which can be invoked from DeclParse when parsing variable declarations, function signatures, etc. It uses the current token stream and the AST
-
-
-
-
-
-
-
+[-] NamedType
+[ ] DependentNameType
+[ ] GenericParamType
+[ ] SubstGenericParamType
+[ ] GenericInstanceType
+[ ] TypeOfType
+[ ] VariadicPackType
+[ ] PackExpansionType
+[x] PointerType
+[ ] TupleType
+[ ] FixedArrayType
+[ ] VectorType
+[ ] MapType
+[ ] SetType
+[ ] FunctionPointerType
+[ ] InferredType
+[ ] CXXLValueRefType
+[ ] CXXRValueRefType
+[ ] OpaqueFFIType
+[ ] TypeExpr
+[ ] SelfType
 */

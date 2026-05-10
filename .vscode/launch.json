@@ -2,27 +2,41 @@
   "version": "0.2.0",
   "configurations": [
     {
-        "name": "Run Kairo File",
-        "request": "launch",
-        "cwd": "${workspaceFolder}",
-        "preLaunchTask": "build-kairo-current",
-        "stopAtEntry": false,
-        
-        // Defaults (non-Windows -> cppdbg)
-        "type": "cppdbg",
-        "program": "${workspaceFolder}/build/.gen/test_run",
-        "MIMode": "gdb",
-        "miDebuggerPath": "/usr/bin/gdb",
-        "internalConsoleOptions": "openOnSessionStart",
-
-        "osx": {
-            "MIMode": "lldb",
-            "miDebuggerPath": "/usr/bin/lldb"
+      "name": "Run Kairo File",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "type": "cppdbg",
+      // "preLaunchTask": "build-kairo-current",
+      "program": "${workspaceFolder}/build/x86_64-linux-gnu/release/bin/kairo",
+      "args": ["test.kro", "--print-ast"],
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "internalConsoleOptions": "openOnSessionStart",
+      "setupCommands": [
+        {
+          "description": "Enable pretty printing",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
         },
-        "windows": {
-            "type": "cppvsdbg",
-            "program": "${workspaceFolder}/build/.gen/test_run.exe"
+        {
+          "description": "Load Kairo demangler",
+          "text": "source ${workspaceFolder}/Scripts/gdb_kairo.py",
+          "ignoreFailures": false
+        },
+        {
+          "description": "Set print elements",
+          "text": "set print elements 200",
+          "ignoreFailures": true
         }
+      ],
+      "osx": {
+        "MIMode": "lldb",
+        "miDebuggerPath": "/usr/bin/lldb"
+      },
+      "windows": {
+        "type": "cppvsdbg",
+        "program": "${workspaceFolder}/build/.gen/test_run.exe"
+      }
     }
   ]
 }
