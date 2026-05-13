@@ -19,6 +19,8 @@ import AST::ASTContext::*;
 import AST::TranslationUnit::*;
 import AST::CodeCompleteConsumer::*;
 import AST::DeclContext::*;
+import AST::Mixin::TypeQual::*;
+import AST::Mixin::Annotation::*;
 import ASTNode::Base::*;
 import ASTNode::Program::*;
 import Lexer::TokenSpan::*;
@@ -168,6 +170,76 @@ class ScopeStack {
     }
 }
 
+// ---------------------------------------------------------------------------
+//  PendingAnnotations accumulator for leading annotations/comments
+//  consumed before a decl, stmt, expr, or type. The parser fills this,
+//  then stamps it onto the AST node via apply_annotations().
+// ---------------------------------------------------------------------------
+
+class PendingAnnotations {
+    inline "c++" {
+        using VisAnnotation = VisibilityAnnotation<Decl>;
+    }
+
+    pub var visibility:  VisAnnotation::VisibilityKind = VisAnnotation::VisibilityKind::None;
+    pub var vis_range:   SourceRange = SourceRange::invalid();
+    pub var entries:     vec::<AnnotationEntry>;
+
+    fn PendingAnnotations(self) {
+        self.entries.reserve(4);
+    }
+
+    fn empty(self) -> bool {
+        return self.entries.empty()
+            && self.visibility == VisAnnotation::VisibilityKind::None;
+    }
+
+    fn add(self, kind: AnnotationKind, name: InternedStr, range: SourceRange) {
+        self.entries.push_back(AnnotationEntry(kind, name, range));
+    }
+
+    fn set_visibility(self, kind: VisAnnotation::VisibilityKind, range: SourceRange) {
+        self.visibility = kind;
+        self.vis_range  = range;
+    }
+
+    fn clear(self) {
+        self.entries.clear();
+        self.visibility = VisAnnotation::VisibilityKind::None;
+        self.vis_range  = SourceRange::invalid();
+    }
+}
+
+// ---------------------------------------------------------------------------
+//  PendingQuals accumulator for type qualifier keywords consumed before
+//  the core type production. The parser fills this, then stamps it onto the
+//  Type node via apply_quals().
+// ---------------------------------------------------------------------------
+
+class PendingQuals {
+    type TypeQualifier = TypeQual::<Type>;
+    pub var flags: TypeQualifier::Flags = TypeQualifier::Flags::None;
+    pub var spans: vec::<QualSpan>;
+
+    fn PendingQuals(self) {
+        self.spans.reserve(4);
+    }
+
+    fn empty(self) -> bool {
+        return self.flags == TypeQualifier::Flags::None;
+    }
+
+    fn add(self, flag: TypeQualifier::Flags, range: SourceRange) {
+        self.flags |= flag;
+        self.spans.push_back(QualSpan(static_cast::<u16>(flag), range));
+    }
+
+    fn clear(self) {
+        self.flags = TypeQualifier::Flags::None;
+        self.spans.clear();
+    }
+}
+
 
 class ASTParse
   derives ExprParse::<ASTParse>,
@@ -186,8 +258,15 @@ class ASTParse
     pub var span:    TokenSpan;
     pub var c_idx:   usize = 0;
     pub var imm:     obs::<ImmediateTable>;
-    pub var current: obs::<Token>;
-    pub var peek_t:  obs::<Token>;
+
+    // Source-of-truth pointers into span private
+    var _prev:    obs::<Token> = &null;
+    var _current: obs::<Token> = &null;
+    var _peek:    obs::<Token> = &null;
+
+    // --- Annotation / qualifier accumulator (reused across parse calls) -----
+    var _pending_annot: PendingAnnotations;
+    var _pending_quals: PendingQuals;
 
     // --- Output -------------------------------------------------------------
     pub var tu: obs::<TranslationUnit>;
@@ -208,11 +287,31 @@ class ASTParse
         self.tu    = ctx->alloc_init::<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, g_scope);
         self.scope.set_ctx(ctx);
 
-        self.current = (self.span.get(0)) if (self.span.size() > 0) else (&null);
-        self.peek_t  = (self.span.get(1)) if (self.span.size() > 1) else (&null);
+        self._prev    = &null;
+        self._current = (self.span.get(0)) if (self.span.size() > 0) else (&null);
+        self._peek    = (self.span.get(1)) if (self.span.size() > 1) else (&null);
 
         self.max_depth        = ctx->ci->frontend.max_scope_depth;
         self.error_count_base = self.diag->error_count();
+    }
+
+    static fn get_ty_name(ty: *Type) -> string {
+        if ty == &null {
+            return "null";
+        } else if isa::<PointerType>(ty) {
+            return "pointer";
+        } else if isa::<TupleType>(ty) {
+            var tup = cast::<TupleType>(ty);
+            var res = f"tuple(size={tup->elements.size()}, ";
+            for i in tup->elements {
+                res += get_ty_name(i);
+                res += ", ";
+            }
+            res += ")";
+            return res;
+        } else {
+            return "other";
+        }
     }
 
     fn parse(self) -> *TranslationUnit {
@@ -235,7 +334,8 @@ class ASTParse
 
         //     program->add_item(item);
         // }
-        self.parse_type();
+        var ty = self.parse_type();
+        std::print(ASTParse::get_ty_name(ty));
 
         self.scope.pop();
 
@@ -248,174 +348,109 @@ class ASTParse
         return TopLevelItem::from_decl(&null);
     }
 
-    // --- Token primitives (shared by all mixins) ----------------------------
+    // ========================================================================
+    //  Token accessors return 16-byte copies (trivial)
+    // ========================================================================
 
-    inline pub fn advance(self) -> *Token {
-        var tok = self.current;
-
-        if (self.c_idx + 1) < (self.span.size()) {
-            self.c_idx += 1;
-            self.current = self.span.get(self.c_idx);
-        } else {
-            self.current = &null; // or keep pointing at EOF, but stop incrementing
-        }
-
-        if (self.c_idx + 1) < (self.span.size()) {
-            self.peek_t = self.span.get(self.c_idx + 1);
-        } else {
-            self.peek_t = &null;
-        }
-
-        return tok;
-    }
-
-    inline pub fn retreat(self) {
-        if self.c_idx > 0 {
-            self.c_idx -= 1;
-            self.current = self.span.get(self.c_idx);
-        } else {
-            self.current = &null; // or keep pointing at start, but stop decrementing
-        }
-
-        if self.c_idx > 0 {
-            self.peek_t = self.span.get(self.c_idx - 1);
-        } else {
-            self.peek_t = &null;
-        }
+    inline pub fn current(self) -> Token {
+        if self._current == &null { return Token(); }
+        return *self._current;
     }
 
     inline pub fn prev(self) -> Token {
-        if self.c_idx > 0 {
-            return resolve_fully(self.span.get(self.c_idx - 1));
-        }
-        return Token();
-    }
-
-    inline pub fn cur(self) -> Token {
-        return resolve_fully(self.current);
+        if self._prev == &null { return Token(); }
+        return *self._prev;
     }
 
     inline pub fn peek(self) -> Token {
-        if (self.peek_t != &null) {
-            return resolve_fully(self.peek_t);
-        }
-
-        return Token();
+        if self._peek == &null { return Token(); }
+        return *self._peek;
     }
 
-    inline pub fn resolve_fully(self, tok: *Token) -> Token {
-        if tok == &null {
-            return false;
-        }
+    /// Raw pointer access only for resolve_deep, diag range attachment,
+    /// macro expansion chain walking. Not for general use.
+    inline pub fn current_ptr(self) -> *Token { return self._current; }
+    inline pub fn prev_ptr(self)    -> *Token { return self._prev; }
+    inline pub fn peek_ptr(self)    -> *Token { return self._peek; }
 
-        var resolved = self.resolve_deep(tok);
-        var resolved_kind = resolved.kind;
+    // ========================================================================
+    //  Cursor movement
+    // ========================================================================
+    
+    enum SkipNL derives u8 {
+        None,           // don't skip newlines at all
+        Before,         // skip newlines, then move
+        After,          // move, then skip newlines
+        Peek,           // skip newlines, but don't move
+    }
 
-        if resolved_kind == TokenKind::AtComment { // we should be accumulating these into attributes, but for now just brush them off so they don't interfere with parsing
+    inline pub fn advance_then_skip_newlines(self) {
+        self.advance();
+        while self.current().kind == TokenKind::TkNewLine {
             self.advance();
-            return self.resolve_fully(self.current);
         }
-
-        resolved.kind = resolved_kind;
-        return resolved;
     }
 
-    inline pub fn check(self, kind: TokenKind) -> bool {
-        var tok = self.current;
-        if tok == &null {
-            return false;
-        }
-
-        var resolved = self.resolve_deep(tok);
-        var resolved_kind = resolved.kind;
-
-        if resolved_kind == TokenKind::AtComment { // we should be accumulating these into attributes, but for now just brush them off so they don't interfere with parsing
+    inline pub fn skip_newlines_then_advance(self) {
+        while self.current().kind == TokenKind::TkNewLine {
             self.advance();
-            return self.check(kind);
         }
-
-        if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
-                                                 // the imm of this token stores the
-            self.diag->report(DiagID::S045E, tok->range.start,
-                f"unexpected token found where '{token_kind_to_readable_string(static_cast::<TokenKind>(resolved.imm))}' expected"
-            ).first(tok->range).emit();
-            resolved_kind = static_cast::<TokenKind>(resolved.imm);
-        }
-
-        return resolved_kind == kind;
+        self.advance();
     }
 
-    inline pub fn check_prev(self, kind: TokenKind) -> bool {
-        var tok = self.prev();
-        if tok == &null {
-            return false;
+    inline pub fn skip_iff_newlines(self) {
+        if (self.current().kind) != TokenKind::TkNewLine {
+            return;
         }
 
-        var resolved = self.resolve_deep(tok);
-        var resolved_kind = resolved.kind;
-
-        if resolved_kind == TokenKind::AtComment { // we should be accumulating these into attributes, but for now just brush them off so they don't interfere with parsing
-            
-            return self.check(kind);
-        }
-
-        if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
-                                                 // the imm of this token stores the
-            self.diag->report(DiagID::S045E, tok->range.start,
-                f"unexpected token found where '{token_kind_to_readable_string(static_cast::<TokenKind>(resolved.imm))}' expected"
-            ).first(tok->range).emit();
-            resolved_kind = static_cast::<TokenKind>(resolved.imm);
-        }
-    }
-
-    inline pub fn match_tok(self, kind: TokenKind) -> bool {
-        if self.check(kind) {
+        while (self.current().kind) == TokenKind::TkNewLine {
             self.advance();
-            return true;
         }
-
-        return false;
     }
 
-    inline pub fn expect(self, kind: TokenKind) -> Token {
-        var tok = self.current;
-        var resolved = self.resolve_deep(tok);
-        var resolved_kind = resolved.kind;
-
-        if resolved_kind == TokenKind::AtComment { // we brush these off
-            self.advance();
-            return self.expect(kind);
+    inline pub fn retreat_skip_newlines(self) {
+        self.retreat();
+        while self.current().kind == TokenKind::TkNewLine {
+            self.retreat();
         }
-
-        if resolved_kind == TokenKind::TkError { // we might have a recovery attempt here
-                                                 // the imm of this token stores the
-            resolved_kind = static_cast::<TokenKind>(resolved.imm);
-        }
-
-        if resolved_kind == kind {
-            self.advance();
-            return resolved;
-        }
-
-        self.diag->report(DiagID::S045E, tok->range.start,
-            f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
-        ).first(tok->range).emit();
-
-        if tok->kind == TokenKind::TkMacroExpand {
-            var builder = self.diag->report(DiagID::S045N, tok->range.start,
-                f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
-            ).first(tok->range);
-            self.attach_macro_expansion_chain(&builder, tok);
-            builder.emit();
-        }
-
-        var err     = Token();
-        err.kind    = TokenKind::TkError;
-        err.range   = tok->range;
-        err.imm     = static_cast::<u32>(kind);
-        return err;
     }
 
+    inline pub fn advance(self) {
+        self._prev = self._current;
+
+        if (self.c_idx + 1) < self.span.size() {
+            self.c_idx += 1;
+        } else {
+            self._current = &null;
+            self._peek    = &null;
+            return;
+        }
+
+        self._sync_cursor();
+    }
+
+    inline pub fn retreat(self) {
+        if self.c_idx == 0 { return; }
+
+        self._peek = self._current;
+        self.c_idx -= 1;
+        self._current = self.span.get(self.c_idx);
+        self._prev = (self.span.get(self.c_idx - 1)) if (self.c_idx > 0) else (&null);
+    }
+
+    /// Sync _current and _peek from c_idx. Used after any direct c_idx mutation.
+    inline fn _sync_cursor(self) {
+        self._current = (self.span.get(self.c_idx))     if (self.c_idx     < self.span.size()) else (&null);
+        self._peek    = (self.span.get(self.c_idx + 1)) if (self.c_idx + 1 < self.span.size()) else (&null);
+    }
+
+    // ========================================================================
+    //  Token resolution
+    // ========================================================================
+
+    /// Resolves through macro expansion chains to the underlying token kind
+    /// and imm. Returns a copy with the resolved kind/imm and the original
+    /// source range. Guards against infinite expansion loops.
     inline pub fn resolve_deep(self, tok: *Token) -> Token {
         var kind = tok->kind;
         var imm  = tok->imm;
@@ -469,14 +504,140 @@ class ASTParse
         return info->original_kind;
     }
 
-    inline pub fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
+    /// Resolves a token fully, skipping past AtComment tokens (advancing
+    /// the cursor when encountered). Returns a resolved copy.
+    inline pub fn resolve_fully(self, tok: *Token) -> Token {
         if tok == &null {
-            return;
+            return Token();
         }
 
-        if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) {
-            return;
+        var resolved = self.resolve_deep(tok);
+
+        if resolved.kind == TokenKind::AtComment {
+            // we should be accumulating these into attributes, but for now
+            // just brush them off so they don't interfere with parsing
+            self.advance();
+            return self.resolve_fully(self._current);
         }
+
+        return resolved;
+    }
+
+    // ========================================================================
+    //  Token checking unified core + convenience wrappers
+    // ========================================================================
+
+    /// Core check implementation. Resolves the token at `tok`, skips AtComment
+    /// (advancing cursor if `is_current`), handles TkError recovery, and
+    /// compares against `kind`. `is_current` controls whether AtComment skip
+    /// advances the cursor (true for check/check_peek on current/peek) or
+    /// falls through to current (for check_prev).
+    inline fn _resolve_and_check(self, tok: *Token, kind: TokenKind, advance_on_at: bool) -> bool {
+        if tok == &null { return false; }
+
+        var resolved = self.resolve_deep(tok);
+        var resolved_kind = resolved.kind;
+
+        if resolved_kind == TokenKind::AtComment {
+            // we should be accumulating these into attributes, but for now
+            // just brush them off so they don't interfere with parsing
+            if advance_on_at { self.advance(); }
+            return self.check(kind);
+        }
+
+        if resolved_kind == TokenKind::TkError {
+            // the imm of this token stores the expected kind from recovery
+            self.diag->report(DiagID::S045E, tok->range.start,
+                f"unexpected token found where '{token_kind_to_readable_string(static_cast::<TokenKind>(resolved.imm))}' expected"
+            ).first(tok->range).emit();
+            resolved_kind = static_cast::<TokenKind>(resolved.imm);
+        }
+
+        return resolved_kind == kind;
+    }
+
+    inline pub fn check(self, kind: TokenKind) -> bool {
+        return self._resolve_and_check(self._current, kind, true);
+    }
+
+    inline pub fn check_prev(self, kind: TokenKind) -> bool {
+        return self._resolve_and_check(self._prev, kind, false);
+    }
+
+    inline pub fn check_peek(self, kind: TokenKind) -> bool {
+        return self._resolve_and_check(self._peek, kind, true);
+    }
+
+    inline pub fn match_tok(self, kind: TokenKind) -> bool {
+        if self.check(kind) {
+            self.advance();
+            return true;
+        }
+
+        return false;
+    }
+
+    inline pub fn expect(self, kind: TokenKind) -> Token {
+        var tok = self._current;
+        if tok == &null {
+            // unexpected EOF emit diag with best available location
+            var eof_range = (self._prev->range) if (self._prev != &null) else SourceRange::invalid();
+            self.diag->report(DiagID::S045E, eof_range.start,
+                f"expected '{token_kind_to_readable_string(kind)}', found end of file"
+            ).first(eof_range).emit();
+
+            var err   = Token();
+            err.kind  = TokenKind::TkError;
+            err.range = eof_range;
+            err.imm   = static_cast::<u32>(kind);
+            return err;
+        }
+
+        var resolved = self.resolve_deep(tok);
+        var resolved_kind = resolved.kind;
+
+        if resolved_kind == TokenKind::AtComment {
+            // brush off
+            self.advance();
+            return self.expect(kind);
+        }
+
+        if resolved_kind == TokenKind::TkError {
+            // recovery token extract what was expected
+            resolved_kind = static_cast::<TokenKind>(resolved.imm);
+        }
+
+        if resolved_kind == kind {
+            self.advance();
+            return resolved;
+        }
+
+        self.diag->report(DiagID::S045E, tok->range.start,
+            f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
+        ).first(tok->range).emit();
+
+        if tok->kind == TokenKind::TkMacroExpand {
+            var builder = self.diag->report(DiagID::S045N, tok->range.start,
+                f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
+            ).first(tok->range);
+            self.attach_macro_expansion_chain(&builder, tok);
+            builder.emit();
+        }
+
+        var err     = Token();
+        err.kind    = TokenKind::TkError;
+        err.range   = tok->range;
+        err.imm     = static_cast::<u32>(kind);
+        return err;
+    }
+
+    // ========================================================================
+    //  Macro expansion chain diagnostics
+    // ========================================================================
+
+    inline pub fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
+        if tok == &null { return; }
+        if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return; }
 
         var kind = tok->kind;
         var imm  = tok->imm;
@@ -497,9 +658,7 @@ class ASTParse
                 return;
             }
 
-            if self.imm == &null {
-                return;
-            }
+            if self.imm == &null { return; }
 
             var info = self.imm->get::<Immediate::MacroExpansionInfo>(imm);
 
@@ -513,9 +672,13 @@ class ASTParse
         }
     }
 
+    // ========================================================================
+    //  EOF / first-token queries
+    // ========================================================================
+
     inline pub fn is_eof(self) -> bool {
-        return (self.current == &null)
-            || ((self.current->kind) == TokenKind::TkEof);
+        return (self._current == &null)
+            || (self._current->kind == TokenKind::TkEof);
     }
 
     inline pub fn first(self) -> *Token {
@@ -526,7 +689,202 @@ class ASTParse
         return &null;
     }
 
-    // --- Recovery primitives ------------------------------------------------
+    // ========================================================================
+    //  Annotation consumption
+    //
+    //  Eats leading @attr tokens, doc-comments (///), line-comments (//),
+    //  block-comments (/* */), and visibility keywords (pub, priv, protected,
+    //  internal) before the next syntactic production. Fills _pending_annot
+    //  which is then stamped onto the resulting AST node.
+    //
+    //  AtComment tokens may be raw or macro-expanded. The resolve path
+    //  handles expansions transparently.
+    // ========================================================================
+
+    /// Consume all leading annotations and visibility keywords before a
+    /// decl/stmt/expr/type. Returns a reference to the internal accumulator.
+    /// Caller must apply or discard before the next call.
+    pub fn consume_leading_annotations(self) -> *PendingAnnotations {
+        self._pending_annot.clear();
+
+        while !self.is_eof() {
+            var tok = self._current;
+            if tok == &null { break; }
+
+            var resolved = self.resolve_deep(tok);
+
+            // --- @attr tokens -----------------------------------------------
+            // if resolved.kind == TokenKind::AtComment {
+            //     // The imm field indexes into the immediate table where the
+            //     // interned attribute name is stored.
+            //     var attr_name = self.imm->get::<Immediate::AttrInfo>(resolved.imm)->name;
+            //     self._pending_annot.add(AnnotationKind::Attribute, attr_name, tok->range);
+            //     self.advance();
+            //     continue;
+            // }
+            // TODO: re-enable once we have attributes
+
+            // --- Doc comments (///) -----------------------------------------
+            if resolved.kind == TokenKind::AtComment {
+                self._pending_annot.add(AnnotationKind::DocComment, InternedStr::invalid(), tok->range);
+                self.advance();
+                continue;
+            }
+
+            // --- Line comments (//) -----------------------------------------
+            // if resolved.kind == TokenKind::TkLineComment {
+            //     self._pending_annot.add(AnnotationKind::LineComment, InternedStr::invalid(), tok->range);
+            //     self.advance();
+            //     continue;
+            // }
+
+            // // --- Block comments (/* ... */) ----------------------------------
+            // if resolved.kind == TokenKind::TkBlockComment {
+            //     self._pending_annot.add(AnnotationKind::BlockComment, InternedStr::invalid(), tok->range);
+            //     self.advance();
+            //     continue;
+            // }
+
+            // --- Visibility keywords ----------------------------------------
+            if resolved.kind == TokenKind::KwPub {
+                self._pending_annot.set_visibility(
+                    PendingAnnotations::VisAnnotation::VisibilityKind::Public, tok->range);
+                self.advance();
+                continue;
+            }
+
+            if resolved.kind == TokenKind::KwPriv {
+                self._pending_annot.set_visibility(
+                    PendingAnnotations::VisAnnotation::VisibilityKind::Private, tok->range);
+                self.advance();
+                continue;
+            }
+
+            if resolved.kind == TokenKind::KwProt {
+                self._pending_annot.set_visibility(
+                    PendingAnnotations::VisAnnotation::VisibilityKind::Protected, tok->range);
+                self.advance();
+                continue;
+            }
+
+            // if resolved.kind == TokenKind::BIInternal {
+            //     self._pending_annot.set_visibility(
+            //         PendingAnnotations::VisAnnotation::VisibilityKind::Internal, tok->range);
+            //     self.advance();
+            //     continue;
+            // }
+
+            // Not an annotation or visibility done.
+            break;
+        }
+
+        return &self._pending_annot;
+    }
+
+    /// Stamp accumulated annotations onto a Decl node (which derives both
+    /// Annotation<Decl> and VisibilityAnnotation<Decl>).
+    pub fn apply_annotations_to_decl(self, decl: *Decl) {
+        if self._pending_annot.empty() { return; }
+
+        for var i: usize = 0; i < self._pending_annot.entries.size(); ++i {
+            var e = &self._pending_annot.entries[i];
+            decl->add_annotation(e->kind, e->name, e->range);
+        }
+
+        if self._pending_annot.visibility != PendingAnnotations::VisAnnotation::VisibilityKind::None {
+            decl->set_visibility(self._pending_annot.visibility, self._pending_annot.vis_range);
+        }
+    }
+
+    /// Stamp accumulated annotations onto any node that derives Annotation<T>
+    /// (Expr, Stmt, Type). These don't have visibility, so it's ignored;
+    /// if visibility was present and we're applying to a non-decl, that's a
+    /// semantic error the caller should diagnose.
+    pub fn apply_annotations_to_node(self, node: *Expr) {
+        if self._pending_annot.empty() { return; }
+
+        for var i: usize = 0; i < self._pending_annot.entries.size(); ++i {
+            var e = &self._pending_annot.entries[i];
+            node->add_annotation(e->kind, e->name, e->range);
+        }
+    }
+
+    pub fn apply_annotations_to_node(self, node: *Stmt) {
+        if self._pending_annot.empty() { return; }
+
+        for var i: usize = 0; i < self._pending_annot.entries.size(); ++i {
+            var e = &self._pending_annot.entries[i];
+            node->add_annotation(e->kind, e->name, e->range);
+        }
+    }
+
+    pub fn apply_annotations_to_node(self, node: *Type) {
+        if self._pending_annot.empty() { return; }
+
+        for var i: usize = 0; i < self._pending_annot.entries.size(); ++i {
+            var e = &self._pending_annot.entries[i];
+            node->add_annotation(e->kind, e->name, e->range);
+        }
+    }
+
+    /// Check if pending annotations include visibility (for diagnosing
+    /// visibility on non-decl contexts).
+    pub fn pending_has_visibility(self) -> bool {
+        return self._pending_annot.visibility != PendingAnnotations::VisAnnotation::VisibilityKind::None;
+    }
+
+    // ========================================================================
+    //  Type qualifier consumption
+    //
+    //  Eats leading qualifier keywords (const, volatile, restrict, atomic,
+    //  unsafe, eval, async, yield) before the core type production. Fills
+    //  _pending_quals which the type parser stamps onto the resulting Type.
+    //
+    //  Qualifier keywords may be macro-expanded; resolve_deep handles this.
+    // ========================================================================
+
+    /// Consume all leading type qualifier keywords. Returns a reference to
+    /// the internal accumulator. Caller must apply or discard before the
+    /// next call.
+    pub fn consume_leading_quals(self) -> *PendingQuals {
+        self._pending_quals.clear();
+
+        while !self.is_eof() {
+            var tok = self._current;
+            if tok == &null { break; }
+
+            var resolved = self.resolve_deep(tok);
+            var rk = resolved.kind;
+
+            if      rk == TokenKind::KwConst    { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsConst,    tok->range); }
+            else if rk == TokenKind::KwVolatile { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsVolatile, tok->range); }
+            // else if rk == TokenKind::KwRestrict { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsRestrict, tok->range); }
+            else if rk == TokenKind::KwAtomic   { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsAtomic,   tok->range); }
+            else if rk == TokenKind::KwUnsafe   { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsUnsafe,   tok->range); }
+            else if rk == TokenKind::KwEval     { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsEval,     tok->range); }
+            else if rk == TokenKind::KwAsync    { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsAsync,    tok->range); }
+            else if rk == TokenKind::KwYield    { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsYield,    tok->range); }
+            else { break; }
+
+            self.advance();
+        }
+
+        return &self._pending_quals;
+    }
+
+    /// Stamp accumulated qualifiers onto a Type node.
+    pub fn apply_quals(self, ty: *Type) {
+        if self._pending_quals.empty() { return; }
+
+        ty->flags |= self._pending_quals.flags;
+        for var i: usize = 0; i < self._pending_quals.spans.size(); ++i {
+            ty->spans.push(*(&self._pending_quals.spans[i]));
+        }
+    }
+
+    // ========================================================================
+    //  Recovery primitives
+    // ========================================================================
 
     /// Tentative parse save/restore. Used for ambiguity: Foo<T>(x), etc.
     /// Returns an opaque state; pass to commit() or rollback().
@@ -538,11 +896,10 @@ class ASTParse
         // no-op currently parse proceeds. State was just a saved cursor.
     }
 
-
     fn tentative_rollback(self, state: usize) {
         self.c_idx = state;
-        self.current = (self.span.get(self.c_idx))     if (self.c_idx     < self.span.size()) else (&null);
-        self.peek_t  = (self.span.get(self.c_idx + 1)) if (self.c_idx + 1 < self.span.size()) else (&null);
+        self._prev = (self.span.get(self.c_idx - 1)) if (self.c_idx > 0) else (&null);
+        self._sync_cursor();
     }
 
     /// Skip tokens until one in the sync set or EOF. Returns the matched set
@@ -567,7 +924,9 @@ class ASTParse
         if self.depth > 0 { --self.depth; }
     }
 
-    // --- Scope primitives ---------------------------------------------------
+    // ========================================================================
+    //  Scope primitives
+    // ========================================================================
 
     fn enter_scope(self, kind: ScopeKind, dc: *DeclContext) -> *LexicalScope {
         return self.scope.push(kind, dc);
@@ -577,7 +936,9 @@ class ASTParse
         self.scope.pop();
     }
 
-    // --- Unified lookup (lexical -> hoisted -> global) ----------------------
+    // ========================================================================
+    //  Unified lookup (lexical -> hoisted -> global)
+    // ========================================================================
 
     /// Looks up a name with full scope walking.
     /// Not used by parser hot paths (parser uses HoistedScope directly for
@@ -596,14 +957,16 @@ class ASTParse
         return ParentRef::none();
     }
 
-    // --- Completion hooks ---------------------------------------------------
+    // ========================================================================
+    //  Completion hooks
+    // ========================================================================
 
     /// Called by mixins when the parser reaches a completion-relevant point.
     /// No-op if no consumer is attached.
     fn maybe_complete(self, kind: CompletionContextKind) {
         if self.cc == &null { return; }
 
-        // TODO: only fire if self.current is at/past cc.cursor_loc.
+        // TODO: only fire if self._current is at/past cc.cursor_loc.
         self.cc->on_completion(kind, self.scope.current_dc());
     }
 

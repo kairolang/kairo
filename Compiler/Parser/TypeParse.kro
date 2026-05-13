@@ -5,21 +5,24 @@
 ///   Handles: *T, atomic T, Foo, Foo<T>, (T1, T2), (T) -> U
 ///   (const/atomic/unsafe/eval/async are TypeQual flags, not wrapper nodes)
 ///   Derives from ASTParse which provides: check, match_tok, expect,
-///   advance, ctx, diag, is_eof, current, peek_t, c_idx, depth, etc.
+///   advance, ctx, diag, is_eof, current, peek, prev, current_ptr,
+///   consume_leading_quals, apply_quals, consume_leading_annotations,
+///   apply_annotations_to_node, depth, etc.
 ///
 /// --------------------------------------------------------------------- ///
 
 import ASTNode::Base::*;
 import ASTNode::Types::*;
 import ASTNode::PrimaryExpressions::*;
+import AST::CodeCompleteConsumer::*;
 import AST::ASTContext::*;
+import AST::Mixin::TypeQual::*;
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
 import Source::SourceRange::*;
 import TokenKind::*;
 
 class <T> TypeParse { // T = ASTParse
-    var current_attr_stack: vec::<Token>;
     var inferred_type_counter: u32 = 0;
 
     priv inline fn dyn(self) -> *T {
@@ -30,7 +33,7 @@ class <T> TypeParse { // T = ASTParse
     //  parse_type top-level type expression entry point
     // ------------------------------------------------------------------
     
-        /// all the starters we can  have:
+        /// all the starters we can have:
         /// - `*` for pointer types
         /// - `atomic` for atomic types
         /// - `(` for tuple types or grouping types
@@ -40,143 +43,270 @@ class <T> TypeParse { // T = ASTParse
         /// - `fn` for function types
         /// - `...` for variadic types (e.g. varargs in C)
         /// these are all primary types
-    fn parse_type(self, is_inferred: bool = false) -> *Type {
-        var cur = dyn()->current;
-        if (cur == &null) || (dyn()->is_eof()) {
-            return &null;
-        }
+    fn parse_type(self, is_inferred: bool = false, skip_newline: bool = false) -> *Type {
+        if dyn()->is_eof() { return &null; }
 
         if is_inferred {
             var prev_tok = dyn()->prev();
-            if prev_tok == &null {
-                dyn()->diag->report(DiagID::S045E, cur->range.start,
+            if prev_tok.kind == TokenKind::TkUnknown {
+                var cur_ptr = dyn()->current_ptr();
+                var loc = (cur_ptr->range.start) if (cur_ptr != &null) else SourceLocation();
+                dyn()->diag->report(DiagID::S045E, loc,
                     "unexpected start of input, expected expression"
                 ).emit();
                 return &null;
             }
             var rt = InferredType::create(
                 dyn()->ctx,
-                prev_tok->range,
+                prev_tok.range,
                 inferred_type_counter
             );
             ++inferred_type_counter;
             return rt;
         }
 
-        // --- leading qualifiers accumulate into a TypeQual bitfield ---
-        var quals = TypeQual::<Type>();
-        quals.init_spans(&(dyn()->ctx->nodes));
+        // --- leading annotations (@attr, doc comments, visibility) ---
+        dyn()->consume_leading_annotations();
 
-        var parsing_quals = true;
-        while parsing_quals && !dyn()->is_eof() {
-            cur = dyn()->current;
-            if cur == &null { break; }
-
-            var kind = dyn()->resolve_kind_deep(cur);
-            switch kind {
-                case TokenKind::KwConst {
-                    quals.add_const(cur->range);
-                    dyn()->advance();
-                }
-                case TokenKind::KwUnsafe {
-                    quals.add_unsafe(cur->range);
-                    dyn()->advance();
-                }
-                case TokenKind::KwEval {
-                    quals.add_eval(cur->range);
-                    dyn()->advance();
-                }
-                case TokenKind::KwAtomic {
-                    quals.add_atomic(cur->range);
-                    dyn()->advance();
-                }
-                case TokenKind::KwAsync {
-                    quals.add_async(cur->range);
-                    dyn()->advance();
-                }
-                case TokenKind::KwVolatile {
-                    quals.add_volatile(cur->range);
-                    dyn()->advance();
-                }
-                default {
-                    parsing_quals = false;
-                }
-            }
-        }
+        // --- leading qualifiers accumulate into PendingQuals ---
+        dyn()->consume_leading_quals();
 
         // --- primary type ---
-        var ty: *Type = &null;
-        cur = dyn()->current;
-        if cur == &null { return &null; }
-        var kind = dyn()->resolve_kind_deep(cur);
+        var ty = self._parse_primary_type(skip_newline);
 
-        switch kind {
-            case TokenKind::OpStar {
-                ty = self.parse_pointer_type();
-            }
-            
-            case TokenKind::OpEllipsis {
-                0;
-            }
-
-            case TokenKind::OpLBrace {
-                0;
-            }
-
-            case TokenKind::OpLParen { // tuple or grouping, tuple if we have a comma after a type, grouping if not
-                ty = self.dispatch_tuple_grouping_disambiguate();
-            }
-
-            case TokenKind::OpLSquare {
-                0;
-            }
-
-            case TokenKind::LitIdentifier {
-                ty = self.parse_qual_type();
-            }
-
-            default {
-                dyn()->diag->report(DiagID::S045E, cur->range.start,
-                    f"expected type, found '{token_kind_to_readable_string(kind)}' "
-                ).first(cur->range).emit();
-                return &null;
-            }
-        }
-
-        if ty == &null { // something broke if we got here
-            std::eprint(f"--- IGNORE --- TypeParse::parse_type: failed to parse type at {cur->range}");
-            return &null; // this is the only case we return null, all other cases have enough context
-                          // to emit a valid node and clean diag.
+        if ty == &null {
+            return &null;
         }
 
         // --- apply accumulated qualifiers to the parsed type ---
-        if quals.has_any_qualifiers() {
-            ty->merge_with_spans(quals, &(dyn()->ctx->nodes));
-        }
+        dyn()->apply_quals(ty);
 
-        // --- apply any leading annotations from current_attr_stack ---
-        if self.current_attr_stack.size() > 0 {
-            ty->annotations.set_allocator(&(dyn()->ctx->nodes));
-            for var i: usize = 0; i < self.current_attr_stack.size(); ++i {
-                var attr_tok = self.current_attr_stack[i];
-                var attr_name = dyn()->ctx->hoisted->intern(
-                    dyn()->ctx->sm->get_text(attr_tok.range)
-                );
-                ty->add_attribute(attr_name, attr_tok.range);
-            }
-            self.current_attr_stack.clear();
-        }
+        // --- apply any leading annotations ---
+        dyn()->apply_annotations_to_node(ty);
 
-
-        /// we need one more pass after parsing the primary type to handle any trailing such as ? for optionals
+        /// we need one more pass after parsing the primary type to handle
+        /// any trailing such as ? for optionals
 
         return ty;
     }
-    
+
+    // ------------------------------------------------------------------
+    //  _parse_primary_type dispatch on current token to the right
+    //  production. Separated from parse_type so quals/annotations are
+    //  handled in exactly one place.
+    // ------------------------------------------------------------------
+
+    priv fn _parse_primary_type(self, skip_newline: bool = false) -> *Type {
+        if dyn()->is_eof() { return &null; }
+        if skip_newline {
+            while dyn()->check(TokenKind::TkNewLine) {
+                dyn()->advance(); // consume newlines
+                if dyn()->is_eof() { return &null; }
+            }
+        }
+
+        var cur_ptr = dyn()->current_ptr();
+        if cur_ptr == &null { return &null; }
+
+        var cur_range = cur_ptr->range;
+
+        if dyn()->check(TokenKind::OpStar) {
+            return self.parse_pointer_type();
+        }
+
+        if dyn()->check(TokenKind::OpEllipsis) {
+            // TODO: variadic types
+            return &null;
+        }
+
+        if dyn()->check(TokenKind::OpLBrace) {
+            // TODO: set/map literal types
+            return &null;
+        }
+
+        if dyn()->check(TokenKind::OpLParen) {
+            return self._parse_paren_type();
+        }
+
+        if dyn()->check(TokenKind::OpLSquare) {
+            // TODO: array/list types
+            return &null;
+        }
+
+        if dyn()->check(TokenKind::LitIdentifier) {
+            return self.parse_qual_type();
+        }
+
+        // nothing matched emit diagnostic
+        var resolved_kind = dyn()->resolve_kind_deep(cur_ptr);
+        dyn()->diag->report(DiagID::S045E, cur_range.start,
+            f"expected type, found '{token_kind_to_readable_string(resolved_kind)}' "
+        ).first(cur_range).emit();
+        return &null;
+    }
+
+    // ------------------------------------------------------------------
+    //  _parse_paren_type handles `(T)` grouping and `(T1, T2, ...)` tuples
+    // ------------------------------------------------------------------
+
+    priv fn _parse_paren_type(self) -> *Type {
+        // precondition: current token is `(`
+        var lparen_ptr = dyn()->current_ptr();
+        var start_range = lparen_ptr->range;
+        dyn()->advance_then_skip_newlines(); // consume `(`
+
+        // empty tuple: `()`
+        if dyn()->check(TokenKind::OpRParen) {
+            dyn()->advance(); // consume `)`
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "empty tuple types are not allowed, did you mean 'void'?"
+            ).first(start_range).emit();
+            var tt = TupleType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            return tt;
+        }
+
+        var first = self.parse_type(false, true);
+        if first == &null {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected type after '(' "
+            ).first(start_range).emit();
+            // TODO: try to sync to ')' or attempt to get back to a valid state
+            return &null;
+        }
+
+        // tuple: `(T1, T2, ...)`
+        if dyn()->check(TokenKind::OpComma) {
+            return self._finish_tuple_type(start_range, first);
+        }
+
+        // grouping: `(T)` just unwrap
+        if dyn()->check(TokenKind::OpRParen) {
+            dyn()->advance(); // consume `)`
+            return first;
+        }
+
+        // missing `)` emit diagnostic but still return what we parsed
+        dyn()->diag->report(DiagID::S045E, start_range.start,
+            "expected ')' after type in grouping expression "
+        ).first(start_range).emit();
+        return first;
+    }
+
+    // ------------------------------------------------------------------
+    //  _finish_tuple_type we've already parsed `(` and the first element,
+    //  and we're sitting on a `,`. Parse remaining elements and closing `)`.
+    // ------------------------------------------------------------------
+
+    priv fn _finish_tuple_type(self, start_range: SourceRange, first: *Type) -> *TupleType {
+        if !dyn()->enter_depth() {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "exceeded maximum nesting depth in tuple type"
+            ).first(start_range).emit();
+            return TupleType::create_error(dyn()->ctx, start_range);
+        }
+
+        var vals: std::StackBuf::<*Type, 8>;
+        vals.push_back(first);
+
+        while dyn()->check(TokenKind::OpComma) {
+            dyn()->advance_then_skip_newlines(); // consume `,`
+
+            if dyn()->check(TokenKind::OpRParen) {
+                break;
+            }
+
+            if dyn()->check(TokenKind::TkNewLine) {
+                // allow newlines between tuple elements for readability
+                continue;
+            }
+
+            if dyn()->check(TokenKind::TkCodeComplete) {
+                dyn()->maybe_complete(CompletionContextKind::TypeRef);
+                dyn()->advance_then_skip_newlines(); // consume code complete token and any newlines after it
+                break;
+            }
+
+            var elem = self.parse_type(false, true);
+            if elem == &null {
+                while !dyn()->is_eof()
+                && !dyn()->check(TokenKind::OpRParen)
+                && !dyn()->check(TokenKind::OpComma) {
+                    dyn()->advance_then_skip_newlines();
+                }
+                continue;
+            }
+
+            vals.push_back(elem);
+        }
+
+        var full_range = start_range | dyn()->prev().range;
+        
+        var comma_range: SourceRange;
+        if dyn()->check_prev(TokenKind::OpComma) {
+            comma_range = dyn()->prev().range;
+
+            if dyn()->check(TokenKind::TkCodeComplete) {
+                dyn()->maybe_complete(CompletionContextKind::TypeRef);
+                dyn()->advance_then_skip_newlines();
+            }
+        }
+
+        dyn()->skip_iff_newlines();
+
+        if dyn()->check(TokenKind::OpRParen) {
+            full_range = full_range | dyn()->current_ptr()->range;
+            dyn()->skip_newlines_then_advance(); // consume `)`
+        } else {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected ')' to close tuple type"
+            ).first(start_range).emit();
+        }
+
+        if vals.size() == 1 {
+            dyn()->diag->report(DiagID::S045E, full_range.start,
+                "tuple types must contain at least two elements or more, did you "
+                "mean to write '(T)' without the comma for a parenthesised type? "
+            ).first(comma_range).fix(comma_range, "remove", "remove this comma to make it a parenthesised type")
+             .emit();
+            
+            return TupleType::create_error(dyn()->ctx, full_range | dyn()->prev().range);
+        }
+
+        if vals.size() > dyn()->ctx->ci->frontend.max_tuple_arity {
+            var range = vals[(dyn()->ctx->ci->frontend.max_tuple_arity)]->range;
+            var endr = vals[vals.size() - 1]->range;
+            dyn()->diag->report(DiagID::S045E, range.start,
+                f"tuple arity exceeds the maximum of {dyn()->ctx->ci->frontend.max_tuple_arity} (got {vals.size()})"
+            ).first(range)
+             .fix(range | endr, "remove", "reduce the number of elements in "
+                                "this tuple type or increase the limit with "
+                                "--cmax-tuple-arity")
+             .strike(SourceRange::from_bounds(range.end, full_range.end))
+             .emit();
+            
+            return TupleType::create_error(dyn()->ctx, full_range);
+        }
+
+        var tt = TupleType::create(dyn()->ctx, full_range);
+        tt->elements.from_buf(vals.data(), vals.size(), dyn()->ctx);
+
+        for var i: usize = 0; i < tt->elements.size(); ++i {
+            propagate_flags(tt, tt->elements[i]);
+        }
+
+        dyn()->exit_depth();
+        return tt;
+    }
+
+    // ------------------------------------------------------------------
+    //  parse_pointer_type `*T`, `*const T`, `**T`, etc.
+    // ------------------------------------------------------------------
+
     fn parse_pointer_type(self) -> *PointerType {
         // precondition: current token is `*`
-        var star_tok = dyn()->advance(); // consume `*`
-        var start_range = star_tok->range;
+        var star_ptr = dyn()->current_ptr();
+        var start_range = star_ptr->range;
+        dyn()->advance(); // consume `*`
 
         // parse_type() recurses handles `**T`, `*const T`, etc.
         // because parse_type() will see `const` as a qualifier and `*` as another pointer
@@ -187,41 +317,37 @@ class <T> TypeParse { // T = ASTParse
             ).first(start_range).emit();
         }
 
+        var end_range = (pointee->range) if (pointee != &null) else start_range;
         var pty = PointerType::create(
             dyn()->ctx,
-            start_range | (pointee->range),
+            start_range | end_range,
             pointee
         );
-
-        // TypeQual is inherited by PointerType through Type
-        // quals were already parsed and applied by parse_type() caller
-        // so pty starts clean the *outer* parse_type() call merges quals onto
-        // whatever we return here
-
-        // Annotation init allocator must be set before any add_* calls
-        pty->annotations.set_allocator(&(dyn()->ctx->nodes));
-
+        
         return pty;
     }
+
+    // ------------------------------------------------------------------
+    //  parse_qual_type identifier-started types: `Foo`, `Foo<T>`, `Foo::Bar`
+    // ------------------------------------------------------------------
 
     // TODO: once expr chain parsing is done replace this logic with a call to
     //       parse a ChainExpr(qualified: true) instead
     fn parse_qual_type(self) -> *NamedType {
         // precondition: current token is an identifier
-        var id_tok = dyn()->advance(); // consume identifier
-        var name = dyn()->ctx->hoisted->intern(
-            dyn()->ctx->sm->get_text(id_tok->range)
-        );
+        var id_ptr = dyn()->current_ptr();
+        var id_range = id_ptr->range;
+        dyn()->advance(); // consume identifier
 
         var nte = NamedIdentExpr::create(
             dyn()->ctx,
-            id_tok->range,
-            *id_tok
+            id_range,
+            *id_ptr
         );
 
         var nt = NamedType::create(
             dyn()->ctx,
-            id_tok->range,
+            id_range,
             nte
         );
 
@@ -231,48 +357,14 @@ class <T> TypeParse { // T = ASTParse
         // whatever we return here
         
         // Annotation init allocator must be set before any add_* calls
-        nte->annotations.set_allocator(&(dyn()->ctx->nodes));
-        nt->annotations.set_allocator(&(dyn()->ctx->nodes));
         return nt;
     }
 
-    fn dispatch_tuple_grouping_disambiguate(self) -> *Type {
-        // precondition: current token is `(`
-        var lparen_tok = dyn()->advance(); // consume `(`
-        var start_range = lparen_tok->range;
-
-        var first_ty = self.parse_type();
-        if first_ty == &null {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
-                "expected type after '(' "
-            ).first(start_range).emit();
-            // asuume tuple
-            return TupleType::create_error(
-                dyn()->ctx,
-                start_range
-            );
-        }
-
-        if dyn()->peek(TokenKind::OpComma) {
-            // --- tuple type ---
-
-        var elms: vec::<*Type>;
-        elms.reserve(8); // common case is small tuples, avoid some reallocs
-
-        while dyn()->match_tok(TokenKind::OpComma) {
-            dyn()->advance(); // consume comma
-            var next_ty = self.parse_type();
-            if next_ty == &null {
-                dyn()->diag->report(DiagID::S045E, start_range.start,
-                    "expected type after ',' in tuple type "
-                ).first(start_range).emit();
-                // assume tuple with error element
-                return TupleType::create_error(
-                    dyn()->ctx,
-                    start_range
-                );
-            }
-        }
+    fn parse_tuple_type(self) -> *TupleType {
+        // Legacy entry point delegates to _parse_paren_type which handles
+        // both grouping and tuple. Callers should prefer parse_type() directly.
+        return static_cast::<*TupleType>(self._parse_paren_type());
+    }
 
 }
 
@@ -286,7 +378,7 @@ class <T> TypeParse { // T = ASTParse
 [ ] VariadicPackType
 [ ] PackExpansionType
 [x] PointerType
-[ ] TupleType
+[x] TupleType
 [ ] FixedArrayType
 [ ] VectorType
 [ ] MapType
