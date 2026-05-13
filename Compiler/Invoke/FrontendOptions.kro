@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ---------- Compiler/Invoke/FrontendOptions.kro --- ///
 ///
-///   <short description>
+///   Frontend action selection, pipeline control, and testing options.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -54,8 +54,8 @@ class FrontendOptions {
     // -- concurrency -------------------------------------------------------
     pub var thread_count:        i32    = 0; ///< 0 = hardware concurrency
     pub var max_threads:         i32    = 0; ///< 0 = no cap
-    pub var max_expr_depth:      i32    = 0x7FFFFFFE; ///< recursion depth guard for expression parsing
-    pub var max_scope_depth:     i32    = 0x7FFFFFFE; ///< recursion depth guard for scope nesting (e.g. nested functions)
+    pub var max_expr_depth:      i32    = 0x7FFFFFFE;
+    pub var max_scope_depth:     i32    = 0x7FFFFFFE;
     // -- primary action ----------------------------------------------------
     pub var action:              FrontendActionKind = FrontendActionKind::EmitObj;
     // -- verbosity / timing ------------------------------------------------
@@ -65,17 +65,17 @@ class FrontendOptions {
     pub var time_passes:         bool   = false;
     pub var print_stats:         bool   = false;
     // -- post-stage dump flags (independent of primary action) -------------
-    pub var print_tokens:        bool   = false; ///< dump token stream after preprocessing
-    pub var print_macros:        bool   = false; ///< dump macro symbol table after preprocessing
-    pub var print_imports:       bool   = false; ///< dump import resolution graph
-    pub var print_ast:           bool   = false; ///< dump AST after parsing
-    pub var print_sema:          bool   = false; ///< dump IR after sema
-    pub var print_ir:            bool   = false; ///< dump LLVM IR pre/post optimization
-    pub var print_bcir:          bool   = false; ///< dump BCIR pre/post borrow-check lowering
-    pub var print_generics:      bool   = false; ///< dump generic instantiations
-    pub var dump_type_info:      bool   = false; ///< dump inferred expression types after sema
-    pub var print_regalloc:      bool   = false; ///< dump register allocation decisions
-    pub var print_pass_pipeline: bool   = false; ///< dump LLVM pass pipeline
+    pub var print_tokens:        bool   = false;
+    pub var print_macros:        bool   = false;
+    pub var print_imports:       bool   = false;
+    pub var print_ast:           bool   = false;
+    pub var print_sema:          bool   = false;
+    pub var print_ir:            bool   = false;
+    pub var print_bcir:          bool   = false;
+    pub var print_generics:      bool   = false;
+    pub var dump_type_info:      bool   = false;
+    pub var print_regalloc:      bool   = false;
+    pub var print_pass_pipeline: bool   = false;
     // -- verification passes -----------------------------------------------
     pub var verify_ir:           bool   = false;
     pub var verify_bcir:         bool   = false;
@@ -87,27 +87,50 @@ class FrontendOptions {
     pub var no_entry:            bool   = false;
     pub var dll:                 bool   = false;
     pub var save_temps:          bool   = false;
+    // -- parser / sema ------------------------------------------------------
+    pub var max_generic_instantiations: i32 = 0x7FFFFFFE;
+    pub var max_tuple_arity:            i32 = 128;
+
+    // -- incremental compilation -------------------------------------------
+    pub var incremental:         bool   = false;
+    pub var incremental_dir:     string = ".kairo-cache";
+    pub var force_recompile:     bool   = false;
+
+    // -- module system -----------------------------------------------------
+    pub var module_name:         string = "";
+    pub var module_cache_dir:    string = ".kairo-modules";
+    pub var no_module_cache:     bool   = false;
+
+    // -- testing -----------------------------------------------------------
+    pub var testing:             bool   = false;
+    pub var test_list:           bool   = false;
+    pub var test_filter:         string = "";
+    pub var test_format:         string = "pretty";
+    pub var test_threads:        i32    = 0;       ///< 0 = logical CPU count
+    pub var test_no_capture:     bool   = false;
+    pub var test_timeout:        i32    = 0;       ///< 0 = no timeout (ms)
+    pub var test_exit_code:      i32    = 1;
+
+    // -- BCIR / AMT limits -------------------------------------------------
+    pub var max_borrow_depth:          i32 = 512;
+    pub var max_amt_smartptr_rewrites: i32 = 8192;  ///< 0 = unlimited
 
     // -- helpers -----------------------------------------------------------
 
-    /// True when the primary action stops at or before the preprocess stage.
     fn stops_at_preprocess(self) -> bool {
         return self.action == FrontendActionKind::Preprocess;
     }
 
-    /// True when the primary action stops at or before parsing.
     fn stops_at_parse(self) -> bool {
         return (self.action == FrontendActionKind::SyntaxOnly)
             || (self.action == FrontendActionKind::Preprocess);
     }
 
-    /// True when the primary action stops at or before semantic analysis.
     fn stops_at_sema(self) -> bool {
         return (self.action == FrontendActionKind::TypeCheckOnly)
             || self.stops_at_parse();
     }
 
-    /// True when codegen should be skipped entirely.
     fn stops_before_codegen(self) -> bool {
         return self.stops_at_sema();
     }
@@ -152,6 +175,34 @@ class FrontendOptions {
         (o.bcir_verbose)        = args.get_bool("bcir-verbose");
         (o.bcir_stats)          = args.get_bool("bcir-stats");
 
+        // -- parser / sema -------------------------------------------------
+        (o.max_generic_instantiations) = args.get_cfg_i32("max-generic-instantiations");
+        (o.max_tuple_arity)         = args.get_cfg_i32("max-tuple-arity");
+
+        // -- incremental compilation ---------------------------------------
+        (o.incremental)      = args.get_bool("incremental");
+        (o.incremental_dir)  = args.get_string("incremental-dir");
+        (o.force_recompile)  = args.get_bool("force-recompile");
+
+        // -- module system -------------------------------------------------
+        (o.module_name)      = args.get_string("module-name");
+        (o.module_cache_dir) = args.get_string("module-cache-dir");
+        (o.no_module_cache)  = args.get_bool("no-module-cache");
+
+        // -- testing -------------------------------------------------------
+        (o.testing)          = args.get_bool("test");
+        (o.test_list)        = args.get_bool("test-list");
+        (o.test_filter)      = args.get_string("test-filter");
+        (o.test_format)      = args.get_string("test-format");
+        (o.test_threads)     = args.get_i32("test-threads");
+        (o.test_no_capture)  = args.get_bool("test-no-capture");
+        (o.test_timeout)     = args.get_i32("test-timeout");
+        (o.test_exit_code)   = args.get_i32("test-exit-code");
+
+        // -- BCIR / AMT limits ---------------------------------------------
+        (o.max_borrow_depth)          = args.get_cfg_i32("max-borrow-depth");
+        (o.max_amt_smartptr_rewrites) = args.get_cfg_i32("max-amt-smartptr-rewrites");
+
         // -- primary action: highest-priority flag wins --------------------
         if (args.get_bool("preprocess")) || (args.get_bool("dump-preprocessed")) {
             o.action = FrontendActionKind::Preprocess;
@@ -165,7 +216,7 @@ class FrontendOptions {
             o.action = FrontendActionKind::EmitAsm;
         } else {
             var emit_str = args.get_string("emit");
-            
+
             if      (emit_str == "llvm-ir") { o.action = FrontendActionKind::EmitLLVMIR; }
             else if (emit_str == "llvm-bc") { o.action = FrontendActionKind::EmitLLVMBC; }
             else if (emit_str == "asm"    ) { o.action = FrontendActionKind::EmitAsm;    }
