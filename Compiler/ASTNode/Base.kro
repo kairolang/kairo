@@ -139,7 +139,7 @@ class Decl derives VisibilityAnnotation::<Decl>, Annotation::<Decl> {
 class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qualifiers
     enum TypeFlags derives u8 {
         None                      = 0,
-        /// Type contains a template type parameter — meaning changes per instantiation.
+        /// Type contains a template type parameter meaning changes per instantiation.
         /// Set on GenericParamType itself and propagates up through any type that
         /// contains one. Sema defers checking of dependent types until instantiation.
         IsDependent               = 1 << 0,
