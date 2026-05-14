@@ -495,31 +495,33 @@ class FloatingLiteralExpr derives PrimitiveLiteralExpr {
         return self.float_data->value_ieee;
     }
 
-    __inline_cpp("template<typename ... Ts>
-    BigFloat* get_value_as_bigfloat(Ts&&...ts) {
-        // we need this path to crash at compile time if we try to use:
-        // get_value_as_bigfloat()
-        // since its incomplete
+    inline "c++" {
+        template<typename ... Ts>
+        BigFloat* get_value_as_bigfloat(Ts&&...ts) {
+            // we need this path to crash at compile time if we try to use:
+            // get_value_as_bigfloat()
+            // since its incomplete
 
-        static_assert(
-            not (libcxx::is_same_v<Ts,Ts> && ...),
-            \"TODO: implement parsing the float literal text into the \"
-            \"BigFloat struct, since some literals may exceed f80 precision \"
-            \"and require arbitrary-precision parsing to get the correct value.  \"
-            \"This is non-trivial but necessary for correctness, especially \"
-            \"for hex floats which can represent values that are not exactly \"
-            \"representable in binary floating-point formats.  In the meantime, \"
-            \"we can return an approximate value based on the f80 representation, \"
-            \"but this should be fixed before we consider the floating-point literal \"
-            \"implementation complete.\"
-        );
+            static_assert(
+                not (libcxx::is_same_v<Ts,Ts> && ...),
+                "TODO: implement parsing the float literal text into the "
+                "BigFloat struct, since some literals may exceed f80 precision "
+                "and require arbitrary-precision parsing to get the correct value.  "
+                "This is non-trivial but necessary for correctness, especially "
+                "for hex floats which can represent values that are not exactly "
+                "representable in binary floating-point formats.  In the meantime, "
+                "we can return an approximate value based on the f80 representation, "
+                "but this should be fixed before we consider the floating-point literal "
+                "implementation complete."
+            );
 
-        if (this->float_data->big_float == nullptr) {
-            // TODO
+            if (this->float_data->big_float == nullptr) {
+                // TODO
+            }
+
+            return this->float_data->big_float;
         }
-
-        return this->float_data->big_float;
-    }");
+    }
 
     /// \brief returns the width in bits specified by the literal or inferred by
     ///        sema.
@@ -654,78 +656,68 @@ class StringLiteralExpr derives PrimitiveLiteralExpr {
     ///        formatting.
     fn is_plain(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
-        if s == &null { return false; }
-        return (s->string_kind) == Kind::StringLiteral;
+        return (s.string_kind) == Kind::StringLiteral;
     }
 
     /// \brief returns true if the segment is a byte string (f-byte or plain
     ///        byte).
     fn is_byte(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
-        if s == &null { return false; }
-        return ((s->string_kind) == Kind::ByteStringLiteral)
-            || ((s->string_kind) == Kind::FormatByteStringLiteral);
+        return ((s.string_kind) == Kind::ByteStringLiteral)
+            || ((s.string_kind) == Kind::FormatByteStringLiteral);
     }
 
     /// \brief returns true if the segment contains interpolation markers.
     fn is_format(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
-        if s == &null { return false; }
-        return ((s->string_kind) == Kind::FormatStringLiteral)
-            || ((s->string_kind) == Kind::FormatByteStringLiteral);
+        return ((s.string_kind) == Kind::FormatStringLiteral)
+            || ((s.string_kind) == Kind::FormatByteStringLiteral);
     }
 
     fn is_format_only(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
-        if s == &null { return false; }
-        return (s->string_kind) == Kind::FormatStringLiteral;
+        return (s.string_kind) == Kind::FormatStringLiteral;
     }
 
     fn is_format_byte(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
-        if s == &null { return false; }
-        return (s->string_kind) == Kind::FormatByteStringLiteral;
+        return (s.string_kind) == Kind::FormatByteStringLiteral;
     }
 
     /// \brief extracts the prefix (e.g., `b`, `f`, `bf`) from the source.
     fn get_prefix(self, idx: usize = 0) -> TokenText {
         var s = self.string_chain[idx];
-        if s == &null { return TokenText("", SourceRange::invalid(), false, false); }
-        return TokenText::from_token(s->string_data->prefix, self.ctx);
+        return TokenText::from_token(s.string_data->prefix, self.ctx);
     }
 
     /// \brief extracts the suffix (e.g., closing quotes) from the source.
     fn get_suffix(self, idx: usize = 0) -> TokenText {
         var s = self.string_chain[idx];
-        if s == &null { return TokenText("", SourceRange::invalid(), false, false); }
-        return TokenText::from_token(s->string_data->suffix, self.ctx);
+        return TokenText::from_token(s.string_data->suffix, self.ctx);
     }
 
     /// \brief returns the raw text content inside the quotes.
     fn get_body(self, idx: usize = 0) -> TokenText {
         var s = self.string_chain[idx];
-        if s == &null { return TokenText("", SourceRange::invalid(), false, false); }
-        return TokenText::from_range(s->string_data->body, self.ctx);
+        return TokenText::from_range(s.string_data->body, self.ctx);
     }
 
     /// \brief retrieves the list of token buffers and ranges representing
     ///        interpolated expressions.
     fn get_exprs(self, idx: usize = 0)
         -> libcxx::deque::<(*TokenBuffer::<16>, SourceRange)> {
-        return self.string_chain[idx]->string_data->exprs;
+        return self.string_chain[idx].string_data->exprs;
     }
 
     fn get_kind(self, idx: usize = 0) -> Kind {
         var s = self.string_chain[idx];
-        if s == &null { return Kind::StringLiteral; }
-        return (s->string_kind);
+        return (s.string_kind);
     }
 
     /// \brief returns true if the string body contains physical newline
     ///        characters.
     fn is_multi_line(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
-        if s == &null { return false; }
 
         var body_text = self.get_body().get_text();
         return body_text.raw_string().find('\n') != string::npos;
@@ -735,14 +727,12 @@ class StringLiteralExpr derives PrimitiveLiteralExpr {
     ///        expressions.
     fn has_interpolation(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
-        if s == &null { return false; }
-        return !(s->string_data->exprs.empty());
+        return !(s.string_data->exprs.empty());
     }
 
     /// \brief returns true if the literal is `""` or `b""` with no content.
     fn is_empty(self, idx: usize = 0) -> bool {
         var s = self.string_chain[idx];
-        if s == &null { return false; }
         return self.get_body().get_text().empty();
     }
 }/// \class CharacterLiteralExpr

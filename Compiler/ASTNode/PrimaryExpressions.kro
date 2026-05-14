@@ -164,18 +164,18 @@ class ChainExpr derives Expr {
     /// \struct ChainSegment
     /// \brief a single link in the expression chain.
     struct ChainSegment {
-        var sep:      SegmentSeparator; ///< operator used to reach this
+        var expr:           *Expr;      ///< the expression content of this
                                         ///  segment.
-        var expr:     *Expr;            ///< the expression content of this
+        var resolved_type:  *Type;      ///< resulting type after evaluating this
                                         ///  segment.
+        var resolved_decl:  *Decl;      ///< the declaration (Field, Method, Var) this
+                                        ///  segment refers to.
         var range:    SourceRange;      ///< range covering the separator and
                                         ///  the expression.
+        var sep:      SegmentSeparator; ///< operator used to reach this
+                                        ///  segment.
         var seg_kind: SegmentKind;      ///< semantic role of this segment.
 
-        var resolved_type: *Type; ///< resulting type after evaluating this
-                                  ///  segment.
-        var resolved_decl: *Decl; ///< the declaration (Field, Method, Var) this
-                                  ///  segment refers to.
     }
 
     pub var segments: FrozenList::<ChainSegment>;
@@ -189,13 +189,7 @@ class ChainExpr derives Expr {
         var node   = ctx->alloc::<ChainExpr>();
         node->kind  = ExprKind::ChainExpr;
         node->range = range;
-
-        var arr = ctx->alloc_array::<ChainSegment>(segments->size());
-        for var i: usize = 0; i < segments->size(); ++i {
-            arr[i] = (*segments)[i];
-        }
-
-        node->segments.from_raw(arr, segments->size());
+        node->segments.from_vec(segments, ctx);
         node->ctx = ctx;
         return node;
     }
@@ -204,10 +198,9 @@ class ChainExpr derives Expr {
     ///        resilience.
     static fn create_error(
         ctx:      *ASTContext,
-        range:    SourceRange,
-        segments: *vec::<ChainSegment>
+        range:    SourceRange
     ) -> *ChainExpr {
-        var node            = create(ctx, range, segments);
+        var node            = create(ctx, range, &null);
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::ChainExpr;
         return node;
@@ -234,7 +227,7 @@ class ChainExpr derives Expr {
             return &null;
         }
 
-        return self.segments[self.segments.size() - 1];
+        return self.segments.get(self.segments.size() - 1);
     }
 
     fn first(self) -> *ChainSegment {
@@ -242,7 +235,7 @@ class ChainExpr derives Expr {
             return &null;
         }
 
-        return self.segments[0];
+        return self.segments.get(0);
     }
 
     /// \brief returns true if the chain consists solely of scope resolutions.
@@ -290,7 +283,7 @@ class ChainExpr derives Expr {
             return false;
         }
 
-        return (self.segments[0]->sep) == SegmentSeparator::ColonColon;
+        return (self.segments[0].sep) == SegmentSeparator::ColonColon;
     }
 }
 
