@@ -26,6 +26,7 @@ import ASTNode::Program::*;
 import Lexer::TokenSpan::*;
 import Lexer::Token::*;
 import Diag::DiagEngine::*;
+import AST::Printer::TypePrinter::*;
 
 import Parser::ExprParse::*;
 import Parser::StmtParse::*;
@@ -265,8 +266,8 @@ class ASTParse
     var _peek:    obs::<Token> = &null;
 
     // --- Annotation / qualifier accumulator (reused across parse calls) -----
-    var _pending_annot: PendingAnnotations;
-    var _pending_quals: PendingQuals;
+    pub var _pending_annot: PendingAnnotations;
+    pub var _pending_quals: PendingQuals;
 
     // --- Output -------------------------------------------------------------
     pub var tu: obs::<TranslationUnit>;
@@ -295,25 +296,6 @@ class ASTParse
         self.error_count_base = self.diag->error_count();
     }
 
-    static fn get_ty_name(ty: *Type) -> string {
-        if ty == &null {
-            return "null";
-        } else if isa::<PointerType>(ty) {
-            return "pointer";
-        } else if isa::<TupleType>(ty) {
-            var tup = cast::<TupleType>(ty);
-            var res = f"tuple(size={tup->elements.size()}, ";
-            for i in tup->elements {
-                res += get_ty_name(i);
-                res += ", ";
-            }
-            res += ")";
-            return res;
-        } else {
-            return "other";
-        }
-    }
-
     fn parse(self) -> *TranslationUnit {
         var program = self.ctx->alloc_init::<Program>(self.ctx->fid, self.ctx);
         self.tu->program = program;           // direct assignment, not set_program()
@@ -334,9 +316,16 @@ class ASTParse
 
         //     program->add_item(item);
         // }
-        var ty = self.parse_type();
-        std::print(ASTParse::get_ty_name(ty));
 
+        while !self.is_eof() {
+            if self.check(TokenKind::TkNewLine) {
+                self.advance();
+                continue;
+            }
+            var ty = self.parse_type();
+            std::print(TypePrinter::print(ty, PrintStyle::Debug));
+            if ty == &null { break; }
+        }
         self.scope.pop();
 
         self.tu->error_count = self.diag->error_count() - self.error_count_base;
@@ -381,41 +370,60 @@ class ASTParse
         None,           // don't skip newlines at all
         Before,         // skip newlines, then move
         After,          // move, then skip newlines
-        Peek,           // skip newlines, but don't move
+        Only,           // skip only newlines, and don't move
     }
 
-    inline pub fn advance_then_skip_newlines(self) {
-        self.advance();
+    // --- private helpers ---
+
+    inline fn _skip_nl_fwd(self) {
         while self.current().kind == TokenKind::TkNewLine {
             self.advance();
         }
     }
 
-    inline pub fn skip_newlines_then_advance(self) {
-        while self.current().kind == TokenKind::TkNewLine {
-            self.advance();
-        }
-        self.advance();
-    }
-
-    inline pub fn skip_iff_newlines(self) {
-        if (self.current().kind) != TokenKind::TkNewLine {
-            return;
-        }
-
-        while (self.current().kind) == TokenKind::TkNewLine {
-            self.advance();
-        }
-    }
-
-    inline pub fn retreat_skip_newlines(self) {
-        self.retreat();
+    inline fn _skip_nl_bwd(self) {
         while self.current().kind == TokenKind::TkNewLine {
             self.retreat();
         }
     }
 
-    inline pub fn advance(self) {
+    // --- public API ---
+
+    inline pub fn advance(self, const skip: SkipNL = SkipNL::None) {
+        switch skip {
+            case SkipNL::Before {
+                self._skip_nl_fwd();
+                self._advance();
+            } case SkipNL::After {
+                self._advance();
+                self._skip_nl_fwd();
+            } case SkipNL::Only {
+                self._skip_nl_fwd();
+            } default {
+                self._advance();
+            }
+        }
+    }
+
+    inline pub fn retreat(self, const skip: SkipNL = SkipNL::None) {
+        switch skip {
+            case SkipNL::Before {
+                self._skip_nl_bwd();
+                self._retreat();
+            } case SkipNL::After {
+                self._retreat();
+                self._skip_nl_bwd();
+            } case SkipNL::Only {
+                self._skip_nl_bwd();
+            } default {
+                self._retreat();
+            }
+        }
+    }
+
+    // --- cursor primitives (renamed to avoid collision) ---
+
+    inline fn _advance(self) {
         self._prev = self._current;
 
         if (self.c_idx + 1) < self.span.size() {
@@ -429,13 +437,13 @@ class ASTParse
         self._sync_cursor();
     }
 
-    inline pub fn retreat(self) {
+    inline fn _retreat(self) {
         if self.c_idx == 0 { return; }
 
-        self._peek = self._current;
-        self.c_idx -= 1;
-        self._current = self.span.get(self.c_idx);
-        self._prev = (self.span.get(self.c_idx - 1)) if (self.c_idx > 0) else (&null);
+        self._peek    = self._current;
+        self.c_idx   -= 1;
+        self._current = (self.span.get(self.c_idx));
+        self._prev    = (self.span.get(self.c_idx - 1)) if (self.c_idx > 0) else (&null);
     }
 
     /// Sync _current and _peek from c_idx. Used after any direct c_idx mutation.
@@ -558,6 +566,30 @@ class ASTParse
 
     inline pub fn check(self, kind: TokenKind) -> bool {
         return self._resolve_and_check(self._current, kind, true);
+    }
+
+    inline pub fn check(self, pre: fn (TokenKind) -> bool) -> bool {
+        if self._current == &null { return false; }
+        var resolved = self.resolve_deep(self._current);
+        var resolved_kind = resolved.kind;
+
+        while resolved_kind == TokenKind::AtComment {
+            // we should be accumulating these into attributes, but for now
+            // just brush them off so they don't interfere with parsing
+            self.advance();
+            return self.check(pre);
+        }
+
+        if resolved_kind == TokenKind::TkError {
+            if !self.in_recovery {
+                self.diag->report(DiagID::S045E, self._current->range.start,
+                    f"unexpected token found where '{token_kind_to_readable_string(static_cast::<TokenKind>(resolved.imm))}' expected"
+                ).first(self._current->range).emit();
+            }
+            resolved_kind = static_cast::<TokenKind>(resolved.imm);
+        }
+
+        return pre(resolved_kind);
     }
 
     inline pub fn check_prev(self, kind: TokenKind) -> bool {
@@ -880,6 +912,8 @@ class ASTParse
         for var i: usize = 0; i < self._pending_quals.spans.size(); ++i {
             ty->spans.push(*(&self._pending_quals.spans[i]));
         }
+
+        self._pending_quals.clear();
     }
 
     // ========================================================================
