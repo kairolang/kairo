@@ -38,7 +38,7 @@ import AST::Support::*;
 import ASTNode::PrimaryExpressions::*;
 
 /// ============================================================================
-///  Helper — propagate type_flags from children into a parent node.
+///  Helper propagate type_flags from children into a parent node.
 ///  Call this after setting all child type pointers on a newly created node.
 /// ============================================================================
 fn propagate_flags(parent: *Type, child: *Type) {
@@ -64,6 +64,8 @@ class NamedType derives Type {
         var node         = ctx->alloc::<NamedType>();
         node->kind       = TypeKind::NamedType;
         node->range      = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->name       = name;
         return node;
     }
@@ -76,6 +78,8 @@ class NamedType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::NamedType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -90,11 +94,11 @@ class NamedType derives Type {
 
 /// ============================================================================
 ///  DependentNameType
-///  typename T::Foo — qualifier is a dependent type, unresolvable until
+///  typename T::Foo qualifier is a dependent type, unresolvable until
 ///  instantiation. Sema defers all checking. IsDependent always set.
 /// ============================================================================
 class DependentNameType derives Type {
-    pub var qualifier: *Type;        ///< The dependent prefix, e.g. T in T::Foo.
+    pub var qualifier: *Type;           ///< The dependent prefix, e.g. T in T::Foo.
     pub var name:      *NamedIdentExpr; ///< The member name, e.g. Foo.
 
     static fn create(
@@ -106,6 +110,8 @@ class DependentNameType derives Type {
         var node         = ctx->alloc::<DependentNameType>();
         node->kind       = TypeKind::DependentNameType;
         node->range      = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->qualifier  = qualifier;
         node->name       = name;
         /// dependent by definition
@@ -125,6 +131,8 @@ class DependentNameType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::DependentNameType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -139,7 +147,7 @@ class DependentNameType derives Type {
 
 /// ============================================================================
 ///  GenericParamType
-///  T inside fn foo<T>(x: T) — unresolved generic parameter.
+///  T inside fn foo<T>(x: T) unresolved generic parameter.
 ///  Always dependent. Sema substitutes at instantiation.
 /// ============================================================================
 class GenericParamType derives Type {
@@ -157,6 +165,8 @@ class GenericParamType derives Type {
         var node          = ctx->alloc::<GenericParamType>();
         node->kind        = TypeKind::GenericParamType;
         node->range       = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->param_name  = param_name;
         node->param_index = param_index;
         node->is_pack     = is_pack;
@@ -182,6 +192,8 @@ class GenericParamType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::GenericParamType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -214,6 +226,8 @@ class SubstGenericParamType derives Type {
         var node          = ctx->alloc::<SubstGenericParamType>();
         node->kind        = TypeKind::SubstGenericParamType;
         node->range       = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->original    = original;
         node->replacement = replacement;
         node->canonical   =   (replacement->canonical)
@@ -231,6 +245,8 @@ class SubstGenericParamType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::SubstGenericParamType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -255,19 +271,16 @@ class GenericInstanceType derives Type {
     static fn create(
         ctx:   *ASTContext,
         range: SourceRange,
-        base:  *NamedType,
-        args:  *vec::<*Type>
+        base:  *NamedType
     ) -> *GenericInstanceType {
         var node      = ctx->alloc::<GenericInstanceType>();
         node->kind    = TypeKind::GenericInstanceType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->base    = base;
-        node->args.from_vec(args, ctx);
 
         propagate_flags(node, base);
-        for arg in (*args) {
-            propagate_flags(node, arg);
-        }
         return node;
     }
 
@@ -279,6 +292,8 @@ class GenericInstanceType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::GenericInstanceType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -308,6 +323,8 @@ class TypeOfType derives Type {
         var node      = ctx->alloc::<TypeOfType>();
         node->kind    = TypeKind::TypeOfType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->expr    = expr;
         node->resolved = &null;
         return node;
@@ -321,6 +338,8 @@ class TypeOfType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::TypeOfType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -335,7 +354,7 @@ class TypeOfType derives Type {
 
 /// ============================================================================
 ///  VariadicPackType
-///  ...T at declaration site — the bare pack parameter in a generic signature.
+///  ...T at declaration site the bare pack parameter in a generic signature.
 ///  Always sets IsDependent and ContainsUnexpandedPack.
 ///  This is the declaration-site node; PackExpansionType is the use-site node.
 /// ============================================================================
@@ -350,6 +369,8 @@ class VariadicPackType derives Type {
         var node      = ctx->alloc::<VariadicPackType>();
         node->kind    = TypeKind::VariadicPackType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->param   = param;
         node->type_flags = static_cast::<Type::TypeFlags>(
             static_cast::<u8>(Type::TypeFlags::IsDependent)
@@ -367,6 +388,8 @@ class VariadicPackType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::VariadicPackType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -381,7 +404,7 @@ class VariadicPackType derives Type {
 
 /// ============================================================================
 ///  PackExpansionType
-///  pattern... — use-site expansion of a pack in type position.
+///  pattern... use-site expansion of a pack in type position.
 ///  e.g. std::vector<Ts>... where pattern is std::vector<Ts>.
 ///  Clears ContainsUnexpandedPack on itself (expansion consumed it)
 ///  but remains IsDependent since result still varies per instantiation.
@@ -397,8 +420,10 @@ class PackExpansionType derives Type {
         var node      = ctx->alloc::<PackExpansionType>();
         node->kind    = TypeKind::PackExpansionType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->pattern = pattern;
-        /// propagate flags from pattern then clear unexpanded pack —
+        /// propagate flags from pattern then clear unexpanded pack
         /// this node IS the expansion, pack is no longer unexpanded here
         propagate_flags(node, pattern);
         node->type_flags = static_cast::<Type::TypeFlags>(
@@ -422,6 +447,8 @@ class PackExpansionType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::PackExpansionType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -436,7 +463,7 @@ class PackExpansionType derives Type {
 
 /// ============================================================================
 ///  PointerType
-///  *T — fat pointer. length set by sema if size is statically known.
+///  *T fat pointer. length set by sema if size is statically known.
 /// ============================================================================
 class PointerType derives Type {
     pub var pointee: *Type;
@@ -450,6 +477,8 @@ class PointerType derives Type {
         var node      = ctx->alloc::<PointerType>();
         node->kind    = TypeKind::PointerType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->pointee = pointee;
         node->length  = 0;
         propagate_flags(node, pointee);
@@ -464,6 +493,8 @@ class PointerType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::PointerType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -478,7 +509,7 @@ class PointerType derives Type {
 
 /// ============================================================================
 ///  NullableType
-///  T? — lowered to std::Optional<T> by sema.
+///  T? lowered to std::Optional<T> by sema.
 /// ============================================================================
 class NullableType derives Type {
     pub var inner: *Type;
@@ -491,6 +522,8 @@ class NullableType derives Type {
         var node      = ctx->alloc::<NullableType>();
         node->kind    = TypeKind::NullableType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->inner   = inner;
         propagate_flags(node, inner);
         return node;
@@ -504,6 +537,8 @@ class NullableType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::NullableType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -525,16 +560,14 @@ class TupleType derives Type {
 
     static fn create(
         ctx:      *ASTContext,
-        range:    SourceRange,
-        elements: *vec::<*Type>
+        range:    SourceRange
     ) -> *TupleType {
         var node       = ctx->alloc::<TupleType>();
         node->kind     = TypeKind::TupleType;
         node->range    = range;
-        node->elements.from_vec(elements, ctx);
-        for elem in *elements {
-            propagate_flags(node, elem);
-        }
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        
         return node;
     }
 
@@ -546,6 +579,8 @@ class TupleType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::TupleType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -560,25 +595,27 @@ class TupleType derives Type {
 
 /// ============================================================================
 ///  FixedArrayType
-///  [i32; 6] — fixed size. [i32;] — incomplete (FFI/C interop only),
+///  [i32; 6] fixed size. [i32;] incomplete (FFI/C interop only),
 ///  indicated by is_incomplete = true and size_expr = null.
 /// ============================================================================
 class FixedArrayType derives Type {
-    pub var element:     *Type;
-    pub var size_expr:   *Expr;  ///< Null if is_incomplete.
-    pub var is_incomplete: bool; ///< True for C-style int buf[].
+    pub var element:      *Type;
+    pub var size_expr:    *Expr;  ///< Null if is_incomplete.
+    pub var is_incomplete: bool;  ///< True for C-style int buf[].
 
     static fn create(
-        ctx:      *ASTContext,
-        range:    SourceRange,
-        element:  *Type,
+        ctx:       *ASTContext,
+        range:      SourceRange,
+        element:   *Type,
         size_expr: *Expr
     ) -> *FixedArrayType {
-        var node           = ctx->alloc::<FixedArrayType>();
-        node->kind         = TypeKind::FixedArrayType;
-        node->range        = range;
-        node->element      = element;
-        node->size_expr    = size_expr;
+        var node            = ctx->alloc::<FixedArrayType>();
+        node->kind          = TypeKind::FixedArrayType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->element       = element;
+        node->size_expr     = size_expr;
         node->is_incomplete = false;
         propagate_flags(node, element);
         return node;
@@ -592,6 +629,8 @@ class FixedArrayType derives Type {
         var node            = ctx->alloc::<FixedArrayType>();
         node->kind          = TypeKind::FixedArrayType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->element       = element;
         node->size_expr     = &null;
         node->is_incomplete = true;
@@ -607,6 +646,8 @@ class FixedArrayType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::FixedArrayType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -621,7 +662,7 @@ class FixedArrayType derives Type {
 
 /// ============================================================================
 ///  VectorType
-///  [i32] — growable. Lowered to std::vector<T> or equivalent.
+///  [i32] growable. Lowered to std::vector<T> or equivalent.
 /// ============================================================================
 class VectorType derives Type {
     pub var element: *Type;
@@ -634,6 +675,8 @@ class VectorType derives Type {
         var node      = ctx->alloc::<VectorType>();
         node->kind    = TypeKind::VectorType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->element = element;
         propagate_flags(node, element);
         return node;
@@ -647,6 +690,8 @@ class VectorType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::VectorType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -676,6 +721,8 @@ class MapType derives Type {
         var node      = ctx->alloc::<MapType>();
         node->kind    = TypeKind::MapType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->key     = key;
         node->value   = value;
         propagate_flags(node, key);
@@ -691,6 +738,8 @@ class MapType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::MapType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -718,6 +767,8 @@ class SetType derives Type {
         var node      = ctx->alloc::<SetType>();
         node->kind    = TypeKind::SetType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->element = element;
         propagate_flags(node, element);
         return node;
@@ -731,6 +782,8 @@ class SetType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::SetType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -757,6 +810,8 @@ class SelfType derives Type {
         var node   = ctx->alloc::<SelfType>();
         node->kind  = TypeKind::SelfType;
         node->range = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         /// SelfType is instantiation-dependent inside generic types
         node->type_flags = Type::TypeFlags::IsInstantiationDependent;
         return node;
@@ -770,6 +825,8 @@ class SelfType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::SelfType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -795,18 +852,15 @@ class FunctionPointerType derives Type {
     static fn create(
         ctx:         *ASTContext,
         range:       SourceRange,
-        params:      *vec::<*Type>,
         return_type: *Type
     ) -> *FunctionPointerType {
         var node              = ctx->alloc::<FunctionPointerType>();
         node->kind            = TypeKind::FunctionPointerType;
         node->range           = range;
-        node->params.from_vec(params, ctx);
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->return_type     = return_type;
         node->is_unprototyped = false;
-        for param in *params {
-            propagate_flags(node, param);
-        }
         propagate_flags(node, return_type);
         return node;
     }
@@ -818,6 +872,8 @@ class FunctionPointerType derives Type {
         var node              = ctx->alloc::<FunctionPointerType>();
         node->kind            = TypeKind::FunctionPointerType;
         node->range           = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->is_unprototyped = true;
         return node;
     }
@@ -830,6 +886,8 @@ class FunctionPointerType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::FunctionPointerType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -858,6 +916,8 @@ class InferredType derives Type {
         var node       = ctx->alloc::<InferredType>();
         node->kind     = TypeKind::InferredType;
         node->range    = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->infer_id = infer_id;
         return node;
     }
@@ -870,6 +930,8 @@ class InferredType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::InferredType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -897,6 +959,8 @@ class CXXLValueRefType derives Type {
         var node      = ctx->alloc::<CXXLValueRefType>();
         node->kind    = TypeKind::CXXLValueRefType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->referee = referee;
         propagate_flags(node, referee);
         return node;
@@ -910,6 +974,8 @@ class CXXLValueRefType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::CXXLValueRefType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -937,6 +1003,8 @@ class CXXRValueRefType derives Type {
         var node      = ctx->alloc::<CXXRValueRefType>();
         node->kind    = TypeKind::CXXRValueRefType;
         node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->referee = referee;
         propagate_flags(node, referee);
         return node;
@@ -950,6 +1018,8 @@ class CXXRValueRefType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::CXXRValueRefType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -964,7 +1034,7 @@ class CXXRValueRefType derives Type {
 
 /// ============================================================================
 ///  OpaqueFFIType
-///  Opaque type from ffi "c++" — sema treats as a black box.
+///  Opaque type from ffi "c++" sema treats as a black box.
 ///  name is the original C++ type spelling for diagnostics and codegen.
 /// ============================================================================
 class OpaqueFFIType derives Type {
@@ -978,6 +1048,8 @@ class OpaqueFFIType derives Type {
         var node   = ctx->alloc::<OpaqueFFIType>();
         node->kind  = TypeKind::OpaqueFFIType;
         node->range = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->name  = name;
         return node;
     }
@@ -990,6 +1062,8 @@ class OpaqueFFIType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::OpaqueFFIType;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
@@ -1013,6 +1087,8 @@ class TypeExpr derives Type {
         var node    = ctx->alloc::<TypeExpr>();
         node->kind  = TypeKind::TypeExpr;
         node->range = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         node->expr  = expr;
         return node;
     }
@@ -1025,6 +1101,8 @@ class TypeExpr derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::TypeExpr;
         node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
         return node;
     }
 
