@@ -96,7 +96,7 @@ import Lexer::Token::*;
 class <T> FrozenList {
     pub var items: *T    = &null;
     pub var count: usize = 0;
-    pub var MAX:   usize = __inline_cpp("(libcxx::numeric_limits<usize>::max)()");
+    pub var MAX:   usize = inline "c++" { (libcxx::numeric_limits<usize>::max)() };
 
     ///
     /// \brief Freeze an ArenaList into a FrozenList, allocating the
@@ -111,10 +111,37 @@ class <T> FrozenList {
     }
 
     fn from_vec(self, v: *vec::<T>, ctx: *ASTContext) {
-        var arr = ctx->alloc_array::<T>(v->size());
-        for var i: usize = 0; i < v->size(); ++i {
-            arr[i] = (*v)[i];
+        if (v == &null) || (v->size() == 0) {
+            self.count = 0;
+            self.items = &null;
+            return;
         }
+
+        self.count = v->size();
+        self.items = ctx->alloc_array::<T>(self.count);
+        for var i: usize = 0; i < self.count; ++i {
+            self.items[i] = (*v)[i];
+        }
+    }
+
+    fn from_buf(self, data: *T, count: usize, ctx: *ASTContext) {
+        if count == 0 {
+            self.count = 0;
+            self.items = &null;
+            return;
+        }
+
+        self.count = count;
+        self.items = ctx->alloc_array::<T>(count);
+        libcxx::memcpy(items, data, sizeof(T) * count);
+    }
+
+    fn begin(self) -> *T {
+        return self.items;
+    }
+
+    fn end(self) -> *T {
+        return self.items + self.count;
     }
 
     ///
@@ -147,11 +174,11 @@ class <T> FrozenList {
     }
 
     ///
-    /// \brief Bounds-checked subscript. Returns null if OOB.
-    /// Consistent with get()no crash on OOB, caller checks null.
+    /// \brief Bounds-checked subscript. Asserts if OOB.
     ///
-    fn op [](self, index: usize) -> *T {
-        return self.get(index);
+    fn op [](self, index: usize) -> T {
+        assert((index < self.count) && r"FrozenList index out of bounds");
+        return *(self.items + index);
     }
 
     ///

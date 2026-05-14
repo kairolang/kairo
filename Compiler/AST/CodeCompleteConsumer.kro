@@ -35,16 +35,16 @@ class CodeCompleteConsumer {
 
     /// Generic hook fired when parser reaches completion position.
     /// Concrete consumers override with their own logic.
-    fn on_completion(self, kind: CompletionContextKind, dc: *DeclContext) {
+    virtual fn on_completion(self, kind: CompletionContextKind, dc: *DeclContext) {
         // default: no-op. override in subclass.
     }
 
     /// Member-access variant: parser has parsed `base` and seen `.` at cursor.
-    fn on_member_access(self, base: *Expr, is_arrow: bool) { }
+    virtual fn on_member_access(self, base: *Expr, is_arrow: bool) { }
 
     /// Qualified-name variant: parser has parsed `scope` and seen `::` at cursor.
-    fn on_qualified_name(self, scope: *ScopeNode) { }
+    virtual fn on_qualified_name(self, scope: *ScopeNode) { }
 
     /// Signature-help variant: parser is inside a call, knows callee and arg index.
-    fn on_signature_help(self, callee: *Expr, arg_index: u32) { }
+    virtual fn on_signature_help(self, callee: *Expr, arg_index: u32) { }
 }
