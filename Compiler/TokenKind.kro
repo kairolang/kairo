@@ -241,10 +241,12 @@ enum TokenKind derives u32 {
     AtUsize = compute_hash::<r"usize">(), // "usize"
     AtIsize = compute_hash::<r"isize">(), // "isize"
 
+    AtF16   = compute_hash::<r"f16">(),   // "f16"
     AtF32   = compute_hash::<r"f32">(),   // "f32"
     AtF64   = compute_hash::<r"f64">(),   // "f64"
     AtF80   = compute_hash::<r"f80">(),   // "f80"
     AtF128  = compute_hash::<r"f128">(),  // "f128"
+    AtF256  = compute_hash::<r"f256">(),  // "f256"
 
     AtU8    = compute_hash::<r"u8">(),    // "u8"
     AtU16   = compute_hash::<r"u16">(),   // "u16"
@@ -252,6 +254,7 @@ enum TokenKind derives u32 {
     AtU64   = compute_hash::<r"u64">(),   // "u64"
     AtU128  = compute_hash::<r"u128">(),  // "u128"
     AtU256  = compute_hash::<r"u256">(),  // "u256"
+    AtU512  = compute_hash::<r"u512">(),  // "u512"
 
     AtI8    = compute_hash::<r"i8">(),    // "i8"
     AtI16   = compute_hash::<r"i16">(),   // "i16"
@@ -259,7 +262,8 @@ enum TokenKind derives u32 {
     AtI64   = compute_hash::<r"i64">(),   // "i64"
     AtI128  = compute_hash::<r"i128">(),  // "i128"
     AtI256  = compute_hash::<r"i256">(),  // "i256"
-
+    AtI512  = compute_hash::<r"i512">(),  // "i512"
+    
     ///===----------------------------------------------------------------===///
     /// # Unary keywords
     ///===----------------------------------------------------------------===///

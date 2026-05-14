@@ -1000,6 +1000,61 @@ inline string get_thread_model() noexcept {
 #endif
 }
 
+/// StackBuf<T, N> — inline scratch buffer for parser hot paths.
+/// Trivially destructible T only. No copy, no move. Stack-local only.
+template <typename T, unsigned N>
+class StackBuf {
+    static_assert(N > 0);
+    static_assert(libcxx::is_trivially_destructible_v<T>);
+
+    alignas(T) unsigned char _inline[sizeof(T) * N]{};
+    T       *_data = reinterpret_cast<T *>(_inline);
+    uint32_t _size = 0;
+    uint32_t _cap  = N;
+
+    [[nodiscard]] bool _is_inline() const {
+        return _data == reinterpret_cast<const T *>(_inline);
+    }
+
+    void _grow() {
+        uint32_t new_cap = _cap * 2;
+        T       *buf     = static_cast<T *>(malloc(sizeof(T) * new_cap));
+        libcxx::memcpy(buf, _data, sizeof(T) * _size);
+        if (!_is_inline()) {
+            libcxx::free(_data);
+        }
+        _data = buf;
+        _cap  = new_cap;
+    }
+
+  public:
+    StackBuf() = default;
+    ~StackBuf() {
+        if (!_is_inline()) {
+            libcxx::free(_data);
+        }
+    }
+
+    StackBuf(const StackBuf &)            = delete;
+    StackBuf &operator=(const StackBuf &) = delete;
+    StackBuf(StackBuf &&)                 = delete;
+    StackBuf &operator=(StackBuf &&)      = delete;
+
+    void push_back(T val) {
+        if (__builtin_expect(static_cast<long>(_size == _cap), 0) != 0) {
+            _grow();
+        }
+        _data[_size++] = val;
+    }
+
+    T                     *data() const { return const_cast<T *>(_data); }
+    [[nodiscard]] uint32_t size() const { return _size; }
+    [[nodiscard]] bool     empty() const { return _size == 0; }
+
+    T       &operator[](uint32_t i) { return _data[i]; }
+    const T &operator[](uint32_t i) const { return _data[i]; }
+};
+
 ///
 /// \note
 /// This header may be expanded to include additional abstractions or
