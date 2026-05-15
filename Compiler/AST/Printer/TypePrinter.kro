@@ -224,8 +224,8 @@ class TypePrinter {
     //  PointerType   *T | *const T | **T
 
     priv fn _print_pointer(self, ty: *PointerType) {
+        self._print_quals(ty);   // moved BEFORE the *
         self._buf += "*";
-        self._print_quals(ty);   // *const T quals go between * and pointee
         self._print(ty->pointee);
     }
 
