@@ -70,39 +70,59 @@ class <T> TypeParse { // T = ASTParse
     priv fn _sync_type(
         self,
         ctx: TypeSyncCtx,
-        paren_depth:  i32 = 0,
-        square_depth: i32 = 0,
-        brace_depth:  i32 = 0
+        paren_depth:    i32 = 0,
+        square_depth:   i32 = 0,
+        brace_depth:    i32 = 0,
+        stop_at_newline: bool = false
     ) {
-        var balance_paren:  i32 = paren_depth;
-        var balance_square: i32 = square_depth;
-        var balance_brace:  i32 = brace_depth;
+        var balance_paren:   i32 = paren_depth;
+        var balance_square:  i32 = square_depth;
+        var balance_brace:   i32 = brace_depth;
+        var tokens_consumed: u32 = 0;
+        const var MAX_SYNC:  u32 = 64;
 
         while !dyn()->is_eof() {
+            if tokens_consumed >= MAX_SYNC { return; }
+            ++tokens_consumed;
+
             var k = dyn()->current().kind;
 
-            if      k == TokenKind::OpLParen  { ++balance_paren; }
-            else if k == TokenKind::OpLSquare { ++balance_square; }
-            else if k == TokenKind::OpLBrace  { ++balance_brace; }
+            // Hard stop: caller is recovering from an unclosed delimiter and
+            // wants us to bail at the next newline rather than eat the next
+            // top-level construct.
+            if stop_at_newline && k == TokenKind::TkNewLine
+            && balance_paren == 0 && balance_square == 0 && balance_brace == 0 {
+                return;
+            }
+
+            if k == TokenKind::OpLParen {
+                ++balance_paren;
+            }
+            else if k == TokenKind::OpLSquare {
+                ++balance_square;
+            }
+            else if k == TokenKind::OpLBrace {
+                ++balance_brace;
+            }
             else if k == TokenKind::OpRParen {
                 if balance_paren == 0 {
-                    if ctx == TypeSyncCtx::Paren || ctx == TypeSyncCtx::Comma { return; }
-                    return; // always stop, caller owns this delimiter
+                    // closing delimiter at our level always stops us; caller
+                    // owns the decision of whether to consume it.
+                    return;
                 }
                 --balance_paren;
             }
             else if k == TokenKind::OpRSquare {
-                if balance_square == 0 {
-                    if ctx == TypeSyncCtx::Square || ctx == TypeSyncCtx::Comma { return; }
-                    return;
-                }
+                if balance_square == 0 { return; }
                 --balance_square;
             }
             else if k == TokenKind::OpRBrace {
-                if balance_brace == 0 { return; } // never eat a closing brace
+                if balance_brace == 0 { return; }
                 --balance_brace;
             }
             else if balance_paren == 0 && balance_square == 0 && balance_brace == 0 {
+                // At depth zero across all delimiter kinds: stop on tokens
+                // that end a type-position production.
                 if k == TokenKind::OpComma {
                     if ctx == TypeSyncCtx::Comma
                     || ctx == TypeSyncCtx::Paren
@@ -129,16 +149,16 @@ class <T> TypeParse { // T = ASTParse
     //  parse_type top-level type expression entry point
     //---------------------------------------------------------------
 
-        /// all the starters we can have:
-        /// - `*` for pointer types
-        /// - `atomic` for atomic types
-        /// - `(` for tuple types or grouping types
-        /// - `const`/`unsafe`/`eval`/`async` for type qualifiers (modifiers)
-        /// - an identifier for nominal types
-        /// - `[` for either list or array type
-        /// - `fn` for function types
-        /// - `...` for variadic types (e.g. varargs in C)
-        /// these are all primary types
+    /// all the starters we can have:
+    /// - `*` for pointer types
+    /// - `atomic` for atomic types
+    /// - `(` for tuple types or grouping types
+    /// - `const`/`unsafe`/`eval`/`async` for type qualifiers (modifiers)
+    /// - an identifier for nominal types
+    /// - `[` for either list or array type
+    /// - `fn` for function types
+    /// - `...` for variadic types (e.g. varargs in C)
+    /// these are all primary types
     fn parse_type(self, is_inferred: bool = false, skip_newline: bool = false) -> *Type {
         if dyn()->is_eof() { return &null; }
 
@@ -161,28 +181,19 @@ class <T> TypeParse { // T = ASTParse
             return rt;
         }
 
-        // leading annotations (@attr, doc comments, visibility)
-        dyn()->consume_leading_annotations();
-        // leading qualifiers accumulate into PendingQuals
-        dyn()->consume_leading_quals();
-        // snapshot quals before parsing the primary type so we can apply them
-        // to the whole type after parsing, including any nested types in the
-        // primary type
-        var q_flags = dyn()->_pending_quals.flags;
+        inline "c++" {
+            typename T::PendingAnnotations annot;
+            typename T::PendingQuals quals;
+        }
 
-        // primary type
+        dyn()->consume_leading_annotations(&annot);
+        dyn()->consume_leading_quals(&quals);
+
         var ty = self._parse_primary_type(skip_newline);
         if ty == &null { return &null; }
-    
-        // if we had any leading qualifiers, apply them to the whole type now
-        dyn()->_pending_quals.flags = q_flags;
-        // apply accumulated qualifiers to the parsed type
-        dyn()->apply_quals(ty);
-        // apply any leading annotations
-        dyn()->apply_annotations_to_node(ty);
 
-        /// we need one more pass after parsing the primary type to handle
-        /// any trailing such as ? for optionals
+        dyn()->apply_quals(ty, &quals);
+        dyn()->apply_annotations_to_node(ty, &annot);
 
         return ty;
     }
@@ -240,7 +251,8 @@ class <T> TypeParse { // T = ASTParse
         dyn()->diag->report(DiagID::S045E, cur_range.start,
             f"expected type, found '{token_kind_to_readable_string(resolved_kind)}' "
         ).first(cur_range).emit();
-        return &null;
+        dyn()->advance(); // consume the offending token to avoid getting stuck
+        return _error_type(cur_range);
     }
 
     //---------------------------------------------------------------
@@ -269,8 +281,8 @@ class <T> TypeParse { // T = ASTParse
             dyn()->diag->report(DiagID::S045E, start_range.start,
                 "expected type after '(' "
             ).first(start_range).emit();
-            self._sync_type(TypeSyncCtx::Paren, 1);
-            return &null;
+            self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
+            return _error_type(start_range | dyn()->prev().range);
         }
 
         // tuple: `(T1, T2, ...)`
@@ -327,7 +339,7 @@ class <T> TypeParse { // T = ASTParse
 
             var elem = self.parse_type(false, true);
             if (elem == &null) || isa_recovery::<Type>(elem) {
-                _sync_type(TypeSyncCtx::Comma, 1); // sync to next comma or closing paren at depth 1 to continue parsing remaining elements
+                self._sync_type(TypeSyncCtx::Comma, 1);   // no stop_at_newline — we're mid-tuple, newlines are legal
                 continue;
             }
 
@@ -447,7 +459,7 @@ class <T> TypeParse { // T = ASTParse
                 "expected ']' after type in square brackets"
             ).first(start_range).emit();
             // try to sync to ']' to continue parsing
-            self._sync_type(TypeSyncCtx::Square, 0, 1);
+            self._sync_type(TypeSyncCtx::Square, 0, 1, 0, true);
             return VectorType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
         }
 
@@ -467,15 +479,21 @@ class <T> TypeParse { // T = ASTParse
         dyn()->advance(T::SkipNL::After); // consume `;`
 
         if dyn()->check(TokenKind::OpRSquare) {
-            // incomplete array type like `[T;]`
             if is_error {
                 dyn()->diag->report(DiagID::S045E, semicolon_range.start,
                     "expected array size expression after ';' in array type"
                 ).first(semicolon_range).emit();
+                dyn()->advance();
                 return FixedArrayType::create_error(dyn()->ctx, start_range | semicolon_range);
             }
 
-            var arr = FixedArrayType::create_incomplete(dyn()->ctx, start_range | semicolon_range, elem_type);
+            var rsquare_range = dyn()->current_ptr()->range;
+            dyn()->advance();
+            var arr = FixedArrayType::create_incomplete(
+                dyn()->ctx,
+                start_range | rsquare_range,
+                elem_type
+            );
             propagate_flags(arr, elem_type);
             return arr;
         }
@@ -505,7 +523,7 @@ class <T> TypeParse { // T = ASTParse
                 "expected ']' after array size expression in array type"
             ).first(semicolon_range).emit();
             // try to sync to ']' to continue parsing
-            self._sync_type(TypeSyncCtx::Square, 0, 1);
+            self._sync_type(TypeSyncCtx::Square, 0, 1, 0, true);
             return FixedArrayType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
         }
 
@@ -552,12 +570,12 @@ class <T> TypeParse { // T = ASTParse
             dyn()->diag->report(DiagID::S045E, start_range.start,
                 "expected type after '{' "
             ).first(start_range).emit();
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
+            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
             return _error_type(start_range);
         }
 
         if isa_recovery::<Type>(key_type) {
-            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
+            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
             var err = SetType::create_error(dyn()->ctx, start_range | key_type->range);
             propagate_flags(err, key_type);
             return err;
@@ -598,7 +616,7 @@ class <T> TypeParse { // T = ASTParse
         dyn()->diag->report(DiagID::S045E, start_range.start,
             "expected '}' to close set type or ':' to begin map type value"
         ).first(start_range).emit();
-        self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
+        self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
         return SetType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
     }
 
