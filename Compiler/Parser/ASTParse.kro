@@ -247,7 +247,10 @@ class ASTParse
           StmtParse::<ASTParse>,
           DeclParse::<ASTParse>,
           TypeParse::<ASTParse> {
-
+    inline "c++" {
+        using PendingAnnotations = PendingAnnotations;
+        using PendingQuals = PendingQuals;
+    }
             
     // --- Context handles ----------------------------------------------------
     pub var ctx:     obs::<ASTContext>;
@@ -264,10 +267,6 @@ class ASTParse
     var _prev:    obs::<Token> = &null;
     var _current: obs::<Token> = &null;
     var _peek:    obs::<Token> = &null;
-
-    // --- Annotation / qualifier accumulator (reused across parse calls) -----
-    pub var _pending_annot: PendingAnnotations;
-    pub var _pending_quals: PendingQuals;
 
     // --- Output -------------------------------------------------------------
     pub var tu: obs::<TranslationUnit>;
@@ -736,8 +735,8 @@ class ASTParse
     /// Consume all leading annotations and visibility keywords before a
     /// decl/stmt/expr/type. Returns a reference to the internal accumulator.
     /// Caller must apply or discard before the next call.
-    pub fn consume_leading_annotations(self) -> *PendingAnnotations {
-        self._pending_annot.clear();
+    pub fn consume_leading_annotations(self, out: *PendingAnnotations) {
+        out->clear();
 
         while !self.is_eof() {
             var tok = self._current;
@@ -745,86 +744,49 @@ class ASTParse
 
             var resolved = self.resolve_deep(tok);
 
-            // --- @attr tokens -----------------------------------------------
-            // if resolved.kind == TokenKind::AtComment {
-            //     // The imm field indexes into the immediate table where the
-            //     // interned attribute name is stored.
-            //     var attr_name = self.imm->get::<Immediate::AttrInfo>(resolved.imm)->name;
-            //     self._pending_annot.add(AnnotationKind::Attribute, attr_name, tok->range);
-            //     self.advance();
-            //     continue;
-            // }
-            // TODO: re-enable once we have attributes
-
-            // --- Doc comments (///) -----------------------------------------
             if resolved.kind == TokenKind::AtComment {
-                self._pending_annot.add(AnnotationKind::DocComment, InternedStr::invalid(), tok->range);
+                out->add(AnnotationKind::DocComment, InternedStr::invalid(), tok->range);
                 self.advance();
                 continue;
             }
 
-            // --- Line comments (//) -----------------------------------------
-            // if resolved.kind == TokenKind::TkLineComment {
-            //     self._pending_annot.add(AnnotationKind::LineComment, InternedStr::invalid(), tok->range);
-            //     self.advance();
-            //     continue;
-            // }
-
-            // // --- Block comments (/* ... */) ----------------------------------
-            // if resolved.kind == TokenKind::TkBlockComment {
-            //     self._pending_annot.add(AnnotationKind::BlockComment, InternedStr::invalid(), tok->range);
-            //     self.advance();
-            //     continue;
-            // }
-
-            // --- Visibility keywords ----------------------------------------
             if resolved.kind == TokenKind::KwPub {
-                self._pending_annot.set_visibility(
+                out->set_visibility(
                     PendingAnnotations::VisAnnotation::VisibilityKind::Public, tok->range);
                 self.advance();
                 continue;
             }
 
             if resolved.kind == TokenKind::KwPriv {
-                self._pending_annot.set_visibility(
+                out->set_visibility(
                     PendingAnnotations::VisAnnotation::VisibilityKind::Private, tok->range);
                 self.advance();
                 continue;
             }
 
             if resolved.kind == TokenKind::KwProt {
-                self._pending_annot.set_visibility(
+                out->set_visibility(
                     PendingAnnotations::VisAnnotation::VisibilityKind::Protected, tok->range);
                 self.advance();
                 continue;
             }
 
-            // if resolved.kind == TokenKind::BIInternal {
-            //     self._pending_annot.set_visibility(
-            //         PendingAnnotations::VisAnnotation::VisibilityKind::Internal, tok->range);
-            //     self.advance();
-            //     continue;
-            // }
-
-            // Not an annotation or visibility done.
             break;
         }
-
-        return &self._pending_annot;
     }
 
     /// Stamp accumulated annotations onto a Decl node (which derives both
     /// Annotation<Decl> and VisibilityAnnotation<Decl>).
-    pub fn apply_annotations_to_decl(self, decl: *Decl) {
-        if self._pending_annot.empty() { return; }
+    pub fn apply_annotations_to_decl(self, decl: *Decl, annot: *PendingAnnotations) {
+        if annot->empty() { return; }
 
-        for var i: usize = 0; i < self._pending_annot.entries.size(); ++i {
-            var e = &self._pending_annot.entries[i];
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
             decl->add_annotation(e->kind, e->name, e->range);
         }
 
-        if self._pending_annot.visibility != PendingAnnotations::VisAnnotation::VisibilityKind::None {
-            decl->set_visibility(self._pending_annot.visibility, self._pending_annot.vis_range);
+        if annot->visibility != PendingAnnotations::VisAnnotation::VisibilityKind::None {
+            decl->set_visibility(annot->visibility, annot->vis_range);
         }
     }
 
@@ -832,37 +794,28 @@ class ASTParse
     /// (Expr, Stmt, Type). These don't have visibility, so it's ignored;
     /// if visibility was present and we're applying to a non-decl, that's a
     /// semantic error the caller should diagnose.
-    pub fn apply_annotations_to_node(self, node: *Expr) {
-        if self._pending_annot.empty() { return; }
-
-        for var i: usize = 0; i < self._pending_annot.entries.size(); ++i {
-            var e = &self._pending_annot.entries[i];
+    pub fn apply_annotations_to_node(self, node: *Expr, annot: *PendingAnnotations) {
+        if annot->empty() { return; }
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
             node->add_annotation(e->kind, e->name, e->range);
         }
     }
 
-    pub fn apply_annotations_to_node(self, node: *Stmt) {
-        if self._pending_annot.empty() { return; }
-
-        for var i: usize = 0; i < self._pending_annot.entries.size(); ++i {
-            var e = &self._pending_annot.entries[i];
+    pub fn apply_annotations_to_node(self, node: *Stmt, annot: *PendingAnnotations) {
+        if annot->empty() { return; }
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
             node->add_annotation(e->kind, e->name, e->range);
         }
     }
 
-    pub fn apply_annotations_to_node(self, node: *Type) {
-        if self._pending_annot.empty() { return; }
-
-        for var i: usize = 0; i < self._pending_annot.entries.size(); ++i {
-            var e = &self._pending_annot.entries[i];
+    pub fn apply_annotations_to_node(self, node: *Type, annot: *PendingAnnotations) {
+        if annot->empty() { return; }
+        for var i: usize = 0; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
             node->add_annotation(e->kind, e->name, e->range);
         }
-    }
-
-    /// Check if pending annotations include visibility (for diagnosing
-    /// visibility on non-decl contexts).
-    pub fn pending_has_visibility(self) -> bool {
-        return self._pending_annot.visibility != PendingAnnotations::VisAnnotation::VisibilityKind::None;
     }
 
     // ========================================================================
@@ -878,8 +831,8 @@ class ASTParse
     /// Consume all leading type qualifier keywords. Returns a reference to
     /// the internal accumulator. Caller must apply or discard before the
     /// next call.
-    pub fn consume_leading_quals(self) -> *PendingQuals {
-        self._pending_quals.clear();
+    pub fn consume_leading_quals(self, out: *PendingQuals) {
+        out->clear();
 
         while !self.is_eof() {
             var tok = self._current;
@@ -888,32 +841,26 @@ class ASTParse
             var resolved = self.resolve_deep(tok);
             var rk = resolved.kind;
 
-            if      rk == TokenKind::KwConst    { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsConst,    tok->range); }
-            else if rk == TokenKind::KwVolatile { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsVolatile, tok->range); }
-            // else if rk == TokenKind::KwRestrict { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsRestrict, tok->range); }
-            else if rk == TokenKind::KwAtomic   { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsAtomic,   tok->range); }
-            else if rk == TokenKind::KwUnsafe   { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsUnsafe,   tok->range); }
-            else if rk == TokenKind::KwEval     { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsEval,     tok->range); }
-            else if rk == TokenKind::KwAsync    { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsAsync,    tok->range); }
-            else if rk == TokenKind::KwYield    { self._pending_quals.add(PendingQuals::TypeQualifier::Flags::IsYield,    tok->range); }
+            if      rk == TokenKind::KwConst    { out->add(PendingQuals::TypeQualifier::Flags::IsConst,    tok->range); }
+            else if rk == TokenKind::KwVolatile { out->add(PendingQuals::TypeQualifier::Flags::IsVolatile, tok->range); }
+            else if rk == TokenKind::KwAtomic   { out->add(PendingQuals::TypeQualifier::Flags::IsAtomic,   tok->range); }
+            else if rk == TokenKind::KwUnsafe   { out->add(PendingQuals::TypeQualifier::Flags::IsUnsafe,   tok->range); }
+            else if rk == TokenKind::KwEval     { out->add(PendingQuals::TypeQualifier::Flags::IsEval,     tok->range); }
+            else if rk == TokenKind::KwAsync    { out->add(PendingQuals::TypeQualifier::Flags::IsAsync,    tok->range); }
+            else if rk == TokenKind::KwYield    { out->add(PendingQuals::TypeQualifier::Flags::IsYield,    tok->range); }
             else { break; }
 
             self.advance();
         }
-
-        return &self._pending_quals;
     }
 
-    /// Stamp accumulated qualifiers onto a Type node.
-    pub fn apply_quals(self, ty: *Type) {
-        if self._pending_quals.empty() { return; }
+    pub fn apply_quals(self, ty: *Type, quals: *PendingQuals) {
+        if quals->empty() { return; }
 
-        ty->flags |= self._pending_quals.flags;
-        for var i: usize = 0; i < self._pending_quals.spans.size(); ++i {
-            ty->spans.push(*(&self._pending_quals.spans[i]));
+        ty->flags |= quals->flags;
+        for var i: usize = 0; i < quals->spans.size(); ++i {
+            ty->spans.push(*(&quals->spans[i]));
         }
-
-        self._pending_quals.clear();
     }
 
     // ========================================================================

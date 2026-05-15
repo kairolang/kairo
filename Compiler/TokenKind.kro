@@ -363,7 +363,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::KwDerives:          case TokenKind::OpEqualEqual:
         case TokenKind::KwRequires:         case TokenKind::OpGreaterGreater:
         case TokenKind::KwPub:              case TokenKind::OpAmpAmp:
-        case TokenKind::KwPriv:
+        case TokenKind::KwPriv:             case TokenKind::KwAtomic:
         case TokenKind::KwProt:             case TokenKind::KwContinue:
         case TokenKind::KwEval:             case TokenKind::KwCase:
         case TokenKind::KwUnsafe:           case TokenKind::KwTry:
@@ -397,7 +397,8 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::BiForceInline:      case TokenKind::AtU8:
         case TokenKind::BiNoInline:         case TokenKind::AtU16:
         case TokenKind::BiDeprecated:       case TokenKind::AtU32:
-        case TokenKind::BiMustUse:
+        case TokenKind::BiMustUse:          case TokenKind::AtU512:
+        case TokenKind::AtI512:             case TokenKind::AtF256:
             return true;
         default:
             return false;
@@ -745,18 +746,21 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::AtF64                 { return "f64"; }
         case TokenKind::AtF80                 { return "f80"; }
         case TokenKind::AtF128                { return "f128"; }
+        case TokenKind::AtF256                { return "f256"; }
         case TokenKind::AtU8                  { return "u8"; }
         case TokenKind::AtU16                 { return "u16"; }
         case TokenKind::AtU32                 { return "u32"; }
         case TokenKind::AtU64                 { return "u64"; }
         case TokenKind::AtU128                { return "u128"; }
         case TokenKind::AtU256                { return "u256"; }
+        case TokenKind::AtU512                { return "u512"; }
         case TokenKind::AtI8                  { return "i8"; }
         case TokenKind::AtI16                 { return "i16"; }
         case TokenKind::AtI32                 { return "i32"; }
         case TokenKind::AtI64                 { return "i64"; }
         case TokenKind::AtI128                { return "i128"; }
         case TokenKind::AtI256                { return "i256"; }
+        case TokenKind::AtI512                { return "i512"; }
         case TokenKind::KwAwait               { return "await"; }
         case TokenKind::KwThread              { return "thread"; }
         case TokenKind::KwSpawn               { return "spawn"; }
@@ -781,6 +785,7 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::BiDeprecated          { return "@deprecated"; }
         case TokenKind::BiMustUse             { return "@must_use"; }
         case TokenKind::BiAlignAs             { return "@alignas"; }
+        case TokenKind::KwAtomic              { return "atomic"; }
     }
 
     return "UNKNOWN";
