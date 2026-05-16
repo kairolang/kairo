@@ -2,16 +2,26 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Kairo File",
+      "name": "Kairo (Mac/CodeLLDB)",
+      "type": "lldb",
       "request": "launch",
       "cwd": "${workspaceFolder}",
+      "program": "${workspaceFolder}/build/x86_64-linux-gnu/release/bin/kairo",
+      "args": ["test.kro", "--print-ast"],
+      "initCommands": [
+        "command script import ${workspaceFolder}/Scripts/cppvsdbg.py",
+        "settings set frame-format \"frame #${frame.index}: ${frame.pc}{ ${module.file.basename}`${script.frame:cppvsdbg.demangle_frame}}\\n\""
+      ]
+    },
+    {
+      "name": "Kairo (Linux/Windows GDB)",
       "type": "cppdbg",
-      // "preLaunchTask": "build-kairo-current",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/build/x86_64-linux-gnu/release/bin/kairo",
       "args": ["test.kro", "--print-ast"],
       "MIMode": "gdb",
       "miDebuggerPath": "/usr/bin/gdb",
-      "internalConsoleOptions": "openOnSessionStart",
       "setupCommands": [
         {
           "description": "Enable pretty printing",
@@ -19,20 +29,11 @@
           "ignoreFailures": true
         },
         {
-          "description": "Load Kairo demangler",
+          "description": "Load GDB Kairo Script",
           "text": "source ${workspaceFolder}/Scripts/gdb_kairo.py",
           "ignoreFailures": false
-        },
-        {
-          "description": "Set print elements",
-          "text": "set print elements 200",
-          "ignoreFailures": true
         }
       ],
-      "osx": {
-        "MIMode": "lldb",
-        "miDebuggerPath": "/usr/bin/lldb"
-      },
       "windows": {
         "type": "cppvsdbg",
         "program": "${workspaceFolder}/build/.gen/test_run.exe"
