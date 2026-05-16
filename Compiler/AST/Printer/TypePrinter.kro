@@ -66,6 +66,7 @@ class TypePrinter {
         if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsEval)     { self._buf += "eval ";     }
         if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsAsync)    { self._buf += "async ";    }
         if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsYield)    { self._buf += "yield ";    }
+        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsPanic)    { self._buf += "panic ";    }
     }
 
     //  Core dispatch

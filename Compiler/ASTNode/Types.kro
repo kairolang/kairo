@@ -861,7 +861,9 @@ class FunctionPointerType derives Type {
         node->init_spans(&(ctx->nodes));
         node->return_type     = return_type;
         node->is_unprototyped = false;
-        propagate_flags(node, return_type);
+        if return_type != &null {
+            propagate_flags(node, return_type);
+        }
         return node;
     }
 

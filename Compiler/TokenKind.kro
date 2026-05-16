@@ -286,6 +286,7 @@ enum TokenKind derives u32 {
     BiColumn       = compute_hash::<r"__column__">(),   // "__column__"
     BiFunction     = compute_hash::<r"__function__">(), // "__function__"
     BiModule       = compute_hash::<r"__module__">(),   // "__module__"
+    BiSelf         = compute_hash::<r"Self">(),         // "Self"
 
     /// builtin attributes
     BiPacked       = compute_hash::<r"packed">(),       // "packed"
@@ -399,6 +400,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::BiDeprecated:       case TokenKind::AtU32:
         case TokenKind::BiMustUse:          case TokenKind::AtU512:
         case TokenKind::AtI512:             case TokenKind::AtF256:
+        case TokenKind::BiSelf:
             return true;
         default:
             return false;
@@ -581,6 +583,7 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::BiLine {                return "bi-line"; }
         case TokenKind::BiColumn {              return "bi-column"; }
         case TokenKind::BiFunction {            return "bi-function"; }
+        case TokenKind::BiSelf {                return "bi-self"; }
         case TokenKind::BiModule {              return "bi-module"; }
         case TokenKind::KwVolatile {            return "kw-volatile"; }
         case TokenKind::BiPacked {              return "bi-packed"; }
@@ -774,6 +777,7 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::BiColumn              { return "@__column__"; }
         case TokenKind::BiFunction            { return "@__function__"; }
         case TokenKind::BiModule              { return "@__module__"; }
+        case TokenKind::BiSelf                { return "Self"; }
         case TokenKind::KwVolatile            { return "@volatile"; }
         case TokenKind::BiPacked              { return "@packed"; }
         case TokenKind::BiUnlikely            { return "@unlikely"; }
@@ -953,6 +957,7 @@ fn is_builtin(kind: TokenKind) -> bool {
         case TokenKind::BiColumn:     case TokenKind::BiExperimental:
         case TokenKind::BiFunction:   case TokenKind::BiForceInline:
         case TokenKind::BiModule:     case TokenKind::BiNoInline:
+        case TokenKind::BiSelf:
         case TokenKind::KwVolatile:   case TokenKind::BiDeprecated:
         case TokenKind::BiPacked:     case TokenKind::BiMustUse:
         case TokenKind::BiUnlikely:   case TokenKind::BiAlignAs:

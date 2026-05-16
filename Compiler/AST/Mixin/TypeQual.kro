@@ -118,11 +118,16 @@ class <T> TypeQual {
         /// function return types.
         IsYield    = 1 << 7,
 
+        /// Panic effect function that changes return type, to allow flow
+        /// control constructs like try blocks. Desugars to a tagged union at
+        /// codegen. Primarily valid on function return types.
+        IsPanic    = 1 << 8,
+
         // --- Extended-qualifier presence bit -------------------------------
 
         /// An ExtQuals node is attached. Currently only used for address
         /// space; leaves room for future extended qualifiers.
-        HasExtQuals = 1 << 15,
+        HasExtQuals = 1 << 14,
 
         // --- Masks ---------------------------------------------------------
 
@@ -133,7 +138,7 @@ class <T> TypeQual {
         CVRMask    = (IsConst | IsVolatile | IsRestrict),
 
         /// Effect qualifiers only.
-        EffectMask = (IsAsync | IsYield),
+        EffectMask = (IsAsync | IsYield | IsPanic),
     }
 
     inline "c++" {
@@ -181,6 +186,7 @@ class <T> TypeQual {
     const fn is_eval(self)     -> bool { return (self.flags & Flags::IsEval)     != Flags::None; }
     const fn is_async(self)    -> bool { return (self.flags & Flags::IsAsync)    != Flags::None; }
     const fn is_yield(self)    -> bool { return (self.flags & Flags::IsYield)    != Flags::None; }
+    const fn is_panic(self)    -> bool { return (self.flags & Flags::IsPanic)    != Flags::None; }
 
     const fn has_ext_quals(self)     -> bool { return (self.flags & Flags::HasExtQuals) != Flags::None; }
     const fn has_address_space(self) -> bool { return self.has_ext_quals() && self.ext != &null; }
@@ -272,6 +278,12 @@ class <T> TypeQual {
     }
     fn add_yield(self) { (self.flags) |= (Flags::IsYield); }
 
+    fn add_panic(self, range: SourceRange) {
+        (self.flags) |= (Flags::IsPanic);
+        self.spans.push(QualSpan(static_cast::<u16>(Flags::IsPanic), range));
+    }
+    fn add_panic(self) { (self.flags) |= (Flags::IsPanic); }
+
     // --- Removal (spans are not removed from the list; queries just skip
     //     entries whose flag is no longer set) ---------------------------
 
@@ -283,6 +295,7 @@ class <T> TypeQual {
     fn remove_eval(self)     { (self.flags) &= (~Flags::IsEval);     }
     fn remove_async(self)    { (self.flags) &= (~Flags::IsAsync);    }
     fn remove_yield(self)    { (self.flags) &= (~Flags::IsYield);    }
+    fn remove_panic(self)    { (self.flags) &= (~Flags::IsPanic);    }
 
     /// Set or replace the address space. Allocates ExtQuals if needed.
     fn set_address_space(self, space: AddressSpace, range: SourceRange, new_ext: *ExtQuals) {
