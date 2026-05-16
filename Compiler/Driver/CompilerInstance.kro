@@ -628,7 +628,13 @@ fn FrontendAction::_parse() -> bool {
     if ctx == &null {
         return self._fatal(f"no ASTContext for fid {self._file_id}");
     }
-
+    
+    /// We also need to call Resolver::DesugarPass(&tu) to convert:
+    /// MapType, SetType, FixedArrayType, VectorType
+    /// FinallyStmt, FinallyExpr, NullableType
+    /// TernaryOpExpr with null coalescing semantics
+    ///
+    /// and other high-level constructs that are easier to desugar
     var parser = ASTParse(ctx, &null, self._global_scope);
     var tu = parser.parse();
 
