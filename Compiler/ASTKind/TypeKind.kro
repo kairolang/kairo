@@ -55,27 +55,14 @@ enum TypeKind derives u8 {
     /// -----------------------------------------------------------------------
     ///  Named / resolved types  [1 .. 2]
     /// -----------------------------------------------------------------------
+    ChainType,
 
-    /// A type referenced by name, possibly scope-qualified:
-    ///   i32 | Foo | foo::Bar | ::std::String
-    /// Reuses QualifiedPathExpr for the name sema resolves to a TypeDecl.
-    /// Node: NamedType
-    NamedType,
-
-    /// An associated type reference like T::Item
-    /// Node: DependentNameType base TypeRef + name Identifier.
-    DependentNameType,
-
-    /// T inside fn foo<T>(x: T)unresolved generic param
-    /// distinct from NamedType which resolves to a concrete TypeDecl
+    /// T inside fn foo<T>(x: T) unresolved generic param
+    /// distinct from ChainType which is a resolved named type
     GenericParamType,
 
     /// Post-substitution wrapper for instantiation diagnostics.
     SubstGenericParamType,
-
-    /// An explicitly generic instantiation:  Vec<i32> | Map<str, i32>
-    /// Node: GenericInstanceType base NamedType + TypeRef arg list.
-    GenericInstanceType,
 
     /// typeof in type position: var x: typeof(foo()) = bar()
     /// distinct from TypeOfExpr which is an expression

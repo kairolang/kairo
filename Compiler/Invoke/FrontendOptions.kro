@@ -54,8 +54,8 @@ class FrontendOptions {
     // -- concurrency -------------------------------------------------------
     pub var thread_count:        i32    = 0; ///< 0 = hardware concurrency
     pub var max_threads:         i32    = 0; ///< 0 = no cap
-    pub var max_expr_depth:      i32    = 0x7FFFFFFE;
-    pub var max_scope_depth:     i32    = 0x7FFFFFFE;
+    pub var max_expr_depth:      i32    = 512;
+    pub var max_scope_depth:     i32    = 256;
     // -- primary action ----------------------------------------------------
     pub var action:              FrontendActionKind = FrontendActionKind::EmitObj;
     // -- verbosity / timing ------------------------------------------------

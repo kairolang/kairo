@@ -419,7 +419,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  parser / expression
     cmd->define_cfg::<FlagKind::I32>("max-expr-depth",            "maximum expression nesting depth (guards parser stack overflow)",          512,     1,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-scope-depth",           "maximum nested scope depth",                                               512,     1,    65536);
+    cmd->define_cfg::<FlagKind::I32>("max-scope-depth",           "maximum nested scope depth",                                               256,     1,    65536);
     cmd->define_cfg::<FlagKind::I32>("tab-width",                 "tab stop width for column numbers in diagnostics",                         4,       1,    16);
     cmd->define_cfg::<FlagKind::I32>("max-generic-instantiations", "maximum total generic instantiations across compilation (0 = unlimited)", 16384,   0,    16777216);
     //  type system
