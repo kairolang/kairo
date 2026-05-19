@@ -59,14 +59,14 @@ class TypePrinter {
 
     priv fn _print_quals(self, ty: *Type) {
         type TQ = TypeQual::<Type>;
-        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsConst)    { self._buf += "const ";    }
-        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsVolatile) { self._buf += "volatile "; }
-        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsAtomic)   { self._buf += "atomic ";   }
-        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsUnsafe)   { self._buf += "unsafe ";   }
-        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsEval)     { self._buf += "eval ";     }
-        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsAsync)    { self._buf += "async ";    }
-        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsYield)    { self._buf += "yield ";    }
-        if static_cast::<u8>(ty->flags) & static_cast::<u8>(TQ::Flags::IsPanic)    { self._buf += "panic ";    }
+        if (static_cast::<u8>(ty->flags)) & (static_cast::<u8>(TQ::Flags::IsConst))    { self._buf += "const ";    }
+        if (static_cast::<u8>(ty->flags)) & (static_cast::<u8>(TQ::Flags::IsVolatile)) { self._buf += "volatile "; }
+        if (static_cast::<u8>(ty->flags)) & (static_cast::<u8>(TQ::Flags::IsAtomic))   { self._buf += "atomic ";   }
+        if (static_cast::<u8>(ty->flags)) & (static_cast::<u8>(TQ::Flags::IsUnsafe))   { self._buf += "unsafe ";   }
+        if (static_cast::<u8>(ty->flags)) & (static_cast::<u8>(TQ::Flags::IsEval))     { self._buf += "eval ";     }
+        if (static_cast::<u8>(ty->flags)) & (static_cast::<u8>(TQ::Flags::IsAsync))    { self._buf += "async ";    }
+        if (static_cast::<u8>(ty->flags)) & (static_cast::<u8>(TQ::Flags::IsYield))    { self._buf += "yield ";    }
+        if (static_cast::<u8>(ty->flags)) & (static_cast::<u8>(TQ::Flags::IsPanic))    { self._buf += "panic ";    }
     }
 
     //  Core dispatch
@@ -82,11 +82,9 @@ class TypePrinter {
             return;
         }
 
-        if isa::<NamedType>(ty)              { self._print_named(cast::<NamedType>(ty));                         return; }
-        if isa::<DependentNameType>(ty)      { self._print_dependent(cast::<DependentNameType>(ty));             return; }
+        if isa::<ChainType>(ty)              { self._print_chain(cast::<ChainType>(ty));                         return; }
         if isa::<GenericParamType>(ty)       { self._print_generic_param(cast::<GenericParamType>(ty));          return; }
         if isa::<SubstGenericParamType>(ty)  { self._print_subst_generic(cast::<SubstGenericParamType>(ty));     return; }
-        if isa::<GenericInstanceType>(ty)    { self._print_generic_instance(cast::<GenericInstanceType>(ty));    return; }
         if isa::<TypeOfType>(ty)             { self._print_typeof(cast::<TypeOfType>(ty));                       return; }
         if isa::<VariadicPackType>(ty)       { self._print_variadic_pack(cast::<VariadicPackType>(ty));          return; }
         if isa::<PackExpansionType>(ty)      { self._print_pack_expansion(cast::<PackExpansionType>(ty));        return; }
@@ -121,36 +119,6 @@ class TypePrinter {
         }
     }
 
-    //  NamedType   i32 | Foo | Self
-
-    priv fn _print_named(self, ty: *NamedType) {
-        self._print_quals(ty);
-
-        if ty->name == &null {
-            self._buf += ("<unnamed>") if (self._style == PrintStyle::Debug) else "<error>";
-            return;
-        }
-
-        if self._style == PrintStyle::Debug {
-            self._buf += f"named({TypePrinter::tok_spelling(ty->name->name)})";
-        } else {
-            self._buf += TypePrinter::tok_spelling(ty->name->name);
-        }
-    }
-
-    //  DependentNameType   T::Foo
-
-    priv fn _print_dependent(self, ty: *DependentNameType) {
-        self._print_quals(ty);
-        self._print(ty->qualifier);
-        self._buf += "::";
-        if ty->name == &null {
-            self._buf += "<error>";
-        } else {
-            self._buf += TypePrinter::tok_spelling(ty->name->name);
-        }
-    }
-
     //  GenericParamType   T | ...T
 
     priv fn _print_generic_param(self, ty: *GenericParamType) {
@@ -182,17 +150,48 @@ class TypePrinter {
         }
     }
 
-    //  GenericInstanceType   Vec<i32> | Map<str, i32>
+    //  ChainType   i32 | Foo::Bar | Vec<i32> | std::Map<K, V>::Iterator
 
-    priv fn _print_generic_instance(self, ty: *GenericInstanceType) {
+    priv fn _print_chain(self, ty: *ChainType) {
         self._print_quals(ty);
-        self._print(ty->base);
-        self._buf += "<";
-        for var i: usize = 0; i < ty->args.size(); ++i {
-            if i > 0 { self._buf += ", "; }
-            self._print(ty->args[i]);
+
+        if ty->segments.is_empty() {
+            self._buf += ("<empty-chain>") if (self._style == PrintStyle::Debug) else "<error>";
+            return;
         }
-        self._buf += ">";
+
+        for var i: usize = 0; i < ty->segments.size(); ++i {
+            var seg = ty->segments.get(i);
+
+            if seg->sep == ChainType::SegmentSeparator::ColonColon {
+                self._buf += "::";
+            }
+
+            if seg->name == &null {
+                self._buf += "<error>";
+                continue;
+            }
+
+            if self._style == PrintStyle::Debug && ty->is_simple() {
+                self._buf += f"named({TypePrinter::tok_spelling(seg->name->name)})";
+            } else {
+                self._buf += TypePrinter::tok_spelling(seg->name->name);
+            }
+
+            if !seg->generic_args.is_empty() {
+                self._buf += "<";
+                for var j: usize = 0; j < seg->generic_args.size(); ++j {
+                    if j > 0 { self._buf += ", "; }
+                    var arg = seg->generic_args.get(j);
+                    if arg->name != &null {
+                        self._buf += TypePrinter::tok_spelling(arg->name->name);
+                        self._buf += ": ";
+                    }
+                    self._print(arg->ty);
+                }
+                self._buf += ">";
+            }
+        }
     }
 
     //  TypeOfType   typeof(expr)
@@ -321,13 +320,18 @@ class TypePrinter {
         self._buf += ")";
 
         if ty->return_type != &null {
-            // don't print `-> void` in Diagnostic/Canonical mode unless Debug
-            if self._style == PrintStyle::Debug || !isa::<NamedType>(ty->return_type) {
+            if self._style == PrintStyle::Debug || !isa::<ChainType>(ty->return_type) {
                 self._buf += " -> ";
                 self._print(ty->return_type);
             } else {
-                var nt = cast::<NamedType>(ty->return_type);
-                if (nt->name != &null) && TypePrinter::tok_spelling(nt->name->name) != "void" {
+                var ct = cast::<ChainType>(ty->return_type);
+                if (ct->is_simple()) && (ct->trailing_name() != &null)
+                && (TypePrinter::tok_spelling(ct->trailing_name()->name) != "void") {
+                    self._buf += " -> ";
+                    self._print(ty->return_type);
+                }
+                else if !ct->is_simple() {
+                    // multi-segment or generic — always print
                     self._buf += " -> ";
                     self._print(ty->return_type);
                 }

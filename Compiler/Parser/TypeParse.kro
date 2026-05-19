@@ -47,11 +47,11 @@ import TokenKind::*;
 /// leaf named/builtin types. qualifier keywords (`const`, `atomic`, `unsafe`,
 /// `eval`, `async`) are consumed by the caller (`parse_type`) via
 /// `consume_leading_quals` and applied as `TypeQual` flags on the returned node
-/// — they do not produce wrapper AST nodes.
+/// they do not produce wrapper AST nodes.
 ///
 /// \par entry point
 /// `parse_type()` is the single public entry point. it strips leading
-/// annotations and qualifiers, dispatches to `_parse_primary_type`, and applies
+/// annotations and qualifiers, dispatches to `parse_primary_type`, and applies
 /// the collected qualifiers to the result. all other `_parse_*` methods are
 /// private productions called from the primary dispatch.
 ///
@@ -78,12 +78,14 @@ import TokenKind::*;
 /// identifier token. template arguments (`Foo::<T>`) and scoped paths
 /// (`Foo::Bar`) are not yet handled; these require integration with the
 /// `ChainExpr` parser (tracked as a FIXME). `_parse_const_expr` only accepts
-/// integer literals — full constant folding is deferred until the expression
+/// integer literals full constant folding is deferred until the expression
 /// parser is complete.
 ///
 /// \see ASTParse, TypeQual, Type, TupleType, PointerType, FixedArrayType
 class <T> TypeParse {
     var inferred_type_counter: u32 = 0;
+    var _pending_close_angle: bool = false;
+    
     const var TYPE_TOK_TBL: set::<TokenKind> = {
         TokenKind::AtVoid,
         TokenKind::AtBool,
@@ -154,7 +156,7 @@ class <T> TypeParse {
     /// \param stop_at_newline if true, the first `TkNewLine` encountered at
     ///        depth 0
     ///                        will terminate recovery regardless of `ctx`.
-    priv fn _sync_type(
+    priv inline fn _sync_type(
         self,
         ctx:             TypeSyncCtx,
         paren_depth:     i32  = 0,
@@ -239,8 +241,8 @@ class <T> TypeParse {
 
     /// \brief creates a placeholder error type for failed type resolutions.
     ///
-    /// \details constructs a `NamedType` in the error state via
-    ///          `NamedType::create_error`.
+    /// \details constructs a `ChainType` in the error state via
+    ///          `ChainType::create_error`.
     ///          this node serves as a sentinel in the AST to prevent further
     ///          cascading errors during semantic analysis after a primary parse
     ///          failure.
@@ -248,7 +250,7 @@ class <T> TypeParse {
     /// \param range  the source location where the type resolution failed.
     /// \return a pointer to the newly allocated error-state type node.
     priv inline fn _error_type(self, range: SourceRange) -> *Type {
-        return static_cast::<*Type>(NamedType::create_error(dyn()->ctx, range));
+        return static_cast::<*Type>(ChainType::create_error(dyn()->ctx, range));
     }
 
     /// \brief top-level entry point for parsing a type expression.
@@ -280,6 +282,10 @@ class <T> TypeParse {
             return &null;
         }
 
+        if !dyn()->enter_depth() {
+            return &null;
+        }
+
         if is_inferred {
             var prev_tok = dyn()->prev();
 
@@ -288,12 +294,14 @@ class <T> TypeParse {
                 var loc     = (cur_ptr->range.start) if (cur_ptr != &null) else SourceLocation();
 
                 dyn()->diag->report(DiagID::S045E, loc, "unexpected start of input, expected expression").emit();
+                dyn()->exit_depth();
                 return &null;
             }
 
             var rt = InferredType::create(dyn()->ctx, prev_tok.range, inferred_type_counter);
             ++inferred_type_counter;
 
+            dyn()->exit_depth();
             return rt;
         }
 
@@ -305,14 +313,25 @@ class <T> TypeParse {
         dyn()->consume_leading_annotations(&annot);
         dyn()->consume_leading_quals(&quals);
 
-        var ty = self._parse_primary_type(skip_newline);
+        var ty = self.parse_primary_type(skip_newline);
         if ty == &null {
+            dyn()->exit_depth();
             return &null;
+        }
+
+        // secondary pass
+        if (dyn()->check(TokenKind::OpQuestion)) || (dyn()->check(TokenKind::OpQuestionQuestion)) {
+            ty = self._parse_nullable_type(ty);
+        }
+
+        else if dyn()->check(TokenKind::OpEllipsis) {
+            ty = self._parse_pack_expansion_type(ty);
         }
 
         dyn()->apply_quals(ty, &quals);
         dyn()->apply_annotations_to_node(ty, &annot);
 
+        dyn()->exit_depth();
         return ty;
     }
 
@@ -335,7 +354,7 @@ class <T> TypeParse {
     /// \return a pointer to the parsed `Type` node, or `_error_type` if no
     ///         valid
     ///         type production could be matched. returns null only on `is_eof`.
-    priv fn _parse_primary_type(self, skip_newline: bool = false) -> *Type {
+    fn parse_primary_type(self, skip_newline: bool = false) -> *Type {
         if dyn()->is_eof() { return &null; }
 
         if skip_newline {
@@ -353,11 +372,6 @@ class <T> TypeParse {
         // pointer types: `*T`, `*const T`, etc.
         if dyn()->check(TokenKind::OpStar) {
             return self._parse_pointer_type();
-        }
-
-        if dyn()->check(TokenKind::OpEllipsis) {
-            // FIXME: implement variadic types for function signatures.
-            return &null;
         }
 
         // braced types: currently used for structural records or inline unions.
@@ -380,6 +394,24 @@ class <T> TypeParse {
             return self._parse_fn_ptr_type();
         }
 
+        if dyn()->check(TokenKind::OpEllipsis) {
+            return self._parse_variadic_type();
+        }
+
+        if dyn()->check(TokenKind::BiSelf) {
+            return self._parse_self_type();
+        }
+
+        if dyn()->check(TokenKind::KwTypeOf) {
+            return self._parse_typeof_type();
+        }
+
+        if dyn()->check(TokenKind::TkCodeComplete) {
+            dyn()->maybe_complete(CompletionContextKind::TypeRef);
+            dyn()->advance(T::SkipNL::After); // consume code complete token and any newlines after it
+            return self._error_type(cur_range);
+        }
+
         // leaf types: built-ins (u32, f64, etc.), `Self`, or identifiers.
         if dyn()->check(fn(k: TokenKind) -> bool {
             return TYPE_TOK_TBL.contains(k);
@@ -397,6 +429,32 @@ class <T> TypeParse {
 
         dyn()->advance(); // skip offending token to prevent infinite loops during recovery.
         return _error_type(cur_range);
+    }
+
+    priv inline fn _parse_self_type(self) -> *SelfType {
+        var tok = dyn()->current();
+        var ty = SelfType::create(dyn()->ctx, tok.range);
+        dyn()->advance(); // consume `Self`
+        return ty;
+    }
+
+    priv inline fn _parse_typeof_type(self) -> *TypeOfType {
+        var tok = dyn()->current();
+        var start_range = tok.range;
+
+        dyn()->advance(); // consume `typeof`
+
+        var inner = dyn()->parse_expr();
+        if inner == &null {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected type after 'typeof' "
+            ).first(start_range).emit();
+
+            return TypeOfType::create_error(dyn()->ctx, start_range);
+        }
+
+        var ty = TypeOfType::create(dyn()->ctx, start_range | inner->range, inner);
+        return ty;
     }
 
     /// \brief parses parenthesized type constructs including groupings `(T)`
@@ -434,7 +492,7 @@ class <T> TypeParse {
         }
 
         var first = self.parse_type(false, true);
-        if first == &null {
+        if (first == &null) || (isa_recovery::<Type>(first)) {
             dyn()->diag->report(DiagID::S045E, start_range.start,
                 "expected type after '(' "
             ).first(start_range).emit();
@@ -899,125 +957,126 @@ class <T> TypeParse {
         self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
 
         return SetType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-    }priv inline fn _finish_map_type(
-            self,
-            start_range: SourceRange,
-            key_type:    *Type,
-            is_error:    bool = false
-        ) -> *MapType {
-            /// \details completes the parsing of a map type literal `{K: V}`
-            ///          after the
-            ///          key type and the colon separator have been identified.
-            ///
-            /// \param start_range  range starting from the opening `{`.
-            /// \param key_type     the already-parsed key type `K`.
-            /// \param is_error if true, forces the return of an error-kind
-            ///        `MapType`
-            ///                     regardless of whether the value type parses
-            ///                     successfully.
-            ///
-            /// \note expects the lexer to be positioned at the `:` separator.
-            ///       handles
-            ///       recovery for missing value types, extraneous commas, and
-            ///       nested colons.
+    }
+    
+    /// \details completes the parsing of a map type literal `{K: V}`
+    ///          after the
+    ///          key type and the colon separator have been identified.
+    ///
+    /// \param start_range  range starting from the opening `{`.
+    /// \param key_type     the already-parsed key type `K`.
+    /// \param is_error if true, forces the return of an error-kind
+    ///        `MapType`
+    ///                     regardless of whether the value type parses
+    ///                     successfully.
+    ///
+    /// \note expects the lexer to be positioned at the `:` separator.
+    ///       handles
+    ///       recovery for missing value types, extraneous commas, and
+    ///       nested colons.
+    priv inline fn _finish_map_type(
+        self,
+        start_range: SourceRange,
+        key_type:    *Type,
+        is_error:    bool = false
+    ) -> *MapType {
+        // precondition: sitting on `:` (or `;` in error case, already diagnosed)
+        var sep_range = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After); // consume `:` or `;`
 
-            // precondition: sitting on `:` (or `;` in error case, already diagnosed)
-            var sep_range = dyn()->current_ptr()->range;
-            dyn()->advance(T::SkipNL::After); // consume `:` or `;`
-
-            // `{K:}` missing value type
-            if dyn()->check(TokenKind::OpRBrace) {
-                dyn()->diag->report(DiagID::S045E, sep_range.start,
-                    "expected value type after ':' in map type '{K: V}' "
-                ).first(sep_range).emit();
-                dyn()->advance(); // consume `}`
-                var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-                propagate_flags(err, key_type);
-                return err;
-            }
-
-            if dyn()->check(TokenKind::TkCodeComplete) {
-                dyn()->maybe_complete(CompletionContextKind::TypeRef);
-                dyn()->advance(T::SkipNL::After); // consume code complete token and any newlines after it
-                var err = MapType::create_error(dyn()->ctx, start_range | sep_range);
-                propagate_flags(err, key_type);
-                return err;
-            }
-
-            var val_type = self.parse_type(false, true);
-            dyn()->advance(T::SkipNL::Only);
-
-            if val_type == &null {
-                dyn()->diag->report(DiagID::S045E, sep_range.start,
-                    "expected value type after ':' in map type '{K: V}' "
-                ).first(sep_range).emit();
-                self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-                var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-                propagate_flags(err, key_type);
-                return err;
-            }
-
-            if isa_recovery::<Type>(val_type) {
-                self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-                var err = MapType::create_error(dyn()->ctx, start_range | val_type->range);
-                propagate_flags(err, key_type);
-                propagate_flags(err, val_type);
-                return err;
-            }
-
-            // common error: `{K: V, ...}`
-            if dyn()->check(TokenKind::OpComma) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
-                    "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}' "
-                ).first(dyn()->current_ptr()->range).emit();
-                self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-                var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-                propagate_flags(err, key_type);
-                propagate_flags(err, val_type);
-                return err;
-            }
-
-            // common error: `{K: V: W}` double colon
-            if dyn()->check(TokenKind::OpColon) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
-                    "unexpected ':' in map type, expected '}' after value type"
-                ).first(dyn()->current_ptr()->range).emit();
-                self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-                var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-                propagate_flags(err, key_type);
-                propagate_flags(err, val_type);
-                return err;
-            }
-
-            if !dyn()->check(TokenKind::OpRBrace) {
-                dyn()->diag->report(DiagID::S045E, start_range.start,
-                    "expected '}' to close map type"
-                ).first(start_range).emit();
-                self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
-                var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
-                propagate_flags(err, key_type);
-                propagate_flags(err, val_type);
-                return err;
-            }
-
-            var full_range = start_range | dyn()->current_ptr()->range;
-            dyn()->advance(T::SkipNL::Before); // consume `}`
-
-            if is_error {
-                var err = MapType::create_error(dyn()->ctx, full_range);
-                err->key   = key_type;
-                err->value = val_type;
-                propagate_flags(err, key_type);
-                propagate_flags(err, val_type);
-                return err;
-            }
-
-            var mt = MapType::create(dyn()->ctx, full_range, key_type, val_type);
-            return mt;
+        // `{K:}` missing value type
+        if dyn()->check(TokenKind::OpRBrace) {
+            dyn()->diag->report(DiagID::S045E, sep_range.start,
+                "expected value type after ':' in map type '{K: V}' "
+            ).first(sep_range).emit();
+            dyn()->advance(); // consume `}`
+            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            propagate_flags(err, key_type);
+            return err;
         }
 
-        /// \brief parses a pointer type declaration starting with the `*`
-        ///        sigil.
+        if dyn()->check(TokenKind::TkCodeComplete) {
+            dyn()->maybe_complete(CompletionContextKind::TypeRef);
+            dyn()->advance(T::SkipNL::After); // consume code complete token and any newlines after it
+            var err = MapType::create_error(dyn()->ctx, start_range | sep_range);
+            propagate_flags(err, key_type);
+            return err;
+        }
+
+        var val_type = self.parse_type(false, true);
+        dyn()->advance(T::SkipNL::Only);
+
+        if val_type == &null {
+            dyn()->diag->report(DiagID::S045E, sep_range.start,
+                "expected value type after ':' in map type '{K: V}' "
+            ).first(sep_range).emit();
+            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
+            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            propagate_flags(err, key_type);
+            return err;
+        }
+
+        if isa_recovery::<Type>(val_type) {
+            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
+            var err = MapType::create_error(dyn()->ctx, start_range | val_type->range);
+            propagate_flags(err, key_type);
+            propagate_flags(err, val_type);
+            return err;
+        }
+
+        // common error: `{K: V, ...}`
+        if dyn()->check(TokenKind::OpComma) {
+            dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}' "
+            ).first(dyn()->current_ptr()->range).emit();
+            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
+            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            propagate_flags(err, key_type);
+            propagate_flags(err, val_type);
+            return err;
+        }
+
+        // common error: `{K: V: W}` double colon
+        if dyn()->check(TokenKind::OpColon) {
+            dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                "unexpected ':' in map type, expected '}' after value type"
+            ).first(dyn()->current_ptr()->range).emit();
+            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
+            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            propagate_flags(err, key_type);
+            propagate_flags(err, val_type);
+            return err;
+        }
+
+        if !dyn()->check(TokenKind::OpRBrace) {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected '}' to close map type"
+            ).first(start_range).emit();
+            self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
+            var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+            propagate_flags(err, key_type);
+            propagate_flags(err, val_type);
+            return err;
+        }
+
+        var full_range = start_range | dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::Before); // consume `}`
+
+        if is_error {
+            var err = MapType::create_error(dyn()->ctx, full_range);
+            err->key   = key_type;
+            err->value = val_type;
+            propagate_flags(err, key_type);
+            propagate_flags(err, val_type);
+            return err;
+        }
+
+        var mt = MapType::create(dyn()->ctx, full_range, key_type, val_type);
+        return mt;
+    }
+
+    /// \brief parses a pointer type declaration starting with the `*`
+    ///        sigil.
     ///
     /// \details handles simple pointers `*T`, multi-level pointers `**T`, and
     ///          qualified
@@ -1085,23 +1144,27 @@ class <T> TypeParse {
     ///       the
     ///       parentheses. if a name is detected immediately following `fn`, the
     ///       parser assumes a declaration was intended and attempts to recover.
-    priv fn _parse_fn_ptr_type(self) -> *FunctionPointerType {
+    priv inline fn _parse_fn_ptr_type(self) -> *FunctionPointerType {
         var start_range = dyn()->current_ptr()->range;
         dyn()->advance(); // consume `fn`
 
-        // optional generic params: fn<T, U>(...)
-        // TODO: call dyn()->parse_generic_arg_list() here
-        // for now just skip past <...> if present
-        if dyn()->check(fn (k: TokenKind) -> bool {
-            return TYPE_TOK_TBL.contains(k);
-        }) { // if it is an identifier
-            // we have an error a name is not allowed after `fn` in a function pointer type,
-            // emit diagnostic and try to recover by skipping to the `(` that should
-            // start the parameter list
+        if dyn()->check(TokenKind::OpLess) {
             dyn()->diag->report(DiagID::S045E, start_range.start,
-                "unexpected identifier after 'fn' in function pointer type, did you mean to write a function, and not a function pointer type?"
+                "unexpected '<' after 'fn' in function pointer type, generic parameters are not supported here"
             ).first(start_range).emit();
             self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
+            return FunctionPointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
+        }
+
+        if dyn()->check(fn (k: TokenKind) -> bool {
+            return TYPE_TOK_TBL.contains(k);
+        }) {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "unexpected identifier after 'fn' in function pointer type, "
+                "did you mean to write a function declaration?"
+            ).first(start_range).emit();
+            self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
+            return FunctionPointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
         }
 
         // require `(`
@@ -1170,7 +1233,7 @@ class <T> TypeParse {
     ///       (default
     ///       values are illegal in function pointer signatures) and the parser
     ///       synchronizes to the next parameter or the end of the list.
-    priv fn _parse_fn_ptr_params(self, out: *std::StackBuf::<*Type, 8>, start_range: SourceRange) {
+    priv inline fn _parse_fn_ptr_params(self, out: *std::StackBuf::<*Type, 8>, start_range: SourceRange) {
         while !dyn()->is_eof() {
             if dyn()->check(TokenKind::OpRParen) {
                 return;
@@ -1217,51 +1280,371 @@ class <T> TypeParse {
         }
     }
 
-    /// \brief parses types that begin with an identifier, such as `Foo`,
-    ///        `Foo<T>`, or `Foo::Bar`.
+    priv inline fn _parse_variadic_type(self) -> *VariadicPackType {
+        // ...T, const ...T
+        // cur token == `...`
+        var start_range = dyn()->current_ptr()->range;
+        dyn()->advance(); // consume '...'
+
+        if !dyn()->check(fn(k: TokenKind) -> bool {
+            return TYPE_TOK_TBL.contains(k);
+        }) {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected type parameter name after '...' for variadic pack type"
+            ).first(start_range).emit();
+            return VariadicPackType::create_error(dyn()->ctx, start_range);
+        }
+
+        var chain = self._parse_qual_type();
+
+        if chain == &null {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected type after '...' for variadic pack type"
+            ).first(start_range).emit();
+            return VariadicPackType::create_error(dyn()->ctx, start_range);
+        }
+
+        if isa_recovery::<Type>(chain) {
+            return VariadicPackType::create_error(dyn()->ctx, start_range | chain->range);
+        }
+
+        // variadic pack must be a single unqualified name no generics, no scoping
+        if !chain->is_simple() {
+            dyn()->diag->report(DiagID::S045E, chain->range.start,
+                "variadic pack type must be a single type parameter name, "
+                "not a qualified or generic type path"
+            ).first(chain->range).emit();
+            return VariadicPackType::create_error(dyn()->ctx, start_range | chain->range);
+        }
+
+        if chain->has_generic_args() {
+            dyn()->diag->report(DiagID::S045E, chain->range.start,
+                "variadic pack type cannot have generic arguments"
+            ).first(chain->range).emit();
+            return VariadicPackType::create_error(dyn()->ctx, start_range | chain->range);
+        }
+
+        // wrap the identifier as a GenericParamType
+        // param_index is 0 here sema resolves the actual index during
+        // generic parameter binding when it matches this name against the
+        // enclosing generic parameter list
+        var name_expr = chain->trailing_name();
+        var gpt = GenericParamType::create(
+            dyn()->ctx,
+            chain->range,
+            name_expr,
+            0,     // param_index placeholder, sema resolves
+            true   // is_pack
+        );
+
+        var vpt = VariadicPackType::create(dyn()->ctx, start_range | chain->range, gpt);
+        return vpt;
+    }
+
+    priv inline fn _parse_pack_expansion_type(self, ty: *Type) -> *PackExpansionType {
+        // current token is `...`
+        if (ty == &null) {
+            dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                "Fatal compiler bug, please raise an issue on our github at "
+                "https://github.com/kairolang/kairo/issues "
+                "along with the code to reproduce it"
+            ).emit();
+            return &null;
+        }
+        
+        var end_range = dyn()->current_ptr()->range;
+        dyn()->advance(); //consume '...'
+
+        if isa::<PackExpansionType>(ty) { // `T......` is not valid syntax
+            dyn()->diag->report(DiagID::S045E, ty->range.start,
+                "unexpected '...' after type in pack expansion type, '...' can only "
+                "appear once in a pack expansion type declaration"
+            ).first(ty->range).emit();
+            return PackExpansionType::create_error(dyn()->ctx, ty->range);
+        }
+
+        if isa::<VariadicPackType>(ty) { // `...T...` is not valid syntax
+            dyn()->diag->report(DiagID::S045E, ty->range.start,
+                "unexpected '...' before type in pack expansion type, '...' can only "
+                "appear once in a pack expansion type declaration"
+            ).first(ty->range).emit();
+            return PackExpansionType::create_error(dyn()->ctx, ty->range);
+        }
+        
+        var pt = PackExpansionType::create(dyn()->ctx, ty->range | end_range, ty);
+        return pt;
+    }
+
+
+    /// \brief parses a chain type starting from an identifier or builtin token.
     ///
-    /// \details handles the initial segment of a named type reference.
-    ///          currently only
-    ///          processes simple identifiers; full support for template
-    ///          arguments and scoped name chains is pending integration with
-    ///          the `ChainExpr` parser.
+    /// \details builds a `ChainType` with one or more segments. handles:
+    ///   - simple names: `i32`, `Foo`
+    ///   - scoped paths: `std::vec`, `Foo::Bar::Baz`
+    ///   - generic instantiations: `Vec<i32>`, `Map<K, V>`
+    ///   - named generic arguments: `Map<Key: str, Value: i32>`
+    ///   - mixed chains: `std::Map<K, V>::Iterator<const K>`
     ///
-    /// \note once expression chain parsing is complete, this logic will be
-    ///       replaced
-    ///       by a `ChainExpr` call with `qualified: true`. this is necessary to
-    ///       support aliased type resolution, e.g., `type Foo = Bar::Baz; var
-    ///       x: Foo`, where `Foo` must link to the resolved `ChainExpr` in
-    ///       sema.
+    /// \return a new `ChainType` node. single-segment chains with no generics
+    ///         will have `is_simple() == true` for sema fast-pathing.
+    priv inline fn _parse_qual_type(self) -> *ChainType {
+        var start_range = dyn()->current_ptr()->range;
+
+        var segments: std::StackBuf::<ChainType::ChainSegment, 4>;
+
+        var seg = self._parse_chain_segment(ChainType::SegmentSeparator::None);
+        if seg.name == &null {
+            return ChainType::create_error(dyn()->ctx, start_range);
+        }
+        segments.push_back(seg);
+
+        while dyn()->check(TokenKind::OpColonColon) {
+            var sep_range = dyn()->current_ptr()->range;
+            dyn()->advance(); // consume `::`
+
+            if dyn()->check(TokenKind::TkCodeComplete) {
+                dyn()->maybe_complete(CompletionContextKind::TypeRef);
+                dyn()->advance(T::SkipNL::After);
+                break;
+            }
+
+            if !dyn()->check(fn(k: TokenKind) -> bool {
+                return TYPE_TOK_TBL.contains(k);
+            }) {
+                dyn()->diag->report(DiagID::S045E, sep_range.start,
+                    "expected identifier after '::' in type path"
+                ).first(sep_range).emit();
+                break;
+            }
+
+            var next_seg = self._parse_chain_segment(ChainType::SegmentSeparator::ColonColon);
+            if next_seg.name == &null {
+                break;
+            }
+            segments.push_back(next_seg);
+        }
+
+        var end_range = dyn()->prev().range;
+        var full_range = start_range | end_range;
+
+        var ct = ChainType::create(dyn()->ctx, full_range);
+        ct->segments.from_buf(segments.data(), segments.size(), dyn()->ctx);
+
+        return ct;
+    }
+
+    /// \brief parses a single segment of a chain type: identifier + optional
+    ///        generic argument list.
     ///
-    /// \return a new `NamedType` node encapsulating the identifier.
-    ///
-    /// FIXME: replace current manual `NamedIdentExpr` construction with
-    /// `ChainExpr` parsing to support templates and namespacing.
-    priv inline fn _parse_qual_type(self) -> *NamedType {
-        // precondition: current token is an identifier
+    /// \param sep  the separator that preceded this segment (`None` for first,
+    ///             `ColonColon` for subsequent).
+    /// \return a populated `ChainSegment`. `.name` is null on failure.
+    priv inline fn _parse_chain_segment(self, sep: ChainType::SegmentSeparator) -> ChainType::ChainSegment {
+        var result = ChainType::ChainSegment{};
+        result.sep           = sep;
+        result.seg_kind      = ChainType::SegmentKind::Named;
+        result.resolved_type = &null;
+        result.resolved_decl = &null;
+
         var id_ptr   = dyn()->current_ptr();
         var id_range = id_ptr->range;
         dyn()->advance(); // consume identifier
 
-        var nte = NamedIdentExpr::create(
-            dyn()->ctx,
-            id_range,
-            *id_ptr
-        );
+        var nte = NamedIdentExpr::create(dyn()->ctx, id_range, *id_ptr);
+        result.name  = nte;
+        result.range = id_range;
 
-        var nt = NamedType::create(
-            dyn()->ctx,
-            id_range,
-            nte
-        );
+        if dyn()->check(TokenKind::OpLess) {
+            var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
+            self._parse_generic_args(&generic_args);
 
-        // TypeQual is inherited by NamedType through Type
-        // quals were already parsed and applied by parse_type() caller
-        // so nt starts clean the *outer* parse_type() call merges quals onto
-        // whatever we return here
+            result.generic_args.from_buf(generic_args.data(), generic_args.size(), dyn()->ctx);
+            result.range = id_range | dyn()->prev().range;
 
-        // Annotation init allocator must be set before any add_* calls
-        return nt;
+            if !generic_args.is_empty() {
+                result.seg_kind = ChainType::SegmentKind::GenericApp;
+            }
+        }
+
+        return result;
+    }
+
+    /// \brief parses a generic argument list `<T1, T2, ..., TN>` with optional
+    ///        named bindings `<Key: str, Value: i32>`.
+    ///
+    /// \details each argument is either:
+    ///   - positional: a bare type like `i32` or `Vec<u8>`
+    ///   - named: `Name: Type` matching a generic parameter name
+    ///
+    /// named and positional can be mixed; sema enforces ordering.
+    ///
+    /// \param out  buffer to collect parsed generic arguments.
+    /// \return true if the argument list closed successfully.
+    priv inline fn _parse_generic_args(self, out: *std::StackBuf::<ChainType::GenericArg, 4>) -> bool {
+        var start_range = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After); // consume `<`
+
+        // a prior nested generic consumed >> and left one > for us
+        if self._pending_close_angle {
+            self._pending_close_angle = false;
+            return true;
+        }
+
+        if dyn()->check(TokenKind::OpGreater) {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expected at least one type argument in generic parameter list"
+            ).first(start_range).emit();
+            dyn()->advance(); // consume `>`
+            return false;
+        }
+
+        var angle_depth: u32 = 1;
+
+        while !dyn()->is_eof() && angle_depth > 0 {
+            if  dyn()->check(TokenKind::TkCodeComplete) {
+                dyn()->maybe_complete(CompletionContextKind::TypeRef);
+                dyn()->advance(T::SkipNL::After);
+                return false;
+            }
+
+            // closers
+            if dyn()->check(TokenKind::OpGreaterGreater) {
+                if angle_depth == 1 {
+                    self._pending_close_angle = true;
+                    dyn()->advance();
+                    return true;
+                }
+                if angle_depth >= 2 {
+                    angle_depth -= 2;
+                    dyn()->advance();
+                    return true;
+                }
+            }
+
+            if dyn()->check(TokenKind::OpGreater) {
+                angle_depth -= 1;
+                dyn()->advance();
+                return true;
+            }
+
+            var arg = ChainType::GenericArg{};
+            arg.name       = &null;
+            arg.name_range = SourceRange::invalid();
+
+            // named argument: `Ident :` but NOT `Ident ::` (which starts a scoped path)
+            if (dyn()->check(TokenKind::LitIdentifier))
+            && (dyn()->check_peek(TokenKind::OpColon))
+            && (!dyn()->check_peek(TokenKind::OpColonColon)) {
+                var name_ptr   = dyn()->current_ptr();
+                var name_range = name_ptr->range;
+                dyn()->advance(); // consume identifier
+                dyn()->advance(T::SkipNL::After); // consume `:`
+
+                arg.name       = NamedIdentExpr::create(dyn()->ctx, name_range, *name_ptr);
+                arg.name_range = name_range;
+            }
+
+            var ty = self.parse_type(false, true);
+            if ty == &null {
+                dyn()->diag->report(DiagID::S045E, start_range.start,
+                    "expected type argument in generic parameter list"
+                ).first(start_range).emit();
+                self._sync_generic_args(angle_depth);
+                return false;
+            }
+
+            if isa_recovery::<Type>(ty) {
+                self._sync_generic_args(angle_depth);
+                return false;
+            }
+
+            arg.ty = ty;
+            out->push_back(arg);
+
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After); // consume `,`
+
+                // trailing comma before closer
+                if dyn()->check(TokenKind::OpGreater) {
+                    angle_depth -= 1;
+                    dyn()->advance();
+                    return true;
+                }
+                if dyn()->check(TokenKind::OpGreaterGreater) {
+                    if angle_depth == 1 {
+                        self._pending_close_angle = true;
+                        dyn()->advance();
+                        return true;
+                    }
+                    if angle_depth >= 2 {
+                        angle_depth -= 2;
+                        dyn()->advance();
+                        return true;
+                    }
+                }
+
+                continue;
+            }
+
+            // a nested generic consumed >> and left a > for us
+            if self._pending_close_angle {
+                self._pending_close_angle = false;
+                return true;
+            }
+
+            if (!dyn()->check(TokenKind::OpGreater)) && (!dyn()->check(TokenKind::OpGreaterGreater)) {
+                dyn()->diag->report(DiagID::S045E, dyn()->prev().range.start,
+                    "expected ',' or '>' after type argument in generic parameter list"
+                ).first(dyn()->prev().range).emit();
+                self._sync_generic_args(angle_depth);
+                return false;
+            }
+        }
+
+        return angle_depth == 0;
+    }
+
+    /// \brief synchronizes past a malformed generic argument list.
+    ///
+    /// \details skips tokens tracking nested `<`/`>` pairs until a closer
+    ///          or statement-level delimiter is found.
+    ///
+    /// \param angle_depth  current nesting depth of angle brackets.
+    priv inline fn _sync_generic_args(self, angle_depth: u32) {
+        var depth = angle_depth;
+        var tokens_consumed: u32 = 0;
+        const var MAX_SYNC: u32 = 64;
+
+        while !dyn()->is_eof() && tokens_consumed < MAX_SYNC {
+            ++tokens_consumed;
+            var k = dyn()->current().kind;
+
+            if k == TokenKind::OpLess {
+                ++depth;
+            }
+            else if k == TokenKind::OpGreater {
+                if depth <= 1 {
+                    dyn()->advance();
+                    return;
+                }
+                --depth;
+            }
+            else if k == TokenKind::OpGreaterGreater {
+                if depth <= 2 {
+                    dyn()->advance();
+                    return;
+                }
+                depth -= 2;
+            }
+            else if k == TokenKind::OpSemicolon
+                || k == TokenKind::OpRParen
+                || k == TokenKind::OpRSquare
+                || k == TokenKind::OpRBrace {
+                return; // don't consume caller owns these
+            }
+
+            dyn()->advance();
+        }
     }
 
     /// \brief parses a limited constant expression for use in type
@@ -1304,24 +1687,89 @@ class <T> TypeParse {
 
         return &null;
     }
+
+    priv inline fn _parse_type_expr(self) -> *TypeExpr {
+        var expr = dyn()->parse_expr();
+        if expr == &null {
+            dyn()->diag->report(
+                DiagID::S045E,
+                dyn()->current_ptr()->range.start,
+                "expected expression for 'typeof' type"
+            ).first(dyn()->current_ptr()->range).emit();
+            return &null;
+        }
+
+        if isa_recovery::<Expr>(expr) {
+            var err_te = TypeExpr::create_error(dyn()->ctx, expr->range);
+            propagate_flags(err_te, expr);
+            return err_te;
+        }
+
+        var te = TypeExpr::create(dyn()->ctx, expr->range, expr);
+        return te;
+    }
+
+    priv inline fn _parse_nullable_type(self, ty: *Type) -> *NullableType {
+        // cur token is `?`
+        var end_range = dyn()->current_ptr()->range;
+        if dyn()->check(TokenKind::OpQuestionQuestion) {
+            dyn()->diag->report(DiagID::S045E, end_range.start,
+                "unexpected '??' after type, did you mean to write a nullable type with a single '?'?"
+            ).first(end_range).emit();
+            self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
+            return NullableType::create_error(dyn()->ctx, end_range);
+        }
+
+        dyn()->advance(); // consume '?'
+
+        if ty == &null {
+            dyn()->diag->report(DiagID::S045E, end_range.start,
+                "Fatal compiler bug, please raise an issue on our github at "
+                "https://github.com/kairolang/kairo/issues "
+                "along with the code to reproduce it"
+            ).emit();
+            return &null;
+        }
+
+        if isa_recovery::<Type>(ty) {
+            var err_nt = NullableType::create_error(dyn()->ctx, ty->range | end_range);
+            propagate_flags(err_nt, ty);
+            return err_nt;
+        }
+
+        if isa::<NullableType>(ty) {
+            dyn()->diag->report(DiagID::S045E, end_range.start,
+                "redundant nullable operator '?', type is already nullable"
+            ).first(end_range).emit();
+            return cast::<NullableType>(ty);
+        }
+
+        var nt = NullableType::create(dyn()->ctx, ty->range | end_range, ty);
+        return nt;
+    }
 }
 
+
+
+    
+
+
+
+
 /*
-[-] NamedType
-[ ] DependentNameType
+[x] ChainType
 [ ] GenericParamType
 [ ] SubstGenericParamType
-[ ] GenericInstanceType
-[ ] TypeOfType
-[ ] VariadicPackType
-[ ] PackExpansionType
+[x] TypeOfType // typeof TypeExpr
+[x] VariadicPackType
+[x] PackExpansionType
 [x] PointerType
 [x] TupleType
 [x] FixedArrayType
 [x] VectorType
 [x] MapType
 [x] SetType
-[ ] FunctionPointerType
+[x] FunctionPointerType
 [ ] InferredType
 [ ] CXXLValueRefType
 [ ] CXXRValueRefType

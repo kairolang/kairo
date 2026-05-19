@@ -1049,7 +1049,7 @@ class StackBuf {
 
     T                     *data() const { return const_cast<T *>(_data); }
     [[nodiscard]] uint32_t size() const { return _size; }
-    [[nodiscard]] bool     empty() const { return _size == 0; }
+    [[nodiscard]] bool     is_empty() const { return _size == 0; }
 
     T       &operator[](uint32_t i) { return _data[i]; }
     const T &operator[](uint32_t i) const { return _data[i]; }
