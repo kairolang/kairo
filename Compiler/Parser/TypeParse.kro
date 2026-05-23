@@ -156,7 +156,7 @@ class <T> TypeParse {
     /// \param stop_at_newline if true, the first `TkNewLine` encountered at
     ///        depth 0
     ///                        will terminate recovery regardless of `ctx`.
-    priv inline fn _sync_type(
+    inline fn _sync_type(
         self,
         ctx:             TypeSyncCtx,
         paren_depth:     i32  = 0,
@@ -235,7 +235,7 @@ class <T> TypeParse {
     ///          (usually `ASTParse`) without virtual dispatch overhead.
     ///
     /// \return a pointer to the derived `T` instance.
-    priv inline fn dyn(self) -> *T {
+    inline fn dyn(self) -> *T {
         return static_cast::<*T>(&self);
     }
 
@@ -249,7 +249,7 @@ class <T> TypeParse {
     ///
     /// \param range  the source location where the type resolution failed.
     /// \return a pointer to the newly allocated error-state type node.
-    priv inline fn _error_type(self, range: SourceRange) -> *Type {
+    inline fn _error_type(self, range: SourceRange) -> *Type {
         return static_cast::<*Type>(ChainType::create_error(dyn()->ctx, range));
     }
 
@@ -431,14 +431,14 @@ class <T> TypeParse {
         return _error_type(cur_range);
     }
 
-    priv inline fn _parse_self_type(self) -> *SelfType {
+    inline fn _parse_self_type(self) -> *SelfType {
         var tok = dyn()->current();
         var ty = SelfType::create(dyn()->ctx, tok.range);
         dyn()->advance(); // consume `Self`
         return ty;
     }
 
-    priv inline fn _parse_typeof_type(self) -> *TypeOfType {
+    inline fn _parse_typeof_type(self) -> *TypeOfType {
         var tok = dyn()->current();
         var start_range = tok.range;
 
@@ -473,7 +473,7 @@ class <T> TypeParse {
     ///
     /// FIXME: handle the case where `parse_type` returns an error type
     /// (recovery node) instead of null by using `isa_recovery::<Type>(...)`.
-    priv inline fn _parse_paren_type(self) -> *Type {
+    inline fn _parse_paren_type(self) -> *Type {
         // precondition: current token is `(`
         var lparen_ptr  = dyn()->current_ptr();
         var start_range = lparen_ptr->range;
@@ -536,7 +536,7 @@ class <T> TypeParse {
     /// \return a `TupleType` node, or a `TupleType` error node if parsing fails
     ///         or
     ///         arity constraints are violated.
-    priv inline fn _finish_tuple_type(self, start_range: SourceRange, first: *Type) -> *TupleType {
+    inline fn _finish_tuple_type(self, start_range: SourceRange, first: *Type) -> *TupleType {
         if !dyn()->enter_depth() {
             dyn()->diag->report(DiagID::S045E, start_range.start,
                 "exceeded maximum nesting depth in tuple type"
@@ -661,7 +661,7 @@ class <T> TypeParse {
     ///         returns `&null`
     ///         unless a fatal internal inconsistency occurs during element
     ///         parsing.
-    priv inline fn _parse_square_type(self) -> *Type {
+    inline fn _parse_square_type(self) -> *Type {
         // precondition: current token is `[`
         var lsquare_ptr = dyn()->current_ptr();
         var start_range = lsquare_ptr->range;
@@ -764,7 +764,7 @@ class <T> TypeParse {
     ///                     type.
     /// \return a pointer to the constructed `FixedArrayType`, or `&null` on
     ///         fatal failure.
-    priv inline fn _finish_array_type(self, start_range: SourceRange, elem_type: *Type, is_error: bool = false) -> *FixedArrayType {
+    inline fn _finish_array_type(self, start_range: SourceRange, elem_type: *Type, is_error: bool = false) -> *FixedArrayType {
         // we are sitting on the `;` after parsing the element type in an array type like `[T; N]`
         // or we got here in error recovery after seeing a `,` which is not valid syntax for array types
         var semicolon_ptr   = dyn()->current_ptr();
@@ -853,7 +853,7 @@ class <T> TypeParse {
     /// \note empty braced types `{}` are prohibited to avoid ambiguity with
     ///       empty blocks or future syntax; `void` should be used if a
     ///       unit-like type is intended in a braced context.
-    priv inline fn _parse_braced_type(self) -> *Type {
+    inline fn _parse_braced_type(self) -> *Type {
         // precondition: current token is `{`
         var lbrace_ptr  = dyn()->current_ptr();
         var start_range = lbrace_ptr->range;
@@ -974,7 +974,7 @@ class <T> TypeParse {
     ///       handles
     ///       recovery for missing value types, extraneous commas, and
     ///       nested colons.
-    priv inline fn _finish_map_type(
+    inline fn _finish_map_type(
         self,
         start_range: SourceRange,
         key_type:    *Type,
@@ -1089,7 +1089,7 @@ class <T> TypeParse {
     ///         token,
     ///          returns a `PointerType` marked with error flags to suppress
     ///          redundant diagnostics during sema.
-    priv inline fn _parse_pointer_type(self) -> *PointerType {
+    inline fn _parse_pointer_type(self) -> *PointerType {
         // precondition: current token is `*`
         var star_ptr    = dyn()->current_ptr();
         var start_range = star_ptr->range;
@@ -1144,7 +1144,7 @@ class <T> TypeParse {
     ///       the
     ///       parentheses. if a name is detected immediately following `fn`, the
     ///       parser assumes a declaration was intended and attempts to recover.
-    priv inline fn _parse_fn_ptr_type(self) -> *FunctionPointerType {
+    inline fn _parse_fn_ptr_type(self) -> *FunctionPointerType {
         var start_range = dyn()->current_ptr()->range;
         dyn()->advance(); // consume `fn`
 
@@ -1233,7 +1233,7 @@ class <T> TypeParse {
     ///       (default
     ///       values are illegal in function pointer signatures) and the parser
     ///       synchronizes to the next parameter or the end of the list.
-    priv inline fn _parse_fn_ptr_params(self, out: *std::StackBuf::<*Type, 8>, start_range: SourceRange) {
+    inline fn _parse_fn_ptr_params(self, out: *std::StackBuf::<*Type, 8>, start_range: SourceRange) {
         while !dyn()->is_eof() {
             if dyn()->check(TokenKind::OpRParen) {
                 return;
@@ -1280,7 +1280,7 @@ class <T> TypeParse {
         }
     }
 
-    priv inline fn _parse_variadic_type(self) -> *VariadicPackType {
+    inline fn _parse_variadic_type(self) -> *VariadicPackType {
         // ...T, const ...T
         // cur token == `...`
         var start_range = dyn()->current_ptr()->range;
@@ -1341,7 +1341,7 @@ class <T> TypeParse {
         return vpt;
     }
 
-    priv inline fn _parse_pack_expansion_type(self, ty: *Type) -> *PackExpansionType {
+    inline fn _parse_pack_expansion_type(self, ty: *Type) -> *PackExpansionType {
         // current token is `...`
         if (ty == &null) {
             dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
@@ -1387,7 +1387,7 @@ class <T> TypeParse {
     ///
     /// \return a new `ChainType` node. single-segment chains with no generics
     ///         will have `is_simple() == true` for sema fast-pathing.
-    priv inline fn _parse_qual_type(self) -> *ChainType {
+    inline fn _parse_qual_type(self) -> *ChainType {
         var start_range = dyn()->current_ptr()->range;
 
         var segments: std::StackBuf::<ChainType::ChainSegment, 4>;
@@ -1439,7 +1439,7 @@ class <T> TypeParse {
     /// \param sep  the separator that preceded this segment (`None` for first,
     ///             `ColonColon` for subsequent).
     /// \return a populated `ChainSegment`. `.name` is null on failure.
-    priv inline fn _parse_chain_segment(self, sep: ChainType::SegmentSeparator) -> ChainType::ChainSegment {
+    inline fn _parse_chain_segment(self, sep: ChainType::SegmentSeparator) -> ChainType::ChainSegment {
         var result = ChainType::ChainSegment{};
         result.sep           = sep;
         result.seg_kind      = ChainType::SegmentKind::Named;
@@ -1480,7 +1480,7 @@ class <T> TypeParse {
     ///
     /// \param out  buffer to collect parsed generic arguments.
     /// \return true if the argument list closed successfully.
-    priv inline fn _parse_generic_args(self, out: *std::StackBuf::<ChainType::GenericArg, 4>) -> bool {
+    inline fn _parse_generic_args(self, out: *std::StackBuf::<ChainType::GenericArg, 4>) -> bool {
         var start_range = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `<`
 
@@ -1610,7 +1610,7 @@ class <T> TypeParse {
     ///          or statement-level delimiter is found.
     ///
     /// \param angle_depth  current nesting depth of angle brackets.
-    priv inline fn _sync_generic_args(self, angle_depth: u32) {
+    inline fn _sync_generic_args(self, angle_depth: u32) {
         var depth = angle_depth;
         var tokens_consumed: u32 = 0;
         const var MAX_SYNC: u32 = 64;
@@ -1663,7 +1663,7 @@ class <T> TypeParse {
     ///
     /// \return an AST node representing the constant value, or `&null` on
     ///         error.
-    priv inline fn _parse_const_expr(self) -> *Expr {
+    inline fn _parse_const_expr(self) -> *Expr {
         if dyn()->check(TokenKind::LitInt) {
             var lit_ptr   = dyn()->current_ptr();
             var lit_range = lit_ptr->range;
@@ -1688,7 +1688,7 @@ class <T> TypeParse {
         return &null;
     }
 
-    priv inline fn _parse_type_expr(self) -> *TypeExpr {
+    inline fn _parse_type_expr(self) -> *TypeExpr {
         var expr = dyn()->parse_expr();
         if expr == &null {
             dyn()->diag->report(
@@ -1709,7 +1709,7 @@ class <T> TypeParse {
         return te;
     }
 
-    priv inline fn _parse_nullable_type(self, ty: *Type) -> *NullableType {
+    inline fn _parse_nullable_type(self, ty: *Type) -> *NullableType {
         // cur token is `?`
         var end_range = dyn()->current_ptr()->range;
         if dyn()->check(TokenKind::OpQuestionQuestion) {

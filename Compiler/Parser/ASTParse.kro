@@ -27,6 +27,7 @@ import Lexer::TokenSpan::*;
 import Lexer::Token::*;
 import Diag::DiagEngine::*;
 import AST::Printer::TypePrinter::*;
+import AST::Printer::ExprPrinter::*;
 
 import Parser::ExprParse::*;
 import Parser::StmtParse::*;
@@ -461,10 +462,10 @@ class ASTParse
                 continue;
             }
             
-            var ty = self.parse_type();
-            std::print(TypePrinter::print(ty, PrintStyle::Debug));
+            var ty = self.parse_expr();
+            std::print(ExprPrinter::print(ty, PrintStyle::Debug));
             if ty == &null { break; }
-            if self.is_fatal::<Type>(ty) { break; }
+            if self.is_fatal::<Expr>(ty) { break; }
         }
         self.scope.pop();
 
