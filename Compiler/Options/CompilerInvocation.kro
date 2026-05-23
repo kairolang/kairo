@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------- Compiler/Invoke/CompilerInvocation.kro --- ///
+/// --- The Kairo Project ------- Compiler/Options/CompilerInvocation.kro --- ///
 ///
 ///   The canonical, strongly-typed representation of one compiler run.
 ///
@@ -12,13 +12,13 @@
 /// ------------------------------------------------------------------------ ///
 
 import Command::ParsedArgs::*;
-import Invoke::LangOptions::*;
-import Invoke::DiagnosticOptions::*;
-import Invoke::PreprocessorOptions::*;
-import Invoke::CodeGenOptions::*;
-import Invoke::FrontendOptions::*;
-import Invoke::TargetOptions::*;
-import Invoke::LinkerOptions::*;
+import Options::LangOptions::*;
+import Options::DiagnosticOptions::*;
+import Options::PreprocessorOptions::*;
+import Options::CodeGenOptions::*;
+import Options::FrontendOptions::*;
+import Options::TargetOptions::*;
+import Options::LinkerOptions::*;
 
 ///
 /// \class CompilerInvocation

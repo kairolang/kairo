@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------ Compiler/Invoke/LinkerOptions.kro --- ///
+/// --- The Kairo Project ------------ Compiler/Options/LinkerOptions.kro --- ///
 ///
 ///   Linker, platform-specific, and embedded target options.
 ///

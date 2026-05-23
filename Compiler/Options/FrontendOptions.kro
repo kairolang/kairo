@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------- Compiler/Invoke/FrontendOptions.kro --- ///
+/// --- The Kairo Project ---------- Compiler/Options/FrontendOptions.kro --- ///
 ///
 ///   Frontend action selection, pipeline control, and testing options.
 ///

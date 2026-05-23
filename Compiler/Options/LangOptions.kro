@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------- Compiler/Invoke/LangOptions.kro --- ///
+/// --- The Kairo Project -------------- Compiler/Options/LangOptions.kro --- ///
 ///
 ///   Language semantics and standard configuration.
 ///
