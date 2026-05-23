@@ -13,7 +13,7 @@
 ///
 ///   Three-layer Clang-style driver pipeline
 ///   -----------------------------------------
-///   Layer 1  CompilerInvocation  Strongly-typed option structs  (Invoke::*)
+///   Layer 1  CompilerInvocation  Strongly-typed option structs  (Options::*)
 ///   Layer 2  CompilerInstance    Shared resource owner          (Driver::CompilerInstance)
 ///   Layer 3  FrontendAction      Per-file pipeline executor     (driven by FrontendOptions)
 ///

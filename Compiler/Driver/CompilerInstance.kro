@@ -13,7 +13,7 @@
 ///
 ///   Three-layer driver map
 ///   ----------------------
-///   Layer 1  CompilerInvocation   Strongly-typed options         (Invoke::*)
+///   Layer 1  CompilerInvocation   Strongly-typed options         (Options::*)
 ///   Layer 2  CompilerInstance     Shared resource hub            (this file)
 ///   Layer 3  FrontendAction       Per-file pipeline executor     (Driver::FrontendAction)
 ///
@@ -69,7 +69,7 @@
 ///
 ///   Clang-style layer map
 ///   ----------------------
-///     Layer 1  CompilerInvocation   Strongly-typed options     (Invoke::*)
+///     Layer 1  CompilerInvocation   Strongly-typed options     (Options::*)
 ///     Layer 2  CompilerInstance     Shared resource hub        (Driver::CompilerInstance)
 ///     Layer 3  FrontendAction       Per-file pipeline executor (this file)
 ///
@@ -107,8 +107,8 @@ import Source::SourceManager::*;
 import TermRenderer::*;
 import Lexer::TokenCacheManager::*;
 import Command::Command::*;
-import Command::FlagsRegister::*;
-import Invoke::CompilerInvocation::*;
+import Command::FlagRegistry::*;
+import Options::CompilerInvocation::*;
 import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;

@@ -21,7 +21,7 @@ import Lexer::Immediate::*;
 import Preprocessor::ModulePath::*;
 import Preprocessor::ImportResolver::*;
 import Lexer::TokenSpan::*;
-import Invoke::CompilerInvocation::*;
+import Options::CompilerInvocation::*;
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
 import AST::InternedStr::*;
