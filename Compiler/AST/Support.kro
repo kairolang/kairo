@@ -170,6 +170,11 @@ class <T> FrozenList {
         if index >= self.count {
             return &null;
         }
+        
+        if self.items == &null {
+            return &null;
+        }
+
         return self.items + index;
     }
 
