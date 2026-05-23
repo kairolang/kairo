@@ -235,7 +235,7 @@ import Preprocessor::ExpansionContext::*;
 import DiagConsumer::BasicDiagConsumer::*;
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
-import Invoke::PreprocessorOptions::*;
+import Options::PreprocessorOptions::*;
 import Preprocessor::MacroSentinel::*;
 import Preprocessor::DepScanner::*;
 import Preprocessor::WaveExecutor::*;
