@@ -77,6 +77,13 @@ class DiagBuilder {
     // --- Constructors --------------------------------------------------------
 
     fn DiagBuilder(self, engine: *DiagEngine, code: DiagCode, loc: SourceLocation, msg: string) {
+        if loc == SourceLocation::invalid() {
+            self._engine  = engine;
+            self._diag    = std::create::<Diagnostic>(code, msg);
+            self._emitted = false;
+            return;
+        }
+
         self._engine  = engine;
         self._diag    = std::create::<Diagnostic>(code, loc, msg);
         self._emitted = false;
@@ -92,6 +99,10 @@ class DiagBuilder {
 
     /// Attaches a primary label (\c ^^^) to \p range.
     fn first(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
         var label = DiagLabel{};
         label.range = range;
         label.text  = text;
@@ -102,6 +113,10 @@ class DiagBuilder {
 
     /// Attaches a secondary label (\c +++) to \p range.
     fn second(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
         var label = DiagLabel{};
         label.range = range;
         label.text  = text;
@@ -112,6 +127,10 @@ class DiagBuilder {
 
     /// Attaches a highlight label (\c ---) to \p range.
     fn highlight(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
         var label = DiagLabel{};
         label.range = range;
         label.text  = text;
@@ -124,6 +143,10 @@ class DiagBuilder {
     /// Rendered with Unicode combining strikethrough in \c PrettyConsumer;
     /// falls back to ASCII in all other consumers.
     fn strike(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
         var label = DiagLabel{};
         label.range = range;
         label.text  = text;
@@ -137,6 +160,10 @@ class DiagBuilder {
     /// Attaches a fix-it that replaces \p range with \p replacement.
     /// \p msg is shown to the user describing the intent of the edit.
     fn fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
         var f = FixIt{};
         f.range       = range;
         f.replacement = replacement;
@@ -151,6 +178,10 @@ class DiagBuilder {
         r.start = loc;
         r.end   = loc;
 
+        if !loc.is_valid() {
+            return self;
+        }
+
         var f = FixIt{};
         f.range       = r;
         f.replacement = text;
@@ -162,6 +193,10 @@ class DiagBuilder {
     // --- Child diagnostics ---------------------------------------------------
 
     priv fn _add_child(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
         var child = std::create::<Diagnostic>(code, loc, msg);
         self._diag->children.push_back(child);
         return self;
@@ -175,6 +210,10 @@ class DiagBuilder {
 
     /// Attaches a child note. Overloaded for with/without source location.
     fn note(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+        
         return self._add_child(code, loc, msg);
     }
     fn note(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
@@ -183,6 +222,10 @@ class DiagBuilder {
 
     /// Attaches a child warning.
     fn warning(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
         return self._add_child(code, loc, msg);
     }
     fn warning(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
@@ -191,6 +234,10 @@ class DiagBuilder {
 
     /// Attaches a child remark.
     fn remark(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
         return self._add_child(code, loc, msg);
     }
     fn remark(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
@@ -199,11 +246,19 @@ class DiagBuilder {
 
     /// Attaches a child verbose note.
     fn verbose(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
         return self._add_child(code, loc, msg);
     }
 
     /// Attaches a child debug note (stripped in release builds).
     fn debug_note(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
         return self._add_child(code, loc, msg);
     }
 
@@ -214,6 +269,10 @@ class DiagBuilder {
 
     /// Attaches a primary label to the last child diagnostic.
     fn child_first(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if range.is_invalid() {
+            return self;
+        }
+
         if self._diag->children.size() > 0 {
             var child = self._diag->children[self._diag->children.size() - 1];
             var label = DiagLabel{};
@@ -227,6 +286,10 @@ class DiagBuilder {
 
     /// Attaches a secondary label to the last child diagnostic.
     fn child_second(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if range.is_invalid() {
+            return self;
+        }
+
         if self._diag->children.size() > 0 {
             var child = self._diag->children[self._diag->children.size() - 1];
             var label = DiagLabel{};
@@ -240,6 +303,10 @@ class DiagBuilder {
 
     /// Attaches a fix-it to the last child diagnostic.
     fn child_fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
+        if range.is_invalid() {
+            return self;
+        }
+
         if self._diag->children.size() > 0 {
             var child = self._diag->children[self._diag->children.size() - 1];
             var f = FixIt{};
@@ -364,6 +431,10 @@ class DiagEngine {
 
     /// Creates a \c DiagBuilder for a diagnostic at \p loc.
     fn report(self, code: DiagCode, loc: SourceLocation, msg: string) -> DiagBuilder {
+        if loc == SourceLocation::invalid() {
+            return self.report(code, msg);
+        }
+
         return DiagBuilder(&self, code, loc, msg);
     }
 
@@ -374,6 +445,10 @@ class DiagEngine {
 
     /// Convenience overloads accepting a raw \c DiagID.
     fn report(self, id: DiagID, loc: SourceLocation, msg: string) -> DiagBuilder {
+        if loc == SourceLocation::invalid() {
+            return self.report(DiagCode(id), msg);
+        }
+
         return DiagBuilder(&self, DiagCode(id), loc, msg);
     }
 

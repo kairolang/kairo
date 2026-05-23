@@ -210,7 +210,7 @@ class PrettyDiagConsumer derives DiagConsumer {
 
         for var i: usize = 0; i < self._diags.size(); ++i {
             var diag = self._diags[i];
-            if !diag->has_loc {
+            if (!diag->has_loc) {
                 var g: DiagGroup;
                 g.key.file_id = 0xFFFFFFFF;
                 g.key.line    = static_cast::<u32>(i);
@@ -598,6 +598,8 @@ class PrettyDiagConsumer derives DiagConsumer {
 
         for var i: usize = 0; i < order.size(); ++i {
             var label     = labels[order[i]];
+            if label.range.is_invalid() { continue; }
+
             var start_lc  = sm->get_line_col(label.range.start);
             var end_lc    = sm->get_line_col(label.range.end);
             var line_text = sm->get_full_line(label.range.start);
