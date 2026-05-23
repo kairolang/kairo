@@ -400,16 +400,20 @@ class SourceLineTable {
     /// \brief busy-waits until the file entry is ready, with backoff.
     ///
     fn wait_until_ready(self, fid: u32) {
-        var count: u16 = 0; // prevent busy wait from hogging CPU
-        while true {
+        // check if fid is even registered before waiting
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if (tbl == &null) || (fid >= tbl->size()) { return; }
+        var entry = (*tbl)[fid];
+        if entry == &null { return; }
+
+        var count: u32 = 0;
+        const var MAX_WAIT: u32 = 100000; // ~5 seconds max
+
+        while count < MAX_WAIT {
             if self.is_ready(fid) { return; }
 
             if count >= 10000 {
                 libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
-                if count >= 15000 {
-                    count = 0;
-                    Logger::warn(Logger::Stage::Driver, f"SourceLineTable::wait_until_ready: fid={fid} stalled, still waiting");
-                }
             } else if count >= 5000 {
                 libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(25));
             } else if count >= 1000 {
@@ -420,6 +424,9 @@ class SourceLineTable {
 
             ++count;
         }
+
+        Logger::error(Logger::Stage::Driver,
+            f"SourceLineTable::wait_until_ready: fid={fid} timed out after {MAX_WAIT} iterations, proceeding without line table");
     }
 
     ///

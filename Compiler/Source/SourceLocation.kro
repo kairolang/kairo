@@ -85,7 +85,7 @@ class SourceLocation {
     /// \return true if `id != 0`.
     ///
     const fn is_valid(self) -> bool {
-        return self.id != 0;
+        return (self.id != 0) && (self.id != 0xFFFFFFFF);
     }
 
     ///
@@ -94,7 +94,7 @@ class SourceLocation {
     /// \return true if `id == 0`.
     ///
     const fn is_invalid(self) -> bool {
-        return self.id == 0;
+        return (self.id == 0) || (self.id == 0xFFFFFFFF);
     }
 
     static fn invalid() -> SourceLocation {

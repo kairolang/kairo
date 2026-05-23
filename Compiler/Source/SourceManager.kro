@@ -569,17 +569,27 @@ class SourceManager {
             return loc;
         }
 
-        var full_loc = self.get_line_col(loc);
         var res = self.resolve(loc);
-        
-        // wait for line index if not ready
+        if (res.fid == u32(-1)) || (res.fid >= self._files.size()) {
+            return loc;
+        }
+
         self._line_table.wait_until_ready(res.fid);
-        
+
+        if !self._line_table.is_ready(res.fid) {
+            return loc;
+        }
+
+        var full_loc = self.get_line_col(loc);
         var line_start_offset = self._line_table.get_line_offset(
             res.fid,
             full_loc.line
         );
-        
+
+        if line_start_offset == 0 && full_loc.line == 0 {
+            return loc;
+        }
+
         return self.get_loc(res.fid, static_cast::<usize>(line_start_offset));
     }
 
@@ -594,17 +604,27 @@ class SourceManager {
             return loc;
         }
 
-        var full_loc = self.get_line_col(loc);
         var res = self.resolve(loc);
-        
-        // wait for line index if not ready
+        if (res.fid == u32(-1)) || (res.fid >= self._files.size()) {
+            return loc;
+        }
+
         self._line_table.wait_until_ready(res.fid);
-        
+
+        if !self._line_table.is_ready(res.fid) {
+            return loc;
+        }
+
+        var full_loc = self.get_line_col(loc);
         var line_end_offset = self._line_table.get_line_end_offset(
             res.fid,
             full_loc.line
         );
-        
+
+        if line_end_offset == 0 && full_loc.line == 0 {
+            return loc;
+        }
+
         return self.get_loc(res.fid, static_cast::<usize>(line_end_offset));
     }
 
