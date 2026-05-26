@@ -729,9 +729,10 @@ fn FrontendAction::_dump_tokens() {
         } else if kind == TokenKind::TkError {
             text = "ERROR"; // we do not attempt to get the text since we might
                             // segfault trying to read an invalid source range
-        
         } else if kind == TokenKind::TkNewLine {
             text = "\\n";
+        } else if kind == TokenKind::TkEof {
+            text = "<eof>";
         } else {
             text = sm->get_text(tok_range);
         }
