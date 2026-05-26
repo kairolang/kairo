@@ -214,7 +214,7 @@ class VirtualFileManager {
         }
 
         var total     = parent->bytes().size();
-        var nseg: u32 = static_cast::<u32>((total + 0x100000000 - 1) / 0x100000000);
+        var nseg: u32 = (static_cast::<u32>((total + 0x100000000 - 1) / 0x100000000)) if (total > 0) else 1;
         var base_fid  = self._next_fid;
 
         _parents.push_back(parent);
