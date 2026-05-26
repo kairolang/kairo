@@ -194,7 +194,7 @@ if ! $HAS_CODE; then
 elif ! $HAS_NPM; then
     warn "'npm' not found - skipping. Install Node.js and re-run if you want it."
 else
-    info "Provides syntax highlighting and LSP support for .kro files in VSCode."
+    info "Provides syntax highlighting and LSP support for .k files in VSCode."
     info "Will clone kairo-lsp to: $LSP_DIR"
     info "Requires npm (build), vsce (auto-installed via npx), python3 (LSP server runtime)."
     echo ""
@@ -249,7 +249,7 @@ else
         echo -e "  ${GREEN}\"kairo.serverPath\"${RESET}: ${YELLOW}\"$SERVER_PATH\"${RESET}"
         echo -e "${CYAN}}${RESET}"
         echo ""
-        ok "Open a .kro file in VSCode to verify the extension activates."
+        ok "Open a .k file in VSCode to verify the extension activates."
 
     else
         log "Skipping VSCode extension."
@@ -430,7 +430,7 @@ if (-not $HasCode) {
 } elseif (-not $HasNpm) {
     Warn "'npm' not found -- skipping. Install Node.js and re-run if you want it."
 } else {
-    Info "Provides syntax highlighting and LSP support for .kro files in VSCode."
+    Info "Provides syntax highlighting and LSP support for .k files in VSCode."
     Info "Will clone kairo-lsp to: $LspDir"
     Info "Requires npm (build), vsce (auto-installed via npx), python (LSP server runtime)."
     Write-Host ""
@@ -487,7 +487,7 @@ if (-not $HasCode) {
 }
 "@ -ForegroundColor Yellow
         Write-Host ""
-        Ok "Open a .kro file in VSCode to verify the extension activates."
+        Ok "Open a .k file in VSCode to verify the extension activates."
 
     } else {
         Log "Skipping VSCode extension."

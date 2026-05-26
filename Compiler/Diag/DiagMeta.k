@@ -1,0 +1,118 @@
+/// --- The Kairo Project ------------------- Compiler/Diag/DiagMeta.k ----- ///
+///
+///   Diagnostic metadata and ID string formatting.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Diag::DiagCategory::*;
+import Diag::DiagSeverity::*;
+
+/// Static metadata for a single diagnostic entry.
+///
+/// Stored in the diagnostic registry and cached inside \c DiagCode.
+/// Equality and hashing are defined solely over \c hash, which encodes
+/// category - number - severity as a unique u32.
+///
+/// Ordering operators follow category -> severity -> number, consistent
+/// with \c DiagCode. Note that the relational operators use \c || rather
+/// than lexicographic chaining any field being less-than satisfies the
+/// predicate. This is intentional for range-based filtering; it is not a
+/// total order.
+///
+/// The \c as string conversion produces the canonical diagnostic ID string:
+/// \code
+///   SC(41, DiagSeverity::Error) -> "SC041E"
+/// \endcode
+/// Category codes: S, U, C, M, R, L, SC, P, CL, OPT, I.
+/// Severity suffixes: E, W, N, I, R, V, D, F.
+/// The numeric component is always zero-padded to three digits.
+struct DiagMeta {
+    var brief:    string; ///< Short human-readable description.
+    var group:    string; ///< Suppression group name, e.g. \c "unused-variable".
+    var number:   u32;    ///< Three-digit diagnostic number, e.g. 041.
+    var hash:     u32;    ///< Unique ID encoding category - number - severity.
+    var category: DiagCategory;
+    var severity: DiagSeverity;
+
+    // --- Comparisons ------------------------------------------------------ //
+
+    fn op == (self, other: DiagMeta) -> bool { return (self.hash == other.hash); }
+    fn op != (self, other: DiagMeta) -> bool { return (self.hash != other.hash); }
+
+    fn op <  (self, other: DiagMeta) -> bool {
+        return (self.category < other.category)
+            || (self.severity < other.severity)
+            || (self.number   < other.number);
+    }
+
+    fn op >  (self, other: DiagMeta) -> bool {
+        return (self.category > other.category)
+            || (self.severity > other.severity)
+            || (self.number   > other.number);
+    }
+
+    fn op <= (self, other: DiagMeta) -> bool {
+        return (self.category <= other.category)
+            || (self.severity <= other.severity)
+            || (self.number   <= other.number);
+    }
+
+    fn op >= (self, other: DiagMeta) -> bool {
+        return (self.category >= other.category)
+            || (self.severity >= other.severity)
+            || (self.number   >= other.number);
+    }
+
+    // --- Conversions ------------------------------------------------------ //
+
+    /// Formats the metadata as a diagnostic ID string, e.g. \c "SC041E".
+    fn op as (self) -> string {
+        var out: string;
+
+        switch (self.category) {
+            case DiagCategory::Syntax        { out += "S";   }
+            case DiagCategory::Uncategorized { out += "U";   }
+            case DiagCategory::CodeGen       { out += "C";   }
+            case DiagCategory::Memory        { out += "M";   }
+            case DiagCategory::Resolution    { out += "R";   }
+            case DiagCategory::Linker        { out += "L";   }
+            case DiagCategory::Semantic      { out += "SC";  }
+            case DiagCategory::Portability   { out += "P";   }
+            case DiagCategory::Lowering      { out += "CL";  }
+            case DiagCategory::Optimization  { out += "OPT"; }
+            case DiagCategory::Internal      { out += "I";   }
+            default { std::crash(std::Error::RuntimeError("invalid diag category")); }
+        }
+    
+        /// thing is the number must be 3 digits, so we need to pad it with
+        ///     zeros if it's less than 100
+        if (self.number) < 10 {
+            out += f"00{(self.number)}";
+        } else if (self.number) < 100 {
+            out += f"0{(self.number)}";
+        } else {
+            out += f"{(self.number)}";
+        }
+
+        switch (self.severity) {
+            case DiagSeverity::Error    { out += "E"; }
+            case DiagSeverity::Warning  { out += "W"; }
+            case DiagSeverity::Note     { out += "N"; }
+            case DiagSeverity::Ignored  { out += "I"; }
+            case DiagSeverity::Remark   { out += "R"; }
+            case DiagSeverity::Verbose  { out += "V"; }
+            case DiagSeverity::Debug    { out += "D"; }
+            case DiagSeverity::Fatal    { out += "F"; }
+            default { std::crash(std::Error::RuntimeError("invalid diag severity")); }
+        }
+
+        return out;
+    }
+}

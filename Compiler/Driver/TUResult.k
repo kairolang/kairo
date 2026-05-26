@@ -1,0 +1,39 @@
+/// --- The Kairo Project ----------------- Compiler/Driver/TUResult.k ----- ///
+///
+///   Per-translation-unit pipeline result record.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Driver::TUStage::*;
+
+/// Result record for a single translation unit, returned by \c FrontendAction.
+///
+/// Owned by \c BatchResult after \c execute() completes. All fields are
+/// immutable once \c FrontendAction transitions to \c Done or \c Failed.
+class TUResult {
+    
+    pub var path:         string;  ///< Canonical source path.
+    pub var elapsed_ms:   f64;     ///< Wall time from dispatch to completion.
+    pub var file_id:      u32;     ///< SourceManager ID. \c u32(-1) if load failed.
+    pub var error_count:  u32;     ///< Errors attributed to this TU at halt time.
+    pub var warn_count:   u32;     ///< Warnings attributed to this TU at halt time.
+    pub var stage:        TUStage; ///< Last stage reached before halt or Done.
+    pub var had_fatal:    bool;    ///< True if this TU emitted a fatal diagnostic.
+
+    fn TUResult(self) {
+        self.path        = "";
+        self.stage       = TUStage::Pending;
+        self.file_id     = u32(-1);
+        self.error_count = 0;
+        self.warn_count  = 0;
+        self.had_fatal   = false;
+        self.elapsed_ms  = 0.0;
+    }
+}

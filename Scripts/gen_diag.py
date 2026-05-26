@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Reads diag.toml, generates DiagRegistry.kro
-Usage: python3 gen_diag.py <folder with .diag.toml files> > DiagRegistry.kro
+Reads diag.toml, generates DiagRegistry.k
+Usage: python3 gen_diag.py <folder with .diag.toml files> > DiagRegistry.k
 """
 
 import sys, tomllib, textwrap, os

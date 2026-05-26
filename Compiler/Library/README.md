@@ -15,7 +15,7 @@ A `.klib` file is a self-contained, platform-agnostic distribution unit for a Ka
 A `.klib` is produced by invoking:
 
 ```
-kairo --lib -o foo.klib src/foo.kro [-Iinclude_path ...] [other_flags]
+kairo --lib -o foo.klib src/foo.k [-Iinclude_path ...] [other_flags]
 ```
 
 A `.klib` is consumed by any Kairo compiler version that supports the format version declared in its header, subject to the compatibility rules in §14.
@@ -131,7 +131,7 @@ ID      Name                    Required  Description
 0x0006  SCOPE_TREE              Yes       HoistedScope hierarchy
 0x0007  AST_NODES               Yes       Serialized AST
 0x0008  TYPE_TABLE              Yes       Deduplicated Type instances
-0x0009  SOURCE_ARCHIVE          No        Original .kro files (zstd tarball)
+0x0009  SOURCE_ARCHIVE          No        Original .k files (zstd tarball)
 0x000A  SOURCE_MANIFEST         If src    Mapping of fid -> source path
 0x000B  BCIR_SUMMARY            No        Per-function BCIR summaries
 0x000C  BCIR_DETAIL             No        Full BCIR blobs (lazy-loaded)
@@ -519,9 +519,9 @@ Full layouts in `KLIB_TYPE_LAYOUTS.md`.
 
 ## 12. Source Archive Section (0x0009)
 
-Optional. Contains original `.kro` source files for diagnostic reconstruction.
+Optional. Contains original `.k` source files for diagnostic reconstruction.
 
-Format: a zstd-compressed tar stream. Each entry is named by its logical module path (e.g., `foo/bar/baz.kro`). Archive entries are regular files only; no symlinks, no directories explicit, no special files.
+Format: a zstd-compressed tar stream. Each entry is named by its logical module path (e.g., `foo/bar/baz.k`). Archive entries are regular files only; no symlinks, no directories explicit, no special files.
 
 ```
 Offset  Size  Field                   Description
@@ -836,11 +836,11 @@ All reserved flag bits MUST be zero in a v1 `.klib`. Consumers MUST tolerate non
 
 A reference test suite is maintained at `Tests/KLibFormat/`. A compliant producer or consumer must pass:
 
-- `roundtrip_*.kro`: build, dump, re-parse, re-build, bytewise equality.
-- `cross_version_*.kro`: v1 producer, v1 consumer, cross-compiler-version loading.
+- `roundtrip_*.k`: build, dump, re-parse, re-build, bytewise equality.
+- `cross_version_*.k`: v1 producer, v1 consumer, cross-compiler-version loading.
 - `corruption_*.klib`: deliberately corrupted files, must be rejected cleanly.
-- `large_*.kro`: large symbol counts (>100k), verify lazy-load and performance.
-- `extension_*.kro`: custom sections ignored correctly.
+- `large_*.k`: large symbol counts (>100k), verify lazy-load and performance.
+- `extension_*.k`: custom sections ignored correctly.
 
 ---
 

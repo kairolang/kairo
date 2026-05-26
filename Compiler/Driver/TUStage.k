@@ -1,0 +1,30 @@
+/// --- The Kairo Project ------------------ Compiler/Driver/TUStage.k ----- ///
+///
+///   Translation-unit pipeline stage enumeration.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+/// Pipeline lifecycle stage for a \c FrontendAction.
+///
+/// Stages are strictly ordered a \c FrontendAction may only advance forward.
+/// A stage method returning false halts the pipeline and leaves the stage at
+/// \c Failed. A fatal diagnostic in any file sets \c BatchResult::aborted,
+/// causing \c execute() to skip all remaining input files.
+enum TUStage derives u8 {
+    Pending,        ///< Constructed, not yet dispatched.
+    Loading,        ///< SourceManager::load_file in progress.
+    Lexing,         ///< TokenCacheManager::lex_file in progress.
+    Preprocessing,  ///< PreProcessor::preprocess in progress.
+    Parsing,        ///< Parser not yet implemented.
+    Sema,           ///< Semantic analysis not yet implemented.
+    Codegen,        ///< Code generation not yet implemented.
+    Done,           ///< All requested stages completed successfully.
+    Failed,         ///< Halted due to a diagnostic error or fatal.
+}

@@ -1,0 +1,765 @@
+/// --- The Kairo Project --------- Compiler/Driver/CompilerInstance.k ----- ///
+///
+///   Driver Layer 2 shared resource owner and pipeline dispatcher.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+///
+///   Three-layer driver map
+///   ----------------------
+///   Layer 1  CompilerInvocation   Strongly-typed options         (Options::*)
+///   Layer 2  CompilerInstance     Shared resource hub            (this file)
+///   Layer 3  FrontendAction       Per-file pipeline executor     (Driver::FrontendAction)
+///
+///   Ownership
+///   ---------
+///   Resources are constructed in dependency order and destroyed in reverse.
+///   No resource is accessed after its destructor runs.
+///
+///   Constructed here:
+///     ThreadPool, VirtualFileManager, DiagEngine, SourceManager,
+///     TokenCacheManager, PrettyDiagConsumer, BasicDiagConsumer, Command
+///
+///   Constructed in execute():
+///     ImportResolver - needs cwd and invocation paths; short-lived per call.
+///     FrontendAction - one per input file; heap-allocated for future async dispatch.
+///
+///   CLI integration
+///   ---------------
+///   _apply_invocation() maps every invocation field that has a live subsystem
+///   setter. Fields without a live subsystem are stored in the invocation for
+///   when those subsystems are implemented.
+///
+///   Thread count
+///   ------------
+///   ThreadPool is constructed after CLI parsing so thread_count from invocation
+///   can be applied at construction time.
+///
+///   Async upgrade path (FrontendAction)
+///   -------------------------------------
+///   Phase 1 (current): Load and lex touch shared SM/TCM and run on the driver
+///   thread. Subsequent stages (preprocess -> codegen) are per-file and will be
+///   dispatchable to the pool once SM/TCM are read-only from that point forward.
+///   The execute() loop below is where pool enqueueing will be inserted.
+///
+///   Driver Layer 3 FrontendAction
+///   ===============================
+///
+///   FrontendAction owns the compilation pipeline for a single source file.
+///   CompilerInstance constructs one per input file and calls run(), which
+///   advances the file through every requested stage in order:
+///
+///     Load -> Lex -> Preprocess -> Parse -> Sema -> Codegen
+///
+///   Each stage is gated by FrontendOptions. A stop-at flag (stops_at_preprocess,
+///   stops_at_parse, stops_at_sema) causes run() to mark the TU Done and return
+///   without running later stages. A stage returning false halts the pipeline
+///   and marks the TU Failed. A fatal diagnostic additionally sets
+///   BatchResult::aborted, causing execute() to skip remaining input files.
+///
+///   Post-stage dump flags (print_tokens, print_macros, print_imports, print_ast,
+///   print_ir, print_bcir) are checked at each stage boundary and are orthogonal
+///   to the stop-at flags they do not halt the pipeline.
+///
+///   Clang-style layer map
+///   ----------------------
+///     Layer 1  CompilerInvocation   Strongly-typed options     (Options::*)
+///     Layer 2  CompilerInstance     Shared resource hub        (Driver::CompilerInstance)
+///     Layer 3  FrontendAction       Per-file pipeline executor (this file)
+///
+///   Ownership
+///   ----------
+///     Borrows (non-owning, valid for the lifetime of CompilerInstance::execute):
+///       CompilerInstance  - DiagEngine, SourceManager, TCM, ThreadPool, invocation
+///       ImportResolver    - fully indexed before the first action is dispatched
+///
+///     Owns:
+///       PreProcessor      - allocated at _preprocess(), freed by the destructor.
+///                           Kept alive after preprocessing so _dump_macros() and
+///                           _dump_imports() can access it.
+///
+///   Sync-free design
+///   -----------------
+///     FrontendAction contains no mutexes, atomics, or condition variables.
+///
+///   Async-ready path (future)
+///   --------------------------
+///     Phase 1 - Load and lex write to shared SM and TCM; they must run on the
+///     driver thread.
+///
+///     Phase 2 - Preprocess through codegen read SM/TCM and own all mutable
+///     state privately. Once SM/TCM are read-only from that point forward, each
+///     FrontendAction can be handed to the ThreadPool after Phase 1 completes.
+///     DiagEngine writes will be replaced by a per-action capture + merge step.
+///
+
+import Diag::DiagEngine::*;
+import Diag::DiagRegistry::*;
+import DiagConsumer::PrettyDiagConsumer::*;
+import DiagConsumer::BasicDiagConsumer::*;
+import Source::SourceManager::*;
+import TermRenderer::*;
+import Lexer::TokenCacheManager::*;
+import Command::Command::*;
+import Command::FlagRegistry::*;
+import Options::CompilerInvocation::*;
+import Driver::BatchResult::*;
+import Driver::TUResult::*;
+import Driver::TUStage::*;
+import Preprocessor::Preprocessor::*;
+import AST::ASTIndex::*;
+import Parser::ASTParse::*;
+import AST::GlobalHoistedScope::*;
+
+ffi "c++" import "llvm/TargetParser/Host.h";
+ffi "c++" import "llvm/Support/raw_ostream.h";
+ffi "c++" import "llvm/Support/Threading.h";
+ffi "c++" import "llvm/TargetParser/Triple.h";
+
+class CompilerInstance; // forward breaks the CI ↔ FrontendAction cycle
+
+/// Per-file pipeline executor.
+///
+/// Owned by \c CompilerInstance::execute() for the lifetime of one input file.
+/// Advances through \c TUStage in order, honouring \c FrontendOptions stop-at
+/// points and post-stage dump flags at each boundary.
+///
+/// Stages are strictly sequential on the calling thread. Load and lex must run
+/// on the driver thread (shared SM/TCM writes). Preprocess through codegen are
+/// per-file and will be async-dispatchable to the \c ThreadPool in a future
+/// phase once SM/TCM are read-only.
+///
+/// \c _ci and \c _resolver are non-owning borrows valid for the lifetime of
+/// \c execute(). \c _pp is owned and destroyed with the action.
+class FrontendAction {
+    pub var path:           Path;
+    pub var module_base:    ModulePath;
+    priv var _ci:           obs::<CompilerInstance>;   ///< non-owning borrow from execute()
+    priv var _resolver:     obs::<ImportResolver>;     ///< non-owning borrow from execute()
+    priv var _global_scope: obs::<GlobalHoistedScope>; ///< non-owning borrow from CompilerInstance
+    priv var _pp:           own::<PreProcessor>;       ///< owned; null until _preprocess()
+    priv var _file_id:      u32;
+    pub var result:         TUResult;
+    priv var _stage:        TUStage;
+
+    fn FrontendAction(
+        self,
+        path:        Path,
+        module_base: ModulePath,
+        g_scope:    *GlobalHoistedScope,
+        resolver:   *ImportResolver, // one single import resolver for the full
+                                     // batch; shared among all actions and threads,
+                                     // fully indexed before the first action runs
+        ci:         *CompilerInstance
+    ) {
+        self.path          = path;
+        self.module_base   = module_base;
+        self._ci           = ci;
+        self._resolver     = resolver;
+        self._global_scope = g_scope;
+        self._pp           = &null;
+        self._stage        = TUStage::Pending;
+        self._file_id      = u32(-1);
+        self.result.path   = path.full_path();
+    }
+
+    fn op delete (self) {
+        if self._pp != &null {
+            std::destroy(self._pp);
+            self._pp = &null;
+        }
+    }
+
+    /// Executes the pipeline. See \c FrontendAction::run() below.
+    fn run(self);
+
+    fn stage(self)   -> TUStage { return self._stage;                  }
+    fn file_id(self) -> u32     { return self._file_id;                }
+    fn ok(self)      -> bool    { return self._stage == TUStage::Done; }
+    fn failed(self)  -> bool    { return self._stage == TUStage::Failed; }
+
+    priv fn _fatal(self, msg: string) -> bool;
+    priv fn _load(self)        -> bool;
+    priv fn _lex(self)         -> bool;
+    priv fn _preprocess(self)  -> bool;
+    priv fn _parse(self)       -> bool;
+    priv fn _sema(self)        -> bool;
+    priv fn _codegen(self)     -> bool;
+    priv fn _dump_tokens(self);
+    priv fn _dump_macros(self);
+    priv fn _dump_imports(self);
+}
+
+/// Shared resource hub for a single compilation.
+///
+/// Constructed once per \c main() invocation. Owns all subsystems, parses the
+/// CLI, builds a \c CompilerInvocation, and drives \c FrontendAction execution
+/// via \c execute(). Destruction releases all resources in reverse-dependency
+/// order.
+class CompilerInstance {
+    // --- Owned resources -------------------------------------------------
+    //   Listed in construction order; destroyed in reverse.
+    priv var _pool:    *ThreadPool;
+    priv var _vfm:     *VirtualFileManager;
+    priv var _diag:    *DiagEngine;
+    priv var _sm:      *SourceManager;
+    priv var _tcm:     *TokenCacheManager;
+    priv var _pretty:  *PrettyDiagConsumer;
+    priv var _basic:   *BasicDiagConsumer;
+    priv var _cmd:     *Command;
+    priv var _imp:     *ImportResolver;
+    priv var _g_scope: *GlobalHoistedScope;
+
+    // --- CLI state -------------------------------------------------------
+    priv var _parsed: ParsedArgs;
+    priv var _inv:    CompilerInvocation;
+
+    // --- Constructors ----------------------------------------------------
+
+    /// Constructs all subsystems, parses \p argv, and applies the resulting
+    /// invocation to live subsystems via \c _apply_invocation().
+    ///
+    /// Construction order rationale:
+    ///   - Pool first: SM and TCM hold a pointer to it.
+    ///   - DiagEngine before consumers: consumers register into it.
+    ///   - SM before consumers: consumers need it for source context.
+    ///   - Command last: CLI parsing may emit diagnostics into the engine.
+    fn CompilerInstance(self, argc: i32, argv: *(*kairo::std::Legacy::char)) {
+        self._vfm    = std::create::<VirtualFileManager>();
+        self._diag   = std::create::<DiagEngine>        ();
+        self._pretty = std::create::<PrettyDiagConsumer>();
+        self._diag->add_consumer(self._pretty); // pretty is the default consumer
+
+        // no sm for now since we only want cli diags
+        self._cmd = std::create::<Command>(argc, argv, self._diag);
+
+        register_kairo_flags(self._cmd);
+        self._parsed = self._cmd->parse();
+
+        if self._parsed.ok {
+            self._inv = CompilerInvocation::from_args(self._parsed);
+            self._apply_invocation();
+        }
+
+        self._pool = std::create::<ThreadPool>(usize(
+                    (llvm::hardware_concurrency().compute_thread_count())
+            if   (self._inv.frontend.thread_count == 0)
+            else (self._inv.frontend.thread_count)
+        ));
+
+        self._sm      = std::create::<SourceManager>     (self._pool, self._vfm);
+        self._tcm     = std::create::<TokenCacheManager> (self._sm, self._pool, self._diag);
+        self._g_scope = std::create::<GlobalHoistedScope>();
+        self._basic   = std::create::<BasicDiagConsumer> (self._sm);
+        self._pretty->attach_source_manager(self._sm);
+    }
+
+    // --- Destructor ------------------------------------------------------
+
+    /// Destroys all resources in reverse-construction order.
+    fn op delete (self) {
+        if self._cmd     != &null { std::destroy(self._cmd);     self._cmd     = &null; }
+        if self._g_scope != &null { std::destroy(self._g_scope); self._g_scope = &null; }
+        if self._tcm     != &null { std::destroy(self._tcm);     self._tcm     = &null; }
+        
+        if self._pretty != &null {
+            self._diag->remove_consumer(self._pretty);
+            std::destroy(self._pretty);
+            self._pretty = &null;
+        }
+
+        if self._basic  != &null {
+            self._diag->remove_consumer(self._basic);
+            std::destroy(self._basic);
+            self._basic  = &null;
+        }
+
+        if self._sm     != &null { std::destroy(self._sm);     self._sm     = &null; }
+        if self._diag   != &null { std::destroy(self._diag);   self._diag   = &null; }
+        if self._vfm    != &null { std::destroy(self._vfm);    self._vfm    = &null; }
+        if self._pool   != &null { std::destroy(self._pool);   self._pool   = &null; }
+    }
+
+    // --- Accessors -------------------------------------------------------
+
+    fn diag(self)         -> *DiagEngine              { return self._diag;    }
+    fn sm(self)           -> *SourceManager           { return self._sm;      }
+    fn tcm(self)          -> *TokenCacheManager       { return self._tcm;     }
+    fn pool(self)         -> *ThreadPool              { return self._pool;    }
+    fn global_scope(self) -> *GlobalHoistedScope      { return self._g_scope; }
+    fn invocation(self)   -> ref!(CompilerInvocation) { return self._inv;     }
+
+    // --- CLI query helpers -----------------------------------------------
+
+    fn wants_help(self)    -> bool { return self._parsed.get_bool("help");               }
+    fn wants_version(self) -> bool { return self._parsed.get_bool("version");            }
+    fn wants_explain(self) -> bool { return !self._parsed.get_string("explain").empty(); }
+    fn args_ok(self)       -> bool { return self._parsed.ok;                             }
+
+    /// True when any info flag is present whose subsystem is not yet live.
+    fn wants_info_query(self) -> bool {
+        return self._parsed.get_bool("print-targets")
+            || self._parsed.get_bool("print-cpus")
+            || self._parsed.get_bool("print-dirs")
+            || self._parsed.get_bool("print-clang-args")
+            || self._parsed.get_bool("print-ld-args")
+            || self._parsed.get_bool("print-target-info")
+            || self._parsed.get_bool("print-pass-pipeline")
+            || self._parsed.get_bool("print-cfg");
+    }
+
+    // --- Identity actions ------------------------------------------------
+
+    fn get_target_triple(self) -> string {
+        var triple = llvm::Triple(llvm::sys::getProcessTriple());
+        if (triple.getVendor()) == (llvm::Triple::UnknownVendor) && (triple.isOSLinux()) {
+            triple.setVendor(llvm::Triple::PC);
+        }
+
+        return std::nstring_to_string(triple.getTriple());
+    }
+
+    fn print_help(self) {
+        self._cmd->print_help();
+    }
+
+    fn print_version(self) {
+        std::print(f"installed version: {VERSION}");
+        std::print(f"target triple:     {self.get_target_triple()}");
+        std::print(f"thread model:      {std::get_thread_model()}");
+        std::print(f"installed at:      {((std::get_exe_path()).parent_path()).generic_wstring()}");
+    }
+
+    /// Resolves and renders the long-form explanation for a diagnostic code.
+    /// Returns 1 if the code is unknown.
+    fn run_explain(self) -> i32 {
+        var code = self._parsed.get_string("explain");
+
+        var first: usize = code.raw_string().find_first_not_of(" \t\n\r\f\v".raw());
+        if !(string::npos == first) {
+            var last: usize = code.raw_string().find_last_not_of(" \t\n\r\f\v".raw());
+            code = code.raw_string().substr(first, (last - first + 1));
+        }
+
+        var diag_id = diag_from_string(code);
+        var explain = diag_explain(diag_id);
+        if explain.empty() {
+            std::eprintln(f"error: unknown diagnostic code '{code}' ");
+            return 1;
+        }
+
+        var r = TermRenderer(true, 80);
+        std::print(r.render(explain));
+        return 0;
+    }
+
+    /// Handles info-query flags. Currently implements \c --print-cfg;
+    /// all other flags are no-ops until their subsystems exist.
+    fn run_info_query(self) -> i32 {
+        if self._parsed.get_bool("print-cfg") {
+            for s: string in self._parsed.get_list("cfg") { std::print(s); }
+            return 0;
+        }
+        return 0;
+    }
+
+    fn flush_errors(self) {
+        self._pretty->finalize_to_stderr();
+    }
+
+    // --- Compilation pipeline --------------------------------------------
+    // the step to index, and create the shared instance
+    fn index(self, cwd: Path) {
+        var rb = ImportResolver::Builder().cwd(cwd);
+        for dir: string in self._inv.include_dirs { rb.add_include(Path(dir)); }
+        for dir: string in self._inv.macro_paths  { rb.add_include(Path(dir)); }
+
+        self._imp = rb.create_ptr(self._pool);
+    }
+
+    /// Compiles all input files described by the invocation.
+    ///
+    /// Builds an \c ImportResolver from the search paths in the invocation,
+    /// then runs a \c FrontendAction for each input file. A fatal diagnostic
+    /// in any file sets \c BatchResult::aborted and skips remaining files.
+    /// Results are collected into the returned \c BatchResult.
+    fn execute(self) -> BatchResult {
+        assert((self._imp != &null) && r"initialize() must be called before execute()");
+
+        var result = BatchResult();
+        var t0     = libcxx::chrono::steady_clock::now();
+
+        finally {
+            var t1 = libcxx::chrono::steady_clock::now();
+            result.elapsed_ms = static_cast::<f64>(
+                libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(
+                    t1 - t0
+                ).count()
+            ) / 1000.0;
+        }
+
+        if self._inv.input_files.empty() {
+            self._diag->report(DiagID::U001F, "no input files").emit();
+            result.aborted = true;
+            return result;
+        }
+
+        Logger::info(Logger::Stage::Driver,
+            f"CompilerInstance::execute: {self._inv.input_files.size()} file(s)");
+
+        result.tu_results.reserve(self._inv.input_files.size());
+
+        for path_str: string in self._inv.input_files {
+            if result.aborted { break; }
+
+            var action = std::create::<FrontendAction>(
+                Path(path_str),
+                ModulePath(),
+                self._g_scope,
+                self._imp,
+                &self
+            );
+
+            finally { std::destroy(action); }
+
+            action->run();
+
+            if action->result.had_fatal { result.aborted = true; }
+            result.total_errors   += action->result.error_count;
+            result.total_warnings += action->result.warn_count;
+            result.tu_results.push_back(action->result);
+        }
+
+        Logger::info(Logger::Stage::Driver,
+            f"CompilerInstance::execute: {result.summary()}");
+
+        return result;
+    }
+
+    // --- Private ---------------------------------------------------------
+
+    /// Maps invocation fields to live subsystem setters. Called once after
+    /// the invocation is built. Fields whose subsystem does not yet exist are
+    /// silently accepted stored in the invocation for future use.
+    priv fn _apply_invocation(self) {
+        var d  = self._inv.diag;
+        var fe = self._inv.frontend;
+
+        if d.format == "basic" {
+            self._diag->remove_consumer(self._pretty);
+            self._diag->add_consumer(self._basic);
+        }
+
+        if d.no_color { self._pretty->set_color(false); }
+
+        self._diag->set_error_limit(u32(d.max_errors));
+        self._diag->set_warnings_as_errors(d.warnings_as_errors);
+
+        // Logger was initialised at Trace in main(); quiet it down unless
+        // the user asked for verbose output.
+        if !fe.verbose {
+            Logger::set_level(Logger::Level::Warn);
+        }
+    }
+}
+
+// =========================================================================
+//  FrontendAction out-of-line definitions
+// =========================================================================
+
+/// Executes the full pipeline on the calling thread.
+///
+/// Stages are gated by \c FrontendOptions. A stage returning false halts the
+/// pipeline and leaves \c _stage at \c Failed. An early-exit stop-at flag
+/// advances \c _stage to \c Done and returns without running further stages.
+///
+/// Load and lex run on the driver thread (shared SM/TCM writes). Preprocess
+/// through codegen are per-file and will be async-dispatchable in a future
+/// phase.
+fn FrontendAction::run() {
+    var t0 = libcxx::chrono::steady_clock::now();
+    finally {
+        var t1 = libcxx::chrono::steady_clock::now();
+        self.result.elapsed_ms = static_cast::<f64>(
+            libcxx::chrono::duration_cast::<libcxx::chrono::microseconds>(
+                t1 - t0
+            ).count()
+        ) / 1000.0;
+        self.result.stage   = self._stage;
+        self.result.file_id = self._file_id;
+    }
+
+    Logger::info(Logger::Stage::Driver,
+        f"FrontendAction: begin '{self.path.full_path()}' ");
+
+    // Phase 1: shared-state stages driver thread only.
+    if !self._load() { return; }
+    if !self._lex()  { return; }
+
+    // Phase 2: per-file stages async-dispatchable in a future phase.
+    if !self._preprocess() { return; }
+    var fe = ((self._ci->invocation()).frontend);
+    if fe.stops_at_preprocess() { self._stage = TUStage::Done; return; }
+
+    if !self._parse() { return; }
+    if fe.stops_at_parse() { self._stage = TUStage::Done; return; }
+
+    if !self._sema() { return; }
+    if fe.stops_at_sema() { self._stage = TUStage::Done; return; }
+
+    if !self._codegen() { return; }
+
+    self._stage = TUStage::Done;
+    Logger::info(Logger::Stage::Driver,
+        f"FrontendAction: done '{self.path.full_path()}' ({self.result.elapsed_ms:.2}ms)");
+}
+
+// =========================================================================
+//  Pipeline stages each returns true to continue, false to halt.
+// =========================================================================
+
+/// Emits a fatal diagnostic, marks the TU as failed, and returns false.
+fn FrontendAction::_fatal(msg: string) -> bool {
+    self._ci->diag()->report(DiagID::U001F, msg).emit();
+    self.result.had_fatal = true;
+    self._stage = TUStage::Failed;
+    return false;
+}
+
+/// Registers the source file with \c SourceManager and obtains a file ID.
+fn FrontendAction::_load() -> bool {
+    self._stage   = TUStage::Loading;
+    self._file_id = self._ci->sm()->load_file(self.path);
+    if self._file_id == u32(-1) {
+        return self._fatal(f"cannot open '{self.path.full_path()}' ");
+    }
+    return true;
+}
+
+/// Produces the raw token stream via \c TokenCacheManager.
+fn FrontendAction::_lex() -> bool {
+    self._stage = TUStage::Lexing;
+    if !self._ci->tcm()->lex_file(self._file_id) {
+        return self._fatal(f"lexer failed on '{self.path.full_path()}' ");
+    }
+    return true;
+}
+
+/// Expands macros and resolves imports, producing a clean token stream.
+/// Owns a \c PreProcessor instance for the lifetime of this stage.
+fn FrontendAction::_preprocess() -> bool {
+    self._stage = TUStage::Preprocessing;
+
+    var pp_opts = self._ci->invocation().pp;
+    self._pp = std::create::<PreProcessor>(
+        self._ci->sm(),
+        self._ci->tcm(),
+        self._resolver,
+        self._ci->pool(),
+        self._ci->diag(),
+        pp_opts
+    );
+
+    if pp_opts.defines.size() > 0 {
+        Logger::warn(Logger::Stage::Preprocessor,
+            f"-D defines ({pp_opts.defines.size()}) not yet implemented; ignored");
+    }
+
+    var pp_res = self._pp->preprocess(self._file_id, self.module_base);
+
+    if !pp_res {
+        self.result.error_count = self._ci->diag()->error_count();
+        self.result.warn_count  = self._ci->diag()->warn_count();
+        self.result.had_fatal   = self._ci->diag()->has_fatal();
+        self._stage = TUStage::Failed;
+    }
+
+    self.result.error_count = self._ci->diag()->error_count();
+    self.result.warn_count  = self._ci->diag()->warn_count();
+
+    if self._ci->diag()->has_fatal() {
+        self.result.had_fatal = true;
+        self._stage = TUStage::Failed;
+        return false;
+    }
+
+    var fe = self._ci->invocation().frontend;
+    if fe.print_tokens  { self._dump_tokens();  }
+    if fe.print_macros  { self._dump_macros();  }
+    if fe.print_imports { self._dump_imports(); }
+
+    return pp_res;
+}
+
+/// Parse stage not yet implemented.
+fn FrontendAction::_parse() -> bool {
+    self._stage = TUStage::Parsing;
+
+    var imp  = self._pp->get_import_processor();
+    var fids = imp->get_processed_fids();
+
+    for fid: u32 in fids {
+        inline "c++" {
+            auto captured_fid  = fid;
+            auto captured_self = this;
+            
+            _ci->pool()->enqueue([captured_fid, captured_self]() {
+                captured_self->_global_scope->index_file(
+                    captured_fid,
+                    captured_self->_ci->sm(),
+                    captured_self->_ci->tcm(),
+                    captured_self->_ci->diag(),
+                    captured_self->_resolver,
+                    &(captured_self->_ci->invocation())
+                );
+            }, u8(5));
+        }
+    }
+
+    self._ci->pool()->wait_group(u8(5));
+
+    var ctx = self._global_scope->get_context(self._file_id);
+    if ctx == &null {
+        return self._fatal(f"no ASTContext for fid {self._file_id}");
+    }
+    
+    /// We also need to call Resolver::DesugarPass(&tu) to convert:
+    /// MapType, SetType, FixedArrayType, VectorType
+    /// FinallyStmt, FinallyExpr, NullableType
+    /// TernaryOpExpr with null coalescing semantics
+    ///
+    /// and other high-level constructs that are easier to desugar
+    var parser = ASTParse(ctx, &null, self._global_scope);
+    var tu = parser.parse();
+
+    if self._ci->invocation().frontend.print_ast {
+        std::print(f"-- AST: {self.path.full_path()} (not yet implemented) --");
+        self._global_scope->dump();
+    }
+
+    return true;
+}
+
+/// Semantic analysis stage not yet implemented.
+fn FrontendAction::_sema() -> bool {
+    self._stage = TUStage::Sema;
+    var fe = self._ci->invocation().frontend;
+    if fe.print_sema     { std::print(f"-- sema: {self.path.full_path()} (not yet implemented) --"); }
+    if fe.dump_type_info { std::print(f"-- type info: {self.path.full_path()} (not yet implemented) --"); }
+    // TODO(sema): var typed = Sema(ci, ast).analyze();
+    return true;
+}
+
+/// Code generation stage not yet implemented.
+fn FrontendAction::_codegen() -> bool {
+    self._stage = TUStage::Codegen;
+    var fe = self._ci->invocation().frontend;
+    if fe.print_ir   { std::print(f"-- IR: {self.path.full_path()} (not yet implemented) --"); }
+    if fe.print_bcir { std::print(f"-- BCIR: {self.path.full_path()} (not yet implemented) --"); }
+    if fe.verify_ir  { std::print(f"-- IR verify: {self.path.full_path()} (not yet implemented) --"); }
+    // TODO(codegen): CodeGen(ci, typed).emit();
+    return true;
+}
+
+// =========================================================================
+//  Post-stage dump helpers
+// =========================================================================
+
+fn FrontendAction::_dump_tokens() {
+    var tokens = self._ci->tcm()->get_tokens(self._file_id);
+    if tokens == &null {
+        std::print(f"-- token stream: {self.path.full_path()} (none) --");
+        return;
+    }
+
+    var lexer_ptr = self._ci->tcm()->get_lexer(self._file_id);
+    var imm_tbl   = (lexer_ptr->get_imm_tbl()) if (lexer_ptr != &null) else (&null);
+    var sm        = self._ci->sm();
+
+    std::print(f"-- token stream: {self.path.full_path()} ({tokens->size()} tokens) --");
+
+    for var i: usize = 0; i < tokens->size(); ++i {
+        var tok       = tokens->get(i);
+        var kind      = tok->kind;
+        var imm       = tok->imm;
+        var tok_range = tok->range;
+
+        // unwrap macro expansion to get real kind/imm/range
+        if (tok->kind == TokenKind::TkMacroExpand)
+        && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
+        && (imm_tbl != &null) {
+            var info  = imm_tbl->get::<Immediate::MacroExpansionInfo>(tok->imm);
+            kind      = info->original_kind;
+            imm       = info->original_imm;
+            tok_range = info->def_range;
+        }
+
+        // compute display text
+        var text: string;
+
+        if (tok->kind == TokenKind::TkMacroExpand)
+        && (tok->imm >= static_cast::<u32>(MacroSentinel::Threshold)) {
+            if      tok->imm == static_cast::<u32>(MacroSentinel::Todo)         { text = "<todo>";        }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Unreachable)  { text = "<unreachable>"; }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Include)      { text = "<include>";     }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::IncludeStr)   { text = "<include_str>"; }
+            else if tok->imm == static_cast::<u32>(MacroSentinel::Embed)        { text = "<embed>";       }
+            else                                                                { text = "<sentinel>";    }
+        } else if kind == TokenKind::LitInt && imm_tbl != &null {
+            var int_data = imm_tbl->get::<Immediate::IntData>(imm);
+            // text = f"[body: {sm->get_text(int_data->body)},";
+            // text += f" prefix: {sm->get_text(int_data->prefix)},";
+            // text += f" suffix: {sm->get_text(int_data->suffix)},";
+            text = f" value: {int_data->value_hi}:{int_data->value_lo}";
+            // text += f" bits: {int_data->bits},";
+            // text += f" base: {int_data->base},";
+            // text += f" flags: {int_data->flags}]";
+        } else if (kind == TokenKind::LitIdentifier)
+               && (imm > 0)
+               && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
+            text = f"__unique_{imm}";
+        } else if kind == TokenKind::OpComma {
+            text = ",";
+        } else if kind == TokenKind::TkError {
+            text = "ERROR"; // we do not attempt to get the text since we might
+                            // segfault trying to read an invalid source range
+        } else if kind == TokenKind::TkNewLine {
+            text = "\\n";
+        } else if kind == TokenKind::TkEof {
+            text = "<eof>";
+        } else {
+            text = sm->get_text(tok_range);
+        }
+        
+        if tok->kind == TokenKind::TkMacroExpand {
+            std::print(f"  [{i}] MACRO EXPANDED '{text}' @ {tok->range}");
+        } else if tok->kind == TokenKind::TkError {
+            std::print(f"  [{i}] <error token> expected `{token_kind_to_readable_string(static_cast::<TokenKind>(tok->imm))}' @ {tok->range}");
+        } else {
+            std::print(f"  [{i}] {tok->readable_kind()} '{text}' @ {tok->range}");
+        }
+    }
+}
+
+fn FrontendAction::_dump_macros() {
+    if self._pp == &null { return; }
+    var mt = self._pp->get_macro_table();
+    var st = self._pp->get_symbol_table();
+    if (mt == &null) || (st == &null) { return; }
+    std::print(f"-- macro table: {self.path.full_path()} --");
+    std::print(mt->as_string(st));
+}
+
+fn FrontendAction::_dump_imports() {
+    if self._pp == &null { return; }
+    var imp = self._pp->get_import_processor();
+    if imp == &null { return; }
+    std::print(f"-- imports: {self.path.full_path()} --");
+    std::print(imp->dump_state());
+}

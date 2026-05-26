@@ -262,7 +262,7 @@ string imports and module imports, both can have an ffi form.
 - both imports allow for full path resolution and are used for importing files directly from the filesystem
 - string imports are global unless aliased (like in c++), a full absolute path can be provided but if not the compiler would search in the default import resolution order.
 - module imports are always aliased unless `::*` is used, the alias is the last part of the path.
-- by default the compiler will resolve imports without imports, so if you did `std::io::println` the compiler would look for start by looking for `std/std.kro` (library), if thats not found, the check for `std/io/io.kro` (module) and if that is not found it will look for `std/io/println.kro` (function), if the fucntion specified in the path is not found it will continue too look though all the possible paths, once exhaused or the signature doesnt match then it raises an error.
+- by default the compiler will resolve imports without imports, so if you did `std::io::println` the compiler would look for start by looking for `std/std.k` (library), if thats not found, the check for `std/io/io.k` (module) and if that is not found it will look for `std/io/println.k` (function), if the fucntion specified in the path is not found it will continue too look though all the possible paths, once exhaused or the signature doesnt match then it raises an error.
 - imports only allow for simplification of paths so doing `import std::io::println` just allows you to use `println` instead of `std::io::println`.
 
 ### Compiler CLI Options
@@ -286,9 +286,9 @@ The compiler (kairo) CLI will adopt the following options for flexibility and cl
 | `-E`, `--error`           | Configures error reporting verbosity. Options: `none`, `warning`, `info`, `debug`, `all`, `hard`.                                         |
 | `-ffi, --ffi`             | Specify the foreign function interface type (e.g., `-ffi c` or `--ffi c` for C headers).                                                  |
 | `-t, --target`            | Define the target ABI in the format `arch-vendor-os` (e.g., `-t x86_64-linux-gnu` or `--target x86_64-linux-gnu`).                        |
-| `-test, --test`           | Compile test blocks into a binary (e.g., `kairo -o app.test.exe -test main.kro` or `--test main.kro`).                                    |
+| `-test, --test`           | Compile test blocks into a binary (e.g., `kairo -o app.test.exe -test main.k` or `--test main.k`).                                    |
 | `-fI, --force-include`    | Force include a file into the compilation process, regardless of its extension or import status.                                          |
-| `-x, --ext`               | Specify file extension(s) for compilation (e.g., `-x kro` or `--ext kro`). Supported extensions: `kro`, `kairo`, `kh`, `c`, `cpp`, etc. |
+| `-x, --ext`               | Specify file extension(s) for compilation (e.g., `-x k` or `--ext k`). Supported extensions: `k`, `kairo`, `kh`, `c`, `cpp`, etc. |
 | `--ffi-include`           | Add a directory to the FFI generator library search path. *(No short flag for clarity)*                                                   |
 | `--emit`                  | Outputs intermediate results like `tokens`, `ast`, `ir`, `llvm`, `asm`, or `cxx`.                                                         |
 | `--verbose`               | Enables detailed logging of the compilation process.                                                                                      |

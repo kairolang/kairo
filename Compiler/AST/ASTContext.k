@@ -1,0 +1,638 @@
+/// --- The Kairo Project ------------------ Compiler/AST/ASTContext.k ----- ///
+///
+///   ----------------------------------------------------------------------
+///   ASTContext is a long-lived object that owns all AST nodes and provides
+///   utilities for node creation, interning, and memory management.
+///   ----------------------------------------------------------------------
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Memory::ArenaList::*;
+import Source::SourceManager::*;
+import Lexer::TokenCacheManager::*;
+import Lexer::Immediate::*;
+import Preprocessor::ModulePath::*;
+import Preprocessor::ImportResolver::*;
+import Lexer::TokenSpan::*;
+import Options::CompilerInvocation::*;
+import Diag::DiagEngine::*;
+import Diag::DiagRegistry::*;
+import AST::InternedStr::*;
+
+/// \brief Forward declaration required by ASTContext.
+///
+/// HoistedScope and ASTContext are mutually dependent: ASTContext owns the
+/// arena that HoistedScope allocates from, and HoistedScope holds an obs<>
+/// back-pointer to ASTContext for that allocation. This forward declaration
+/// breaks the cycle.
+///
+/// Full definition follows ASTContext in this file. This is a Stage 0
+/// compiler limitation Stage 0 cannot split a forward declaration and its
+/// implementation across files when they would land in different generated
+/// namespaces. Stage 1 removes this constraint entirely.
+///
+/// Do not move HoistedScope above ASTContext or extract it to a separate
+/// file until Stage 1 is self-hosting.
+class HoistedScope;
+
+class ASTContext {
+    pub var source_path: Path;
+    pub var module_base: ModulePath;
+    pub var nodes:       ArenaAllocator = ArenaAllocator(1024 * 1024); // arena for AST nodes, separate from strings to allow different lifetimes
+    pub var strings:     ArenaAllocator = ArenaAllocator(1024 * sizeof(string)); // separate arena for strings to allow interning
+    pub var sm:          obs::<SourceManager>;
+    pub var tcm:         obs::<TokenCacheManager>; // we can get the imm table from the tcm
+    pub var diags:       obs::<DiagEngine>;
+    pub var resolver:    obs::<ImportResolver>;
+    pub var hoisted:     obs::<HoistedScope>;
+    pub var ci:          obs::<CompilerInvocation>;
+    pub var fid:         u32; // needed to get the right lexer
+
+    fn ASTContext(
+        self,
+        fid:       u32,
+        sm:       *SourceManager,
+        tcm:      *TokenCacheManager,
+        diags:    *DiagEngine,
+        resolver: *ImportResolver,
+        ci:       *CompilerInvocation
+    ) {
+        self.fid      = fid;
+        self.sm       = sm;
+        self.tcm      = tcm;
+        self.diags    = diags;
+        self.resolver = resolver;
+        self.ci       = ci;
+    }
+
+    fn get_imm_table(self) -> *ImmediateTable {
+        if self.tcm != &null {
+            return self.tcm->get_imm_table_for_fid(self.fid);
+        }
+
+        return &null;
+    }
+
+    fn get_tokens(self) -> TokenSpan {
+        var token_buff = self.tcm->get_tokens(self.fid);
+        if token_buff == &null {
+            return TokenSpan(&null, 0, 0);
+        }
+
+        return TokenSpan(token_buff);
+    }
+
+    fn <T> alloc(self) -> *T {
+        var mem: *void = self.nodes.alloc(sizeof(T), alignof(T));
+        return static_cast::<*T>(mem);
+
+        // NOTE: we deliberately do NOT construct, its the parsers job to fill
+        //       all the fields. If T has non-trivial members that must be
+        //       initialized, use alloc_init<T>() instead.
+    }
+
+    __inline_cpp("
+    template <typename T, typename ...Args>
+    T *alloc_init(Args &&...args) {
+        void *mem = this->nodes.alloc(sizeof(T), alignof(T));
+        return ::new (mem) T(libcxx::forward<Args>(args)...);
+    }
+    ");
+
+    fn <T> alloc_array(self, n: usize) -> *T {
+        if n == 0 {
+            return &null;
+        }
+
+        var mem: *void = self.nodes.alloc(sizeof(T) * n, alignof(T));
+        return static_cast::<*T>(mem);
+    }
+
+    fn <T> alloc_array_zeroed(self, n: usize) -> *T {
+        if n == 0 {
+            return &null;
+        }
+
+        var mem: *void = self.nodes.alloc(sizeof(T) * n, alignof(T));
+        libcxx::memset(mem, 0, sizeof(T) * n);
+        return static_cast::<*T>(mem);
+    }
+
+    /// Arena-allocates a copy of \p s. Used by StringInterner do not call
+    /// directly unless you know what you're doing.
+    fn alloc_string(self, s: string) -> *string {
+        return self.alloc_init::<string>(s);
+    }
+
+    fn reset_for_reparse(self) {
+        self.nodes.reset_fast();
+        self.hoisted = &null;
+    }
+}
+
+/// Arena-backed string intern table.
+///
+/// Every unique string is stored exactly once. Repeated \c intern() calls
+/// for identical content return the same \c InternedStr handle in O(1).
+/// All string storage lives in \c ASTContext::strings no individual heap
+/// allocations occur after construction.
+///
+/// Thread safety: not thread-safe. The indexer must serialize intern()
+/// calls or give each thread its own interner and merge after.
+class StringInterner {
+    priv var _table:   libcxx::unordered_map::<string, u32>; ///< content → id
+    priv var _strings: vec::<*string>;                       ///< id → arena ptr
+    priv var _ctx:     obs::<ASTContext>;
+
+    fn StringInterner(self) {
+        self._table.reserve(512);
+        self._strings.reserve(512);
+    }
+
+    fn StringInterner(self, ctx: *ASTContext) {
+        self._ctx = ctx;
+        self._table.reserve(512);
+        self._strings.reserve(512);
+        self._intern_raw(""); // id 0 = empty string sentinel
+    }
+
+    fn set_ctx(self, ctx: *ASTContext) {
+        self._ctx = ctx;
+    }
+
+    /// Returns the handle for \p s, inserting if not already present.
+    fn intern(self, s: string) -> InternedStr {
+        var it = self._table.find(s);
+        if it != self._table.end() {
+            var r = InternedStr{};
+            r.id  = it->second;
+            return r;
+        }
+        return self._intern_raw(s);
+    }
+
+    /// Retrieves the string content for \p h. O(1). Undefined for invalid handles.
+    fn get(self, h: InternedStr) -> string {
+        return *(self._strings[h.id]);
+    }
+
+    fn size(self) -> usize { return self._strings.size(); }
+
+    priv fn _intern_raw(self, s: string) -> InternedStr {
+        var id  = static_cast::<u32>(self._strings.size());
+        // alloc_init copies s into arena storage no heap alloc
+        var ptr = self._ctx->alloc_init::<string>(s);
+        self._strings.push_back(ptr);
+        self._table.insert(libcxx::make_pair(s, id));
+        var r = InternedStr{};
+        r.id  = id;
+        return r;
+    }
+}
+
+/// Coarse declaration kind enough for parser disambiguation.
+/// Sema refines these into concrete DeclKind values.
+enum HoistedKind derives u8 {
+    ClassType,      ///< class Foo
+    EnumType,       ///< enum Foo
+    UnionType,      ///< union Foo
+    StructType,     ///< struct Foo
+    InterfaceType,  ///< interface Foo
+    TypeAlias,      ///< type Foo = ...
+    Function,       ///< fn foo
+    Operator,       ///< fn op +
+    Variable,       ///< var foo / const foo
+    ProcMacro,      ///< @foo
+    BasicMacro,     ///< foo!
+    Module,         ///< namespace / module block
+}
+
+/// A single entry in the hoisted scope table.
+///
+/// \c num_params == 0 means the declaration is not generic.
+/// \c decl is null for declarations originating from C++ FFI use
+/// \c origin for source location in that case.
+/// \c is_foreign is true for symbols introduced via import, not declared
+/// locally in the file being indexed.
+class HoistedEntry {
+    struct DeclEntry { // 128 bits
+        pub var origin: SourceRange;
+    }
+
+    pub const static var NO_GENERICS: u32;
+
+    pub var extend_of_name: InternedStr;
+    pub var name:           InternedStr;
+    pub var kind:           HoistedKind;
+    pub var decl:           DeclEntry;
+    pub var extend_of:      DeclEntry;
+    pub var num_params:     u32 = u32(-1);  ///< Generic parameter count. 0 = not generic.
+    pub var is_foreign:     bool; ///< True if introduced via import.
+    pub var extended:       bool; ///< True if this is an extended impl of an existing type, not a new declaration.
+
+    fn is_type(self) -> bool {
+        switch self.kind {
+            case HoistedKind::ClassType     { return true;  }
+            case HoistedKind::EnumType      { return true;  }
+            case HoistedKind::UnionType     { return true;  }
+            case HoistedKind::StructType    { return true;  }
+            case HoistedKind::InterfaceType { return true;  }
+            case HoistedKind::TypeAlias     { return true;  }
+            default                         { return false; }
+        }
+    }
+
+    fn is_value(self) -> bool {
+        return self.kind == HoistedKind::Function
+            || self.kind == HoistedKind::Operator
+            || self.kind == HoistedKind::Variable;
+    }
+
+    fn is_macro(self) -> bool {
+        return self.kind == HoistedKind::ProcMacro
+            || self.kind == HoistedKind::BasicMacro;
+    }
+
+    fn is_generic(self)   -> bool { return self.num_params != NO_GENERICS; }
+    fn is_extension(self) -> bool { return self.extended;       }
+    fn is_from_foreign(self)   -> bool { return self.is_foreign;     }
+}
+
+__inline_cpp("
+u32 HoistedEntry::NO_GENERICS = u32(-1);
+");
+
+/// One node in the hoisted scope trie.
+///
+/// \c entries holds names declared at this scope level.
+/// \c children holds nested scopes (modules, classes, enums with variants).
+///
+/// Keyed on \c InternedStr so all comparisons and hashes are O(1) integer ops.
+/// Memory is arena-owned the destructor intentionally leaks child pointers
+/// since the arena reclaims everything at once.
+class ScopeNode {
+    pub var entries:  libcxx::unordered_map::<InternedStr, vec::<HoistedEntry>, InternedStrHash>;
+    pub var children: libcxx::unordered_map::<InternedStr, *ScopeNode, InternedStrHash>;
+
+    fn ScopeNode(self) {
+        self.entries.reserve(16);
+        self.children.reserve(8);
+    }
+
+    fn op delete (self) {
+        // intentional leak arena reclaims all ScopeNode allocations at once
+    }
+
+    /// Inserts \p entry under \p name. First declaration wins; duplicates ignored.
+    /// Sema will catch redefinition errors with full source context.
+    fn insert(self, name: InternedStr, entry: HoistedEntry) {
+        self.entries[name].push_back(entry);
+    }
+
+    /// Returns the child scope for \p name, creating it if absent.
+    fn get_or_create_child(self, name: InternedStr, ctx: *ASTContext) -> *ScopeNode {
+        var it = self.children.find(name);
+        if it != self.children.end() {
+            return it->second;
+        }
+        var child = ctx->alloc_init::<ScopeNode>();
+        self.children.insert(libcxx::make_pair(name, child));
+        return child;
+    }
+
+    /// Returns the child scope for \p name, or null if absent.
+    fn get_child(self, name: InternedStr) -> *ScopeNode {
+        var it = self.children.find(name);
+        if it == self.children.end() { return &null; }
+        return it->second;
+    }
+
+    /// Looks up \p name at this scope level only. Does not search children.
+    fn lookup(self, name: InternedStr) -> *vec::<HoistedEntry> {
+        var it = self.entries.find(name);
+        if it == self.entries.end() { return &null; }
+        return &it->second;
+    }
+
+    fn has_child(self, name: InternedStr) -> bool {
+        return self.children.count(name) > 0;
+    }
+
+    fn has_entry(self, name: InternedStr) -> bool {
+        return self.entries.count(name) > 0;
+    }
+}
+
+/// Result of a lookup into HoistedScope.
+/// Carries both the entry and the scope node it was found in,
+/// so the parser can continue walking children if needed.
+class LookupResult {
+    pub var entries: *vec::<HoistedEntry>;  ///< Null if not found.
+    pub var node:    *ScopeNode;            ///< Scope where entry lives. Null if not found.
+
+    fn found(self) -> bool    { return (self.entries != &null) && (!self.entries->empty()); }
+    fn is_type(self) -> bool  { return (self.found()) && ((*self.entries)[0].is_type());  }
+    fn is_value(self) -> bool { return (self.found()) && ((*self.entries)[0].is_value()); }
+    fn is_macro(self) -> bool { return (self.found()) && ((*self.entries)[0].is_macro()); }
+
+    static fn not_found() -> LookupResult {
+        var r     = LookupResult{};
+        r.entries = &null;
+        r.node    = &null;
+        return r;
+    }
+
+    fn first(self) -> *HoistedEntry {
+        if (self.entries == &null) || (self.entries->empty()) { return &null; }
+        return &(*self.entries)[0];
+    }
+
+    fn is_overloaded(self) -> bool {
+        return (self.entries != &null) && (self.entries->size() > 1);
+    }
+
+    fn is_extended(self) -> bool {
+        if (self.entries == &null) { return false; }
+        for entry in *self.entries {
+            if entry.extended { return true; }
+        }
+        return false;
+    }
+
+    fn extensions(self) -> vec::<*HoistedEntry> {
+        var result = vec::<*HoistedEntry>();
+        if self.entries == &null { return result; }
+        for var i: usize = 0; i < self.entries->size(); ++i {
+            if (*self.entries)[i].extended {
+                result.push_back(&(*self.entries)[i]);
+            }
+        }
+        return result;
+    }
+
+    fn non_extensions(self) -> vec::<*HoistedEntry> {
+        var result = vec::<*HoistedEntry>();
+        if self.entries == &null { return result; }
+        for var i: usize = 0; i < self.entries->size(); ++i {
+            if !(*self.entries)[i].extended {
+                result.push_back(&(*self.entries)[i]);
+            }
+        }
+        return result;
+    }
+}
+
+/// Hierarchical symbol table built by the index pass over a single file
+/// and its transitive imports.
+///
+/// Structured as a trie of \c ScopeNode instances keyed on \c InternedStr.
+/// Lookup for a qualified name like \c foo::bar::Baz costs one hashmap
+/// lookup per segment O(1) per segment, O(depth) total.
+///
+/// \par Parser API
+/// The parser holds a \c *HoistedScope and calls:
+///   - \c lookup(ident)         for unqualified names
+///   - \c lookup(chain)         for qualified names from a \c ChainExpr
+///   - \c is_type / is_value    for quick boolean disambiguation
+///   - \c enter(name)           to get a child \c ScopeNode for manual walking
+///
+/// \par Population
+/// The \c Indexer calls \c insert() and \c insert_into() during the index
+/// pass. After the pass completes the scope is read-only.
+class HoistedScope {
+    priv var _root:     ScopeNode;
+    priv var _interner: StringInterner;
+    priv var _ctx:      obs::<ASTContext>;
+
+    fn HoistedScope(self, ctx: *ASTContext) {
+        self._ctx      = ctx;
+        self._interner = StringInterner(ctx);
+    }
+
+    // --- Interning -----------------------------------------------------------
+
+    /// Interns \p s and returns its handle. Always use this never construct
+    /// InternedStr directly outside of HoistedScope.
+    fn intern(self, s: string) -> InternedStr {
+        return self._interner.intern(s);
+    }
+
+    fn str(self, h: InternedStr) -> string {
+        return self._interner.get(h);
+    }
+
+    // --- Population ----------------------------------------------------------
+
+    /// Inserts \p entry at root scope under \p name.
+    fn insert(self, name: string, entry: HoistedEntry) {
+        var key        = self._interner.intern(name);
+        entry.name     = key;
+        self._root.insert(key, entry);
+    }
+
+    /// Inserts \p entry at the scope reached by walking \p scope_path from root.
+    /// Creates intermediate scope nodes as needed.
+    /// \p scope_path is the sequence of parent names, e.g. ["A", "B"] for A::B::Foo.
+    fn insert_into(self, scope_path: *vec::<string>, name: string, entry: HoistedEntry) {
+        var node = &self._root;
+        for s: string in *scope_path {
+            var k = self._interner.intern(s);
+            node  = node->get_or_create_child(k, self._ctx);
+        }
+        var key    = self._interner.intern(name);
+        entry.name = key;
+        node->insert(key, entry);
+    }
+
+    // --- Parser API ----------------------------------------------------------
+
+    /// Looks up an unqualified name at root scope.
+    fn lookup(self, name: string) -> LookupResult {
+        var key = self._interner.intern(name);
+        return self._lookup_in(&self._root, key);
+    }
+
+    /// Looks up an already-interned handle at root scope. O(1).
+    fn lookup(self, name: InternedStr) -> LookupResult {
+        return self._lookup_in(&self._root, name);
+    }
+
+    /// Walks a qualified name chain and returns the final entry.
+    /// \p segments is the sequence of names from a parsed \c ChainExpr,
+    /// e.g. ["foo", "bar", "Baz"] for foo::bar::Baz.
+    /// Returns \c LookupResult::not_found() if any segment is missing.
+    fn lookup(self, segments: *vec::<string>) -> LookupResult {
+        if segments->empty() { return LookupResult::not_found(); }
+
+        var node = &self._root;
+        for var i: usize = 0; i < segments->size() - 1; ++i {
+            var k    = self._interner.intern((*segments)[i]);
+            var next = node->get_child(k);
+            if next == &null { return LookupResult::not_found(); }
+            node = next;
+        }
+
+        var last = self._interner.intern(segments->back());
+        return self._lookup_in(node, last);
+    }
+
+    fn insert_extension(self, scope_path: *vec::<string>, name: string, entry: HoistedEntry) {
+        assert(entry.extended && r"insert_extension: entry.extended must be true");
+        self.insert_into(scope_path, name, entry);
+    }
+
+    // HoistedScope::lookup_extensions - new
+    fn lookup_extensions(self, type_name: InternedStr) -> vec::<*HoistedEntry> {
+        var result = vec::<*HoistedEntry>();
+        self._collect_extensions(&self._root, type_name, &result);
+        return result;
+    }
+
+    /// Returns the child scope node for \p name at root, or null.
+    /// Used by the parser to manually walk a scope chain one segment at a time.
+    fn enter(self, name: string) -> *ScopeNode {
+        var k = self._interner.intern(name);
+        return self._root.get_child(k);
+    }
+
+    fn enter(self, name: InternedStr) -> *ScopeNode {
+        return self._root.get_child(name);
+    }
+
+    fn enter(self, segments: *vec::<string>) -> *ScopeNode {
+        var node = &self._root;
+        for s in *segments {
+            var k = self._interner.intern(s);
+            node  = node->get_child(k);
+            if node == &null { return &null; }
+        }
+        return node;
+    }
+
+    /// Quick boolean queries on root scope.
+    fn is_type(self, name: string)  -> bool { return self.lookup(name).is_type();  }
+    fn is_value(self, name: string) -> bool { return self.lookup(name).is_value(); }
+    fn is_macro(self, name: string) -> bool { return self.lookup(name).is_macro(); }
+
+    fn root(self) -> *ScopeNode { return &self._root; }
+
+    fn dump(self) {
+        std::print("=== HoistedScope Dump ===");
+        self._dump_node(&self._root, "", true);
+        std::print("=========================");
+    }
+
+
+    // --- Private -------------------------------------------------------------
+
+    priv fn _lookup_in(self, node: *ScopeNode, key: InternedStr) -> LookupResult {
+        var entries = node->lookup(key);
+        if entries == &null {
+            return LookupResult::not_found();
+        }
+        var r    = LookupResult{};
+        r.entries = entries;
+        r.node    = node;
+        return r;
+    }
+
+    priv fn _collect_extensions(self, node: *ScopeNode, type_name: InternedStr, result: *vec::<*HoistedEntry>) {
+        for var it = node->entries.begin(); it != node->entries.end(); ++it {
+            for var i: usize = 0; i < it->second.size(); ++i {
+                var entry = &it->second[i];
+                if entry->extended {
+                    var extended_name = self._interner.intern(
+                        self._interner.get(entry->name)
+                    );
+                    if entry->extend_of_name == type_name {
+                        result->push_back(entry);
+                    }
+                }
+            }
+        }
+        for var it = node->children.begin(); it != node->children.end(); ++it {
+            self._collect_extensions(it->second, type_name, result);
+        }
+    }
+
+    priv fn _dump_node(self, node: *ScopeNode, prefix: string, is_root: bool) {
+        var entries_it = node->entries.begin();
+        var total_entries: usize = 0;
+
+        // count total entry vectors for branching logic
+        for var it = node->entries.begin(); it != node->entries.end(); ++it {
+            total_entries += 1;
+        }
+        var total_children: usize = node->children.size();
+        var total_items: usize    = total_entries + total_children;
+
+        var item_idx: usize = 0;
+
+        // print entries
+        for var it = node->entries.begin(); it != node->entries.end(); ++it {
+            ++item_idx;
+            var is_last    = (item_idx == total_items);
+            var connector  = (("└── ") if (is_last) else ("├── "));
+            var child_pfx  = (("    ") if (is_last) else ("│   "));
+
+            var name = self._interner.get(it->first);
+            var vec  = it->second;
+
+            if vec.size() == 1 {
+                std::print(f"{prefix}{connector}{name}  [{self._kind_str(vec[0].kind)}]{self._flags_str(vec[0])}");
+            } else {
+                std::print(f"{prefix}{connector}{name}  (overloaded x{vec.size()})");
+                for var i: usize = 0; i < vec.size(); ++i {
+                    var sub_last      = (i == vec.size() - 1);
+                    var sub_connector = (("└── ") if (sub_last) else ("├── "));
+                    std::print(f"{prefix}{child_pfx}{sub_connector}[{self._kind_str(vec[i].kind)}]{self._flags_str(vec[i])}");
+                }
+            }
+        }
+
+        // print children (nested scopes)
+        for var it = node->children.begin(); it != node->children.end(); ++it {
+            ++item_idx;
+            var is_last   = (item_idx == total_items);
+            var connector = (("└── ") if (is_last) else ("├── "));
+            var child_pfx = (("    ") if (is_last) else ("│   "));
+
+            var name = self._interner.get(it->first);
+            std::print(f"{prefix}{connector}{name}/");
+            self._dump_node(it->second, prefix + child_pfx, false);
+        }
+    }
+
+    priv static fn _kind_str(kind: HoistedKind) -> string {
+        switch kind {
+            case HoistedKind::ClassType     { return "class";     }
+            case HoistedKind::EnumType      { return "enum";      }
+            case HoistedKind::UnionType     { return "union";     }
+            case HoistedKind::StructType    { return "struct";    }
+            case HoistedKind::InterfaceType { return "interface"; }
+            case HoistedKind::TypeAlias     { return "type";      }
+            case HoistedKind::Function      { return "fn";        }
+            case HoistedKind::Operator      { return "fn op";     }
+            case HoistedKind::Variable      { return "var";       }
+            case HoistedKind::ProcMacro     { return "@macro";    }
+            case HoistedKind::BasicMacro    { return "macro!";    }
+            case HoistedKind::Module        { return "module";    }
+            default                         { return "?";         }
+        }
+    }
+
+    priv static fn _flags_str(entry: ref!(HoistedEntry)) -> string {
+        var s: string = "";
+        if entry.is_generic()  { s = (s + "  <generic:" + std::to_string(entry.num_params) + ">"); }
+        if entry.is_from_foreign()  { s = (s + "  [foreign]");  }
+        if entry.extended      { s = (s + "  [extension]"); }
+        return s;
+    }
+}

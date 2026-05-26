@@ -16,7 +16,7 @@
 /// \brief C++ implementation details for Clang interop.
 ///
 /// contains the CRTP visitor, PPCallbacks, ASTConsumer, and FrontendAction
-/// subclasses that can't be expressed in Kairo.  imported by ClangBridge.kro
+/// subclasses that can't be expressed in Kairo.  imported by ClangBridge.k
 /// via `ffi "c++" import`.
 ///
 /// target: LLVM/Clang 22.x

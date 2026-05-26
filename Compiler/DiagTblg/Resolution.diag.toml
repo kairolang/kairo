@@ -93,7 +93,7 @@ group = "import"
     explain = """
     # ambiguous module
 
-    a module path resolves to both a directory (`Foo/Bar/`) and a file (`Foo/Bar.kro`). the compiler
+    a module path resolves to both a directory (`Foo/Bar/`) and a file (`Foo/Bar.k`). the compiler
     will prefer the file, but this is likely a project layout mistake.
 
     ## how to fix

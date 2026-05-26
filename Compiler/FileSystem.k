@@ -1,0 +1,42 @@
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+///
+/// \file FileTypes.k
+/// \brief type aliases and enums for filesystem abstractions.
+///
+/// \details
+/// defines unified aliases and enums for working with the filesystem across
+/// the kairo runtime. used by file i/o, virtual file management, and compiler
+/// subsystems that depend on portable file handling semantics.
+///
+/// provides:
+///   - type aliases for filesystem paths and entry types
+///   - simple enumeration for file output modes
+///
+/// \see Path, VirtualFileManager
+///
+
+/// filesystem path alias (based on libc++ std::filesystem::path)
+type FilePath = libcxx::filesystem::path;;
+
+/// filesystem entry type alias
+type FileType = libcxx::filesystem::file_type;;
+
+/// file output modes used for low-level i/o operations
+enum FileOutMode {
+    Read,      ///< open for reading only
+    Write,     ///< open for writing, overwriting if exists
+    Append,    ///< open for writing at end of file
+    Truncate   ///< open and clear existing file contents
+}

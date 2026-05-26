@@ -41,7 +41,7 @@ git checkout canary
 kbld  # kbld must be in path otherwise use `./build/release/<platform>/bin/kbld` directly
 
 # you can also test files that contain `fn Test() -> i32 { ... }` as the entry point, but note that this is not the standard entry point for Kairo programs.
-kbld test Compiler/Lexer/Lexer.kro
+kbld test Compiler/Lexer/Lexer.k
 ```
 
 Output lands in `./build/release/<platform>/bin/`: `kairo` and `kbld`.
@@ -50,7 +50,7 @@ Output lands in `./build/release/<platform>/bin/`: `kairo` and `kbld`.
 
 ## VSCode Extension (optional but recommended)
 
-Right now VSCode is the only editor with LSP support and syntax highlighting for `.kro` files.
+Right now VSCode is the only editor with LSP support and syntax highlighting for `.k` files.
 
 ### Build and install
 
@@ -65,7 +65,7 @@ npx vsce package
 This produces a `kairouage-<version>.vsix` file.
 Install it in VSCode (you can do that by heading to the Extensions tab, clicking the three dots, and selecting "Install from VSIX...").
 
-**NOTE:** If you open a `.kro` file before configuring the extension, it will annoy you with popups asking for the Kairo path. So ideally, configure the extension first before opening any Kairo files.
+**NOTE:** If you open a `.k` file before configuring the extension, it will annoy you with popups asking for the Kairo path. So ideally, configure the extension first before opening any Kairo files.
 
 ---
 

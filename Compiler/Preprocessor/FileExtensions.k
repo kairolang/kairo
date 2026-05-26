@@ -1,0 +1,126 @@
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+enum FileCategory {
+    KairoSource,   ///< .k files
+    KairoLibrary,  ///< .hlib archives
+    CxxSource,     ///< .cpp, .cc, .cxx, .c++ files
+    CxxHeader,     ///< .hpp, .hh, .hxx, .h++, .h files
+    CSource,       ///< .c files
+    CHeader,       ///< .h files (also in CxxHeader, duplicated for C-only lookups)
+    Other,         ///< everything else we index
+    Ignored,       ///< files we don't index
+}
+
+class FileExtensions {
+    priv var _kairo_source: set::<string> = set::<string>();
+    priv var _kairo_lib:    set::<string> = set::<string>();
+    priv var _cxx_source:   set::<string> = set::<string>();
+    priv var _cxx_header:   set::<string> = set::<string>();
+
+    fn FileExtensions(self) {
+        // kairo
+        self._kairo_source.insert("k");
+        self._kairo_lib.insert("hlib");
+
+        // c++
+        self._cxx_source.insert("cpp");
+        self._cxx_source.insert("cc");
+        self._cxx_source.insert("cxx");
+        self._cxx_source.insert("c++");
+        self._cxx_source.insert("C");
+        self._cxx_source.insert("c");
+        self._cxx_source.insert("CPP");
+
+        self._cxx_header.insert("tpp");
+        self._cxx_header.insert("txx");
+        self._cxx_header.insert("t++");
+        self._cxx_header.insert("T");
+        self._cxx_header.insert("TPP");
+
+        self._cxx_header.insert("hpp");
+        self._cxx_header.insert("hh");
+        self._cxx_header.insert("hxx");
+        self._cxx_header.insert("h++");
+        self._cxx_header.insert("H");
+        self._cxx_header.insert("h");
+
+        self._cxx_header.insert("HPP");
+        self._cxx_header.insert("HH");
+        self._cxx_header.insert("HXX");
+        self._cxx_header.insert("H++");
+    }
+
+    fn categorize(self, ext: string) -> FileCategory {
+        if ext.empty()                            { return FileCategory::CxxHeader; }
+        if self.contains(self._kairo_source, ext) { return FileCategory::KairoSource; }
+        if self.contains(self._kairo_lib, ext)    { return FileCategory::KairoLibrary; }
+        if self.contains(self._cxx_source, ext)   { return FileCategory::CxxSource; }
+        if self.contains(self._cxx_header, ext)   { return FileCategory::CxxHeader; }
+        return FileCategory::Ignored;
+    }
+
+    fn should_index(self, ext: string) -> bool {
+        return self.categorize(ext) != FileCategory::Ignored;
+    }
+
+    fn is_kairo_source(self, ext: string) -> bool {
+        return self.contains(self._kairo_source, ext);
+    }
+
+    fn is_kairo_lib(self, ext: string) -> bool {
+        return self.contains(self._kairo_lib, ext);
+    }
+
+    fn is_cxx_source(self, ext: string) -> bool {
+        return self.contains(self._cxx_source, ext);
+    }
+
+    fn is_cxx_header(self, ext: string) -> bool {
+        return self.contains(self._cxx_header, ext);
+    }
+
+    fn is_any_source(self, ext: string) -> bool {
+        return self.is_kairo_source(ext)
+            || self.is_cxx_source(ext);
+    }
+
+    fn is_any_header(self, ext: string) -> bool {
+        return self.is_cxx_header(ext);
+    }
+
+    fn add_kairo_source(self, ext: string) {
+        self._kairo_source.insert(ext);
+    }
+
+    fn add_kairo_lib(self, ext: string) {
+        self._kairo_lib.insert(ext);
+    }
+
+    fn add_cxx_source(self, ext: string) {
+        self._cxx_source.insert(ext);
+    }
+
+    fn add_cxx_header(self, ext: string) {
+        self._cxx_header.insert(ext);
+    }
+
+    fn kairo_source_exts(self) -> set::<string> { return self._kairo_source; }
+    fn kairo_lib_exts(self)    -> set::<string> { return self._kairo_lib; }
+    fn cxx_source_exts(self)   -> set::<string> { return self._cxx_source; }
+    fn cxx_header_exts(self)   -> set::<string> { return self._cxx_header; }
+
+    priv fn contains(self, li: set::<string>, ext: string) -> bool {
+        return li.contains(ext);
+    }
+}

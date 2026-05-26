@@ -7,7 +7,7 @@
       "request": "launch",
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/build/x86_64-linux-gnu/release/bin/kairo",
-      "args": ["test.kro", "--print-ast"],
+      "args": ["test.k", "--print-ast"],
       "initCommands": [
         "command script import ${workspaceFolder}/Scripts/cppvsdbg.py",
         "settings set frame-format \"frame #${frame.index}: ${frame.pc}{ ${module.file.basename}`${script.frame:cppvsdbg.demangle_frame}}\\n\""
@@ -19,7 +19,7 @@
       "request": "launch",
       "cwd": "${workspaceFolder}",
       "program": "${workspaceFolder}/build/x86_64-linux-gnu/release/bin/kairo",
-      "args": ["test.kro", "--print-ast"],
+      "args": ["test.k", "--print-ast"],
       "MIMode": "gdb",
       "miDebuggerPath": "/usr/bin/gdb",
       "setupCommands": [

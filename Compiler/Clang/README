@@ -5,7 +5,7 @@
 Kairo is a statically typed systems programming language with full native bidirectional C++ interoperability. The compiler leverages Clang as a backend - Kairo source is lowered to C++ lexical tokens, fed into Clang's parser/sema/codegen pipeline, and linked via a wrapped LLD.
 
 ```
-Kairo Source (.kro)          C++ Headers (.h/.hpp)
+Kairo Source (.k)          C++ Headers (.h/.hpp)
        |                            |
        v                            v
 #--------------#            #------------------#
@@ -43,7 +43,7 @@ Kairo Source (.kro)          C++ Headers (.h/.hpp)
 |  - emits clang::Token|
 |    stream            |
 |  - source locs map   |
-|    back to .kro via  |
+|    back to .k via  |
 |    Clang SourceMgr   |
 |  - C++ imports emit  |
 |    #include tokens   |
@@ -255,19 +255,19 @@ Walks the Kairo AST and emits `clang::Token` objects into a token stream that Cl
 
 **Source location mapping:**
 ```cpp
-// Create virtual file in Clang's SourceManager for each .kro file
+// Create virtual file in Clang's SourceManager for each .k file
 auto &SM = clang_instance.getSourceManager();
 auto fid = SM.createFileID(
-    llvm::MemoryBuffer::getMemBuffer(kairo_source, "module.kro")
+    llvm::MemoryBuffer::getMemBuffer(kairo_source, "module.k")
 );
 
 // Each emitted token gets a mapped location
-// Kairo line 42, col 10 -> clang::SourceLocation pointing into "module.kro"
+// Kairo line 42, col 10 -> clang::SourceLocation pointing into "module.k"
 auto loc = SM.translateLineCol(fid, 42, 10);
 token.setLocation(loc);
 ```
 
-This means Clang's diagnostic output automatically points to `.kro` source files with correct line/column. No error remapping needed for most cases.
+This means Clang's diagnostic output automatically points to `.k` source files with correct line/column. No error remapping needed for most cases.
 
 **Lowering rules (Kairo construct -> C++ tokens):**
 
@@ -318,7 +318,7 @@ The emitted token stream is fed into Clang's standard pipeline:
 
 Kairo invokes this by creating a `clang::CompilerInstance`, configuring it with Kairo's flags (mapped to Clang equivalents), and running the pipeline.
 
-**Diagnostic capture:** Clang's `DiagConsumer` is subclassed to intercept diagnostics and route them through Kairo's `DiagEngine`. Since source locations already point to `.kro` files (via the virtual file mapping in the token emitter), most diagnostics display correctly without remapping.
+**Diagnostic capture:** Clang's `DiagConsumer` is subclassed to intercept diagnostics and route them through Kairo's `DiagEngine`. Since source locations already point to `.k` files (via the virtual file mapping in the token emitter), most diagnostics display correctly without remapping.
 
 **Error remapping for cascade suppression:** when Clang reports an error on a deferred C++ node, the Kairo diagnostic consumer:
 1. Identifies the `DiagCategory` (from the Clang diagnostic ID)
@@ -507,52 +507,52 @@ Phase 6 - Tooling
 Compiler/
 ├-- 
 |   ├-- Diagnostics/
-|   |   ├-- DiagCode.kro
-|   |   ├-- DiagEngine.kro
-|   |   ├-- DiagBuilder.kro
-|   |   ├-- DiagConsumer.kro
-|   |   #-- BasicDiagConsumer.kro
-|   ├-- SourceManager.kro
-|   ├-- SourceLocation.kro
-|   ├-- SourceRange.kro
-|   ├-- ArenaAllocator.kro
-|   ├-- TokenKind.kro
-|   ├-- Path.kro
-|   ├-- ThreadPool.kro
+|   |   ├-- DiagCode.k
+|   |   ├-- DiagEngine.k
+|   |   ├-- DiagBuilder.k
+|   |   ├-- DiagConsumer.k
+|   |   #-- BasicDiagConsumer.k
+|   ├-- SourceManager.k
+|   ├-- SourceLocation.k
+|   ├-- SourceRange.k
+|   ├-- ArenaAllocator.k
+|   ├-- TokenKind.k
+|   ├-- Path.k
+|   ├-- ThreadPool.k
 |   #-- ...
 ├-- Lexer/
-|   ├-- Lexer.kro
-|   ├-- Token.kro
-|   ├-- TokenBuffer.kro
-|   ├-- Immediate.kro
+|   ├-- Lexer.k
+|   ├-- Token.k
+|   ├-- TokenBuffer.k
+|   ├-- Immediate.k
 |   #-- Preprocessor/
-|       ├-- Preprocessor.kro
-|       ├-- MacroExpander (in Preprocessor.kro)
-|       ├-- ImportResolver.kro
+|       ├-- Preprocessor.k
+|       ├-- MacroExpander (in Preprocessor.k)
+|       ├-- ImportResolver.k
 |       #-- ...
 ├-- Parser/                          (Phase 2)
-|   ├-- Parser.kro
-|   ├-- KairoAST.kro
-|   #-- ExprParser.kro
+|   ├-- Parser.k
+|   ├-- KairoAST.k
+|   #-- ExprParser.k
 ├-- Sema/                            (Phase 2-3)
-|   ├-- Sema.kro
-|   ├-- TypeChecker.kro
-|   ├-- TraitResolver.kro
-|   #-- AMT.kro                     (Phase 5)
+|   ├-- Sema.k
+|   ├-- TypeChecker.k
+|   ├-- TraitResolver.k
+|   #-- AMT.k                     (Phase 5)
 ├-- CppInterop/                      (Phase 4)
-|   ├-- StubExtractor.kro
-|   ├-- CppSymbolStub.kro
-|   #-- TypeBridge.kro
+|   ├-- StubExtractor.k
+|   ├-- CppSymbolStub.k
+|   #-- TypeBridge.k
 ├-- Codegen/                         (Phase 2)
-|   ├-- TokenEmitter.kro
-|   ├-- ClangPipeline.kro
-|   #-- LoweringRules.kro
+|   ├-- TokenEmitter.k
+|   ├-- ClangPipeline.k
+|   #-- LoweringRules.k
 ├-- Driver/
 |   #-- main/
-|       ├-- kairo.kro                (compiler driver)
-|       ├-- kbld.kro                 (build system)
-|       ├-- kfmt.kro                 (formatter)
-|       ├-- klsp.kro                 (language server)
-|       #-- kpkg.kro                 (package manager)
+|       ├-- kairo.k                (compiler driver)
+|       ├-- kbld.k                 (build system)
+|       ├-- kfmt.k                 (formatter)
+|       ├-- klsp.k                 (language server)
+|       #-- kpkg.k                 (package manager)
 #-- README
 ```

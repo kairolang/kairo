@@ -2,10 +2,10 @@
 
 This directory contains the TOML source tables for every diagnostic the Kairo
 compiler can emit. The tables are consumed by `Scripts/gen_diag.py` to produce
-`Compiler/Diag/DiagRegistry.kro`, which is the authoritative registry used at
+`Compiler/Diag/DiagRegistry.k`, which is the authoritative registry used at
 compile time.
 
-**Do not edit `DiagRegistry.kro` directly.** All diagnostic changes go here.
+**Do not edit `DiagRegistry.k` directly.** All diagnostic changes go here.
 
 ---
 
@@ -14,7 +14,7 @@ compile time.
 From the repo root:
 
 ```bash
-python3 Scripts/gen_diag.py Compiler/DiagTblg > Compiler/Diag/DiagRegistry.kro
+python3 Scripts/gen_diag.py Compiler/DiagTblg > Compiler/Diag/DiagRegistry.k
 ```
 
 Run this after any addition, removal, or modification to a `.diag.toml` file

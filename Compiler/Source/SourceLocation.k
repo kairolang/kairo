@@ -1,0 +1,242 @@
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+///
+/// \file SourceLocation.k
+/// \brief lightweight encoded handle representing a position in a source file.
+///
+/// \details
+/// `SourceLocation` is a compact struct that stores a unique 32-bit identifier
+/// representing a specific point in source code. it's designed to be trivially
+/// copyable, hashable, and efficient to compare.
+///
+/// the `id` value typically encodes both a file identifier and an offset, but
+/// the encoding is implementation-defined. the struct itself treats `id` as an
+/// opaque integer and only exposes basic construction, comparison, and offset
+/// operations.
+///
+/// `SourceLocation` is used throughout the compiler to reference precise
+/// locations in source files; such as for diagnostics, syntax tree mapping,
+/// and line/column resolution; without storing redundant data.
+///
+/// \note this class performs no validation on its own; the meaning of `id` is
+/// defined by the surrounding systems (e.g., SourceManager or SourceLineTable).
+///
+/// \see SourceManager, SourceLineTable
+///
+
+class SourceLocation {
+    pub var id: u32 = 0; ///< encoded identifier representing file + offset
+
+    ///
+    /// \brief default constructor, initializes to invalid.
+    ///
+    fn SourceLocation(self) {
+        self.id = 0;
+    }
+
+    ///
+    /// \brief constructs from a raw 32-bit value.
+    ///
+    /// \param raw the encoded integer value to use.
+    /// \return a new SourceLocation with `id = raw`.
+    ///
+    eval static fn from_raw(raw: u32) -> SourceLocation {
+        var loc = SourceLocation();
+        loc.id = raw;
+        return loc;
+    }
+
+    ///
+    /// \brief constructs from a file base and offset.
+    ///
+    /// \param base base id (usually file id).
+    /// \param offset byte offset within the file.
+    /// \return combined SourceLocation.
+    ///
+    /// \note base + offset is truncated to 32 bits.
+    ///
+    eval static fn from_base(base: u32, offset: usize) -> SourceLocation {
+        var loc = SourceLocation();
+        loc.id = static_cast::<u32>(base + offset);
+        return loc;
+    }
+
+    ///
+    /// \brief returns the raw encoded integer value.
+    ///
+    const fn raw(self) -> u32 {
+        return self.id;
+    }
+
+    ///
+    /// \brief checks if location is valid.
+    ///
+    /// \return true if `id != 0`.
+    ///
+    const fn is_valid(self) -> bool {
+        return (self.id != 0) && (self.id != 0xFFFFFFFF);
+    }
+
+    ///
+    /// \brief checks if location is invalid.
+    ///
+    /// \return true if `id == 0`.
+    ///
+    const fn is_invalid(self) -> bool {
+        return (self.id == 0) || (self.id == 0xFFFFFFFF);
+    }
+
+    static fn invalid() -> SourceLocation {
+        return SourceLocation();
+    }
+
+    ///
+    /// \brief returns a new location offset by delta.
+    ///
+    /// \param delta signed offset to apply.
+    /// \return a new SourceLocation with adjusted `id`.
+    ///
+    /// \warning aborts if underflow or overflow occurs.
+    /// FIXME: this is failing for some reason
+    ///
+    const fn with_offset(self, delta: i64) -> SourceLocation {
+        var new_val = static_cast::<i64>(self.id) + delta;
+        
+        // if new_val < 0 {
+        //     std::crash(std::Error::RuntimeError("SourceLocation: underflow"));
+        // }
+        
+        // if new_val > static_cast::<i64>(0xFFFFFFFF) {
+        //     std::crash(std::Error::RuntimeError("SourceLocation: overflow"));
+        // }
+
+        var loc = SourceLocation();
+        loc.id = static_cast::<u32>(new_val);
+        
+        return loc;
+    }
+
+    ///
+    /// \brief equality operator.
+    ///
+    eval const fn op == (self, other: SourceLocation) -> bool {
+        return self.id == other.id;
+    }
+
+    ///
+    /// \brief inequality operator.
+    ///
+    eval const fn op != (self, other: SourceLocation) -> bool {
+        return self.id != other.id;
+    }
+
+    ///
+    /// \brief less-than comparison.
+    ///
+    eval const fn op < (self, other: SourceLocation) -> bool {
+        return self.id < other.id;
+    }
+
+    ///
+    /// \brief less-than-or-equal comparison.
+    ///
+    eval const fn op <= (self, other: SourceLocation) -> bool {
+        return self.id <= other.id;
+    }
+
+    ///
+    /// \brief greater-than comparison.
+    ///
+    eval const fn op > (self, other: SourceLocation) -> bool {
+        return self.id > other.id;
+    }
+
+    ///
+    /// \brief greater-than-or-equal comparison.
+    ///
+    eval const fn op >= (self, other: SourceLocation) -> bool {
+        return self.id >= other.id;
+    }
+
+
+    ///
+    /// \brief returns a simple hash of the location id.
+    ///
+    /// \details
+    /// uses a lightweight FNV-1a-like hash mix to distribute bits of `id`.
+    ///
+    eval const fn hash(self) -> u32 {
+        var h: u32 = 0x811C9DC5;
+
+        h = (h ^ self.id) * 0x01000193;
+        return h;
+    }
+
+    ///
+    /// \brief constructs a location directly from a pointer.
+    ///
+    /// \param ptr pointer to convert into a 32-bit handle.
+    /// \return SourceLocation with encoded pointer value.
+    ///
+    /// \note pointer value is truncated to 32 bits.
+    ///
+    eval static fn from_ptr(ptr: *void) -> SourceLocation {
+        return SourceLocation::from_raw(
+            static_cast::<u32>(reinterpret_cast::<usize>(ptr))
+        );
+    }
+
+    ///
+    /// \brief string conversion operator.
+    ///
+    /// \return formatted string like `SourceLocation(id: 12345)`.
+    ///
+    const fn op as (self) -> string {
+        return f"{self.id}";
+    }
+
+    ///
+    /// \brief computes the byte distance between two locations.
+    ///
+    /// \param other the location to compute distance to.
+    /// \return absolute difference in raw ids.
+    ///
+    const fn distance_to(self, other: SourceLocation) -> usize {
+        if self.id > other.id {
+            return static_cast::<usize>(self.id - other.id);
+        }
+
+        return static_cast::<usize>(other.id - self.id);
+    }
+
+    ///
+    /// \brief advances location by n bytes.
+    ///
+    /// \param n number of bytes to advance.
+    /// \return new location advanced by n.
+    ///
+    const fn advance(self, n: usize) -> SourceLocation {
+        return self.with_offset(static_cast::<i64>(n));
+    }
+
+    ///
+    /// \brief retreats location by n bytes.
+    ///
+    /// \param n number of bytes to go back.
+    /// \return new location moved back by n.
+    ///
+    const fn retreat(self, n: usize) -> SourceLocation {
+        return self.with_offset(-static_cast::<i64>(n));
+    }
+}

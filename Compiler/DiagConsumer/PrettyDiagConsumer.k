@@ -1,0 +1,702 @@
+/// --- The Kairo Project - Compiler/DiagConsumer/PrettyDiagConsumer.k ----- ///
+///
+///   ANSI-colored diagnostic consumer.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+ffi "c++" import "Types.hh";
+
+import Diag::Diagnostic::*;
+import Diag::DiagConsumer::*;
+import Source::SourceManager::*;
+
+/// ANSI-colored diagnostic consumer.
+///
+/// Extends \c BasicDiagConsumer with color, bold text, and right-aligned
+/// line numbers. Color is automatically disabled when writing to a file or
+/// non-tty stream, or when the \c NO_COLOR environment variable is set.
+///
+/// \c StrikeThrough labels are rendered with Unicode combining strikethrough
+/// characters in addition to the \c ~ glyph underline.
+///
+/// Color can be forced off at any time via \c set_color(false), which zeroes
+/// all ANSI escape fields. This cannot be reversed construct a new consumer
+/// if re-enabling is needed.
+///
+/// \c _sm may be null; source snippets and \c --> lines are omitted when so.
+/// Key for grouping diagnostics by file and line.
+struct DiagGroupKey {
+    pub var file_id: u32;
+    pub var line:    u32;
+
+    fn op== (self, other: DiagGroupKey) -> bool {
+        return (self.file_id == other.file_id) && (self.line == other.line);
+    }
+
+    fn op< (self, other: DiagGroupKey) -> bool {
+        if self.file_id != other.file_id { return self.file_id < other.file_id; }
+        return self.line < other.line;
+    }
+}
+
+/// Key for grouping diagnostics by code AND message.
+struct DiagCodeMsgKey {
+    pub var code: DiagCode;
+    pub var msg:  string;
+    pub var sev:  DiagSeverity;
+
+    fn op== (self, other: DiagCodeMsgKey) -> bool {
+        return (self.code == other.code) && (self.msg == other.msg);
+    }
+}
+
+/// Entry tracking a caret span for coalesced rendering.
+struct CaretSpan {
+    pub var start_col: usize;  ///< 0-indexed column start
+    pub var end_col:   usize;  ///< 0-indexed column end (exclusive)
+    pub var code:      DiagCode;
+    pub var sev:       DiagSeverity;
+    pub var style:     DiagLabel::Style;
+}
+
+/// Group of diagnostics on the same file:line, to be rendered together.
+struct DiagGroup {
+    pub var key:      DiagGroupKey;
+    pub var diags:    vec::<obs::<Diagnostic>>;
+    pub var filename: string;
+    pub var line_num: u32;
+}
+
+/// ANSI-colored diagnostic consumer with same-line coalescing.
+///
+/// When multiple diagnostics target the same source line, they are merged:
+/// - Same code + same message: single header line
+/// - Same code + different message: stacked headers with severity label only on first
+/// - Different codes: partitioned underline rows with [CODE] suffixes
+///
+/// Overlapping caret spans use the color of the highest severity diagnostic.
+class PrettyDiagConsumer derives DiagConsumer {
+    priv var _diags: vec::<obs::<Diagnostic>>;
+    priv var _sm:    opt::<SourceManager>;
+
+    // --- ANSI escape codes --------------------------------------------------
+    priv var RESET:    string = "\x1b[0m";
+    priv var BOLD:     string = "\x1b[1m";
+    priv var DIM:      string = "\x1b[2;37m";
+    priv var BOLD_RED: string = "\x1b[1;31m";
+    priv var RED:      string = "\x1b[31m";
+    priv var YELLOW:   string = "\x1b[33m";
+    priv var CYAN:     string = "\x1b[36m";
+    priv var BLUE:     string = "\x1b[34m";
+    priv var MAGENTA:  string = "\x1b[35m";
+    priv var WHITE:    string = "\x1b[37m";
+
+    // --- Constructors --------------------------------------------------------
+
+    fn PrettyDiagConsumer(self, sm: *SourceManager) {
+        self._diags.reserve(32);
+        self._sm = sm;
+    }
+
+    fn PrettyDiagConsumer(self) {
+        self._diags.reserve(32);
+        self._sm = &null;
+    }
+
+    // --- DiagConsumer interface ----------------------------------------------
+
+    fn handle(self, diag: *Diagnostic) {
+        self._diags.push_back(diag);
+    }
+
+    fn attach_source_manager(self, sm: *SourceManager) {
+        self._sm = sm;
+    }
+
+    fn finalize_to_stderr(self) {
+        var color = self.detect_color_stderr();
+        var out = self.render_all(color);
+        std::eprint("");
+        std::eprint(out);
+    }
+
+    fn finalize_to_stdout(self) {
+        var color = self.detect_color_stdout();
+        var out = self.render_all(color);
+        std::print("", std::endl(""));
+        std::print(out, std::endl(""));
+    }
+
+    fn finalize_to_file(self, path: string) {
+        var out = self.render_all(false);
+        var f = libcxx::wofstream(libcxx::filesystem::path(path.raw()));
+        f << out.raw();
+        f.close();
+    }
+
+    fn finalize_to_string(self) -> string {
+        return self.render_all(false);
+    }
+
+    fn set_color(self, enable: bool) {
+        if !enable {
+            self.RESET    = "";
+            self.BOLD     = "";
+            self.DIM      = "";
+            self.BOLD_RED = "";
+            self.RED      = "";
+            self.YELLOW   = "";
+            self.CYAN     = "";
+            self.BLUE     = "";
+            self.MAGENTA  = "";
+            self.WHITE    = "";
+        }
+    }
+
+    // --- Coalescing & Rendering ----------------------------------------------
+
+    priv fn render_all_uncoalesced(self, color: bool) -> string {
+        var out: string;
+        for var i: usize = 0; i < self._diags.size(); ++i {
+            out += self.render_single(self._diags[i], color);
+        }
+        return out;
+    }
+
+    /// Returns numeric priority for severity (lower = more severe).
+    priv fn severity_priority(self, sev: DiagSeverity) -> u8 {
+        switch sev {
+        case DiagSeverity::Fatal   { return 0; }
+        case DiagSeverity::Error   { return 1; }
+        case DiagSeverity::Warning { return 2; }
+        case DiagSeverity::Note    { return 3; }
+        case DiagSeverity::Remark  { return 4; }
+        case DiagSeverity::Debug   { return 5; }
+        case DiagSeverity::Verbose { return 6; }
+        case DiagSeverity::Ignored { return 7; }
+        default                    { return 8; }
+        }
+    }
+
+    /// Returns the fixed-width severity label (padded to 7 chars for alignment).
+    priv fn severity_label_padded(self, sev: DiagSeverity) -> string {
+        switch sev {
+        case DiagSeverity::Fatal   { return "fatal  "; }
+        case DiagSeverity::Error   { return "error  "; }
+        case DiagSeverity::Warning { return "warning"; }
+        case DiagSeverity::Note    { return "note   "; }
+        case DiagSeverity::Remark  { return "remark "; }
+        case DiagSeverity::Debug   { return "debug  "; }
+        case DiagSeverity::Verbose { return "verbose"; }
+        case DiagSeverity::Ignored { return "ignored"; }
+        default                    { return "unknown"; }
+        }
+    }
+    
+    priv fn render_all(self, color: bool) -> string {
+        if self._sm == &null {
+            return self.render_all_uncoalesced(color);
+        }
+
+        var sm = self._sm;
+        var groups: vec::<DiagGroup>;
+
+        for var i: usize = 0; i < self._diags.size(); ++i {
+            var diag = self._diags[i];
+            if (!diag->has_loc) {
+                var g: DiagGroup;
+                g.key.file_id = 0xFFFFFFFF;
+                g.key.line    = static_cast::<u32>(i);
+                g.diags.push_back(diag);
+                g.filename = "";
+                g.line_num = 0;
+                groups.push_back(g);
+                continue;
+            }
+
+            var loc_info = sm->get_line_col(diag->loc);
+            var res      = sm->resolve(diag->loc);
+            var key: DiagGroupKey;
+            key.file_id = res.fid;
+            key.line    = loc_info.line;
+
+            var found: isize = -1;
+            for var j: usize = 0; j < groups.size(); ++j {
+                if groups[j].key == key {
+                    found = static_cast::<isize>(j);
+                    break;
+                }
+            }
+
+            if found >= 0 {
+                groups[static_cast::<usize>(found)].diags.push_back(diag);
+            } else {
+                var g: DiagGroup;
+                g.key      = key;
+                g.filename = sm->get_filename(diag->loc);
+                g.line_num = loc_info.line;
+                g.diags.push_back(diag);
+                groups.push_back(g);
+            }
+        }
+
+        var out: string;
+        for var i: usize = 0; i < groups.size(); ++i {
+            out += self.render_group(groups[i], sm, color);
+        }
+
+        return out;
+    }
+
+    priv fn render_group(self, group: ref!(DiagGroup), sm: *SourceManager, color: bool) -> string {
+        const var NL = "\n";
+        var out: string;
+
+        if group.key.file_id == 0xFFFFFFFF {
+            for var i: usize = 0; i < group.diags.size(); ++i {
+                out += self.render_single(group.diags[i], color);
+            }
+            return out;
+        }
+
+        // Partition by (DiagCode, message)
+        var keys_seen: vec::<DiagCodeMsgKey>;
+        var diags_by_key: vec::<vec::<obs::<Diagnostic>>>;
+
+        for var i: usize = 0; i < group.diags.size(); ++i {
+            var diag = group.diags[i];
+            var key: DiagCodeMsgKey;
+            key.code = diag->code;
+            key.msg  = diag->message;
+            key.sev  = diag->code.severity();
+            
+            var idx: isize = -1;
+            for var j: usize = 0; j < keys_seen.size(); ++j {
+                if keys_seen[j] == key {
+                    idx = static_cast::<isize>(j);
+                    break;
+                }
+            }
+
+            if idx >= 0 {
+                diags_by_key[static_cast::<usize>(idx)].push_back(diag);
+            } else {
+                keys_seen.push_back(key);
+                var new_vec: vec::<obs::<Diagnostic>>;
+                new_vec.push_back(diag);
+                diags_by_key.push_back(new_vec);
+            }
+        }
+
+        // Sort keys by severity (highest first)
+        for var i: usize = 1; i < keys_seen.size(); ++i {
+            var key     = keys_seen[i];
+            var key_pri = self.severity_priority(key.sev);
+            var j: isize = static_cast::<isize>(i) - 1;
+            while j >= 0 {
+                var cmp_pri = self.severity_priority(keys_seen[static_cast::<usize>(j)].sev);
+                if cmp_pri <= key_pri { break; }
+                keys_seen[static_cast::<usize>(j + 1)] = keys_seen[static_cast::<usize>(j)];
+                j -= 1;
+            }
+            keys_seen[static_cast::<usize>(j + 1)] = key;
+        }
+
+        var arrow = ( f"{BOLD}{WHITE}-->{RESET}" ) if ( color ) else ( "-->" );
+        var pipe  = ( f"{BOLD}{WHITE}|{RESET}"   ) if ( color ) else ( "|"   );
+
+        // Emit headers only show severity label when it changes
+        var last_sev: DiagSeverity = DiagSeverity::Ignored;
+        var has_last_sev: bool = false;
+        const var SEV_PAD = "       ";  // 7 spaces to match "warning"
+
+        for var c: usize = 0; c < keys_seen.size(); ++c {
+            var key      = keys_seen[c];
+            var sev      = key.sev;
+            var sev_col  = self.severity_color(sev);
+            var the_code = key.code;
+            var code_str = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
+
+            var prefix: string;
+            if (!has_last_sev) || (last_sev != sev) {
+                // New severity emit the label
+                var sev_label = self.severity_label_padded(sev);
+                if color {
+                    prefix = f"{sev_col}{BOLD}{sev_label}{RESET}";
+                } else {
+                    prefix = sev_label;
+                }
+                last_sev = sev;
+                has_last_sev = true;
+            } else {
+                // Same severity just pad
+                prefix = SEV_PAD;
+            }
+
+            out += f"{prefix} [{code_str}]: {key.msg}" + NL;
+        }
+
+        // Emit location line once
+        out += f"  {arrow} {group.filename}:{group.line_num}" + NL;
+
+        // Get source line text
+        var first_diag   = group.diags[0];
+        var line_text    = sm->get_full_line(first_diag->loc);
+        var line_num_str = f"{group.line_num}";
+        var line_col     = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "" );
+        var reset_col    = ( RESET            ) if ( color ) else ( "" );
+        var prefix_vis   = f"  {line_col}{line_num_str} {pipe} {reset_col}";
+        var prefix_raw   = f"  {line_num_str} | ";
+
+        // Collect unique codes for underline rows
+        var codes_seen: vec::<DiagCode>;
+        for var c: usize = 0; c < keys_seen.size(); ++c {
+            var kcode = keys_seen[c].code;
+            var found = false;
+            for var j: usize = 0; j < codes_seen.size(); ++j {
+                if codes_seen[j] == kcode {
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                codes_seen.push_back(kcode);
+            }
+        }
+
+        // Build caret spans
+        var spans: vec::<CaretSpan>;
+
+        for var i: usize = 0; i < group.diags.size(); ++i {
+            var diag = group.diags[i];
+            
+            var loc_info = sm->get_line_col(diag->loc);
+            var span: CaretSpan;
+            span.start_col = loc_info.column;
+            span.end_col   = loc_info.column + 4;
+            span.code      = diag->code;
+            span.sev       = diag->code.severity();
+            span.style     = DiagLabel::Style::Primary;
+
+            if diag->labels.size() > 0 {
+                var label    = diag->labels[0];
+                var start_lc = sm->get_line_col(label.range.start);
+                var end_lc   = sm->get_line_col(label.range.end);
+
+                if start_lc.line == group.line_num {
+                    span.start_col = start_lc.column;
+                    span.end_col   = end_lc.column;
+                    span.style     = label.style;
+                }
+            }
+
+            if span.start_col > 0 { span.start_col -= 1; }
+            if span.end_col   > 0 { span.end_col   -= 1; }
+            if span.end_col <= span.start_col { span.end_col = span.start_col + 1; }
+            if span.start_col > line_text.length() { span.start_col = line_text.length(); }
+            if span.end_col   > line_text.length() { span.end_col   = line_text.length(); }
+
+            spans.push_back(span);
+        }
+
+        // Sort spans by start column
+        for var i: usize = 1; i < spans.size(); ++i {
+            var key     = spans[i];
+            var j: isize = static_cast::<isize>(i) - 1;
+            while (j >= 0) && (spans[static_cast::<usize>(j)].start_col > key.start_col) {
+                spans[static_cast::<usize>(j + 1)] = spans[static_cast::<usize>(j)];
+                j -= 1;
+            }
+            spans[static_cast::<usize>(j + 1)] = key;
+        }
+
+        // Build per-column severity map for overlap handling
+        var max_col: usize = 0;
+        for var s: usize = 0; s < spans.size(); ++s {
+            if spans[s].end_col > max_col { max_col = spans[s].end_col; }
+        }
+
+        var col_sev: vec::<DiagSeverity>;
+        var col_code: vec::<DiagCode>;
+        var col_style: vec::<DiagLabel::Style>;
+        col_sev.resize(max_col + 1, DiagSeverity::Ignored);
+        col_code.resize(max_col + 1, DiagCode());
+        col_style.resize(max_col + 1, DiagLabel::Style::Primary);
+
+        for var s: usize = 0; s < spans.size(); ++s {
+            var span = spans[s];
+            for var col: usize = span.start_col; col < span.end_col; ++col {
+                if self.severity_priority(span.sev) < self.severity_priority(col_sev[col]) {
+                    col_sev[col]   = span.sev;
+                    col_code[col]  = span.code;
+                    col_style[col] = span.style;
+                }
+            }
+        }
+
+        // Render source line with colored spans
+        out += prefix_vis;
+        if color && (max_col > 0) {
+            for var col: usize = 0; col < line_text.length(); ++col {
+                if (col < col_sev.size()) && (col_sev[col] != DiagSeverity::Ignored) {
+                    out += self.severity_color(col_sev[col]);
+                    out += string(line_text[col], 1);
+                    out += RESET;
+                } else {
+                    out += string(line_text[col], 1);
+                }
+            }
+        } else {
+            out += line_text;
+        }
+        out += NL;
+
+        // Render underline rows, one per unique code
+        var pad = string(' ', prefix_raw.length());
+
+        for var c: usize = 0; c < codes_seen.size(); ++c {
+            var the_code = codes_seen[c];
+
+            var underline: string;
+            var last_end: usize = 0;
+
+            for var s: usize = 0; s < spans.size(); ++s {
+                var span = spans[s];
+                if !(span.code == the_code) { continue; }
+
+                if span.start_col > last_end {
+                    underline += string(' ', span.start_col - last_end);
+                }
+
+                for var col: usize = span.start_col; col < span.end_col; ++col {
+                    var glyph = self.label_char(col_style[col]);
+                    if color {
+                        var col_color = self.severity_color(col_sev[col]);
+                        underline += f"{col_color}{string(glyph, 1)}{RESET}";
+                    } else {
+                        underline += string(glyph, 1);
+                    }
+                }
+
+                last_end = span.end_col;
+            }
+
+            if underline.length() == 0 { continue; }
+
+            var code_label = "";
+            if codes_seen.size() > 1 {
+                code_label = f" [{(the_code) as string}]";
+            }
+
+            out += pad + underline + code_label + NL;
+        }
+
+        // Fix-its
+        for var i: usize = 0; i < group.diags.size(); ++i {
+            var diag = group.diags[i];
+            for var j: usize = 0; j < diag->fixits.size(); ++j {
+                var fi      = diag->fixits[j];
+                var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
+                out += f"  > {fix_pfx}: {fi.message}" + NL;
+            }
+        }
+
+        // Children
+        for var i: usize = 0; i < group.diags.size(); ++i {
+            var diag = group.diags[i];
+            for var j: usize = 0; j < diag->children.size(); ++j {
+                out += self.render_single(diag->children[j], color);
+            }
+        }
+
+        return out;
+    }
+
+    priv fn render_single(self, diag: *Diagnostic, color: bool) -> string {
+        const var NL = "\n";
+        var out: string;
+
+        var sev      = diag->code.severity();
+        var sev_str  = self.severity_string(sev, color);
+        var sev_col  = self.severity_color(sev);
+        var the_code = diag->code;
+        var code_str = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
+        var arrow    = ( f"{BOLD}{WHITE}-->{RESET}" ) if ( color ) else ( "-->" );
+        var pipe     = ( f"{BOLD}{WHITE}|{RESET}"   ) if ( color ) else ( "|"   );
+
+        out += f"{sev_str} [{code_str}]: {diag->message}" + NL;
+
+        if (diag->has_loc) && (self._sm != &null) {
+            var sm       = self._sm;
+            var loc_info = sm->get_line_col(diag->loc);
+            var filename = sm->get_filename(diag->loc);
+            out += f"  {arrow} {filename}:{loc_info.line}:{loc_info.column}" + NL;
+        }
+
+        if (self._sm != &null) && (diag->labels.size() > 0) {
+            var sm = self._sm;
+            out += self.render_labels(diag->labels, sm, "  ", sev_col, color);
+        }
+
+        for var i: usize = 0; i < diag->fixits.size(); ++i {
+            var fi      = diag->fixits[i];
+            var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
+            out += f"  > {fix_pfx}: {fi.message}" + NL;
+        }
+
+        for var i: usize = 0; i < diag->children.size(); ++i {
+            out += self.render_single(diag->children[i], color);
+        }
+
+        return out;
+    }
+
+    priv fn render_labels(
+        self,
+        labels:   ref!(vec::<DiagLabel>),
+        sm:       *SourceManager,
+        indent:   string,
+        sev_col:  string,
+        color:    bool
+    ) -> string {
+        const var NL = "\n";
+        var out: string;
+
+        var pipe = ( f"{BOLD}{WHITE}|{RESET}" ) if ( color ) else ( "|" );
+
+        var order: vec::<usize>;
+        order.reserve(labels.size());
+        for var i: usize = 0; i < labels.size(); ++i {
+            order.push_back(i);
+        }
+
+        for var i: usize = 1; i < order.size(); ++i {
+            var key      = order[i];
+            var key_line = sm->get_line_col(labels[key].range.start).line;
+            var j: isize = static_cast::<isize>(i) - 1;
+            while j >= 0 {
+                var cmp_line = sm->get_line_col(labels[order[static_cast::<usize>(j)]].range.start).line;
+                if cmp_line <= key_line { break; }
+                order[static_cast::<usize>(j + 1)] = order[static_cast::<usize>(j)];
+                j -= 1;
+            }
+            order[static_cast::<usize>(j + 1)] = key;
+        }
+
+        var max_line_width: usize = 1;
+        for var k: usize = 0; k < labels.size(); ++k {
+            var w = f"{sm->get_line_col(labels[k].range.start).line}".length();
+            if w > max_line_width { max_line_width = w; }
+        }
+
+        for var i: usize = 0; i < order.size(); ++i {
+            var label     = labels[order[i]];
+            if label.range.is_invalid() { continue; }
+
+            var start_lc  = sm->get_line_col(label.range.start);
+            var end_lc    = sm->get_line_col(label.range.end);
+            var line_text = sm->get_full_line(label.range.start);
+
+            var glyph_col  = ((sev_col) if (label.style == DiagLabel::Style::Primary) else (DIM))
+                if color else "";
+
+            var line_num_str = f"{start_lc.line}";
+            var pad_count    = max_line_width - line_num_str.length();
+            var num_pad      = string(' ', pad_count);
+            var line_col     = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "" );
+            var reset_col    = ( RESET            ) if ( color ) else ( "" );
+
+            var prefix_raw = f"{indent}{num_pad}{line_num_str} | ";
+            var prefix_vis = f"{indent}{num_pad}{line_col}{line_num_str} {pipe} {reset_col}";
+
+            out += prefix_vis + line_text + NL;
+
+            var pad       = string(' ', prefix_raw.length());
+            var start_col = start_lc.column;
+            var end_col   = end_lc.column;
+
+            if start_col > 0 { start_col -= 1; }
+            if end_col   > 0 { end_col   -= 1; }
+
+            if start_col > line_text.length() { start_col = line_text.length(); }
+            if end_col   > line_text.length() { end_col   = line_text.length(); }
+            if end_col   <= start_col         { end_col   = start_col + 1;      }
+
+            var glyph     = self.label_char(label.style);
+            var underline = string(' ', start_col) + string(glyph, end_col - start_col);
+
+            out += pad + ( f"{glyph_col}{underline}{RESET}" if color else underline );
+
+            if label.text.length() > 0 {
+                var label_col = ( f"{glyph_col}{BOLD}" ) if ( color ) else ( "" );
+                out += " " + label_col + label.text + reset_col;
+            }
+
+            out += NL;
+        }
+
+        return out;
+    }
+
+    // --- Helpers -------------------------------------------------------------
+
+    priv fn severity_color(self, sev: DiagSeverity) -> string {
+        switch sev {
+        case DiagSeverity::Fatal   { return BOLD_RED; }
+        case DiagSeverity::Error   { return RED;      }
+        case DiagSeverity::Warning { return YELLOW;   }
+        case DiagSeverity::Note    { return CYAN;     }
+        case DiagSeverity::Remark  { return BLUE;     }
+        case DiagSeverity::Debug   { return MAGENTA;  }
+        case DiagSeverity::Verbose { return DIM;      }
+        case DiagSeverity::Ignored { return DIM;      }
+        default                    { return "";       }
+        }
+    }
+
+    priv fn severity_string(self, sev: DiagSeverity, color: bool) -> string {
+        var label: string;
+        switch sev {
+        case DiagSeverity::Fatal   { label = "fatal";   }
+        case DiagSeverity::Error   { label = "error";   }
+        case DiagSeverity::Warning { label = "warning"; }
+        case DiagSeverity::Note    { label = "note";    }
+        case DiagSeverity::Remark  { label = "remark";  }
+        case DiagSeverity::Debug   { label = "debug";   }
+        case DiagSeverity::Verbose { label = "verbose"; }
+        case DiagSeverity::Ignored { label = "ignored"; }
+        default                    { label = "unknown"; }
+        }
+        if !color { return label; }
+        return f"{self.severity_color(sev)}{BOLD}{label}{RESET}";
+    }
+
+    priv fn label_char(self, style: DiagLabel::Style) -> char {
+        switch style {
+        case DiagLabel::Style::Primary       { return '^'; }
+        case DiagLabel::Style::Secondary     { return '+'; }
+        case DiagLabel::Style::Highlight     { return '-'; }
+        case DiagLabel::Style::StrikeThrough { return '~'; }
+        default                              { return '?'; }
+        }
+    }
+
+    priv fn detect_color_stdout(self) -> bool {
+        if libcxx::getenv(r"NO_COLOR") { return false; }
+        if !(isatty(fileno(stdout)))   { return false; }
+        return true;
+    }
+
+    priv fn detect_color_stderr(self) -> bool {
+        if libcxx::getenv(r"NO_COLOR") { return false; }
+        if !(isatty(fileno(stderr)))   { return false; }
+        return true;
+    }
+}

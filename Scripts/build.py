@@ -1,6 +1,6 @@
 # this file does 2 really simple things:
-# 1. finds driver/kairo.kro and compiles it with all the flags
-# 2. finds all the .kro files and updates the compile_commands.json file
+# 1. finds driver/kairo.k and compiles it with all the flags
+# 2. finds all the .k files and updates the compile_commands.json file
 # the command used to compile is: build/release/arm64-llvm-macosx/bin/
 
 # to make an alias to kairo use:
@@ -212,27 +212,27 @@ class Builder:
 # ---------------------------------- START OF COMPILER COMMANDS ---------------------------------- #
 
 # the kairo compiler
-Builder("Compiler/Driver/Main/HBuild.kro", "kairo")                             \
+Builder("Compiler/Driver/Main/HBuild.k", "kairo")                             \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "Compiler")                                  \
 
 # the kairo code formatter
-Builder("Compiler/Driver/Main/Kairo.kro", "kairo-fmt")                           \
+Builder("Compiler/Driver/Main/Kairo.k", "kairo-fmt")                           \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "Compiler")                                  \
     
 # the kairo ide client for lsp support
-Builder("Compiler/Driver/Main/HFmt.kro", "kairo-analyzer")                 \
+Builder("Compiler/Driver/Main/HFmt.k", "kairo-analyzer")                 \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "Compiler")                                  \
     
 # the kairo linker
-Builder("Compiler/Driver/Main/HLd.kro", "kairo-ld")                             \
+Builder("Compiler/Driver/Main/HLd.k", "kairo-ld")                             \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "Compiler")                                  \
     
 # the kairo package manager
-Builder("Compiler/Driver/Main/HLS.kro", "vial")                               \
+Builder("Compiler/Driver/Main/HLS.k", "vial")                               \
     .add_include_dir(Path("."))                                                \
     .add_include_dir(Path(".") / "Compiler")                                  \
 
@@ -261,13 +261,13 @@ def update_compile_commands():
                 "arguments": args + [str(rel)],
                 "file": str(rel)
             })
-        elif path.suffix.lower() == ".kro":
+        elif path.suffix.lower() == ".k":
             all_hlx.append(path)
 
     builder_files_set = {b.file for b in Builder.builders}
     appended_files = [f for f in all_hlx if f not in builder_files_set]
 
-    # Add kro files
+    # Add k files
     for file in appended_files:
         new_compile_commands.append({
             "directory": cwd_str,
@@ -536,7 +536,7 @@ def main():
     performance_test = False
     if len(sys.argv) >= 3 and "test" in sys.argv:
         for arg in sys.argv:
-            if arg.endswith(".kro"):
+            if arg.endswith(".k"):
                 if test_file is not None:
                     log.error("Only one test file can be specified at a time.")
                     return

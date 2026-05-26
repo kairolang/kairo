@@ -1,0 +1,79 @@
+/// --- The Kairo Project ------- Compiler/Options/CompilerInvocation.k ----- ///
+///
+///   The canonical, strongly-typed representation of one compiler run.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// ------------------------------------------------------------------------ ///
+
+import Command::ParsedArgs::*;
+import Options::LangOptions::*;
+import Options::DiagnosticOptions::*;
+import Options::PreprocessorOptions::*;
+import Options::CodeGenOptions::*;
+import Options::FrontendOptions::*;
+import Options::TargetOptions::*;
+import Options::LinkerOptions::*;
+
+///
+/// \class CompilerInvocation
+///
+/// \brief The canonical, strongly-typed representation of one compiler run.
+///
+/// Built once from ParsedArgs at driver startup via from_args().  After that
+/// point nothing in the pipeline reads raw string flag keys - all options are
+/// accessed through the typed sub-option structs below.
+///
+/// All sub-option types are value types, so CompilerInvocation is trivially
+/// copyable and can be freely passed around by value or reference.
+///
+class CompilerInvocation {
+
+    // -- sub-option structs (one per subsystem) ----------------------------
+    pub var lang:     LangOptions;
+    pub var diag:     DiagnosticOptions;
+    pub var pp:       PreprocessorOptions;
+    pub var codegen:  CodeGenOptions;
+    pub var frontend: FrontendOptions;
+    pub var target:   TargetOptions;
+    pub var linker:   LinkerOptions;
+    // -- input files & search paths ----------------------------------------
+    pub var working_dir:    string = "";
+    pub var input_encoding: string = "utf-8";
+    pub var input_files:    vec::<string>;
+    pub var include_dirs:   vec::<string>;
+    pub var ffi_includes:   vec::<string>;
+    pub var cxx_includes:   vec::<string>;
+    pub var macro_paths:    vec::<string>;
+    // -- link paths & libraries --------------------------------------------
+    pub var lib_dirs:       vec::<string>;
+    pub var link_libs:      vec::<string>;
+
+    static fn from_args(args: ref!(ParsedArgs)) -> CompilerInvocation {
+        var inv = CompilerInvocation();
+        (inv.lang)     = LangOptions::from_args(args);
+        (inv.diag)     = DiagnosticOptions::from_args(args);
+        (inv.pp)       = PreprocessorOptions::from_args(args);
+        (inv.codegen)  = CodeGenOptions::from_args(args);
+        (inv.frontend) = FrontendOptions::from_args(args);
+        (inv.target)   = TargetOptions::from_args(args);
+        (inv.linker)   = LinkerOptions::from_args(args);
+
+        (inv.input_files)    = (args.files);
+        (inv.working_dir)    = (args.get_string("working-dir"));
+        (inv.input_encoding) = (args.get_string("input-encoding"));
+
+        for s in (args.get_list("include-dirs"))      { (inv.include_dirs.push_back(s)); }
+        for s in (args.get_list("ffi-include"))       { (inv.ffi_includes.push_back(s)); }
+        for s in (args.get_list("cxx-include"))       { (inv.cxx_includes.push_back(s)); }
+        for s in (args.get_list("macro-search-path")) { (inv.macro_paths.push_back(s));  }
+        for s in (args.get_list("lib-dirs"))          { (inv.lib_dirs.push_back(s));     }
+        for s in (args.get_list("link-libs"))         { (inv.link_libs.push_back(s));    }
+        return inv;
+    }
+}

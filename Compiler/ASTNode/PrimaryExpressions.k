@@ -1,0 +1,498 @@
+/// --- The Kairo Project --------- Compiler/ASTNode/PrimaryExpressions.k ----- ///
+///
+///   Primary expression AST nodes. These depend only on Base and ASTContext,
+///   never on Type nodes or other expression nodes. Safe to import from
+///   Types.k without cycles.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://kairo-lang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Kairo Software Foundation
+///
+/// -------------------------------------------------------------------------- ///
+
+import ASTNode::Base::*;
+import AST::ASTContext::*;
+import AST::Support::*;
+
+class NamedIdentExpr; // forward decl for ChainType segments
+
+/// ============================================================================
+///  ChainType
+///  i32 | Foo | Foo::Bar | ::std::String | Foo<i32>::slice::Underlying
+///
+///  Unified type path node. Replaces NamedType, DependentNameType, and
+///  GenericInstanceType. A single unqualified name like `i32` is a one-segment
+///  chain — use is_simple() to fast-path that case in sema.
+///
+///  examples:
+///    var foo: Foo::ISomething            — 2 segments, no generics
+///    var foo: Foo<i32>::slice            — 2 segments, first has generic args
+///    var bar: Foo<i32>::slice::Underlying — 3 segments
+///    var str: std::bad::string           — 3 segments
+///    var x:   ::GlobalType               — 1 segment, sep = ColonColon
+///    var y:   i32                        — 1 segment, is_simple() = true
+/// ============================================================================
+class ChainType derives Type {
+    /// \enum SegmentSeparator
+    /// \brief the operator prefixing a segment in the type path.
+    enum SegmentSeparator derives u8 {
+        None = 0,    ///< first segment in the chain.
+        ColonColon,  ///< `::` scope resolution.
+    }
+
+    /// \enum SegmentKind
+    /// \brief cached categorization of the segment's type node.
+    enum SegmentKind derives u8 {
+        Named = 0,   ///< simple identifier (`string`, `Underlying`).
+        GenericApp,  ///< generic instantiation (`Foo<i32>`, `Map<K, V>`).
+        Dependent,   ///< dependent type requiring deferred resolution after
+                     ///  template instantiation.
+    }
+
+    /// \struct GenericArg
+    /// \brief a single argument in a generic argument list, optionally named.
+    ///
+    /// positional: `Vec<i32>`       → name = null, type = i32
+    /// named:      `Map<Key: str>`  → name = "Key", type = str
+    struct GenericArg {
+        var name:       *NamedIdentExpr;  ///< set by sema for positional args.
+        var name_range: SourceRange;      ///< range of the name token, invalid if positional.
+        var ty:         *Type;            ///< the type argument.
+    }
+
+    /// \struct ChainSegment
+    /// \brief a single component in the type path.
+    struct ChainSegment {
+        var name:          *NamedIdentExpr;          ///< the identifier for this segment.
+        var generic_args:  FrozenList::<GenericArg>; ///< generic arguments, empty if non-generic.
+        var resolved_type: *Type;                    ///< resolved type after sema, null before.
+        var resolved_decl: *Decl;                    ///< resolved declaration (TypeAlias, Class,
+                                                     ///  Enum, etc.).
+        var range:         SourceRange;              ///< range covering the separator and segment.
+        var sep:           SegmentSeparator;         ///< operator used to reach this segment.
+        var seg_kind:      SegmentKind;              ///< semantic role of this segment.
+    }
+
+    pub var segments: FrozenList::<ChainSegment>;
+
+    /// \brief allocates a new ChainType from a temporary vector of segments.
+    static fn create(
+        ctx:      *ASTContext,
+        range:    SourceRange
+    ) -> *ChainType {
+        var node   = ctx->alloc::<ChainType>();
+        node->kind  = TypeKind::ChainType;
+        node->range = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /// \brief creates a ChainType node tagged as a RecoveryType for error
+    ///        resilience.
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *ChainType {
+        var node            = ctx->alloc::<ChainType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::ChainType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::ChainType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::ChainType;
+    }
+
+    fn get_segments(self) -> FrozenList::<ChainSegment> {
+        return self.segments;
+    }
+
+    fn size(self) -> usize {
+        return self.segments.size();
+    }
+
+    fn last(self) -> *ChainSegment {
+        if (self.segments.is_empty()) {
+            return &null;
+        }
+
+        return self.segments.get(self.segments.size() - 1);
+    }
+
+    fn first(self) -> *ChainSegment {
+        if (self.segments.is_empty()) {
+            return &null;
+        }
+
+        return self.segments.get(0);
+    }
+
+    /// \brief returns true if the chain starts with a leading `::`.
+    fn accesses_global_scope(self) -> bool {
+        if (self.segments.is_empty()) {
+            return false;
+        }
+
+        return (self.segments[0].sep) == SegmentSeparator::ColonColon;
+    }
+
+    /// \brief returns true if any segment carries generic arguments.
+    fn has_generic_args(self) -> bool {
+        return self.segments.any(fn(x: *ChainSegment) -> bool {
+            return !x->generic_args.is_empty();
+        });
+    }
+
+    /// \brief returns true if any segment is marked dependent.
+    fn has_dependent_segments(self) -> bool {
+        return self.segments.any(fn(x: *ChainSegment) -> bool {
+            return x->seg_kind == SegmentKind::Dependent;
+        });
+    }
+
+    /// \brief returns true if this is a single unqualified name with no
+    ///        generics (e.g., just `i32` or `Foo`). fast path for sema.
+    fn is_simple(self) -> bool {
+        return self.segments.size() == 1
+            && self.segments[0].sep == SegmentSeparator::None
+            && self.segments[0].generic_args.is_empty();
+    }
+
+    /// \brief returns true if this is a single name with generic args
+    ///        (e.g., `Vec<i32>`). replaces GenericInstanceType check.
+    fn is_generic_instance(self) -> bool {
+        return self.segments.size() == 1
+            && self.segments[0].sep == SegmentSeparator::None
+            && !self.segments[0].generic_args.is_empty();
+    }
+
+    /// \brief returns the identifier of the final segment.
+    ///        this is the actual type name in most resolution paths.
+    fn trailing_name(self) -> *NamedIdentExpr {
+        var seg = self.last();
+        if seg == &null {
+            return &null;
+        }
+        return seg->name;
+    }
+}
+
+/// ============================================================================
+///  NamedIdentExpr
+///  A single identifier in expression position, optionally carrying generic
+///  arguments for bare generic usage like `Bar<i32>(x)`.
+///
+///  `self` is represented as a NamedIdentExpr — sema identifies it by name.
+///
+///  examples:
+///    foo          — bare identifier, no generics
+///    Bar<i32>     — generic instantiation on a bare name
+///    self         — self reference, sema resolves contextually
+/// ============================================================================
+class NamedIdentExpr derives Expr {
+    pub var name: Token;
+    pub var generic_args: FrozenList::<ChainType::GenericArg>;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        name:  Token
+    ) -> *NamedIdentExpr {
+        var node    = ctx->alloc::<NamedIdentExpr>();
+        node->kind  = ExprKind::NamedIdentExpr;
+        node->range = range;
+        node->name  = name;
+        node->ctx   = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        name:  Token
+    ) -> *NamedIdentExpr {
+        var node            = create(ctx, range, name);
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::NamedIdentExpr;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::NamedIdentExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::NamedIdentExpr;
+    }
+
+    fn get_name(self) -> TokenText {
+        return TokenText::from_token(self.name, self.ctx);
+    }
+}
+
+/// ============================================================================
+///  IntegerLiteralExpr
+///  42 | 0xFF | 0b1010 | 0o77 | 1_000_000
+/// ============================================================================
+class IntegerLiteralExpr derives Expr {
+    pub var token: Token;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        token: Token
+    ) -> *IntegerLiteralExpr {
+        var node    = ctx->alloc::<IntegerLiteralExpr>();
+        node->kind  = ExprKind::IntegerLiteralExpr;
+        node->range = range;
+        node->token = token;
+        node->ctx   = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *IntegerLiteralExpr {
+        var node            = ctx->alloc::<IntegerLiteralExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::IntegerLiteralExpr;
+        node->range         = range;
+        node->ctx           = ctx;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::IntegerLiteralExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::IntegerLiteralExpr;
+    }
+}
+
+/// ============================================================================
+///  FloatingLiteralExpr
+///  1.2 | 1.2e-3 | 0x1.8p+1 | .5f32
+/// ============================================================================
+class FloatingLiteralExpr derives Expr {
+    pub var token: Token;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        token: Token
+    ) -> *FloatingLiteralExpr {
+        var node    = ctx->alloc::<FloatingLiteralExpr>();
+        node->kind  = ExprKind::FloatingLiteralExpr;
+        node->range = range;
+        node->token = token;
+        node->ctx   = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *FloatingLiteralExpr {
+        var node            = ctx->alloc::<FloatingLiteralExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::FloatingLiteralExpr;
+        node->range         = range;
+        node->ctx           = ctx;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::FloatingLiteralExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::FloatingLiteralExpr;
+    }
+}
+
+/// ============================================================================
+///  StringLiteralExpr
+///  "hello" | r"raw \n" | f"hi {name}!"
+/// ============================================================================
+class StringLiteralExpr derives Expr {
+    enum StringKind derives u8 {
+        Plain,    ///< "hello"
+        Raw,      ///< r"raw \n"
+        Format,   ///< f"hi {name}!"
+    }
+
+    pub var token:       Token;
+    pub var string_kind: StringKind;
+    pub var parts:       FrozenList::<*Expr>; ///< interpolation exprs for Format strings, empty otherwise.
+
+    static fn create(
+        ctx:         *ASTContext,
+        range:       SourceRange,
+        token:       Token,
+        string_kind: StringKind
+    ) -> *StringLiteralExpr {
+        var node          = ctx->alloc::<StringLiteralExpr>();
+        node->kind        = ExprKind::StringLiteralExpr;
+        node->range       = range;
+        node->token       = token;
+        node->string_kind = string_kind;
+        node->ctx         = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *StringLiteralExpr {
+        var node            = ctx->alloc::<StringLiteralExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::StringLiteralExpr;
+        node->range         = range;
+        node->ctx           = ctx;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::StringLiteralExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::StringLiteralExpr;
+    }
+}
+
+/// ============================================================================
+///  CharacterLiteralExpr
+///  'a' | '\n' | '\u{1F600}'
+/// ============================================================================
+class CharacterLiteralExpr derives Expr {
+    pub var token: Token;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        token: Token
+    ) -> *CharacterLiteralExpr {
+        var node    = ctx->alloc::<CharacterLiteralExpr>();
+        node->kind  = ExprKind::CharacterLiteralExpr;
+        node->range = range;
+        node->token = token;
+        node->ctx   = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *CharacterLiteralExpr {
+        var node            = ctx->alloc::<CharacterLiteralExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::CharacterLiteralExpr;
+        node->range         = range;
+        node->ctx           = ctx;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::CharacterLiteralExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::CharacterLiteralExpr;
+    }
+}
+
+/// ============================================================================
+///  BooleanLiteralExpr
+///  true | false
+/// ============================================================================
+class BooleanLiteralExpr derives Expr {
+    pub var value: bool;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        value: bool
+    ) -> *BooleanLiteralExpr {
+        var node    = ctx->alloc::<BooleanLiteralExpr>();
+        node->kind  = ExprKind::BooleanLiteralExpr;
+        node->range = range;
+        node->value = value;
+        node->ctx   = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *BooleanLiteralExpr {
+        var node            = ctx->alloc::<BooleanLiteralExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::BooleanLiteralExpr;
+        node->range         = range;
+        node->ctx           = ctx;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::BooleanLiteralExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::BooleanLiteralExpr;
+    }
+}
+
+/// ============================================================================
+///  NullLiteralExpr
+///  null | &null
+/// ============================================================================
+class NullLiteralExpr derives Expr {
+    pub var is_ref: bool; ///< true for &null (null pointer literal).
+
+    static fn create(
+        ctx:    *ASTContext,
+        range:  SourceRange,
+        is_ref: bool
+    ) -> *NullLiteralExpr {
+        var node     = ctx->alloc::<NullLiteralExpr>();
+        node->kind   = ExprKind::NullLiteralExpr;
+        node->range  = range;
+        node->is_ref = is_ref;
+        node->ctx    = ctx;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *NullLiteralExpr {
+        var node            = ctx->alloc::<NullLiteralExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::NullLiteralExpr;
+        node->range         = range;
+        node->ctx           = ctx;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::NullLiteralExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::NullLiteralExpr;
+    }
+}
