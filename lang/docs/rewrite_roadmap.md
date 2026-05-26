@@ -288,7 +288,7 @@ The compiler (kairo) CLI will adopt the following options for flexibility and cl
 | `-t, --target`            | Define the target ABI in the format `arch-vendor-os` (e.g., `-t x86_64-linux-gnu` or `--target x86_64-linux-gnu`).                        |
 | `-test, --test`           | Compile test blocks into a binary (e.g., `kairo -o app.test.exe -test main.k` or `--test main.k`).                                    |
 | `-fI, --force-include`    | Force include a file into the compilation process, regardless of its extension or import status.                                          |
-| `-x, --ext`               | Specify file extension(s) for compilation (e.g., `-x kro` or `--ext kro`). Supported extensions: `kro`, `kairo`, `kh`, `c`, `cpp`, etc. |
+| `-x, --ext`               | Specify file extension(s) for compilation (e.g., `-x k` or `--ext k`). Supported extensions: `k`, `kairo`, `kh`, `c`, `cpp`, etc. |
 | `--ffi-include`           | Add a directory to the FFI generator library search path. *(No short flag for clarity)*                                                   |
 | `--emit`                  | Outputs intermediate results like `tokens`, `ast`, `ir`, `llvm`, `asm`, or `cxx`.                                                         |
 | `--verbose`               | Enables detailed logging of the compilation process.                                                                                      |

@@ -553,7 +553,7 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
     for (auto &t : cfg.targets)
         entry_paths.insert(fs::absolute(t.entry));
 
-    // build.k is always excluded from normal kro scanning — gets its own entry
+    // build.k is always excluded from normal k scanning — gets its own entry
     auto build_kro_abs = fs::absolute(root / "build.k");
 
     const auto &first = cfg.targets.front();

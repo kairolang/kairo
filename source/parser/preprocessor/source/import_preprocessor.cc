@@ -681,7 +681,7 @@ leave_loop_has_processable_import:
             ///     resolved_namespace(path)`
             /// if the path is a token list join the path and sep with '/' keep backtracking until
             /// we
-            ///     find a match either (a lib if not marked as a module) or a kro file
+            ///     find a match either (a lib if not marked as a module) or a k file
             ///     if found and theres a alias present insert 'namespace alis =
             ///     resolved_namespace(path)` if theres a wildcard present, insert `using namespace
             ///     resolved_namespace(path)` if we had to do any backtracking, warn saying symbol

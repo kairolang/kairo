@@ -208,7 +208,7 @@ def pretty_print_results(results):
 
 def main():
     if len(sys.argv) < 3 or len(sys.argv) > 4:
-        print("Usage: python test_kairo.py <kairo-compiler-path> <folder-with-kro-files> [--log]")
+        print("Usage: python test_kairo.py <kairo-compiler-path> <folder-with-k-files> [--log]")
         sys.exit(1)
     
     compiler_path = sys.argv[1]

@@ -267,7 +267,7 @@ def update_compile_commands():
     builder_files_set = {b.file for b in Builder.builders}
     appended_files = [f for f in all_kro if f not in builder_files_set]
 
-    # Add kro files
+    # Add k files
     for file in appended_files:
         new_compile_commands.append({
             "directory": cwd_str,

@@ -103,7 +103,7 @@ abi-options:
     -py  --python        Python stub files gen and pylib compile
     -rs  --rust          Rust source files gen and a rust compiler lib
     -cxx --cxx           C++ header files gen and linkable object file
-    -kro --kairo         Kairo ABI compatable libary
+    -k --kairo         Kairo ABI compatable libary
 */
 
 __CONTROLLER_CLI_BEGIN {
@@ -147,7 +147,7 @@ __CONTROLLER_CLI_BEGIN {
         std::string config_file;
 
         MODE build_mode;
-        ABI  build_lib;  // if --lib is passed without [-py, -rs, -cx, -kro] then assume -kro
+        ABI  build_lib;  // if --lib is passed without [-py, -rs, -cx, -k] then assume -k
 
         std::vector<std::string> include_dirs;
         std::vector<std::string> library_dirs;

@@ -328,7 +328,7 @@ target("kbld")
 
     add_defines("KAIRO_VERSION=\"" .. KAIRO_VERSION .. "\"")
 
-    --- we need to add all the core headers to the include path for kbld since kbld needs to be able to compile kro files and those kro files will need to include core headers
+    --- we need to add all the core headers to the include path for kbld since kbld needs to be able to compile k files and those k files will need to include core headers
     build_dir = ""
     if abi == ""
     then
