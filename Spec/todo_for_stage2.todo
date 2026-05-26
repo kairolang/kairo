@@ -1,0 +1,11 @@
+Notes on what to change/do when making stage2 of the compiler
+- Cleanup overall architecture and design of the compiler
+- Implement a more robust error handling mechanism especially for the parser
+- integrate the Lexer directly with the string intrener esp for identifiers
+- Implement a more efficient symbol table management system (redo the ast indexer)
+- Redo the parser to follow cleaner ownership semantics and avoid unnecessary cloning of data
+- make the lexer a stateless iterator that can be used in a streaming fashion
+- Remove the Preprocessor and intergrate its functionality directly into the lexer and parser
+- also instead of fstring specs being a seprate areana bufffer of tokens do something like
+- Token(String, incomplete), Token(TkStartFParam), ..., Token(TkEndFParam), Token(String, incomplete) so that the parser can handle fstrings more easily
+- Other things lowkey, most of the foundation is solid form stage1, like SM, VFM, and other core components, they can mostly just be reused with minor tweaks, but the parser and lexer need a lot of work to make them more robust and efficient
