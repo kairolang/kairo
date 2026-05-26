@@ -205,12 +205,6 @@ class SourceLineTable {
     /// automatically falls back to scalar if no simd is available.
     ///
     fn build_index(self, fid: u32, vfm: *VirtualFileManager) {
-        var buff = vfm->get_buffer(fid)->bytes();
-
-        if ((!buff.data()) || buff.size() == 0){
-            return;
-        }
-
         var tbl = _file_table.load(std::MemoryOrder::acquire);
         if (!tbl || fid >= tbl->size()) {
             return;
@@ -219,7 +213,15 @@ class SourceLineTable {
         var entry = (*tbl)[fid];
         if (!entry || entry->is_ready()) {
             Logger::debug(Logger::Stage::Driver, f"SourceLineTable::build_index: fid={fid} already ready, skipping");
+            return;
+        }
 
+        var buff = vfm->get_buffer(fid)->bytes();
+
+        if ((!buff.data()) || buff.size() == 0) {
+            var lines = std::create::<vec::<u32>>();
+            lines->push_back(0);
+            entry->publish_lines(lines, 1);
             return;
         }
 
