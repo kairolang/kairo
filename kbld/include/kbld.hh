@@ -1,8 +1,8 @@
 #pragma once
-// kbld_lib.hh — build script library for build.kro
+// kbld_lib.hh — build script library for build.k
 // ffi "c++" import "kbld_lib.hh";
 //
-// build.kro emits a single JSON blob to stdout via Project::emit().
+// build.k emits a single JSON blob to stdout via Project::emit().
 // kbld reads it after the script exits and deserializes into Config.
 //
 // Dependencies: nlohmann/json.hpp, include/core.hh
@@ -203,16 +203,16 @@ inline auto env(const string &key) -> libcxx::optional<string> {
 namespace log {
 
     inline void info(const string &msg) {
-        libcxx::fprintf(stderr, "\033[1;34m[build.kro]\033[0m %s\n", _w2n(msg).c_str());
+        libcxx::fprintf(stderr, "\033[1;34m[build.k]\033[0m %s\n", _w2n(msg).c_str());
     }
     inline void ok(const string &msg) {
-        libcxx::fprintf(stderr, "\033[1;32m[build.kro]\033[0m %s\n", _w2n(msg).c_str());
+        libcxx::fprintf(stderr, "\033[1;32m[build.k]\033[0m %s\n", _w2n(msg).c_str());
     }
     inline void warn(const string &msg) {
-        libcxx::fprintf(stderr, "\033[1;33m[build.kro]\033[0m %s\n", _w2n(msg).c_str());
+        libcxx::fprintf(stderr, "\033[1;33m[build.k]\033[0m %s\n", _w2n(msg).c_str());
     }
     inline void error(const string &msg) {
-        libcxx::fprintf(stderr, "\033[1;31m[build.kro]\033[0m %s\n", _w2n(msg).c_str());
+        libcxx::fprintf(stderr, "\033[1;31m[build.k]\033[0m %s\n", _w2n(msg).c_str());
     }
 
 }  // namespace log
@@ -725,7 +725,7 @@ class Project {
 }  // namespace kairo
 
 // ─────────────────────────────────────────────────────────────────────────────
-// kbld driver side — used by kbld's C++ internals, never by build.kro
+// kbld driver side — used by kbld's C++ internals, never by build.k
 // ─────────────────────────────────────────────────────────────────────────────
 
 namespace kbld::script {
@@ -830,7 +830,7 @@ inline auto run_script(const fs::path &bin, const ScriptEnvVars &env_vars)
 template <typename T_Config, typename T_Target>
 inline auto parse_script_output(const _kstr &raw_json, T_Config &cfg, _kstr &error_msg) -> bool {
     if (raw_json.empty()) {
-        error_msg = "build.kro produced no output — did you call Project::emit()?";
+        error_msg = "build.k produced no output — did you call Project::emit()?";
         return false;
     }
 
@@ -838,7 +838,7 @@ inline auto parse_script_output(const _kstr &raw_json, T_Config &cfg, _kstr &err
     try {
         doc = json::parse(raw_json);
     } catch (const std::exception &e) {
-        error_msg = _kstr("failed to parse build.kro JSON: ") + e.what();
+        error_msg = _kstr("failed to parse build.k JSON: ") + e.what();
         return false;
     }
 
@@ -883,7 +883,7 @@ inline auto parse_script_output(const _kstr &raw_json, T_Config &cfg, _kstr &err
     }
 
     if (!doc.contains("targets") || !doc["targets"].is_array()) {
-        error_msg = "build.kro JSON has no 'targets' array";
+        error_msg = "build.k JSON has no 'targets' array";
         return false;
     }
 
@@ -932,7 +932,7 @@ inline auto parse_script_output(const _kstr &raw_json, T_Config &cfg, _kstr &err
     }
 
     if (cfg.targets.empty()) {
-        error_msg = "build.kro emitted no targets";
+        error_msg = "build.k emitted no targets";
         return false;
     }
     return true;
@@ -978,7 +978,7 @@ inline auto run_build_script(const fs::path &script_src,
                 stderr, "\033[1;36m[kbld]\033[0m compiling %s\n", script_src.string().c_str());
         auto [rc, output] = compile_script(kairo, script_src, script_bin, {}, kbld_bin, verbose);
         if (rc != 0) {
-            std::fprintf(stderr, "\033[1;31m[kbld]\033[0m build.kro compilation failed\n");
+            std::fprintf(stderr, "\033[1;31m[kbld]\033[0m build.k compilation failed\n");
             if (!output.empty())
                 std::fprintf(stderr, "%s", output.c_str());
             return rc;
@@ -1017,7 +1017,7 @@ inline auto run_build_script(const fs::path &script_src,
 
     auto [rc, raw_json] = run_script(script_bin, e);
     if (rc != 0) {
-        std::fprintf(stderr, "\033[1;31m[kbld]\033[0m build.kro exited with code %d\n", rc);
+        std::fprintf(stderr, "\033[1;31m[kbld]\033[0m build.k exited with code %d\n", rc);
         return rc;
     }
 

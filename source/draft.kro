@@ -81,7 +81,7 @@ module PreProcessor { // may not have this in the future
 /// this should concat into 1 error:
 /// error: [S...E] excepted an identifier but got 'u8' (type)
 ///   related error: [S...E] primitive type's can not be used in this context.
-///      --> some_file.kro:10:5
+///      --> some_file.k:10:5
 ///     9 | ...
 ///    10 | var _: u8 = "5";
 ///       |     ++ ^^
@@ -89,7 +89,7 @@ module PreProcessor { // may not have this in the future
 ///    fix: Replace 'u8' with a valid identifier or alias.
 ///
 ///   note: [I...N] see definition of function
-///      --> some_file.kro:19
+///      --> some_file.k:19
 ///    19 | fn something(x: *u8) {
 ///
 /// a single error could contain:

@@ -109,14 +109,14 @@ fn <N: std::size_t> kairo_compiler(std::array::<std::string, N> args) -> i32 {
     return 0;
 }
 
-/* other.kro
+/* other.k
 ```kairo
 
 import main;
 
 fn run_tests() {
-    test main; // runs all tests defined in main.kro
-    test main["this is main.kro"]; // runs the test with the given name
+    test main; // runs all tests defined in main.k
+    test main["this is main.k"]; // runs the test with the given name
 }
 
 fn main() -> int {

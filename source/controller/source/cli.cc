@@ -30,19 +30,19 @@ Kairo CLI - The Next-Generation Compiler for Modern Development
 
 Usage Examples:
   1. Compile a Kairo source file:
-     kairo input_file.kro
+     kairo input_file.k
 
   2. Compile with optimization level 2:
-     kairo -O2 -o output_file input_file.kro
+     kairo -O2 -o output_file input_file.k
 
   3. Generate LLVM Intermediate Representation (IR):
-     kairo --emit-llvm -o output.ll input_file.kro
+     kairo --emit-llvm -o output.ll input_file.k
 
   4. Cross-compile for a specific target:
-     kairo --target x86_64-linux-gnu -o output_file input_file.kro
+     kairo --target x86_64-linux-gnu -o output_file input_file.k
 
   5. Compile as a library with Rust ABI:
-     kairo --lib --rust -o liboutput.a input_file.kro
+     kairo --lib --rust -o liboutput.a input_file.k
 
 For more detailed documentation, visit:
   https://kairo-lang.com/docs
@@ -129,7 +129,7 @@ DISCLAIMER: All of these options are subject to change in future versions of kai
                            "Generate C++ header files and compile to a linkable object file",
                             {"cxx", "cxx"});
         args::Flag  kairo_abi(
-            abi_group, "kairo", "Generate Kairo ABI-compatible library", {"kro", "kairo"});
+            abi_group, "kairo", "Generate Kairo ABI-compatible library", {"k", "kairo"});
 
         args::ValueFlagList<std::string> include_dirs(
             parser, "include", "Specify include directories", {'I'});

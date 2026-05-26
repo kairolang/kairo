@@ -306,7 +306,7 @@ static auto find_kairo(const std::string &configured) -> std::string {
         }
     }
 #endif
-    // 2. Fall back to whatever build.kro specified (hits PATH)
+    // 2. Fall back to whatever build.k specified (hits PATH)
     return configured;
 }
 
@@ -484,8 +484,8 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
                        "Commands:\n"
                        "  build  [targets...]    Build all or specified targets (default)\n"
                        "  clean  [targets...]    Remove build artifacts\n"
-                       "  test   <file.kro>      Compile and run a test file\n"
-                       "  deps   <file.kro>      Print dependency tree for a file\n"
+                       "  test   <file.k>      Compile and run a test file\n"
+                       "  deps   <file.k>      Print dependency tree for a file\n"
                        "  index                  Regenerate compile_commands.json only\n"
                        "  install [prefix]       Copy binaries to prefix/bin\n"
                        "\n"
@@ -517,7 +517,7 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// build.kro → Config via kbld::script
+// build.k → Config via kbld::script
 // ─────────────────────────────────────────────────────────────────────────────
 
 static auto load_config(const fs::path    &script_src,
@@ -536,7 +536,7 @@ static auto load_config(const fs::path    &script_src,
                                                             cfg);
 
     if (rc != 0)
-        throw std::runtime_error("build.kro failed");
+        throw std::runtime_error("build.k failed");
 
     return cfg;
 }
@@ -553,8 +553,8 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
     for (auto &t : cfg.targets)
         entry_paths.insert(fs::absolute(t.entry));
 
-    // build.kro is always excluded from normal kro scanning — gets its own entry
-    auto build_kro_abs = fs::absolute(root / "build.kro");
+    // build.k is always excluded from normal kro scanning — gets its own entry
+    auto build_kro_abs = fs::absolute(root / "build.k");
 
     const auto &first = cfg.targets.front();
 
@@ -586,8 +586,8 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         auto ext = de.path().extension().string();
         if (cxx_exts.contains(ext)) {
             cxx_files.push_back(abs);
-        } else if (ext == ".kro" && !entry_paths.contains(abs) &&
-                   abs != build_kro_abs) {  // exclude build.kro from non-entry scan
+        } else if (ext == ".k" && !entry_paths.contains(abs) &&
+                   abs != build_kro_abs) {  // exclude build.k from non-entry scan
             kro_non_entry.push_back(abs);
         }
     }
@@ -618,7 +618,7 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(e));
     }
 
-    // Non-entry .kro files — includes only
+    // Non-entry .k files — includes only
     for (auto &f : kro_non_entry) {
         json args = json::array();
         for (auto &inc : first.includes)
@@ -630,7 +630,7 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(e));
     }
 
-    // Target entry .kro files — each target's own includes
+    // Target entry .k files — each target's own includes
     for (auto &t : cfg.targets) {
         json args = json::array();
         for (auto &inc : t.includes)
@@ -642,7 +642,7 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(e));
     }
 
-    // build.kro — always gets its own entry with -include kbld_lib.hh
+    // build.k — always gets its own entry with -include kbld_lib.hh
     // path is deterministic: <self_exe>/../include/kbld_lib.hh
     if (fs::exists(build_kro_abs)) {
         auto kbld_bin = self_exe();  // the static helper from earlier
@@ -1099,7 +1099,7 @@ static auto execute_index(const Config &cfg) -> int {
 static auto execute_deps(const Config &cfg, const CLIOptions &opts, const std::string &kairo)
     -> int {
     if (opts.positional.empty()) {
-        _I_log::error("usage: kbld deps <file.kro>");
+        _I_log::error("usage: kbld deps <file.k>");
         return 1;
     }
 
@@ -1187,7 +1187,7 @@ static auto execute_install(const Config &cfg, const CLIOptions &opts) -> int {
 static auto execute_test(const Config &cfg, const CLIOptions &opts, const std::string &kairo)
     -> int {
     if (opts.positional.empty()) {
-        _I_log::error("usage: kbld test <file.kro> [--perf] [--compile-only]");
+        _I_log::error("usage: kbld test <file.k> [--perf] [--compile-only]");
         return 1;
     }
 
@@ -1289,14 +1289,14 @@ int main(int argc, char *argv[]) {
     try {
         auto opts = parse_cli(argc, argv);
 
-        // find build.kro — walk up from cwd
+        // find build.k — walk up from cwd
         fs::path script_src;
         fs::path root = fs::current_path();
         {
             auto dir = root;
             while (true) {
-                if (fs::exists(dir / "build.kro")) {
-                    script_src = dir / "build.kro";
+                if (fs::exists(dir / "build.k")) {
+                    script_src = dir / "build.k";
                     root       = dir;
                     fs::current_path(dir);
                     break;
@@ -1309,7 +1309,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (script_src.empty()) {
-            _I_log::error("build.kro not found in current or parent directories");
+            _I_log::error("build.k not found in current or parent directories");
             return 1;
         }
 

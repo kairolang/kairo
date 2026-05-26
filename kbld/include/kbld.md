@@ -1,6 +1,6 @@
 # kbld_lib API Reference
 
-Automatically available in `build.kro` via `-include kbld.hh`. No import needed.
+Automatically available in `build.k` via `-include kbld.hh`. No import needed.
 
 ---
 
@@ -14,7 +14,7 @@ fn build_mode()   -> string   // "release" or "debug"
 fn triple()       -> string   // e.g. "x86_64-linux-gnu"
 fn platform()     -> string   // "linux" | "macos" | "windows"
 fn arch()         -> string   // "x86_64" | "aarch64" | "wasm32"
-fn project_root() -> string   // absolute path to directory containing build.kro
+fn project_root() -> string   // absolute path to directory containing build.k
 fn out_dir()      -> string   // absolute path to output binary directory
 fn build_dir()    -> string   // absolute path to build/
 fn compiler()     -> string   // path to the kairo compiler binary
@@ -32,10 +32,10 @@ fn env(key: string) -> libcxx::optional::<string>  // getenv, nullopt if unset
 All logging goes to stderr. stdout is reserved for the JSON blob emitted by `Project`.
 
 ```
-fn log::info(msg: string)   -> void   // blue   [build.kro] prefix
-fn log::ok(msg: string)     -> void   // green  [build.kro] prefix
-fn log::warn(msg: string)   -> void   // yellow [build.kro] prefix
-fn log::error(msg: string)  -> void   // red    [build.kro] prefix, does not exit
+fn log::info(msg: string)   -> void   // blue   [build.k] prefix
+fn log::ok(msg: string)     -> void   // green  [build.k] prefix
+fn log::warn(msg: string)   -> void   // yellow [build.k] prefix
+fn log::error(msg: string)  -> void   // red    [build.k] prefix, does not exit
 ```
 
 ---
@@ -161,7 +161,7 @@ Target(name: string)
 ### Setters — single value
 
 ```
-fn Target::entry(path: string)       -> ref!(Target)   // required: entry .kro file
+fn Target::entry(path: string)       -> ref!(Target)   // required: entry .k file
 fn Target::kind(v: string)           -> ref!(Target)   // "binary" | "static" | "shared" (default: "binary")
 fn Target::include(path: string)     -> ref!(Target)   // -I flag
 fn Target::link_dir(path: string)    -> ref!(Target)   // -L flag
@@ -191,7 +191,7 @@ fn Target::passthroughs(v: vec::<string>) -> ref!(Target)
 **Example**
 ```
 var t = Target("kairo")
-    .entry("Toolchain/Driver/Main/kairo.kro")
+    .entry("Toolchain/Driver/Main/kairo.k")
     .includes(["Toolchain", "Lib/bootstrap/lib-helix"])
     .define("VERSION=L\"0.1.0\"")
     .dep("kbld")
@@ -206,7 +206,7 @@ var t = Target("kairo")
 
 Top-level config. Collects targets and global settings. Emits JSON to stdout automatically when it goes out of scope at the end of `main()`. Do not call `emit()` manually under normal usage.
 
-Copy is disabled. Only one `Project` per `build.kro`.
+Copy is disabled. Only one `Project` per `build.k`.
 
 ### Constructor
 
@@ -247,12 +247,12 @@ fn main() -> i32 {
         .skip_dirs(["build", "libs", "private"]);
 
     p.target(Target("kairo")
-        .entry("Toolchain/Driver/Main/kairo.kro")
+        .entry("Toolchain/Driver/Main/kairo.k")
         .includes(["Toolchain", "Lib/bootstrap/lib-helix"])
         .define("VERSION=L\"kairo-0.1.1+rc.250306\""));
 
     p.target(Target("kbld")
-        .entry("Toolchain/Driver/Main/kbld.kro")
+        .entry("Toolchain/Driver/Main/kbld.k")
         .include("Toolchain")
         .define("VERSION=L\"kbld-0.1.0+rc.250306\"")
         .dep("kairo"));

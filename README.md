@@ -38,9 +38,9 @@ The core bet: you shouldn't have to choose between safety and productivity, or b
 
 ## What Stage-0 Does
 
-- **Transpiles `.kro` → C++**, invoking the host compiler (Clang/MSVC/GCC) - no LLVM dependency
+- **Transpiles `.k` → C++**, invoking the host compiler (Clang/MSVC/GCC) - no LLVM dependency
 - **Error remapping**: rewrites C++ diagnostics back to Kairo source locations
-- **Debugger source mapping**: step through `.kro` files in gdb/lldb/msvc
+- **Debugger source mapping**: step through `.k` files in gdb/lldb/msvc
 - **Lexer**: SIMD-optimized UTF-8 tokenizer, ~40–150ns/token
 - **Parser**: hand-written recursive descent, full Kairo grammar
 - **Import resolution**: module graph
@@ -106,7 +106,7 @@ xmake run kairo -h    # compiler CLI
 ## Usage
 
 ```sh
-kairo hello_world.kro
+kairo hello_world.k
 ./hello_world
 ```
 

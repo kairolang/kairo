@@ -34,7 +34,7 @@ __CONTROLLER_FS_BEGIN {
                     node.children.push_back(std::move(dirNode));
                     containsKairoFiles = true;
                 }
-            } else if (entry.path().extension() == ".kro") {
+            } else if (entry.path().extension() == ".k") {
                 node.children.emplace_back(entry.path().string());
                 containsKairoFiles = true;
             }

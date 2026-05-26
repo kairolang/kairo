@@ -7,7 +7,7 @@
             "name": "Launch",
             "target": "kairo",
             "args": [
-                "tests/test.kro"
+                "tests/test.k"
             ],
             "cwd": "${cwd}",
             "stopAtEntry": true

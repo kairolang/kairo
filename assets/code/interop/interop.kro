@@ -1,4 +1,4 @@
-// filename: peripherals.kro
+// filename: peripherals.k
 
 // Optional alias 'as peripherals': This allows you to import the header under a module name.
 // If no alias is provided, the class is imported into the global scope of this file. (like in C++)

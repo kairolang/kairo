@@ -39,16 +39,16 @@ def setup_logging(enable_logging):
     logger.info("Logging enabled")
 
 def validate_folder(folder_path):
-    """Validate that the folder exists and contains .kro files."""
+    """Validate that the folder exists and contains .k files."""
     logger.debug(f"Validating folder: {folder_path}")
     if not os.path.isdir(folder_path):
         logger.error(f"Provided path '{folder_path}' is not a directory.")
         raise ValueError(f"The provided path '{folder_path}' is not a valid directory.")
-    kro_files = [f for f in os.listdir(folder_path) if f.endswith('.kro')]
+    kro_files = [f for f in os.listdir(folder_path) if f.endswith('.k')]
     if not kro_files:
-        logger.error(f"No .kro files found in the directory '{folder_path}'.")
-        raise ValueError(f"No .kro files found in the directory '{folder_path}'.")
-    logger.debug(f"Found .kro files: {kro_files}")
+        logger.error(f"No .k files found in the directory '{folder_path}'.")
+        raise ValueError(f"No .k files found in the directory '{folder_path}'.")
+    logger.debug(f"Found .k files: {kro_files}")
     return kro_files
 
 def parse_expected_output(file_path):
@@ -83,7 +83,7 @@ def parse_expected_output(file_path):
         return [], False
 
 def compile_and_execute(compiler_path, file_path, output_path):
-    """Compile and execute the .kro file."""
+    """Compile and execute the .k file."""
     logger.debug(f"Compiling file: {file_path}")
     try:
         # Compile the file

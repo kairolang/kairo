@@ -630,15 +630,15 @@ leave_loop_has_processable_import:
         /// we first normalize the ... by doing the following: we take the whole scope path replace
         /// the `::` with `/` we dont add anything to the end tho just yet.
 
-        /// if we have `import module ...` then we attach a .kro to the end of it and then resolve
+        /// if we have `import module ...` then we attach a .k to the end of it and then resolve
         /// it starting with the cwd then each of the specified import paths, if we have collisions,
         /// we take what we see first then warn saying import also matched in other locations.
 
         /// if we have 'import ...` we first see if the specified dir exists, if so then does it
-        /// contain a .kro file matching the back of the path name, like lets say `import foo::bar`
-        /// does foo/bar exist as a dir, if so does foo/bar/bar.kro exist, if so process that as a
+        /// contain a .k file matching the back of the path name, like lets say `import foo::bar`
+        /// does foo/bar exist as a dir, if so does foo/bar/bar.k exist, if so process that as a
         /// whole different compile unit entirely since its a lib and follow external linkage
-        /// but if foo/bar is not a dir then check for foo/bar.kro, if it exists start a new compile
+        /// but if foo/bar is not a dir then check for foo/bar.k, if it exists start a new compile
         /// action and do internal linkage.
 
         /// NOTE: if we have a spec import, backtrack each path from right to left looking, since
@@ -975,7 +975,7 @@ leave_loop_has_processable_import:
                 auto check_and_emplace = [&](const std::filesystem::path &_path, size_t index) {
                     if (std::filesystem::exists(_path) && std::filesystem::is_regular_file(_path)) {
 
-                        if (path.extension() == ".kro") {
+                        if (path.extension() == ".k") {
                             found_paths.emplace_back(_path, index, Type::Module);
                         } else if (path.extension() == ".kh") {
                             found_paths.emplace_back(_path, index, Type::Header);
@@ -1015,9 +1015,9 @@ leave_loop_has_processable_import:
             return path.replace_extension(ext);
         };
 
-        std::filesystem::path kairo_mod     = add_ext(path, ".kro");
+        std::filesystem::path kairo_mod     = add_ext(path, ".k");
         std::filesystem::path kairo_hdr     = add_ext(path, ".kh");
-        std::filesystem::path kairo_mod_lib = add_ext(path / path.stem(), ".kro");
+        std::filesystem::path kairo_mod_lib = add_ext(path / path.stem(), ".k");
         std::filesystem::path kairo_hdr_lib = add_ext(path / path.stem(), ".kh");
 
         bool found_kairo_mod     = false;
@@ -1029,9 +1029,9 @@ leave_loop_has_processable_import:
         for (size_t i = 0; i < import_dirs.size(); ++i) {
             /// exmaple path = foo/bar
             /// we check in the following order:
-            /// 1. foo/bar.kro
+            /// 1. foo/bar.k
             /// 2. foo/bar.kh
-            /// 3. foo/bar/bar.kro
+            /// 3. foo/bar/bar.k
             /// 4. foo/bar/bar.kh
 
             if (std::filesystem::exists(import_dirs[i] / kairo_mod) &&
@@ -1060,18 +1060,18 @@ leave_loop_has_processable_import:
             //  headers are second
             //  modules have least priority (UNLESS MARKED `module` then they are first)
             //
-            // main.kro <- `import foo`
-            // foo.kro
+            // main.k <- `import foo`
+            // foo.k
             // foo.kh
             // foo/
-            //   foo.kro
+            //   foo.k
             //   foo.kh
             //
             // in this case following our rules we end up with getting foo/foo.kh
             // but how to get the rest?
             // to get:
-            //    ./foo.kro    <- `import module foo`
-            //    foo/foo.kro  <- `import module foo::foo`
+            //    ./foo.k    <- `import module foo`
+            //    foo/foo.k  <- `import module foo::foo`
             //
             //    ./foo.kh   <- `import foo`
             //    foo/foo.kh <- `import foo::foo`

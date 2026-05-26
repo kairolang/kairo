@@ -167,7 +167,7 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
     if (!CORE_IMPORTED) { // 1 core import per file
         CORE_IMPORTED = true;
 
-        auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "core.kro";
+        auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "core.k";
         auto pos = tokens[0];
 
         import_processor->force_import(core, parsed_args);

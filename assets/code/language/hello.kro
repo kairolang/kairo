@@ -1,4 +1,4 @@
-// file: hello_world.kro
+// file: hello_world.k
 
 fn main() -> i32 {
     print("Welcome to Kairo 🚀")

@@ -158,7 +158,7 @@ local function kairo_src_setup()
 
 	-- Add source fikes
 	add_files("source/**.cc") -- add all files in the source directory
-    -- add_files("source/**.kro") -- compile all kairo files
+    -- add_files("source/**.k") -- compile all kairo files
 
 	-- Header files
 	add_headerfiles("source/**.hh") -- add all headers in the source directory

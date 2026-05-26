@@ -24,7 +24,7 @@ mode     = "release"   # "release" | "debug", overridden by --debug/--release CL
 
 [[target]]
 name    = "kairo"
-entry   = "toolchain/Driver/Main/kbld.kro"
+entry   = "toolchain/Driver/Main/kbld.k"
 type    = "binary"          # "binary" | "static" | "shared"
 includes = [".", "toolchain"]
 links    = []               # -L dirs
@@ -37,7 +37,7 @@ cxx_passthrough = []                         # anything else after --
 
 [[target]]
 name     = "vial"
-entry    = "vial/vial.kro"
+entry    = "vial/vial.k"
 type     = "binary"
 includes = [".", "vial"]
 deps     = ["kairo"]
@@ -54,8 +54,8 @@ kbld [command] [options]
 Commands:
   build  [targets...]    Build all or specified targets (default if no command given)
   clean  [targets...]    Remove build artifacts for targets, or all if none specified
-  test   <file.kro>      Compile and run a test file (requires fn Test() -> i32)
-  deps   <file.kro>      Print resolved dependency tree for a file
+  test   <file.k>      Compile and run a test file (requires fn Test() -> i32)
+  deps   <file.k>      Print resolved dependency tree for a file
   index                  Regenerate compile_commands.json only, no build
   install [prefix]       Copy binaries to prefix/bin (default: /usr/local/bin)
 
@@ -136,7 +136,7 @@ Generated at project root before any build step. Three entry types:
 ```
 Include dirs and defines come from the first target in `build.toml`.
 
-**Non-entry `.kro` files** — all `.kro` files not listed as a target `entry`, using first target's flags:
+**Non-entry `.k` files** — all `.k` files not listed as a target `entry`, using first target's flags:
 ```json
 {
   "directory": "<cwd>",
@@ -147,7 +147,7 @@ Include dirs and defines come from the first target in `build.toml`.
 }
 ```
 
-**Target entry `.kro` files** — one per target, using that target's own flags:
+**Target entry `.k` files** — one per target, using that target's own flags:
 ```json
 {
   "directory": "<cwd>",
@@ -205,7 +205,7 @@ The generated file is added to `cxx_sources` for the target internally before co
 
 ---
 
-## Test Runner — `kbld test <file.kro>`
+## Test Runner — `kbld test <file.k>`
 
 1. Strip comments (single-line `//` and block `/* */`), scan for `fn Test() -> i32`
 2. If not found: error and exit 1
@@ -230,7 +230,7 @@ fn main() -> i32 {
     "kairo": {
       "entry_mtime": 1739800000,
       "dep_mtimes": {
-        "/abs/path/to/dep.kro": 1739799000
+        "/abs/path/to/dep.k": 1739799000
       },
       "cxx_source_mtimes": {
         "toolchain/ffi/glue.cpp": 1739798000
@@ -269,7 +269,7 @@ Use `output_mtime` not a hash — faster, sufficient for local builds.
 ---
 
 
-### `kbld line <file.kro> [start:end]` — IR Line Extraction
+### `kbld line <file.k> [start:end]` — IR Line Extraction
 
 Invokes `kairo <file> --emit-ir --verbose -I<includes...>` using the first target's includes. Processes stdout:
 
@@ -285,7 +285,7 @@ If `clang-format` fails or isn't present, print the raw extracted code.
 
 ---
 
-### `kbld test <file.kro> [--perf] [--compile-only]`
+### `kbld test <file.k> [--perf] [--compile-only]`
 
 `--compile-only`: compile the test binary but don't execute it. Equivalent to the original `compile` command mode.
 
@@ -316,7 +316,7 @@ Include dirs from the first target use `/I<path>` syntax. On all other platforms
 ```toml
 [[target]]
 name = "kairo"
-entry = "toolchain/Driver/Main/kbld.kro"
+entry = "toolchain/Driver/Main/kbld.k"
 # ...
 pre_build  = "python scripts/gen_version.py"   # runs before kairo invocation
 post_build = "python scripts/sign_binary.py"   # runs after successful build

@@ -131,9 +131,9 @@ __CONTROLLER_FS_BEGIN {
     }
 
     // TODO: make all readfiles after the first one be relative to the first one
-    /// Example: readfile("file1.kro") -> /path/to/file1.kro
-    ///          readfile("test/file2.kro") -> /path/to/test/file2.kro
-    ///          readfile("../file3.kro") -> /path/to/file3.kro
+    /// Example: readfile("file1.k") -> /path/to/file1.k
+    ///          readfile("test/file2.k") -> /path/to/test/file2.k
+    ///          readfile("../file3.k") -> /path/to/file3.k
 
     std::string read_file(const std::string &filename) {
         std::optional<fs_path> path = __CONTROLLER_FS_N::resolve_path(filename, true, false);

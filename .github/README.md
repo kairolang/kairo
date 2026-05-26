@@ -461,9 +461,9 @@ Here's how you can write and run a simple "Hello, World!" program in Kairo:
 To compile then run the source:
 
 ```powershell
-$ ./build/.../bin/kairo hello_world.kro
+$ ./build/.../bin/kairo hello_world.k
 # or if added to PATH
-$ kairo hello_world.kro
+$ kairo hello_world.k
 $ ./hello_world
 ```
 
