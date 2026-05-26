@@ -377,6 +377,11 @@ class Lexer {
             // we do not emit errors here since some of them are expected to be handled later with better context
         }
 
+        if self.is_eof() {
+            var eof_token = Token(self.get_source_range(), TokenKind::TkEof, 0);
+            self._tokens.append(eof_token);
+        }
+
         // finalize balance checking we also need to pass the buff and lock right before eof
         self._balance.finalize(&(self._tokens), self.get_source_location());
 
@@ -492,6 +497,12 @@ class Lexer {
             }
         }
 
+        // if we hit eof append it
+        if self.is_eof() {
+            var eof_token = Token(self.get_source_range(), TokenKind::TkEof, 0);
+            tokens->append(eof_token);
+        }
+
         // route invalid tokens from the slice through the diagnostic engine
         for var i: usize = 0; i < tokens->size(); ++i {
             var token = tokens->get(i);
@@ -582,7 +593,7 @@ class Lexer {
     }
 
     inline priv fn is_eof(self) -> bool {
-        return self._cursor > (self.file_size() - 1);
+        return self._cursor >= self.file_size();
     }
 
     inline priv fn current_data(self) -> std::ConstPtr::<u8> {
@@ -590,6 +601,7 @@ class Lexer {
     }
 
     inline priv fn remaining_offset(self) -> usize {
+        if self._cursor >= self.file_size() { return 0; }
         return self.file_size() - self._cursor - 1;
     }
 
@@ -913,6 +925,10 @@ class Lexer {
     inline priv fn get_source_location(self, pos: usize) -> SourceLocation {
         // self._cursor can never be over or equal to file size
         return self._sm->get_loc(self._fid, pos);
+    }
+
+    inline priv fn get_source_range(self) -> SourceRange {
+        return SourceRange::from_bounds(self.get_source_location(), self.get_source_location());
     }
 
     inline priv fn create_source_range(self, start: SourceLocation) -> SourceRange {
