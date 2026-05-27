@@ -1,0 +1,59 @@
+name: Diagnostic feedback
+description: An error or warning message is unclear, misleading, missing context, or fires when it shouldn't.
+title: "[diag] "
+labels: ["diagnostic", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Diagnostic quality is a first-class concern. Feedback on confusing, vague, or noisy diagnostics is welcomed and tracked separately from correctness bugs.
+
+  - type: input
+    id: version
+    attributes:
+      label: Compiler version
+    validations:
+      required: true
+
+  - type: input
+    id: code
+    attributes:
+      label: Diagnostic code
+      description: The error/warning code if shown (e.g. `T41E`). Leave blank if none.
+      placeholder: "T41E"
+
+  - type: textarea
+    id: source
+    attributes:
+      label: Source that triggered the diagnostic
+      render: rust
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: Current diagnostic output
+      description: Copy the full output as printed.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of feedback
+      options:
+        - Wording is unclear or misleading
+        - Diagnostic fires incorrectly (false positive)
+        - Diagnostic should fire but doesn't (false negative)
+        - Missing context (source location, suggestion, related notes)
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: What the diagnostic should say instead, or what context it should include.

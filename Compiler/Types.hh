@@ -1000,7 +1000,7 @@ inline string get_thread_model() noexcept {
 #endif
 }
 
-/// StackBuf<T, N> — inline scratch buffer for parser hot paths.
+/// StackBuf<T, N> inline scratch buffer for parser hot paths.
 /// Trivially destructible T only. No copy, no move. Stack-local only.
 template <typename T, unsigned N>
 class StackBuf {

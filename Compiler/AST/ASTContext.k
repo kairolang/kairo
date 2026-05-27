@@ -147,8 +147,8 @@ class ASTContext {
 /// Thread safety: not thread-safe. The indexer must serialize intern()
 /// calls or give each thread its own interner and merge after.
 class StringInterner {
-    priv var _table:   libcxx::unordered_map::<string, u32>; ///< content → id
-    priv var _strings: vec::<*string>;                       ///< id → arena ptr
+    priv var _table:   libcxx::unordered_map::<string, u32>; ///< content -> id
+    priv var _strings: vec::<*string>;                       ///< id -> arena ptr
     priv var _ctx:     obs::<ASTContext>;
 
     fn StringInterner(self) {

@@ -1,0 +1,34 @@
+name: Documentation issue
+description: A docs page is wrong, missing, outdated, or unclear.
+title: "[docs] "
+labels: ["docs"]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page or section
+      description: URL or path to the affected documentation.
+      placeholder: "https://www.kairolang.org/docs/language/classes"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind of issue
+      options:
+        - Incorrect - describes behavior that doesn't match the compiler
+        - Missing - important topic not covered
+        - Outdated - refers to old syntax or removed feature
+        - Unclear - accurate but hard to understand
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What's wrong and what should it say instead.
+    validations:
+      required: true

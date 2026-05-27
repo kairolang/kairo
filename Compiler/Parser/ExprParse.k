@@ -3,10 +3,10 @@
 ///   \brief Expression parsing mixin. Pratt parser with postfix chain building.
 ///
 ///   \detail
-///     Entry point: parse_expr() → Pratt loop with precedence climbing.
-///     Primary dispatch: parse_primary_expr() → literals, identifiers, prefix
+///     Entry point: parse_expr() -> Pratt loop with precedence climbing.
+///     Primary dispatch: parse_primary_expr() -> literals, identifiers, prefix
 ///     unary, parenthesized exprs, keyword exprs (sizeof, typeof, etc.).
-///     Postfix loop: `_parse_postfix()` → builds ChainExpr steps for `.`, `::`,
+///     Postfix loop: `_parse_postfix()` -> builds ChainExpr steps for `.`, `::`,
 ///     `->`, `?.`; wraps in CallExpr for `(`; wraps in SubscriptExpr for `[`.
 ///
 ///     Generic disambiguation: when `<` follows an identifier, checks hoisted
@@ -714,12 +714,12 @@ class <T> ExprParse {
     /// \brief parses a primary expression then loops consuming postfix ops.
     ///
     /// postfix ops:
-    ///   . -> :: ?. ?->           → accumulate ChainExpr steps
-    ///   (                        → wrap current expr in CallExpr
-    ///   [                        → wrap current expr in SubscriptExpr
-    ///   ++ --                    → wrap in postfix UnaryOperatorExpr
-    ///   ...                      → wrap in PackExpansionExpr
-    ///   as                       → wrap in TypeCastExpr
+    ///   . -> :: ?. ?->           -> accumulate ChainExpr steps
+    ///   (                        -> wrap current expr in CallExpr
+    ///   [                        -> wrap current expr in SubscriptExpr
+    ///   ++ --                    -> wrap in postfix UnaryOperatorExpr
+    ///   ...                      -> wrap in PackExpansionExpr
+    ///   as                       -> wrap in TypeCastExpr
     ///
     /// chain steps are accumulated into a StackBuf. when a non-access postfix
     /// or end-of-postfix is reached, any pending steps are frozen into a
@@ -1369,9 +1369,9 @@ class <T> ExprParse {
     /// \brief parses a bare identifier, optionally followed by generic args
     ///        if the hoisted scope indicates it's generic.
     ///
-    /// foo       → NamedIdentExpr("foo")
-    /// Bar<i32>  → NamedIdentExpr("Bar", generic_args=[i32])
-    /// self      → NamedIdentExpr("self")
+    /// foo       -> NamedIdentExpr("foo")
+    /// Bar<i32>  -> NamedIdentExpr("Bar", generic_args=[i32])
+    /// self      -> NamedIdentExpr("self")
     inline fn _parse_ident_expr(self) -> *Expr {
         var id_ptr   = dyn()->current_ptr();
         var id_range = id_ptr->range;
@@ -1522,8 +1522,8 @@ class <T> ExprParse {
     // ════════════════════════════════════════════════════════════════════════
 
     /// \brief parses (expr) or (expr, expr, ...)
-    ///        single expr → unwrapped (no GroupingExpr since CST not needed)
-    ///        comma-separated → TupleLiteralExpr
+    ///        single expr -> unwrapped (no GroupingExpr since CST not needed)
+    ///        comma-separated -> TupleLiteralExpr
     inline fn _parse_paren_expr(self) -> *Expr {
         var lparen_range = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `(`

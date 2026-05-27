@@ -1,6 +1,6 @@
 # Kairo Language Documentation
 
-The canonical source for Kairo's documentation lives in the [kairo-web](https://github.com/kairolang/kairo-web) repo under `src/content/docs/`. The published docs are at [kairolang.org](https://kairolang.org).
+The canonical source for Kairo's documentation lives in the [kairo-web](https://github.com/kairolang/kairo-web) repo under `src/content/docs/`. The published docs are at [www.kairolang.org](https://www.kairolang.org).
 
 This directory is a **read-only mirror** and may lag behind the canonical source. Do not submit doc changes here, open PRs against [kairo-web](https://github.com/kairolang/kairo-web) instead.
 

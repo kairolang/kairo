@@ -1,0 +1,76 @@
+name: Build issue (Stage 0)
+description: Stage 0 (C++ bootstrap) fails to build, or fails to compile a .k file using the host C++ compiler.
+title: "[build/s0] "
+labels: ["build", "stage-0", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Stage 0 is the C++ bootstrap compiler. It is built with xmake against a host C++ compiler, and it shells out to that same host compiler to compile `.k` files. Failures during compiler build and failures during `.k` compilation both belong here.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What failed
+      options:
+        - Building the Stage 0 compiler from source (xmake)
+        - Installing a prebuilt Stage 0 release
+        - Compiling a `.k` file with Stage 0 (host compiler invocation)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - macOS (arm64)
+        - macOS (x86_64)
+        - Windows (x86_64, MSVC)
+        - Windows (other)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: host-compiler
+    attributes:
+      label: Host C++ compiler and version
+      description: Output of `clang++ --version`, `g++ --version`, or `cl /?`.
+      placeholder: "Apple clang 17.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: xmake-version
+    attributes:
+      label: xmake version
+      description: Output of `xmake --version`. Leave blank if not relevant (e.g. binary install failure).
+      placeholder: "2.9.4"
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command that failed
+      description: Exact command line `xmake`, `kairo file.k`, install script invocation, etc.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: Full output from the failed command. Use verbose flags (`xmake -v`, `kairo --verbose`) where possible.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Environment details, package versions, anything unusual about the setup.

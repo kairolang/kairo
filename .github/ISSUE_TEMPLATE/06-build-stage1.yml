@@ -1,0 +1,81 @@
+name: Build issue (Stage 1)
+description: Stage 1 (self-hosted) fails to build via kbld, or fails to link against a target sysroot.
+title: "[build/s1] "
+labels: ["build", "stage-1", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Stage 1 is built with kbld and ships LLVM in-binary. No host C++ compiler is required. Sysroots are needed for cross-compilation targets.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What failed
+      options:
+        - Building Stage 1 from source (kbld)
+        - Installing a prebuilt Stage 1 release
+        - Compiling a `.k` file with Stage 1
+        - Linking against a sysroot
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host-platform
+    attributes:
+      label: Host platform (where kbld is running)
+      options:
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - macOS (arm64)
+        - macOS (x86_64)
+        - Windows (x86_64)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: target
+    attributes:
+      label: Target triple
+      description: Target platform if cross-compiling. Leave blank if building for host.
+      placeholder: "aarch64-unknown-linux-gnu"
+
+  - type: input
+    id: sysroot
+    attributes:
+      label: Sysroot path
+      description: Path passed to kbld / the compiler. Leave blank if not relevant.
+
+  - type: input
+    id: kbld-version
+    attributes:
+      label: kbld version
+      description: Output of `kbld --version`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command that failed
+      description: Exact command line.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output
+      description: Full output. Use verbose flags where available.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Sysroot provenance (manually downloaded, distro package, etc.), kbld config snippets, anything unusual.

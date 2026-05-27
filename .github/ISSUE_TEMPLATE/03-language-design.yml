@@ -1,0 +1,54 @@
+name: Language design proposal
+description: A change to syntax, semantics, or the type system. Substantive proposals only, small changes go in Discussions first.
+title: "[design] "
+labels: ["design", "needs-discussion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Design proposals require justification beyond preference. If this is exploratory, open a thread in [Discussions](https://github.com/kairolang/kairo/discussions) first.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One paragraph describing the proposed change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem does this solve? Reference concrete examples where the current language is inadequate.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed design
+      description: Syntax, semantics, type rules. Include code samples showing the proposed behavior.
+      render: rust
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other designs that could solve the same problem, and why this one was chosen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: prior-art
+    attributes:
+      label: Prior art
+      description: How do other languages (Rust, C++, Swift, Zig, etc.) handle this?
+
+  - type: textarea
+    id: drawbacks
+    attributes:
+      label: Drawbacks and open questions
+      description: Costs of the proposal, edge cases, unresolved aspects.

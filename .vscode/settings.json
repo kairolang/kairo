@@ -2,5 +2,9 @@
     "lldb.displayFormat": "hex",
     "lldb.showDisassembly": "auto",
     "lldb.dereferencePointers": true,
-    "lldb.consoleMode": "commands"
+    "lldb.consoleMode": "commands",
+    "material-icon-theme.files.associations": {
+        "*.k": "../../ksf.kairo-0.5.3/public/icons/file-kairo-v3",
+        "*.kh": "../../ksf.kairo-0.5.3/public/icons/file-kairo-v3"
+    }
 }

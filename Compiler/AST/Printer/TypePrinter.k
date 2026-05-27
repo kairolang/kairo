@@ -135,7 +135,7 @@ class TypePrinter {
         }
     }
 
-    //  SubstGenericParamType   (T → i32 substitution wrapper)
+    //  SubstGenericParamType   (T -> i32 substitution wrapper)
 
     priv fn _print_subst_generic(self, ty: *SubstGenericParamType) {
         if self._style == PrintStyle::Debug {
@@ -331,7 +331,7 @@ class TypePrinter {
                     self._print(ty->return_type);
                 }
                 else if !ct->is_simple() {
-                    // multi-segment or generic — always print
+                    // multi-segment or generic   always print
                     self._buf += " -> ";
                     self._print(ty->return_type);
                 }

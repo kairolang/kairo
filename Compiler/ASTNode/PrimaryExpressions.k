@@ -25,15 +25,15 @@ class NamedIdentExpr; // forward decl for ChainType segments
 ///
 ///  Unified type path node. Replaces NamedType, DependentNameType, and
 ///  GenericInstanceType. A single unqualified name like `i32` is a one-segment
-///  chain — use is_simple() to fast-path that case in sema.
+///  chain   use is_simple() to fast-path that case in sema.
 ///
 ///  examples:
-///    var foo: Foo::ISomething            — 2 segments, no generics
-///    var foo: Foo<i32>::slice            — 2 segments, first has generic args
-///    var bar: Foo<i32>::slice::Underlying — 3 segments
-///    var str: std::bad::string           — 3 segments
-///    var x:   ::GlobalType               — 1 segment, sep = ColonColon
-///    var y:   i32                        — 1 segment, is_simple() = true
+///    var foo: Foo::ISomething              2 segments, no generics
+///    var foo: Foo<i32>::slice              2 segments, first has generic args
+///    var bar: Foo<i32>::slice::Underlying   3 segments
+///    var str: std::bad::string             3 segments
+///    var x:   ::GlobalType                 1 segment, sep = ColonColon
+///    var y:   i32                          1 segment, is_simple() = true
 /// ============================================================================
 class ChainType derives Type {
     /// \enum SegmentSeparator
@@ -55,8 +55,8 @@ class ChainType derives Type {
     /// \struct GenericArg
     /// \brief a single argument in a generic argument list, optionally named.
     ///
-    /// positional: `Vec<i32>`       → name = null, type = i32
-    /// named:      `Map<Key: str>`  → name = "Key", type = str
+    /// positional: `Vec<i32>`       -> name = null, type = i32
+    /// named:      `Map<Key: str>`  -> name = "Key", type = str
     struct GenericArg {
         var name:       *NamedIdentExpr;  ///< set by sema for positional args.
         var name_range: SourceRange;      ///< range of the name token, invalid if positional.
@@ -193,12 +193,12 @@ class ChainType derives Type {
 ///  A single identifier in expression position, optionally carrying generic
 ///  arguments for bare generic usage like `Bar<i32>(x)`.
 ///
-///  `self` is represented as a NamedIdentExpr — sema identifies it by name.
+///  `self` is represented as a NamedIdentExpr   sema identifies it by name.
 ///
 ///  examples:
-///    foo          — bare identifier, no generics
-///    Bar<i32>     — generic instantiation on a bare name
-///    self         — self reference, sema resolves contextually
+///    foo            bare identifier, no generics
+///    Bar<i32>       generic instantiation on a bare name
+///    self           self reference, sema resolves contextually
 /// ============================================================================
 class NamedIdentExpr derives Expr {
     pub var name: Token;
