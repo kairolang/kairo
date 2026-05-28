@@ -60,7 +60,7 @@ sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 
 
 **Fedora / RHEL**
 
-Ensure `clang --version` reports 18+. Older RHEL ships an older toolchain — you may need a newer LLVM module (`sudo dnf module install llvm-toolset:latest`) to meet the minimum.
+Ensure `clang --version` reports 18+. Older RHEL ships an older toolchain you may need a newer LLVM module (`sudo dnf module install llvm-toolset:latest`) to meet the minimum.
 
 ```bash
 sudo dnf install -y clang libcxx-devel libcxxabi-devel git cmake ninja-build
@@ -195,14 +195,14 @@ kbld test Compiler/Lexer/Lexer.k
 
 ## 6. VSCode Extension (optional, recommended)
 
-VSCode is currently the only editor with LSP support and `.k` syntax highlighting. The language server ships as part of the compiler, so there's nothing extra to run — the extension just needs to know where `kairo` is.
+VSCode is currently the only editor with LSP support and `.k` syntax highlighting. The language server ships as part of the compiler, so there's nothing extra to run the extension just needs to know where `kairo` is.
 
 ### Install
 
 Pick whichever is easiest:
 
-- **VS Code Marketplace** — install directly from [the Kairo extension page](https://marketplace.visualstudio.com/items?itemName=KSF.kairo).
-- **Prebuilt VSIX** — grab the latest `.vsix` from [kairo-lsp](https://github.com/kairolang/kairo-lsp/) (e.g. `kairo-0.5.5.vsix`) and in VSCode: **Extensions** tab → **⋯** menu → **Install from VSIX…**
+- **VS Code Marketplace** install directly from [the Kairo extension page](https://marketplace.visualstudio.com/items?itemName=KSF.kairo).
+- **Prebuilt VSIX** grab the latest `.vsix` from [kairo-lsp](https://github.com/kairolang/kairo-lsp/) (e.g. `kairo-0.5.5.vsix`) and in VSCode: **Extensions** tab -> **⋯** menu -> **Install from VSIX…**
 - **Build from source:**
 
 ```bash
@@ -217,7 +217,7 @@ This produces a `.vsix` you install the same way as above.
 
 ### Configure
 
-If `kairo` is on your PATH, the extension finds it automatically — no configuration needed. Otherwise set `kairo.path` in your VSCode `settings.json` to the compiler's location. If it can't find the compiler, you'll get a simple "path not set" warning.
+If `kairo` is on your PATH, the extension finds it automatically no configuration needed. Otherwise set `kairo.path` in your VSCode `settings.json` to the compiler's location. If it can't find the compiler, you'll get a simple "path not set" warning.
 
 ### Debugging
 
