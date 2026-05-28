@@ -52,7 +52,23 @@ function get_cxx_standard(abi)
 	return "" -- error?
 end
 
-
+-- Statically link the LLVM C++ runtime + unwinder on Linux so release
+-- binaries don't depend on libc++.so.1 / libc++abi.so.1 / libunwind.so.1,
+-- which aren't present on stock glibc systems.
+function add_static_cxx_runtime()
+    if is_plat("linux") then
+        add_cxxflags("-stdlib=libc++", { force = true })
+        local unwind_a = os.iorun("clang++ --print-file-name=libunwind.a"):trim()
+        local ldflags = {"-stdlib=libc++", "-static-libstdc++"}
+        if os.isfile(unwind_a) then
+            table.insert(ldflags, unwind_a)
+        else
+            table.insert(ldflags, "-unwindlib=libgcc")
+        end
+        table.insert(ldflags, { force = true })
+        add_ldflags(table.unpack(ldflags))
+    end
+end
 
 function setup_windows()
 	add_rules("plugin.vsxmake.autoupdate")
@@ -298,7 +314,7 @@ end
 
 abi     = get_abi()
 runtime = get_runtime(abi)
-cxx_standard = get_cxx_standard(abi)
+cxx_standard = (abi)
 
 -- -- Requires
 -- add_requires("zlib")
@@ -347,10 +363,7 @@ target("kbld")
     add_headerfiles("Lib/bootstrap/lib-helix/core/include/**.h")
     add_headerfiles("Lib/bootstrap/lib-helix/core/include/**.hh")
 
-    if is_plat("linux", "macosx") then
-        add_cxxflags("-stdlib=libc++", { force = true })
-        add_ldflags("-stdlib=libc++", "-lc++", "-lc++abi", { force = true })
-    end
+    add_static_cxx_runtime()
 
 target_end()
 
@@ -382,6 +395,7 @@ target("kairo") -- target config defined in the config seciton
     set_kind("binary")
     set_policy("build.optimization.lto", true)
     set_languages(cxx_standard)
+    add_static_cxx_runtime()
 
     -- after build copy all the folders and files from Lib/bootstrap/lib-helix to the target directory
     after_build(function(target)
