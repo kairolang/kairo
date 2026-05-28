@@ -1,300 +1,308 @@
 name: Release (Stage 0)
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version string (e.g. 0.1.0-beta-rc.20260627)'
-        required: true
-        type: string
-      prerelease:
-        description: 'Mark as pre-release'
-        required: false
-        type: boolean
-        default: true
-      draft:
-        description: 'Create as draft (review before publishing)'
-        required: false
-        type: boolean
-        default: true
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Version string (e.g. 0.1.0-beta-rc.20260627)"
+                required: true
+                type: string
+            prerelease:
+                description: "Mark as pre-release"
+                required: false
+                type: boolean
+                default: true
+            draft:
+                description: "Create as draft (review before publishing)"
+                required: false
+                type: boolean
+                default: true
 
 permissions:
-  contents: write
+    contents: write
 
 jobs:
-  build:
-    name: Build (${{ matrix.archive_name }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Linux x86_64 — Ubuntu 22.04 for glibc 2.35 compatibility
-          # xmake produces: build/release/x86_64-linux-gnu
-          - runner: ubuntu-22.04
-            arch_flag: x86_64
-            xmake_output: x86_64-linux-gnu
-            archive_name: x86_64-linux-gnu
-            archive_format: tar.xz
-            needs_rename: false
-            extra_xmake_flags: ""
+    build:
+        name: Build (${{ matrix.archive_name }})
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    # Linux x86_64 — Ubuntu 22.04 for glibc 2.35 compatibility
+                    # xmake produces: build/release/x86_64-linux-gnu
+                    - runner: ubuntu-22.04
+                      arch_flag: x86_64
+                      xmake_output: x86_64-linux-gnu
+                      archive_name: x86_64-linux-gnu
+                      archive_format: tar.xz
+                      needs_rename: false
+                      extra_xmake_flags: ""
 
-          # Linux aarch64 — Ubuntu 22.04 ARM for glibc 2.35 compatibility
-          # xmake produces: build/release/arm64-linux-gnu
-          - runner: ubuntu-22.04-arm
-            arch_flag: arm64
-            xmake_output: arm64-linux-gnu
-            archive_name: aarch64-linux-gnu
-            archive_format: tar.xz
-            needs_rename: true
-            extra_xmake_flags: ""
+                    # Linux aarch64 — Ubuntu 22.04 ARM for glibc 2.35 compatibility
+                    # xmake produces: build/release/arm64-linux-gnu
+                    - runner: ubuntu-22.04-arm
+                      arch_flag: arm64
+                      xmake_output: arm64-linux-gnu
+                      archive_name: aarch64-linux-gnu
+                      archive_format: tar.xz
+                      needs_rename: true
+                      extra_xmake_flags: ""
 
-          # macOS arm64 — minimum macOS 13.3 (Ventura)
-          # xmake produces: build/release/arm64-macosx
-          - runner: macos-latest
-            arch_flag: arm64
-            xmake_output: arm64-macosx
-            archive_name: arm64-apple-macosx
-            archive_format: zip
-            needs_rename: true
-            extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
+                    # macOS arm64 — minimum macOS 13.3 (Ventura)
+                    # xmake produces: build/release/arm64-macosx
+                    - runner: macos-latest
+                      arch_flag: arm64
+                      xmake_output: arm64-macosx
+                      archive_name: arm64-apple-macosx
+                      archive_format: zip
+                      needs_rename: true
+                      extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
 
-          # macOS x86_64 — minimum macOS 13.3 (Ventura)
-          # xmake produces: build/release/x86_64-macosx
-          - runner: macos-15-intel
-            arch_flag: x86_64
-            xmake_output: x86_64-macosx
-            archive_name: x86_64-apple-macosx
-            archive_format: zip
-            needs_rename: true
-            extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
+                    # macOS x86_64 — minimum macOS 13.3 (Ventura)
+                    # xmake produces: build/release/x86_64-macosx
+                    - runner: macos-15-intel
+                      arch_flag: x86_64
+                      xmake_output: x86_64-macosx
+                      archive_name: x86_64-apple-macosx
+                      archive_format: zip
+                      needs_rename: true
+                      extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
 
-          # Windows x64 — xmake.lua handles MT runtime via set_runtimes()
-          # xmake produces: build/release/x64-windows-msvc
-          - runner: windows-latest
-            arch_flag: x64
-            xmake_output: x64-windows-msvc
-            archive_name: x64-windows-msvc
-            archive_format: zip
-            needs_rename: false
-            extra_xmake_flags: ""
+                    # Windows x64 — xmake.lua handles MT runtime via set_runtimes()
+                    # xmake produces: build/release/x64-windows-msvc
+                    - runner: windows-latest
+                      arch_flag: x64
+                      xmake_output: x64-windows-msvc
+                      archive_name: x64-windows-msvc
+                      archive_format: zip
+                      needs_rename: false
+                      extra_xmake_flags: ""
 
-          # Windows arm64
-          # xmake produces: build/release/arm64-windows-msvc
-          - runner: windows-11-arm
-            arch_flag: arm64
-            xmake_output: arm64-windows-msvc
-            archive_name: arm64-windows-msvc
-            archive_format: zip
-            needs_rename: false
-            extra_xmake_flags: ""
+                    # Windows arm64
+                    # xmake produces: build/release/arm64-windows-msvc
+                    - runner: windows-11-arm
+                      arch_flag: arm64
+                      xmake_output: arm64-windows-msvc
+                      archive_name: arm64-windows-msvc
+                      archive_format: zip
+                      needs_rename: false
+                      extra_xmake_flags: ""
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: archive/beta-helix-0.0.1
-          submodules: recursive
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  ref: archive/beta-helix-0.0.1
+                  submodules: recursive
 
-      - name: Install xmake
-        uses: xmake-io/github-action-setup-xmake@v1
-        with:
-          xmake-version: latest
+            - name: Install xmake
+              uses: xmake-io/github-action-setup-xmake@v1
+              with:
+                  xmake-version: latest
 
-      - name: Install Linux build deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libc++-dev libc++abi-dev perl
+            - name: Install Linux build deps
+              if: runner.os == 'Linux'
+              run: |
+                  wget https://apt.llvm.org/llvm.sh
+                  chmod +x llvm.sh
+                  sudo ./llvm.sh 18
+                  sudo apt-get install -y libc++-18-dev libc++abi-18-dev perl
+                  sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
+                  sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
 
-      - name: Install macOS build deps
-        if: runner.os == 'macOS'
-        run: |
-          brew install llvm
-          echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
+            - name: Install macOS build deps
+              if: runner.os == 'macOS'
+              run: |
+                  brew install llvm
+                  echo "$(brew --prefix llvm)/bin" >> $GITHUB_PATH
 
-      - name: Configure
-        shell: bash
-        run: |
-          xmake f -a ${{ matrix.arch_flag }} --mode=release --yes ${{ matrix.extra_xmake_flags }}
+            - name: Configure
+              shell: bash
+              run: |
+                  if [[ "${{ runner.os }}" == "Windows" ]]; then
+                    xmake f -p windows -a ${{ matrix.arch_flag }} --mode=release --yes ${{ matrix.extra_xmake_flags }}
+                  else
+                    xmake f -a ${{ matrix.arch_flag }} --mode=release --yes ${{ matrix.extra_xmake_flags }}
+                  fi
 
-      - name: Build
-        shell: bash
-        run: xmake --yes
+            - name: Build
+              shell: bash
+              run: xmake --yes
 
-      - name: Verify build output
-        shell: bash
-        run: |
-          if [ ! -d "build/release/${{ matrix.xmake_output }}" ]; then
-            echo "ERROR: expected build/release/${{ matrix.xmake_output }} not found"
-            echo "Contents of build/release/:"
-            ls -la build/release/ || echo "(missing)"
-            exit 1
-          fi
-          echo "Build output verified at build/release/${{ matrix.xmake_output }}"
-          echo "Top-level contents:"
-          ls -la "build/release/${{ matrix.xmake_output }}"
-          echo "bin/ contents:"
-          ls -la "build/release/${{ matrix.xmake_output }}/bin" || true
+            - name: Verify build output
+              shell: bash
+              run: |
+                  if [ ! -d "build/release/${{ matrix.xmake_output }}" ]; then
+                    echo "ERROR: expected build/release/${{ matrix.xmake_output }} not found"
+                    echo "Contents of build/release/:"
+                    ls -la build/release/ || echo "(missing)"
+                    exit 1
+                  fi
+                  echo "Build output verified at build/release/${{ matrix.xmake_output }}"
+                  echo "Top-level contents:"
+                  ls -la "build/release/${{ matrix.xmake_output }}"
+                  echo "bin/ contents:"
+                  ls -la "build/release/${{ matrix.xmake_output }}/bin" || true
 
-      - name: Rename platform directory
-        if: matrix.needs_rename == true
-        shell: bash
-        run: |
-          mv "build/release/${{ matrix.xmake_output }}" \
-             "build/release/${{ matrix.archive_name }}"
-          echo "Renamed: ${{ matrix.xmake_output }} -> ${{ matrix.archive_name }}"
+            - name: Rename platform directory
+              if: matrix.needs_rename == true
+              shell: bash
+              run: |
+                  mv "build/release/${{ matrix.xmake_output }}" \
+                     "build/release/${{ matrix.archive_name }}"
+                  echo "Renamed: ${{ matrix.xmake_output }} -> ${{ matrix.archive_name }}"
 
-      - name: Package (tar.xz)
-        if: matrix.archive_format == 'tar.xz'
-        shell: bash
-        run: |
-          mkdir -p dist
-          cd build/release
-          tar -cJf "../../dist/kairo-${{ inputs.version }}-${{ matrix.archive_name }}.tar.xz" \
-                  "${{ matrix.archive_name }}"
-          ls -la ../../dist/
+            - name: Package (tar.xz)
+              if: matrix.archive_format == 'tar.xz'
+              shell: bash
+              run: |
+                  mkdir -p dist
+                  cd build/release
+                  tar -cJf "../../dist/kairo-${{ inputs.version }}-${{ matrix.archive_name }}.tar.xz" \
+                          "${{ matrix.archive_name }}"
+                  ls -la ../../dist/
 
-      - name: Package (zip, macOS)
-        if: matrix.archive_format == 'zip' && runner.os == 'macOS'
-        shell: bash
-        run: |
-          mkdir -p dist
-          cd build/release
-          zip -r "../../dist/kairo-${{ inputs.version }}-${{ matrix.archive_name }}.zip" \
-                 "${{ matrix.archive_name }}"
-          ls -la ../../dist/
+            - name: Package (zip, macOS)
+              if: matrix.archive_format == 'zip' && runner.os == 'macOS'
+              shell: bash
+              run: |
+                  mkdir -p dist
+                  cd build/release
+                  zip -r "../../dist/kairo-${{ inputs.version }}-${{ matrix.archive_name }}.zip" \
+                         "${{ matrix.archive_name }}"
+                  ls -la ../../dist/
 
-      - name: Package (zip, Windows)
-        if: matrix.archive_format == 'zip' && runner.os == 'Windows'
-        shell: bash
-        run: |
-          mkdir -p dist
-          cd build/release
-          7z a -tzip "../../dist/kairo-${{ inputs.version }}-${{ matrix.archive_name }}.zip" \
-                     "${{ matrix.archive_name }}"
-          ls -la ../../dist/
+            - name: Package (zip, Windows)
+              if: matrix.archive_format == 'zip' && runner.os == 'Windows'
+              shell: bash
+              run: |
+                  mkdir -p dist
+                  cd build/release
+                  7z a -tzip "../../dist/kairo-${{ inputs.version }}-${{ matrix.archive_name }}.zip" \
+                             "${{ matrix.archive_name }}"
+                  ls -la ../../dist/
 
-      - name: Verify version targeting (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          BINARY=$(find "build/release/${{ matrix.archive_name }}/bin" -type f -executable | head -1)
-          if [ -n "$BINARY" ]; then
-            echo "Checking glibc symbol versions for: $BINARY"
-            objdump -T "$BINARY" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -20 || true
-            echo ""
-            echo "Dynamic library dependencies:"
-            ldd "$BINARY" 2>/dev/null || true
-          fi
+            - name: Verify version targeting (Linux)
+              if: runner.os == 'Linux'
+              shell: bash
+              run: |
+                  BINARY=$(find "build/release/${{ matrix.archive_name }}/bin" -type f -executable | head -1)
+                  if [ -n "$BINARY" ]; then
+                    echo "Checking glibc symbol versions for: $BINARY"
+                    objdump -T "$BINARY" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -20 || true
+                    echo ""
+                    echo "Dynamic library dependencies:"
+                    ldd "$BINARY" 2>/dev/null || true
+                  fi
 
-      - name: Verify version targeting (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          for /r "build\release\${{ matrix.archive_name }}\bin" %%f in (*.exe) do (
-            echo Checking DLL dependencies for: %%f
-            dumpbin /dependents "%%f"
-            goto :done
-          )
-          :done
+            - name: Verify version targeting (Windows)
+              if: runner.os == 'Windows'
+              shell: cmd
+              run: |
+                  for /r "build\release\${{ matrix.archive_name }}\bin" %%f in (*.exe) do (
+                    echo Checking DLL dependencies for: %%f
+                    dumpbin /dependents "%%f"
+                    goto :done
+                  )
+                  :done
 
-      - name: Verify version targeting (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          BINARY=$(find "build/release/${{ matrix.archive_name }}/bin" -type f -perm +111 | head -1)
-          if [ -n "$BINARY" ]; then
-            echo "Checking macOS deployment target for: $BINARY"
-            otool -l "$BINARY" | grep -A 3 LC_VERSION_MIN_MACOSX || \
-              otool -l "$BINARY" | grep -A 3 LC_BUILD_VERSION || true
-            echo ""
-            echo "Dynamic library dependencies:"
-            otool -L "$BINARY" || true
-          fi
+            - name: Verify version targeting (macOS)
+              if: runner.os == 'macOS'
+              shell: bash
+              run: |
+                  BINARY=$(find "build/release/${{ matrix.archive_name }}/bin" -type f -perm +111 | head -1)
+                  if [ -n "$BINARY" ]; then
+                    echo "Checking macOS deployment target for: $BINARY"
+                    otool -l "$BINARY" | grep -A 3 LC_VERSION_MIN_MACOSX || \
+                      otool -l "$BINARY" | grep -A 3 LC_BUILD_VERSION || true
+                    echo ""
+                    echo "Dynamic library dependencies:"
+                    otool -L "$BINARY" || true
+                  fi
 
-      - name: Generate checksum
-        shell: bash
-        run: |
-          cd dist
-          archive="kairo-${{ inputs.version }}-${{ matrix.archive_name }}.${{ matrix.archive_format }}"
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            md5 -r "$archive" > "${archive}.md5"
-          else
-            md5sum "$archive" > "${archive}.md5"
-          fi
-          cat "${archive}.md5"
+            - name: Generate checksum
+              shell: bash
+              run: |
+                  cd dist
+                  archive="kairo-${{ inputs.version }}-${{ matrix.archive_name }}.${{ matrix.archive_format }}"
+                  if [[ "${{ runner.os }}" == "macOS" ]]; then
+                    md5 -r "$archive" > "${archive}.md5"
+                  else
+                    md5sum "$archive" > "${archive}.md5"
+                  fi
+                  cat "${archive}.md5"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: kairo-${{ matrix.archive_name }}
-          path: dist/*
-          retention-days: 7
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: kairo-${{ matrix.archive_name }}
+                  path: dist/*
+                  retention-days: 7
 
-  release:
-    name: Create GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: archive/beta-helix-0.0.1
+    release:
+        name: Create GitHub Release
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  ref: archive/beta-helix-0.0.1
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: artifacts
 
-      - name: Flatten artifact directory
-        run: |
-          mkdir -p dist
-          find artifacts -type f \( -name '*.tar.xz' -o -name '*.zip' -o -name '*.md5' \) -exec cp {} dist/ \;
-          echo "Files staged for release:"
-          ls -la dist/
+            - name: Flatten artifact directory
+              run: |
+                  mkdir -p dist
+                  find artifacts -type f \( -name '*.tar.xz' -o -name '*.zip' -o -name '*.md5' \) -exec cp {} dist/ \;
+                  echo "Files staged for release:"
+                  ls -la dist/
 
-      - name: Combine checksums
-        run: |
-          cd dist
-          cat *.md5 > MD5SUMS
-          rm -f kairo-*.md5
-          echo "Combined checksums:"
-          cat MD5SUMS
+            - name: Combine checksums
+              run: |
+                  cd dist
+                  cat *.md5 > MD5SUMS
+                  rm -f kairo-*.md5
+                  echo "Combined checksums:"
+                  cat MD5SUMS
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.version }}
-          name: Kairo Compiler ${{ inputs.version }}
-          target_commitish: archive/beta-helix-0.0.1
-          draft: ${{ inputs.draft }}
-          prerelease: ${{ inputs.prerelease }}
-          generate_release_notes: true
-          files: |
-            dist/*.tar.xz
-            dist/*.zip
-            dist/MD5SUMS
-          body: |
-            # Kairo Compiler ${{ inputs.version }}
+            - name: Create Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: Kairo v${{ inputs.version }}
+                  name: Kairo Compiler ${{ inputs.version }}
+                  target_commitish: archive/beta-helix-0.0.1
+                  draft: ${{ inputs.draft }}
+                  prerelease: ${{ inputs.prerelease }}
+                  generate_release_notes: true
+                  files: |
+                      dist/*.tar.xz
+                      dist/*.zip
+                      dist/MD5SUMS
+                  body: |
+                      # Kairo Compiler ${{ inputs.version }}
 
-            Stage 0 pre-release build. See full changelog below.
+                      Stage 0 pre-release build. See full changelog below.
 
-            ## Downloads
+                      ## Downloads
 
-            | Platform | Architecture | File |
-            |----------|--------------|------|
-            | Linux | x86_64 | `kairo-${{ inputs.version }}-x86_64-linux-gnu.tar.xz` |
-            | Linux | aarch64 | `kairo-${{ inputs.version }}-aarch64-linux-gnu.tar.xz` |
-            | macOS | arm64 (Apple Silicon) | `kairo-${{ inputs.version }}-arm64-apple-macosx.zip` |
-            | macOS | x86_64 (Intel) | `kairo-${{ inputs.version }}-x86_64-apple-macosx.zip` |
-            | Windows | x64 | `kairo-${{ inputs.version }}-x64-windows-msvc.zip` |
-            | Windows | arm64 | `kairo-${{ inputs.version }}-arm64-windows-msvc.zip` |
+                      | Platform | Architecture | File |
+                      |----------|--------------|------|
+                      | Linux | x86_64 | `kairo-${{ inputs.version }}-x86_64-linux-gnu.tar.xz` |
+                      | Linux | aarch64 | `kairo-${{ inputs.version }}-aarch64-linux-gnu.tar.xz` |
+                      | macOS | arm64 (Apple Silicon) | `kairo-${{ inputs.version }}-arm64-apple-macosx.zip` |
+                      | macOS | x86_64 (Intel) | `kairo-${{ inputs.version }}-x86_64-apple-macosx.zip` |
+                      | Windows | x64 | `kairo-${{ inputs.version }}-x64-windows-msvc.zip` |
+                      | Windows | arm64 | `kairo-${{ inputs.version }}-arm64-windows-msvc.zip` |
 
-            ## System requirements
+                      ## System requirements
 
-            - **macOS:** 13.3 (Ventura) or newer
-            - **Linux:** glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, RHEL 9+, Fedora 37+)
-            - **Windows:** Windows 10 or newer (no VC++ Redistributable required — runtime is statically linked)
+                      - **macOS:** 13.3 (Ventura) or newer
+                      - **Linux:** glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, RHEL 9+, Fedora 37+)
+                      - **Windows:** Windows 10 or newer (no VC++ Redistributable required — runtime is statically linked)
 
-            MD5 checksums for all archives are in `MD5SUMS`.
+                      MD5 checksums for all archives are in `MD5SUMS`.
