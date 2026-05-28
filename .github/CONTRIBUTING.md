@@ -37,12 +37,12 @@ Before you start contributing, please read our [Code of Conduct](CODE_OF_CONDUCT
 
 **Comment on Proposals:**
 
-- Providing feedback on existing proposals helps improve the design of the language. Look for issues labeled ["proposal"](https://github.com/kairolang/kairo-lang/issues?q=is%3Aissue+is%3Aopen+label%3Aproposal) and share your thoughts.
+- Providing feedback on existing proposals helps improve the design of the language. Look for issues labeled ["proposal"](https://github.com/kairolang/kairo/issues?q=is%3Aissue+is%3Aopen+label%3Aproposal) and share your thoughts.
 - Keep comments constructive and concise. Aim to help authors refine their ideas.
 
 **Submit Design Ideas:**
 
-- If you have an idea for a new feature or improvement, start a discussion in our [GitHub Discussions](https://github.com/kairolang/kairo-lang/discussions).
+- If you have an idea for a new feature or improvement, start a discussion in our [GitHub Discussions](https://github.com/kairolang/kairo/discussions).
 - If the idea gains traction, you can write a proposal and submit it as a pull request. Before writing a proposal, discuss the idea with the community to get feedback and ensure it aligns with Kairo's goals.
 
 #### Contributing to Language Implementation
@@ -50,16 +50,16 @@ Before you start contributing, please read our [Code of Conduct](CODE_OF_CONDUCT
 **Review and Comment on Pull Requests:**
 
 - Reviewing pull requests is a great way to understand the codebase and help others improve their contributions.
-- Look for open pull requests [here](https://github.com/kairolang/kairo-lang/pulls) and provide feedback.
+- Look for open pull requests [here](https://github.com/kairolang/kairo/pulls) and provide feedback.
 
 **Implement Features or Fix Bugs:**
 
-- Check out issues labeled ["good first issue"](https://github.com/kairolang/kairo-lang/labels/good%20first%20issue) if you're new to the project. These are typically smaller tasks that are well-suited for new contributors.
+- Check out issues labeled ["good first issue"](https://github.com/kairolang/kairo/labels/good%20first%20issue) if you're new to the project. These are typically smaller tasks that are well-suited for new contributors.
 - For larger tasks, discuss your approach with the community before you start working on it. This helps ensure that your work aligns with the project's direction and that you're not duplicating effort.
 
 **Triage, Analyze, or Address Bugs:**
 
-- Help us triage, analyze, and address bugs. Look for open issues [here](https://github.com/kairolang/kairo-lang/issues).
+- Help us triage, analyze, and address bugs. Look for open issues [here](https://github.com/kairolang/kairo/issues).
 - When triaging issues, verify that they are reproducible, provide additional context if necessary, and label them appropriately.
 
 #### Improving Documentation
@@ -76,7 +76,7 @@ Before you start contributing, please read our [Code of Conduct](CODE_OF_CONDUCT
 
 #### Submitting Changes
 
-1. **Fork the Repository:** Fork the [Kairo repository](https://github.com/kairolang/kairo-lang) to your GitHub account.
+1. **Fork the Repository:** Fork the [Kairo repository](https://github.com/kairolang/kairo) to your GitHub account.
 
 2. **Clone Your Fork:** Clone your forked repository to your local machine.
    ```sh
@@ -149,9 +149,9 @@ Before you start contributing, please read our [Code of Conduct](CODE_OF_CONDUCT
 
 ### Resources
 
-- **Kairo Documentation:** [Kairo Docs](https://kairo-lang.com/docs)
-- **Kairo GitHub Repository:** [Kairo on GitHub](https://github.com/kairolang/kairo-lang)
-- **Kairo Discord Community:** [Join the Kairo Discord](https://discord.gg/kairo-lang)
+- **Kairo Documentation:** [Kairo Docs](https://www.kairolang.org/docs)
+- **Kairo GitHub Repository:** [Kairo on GitHub](https://github.com/kairolang/kairo)
+- **Kairo Discord Community:** [Join the Kairo Discord](https://discord.gg/kairo)
 - **GitHub Help:** [GitHub Documentation](https://help.github.com)
 - **Pre-Commit:** [Pre-Commit Documentation](https://pre-commit.com)
 - **Conventional Commits:** [Conventional Commits Specification](https://www.conventionalcommits.org/en/v1.0.0/)

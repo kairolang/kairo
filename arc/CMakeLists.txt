@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(kairo-lang)
+project(kairo)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 23)

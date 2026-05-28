@@ -162,30 +162,27 @@ TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
 
 END OF TERMS AND CONDITIONS
 
--------------------------------------------------------------------------------
+------------------------KAIRO-RUNTIME-LIBRARY-EXCEPTION------------------------
 
-Runtime Library Exception
+As an exception, if, as a result of compiling your source code, portions
+of this Software are embedded into an Object form of such source code, you
+may redistribute such embedded portions in such Object form without complying
+with the conditions of Sections 4(a), 4(b) and 4(d) of the License.
 
-As an exception, if you use this Software to compile your source code
-and portions of this Software are embedded into the binary product as
-a result, you may redistribute such product without providing
-attribution as would otherwise be required by Sections 4(a), 4(b) and
-4(d) of the License.
-
-This exception applies solely to the runtime library components of the
-Kairo compiler toolchain that are embedded into compiled binary output.
-It does not apply to the compiler itself, the build tools, or any other
-component of the Kairo toolchain when distributed as standalone software.
+This exception applies solely to the runtime library components of the Kairo
+compiler toolchain. It does not apply to the compiler itself, the build tools,
+or any other component of the Kairo toolchain when distributed as standalone
+software.
 
 -------------------------------------------------------------------------------
 
-Copyright (c) 2024-2026 Kairo Software Foundation and the Kairo project authors.
+Copyright (c) 2026-2026 Kairo Software Foundation and the Kairo project authors.
 
 Licensed under the Apache License, Version 2.0 with Runtime Library
 Exception (the "License"); you may not use this file except in
 compliance with the License. You may obtain a copy of the License at:
 
-    https://kairo-lang.org/LICENSE.md
+    https://kairo-lang.org/LICENSE.txt
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,

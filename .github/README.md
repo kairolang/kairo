@@ -25,7 +25,7 @@
 --------------------------------------------------------------------------------
 
 > [!IMPORTANT]
-> ### We've now started work on the **self-hosted compiler**, using the current C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/kairolang/kairo-lang/tree/self-hosted) branch.
+> ### We've now started work on the **self-hosted compiler**, using the current C++-based implementation as a bootstrap. You can follow and contribute to this effort by checking out the [`self-hosted`](https://github.com/kairolang/kairo/tree/self-hosted) branch.
 
 > [!NOTE]
 > ### Documentation Status & AI Usage Transparency
@@ -94,7 +94,7 @@ Kairo's error reporting and handling system prioritizes clear diagnostics and fl
 
 Kairo produces precise error messages with:
 
-- **Error Codes**: Referenceable in the [Kairo Error Codes Reference](https://kairo-lang.com/docs/errors) [WIP].
+- **Error Codes**: Referenceable in the [Kairo Error Codes Reference](https://www.kairolang.org/docs/errors) [WIP].
 - **Contextual Output**: The compiler annotates code snippets to highlight issues.
 
 <div>
@@ -153,7 +153,7 @@ Kairo integrates with C++ via its Foreign Function Interface (FFI), enabling dir
   <img src="../assets/bumper.png" width="100%" alt="Bumper">
 </div>
 
-See the [Kairo C++ Interoperability Guide](https://kairo-lang.com/docs/cpp-interop) [WIP] for details.
+See the [Kairo C++ Interoperability Guide](https://www.kairolang.org/docs/cpp-interop) [WIP] for details.
 
 --------------------------------------------------------------------------------
 
@@ -193,7 +193,7 @@ This section outlines the technical features of Rust, Zig, Odin, Nim, and Kairo 
 - **Zig**: Adopts a C-like syntax with minimal abstractions. Functions are defined as `fn name(param: type) type`.
 - **Kairo**: Uses a syntax with `fn <T> name(params: T)` for generics and `class X { fn method(self); fn static_m() static; }` for methods. Structs are defined as `struct X { var field: type }` (there are more in-depth cases, but this is the high-level overview).
 
-For more details, see the [Kairo Language Guide](https://kairo-lang.com/docs) [WIP].
+For more details, see the [Kairo Language Guide](https://www.kairolang.org/docs) [WIP].
 
 --------------------------------------------------------------------------------
 
@@ -383,7 +383,7 @@ Phase 8 | Future               | ...                                            
 #### Installation & Build
 
 > [!WARNING]
-> Kairo has a alpha release, it's not yet stable, barely usable, but if you want to try it out, you can either build it from source or download the latest release from the [releases page](https://github.com/kairolang/kairo-lang/releases/latest).
+> Kairo has a alpha release, it's not yet stable, barely usable, but if you want to try it out, you can either build it from source or download the latest release from the [releases page](https://github.com/kairolang/kairo/releases/latest).
 
 > [!TIP]
 > Linux is not _yet_ tested, Most development is done on MacOS or Windows, if any issues arise with building on Linux, please open an issue.
@@ -438,8 +438,8 @@ curl -fsSL https://xmake.io/shget.text | bash
 4. Install [Git](https://git-scm.com/downloads)
 5. Clone the Kairo repository:
 ```bash
-git clone https://github.com/kairolang/kairo-lang.git
-cd kairo-lang
+git clone https://github.com/kairolang/kairo.git
+cd kairo
 ```
 6. Build the Kairo Compiler Toolchain
 ```ps
@@ -471,7 +471,7 @@ $ ./hello_world
 
 ## License
 
-Kairo is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/kairolang/kairo-lang/blob/main/license) for more details.
+Kairo is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/kairolang/kairo/blob/main/license) for more details.
 
 --------------------------------------------------------------------------------
 
@@ -480,8 +480,8 @@ Kairo is licensed under the Attribution 4.0 International License. See the [LICE
 We want to thank all contributors for their efforts in making Kairo a reality. Your work is appreciated!
 
 <div align="center">
-  <a href="https://github.com/kairolang/kairo-lang/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=kairolang/kairo-lang">
+  <a href="https://github.com/kairolang/kairo/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=kairolang/kairo">
 </a>
 </div>
 
@@ -493,6 +493,6 @@ Happy coding with Kairo! 🚀
 
 ## Links
 
-- [Official Website](https://kairo-lang.com)
-- [Documentation](https://kairo-lang.com/docs)
-- [Tutorials](https://kairo-lang.com/tutorials)
+- [Official Website](https://www.kairolang.org)
+- [Documentation](https://www.kairolang.org/docs)
+- [Tutorials](https://www.kairolang.org/tutorials)

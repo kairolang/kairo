@@ -1,17 +1,13 @@
-///--- The Kairo Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
-///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   For more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   SPDX-License-Identifier: Apache-2.0                                                        ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------------- C++ ---///
+/// --- The Kairo Project -------------------------------------------------- ///
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
 ///                                                                                              ///
 /// this file is a fucking mess, but it works, i will clean it up in the self-hosted version     ///
 /// i cba to do it now, i have other things to get done...                                       ///
@@ -701,7 +697,7 @@ leave_loop_has_processable_import:
 
             if (std::get<0>(_import).index() == 0) {  // path is a string
                 // foo/bar/baz
-                // kairo-lang/
+                // kairo/
                 path = std::get<std::filesystem::path>(std::get<0>(_import));
             } else {  // path is a token list
                 __TOKEN_N::TokenList import_path =

@@ -135,7 +135,7 @@ This document outlines the necessary modifications to the Kairo compiler toolcha
 
 ## Lexer
 The lexer must be optimized for performance and designed to store file positions for tokens separately. The proposed structure includes distinct classes for `Location`, `Token`, and `TokenKind`, ensuring clarity and efficiency.
-kairo-lang\libs\llvm-18.1.9-src\clang\include\clang\Basic\CharInfo.h
+kairo\libs\llvm-18.1.9-src\clang\include\clang\Basic\CharInfo.h
 
 ### Suggested Structures
 

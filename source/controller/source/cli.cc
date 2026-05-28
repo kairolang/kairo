@@ -1,17 +1,13 @@
-///--- The Kairo Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
-///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   For more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   SPDX-License-Identifier: Apache-2.0                                                        ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------------- C++ ---///
+/// --- The Kairo Project -------------------------------------------------- ///
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
 
 #include "controller/include/cli/cli.hh"
 
@@ -45,10 +41,10 @@ Usage Examples:
      kairo --lib --rust -o liboutput.a input_file.k
 
 For more detailed documentation, visit:
-  https://kairo-lang.com/docs
+  https://www.kairolang.org/docs
 
 For support or to report issues, contact:
-  support@kairo-lang.com
+  support@kairolang.org
 
 Thank you for using Kairo!
 DISCLAIMER: All of these options are subject to change in future versions of kairo. (until this message is removed)
@@ -166,23 +162,13 @@ DISCLAIMER: All of these options are subject to change in future versions of kai
                 print(R"(
 Kairo Language Project - License Information
 
-This software is part of the Kairo Language Project and is licensed under the Attribution 4.0 International license (CC BY 4.0).
+See: https://www.kairolang.org/LICENSE.txt
+Copyright (c) 2026 Dhruvan Kartik
 
-You are permitted to:
-  - Use, modify, and redistribute the software
-  - Create derivative works, even for commercial purposes
-
-Provided that you:
-  - Give appropriate credit
-  - Provide a link to the license
-  - Indicate if changes were made
-
-For more detailed information, please visit: https://creativecommons.org/licenses/by/4.0/
-
-SPDX-License-Identifier: CC-BY-4.0
+SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 
 This software is provided by the creators of Kairo. Visit our website at:
-https://kairo-lang.com/ for more information.
+https://www.kairolang.org/ for more information.
     )");
                 this->exit_   = true;
                 this->exit_co = 0;

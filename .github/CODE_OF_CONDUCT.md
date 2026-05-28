@@ -61,7 +61,7 @@ Community members are expected to adhere to these standards. Unacceptable behavi
 
 ### Reporting Issues
 
-If you encounter or witness behavior that violates this Code of Conduct, please report it to the Kairo Conduct Team at [conduct@kairo-lang.com](mailto:conduct@kairo-lang.com). Your report will be handled confidentially. 
+If you encounter or witness behavior that violates this Code of Conduct, please report it to the Kairo Conduct Team at [conduct@kairolang.org](mailto:conduct@kairolang.org). Your report will be handled confidentially. 
 
 #### What to Include in a Report
 
@@ -86,7 +86,7 @@ Please include the following information in your report, if possible:
 
 #### Appeals
 
-If you believe that the enforcement action taken is unfair or inappropriate, you may appeal the decision. Appeals should be directed to the Kairo Project Leads at [appeals@kairo-lang.com](mailto:appeals@kairo-lang.com). Please provide any relevant information or context to support your appeal.
+If you believe that the enforcement action taken is unfair or inappropriate, you may appeal the decision. Appeals should be directed to the Kairo Project Leads at [appeals@kairolang.org](mailto:appeals@kairolang.org). Please provide any relevant information or context to support your appeal.
 
 #### Special Cases
 

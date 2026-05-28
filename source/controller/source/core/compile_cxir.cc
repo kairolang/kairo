@@ -1,17 +1,13 @@
-///--- The Kairo Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   Part of the Kairo Project, under the Attribution 4.0 International license (CC BY 4.0).    ///
-///   You are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   For more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   SPDX-License-Identifier: Apache-2.0                                                        ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------------- C++ ---///
+/// --- The Kairo Project -------------------------------------------------- ///
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
 
 #include "controller/include/config/cxx_flags.hh"
 #include "controller/include/shared/eflags.hh"
@@ -371,77 +367,77 @@ inline flag::types::Compiler identify_compiler(const std::string &version_output
     return flag::types::Compiler::Custom;
 }
 
-inline std::filesystem::path ensure_pch(const std::string     &cxx_compiler,
-                                        flag::types::Compiler  compiler_family,
-                                        bool                   is_asan,
-                                        bool                   is_verbose) {
-    namespace fs = std::filesystem;
+// inline std::filesystem::path ensure_pch(const std::string     &cxx_compiler,
+//                                         flag::types::Compiler  compiler_family,
+//                                         bool                   is_asan,
+//                                         bool                   is_verbose) {
+//     namespace fs = std::filesystem;
 
-    fs::path exe_root = __CONTROLLER_FS_N::get_exe().parent_path().parent_path();
-    fs::path core_hh  = exe_root / "core" / "include" / "core.hh";
-    fs::path pch_dir  = exe_root / "cache" / "pch";
-    fs::path pch_file = pch_dir / (is_asan ? "core.asan.pch" : "core.pch");
+//     fs::path exe_root = __CONTROLLER_FS_N::get_exe().parent_path().parent_path();
+//     fs::path core_hh  = exe_root / "core" / "include" / "core.hh";
+//     fs::path pch_dir  = exe_root / "cache" / "pch";
+//     fs::path pch_file = pch_dir / (is_asan ? "core.asan.pch" : "core.pch");
 
-    if (!fs::exists(core_hh))
-        return {};
+//     if (!fs::exists(core_hh))
+//         return {};
 
-    if (fs::exists(pch_file)) {
-        if (fs::last_write_time(pch_file) >= fs::last_write_time(core_hh)) {
-            if (is_verbose)
-                kairo::log<LogLevel::Debug>("pch up-to-date: " + pch_file.generic_string());
-            return pch_file;
-        }
-    }
+//     if (fs::exists(pch_file)) {
+//         if (fs::last_write_time(pch_file) >= fs::last_write_time(core_hh)) {
+//             if (is_verbose)
+//                 kairo::log<LogLevel::Debug>("pch up-to-date: " + pch_file.generic_string());
+//             return pch_file;
+//         }
+//     }
 
-    std::error_code ec;
-    fs::create_directories(pch_dir, ec);
-    if (ec) {
-        kairo::log<LogLevel::Warning>("failed to create pch cache dir: " + ec.message());
-        return {};
-    }
+//     std::error_code ec;
+//     fs::create_directories(pch_dir, ec);
+//     if (ec) {
+//         kairo::log<LogLevel::Warning>("failed to create pch cache dir: " + ec.message());
+//         return {};
+//     }
 
-    std::string cmd = cxx_compiler + " ";
-    cmd += make_command(compiler_family,
-        "-x c++-header",
-        cxx::flags::stdCXX23Flag,
-        cxx::flags::enableExceptionsFlag,
-        (is_asan ? cxx::flags::debugModeFlag : cxx::flags::optimizationLevel3),
-        cxx::flags::includeFlag,
-        "\"" + core_hh.parent_path().parent_path().generic_string() + "\"",
-        "-DNOMINMAX",
-        "-D_CRT_SECURE_NO_WARNINGS",
-        "-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
-        (is_asan ? cxx::flags::SanitizeFlag : cxx::flags::None),
-        cxx::flags::outputFlag,
-        "\"" + pch_file.generic_string() + "\""
-    );
-    cmd += " \"" + core_hh.generic_string() + "\"";
+//     std::string cmd = cxx_compiler + " ";
+//     cmd += make_command(compiler_family,
+//         "-x c++-header",
+//         cxx::flags::stdCXX23Flag,
+//         cxx::flags::enableExceptionsFlag,
+//         (is_asan ? cxx::flags::debugModeFlag : cxx::flags::optimizationLevel3),
+//         cxx::flags::includeFlag,
+//         "\"" + core_hh.parent_path().parent_path().generic_string() + "\"",
+//         "-DNOMINMAX",
+//         "-D_CRT_SECURE_NO_WARNINGS",
+//         "-D_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS",
+//         (is_asan ? cxx::flags::SanitizeFlag : cxx::flags::None),
+//         cxx::flags::outputFlag,
+//         "\"" + pch_file.generic_string() + "\""
+//     );
+//     cmd += " \"" + core_hh.generic_string() + "\"";
 
-#if !defined(_WIN32) && !defined(_WIN64)
-    cmd += " 2>&1";
-#endif
+// #if !defined(_WIN32) && !defined(_WIN64)
+//     cmd += " 2>&1";
+// #endif
 
-    if (is_verbose)
-        kairo::log<LogLevel::Debug>("building pch: " + cmd);
+//     if (is_verbose)
+//         kairo::log<LogLevel::Debug>("building pch: " + cmd);
 
-#if defined(_WIN32) || defined(_WIN64)
-    auto result = CXIRCompiler::exec("cmd.exe /c \"" + cmd + " \"");
-#else
-    auto result = CXIRCompiler::exec(cmd);
-#endif
+// #if defined(_WIN32) || defined(_WIN64)
+//     auto result = CXIRCompiler::exec("cmd.exe /c \"" + cmd + " \"");
+// #else
+//     auto result = CXIRCompiler::exec(cmd);
+// #endif
 
-    if (result.return_code != 0) {
-        kairo::log<LogLevel::Warning>(
-            "pch generation failed (falling back to -include), output:\n" + result.output);
-        fs::remove(pch_file, ec);
-        return {};
-    }
+//     if (result.return_code != 0) {
+//         kairo::log<LogLevel::Warning>(
+//             "pch generation failed (falling back to -include), output:\n" + result.output);
+//         fs::remove(pch_file, ec);
+//         return {};
+//     }
 
-    if (is_verbose)
-        kairo::log<LogLevel::Progress>("built pch: " + pch_file.generic_string());
+//     if (is_verbose)
+//         kairo::log<LogLevel::Progress>("built pch: " + pch_file.generic_string());
 
-    return pch_file;
-}
+//     return pch_file;
+// }
 
 }  // namespace
 
@@ -513,10 +509,10 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
 
     bool is_asan = action.flags.contains(EFlags(flag::types::CompileFlags::Debug));
 
-    std::filesystem::path pch_path =
-        ensure_pch(action.cxx_compiler, compiler, is_asan, is_verbose);
+    // std::filesystem::path pch_path =
+    //     ensure_pch(action.cxx_compiler, compiler, is_asan, is_verbose);
 
-    DEBUG_LOG("pch: " + (pch_path.empty() ? "fallback to -include" : pch_path.generic_string()));
+    // DEBUG_LOG("pch: " + (pch_path.empty() ? "fallback to -include" : pch_path.generic_string()));
 
     // ── libc++ link path (macOS only) ─────────────────────────────────────────
     std::string link_path;
@@ -564,9 +560,7 @@ CXIRCompiler::CompileResult CXIRCompiler::CXIR_CXX(const CXXCompileAction &actio
         compiler,
 
         // force-include core header or precompiled header
-        (pch_path.empty()
-            ? "-include \"" + core.generic_string() + "\" "
-            : "-include-pch \"" + pch_path.generic_string() + "\" "),
+        "-include \"" + core.generic_string() + "\" ",
 
         // include search path for core
         cxx::flags::includeFlag,

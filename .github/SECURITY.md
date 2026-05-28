@@ -44,7 +44,7 @@ At Kairo, we take security issues seriously. If you discover a security vulnerab
 
 Please report security vulnerabilities to our dedicated security team at:
 
-- **Email:** [security@kairo-lang.com](mailto:security@kairo-lang.com)
+- **Email:** [security@kairolang.org](mailto:security@kairolang.org)
 
 #### Guidelines for Reporting
 
@@ -111,4 +111,4 @@ We thank all security researchers and community members who help us maintain the
 
 Thank you for helping us improve the security of Kairo. Your responsible disclosure and collaboration are greatly appreciated.
 
-For any further questions or concerns regarding our security policy, please contact us at [security@kairo-lang.com](mailto:security@kairo-lang.com).
+For any further questions or concerns regarding our security policy, please contact us at [security@kairolang.org](mailto:security@kairolang.org).

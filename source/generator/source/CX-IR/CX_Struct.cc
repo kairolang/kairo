@@ -1,17 +1,13 @@
-///--- The Kairo Project ------------------------------------------------------------------------///
-///                                                                                              ///
-///   part of the kairo project, under the attribution 4.0 international license (cc by 4.0).    ///
-///   you are allowed to use, modify, redistribute, and create derivative works, even for        ///
-///   commercial purposes, provided that you give appropriate credit, and indicate if changes    ///
-///   were made.                                                                                 ///
-///                                                                                              ///
-///   for more information on the license terms and requirements, please visit:                  ///
-///     https://creativecommons.org/licenses/by/4.0/                                             ///
-///                                                                                              ///
-///   spdx-license-identifier: cc-by-4.0                                                         ///
-///   copyright (c) 2024 the kairo project (cc by 4.0)                                           ///
-///                                                                                              ///
-///-------------------------------------------------------------------------------------- C++ ---///
+/// --- The Kairo Project -------------------------------------------------- ///
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
 
 #include "parser/ast/include/config/AST_config.def"
 #include "utils.hh"
