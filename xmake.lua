@@ -57,7 +57,7 @@ end
 -- libc++abi.so.1 / libunwind.so.1. Discovers the unwinder from the active
 -- clang so it isn't tied to a specific LLVM version; falls back to the libgcc
 -- unwinder only if no static LLVM unwinder exists.
-function add_cxx_runtime()
+function add_static_cxx_runtime()
     if not is_plat("linux") then return end
     add_cxxflags("-stdlib=libc++", { force = true })
     on_load(function (target)
