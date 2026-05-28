@@ -1,17 +1,13 @@
-///--- The Kairo Project ----------------------------------------------------///
-///                                                                          ///
-///   Part of the Kairo Project, under the Attribution 4.0 International     ///
-///   license (CC BY 4.0).  You are allowed to use, modify, redistribute,    ///
-///   and create derivative works, even for commercial purposes, provided    ///
-///   that we give appropriate credit, and indicate if changes were made.    ///
-///                                                                          ///
-///   For more information on the license terms and requirements, please     ///
-///     visit: https://creativecommons.org/licenses/by/4.0/                  ///
-///                                                                          ///
-///   SPDX-License-Identifier: Apache-2.0                                    ///
-///   Copyright (c) 2026 The Kairo Project (Apache-2.0)                      ///
-///                                                                          ///
-///------------------------------------------------------------ KAIRO -------///
+/// --- The Kairo Project -------------------------------------------------- ///
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
 
 import Lexer::TokenBuffer::*;
 import Source::SourceRange::*;

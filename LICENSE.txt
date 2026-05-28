@@ -176,13 +176,13 @@ software.
 
 -------------------------------------------------------------------------------
 
-Copyright (c) 2026-2026 Kairo Software Foundation and the Kairo project authors.
+Copyright (c) 2026-2026 Dhruvan Kartik.
 
 Licensed under the Apache License, Version 2.0 with Runtime Library
 Exception (the "License"); you may not use this file except in
 compliance with the License. You may obtain a copy of the License at:
 
-    https://kairo-lang.org/LICENSE.txt
+    https://www.kairolang.org/LICENSE.txt
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,

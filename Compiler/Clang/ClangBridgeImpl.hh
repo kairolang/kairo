@@ -1,12 +1,13 @@
-///--- The Kairo Project ----------------------------------------------------///
-///                                                                          ///
-///   Part of the Kairo Project, under the Attribution 4.0 International     ///
-///   license (CC BY 4.0).                                                   ///
-///                                                                          ///
-///   SPDX-License-Identifier: CC-BY-4.0                                     ///
-///   Copyright (c) 2024 The Kairo Project (CC BY 4.0)                       ///
-///                                                                          ///
-///------------------------------------------------------------ KAIRO -------///
+/// --- The Kairo Project -------------------------------------------------- ///
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
 
 #ifndef KAIRO_CLANG_BRIDGE_IMPL_HH
 #define KAIRO_CLANG_BRIDGE_IMPL_HH

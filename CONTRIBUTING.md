@@ -149,7 +149,6 @@ By contributing, you agree that:
 
 - Your contributions are licensed under:
   **Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION**
-- You grant the Kairo Software Foundation the right to use, modify, sublicense, and relicense your contributions
 
 See `CLA.md` for full terms.
 
