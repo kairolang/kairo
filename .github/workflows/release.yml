@@ -48,45 +48,45 @@ jobs:
                       needs_rename: true
                       extra_xmake_flags: '--cxflags="-stdlib=libc++ -fexperimental-library" --ldflags="-stdlib=libc++ -fexperimental-library"'
 
-                    # # macOS arm64 — minimum macOS 13.3 (Ventura)
-                    # # xmake produces: build/release/arm64-macosx
-                    # - runner: macos-latest
-                    #   arch_flag: arm64
-                    #   xmake_output: arm64-macosx
-                    #   archive_name: arm64-apple-macosx
-                    #   archive_format: zip
-                    #   needs_rename: true
-                    #   extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
+                    # macOS arm64 — minimum macOS 13.3 (Ventura)
+                    # xmake produces: build/release/arm64-macosx
+                    - runner: macos-latest
+                      arch_flag: arm64
+                      xmake_output: arm64-macosx
+                      archive_name: arm64-apple-macosx
+                      archive_format: zip
+                      needs_rename: true
+                      extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
 
-                    # # macOS x86_64 — minimum macOS 13.3 (Ventura)
-                    # # xmake produces: build/release/x86_64-macosx
-                    # - runner: macos-15-intel
-                    #   arch_flag: x86_64
-                    #   xmake_output: x86_64-macosx
-                    #   archive_name: x86_64-apple-macosx
-                    #   archive_format: zip
-                    #   needs_rename: true
-                    #   extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
+                    # macOS x86_64 — minimum macOS 13.3 (Ventura)
+                    # xmake produces: build/release/x86_64-macosx
+                    - runner: macos-15-intel
+                      arch_flag: x86_64
+                      xmake_output: x86_64-macosx
+                      archive_name: x86_64-apple-macosx
+                      archive_format: zip
+                      needs_rename: true
+                      extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
 
-                    # # Windows x64 — xmake.lua handles MT runtime via set_runtimes()
-                    # # xmake produces: build/release/x64-windows-msvc
-                    # - runner: windows-latest
-                    #   arch_flag: x64
-                    #   xmake_output: x64-windows-msvc
-                    #   archive_name: x64-windows-msvc
-                    #   archive_format: zip
-                    #   needs_rename: false
-                    #   extra_xmake_flags: ""
+                    # Windows x64 — xmake.lua handles MT runtime via set_runtimes()
+                    # xmake produces: build/release/x64-windows-msvc
+                    - runner: windows-latest
+                      arch_flag: x64
+                      xmake_output: x64-windows-msvc
+                      archive_name: x64-windows-msvc
+                      archive_format: zip
+                      needs_rename: false
+                      extra_xmake_flags: ""
 
-                    # # Windows arm64
-                    # # xmake produces: build/release/arm64-windows-msvc
-                    # - runner: windows-11-arm
-                    #   arch_flag: arm64
-                    #   xmake_output: arm64-windows-msvc
-                    #   archive_name: arm64-windows-msvc
-                    #   archive_format: zip
-                    #   needs_rename: false
-                    #   extra_xmake_flags: ""
+                    # Windows arm64
+                    # xmake produces: build/release/arm64-windows-msvc
+                    - runner: windows-11-arm
+                      arch_flag: arm64
+                      xmake_output: arm64-windows-msvc
+                      archive_name: arm64-windows-msvc
+                      archive_format: zip
+                      needs_rename: false
+                      extra_xmake_flags: ""
 
         steps:
             - name: Checkout
@@ -115,6 +115,7 @@ jobs:
                 sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 1000
                 sudo update-alternatives --set clang /usr/bin/clang-18
                 sudo update-alternatives --set clang++ /usr/bin/clang++-18
+                
             - name: Verify Linux toolchain
               if: runner.os == 'Linux'
               run: |
