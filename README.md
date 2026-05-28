@@ -27,6 +27,7 @@ All platforms (macOS, Windows, Linux) are supported and tested.
 
 ```sh
 git clone https://github.com/kairolang/kairo.git
+git checkout archive/beta-helix-0.0.1
 cd kairo
 # make sure to init submodules, this might take a while
 git submodule update --init --recursive
