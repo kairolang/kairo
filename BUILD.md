@@ -139,12 +139,20 @@ Add that line to your `~/.bashrc` or `~/.zshrc` to make it permanent.
 
 **Windows (PowerShell):**
 
+**Windows (PowerShell):**
+
 ```powershell
-$binPath = (Get-ChildItem -Directory ".\build\release\*\bin").FullName
+$env:Path += ";$((Get-ChildItem -Directory .\build\release\*\bin).FullName)"
+```
+
+This sets PATH for the current session. To make it permanent, replace the line above with:
+
+```powershell
+$binPath = (Get-ChildItem -Directory .\build\release\*\bin).FullName
 [Environment]::SetEnvironmentVariable("Path", "$env:Path;$binPath", "User")
 ```
 
-(PowerShell only. For Command Prompt, add it via System Properties → Environment Variables.)
+(PowerShell only. For Command Prompt, add it via System Properties -> Environment Variables.)
 
 ### Validate
 
@@ -174,7 +182,7 @@ Stage 1 is self-hosted and requires Stage 0 (from §4) plus the LLVM submodule.
 ```bash
 git checkout canary
 git submodule update --init --recursive   # pulls LLVM this time large download
-kbld                                       # must be on PATH, or use ./build/release/<platform>/bin/kbld
+kbld                                      # must be on PATH, or use ./build/release/<platform>/bin/kbld
 ```
 
 You can run test files whose entry point is `fn Test() -> i32 { ... }`:
@@ -187,20 +195,29 @@ kbld test Compiler/Lexer/Lexer.k
 
 ## 6. VSCode Extension (optional, recommended)
 
-VSCode is currently the only editor with LSP support and `.k` syntax highlighting.
+VSCode is currently the only editor with LSP support and `.k` syntax highlighting. The language server ships as part of the compiler, so there's nothing extra to run — the extension just needs to know where `kairo` is.
+
+### Install
+
+Pick whichever is easiest:
+
+- **VS Code Marketplace** — install directly from [the Kairo extension page](https://marketplace.visualstudio.com/items?itemName=KSF.kairo).
+- **Prebuilt VSIX** — grab the latest `.vsix` from [kairo-lsp](https://github.com/kairolang/kairo-lsp/) (e.g. `kairo-0.5.5.vsix`) and in VSCode: **Extensions** tab → **⋯** menu → **Install from VSIX…**
+- **Build from source:**
 
 ```bash
 git clone https://github.com/kairolang/kairo-lsp/
 cd kairo-lsp
 npm install
 npm run build --omit=dev
-npx vsce package
+npx @vscode/vsce package
 ```
 
-This produces a `.vsix` file. In VSCode: **Extensions** tab → **⋯** menu → **Install from VSIX…**
+This produces a `.vsix` you install the same way as above.
 
-> **Configure the extension before opening any `.k` file.** Otherwise it will repeatedly
-> prompt for the Kairo path.
+### Configure
+
+If `kairo` is on your PATH, the extension finds it automatically — no configuration needed. Otherwise set `kairo.path` in your VSCode `settings.json` to the compiler's location. If it can't find the compiler, you'll get a simple "path not set" warning.
 
 ### Debugging
 
