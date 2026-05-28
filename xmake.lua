@@ -52,22 +52,30 @@ function get_cxx_standard(abi)
 	return "" -- error?
 end
 
--- Statically link the LLVM C++ runtime + unwinder on Linux so release
--- binaries don't depend on libc++.so.1 / libc++abi.so.1 / libunwind.so.1,
--- which aren't present on stock glibc systems.
-function add_static_cxx_runtime()
-    if is_plat("linux") then
-        add_cxxflags("-stdlib=libc++", { force = true })
-        local unwind_a = os.iorun("clang++ --print-file-name=libunwind.a"):trim()
+-- Always build with libc++ (libstdc++ is unsupported). On Linux, statically
+-- link the C++ runtime + unwinder so binaries don't depend on libc++.so.1 /
+-- libc++abi.so.1 / libunwind.so.1. Discovers the unwinder from the active
+-- clang so it isn't tied to a specific LLVM version; falls back to the libgcc
+-- unwinder only if no static LLVM unwinder exists.
+function add_cxx_runtime()
+    if not is_plat("linux") then return end
+    add_cxxflags("-stdlib=libc++", { force = true })
+    on_load(function (target)
+        import("core.base.option")
         local ldflags = {"-stdlib=libc++", "-static-libstdc++"}
-        if os.isfile(unwind_a) then
+        local unwind_a
+        try {
+            function()
+                unwind_a = os.iorun("clang++ --print-file-name=libunwind.a"):trim()
+            end
+        }
+        if unwind_a and os.isfile(unwind_a) then
             table.insert(ldflags, unwind_a)
         else
             table.insert(ldflags, "-unwindlib=libgcc")
         end
-        table.insert(ldflags, { force = true })
-        add_ldflags(table.unpack(ldflags))
-    end
+        target:add("ldflags", ldflags, { force = true })
+    end)
 end
 
 function setup_windows()
