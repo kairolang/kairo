@@ -322,7 +322,7 @@ end
 
 abi     = get_abi()
 runtime = get_runtime(abi)
-cxx_standard = (abi)
+cxx_standard = get_cxx_standard(abi)
 
 -- -- Requires
 -- add_requires("zlib")
@@ -440,58 +440,5 @@ target("kairo") -- target config defined in the config seciton
         os.cp("kbld/include/**", kbld_include_path) -- copy all files in kbld/include to the target include directory
     end)
 target_end() -- empty target
-
-target("kairo-api")
-    set_kind("static")
-    add_defines("KAIRO_VERSION=\"" .. KAIRO_VERSION .. "\"")
-    kairo_src_setup()
-
-    if abi == ""
-    then
-        set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)")
-    else
-        set_targetdir("$(buildir)/$(mode)/$(arch)-$(os)-" .. abi)
-    end
-
-    after_build(function(target) -- make the kairo library with all the appropriate header files
-        -- determine the target output directory
-        local target_dir = path.directory(target:targetfile())
-
-        local include_path            = path.join(target_dir,       "include")
-        local include_lib_path        = path.join(include_path,     "lib")
-        local include_include_path    = path.join(include_path,     "include")
-        local include_xmake_lua       = path.join(include_path,     "xmake.lua")
-        local include_lib_target_file = path.join(include_lib_path, target:filename())
-
-        -- create directories for library and headers
-        os.mkdir(include_lib_path)
-        os.mkdir(include_include_path)
-
-        -- move the compiled library to the 'lib' folder and
-        os.cp(target:targetfile(), include_lib_target_file)
-        os.rm(target:targetfile())
-
-        -- copy header files to the 'include' folder
-        local headers = os.files("source/**.hh")
-
-        for _, header in ipairs(headers) do
-            local rel_path = path.relative(header, "source")
-            os.mkdir(path.join(include_include_path, path.directory(rel_path)))
-            os.cp(header, path.join(include_include_path, rel_path))
-        end
-
-        -- Write the xmake config file
-        local file = io.open(include_xmake_lua, "w")
-
-        file:write([[
-        target("kairo-include")
-            set_kind("static")
-            add_files("lib/*.a")
-            add_includedirs("include")
-            add_headerfiles("include/**.hh")
-        ]])
-        file:close()
-    end)
-target_end()
 
 -- -fexperimental-new-constant-interpreter
