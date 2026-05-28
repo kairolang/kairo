@@ -59,7 +59,7 @@ end
 -- unwinder only if no static LLVM unwinder exists.
 function add_static_cxx_runtime()
     if not is_plat("linux") then return end
-    add_cxxflags("-stdlib=libc++", "-fexperimental-library", { force = true })
+    add_cxxflags("-stdlib=libc++", "-fexperimental-library", "-std=c++23", { force = true })
     on_load(function (target)
         import("core.base.option")
         local ldflags = {"-stdlib=libc++", "-fexperimental-library", "-static-libstdc++"}
