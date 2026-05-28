@@ -12,7 +12,12 @@ cd kairo
 git submodule update --init --recursive # this will take a while since it clones the entire LLVM repo, but it's necessary
 ```
 
-### 2. Build the Stage 0 compiler (this branch is for the Stage 1 compiler, which is still in development)
+
+### 2. Build the Stage 0 compiler (this branch is for the Stage 1 compiler (WIP), but since all the code is in kairo you need the stage0 compiler to build it)
+
+> [!NOTE]
+> You can also use the prebuilt binaries from the [release page](https://github.com/kairolang/kairo/releases)
+> or follow these instructions to build the Stage 0 compiler from source.
 
 ```bash
 git checkout archive/beta-helix-0.0.1
