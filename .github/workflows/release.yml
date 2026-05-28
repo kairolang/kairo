@@ -100,6 +100,7 @@ jobs:
               uses: xmake-io/github-action-setup-xmake@v1
               with:
                   xmake-version: latest
+                  actions-cache-folder: ".xmake-cache"
 
             - name: Install Linux build deps
               if: runner.os == 'Linux'
@@ -121,9 +122,11 @@ jobs:
               shell: bash
               run: |
                   if [[ "${{ runner.os }}" == "Windows" ]]; then
-                    xmake f -p windows -a ${{ matrix.arch_flag }} --mode=release --yes ${{ matrix.extra_xmake_flags }}
+                      xmake f -p windows -a ${{ matrix.arch_flag }} --mode=release --yes ${{ matrix.extra_xmake_flags }}
+                  elif [[ "${{ runner.os }}" == "Linux" ]]; then
+                      xmake f --toolchain=clang -a ${{ matrix.arch_flag }} --mode=release --yes ${{ matrix.extra_xmake_flags }}
                   else
-                    xmake f -a ${{ matrix.arch_flag }} --mode=release --yes ${{ matrix.extra_xmake_flags }}
+                      xmake f -a ${{ matrix.arch_flag }} --mode=release --yes ${{ matrix.extra_xmake_flags }}
                   fi
 
             - name: Build
@@ -195,17 +198,6 @@ jobs:
                     echo "Dynamic library dependencies:"
                     ldd "$BINARY" 2>/dev/null || true
                   fi
-
-            - name: Verify version targeting (Windows)
-              if: runner.os == 'Windows'
-              shell: cmd
-              run: |
-                  for /r "build\release\${{ matrix.archive_name }}\bin" %%f in (*.exe) do (
-                    echo Checking DLL dependencies for: %%f
-                    dumpbin /dependents "%%f"
-                    goto :done
-                  )
-                  :done
 
             - name: Verify version targeting (macOS)
               if: runner.os == 'macOS'
