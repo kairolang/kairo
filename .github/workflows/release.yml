@@ -61,7 +61,7 @@ jobs:
 
           # macOS x86_64 — minimum macOS 13.3 (Ventura)
           # xmake produces: build/release/x86_64-macosx
-          - runner: macos-13
+          - runner: macos-15-intel
             arch_flag: x86_64
             xmake_output: x86_64-macosx
             archive_name: x86_64-apple-macosx
