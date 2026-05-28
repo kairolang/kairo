@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <thread>
 
 #include "controller/include/shared/file_system.hh"
 #include "neo-panic/include/error.hh"

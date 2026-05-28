@@ -18,6 +18,7 @@
 #include <array>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 CXIRCompiler::ExecResult CXIRCompiler::exec(const std::string &cmd) {
     SECURITY_ATTRIBUTES sa         = {sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
