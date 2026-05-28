@@ -37,57 +37,56 @@ jobs:
                       archive_name: x86_64-linux-gnu
                       archive_format: tar.xz
                       needs_rename: false
-                      extra_xmake_flags: ""
+                      extra_xmake_flags: '--cxflags="-stdlib=libc++ -I/usr/lib/llvm-18/include/c++/v1" --ldflags="-stdlib=libc++ -L/usr/lib/llvm-18/lib"'
 
-                    # Linux aarch64 — Ubuntu 22.04 ARM for glibc 2.35 compatibility
-                    # xmake produces: build/release/arm64-linux-gnu
+                    # Linux aarch64
                     - runner: ubuntu-22.04-arm
                       arch_flag: arm64
                       xmake_output: arm64-linux-gnu
                       archive_name: aarch64-linux-gnu
                       archive_format: tar.xz
                       needs_rename: true
-                      extra_xmake_flags: ""
+                      extra_xmake_flags: '--cxflags="-stdlib=libc++ -I/usr/lib/llvm-18/include/c++/v1" --ldflags="-stdlib=libc++ -L/usr/lib/llvm-18/lib"'
 
-                    # macOS arm64 — minimum macOS 13.3 (Ventura)
-                    # xmake produces: build/release/arm64-macosx
-                    - runner: macos-latest
-                      arch_flag: arm64
-                      xmake_output: arm64-macosx
-                      archive_name: arm64-apple-macosx
-                      archive_format: zip
-                      needs_rename: true
-                      extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
+                    # # macOS arm64 — minimum macOS 13.3 (Ventura)
+                    # # xmake produces: build/release/arm64-macosx
+                    # - runner: macos-latest
+                    #   arch_flag: arm64
+                    #   xmake_output: arm64-macosx
+                    #   archive_name: arm64-apple-macosx
+                    #   archive_format: zip
+                    #   needs_rename: true
+                    #   extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
 
-                    # macOS x86_64 — minimum macOS 13.3 (Ventura)
-                    # xmake produces: build/release/x86_64-macosx
-                    - runner: macos-15-intel
-                      arch_flag: x86_64
-                      xmake_output: x86_64-macosx
-                      archive_name: x86_64-apple-macosx
-                      archive_format: zip
-                      needs_rename: true
-                      extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
+                    # # macOS x86_64 — minimum macOS 13.3 (Ventura)
+                    # # xmake produces: build/release/x86_64-macosx
+                    # - runner: macos-15-intel
+                    #   arch_flag: x86_64
+                    #   xmake_output: x86_64-macosx
+                    #   archive_name: x86_64-apple-macosx
+                    #   archive_format: zip
+                    #   needs_rename: true
+                    #   extra_xmake_flags: '--cxflags="-mmacosx-version-min=13.3" --ldflags="-mmacosx-version-min=13.3"'
 
-                    # Windows x64 — xmake.lua handles MT runtime via set_runtimes()
-                    # xmake produces: build/release/x64-windows-msvc
-                    - runner: windows-latest
-                      arch_flag: x64
-                      xmake_output: x64-windows-msvc
-                      archive_name: x64-windows-msvc
-                      archive_format: zip
-                      needs_rename: false
-                      extra_xmake_flags: ""
+                    # # Windows x64 — xmake.lua handles MT runtime via set_runtimes()
+                    # # xmake produces: build/release/x64-windows-msvc
+                    # - runner: windows-latest
+                    #   arch_flag: x64
+                    #   xmake_output: x64-windows-msvc
+                    #   archive_name: x64-windows-msvc
+                    #   archive_format: zip
+                    #   needs_rename: false
+                    #   extra_xmake_flags: ""
 
-                    # Windows arm64
-                    # xmake produces: build/release/arm64-windows-msvc
-                    - runner: windows-11-arm
-                      arch_flag: arm64
-                      xmake_output: arm64-windows-msvc
-                      archive_name: arm64-windows-msvc
-                      archive_format: zip
-                      needs_rename: false
-                      extra_xmake_flags: ""
+                    # # Windows arm64
+                    # # xmake produces: build/release/arm64-windows-msvc
+                    # - runner: windows-11-arm
+                    #   arch_flag: arm64
+                    #   xmake_output: arm64-windows-msvc
+                    #   archive_name: arm64-windows-msvc
+                    #   archive_format: zip
+                    #   needs_rename: false
+                    #   extra_xmake_flags: ""
 
         steps:
             - name: Checkout
@@ -111,6 +110,20 @@ jobs:
                   sudo apt-get install -y libc++-18-dev libc++abi-18-dev perl
                   sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
                   sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
+
+            - name: Verify Linux toolchain
+              if: runner.os == 'Linux'
+              run: |
+                  which clang++
+                  clang++ --version
+                  echo "--- libc++ install location ---"
+                  ls /usr/lib/llvm-18/include/c++/v1/ | head -5
+                  echo "--- libc++ lib location ---"
+                  ls /usr/lib/llvm-18/lib/ | grep -i c++ || true
+                  echo "--- expected header test ---"
+                  echo '#include <expected>' | clang++ -stdlib=libc++ -std=c++23 -x c++ -E - > /dev/null && echo "OK: <expected> works"
+                  echo "--- map header path test ---"
+                  echo '#include <map>' | clang++ -stdlib=libc++ -std=c++23 -v -x c++ -E - 2>&1 | grep -E "(libc\+\+|c\+\+/v1|c\+\+/12)" | head -5
 
             - name: Install macOS build deps
               if: runner.os == 'macOS'
