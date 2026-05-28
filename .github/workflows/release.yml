@@ -37,7 +37,7 @@ jobs:
                       archive_name: x86_64-linux-gnu
                       archive_format: tar.xz
                       needs_rename: false
-                      extra_xmake_flags: '--cxflags="-stdlib=libc++" --ldflags="-stdlib=libc++"'
+                      extra_xmake_flags: '--cxflags="-stdlib=libc++ -fexperimental-library" --ldflags="-stdlib=libc++ -fexperimental-library"'
 
                     # Linux aarch64
                     - runner: ubuntu-22.04-arm
@@ -46,7 +46,7 @@ jobs:
                       archive_name: aarch64-linux-gnu
                       archive_format: tar.xz
                       needs_rename: true
-                      extra_xmake_flags: '--cxflags="-stdlib=libc++" --ldflags="-stdlib=libc++"'
+                      extra_xmake_flags: '--cxflags="-stdlib=libc++ -fexperimental-library" --ldflags="-stdlib=libc++ -fexperimental-library"'
 
                     # # macOS arm64 — minimum macOS 13.3 (Ventura)
                     # # xmake produces: build/release/arm64-macosx
