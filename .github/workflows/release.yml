@@ -37,7 +37,7 @@ jobs:
                       archive_name: x86_64-linux-gnu
                       archive_format: tar.xz
                       needs_rename: false
-                      extra_xmake_flags: '--cxflags="-stdlib=libc++ -fexperimental-library" --ldflags="-stdlib=libc++ -fexperimental-library"'
+                      extra_xmake_flags: ""
 
                     # Linux aarch64
                     - runner: ubuntu-22.04-arm
@@ -46,7 +46,7 @@ jobs:
                       archive_name: aarch64-linux-gnu
                       archive_format: tar.xz
                       needs_rename: true
-                      extra_xmake_flags: '--cxflags="-stdlib=libc++ -fexperimental-library" --ldflags="-stdlib=libc++ -fexperimental-library"'
+                      extra_xmake_flags: ""
 
                     # macOS arm64 minimum macOS 13.3 (Ventura)
                     # xmake produces: build/release/arm64-macosx
@@ -208,14 +208,25 @@ jobs:
               if: runner.os == 'Linux'
               shell: bash
               run: |
-                  BINARY=$(find "build/release/${{ matrix.archive_name }}/bin" -type f -executable | head -1)
-                  if [ -n "$BINARY" ]; then
-                    echo "Checking glibc symbol versions for: $BINARY"
-                    objdump -T "$BINARY" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -20 || true
-                    echo ""
-                    echo "Dynamic library dependencies:"
+                  set -euo pipefail
+                  fail=0
+                  for BINARY in build/release/${{ matrix.archive_name }}/bin/*; do
+                    [ -x "$BINARY" ] || continue
+                    echo "=== $BINARY ==="
+                    echo "glibc symbol versions:"
+                    objdump -T "$BINARY" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tail -5 || true
+                    echo "ldd:"
                     ldd "$BINARY" 2>/dev/null || true
-                  fi
+                    BAD="$(ldd "$BINARY" 2>/dev/null | awk '/=>/ {print $1}' \
+                      | grep -vE '^(linux-vdso|ld-linux.*|libc|libm|libgcc_s|libpthread|libdl|librt)\.so' || true)"
+                    if [ -n "$BAD" ]; then
+                      echo "FAIL: non-system runtime deps in $BINARY:"
+                      echo "$BAD"
+                      fail=1
+                    fi
+                  done
+                  [ "$fail" -eq 0 ] || { echo "Release binaries are not self-contained"; exit 1; }
+                  echo "OK: all Linux binaries depend only on baseline system libs"
 
             - name: Verify version targeting (macOS)
               if: runner.os == 'macOS'
