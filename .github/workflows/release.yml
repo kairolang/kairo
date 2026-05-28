@@ -37,7 +37,7 @@ jobs:
                       archive_name: x86_64-linux-gnu
                       archive_format: tar.xz
                       needs_rename: false
-                      extra_xmake_flags: '--cxflags="-stdlib=libc++ -I/usr/lib/llvm-18/include/c++/v1" --ldflags="-stdlib=libc++ -L/usr/lib/llvm-18/lib"'
+                      extra_xmake_flags: '--cxflags="-stdlib=libc++" --ldflags="-stdlib=libc++"'
 
                     # Linux aarch64
                     - runner: ubuntu-22.04-arm
@@ -46,7 +46,7 @@ jobs:
                       archive_name: aarch64-linux-gnu
                       archive_format: tar.xz
                       needs_rename: true
-                      extra_xmake_flags: '--cxflags="-stdlib=libc++ -I/usr/lib/llvm-18/include/c++/v1" --ldflags="-stdlib=libc++ -L/usr/lib/llvm-18/lib"'
+                      extra_xmake_flags: '--cxflags="-stdlib=libc++" --ldflags="-stdlib=libc++"'
 
                     # # macOS arm64 — minimum macOS 13.3 (Ventura)
                     # # xmake produces: build/release/arm64-macosx
@@ -104,13 +104,17 @@ jobs:
             - name: Install Linux build deps
               if: runner.os == 'Linux'
               run: |
-                  wget https://apt.llvm.org/llvm.sh
-                  chmod +x llvm.sh
-                  sudo ./llvm.sh 18
-                  sudo apt-get install -y libc++-18-dev libc++abi-18-dev perl
-                  sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
-                  sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
-
+                wget https://apt.llvm.org/llvm.sh
+                chmod +x llvm.sh
+                sudo ./llvm.sh 18
+                sudo apt-get install -y libc++-18-dev libc++abi-18-dev perl
+                # Force clang-18 to win over the pre-installed clang-14
+                sudo update-alternatives --remove-all clang || true
+                sudo update-alternatives --remove-all clang++ || true
+                sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 1000
+                sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 1000
+                sudo update-alternatives --set clang /usr/bin/clang-18
+                sudo update-alternatives --set clang++ /usr/bin/clang++-18
             - name: Verify Linux toolchain
               if: runner.os == 'Linux'
               run: |
