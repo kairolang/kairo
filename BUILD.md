@@ -202,7 +202,7 @@ VSCode is currently the only editor with LSP support and `.k` syntax highlightin
 Pick whichever is easiest:
 
 - **VS Code Marketplace** install directly from [the Kairo extension page](https://marketplace.visualstudio.com/items?itemName=KSF.kairo).
-- **Prebuilt VSIX** grab the latest `.vsix` from [kairo-lsp](https://github.com/kairolang/kairo-lsp/) (e.g. `kairo-0.5.5.vsix`) and in VSCode: **Extensions** tab -> **⋯** menu -> **Install from VSIX…**
+- **Prebuilt VSIX** grab the latest `.vsix` from [kairo-lsp](https://github.com/kairolang/kairo-lsp/) (e.g. `kairo-0.5.5.vsix`) and in VSCode: **Extensions** tab -> **...**menu -> **Install from VSIX…**
 - **Build from source:**
 
 ```bash
