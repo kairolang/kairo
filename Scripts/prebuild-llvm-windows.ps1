@@ -6,11 +6,12 @@ $ROOT      = if ($env:KBLD_ROOT)      { $env:KBLD_ROOT }      else { Split-Path 
 $BUILD_DIR = if ($env:KBLD_BUILD_DIR) { $env:KBLD_BUILD_DIR } else { Join-Path $ROOT "build" }
 $TRIPLE    = "x86_64-pc-windows-msvc"
 $MODE      = if ($env:KBLD_MODE)      { $env:KBLD_MODE }      else { "release" }
-$JOBS      = if ($env:LINK_JOBS)      { $env:LINK_JOBS }      else { $env:NUMBER_OF_PROCESSORS }
+$JOBS      = 32
+$LINK_JOBS = 24
 
 $LLVM_SRC    = Join-Path $ROOT "Lib\llvm-runtimes"
 $LLVM_BUILD  = Join-Path $BUILD_DIR "llvm"
-$LLVM_MARKER = Join-Path $LLVM_BUILD "lib\LLVMCore.lib"
+$LLVM_MARKER = Join-Path $LLVM_BUILD "lib\clangFrontendTool.lib"
 $OUT_LIB     = Join-Path $BUILD_DIR "$TRIPLE\$MODE\lib"
 $TARGETS     = if ($env:LLVM_TARGETS) { $env:LLVM_TARGETS } else { "X86;AArch64;WebAssembly" }
 
@@ -111,14 +112,17 @@ $cmakeArgs = @(
     "-DCMAKE_C_COMPILER=clang"
     "-DCMAKE_CXX_COMPILER=clang++"
     "-DCMAKE_LINKER=lld-link"
-    "-DLLVM_ENABLE_PROJECTS=clang;lld"
+    "-DLLVM_ENABLE_PROJECTS=`"clang;lld`""
     "-DLLVM_TARGETS_TO_BUILD=`"$TARGETS`""
     "-DLLVM_ENABLE_RTTI=ON"
     "-DLLVM_ENABLE_EH=ON"
     "-DLLVM_INCLUDE_TESTS=OFF"
     "-DLLVM_INCLUDE_EXAMPLES=OFF"
     "-DLLVM_INCLUDE_BENCHMARKS=OFF"
+    "-DLLVM_USE_CRT_RELEASE=MD"
+    "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL"
     "-DLLVM_BUILD_TOOLS=OFF"
+    "-DLLVM_OPTIMIZED_TABLEGEN=ON"
     "-DCLANG_BUILD_TOOLS=OFF"
     "-DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF"
     "-DLLVM_ENABLE_BINDINGS=OFF"
@@ -135,9 +139,10 @@ $batchCmd = "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 && cmake $cmakeArgs && 
 Write-Host "[llvm] configuring and building..."
 Write-Host "[llvm] cmd: $batchCmd"
 
-$proc = Start-Process -FilePath "cmd.exe" `
-    -ArgumentList "/c", $batchCmd `
-    -NoNewWindow -Wait -PassThru
+$proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $batchCmd `
+    -NoNewWindow -Wait -PassThru `
+    -RedirectStandardOutput (Join-Path $BUILD_DIR "llvm-build.log") `
+    -RedirectStandardError  (Join-Path $BUILD_DIR "llvm-build.err.log")
 
 if ($proc.ExitCode -ne 0) {
     Write-Error "[llvm] build failed with exit code $($proc.ExitCode)"
