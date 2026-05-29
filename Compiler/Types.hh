@@ -999,13 +999,13 @@ class StackBuf {
     static_assert(N > 0);
     static_assert(libcxx::is_trivially_destructible_v<T>);
 
-    alignas(T) unsigned char _inline[sizeof(T) * N]{};
-    T       *_data = reinterpret_cast<T *>(_inline);
+    alignas(T) unsigned char inline_buf[sizeof(T) * N]{};
+    T       *_data = reinterpret_cast<T *>(inline_buf);
     uint32_t _size = 0;
     uint32_t _cap  = N;
 
     [[nodiscard]] bool _is_inline() const {
-        return _data == reinterpret_cast<const T *>(_inline);
+        return _data == reinterpret_cast<const T *>(inline_buf);
     }
 
     void _grow() {
