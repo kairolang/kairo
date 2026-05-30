@@ -39,89 +39,93 @@ fn version_macro(target: string, suffix: string) -> string {
 }
 
 fn llvm_link_windows(t: ref!(Target)) {
-    t.passthrough("-DNOMINMAX");
-    t.passthrough("-fms-runtime-lib=dll");
-    t.passthrough("-Xlinker").passthrough("/nodefaultlib:libcmt");
+    const eval if defined(_WIN64) || defined(_WIN32) {
+        t.passthrough("-DNOMINMAX");
+        t.passthrough("-fms-runtime-lib=dll");
+        t.passthrough("-Xlinker").passthrough("/nodefaultlib:libcmt");
 
-    // --- locate Windows SDK ---
-    var sdk_lib_root: string = "";
+        // --- locate Windows SDK ---
+        var sdk_lib_root: string = "";
 
-    inline "c++" {
-        HKEY hkey;
-        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-                        "SOFTWARE\\WOW6432Node\\Microsoft\\Windows Kits\\Installed Roots",
-                        0, KEY_READ, &hkey) == ERROR_SUCCESS) {
-            char buf[512];
-            DWORD sz = 512;
-            if (RegQueryValueExA(hkey, "KitsRoot10", nullptr, nullptr,
-                                reinterpret_cast<LPBYTE>(buf), &sz) == ERROR_SUCCESS) {
-                // hand the C string back to kairo land
-                sdk_lib_root = kairo::std::nstring_to_string(buf) + kairo::std::nstring_to_string("Lib");
+        inline "c++" {
+            HKEY hkey;
+            if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+                            "SOFTWARE\\WOW6432Node\\Microsoft\\Windows Kits\\Installed Roots",
+                            0, KEY_READ, &hkey) == ERROR_SUCCESS) {
+                char buf[512];
+                DWORD sz = 512;
+                if (RegQueryValueExA(hkey, "KitsRoot10", nullptr, nullptr,
+                                    reinterpret_cast<LPBYTE>(buf), &sz) == ERROR_SUCCESS) {
+                    // hand the C string back to kairo land
+                    sdk_lib_root = kairo::std::nstring_to_string(buf) + kairo::std::nstring_to_string("Lib");
+                }
+                RegCloseKey(hkey);
             }
-            RegCloseKey(hkey);
         }
-    }
 
-    if sdk_lib_root.is_empty() {
-        sdk_lib_root = "C:/Program Files (x86)/Windows Kits/10/Lib";
-    }
+        if sdk_lib_root.is_empty() {
+            sdk_lib_root = "C:/Program Files (x86)/Windows Kits/10/Lib";
+        }
 
-    // --- find newest SDK version ---
-    var newest_sdk: string = "";
-    inline "c++" {
-        for (auto& entry : libcxx::filesystem::directory_iterator(sdk_lib_root.raw())) {
-            if (entry.is_directory()) {
-                auto name_cxx = entry.path().filename().string();
-                auto name = kairo::std::nstring_to_string(name_cxx.c_str());
-                if (name.starts_with(kairo::std::nstring_to_string("10.")) && name > newest_sdk) {
-                    newest_sdk = name;
+        // --- find newest SDK version ---
+        var newest_sdk: string = "";
+        inline "c++" {
+            for (auto& entry : libcxx::filesystem::directory_iterator(sdk_lib_root.raw())) {
+                if (entry.is_directory()) {
+                    auto name_cxx = entry.path().filename().string();
+                    auto name = kairo::std::nstring_to_string(name_cxx.c_str());
+                    if (name.starts_with(kairo::std::nstring_to_string("10.")) && name > newest_sdk) {
+                        newest_sdk = name;
+                    }
                 }
             }
         }
-    }
 
-    if newest_sdk.is_empty() {
-        log::error("No Windows SDK found in " + sdk_lib_root);
-        log::error("Install the Windows 10/11 SDK");
-        return;
-    }
+        if newest_sdk.is_empty() {
+            log::error("No Windows SDK found in " + sdk_lib_root);
+            log::error("Install the Windows 10/11 SDK");
+            return;
+        }
 
-    var sdk_base = string(sdk_lib_root) + "/" + string(newest_sdk);
-    t.passthrough("-Xlinker").passthrough("\\\x22/libpath:" + sdk_base + "/ucrt/x64\\\x22");
-    t.passthrough("-Xlinker").passthrough("\\\x22/libpath:" + sdk_base + "/um/x64\\\x22");
+        var sdk_base = string(sdk_lib_root) + "/" + string(newest_sdk);
+        t.passthrough("-Xlinker").passthrough("\\\x22/libpath:" + sdk_base + "/ucrt/x64\\\x22");
+        t.passthrough("-Xlinker").passthrough("\\\x22/libpath:" + sdk_base + "/um/x64\\\x22");
 
-    // --- MSVC toolchain via vswhere ---
-    var vswhere: string = "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe";
-    if path_exists(vswhere) {
-        var vs_path = run([
-            vswhere,
-            "-latest",
-            "-products", "*",
-            "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-            "-property", "installationPath"
-        ]).stdout_str.r_strip();
-        
-        if !vs_path.is_empty() {
-            var msvc_tools = vs_path + "/VC/Tools/MSVC";
-            if path_exists(msvc_tools) {
-                var newest_msvc: string = "";
-                inline "c++" {
-                    for (auto& entry : libcxx::filesystem::directory_iterator(msvc_tools.raw())) {
-                        if (entry.is_directory()) {
-                            auto name = kairo::std::nstring_to_string(entry.path().filename().string().c_str());
-                            if (name > newest_msvc) {
-                                newest_msvc = name;
+        // --- MSVC toolchain via vswhere ---
+        var vswhere: string = "C:/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe";
+        if path_exists(vswhere) {
+            var vs_path = run([
+                vswhere,
+                "-latest",
+                "-products", "*",
+                "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                "-property", "installationPath"
+            ]).stdout_str.r_strip();
+            
+            if !vs_path.is_empty() {
+                var msvc_tools = vs_path + "/VC/Tools/MSVC";
+                if path_exists(msvc_tools) {
+                    var newest_msvc: string = "";
+                    inline "c++" {
+                        for (auto& entry : libcxx::filesystem::directory_iterator(msvc_tools.raw())) {
+                            if (entry.is_directory()) {
+                                auto name = kairo::std::nstring_to_string(entry.path().filename().string().c_str());
+                                if (name > newest_msvc) {
+                                    newest_msvc = name;
+                                }
                             }
                         }
                     }
-                }
-                
-                if !newest_msvc.is_empty() {
-                    t.passthrough("-Xlinker").passthrough("\\\x22/libpath:" + msvc_tools + "/" + newest_msvc + "/lib/x64\\\x22");
+                    
+                    if !newest_msvc.is_empty() {
+                        t.passthrough("-Xlinker").passthrough("\\\x22/libpath:" + msvc_tools + "/" + newest_msvc + "/lib/x64\\\x22");
+                    }
                 }
             }
         }
     }
+
+    // otherwise this function is a no-op on non-Windows platforms
 }
 
 fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: string) -> void {
