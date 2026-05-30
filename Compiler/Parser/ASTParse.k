@@ -247,7 +247,9 @@ class ScopeStack {
         if self._top == &null { return &null; }
         return self._top->dc;
     }
-}/// \class PendingAnnotations
+}
+
+/// \class PendingAnnotations
 /// \brief ephemeral buffer for annotations and modifiers encountered during parsing.
 ///
 /// \details acts as a side-channel for the parser to accumulate leading attributes
