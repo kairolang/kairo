@@ -121,6 +121,15 @@ ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
 ffi "c++" import "llvm/Support/Threading.h";
 ffi "c++" import "llvm/TargetParser/Triple.h";
+ffi "c++" import "llvm/MC/TargetRegistry.h";
+ffi "c++" import "llvm/MC/MCSubtargetInfo.h";
+ffi "c++" import "llvm/Support/TargetSelect.h";
+ffi "c++" import "llvm/Support/raw_ostream.h";
+ffi "c++" import "llvm/TargetParser/Triple.h";
+ffi "c++" import "llvm/TargetParser/Host.h";
+ffi "c++" import "llvm/Target/TargetMachine.h";
+ffi "c++" import "llvm/Target/TargetOptions.h";
+ffi "c++" import "llvm/Support/CodeGen.h";
 
 class CompilerInstance; // forward breaks the CI ↔ FrontendAction cycle
 
@@ -317,7 +326,7 @@ class CompilerInstance {
     // --- Identity actions ------------------------------------------------
 
     fn get_target_triple(self) -> string {
-        var triple = llvm::Triple(llvm::sys::getProcessTriple());
+        var triple = llvm::Triple(llvm::Triple::normalize(llvm::sys::getProcessTriple()));
         if (triple.getVendor()) == (llvm::Triple::UnknownVendor) && (triple.isOSLinux()) {
             triple.setVendor(llvm::Triple::PC);
         }
@@ -359,9 +368,291 @@ class CompilerInstance {
         return 0;
     }
 
+    /// Returns the effective target triple: --target if given, else host triple.
+    priv fn _effective_triple(self) -> string {
+        var t = self._parsed.get_string("target");
+
+        if !t.empty() {
+            return t;
+        }
+
+        return self.get_target_triple();
+    }
+
+    /// Looks up a registered target by triple. Returns nullptr if not found
+    /// and writes the LLVM error message to `err_out`.
+    priv fn _lookup_target(self, triple: string, err_out: *string) -> *void {
+        var result: *void = &null;
+        var err:     libcxx::string;
+        var triple_str = std::string_to_nstring(triple);
+
+        inline "c++" {
+            auto llvm_triple = llvm::Triple(llvm::Triple::normalize(triple_str.raw_string()));
+            const llvm::Target *T = llvm::TargetRegistry::lookupTarget(llvm_triple, err);
+        }
+
+        if T == &null {
+            (*err_out) = string(err.c_str());
+        }
+
+        inline "c++" { result = const_cast<void*>(static_cast<const void*>(T)); }
+        return result;
+    }
+
+    // =========================================================================
+    //  --print-targets
+    // =========================================================================
+
+    /// Lists all targets registered in this LLVM build. Mirrors `llc -version`'s
+    /// "Registered Targets" section.
+    fn print_targets(self) -> i32 {
+        std::print("Registered targets:");
+
+        // collect into a vector so we can sort and align the output
+        var rows: libcxx::vector::<libcxx::pair::<llvm::StringRef, llvm::StringRef>>;
+        var max_name: usize = 0;
+
+        for T in llvm::TargetRegistry::targets() {
+            rows.emplace_back(T.getName(), T.getShortDescription());
+            max_name = libcxx::max(max_name, libcxx::strlen(T.getName()));
+        }
+        
+        inline "c++" {
+            libcxx::sort(rows.begin(), rows.end(),
+            // only reason this is in an inline c++ block is auto is not supported in Kairo stage0
+                [](const auto &a, const auto &b) { return a.first < b.first; });
+        }
+
+        for row in rows {
+            var out = f"  {string(row.first.data(), row.first.size())}";
+            for var i: usize = row.first.size(); (i < (max_name + 2)); ++i {
+                out += " ";
+            }
+            
+            out += f"- {string(row.second.data(), row.second.size())}";
+            std::print(out);
+        }
+
+        return 0;
+    }
+
+    // =========================================================================
+    //  --print-cpus
+    // =========================================================================
+
+    /// Lists CPUs supported by the effective target. Uses --target if given,
+    /// otherwise the host triple. Mirrors `llc -mtriple=X -mcpu=help`.
+    fn print_cpus(self) -> i32 {
+        var triple = std::string_to_nstring(self._effective_triple());
+        var llvm_triple = llvm::Triple(llvm::Triple::normalize(triple.raw()));
+        var err:     libcxx::string;
+    
+        var T: *llvm::Target = const_cast::<*llvm::Target>(
+            llvm::TargetRegistry::lookupTarget(llvm_triple, err)
+        );
+
+        if T == &null {
+            self._diag->report(DiagID::U001F, f"unknown target triple '{triple}': {string(err.c_str(), err.size())}").emit();
+            return 1;
+        }
+
+        var TM: *llvm::TargetMachine = &null;
+        var opts: llvm::TargetOptions;
+        
+        TM = T->createTargetMachine(
+            llvm_triple,
+            /*CPU=*/r"generic",
+            /*Features=*/r"",
+            opts,
+            libcxx::nullopt
+        );
+
+        if TM == &null {
+            self._diag->report(DiagID::U001F, f"failed to create TargetMachine for '{string(triple.raw())}' ").emit();
+            return 1;
+        }
+
+        finally {
+            delete TM;
+        }
+
+        var STI: *llvm::MCSubtargetInfo = const_cast::<*llvm::MCSubtargetInfo>(TM->getMCSubtargetInfo());
+        if STI == &null {
+            self._diag->report(DiagID::U001F, f"no subtarget info for '{string(triple.raw())}' ").emit();
+            return 1;
+        }
+
+        std::print(f"Available CPUs for target '{string(triple.raw())}':");
+
+        var cpu_rows: libcxx::vector::<libcxx::string>;
+        var max_cpu:  usize = 0;
+
+        for cpu in STI->getAllProcessorDescriptions() {
+            cpu_rows.emplace_back(cpu.Key);
+            max_cpu = libcxx::max(max_cpu, libcxx::strlen(cpu.Key));
+        }
+
+        inline "c++" {
+            libcxx::sort(cpu_rows.begin(), cpu_rows.end(),
+                [](const auto &a, const auto &b) { return a < b; });
+        }
+
+        for row in cpu_rows {
+            std::print(f"  {string(row.c_str(), row.size())}");
+        }
+
+        std::print("");
+        std::print("Available features:");
+
+        var feat_rows: libcxx::vector::<libcxx::pair::<libcxx::string, libcxx::string>>;
+        var max_feat:  usize = 0;
+
+        inline "c++" {
+            for (const llvm::SubtargetFeatureKV &feat : STI->getAllProcessorFeatures()) {
+                const char *desc = (feat.Desc && *feat.Desc) ? feat.Desc : "";
+                feat_rows.emplace_back(feat.Key, desc);
+                max_feat = libcxx::max(max_feat, libcxx::strlen(feat.Key));
+            }
+
+            libcxx::sort(feat_rows.begin(), feat_rows.end(),
+                [](const auto &a, const auto &b) { return a.first < b.first; });
+        }
+
+        for row in feat_rows {
+            var out = f"  {string(row.first.c_str(), row.first.size())}";
+            for var i: usize = row.first.size(); i < max_feat + 2; ++i {
+                out += " ";
+            }
+
+            if row.second.size() > 0 {
+                out += f"- {string(row.second.c_str(), row.second.size())}";
+            }
+
+            std::print(out);
+        }
+
+        return 0;
+    }
+
+    // =========================================================================
+    //  --print-target-info
+    // =========================================================================
+
+    /// Prints triple, architecture, ABI, pointer width, endianness, object format,
+    /// data layout, and default CPU for the effective target. Uses --target if
+    /// given, otherwise the host triple.
+    fn print_target_info(self) -> i32 {
+        var triple = std::string_to_nstring(self._effective_triple());
+        var llvm_triple = llvm::Triple(llvm::Triple::normalize(triple.raw()));
+        var err: libcxx::string;
+
+        var T: *llvm::Target = const_cast::<*llvm::Target>(
+            llvm::TargetRegistry::lookupTarget(llvm_triple, err)
+        );
+
+        if T == &null {
+            self._diag->report(DiagID::U001F,
+                f"unknown target triple '{string(triple.raw())}': {string(err.c_str(), err.size())}"
+            ).emit();
+            return 1;
+        }
+
+        var full_triple: libcxx::string  = llvm_triple.getTriple();
+        var arch:        llvm::StringRef = llvm_triple.getArchName();
+        var vendor:      llvm::StringRef = llvm_triple.getVendorName();
+        var os_name:     llvm::StringRef = llvm_triple.getOSName();
+        var environment: llvm::StringRef = llvm_triple.getEnvironmentName();
+
+        var ptr_width: string;
+        if      llvm_triple.isArch64Bit() { ptr_width = "64-bit";  }
+        else if llvm_triple.isArch32Bit() { ptr_width = "32-bit";  }
+        else if llvm_triple.isArch16Bit() { ptr_width = "16-bit";  }
+        else                              { ptr_width = "unknown"; }
+
+        var endian: string = ("little") if (llvm_triple.isLittleEndian()) else ("big");
+
+        var os_family: string;
+        if      llvm_triple.isOSLinux()          { os_family = "linux";        }
+        else if llvm_triple.isOSDarwin()         { os_family = "darwin";       }
+        else if llvm_triple.isOSWindows()        { os_family = "windows";      }
+        else if llvm_triple.isOSFreeBSD()        { os_family = "freebsd";      }
+        else if llvm_triple.isOSWASI()           { os_family = "wasi";         }
+        else if llvm_triple.isOSBinFormatELF()   { os_family = "elf (other)";  }
+        else if llvm_triple.isOSBinFormatMachO() { os_family = "macho (other)"; }
+        else                                     { os_family = "unknown";      }
+
+        var obj_format: string;
+        inline "c++" {
+            switch (llvm_triple.getObjectFormat()) {
+                case llvm::Triple::COFF:        obj_format = string("COFF");        break;
+                case llvm::Triple::ELF:         obj_format = string("ELF");         break;
+                case llvm::Triple::MachO:       obj_format = string("Mach-O");      break;
+                case llvm::Triple::Wasm:        obj_format = string("Wasm");        break;
+                case llvm::Triple::XCOFF:       obj_format = string("XCOFF");       break;
+                case llvm::Triple::GOFF:        obj_format = string("GOFF");        break;
+                case llvm::Triple::DXContainer: obj_format = string("DXContainer"); break;
+                case llvm::Triple::SPIRV:       obj_format = string("SPIR-V");      break;
+                default:                        obj_format = string("unknown");     break;
+            }
+        }
+
+        std::print(f"Triple:          {string(full_triple.c_str(), full_triple.size())}");
+        std::print(f"Architecture:    {string(arch.data(), arch.size())}");
+        std::print(f"Vendor:          {string(vendor.data(), vendor.size())}");
+        std::print(f"OS:              {string(os_name.data(), os_name.size())}");
+        std::print(f"Environment:     {string(environment.data(), environment.size())}");
+        std::print(f"Pointer width:   {ptr_width}");
+        std::print(f"Endianness:      {endian}");
+        std::print(f"OS family:       {os_family}");
+        std::print(f"Object format:   {obj_format}");
+
+        // Data layout via TargetMachine
+        var TM: *llvm::TargetMachine = &null;
+        var opts: llvm::TargetOptions;
+
+        TM = T->createTargetMachine(
+            llvm_triple,
+            /*CPU=*/r"generic",
+            /*Features=*/r"",
+            opts,
+            libcxx::nullopt
+        );
+
+        if TM == &null {
+            self._diag->report(DiagID::U001F,
+                f"failed to create TargetMachine for '{string(triple.raw())}' "
+            ).emit();
+            return 1;
+        }
+
+        finally {
+            delete TM;
+        }
+
+        var data_layout: libcxx::string  = TM->createDataLayout().getStringRepresentation();
+        var default_cpu: llvm::StringRef = TM->getTargetCPU();
+
+        std::print(f"Data layout:     {string(data_layout.c_str(), data_layout.size())}");
+        std::print(f"Default CPU:     {string(default_cpu.data(), default_cpu.size())}");
+
+        return 0;
+    }
+
     /// Handles info-query flags. Currently implements \c --print-cfg;
     /// all other flags are no-ops until their subsystems exist.
     fn run_info_query(self) -> i32 {
+        if self._parsed.get_bool("print-targets") {
+            return self.print_targets();
+        }
+
+        if self._parsed.get_bool("print-cpus") {
+            return self.print_cpus();
+        }
+
+        if self._parsed.get_bool("print-target-info") {
+            return self.print_target_info();
+        }
+
         if self._parsed.get_bool("print-cfg") {
             for s: string in self._parsed.get_list("cfg") { std::print(s); }
             return 0;
