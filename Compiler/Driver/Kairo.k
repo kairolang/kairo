@@ -32,9 +32,23 @@ import Driver::CompilerInstance::*;
 
 ffi "c++" import "llvm/Support/InitLLVM.h";
 ffi "c++" import "llvm/Support/Locale.h";
+ffi "c++" import "llvm/MC/TargetRegistry.h";
+ffi "c++" import "llvm/MC/MCSubtargetInfo.h";
+ffi "c++" import "llvm/Support/TargetSelect.h";
+ffi "c++" import "llvm/Support/raw_ostream.h";
+ffi "c++" import "llvm/TargetParser/Triple.h";
+ffi "c++" import "llvm/TargetParser/Host.h";
+ffi "c++" import "llvm/Target/TargetMachine.h";
+ffi "c++" import "llvm/Target/TargetOptions.h";
+ffi "c++" import "llvm/Support/CodeGen.h";
 
 fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
     static var init_llvm = llvm::InitLLVM(argc, argv);
+    llvm::InitializeAllTargetInfos();
+    llvm::InitializeAllTargets();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllAsmParsers();
+    llvm::InitializeAllAsmPrinters();
 
     llvm::setBugReportMsg(
         r"PLEASE submit a bug report to https://github.com/kairolang/kairo/issues and include the crash backtrace.\n"
