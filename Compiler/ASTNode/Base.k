@@ -26,7 +26,6 @@ class Expr derives Annotation::<Expr> {
     pub var range:         SourceRange = SourceRange::invalid();
     // for error nodes, the kind of expr we were trying to parse (for better error messages)
     pub var recovery_kind: ExprKind    = ExprKind::RecoveryExpr;
-    pub var ctx:          *ASTContext  = &null; // set by sema for type resolution and other context-dependent queries
 
     enum ValueCategory derives u8 {
         Unknown,  // not yet resolved by sema
