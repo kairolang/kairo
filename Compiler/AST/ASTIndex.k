@@ -15,6 +15,32 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+// FIXME(indexer): diagnostics disabled and statement-position decls leak.
+//
+// The indexer is a dumb token-level pre-pass: it dispatches on leading
+// keywords without understanding statement structure. This makes it
+// misclassify `var`/`const` that appear mid-statement context bindings
+// (`foo as var f`), destructure RHS, for-loop headers as top-level
+// variable declarations, hoisting phantom globals into HoistedScope.
+//
+// Diagnostics are commented out as a stopgap so these false positives don't
+// surface as spurious errors. This does NOT fix the underlying pollution:
+// phantom entries are still inserted and are queried live by the parser's
+// generic disambiguation (_is_generic_name -> hoisted->lookup). A phantom
+// name collision will cause a downstream misparse with no diagnostic to
+// trace it back to here.
+//
+// Proper fix: rewrite the indexer to hook directly into the real parse
+// functions (single-pass, lazy/on-demand hoisting) once DeclParse and
+// PatternParse land, so the only token consumer is the real parser with full
+// context. Until then, hoisted-scope contents should be treated as
+// best-effort and possibly polluted.
+//
+// Cheap interim mitigation if needed before the rewrite: in dispatch_decl's
+// `default` case, skip_until_balanced(EndLine) instead of advancing one
+// token, so statement lines (anything not starting with a decl keyword) are
+// skipped wholesale and never walked into.
+
 import ASTNode::Base::*;
 import ASTNode::PrimaryExpressions::*;
 import AST::ASTContext::*;
@@ -346,12 +372,12 @@ class ASTIndex {
         }
 
         var loc = cur->range;
-        self._diag->report(
-            DiagID::S045E,
-            ((loc) | (start)).start,
-            "expected '>' to close generic parameters; if '<' was a comparison operator, wrap the expression in parentheses"
-        ).first((loc) | (start))
-         .emit();
+        // self._diag->report(
+        //     DiagID::S045E,
+        //     ((loc) | (start)).start,
+        //     "expected '>' to close generic parameters; if '<' was a comparison operator, wrap the expression in parentheses"
+        // ).first((loc) | (start))
+        //  .emit();
 
         // Best-effort: whatever we counted so far is still useful
         (*num_params) = count;
@@ -479,9 +505,9 @@ class ASTIndex {
 
         // depth guard
         if (self._scope_depth + 1) >= self._max_scope_depth {
-            self._diag->report(DiagID::I002F, tok->range.start,
-                f"maximum scope nesting depth ({self._max_scope_depth}) exceeded during indexing"
-            ).first(tok->range).emit();
+            // self._diag->report(DiagID::I002F, tok->range.start,
+            //     f"maximum scope nesting depth ({self._max_scope_depth}) exceeded during indexing"
+            // ).first(tok->range).emit();
             self.skip_until_balanced(SkipUntil::RBrace);
             self.advance(); // consume }
             return;
@@ -564,9 +590,9 @@ class ASTIndex {
 
         // depth guard check against total depth after pushing all segments
         if (self._scope_depth + segments.size()) >= self._max_scope_depth {
-            self._diag->report(DiagID::I002F, tok.range.start,
-                f"maximum scope nesting depth ({self._max_scope_depth}) exceeded during indexing"
-            ).first(tok.range).emit();
+            // self._diag->report(DiagID::I002F, tok.range.start,
+            //     f"maximum scope nesting depth ({self._max_scope_depth}) exceeded during indexing"
+            // ).first(tok.range).emit();
             self.skip_until_balanced(SkipUntil::RBrace);
             self.advance(); // consume `}`
             if leading_colon {
@@ -789,9 +815,9 @@ class ASTIndex {
                 return;
             }
             if !self.match_tok(TokenKind::OpExclaim) {
-                self._diag->report(DiagID::S037E, name.range.start,
-                    "expected '!' after macro name"
-                ).first(name.range).emit();
+                // self._diag->report(DiagID::S037E, name.range.start,
+                //     "expected '!' after macro name"
+                // ).first(name.range).emit();
                 self.skip_until_balanced(SkipUntil::EndLine);
                 return;
             }
@@ -816,9 +842,9 @@ class ASTIndex {
             self.hoist(self.get_text(name).text, entry);
 
         } else {
-            self._diag->report(DiagID::S036E, tok.range.start,
-                "expected macro name after 'macro' "
-            ).first(tok.range).emit();
+            // self._diag->report(DiagID::S036E, tok.range.start,
+            //     "expected macro name after 'macro' "
+            // ).first(tok.range).emit();
             self.skip_until_balanced(SkipUntil::EndLine);
         }
     }
@@ -903,11 +929,11 @@ class ASTIndex {
 
         while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
             if (iter) >= (self._ctx->ci->pp.max_depth) {
-                self._diag->report(DiagID::I002F, tok->range.start,
-                    "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
-                ).first(tok->range)
-                 .note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
-                 .emit();
+                // self._diag->report(DiagID::I002F, tok->range.start,
+                //     "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
+                // ).first(tok->range)
+                //  .note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
+                //  .emit();
                 return Token(tok->range, TokenKind::TkUnknown, 0);
             }
 
@@ -1105,18 +1131,6 @@ class ASTIndex {
         if resolved_kind == kind {
             self.advance();
             return resolved;
-        }
-
-        self._diag->report(DiagID::S045E, tok->range.start,
-            f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
-        ).first(tok->range).emit();
-
-        if tok->kind == TokenKind::TkMacroExpand {
-            var builder = self._diag->report(DiagID::S045N, tok->range.start,
-                f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
-            ).first(tok->range);
-            self.attach_macro_expansion_chain(&builder, tok);
-            builder.emit();
         }
 
         var err     = Token();
