@@ -809,3 +809,38 @@ class NullLiteralExpr derives Expr {
         return ExprKind::NullLiteralExpr;
     }
 }
+
+/// ============================================================================
+///  CompoundStmt
+///  Grammar:  '{' stmt* '}'
+///
+///  Introduces a lexical scope. Destructors run at the closing brace in
+///  reverse declaration order. `body` is populated by the parser.
+/// ============================================================================
+class CompoundStmt derives Stmt {
+    pub var body: FrozenList::<*Stmt>;
+
+    static fn create(ctx: *ASTContext, range: SourceRange) -> *CompoundStmt {
+        var node   = ctx->alloc::<CompoundStmt>();
+        node->kind  = StmtKind::CompoundStmt;
+        node->range = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *CompoundStmt {
+        var node            = ctx->alloc::<CompoundStmt>();
+        node->kind          = StmtKind::RecoveryStmt;
+        node->recovery_kind = StmtKind::CompoundStmt;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Stmt) -> bool {
+        return ptr->kind == StmtKind::CompoundStmt;
+    }
+    /* OVERRIDE */ static fn stmt_kind() -> StmtKind {
+        return StmtKind::CompoundStmt;
+    }
+}
