@@ -383,6 +383,7 @@ class DiagEngine {
     priv var _fatal_count:        u32  = 0;
     priv var _suppressed_count:   u32  = 0;
     priv var _error_limit:        u32  = 50; ///< Max errors before suppression kicks in.
+    priv var _suppress_depth:     u32  = 0;
     priv var _warnings_as_errors: bool = false;
 
     // --- Constructors --------------------------------------------------------
@@ -511,6 +512,11 @@ class DiagEngine {
     ///   2. \c -Werror  warnings are promoted to errors before limit checking.
     ///   3. Error limit errors and fatals beyond \c _error_limit are dropped.
     fn emit(self, diag: *Diagnostic) {
+        if self._suppress_depth > 0 {
+            std::destroy(diag);
+            return;
+        }
+
         var sev = diag->code.severity();
         var cat = diag->code.category();
 
@@ -530,6 +536,16 @@ class DiagEngine {
 
         if sev == DiagSeverity::Error || sev == DiagSeverity::Fatal {
             if self._error_count >= self._error_limit {
+                if self._suppressed_count == 0 {
+                    var limit_diag = std::create::<Diagnostic>(
+                        DiagCode(DiagID::I957E),
+                        f"too many errors emitted, further errors will be suppressed");
+                    self._all_diags.push_back(limit_diag);
+                    for var i: usize = 0; i < self._consumers.size(); ++i {
+                        self._consumers[i]->handle(limit_diag);
+                    }
+                }
+
                 self._suppressed_count += 1;
                 self._all_diags.push_back(diag);
                 return;
@@ -559,7 +575,15 @@ class DiagEngine {
     // --- Configuration -------------------------------------------------------
 
     /// Sets the maximum number of errors before suppression. Default: 50.
-    fn set_error_limit(self, limit: u32)        { self._error_limit = limit; }
+    fn set_error_limit(self, limit: u32) { self._error_limit = limit; }
+    fn push_suppress(self) {
+        self._suppress_depth += 1;
+    }
+    fn pop_suppress(self)  {
+        if self._suppress_depth > 0 {
+            self._suppress_depth -= 1;
+        }
+    }
 
     /// Promotes all warnings to errors when \p val is true.
     fn set_warnings_as_errors(self, val: bool)  { self._warnings_as_errors = val; }

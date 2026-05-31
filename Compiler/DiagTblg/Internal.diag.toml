@@ -48,3 +48,18 @@ group = "ast"
 
     review the error message for specific details about the issue. if the message is unclear, consider enabling verbose diagnostics for more context. if you believe this is a compiler bug, please report it to the Kairo development team with a minimal reproducible example.
     """
+
+[I957]
+brief = "error limit reached, further errors will be suppressed"
+group = "Diagnostics"
+    [I957.E]
+    explain = """
+    # error limit reached
+
+    the compiler has reached the maximum number of errors allowed (default is 20). further errors will be suppressed to prevent overwhelming output.
+
+    ## how to fix
+
+    - review and fix the reported errors before attempting to compile again.
+    - if you need to see more errors, consider increasing the error limit using `--cmax-errors=50` or a higher value.
+    """
