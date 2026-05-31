@@ -472,7 +472,7 @@ class <T> TypeParse {
     ///       recovery type.
     ///
     /// FIXME: handle the case where `parse_type` returns an error type
-    /// (recovery node) instead of null by using `isa_recovery::<Type>(...)`.
+    /// (recovery node) instead of null by using `isa_recovery(...)`.
     inline fn _parse_paren_type(self) -> *Type {
         // precondition: current token is `(`
         var lparen_ptr  = dyn()->current_ptr();
@@ -492,7 +492,7 @@ class <T> TypeParse {
         }
 
         var first = self.parse_type(false, true);
-        if (first == &null) || (isa_recovery::<Type>(first)) {
+        if (first == &null) || (is_recovery(first)) {
             dyn()->diag->report(DiagID::S045E, start_range.start,
                 "expected type after '(' "
             ).first(start_range).emit();
@@ -567,7 +567,7 @@ class <T> TypeParse {
             }
 
             var elem = self.parse_type(false, true);
-            if (elem == &null) || isa_recovery::<Type>(elem) {
+            if (elem == &null) || is_recovery(elem) {
                 // no stop_at_newline we're mid-tuple, newlines are legal
                 self._sync_type(TypeSyncCtx::Comma, 1);
                 continue;
@@ -695,7 +695,7 @@ class <T> TypeParse {
             return &null;
         }
 
-        if isa_recovery::<Type>(elem_type) {
+        if is_recovery(elem_type) {
             var err_st = VectorType::create_error(dyn()->ctx, start_range | elem_type->range);
             propagate_flags(err_st, elem_type);
             return err_st;
@@ -898,7 +898,7 @@ class <T> TypeParse {
             return _error_type(start_range);
         }
 
-        if isa_recovery::<Type>(key_type) {
+        if is_recovery(key_type) {
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
 
             var err = SetType::create_error(dyn()->ctx, start_range | key_type->range);
@@ -1016,7 +1016,7 @@ class <T> TypeParse {
             return err;
         }
 
-        if isa_recovery::<Type>(val_type) {
+        if is_recovery(val_type) {
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
             var err = MapType::create_error(dyn()->ctx, start_range | val_type->range);
             propagate_flags(err, key_type);
@@ -1113,7 +1113,7 @@ class <T> TypeParse {
         }
 
         var end_range = (pointee->range) if (pointee != &null) else start_range;
-        if isa_recovery::<Type>(pointee) {
+        if is_recovery(pointee) {
             var err_pt = PointerType::create_error(dyn()->ctx, start_range | end_range);
             propagate_flags(err_pt, pointee);
             return err_pt;
@@ -1202,7 +1202,7 @@ class <T> TypeParse {
         if dyn()->check(TokenKind::OpArrow) {
             dyn()->advance(); // consume `->`
             return_type = self.parse_type();
-            if (return_type == &null) || isa_recovery::<Type>(return_type) {
+            if (return_type == &null) || is_recovery(return_type) {
                 var err = FunctionPointerType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
                 if return_type != &null {
                     propagate_flags(err, return_type);
@@ -1257,7 +1257,7 @@ class <T> TypeParse {
             }
 
             var param_ty = self.parse_type(false, true);
-            if (param_ty == &null) || isa_recovery::<Type>(param_ty) {
+            if (param_ty == &null) || is_recovery(param_ty) {
                 self._sync_type(TypeSyncCtx::Paren, 1, 0, 0);
                 continue;
             }
@@ -1304,7 +1304,7 @@ class <T> TypeParse {
             return VariadicPackType::create_error(dyn()->ctx, start_range);
         }
 
-        if isa_recovery::<Type>(chain) {
+        if is_recovery(chain) {
             return VariadicPackType::create_error(dyn()->ctx, start_range | chain->range);
         }
 
@@ -1553,7 +1553,7 @@ class <T> TypeParse {
                 return false;
             }
 
-            if isa_recovery::<Type>(ty) {
+            if is_recovery(ty) {
                 self._sync_generic_args(angle_depth);
                 return false;
             }
@@ -1699,7 +1699,7 @@ class <T> TypeParse {
             return &null;
         }
 
-        if isa_recovery::<Expr>(expr) {
+        if is_recovery(expr) {
             var err_te = TypeExpr::create_error(dyn()->ctx, expr->range);
             propagate_flags(err_te, expr);
             return err_te;
@@ -1731,7 +1731,7 @@ class <T> TypeParse {
             return &null;
         }
 
-        if isa_recovery::<Type>(ty) {
+        if is_recovery(ty) {
             var err_nt = NullableType::create_error(dyn()->ctx, ty->range | end_range);
             propagate_flags(err_nt, ty);
             return err_nt;

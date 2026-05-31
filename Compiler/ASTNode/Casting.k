@@ -423,3 +423,34 @@ inline "c++" {
         return nullptr;
     }
 }
+
+fn is_recovery(ptr: *Expr) -> bool {
+    return (ptr != &null) && (ptr->kind == ExprKind::RecoveryExpr);
+}
+fn is_recovery(ptr: *Stmt) -> bool {
+    return (ptr != &null) && (ptr->kind == StmtKind::RecoveryStmt);
+}
+fn is_recovery(ptr: *Type) -> bool {
+    return (ptr != &null) && (ptr->kind == TypeKind::RecoveryType);
+}
+fn is_recovery(ptr: *Decl) -> bool {
+    return (ptr != &null) && (ptr->kind == DeclKind::RecoveryDecl);
+}
+
+inline "c++" {
+    inline bool is_recovery(const Expr *ptr) {
+        return ptr != nullptr && ptr->kind == ExprKind::RecoveryExpr;
+    }
+    
+    inline bool is_recovery(const Stmt *ptr) {
+        return ptr != nullptr && ptr->kind == StmtKind::RecoveryStmt;
+    }
+    
+    inline bool is_recovery(const Type *ptr) {
+        return ptr != nullptr && ptr->kind == TypeKind::RecoveryType;
+    }
+    
+    inline bool is_recovery(const Decl *ptr) {
+        return ptr != nullptr && ptr->kind == DeclKind::RecoveryDecl;
+    }
+}

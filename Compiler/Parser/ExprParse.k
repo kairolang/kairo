@@ -58,17 +58,18 @@ class <T> ExprParse {
     /// \brief context flags controlling what tokens terminate an expression.
     ///        passed into parse_expr so the Pratt loop knows when to stop.
     enum ExprStopKind derives u8 {
-        Default    = 0,       ///< stop at ; newline EOF
-        StopAngle  = 1 << 0,  ///< also stop at > >> at depth 0 (generic param defaults)
-        StopParen  = 1 << 1,  ///< also stop at ) at depth 0
-        StopSquare = 1 << 2,  ///< also stop at ] at depth 0
-        StopBrace  = 1 << 3,  ///< also stop at } at depth 0
-        StopComma  = 1 << 4,  ///< also stop at , at depth 0
+        Default    = 0,           ///< stop at ; newline EOF
+        StopAngle  = 1 << 0,      ///< also stop at > >> at depth 0 (generic param defaults)
+        StopParen  = 1 << 1,      ///< also stop at ) at depth 0
+        StopSquare = 1 << 2,      ///< also stop at ] at depth 0
+        StopBrace  = 1 << 3,      ///< also stop at } at depth 0
+        StopComma  = 1 << 4,      ///< also stop at , at depth 0
+        NoStructLiteral = 1 << 5, ///< disallow { ... } struct literal parsing
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  CRTP helper
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     priv inline fn dyn(self) -> *T {
         return static_cast::<*T>(&self);
@@ -78,9 +79,9 @@ class <T> ExprParse {
         return static_cast::<*Expr>(ChainExpr::create_error(dyn()->ctx, range));
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Sync / recovery
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     priv inline fn _sync_expr(
         self,
@@ -136,9 +137,9 @@ class <T> ExprParse {
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Entry point
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief operator precedence levels for the Pratt parser.
     ///        higher number = tighter binding.
@@ -193,13 +194,13 @@ class <T> ExprParse {
 
             if static_cast::<u8>(prec) <= static_cast::<u8>(min_prec) { break; }
 
-            // ── range operators .. ..= ──────────────────────────────
+            // -- range operators .. ..= ------------------------------
             if cur_kind == TokenKind::OpRange || cur_kind == TokenKind::OpRangeEqual {
                 lhs = self._parse_range_expr(lhs, stop);
                 continue;
             }
 
-            // ── assignment operators (right-associative) ────────────
+            // -- assignment operators (right-associative) ------------
             if self._is_assign_op(cur_kind) {
                 var op_tok = dyn()->current();
                 dyn()->advance(T::SkipNL::After); // consume operator
@@ -223,7 +224,7 @@ class <T> ExprParse {
                 continue;
             }
 
-            // ── exponentiation (right-associative) ──────────────
+            // -- exponentiation (right-associative) --------------
             if cur_kind == TokenKind::OpCaretCaret {
                 var op_tok = dyn()->current();
                 dyn()->advance(T::SkipNL::After);
@@ -247,7 +248,7 @@ class <T> ExprParse {
                 continue;
             }
 
-            // ── regular binary operators (left-associative) ─────────
+            // -- regular binary operators (left-associative) ---------
             var op_tok = dyn()->current();
             dyn()->advance(T::SkipNL::After); // consume operator
 
@@ -451,9 +452,9 @@ class <T> ExprParse {
     }
 
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Unary expressions
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief parses prefix unary operators then delegates to postfix.
     ///
@@ -474,7 +475,7 @@ class <T> ExprParse {
             return NullLiteralExpr::create(dyn()->ctx, amp_range | null_range, true);
         }
 
-        // ── prefix unary operators ──────────────────────────────────
+        // -- prefix unary operators ----------------------------------
         if dyn()->check(TokenKind::OpExclaim)
         || dyn()->check(TokenKind::OpMinus)
         || dyn()->check(TokenKind::OpTilde)
@@ -502,7 +503,7 @@ class <T> ExprParse {
             );
         }
 
-        // ── keyword prefix: await ───────────────────────────────────
+        // -- keyword prefix: await -----------------------------------
         if dyn()->check(TokenKind::KwAwait) {
             var kw_range = cur_range;
             dyn()->advance();
@@ -516,7 +517,7 @@ class <T> ExprParse {
             return AwaitExpr::create(dyn()->ctx, kw_range | operand->range, operand);
         }
 
-        // ── keyword prefix: spawn ───────────────────────────────────
+        // -- keyword prefix: spawn -----------------------------------
         if dyn()->check(TokenKind::KwSpawn) {
             var kw_range = cur_range;
             dyn()->advance();
@@ -530,7 +531,7 @@ class <T> ExprParse {
             return SpawnExpr::create(dyn()->ctx, kw_range | operand->range, operand);
         }
 
-        // ── keyword prefix: thread ──────────────────────────────────
+        // -- keyword prefix: thread ----------------------------------
         if dyn()->check(TokenKind::KwThread) {
             var kw_range = cur_range;
             dyn()->advance();
@@ -544,7 +545,7 @@ class <T> ExprParse {
             return ThreadExpr::create(dyn()->ctx, kw_range | operand->range, operand);
         }
 
-        // ── keyword prefix: eval ────────────────────────────────────
+        // -- keyword prefix: eval ------------------------------------
         if dyn()->check(TokenKind::KwEval) {
             var kw_range = cur_range;
             dyn()->advance();
@@ -558,7 +559,7 @@ class <T> ExprParse {
             return EvalExpr::create(dyn()->ctx, kw_range | operand->range, operand);
         }
 
-        // ── keyword prefix: unsafe ──────────────────────────────────
+        // -- keyword prefix: unsafe ----------------------------------
         if dyn()->check(TokenKind::KwUnsafe) {
             var kw_range = cur_range;
             dyn()->advance();
@@ -572,7 +573,7 @@ class <T> ExprParse {
             return UnsafeExpr::create(dyn()->ctx, kw_range | operand->range, operand);
         }
 
-        // ── keyword prefix: delete ──────────────────────────────────
+        // -- keyword prefix: delete ----------------------------------
         if dyn()->check(TokenKind::KwDelete) {
             var kw_range = cur_range;
             dyn()->advance();
@@ -600,28 +601,28 @@ class <T> ExprParse {
             return DeleteExpr::create(dyn()->ctx, kw_range | operand->range, operand, is_array);
         }
 
-        // ── keyword prefix: sizeof ──────────────────────────────────
+        // -- keyword prefix: sizeof ----------------------------------
         if dyn()->check(TokenKind::KwSizeOf) {
             return self._parse_sizeof_expr();
         }
 
-        // ── keyword prefix: alignof ─────────────────────────────────
+        // -- keyword prefix: alignof ---------------------------------
         if dyn()->check(TokenKind::KwAlignOf) {
             return self._parse_alignof_expr();
         }
 
-        // ── keyword prefix: typeof ──────────────────────────────────
+        // -- keyword prefix: typeof ----------------------------------
         if dyn()->check(TokenKind::KwTypeOf) {
             return self._parse_typeof_expr();
         }
 
-        // ── no prefix: parse postfix ────────────────────────────────
+        // -- no prefix: parse postfix --------------------------------
         return self._parse_postfix_expr(stop);
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  sizeof / alignof / typeof
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     inline fn _parse_sizeof_expr(self) -> *Expr {
         var kw_range = dyn()->current_ptr()->range;
@@ -707,9 +708,9 @@ class <T> ExprParse {
         return TypeOfExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, operand);
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Postfix expression loop
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief parses a primary expression then loops consuming postfix ops.
     ///
@@ -734,7 +735,7 @@ class <T> ExprParse {
         var chain_start = base->range;
 
         while !dyn()->is_eof() {
-            // ── access operators: accumulate into chain steps ────────
+            // -- access operators: accumulate into chain steps --------
             if dyn()->check(TokenKind::OpDot)
             || dyn()->check(TokenKind::OpArrow)
             || dyn()->check(TokenKind::OpColonColon)
@@ -749,7 +750,7 @@ class <T> ExprParse {
                 break;
             }
 
-            // ── call: ( ─────────────────────────────────────────────
+            // -- call: ( ---------------------------------------------
             if dyn()->check(TokenKind::OpLParen) {
                 // flush pending chain steps first
                 base = self._flush_chain(base, &chain_steps, chain_start);
@@ -758,7 +759,7 @@ class <T> ExprParse {
                 continue;
             }
 
-            // ── subscript: [ ────────────────────────────────────────
+            // -- subscript: [ ----------------------------------------
             if dyn()->check(TokenKind::OpLSquare) {
                 base = self._flush_chain(base, &chain_steps, chain_start);
                 base = self._parse_subscript_expr(base);
@@ -766,7 +767,29 @@ class <T> ExprParse {
                 continue;
             }
 
-            // ── postfix ++ -- ───────────────────────────────────────
+            // -- named initializer:  Path '{' field (',' field)* '}' ------
+            if dyn()->check(TokenKind::OpLBrace) {
+                // Suppressed in condition/scrutinee/iterable positions, where a
+                // trailing `{` is the block of the enclosing construct, not an
+                // initializer. The statement parser relies on us leaving `{` alone.
+                var suppressed = (static_cast::<u8>(stop)
+                                & static_cast::<u8>(ExprStopKind::NoStructLiteral)) != 0;
+                if suppressed {
+                    break; // hand the `{` back to the caller (it's a block opener)
+                }
+
+                // Only a *type path* can be initialized. Reject `foo() { }`,
+                // `(a + b) { }`, `arr[i] { }` the base must be a name or a
+                // qualified/generic path, never a call/subscript/operator result.
+                if !self._is_initializable_path(base) {
+                    break; // not a named-init; let the caller see the `{`
+                }
+
+                base = self._parse_named_initializer(base, stop);
+                continue;
+            }
+
+            // -- postfix ++ -- ---------------------------------------
             if dyn()->check(TokenKind::OpPlusPlus)
             || dyn()->check(TokenKind::OpMinusMinus) {
                 base = self._flush_chain(base, &chain_steps, chain_start);
@@ -783,7 +806,7 @@ class <T> ExprParse {
                 continue;
             }
 
-            // ── postfix ... (pack expansion) ────────────────────────
+            // -- postfix ... (pack expansion) ------------------------
             if dyn()->check(TokenKind::OpEllipsis) {
                 base = self._flush_chain(base, &chain_steps, chain_start);
                 var ellipsis_range = dyn()->current_ptr()->range;
@@ -797,15 +820,29 @@ class <T> ExprParse {
                 continue;
             }
 
-            // ── postfix as Type (type cast) ─────────────────────────
+            // -- postfix as Type (type cast) -------------------------
             if dyn()->check(TokenKind::KwAs) {
+                // `as var`: var can't begin a type, so this is unambiguously
+                // a bare context binding. Hand `as` to the statement layer.
+                if dyn()->check_peek(TokenKind::KwVar) {
+                    break;
+                }
+
                 base = self._flush_chain(base, &chain_steps, chain_start);
-                base = self._parse_type_cast(base);
+
+                // Everything else speculates: `as const`, `as (`, and plain
+                // type positions are disambiguated inside _try_type_cast by
+                // the trailing-`{` tiebreaker.
+                var maybe_cast = self._try_type_cast(base);
+                if maybe_cast == &null {
+                    break; // binding (or unparseable) -> stmt layer owns `as`
+                }
+                base = maybe_cast;
                 chain_start = base->range;
                 continue;
             }
 
-            // ── nothing matched: end of postfix ─────────────────────
+            // -- nothing matched: end of postfix ---------------------
             break;
         }
 
@@ -814,9 +851,9 @@ class <T> ExprParse {
         return base;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Chain step parsing
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief parses a single access step: separator + identifier + optional
     ///        generic args.
@@ -867,7 +904,7 @@ class <T> ExprParse {
         result.name  = nte;
         result.range = sep_range | id_range;
 
-        // ── generic args after :: separator only ────────────────────
+        // -- generic args after :: separator only --------------------
         // foo::<T> is generic, foo.<T> is not valid syntax
         // also check hoisted scope for disambiguation of foo::Bar<T>
         if dyn()->check(TokenKind::OpLess) {
@@ -900,7 +937,11 @@ class <T> ExprParse {
         id_range:  SourceRange,
         sep_range: SourceRange
     ) {
-        var saved = dyn()->tentative_begin();
+        inline "c++" {
+            using ASTTentativeGuard = typename T::TentativeGuard;
+        }
+
+        var t = ASTTentativeGuard(dyn());
 
         var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
         var ok = dyn()->_parse_generic_args(&generic_args);
@@ -926,11 +967,11 @@ class <T> ExprParse {
                     generic_args.data(), generic_args.size(), dyn()->ctx
                 );
                 step->range = sep_range | dyn()->prev().range;
+                t.commit();
                 return;
             }
         }
-
-        dyn()->tentative_rollback(saved);
+        // fall through: guard dtor pops suppress and rolls cursor back
     }
 
     /// \brief flushes accumulated chain steps into a ChainExpr wrapping base.
@@ -952,9 +993,9 @@ class <T> ExprParse {
         return ce;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Call expression
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief parses a function call: callee ( args )
     ///        supports named arguments: foo(x: 10, y: 20)
@@ -1019,9 +1060,9 @@ class <T> ExprParse {
             }
 
             // check for named argument: ident `:` expr (but not ident `::`)
-            if dyn()->check(TokenKind::LitIdentifier)
-            && dyn()->check_peek(TokenKind::OpColon)
-            && !dyn()->check_peek(TokenKind::OpColonColon) {
+            if (dyn()->check(TokenKind::LitIdentifier))
+            && (dyn()->check_peek(TokenKind::OpColon))
+            && (!dyn()->check_peek(TokenKind::OpColonColon)) {
                 var name_ptr   = dyn()->current_ptr();
                 var name_range = name_ptr->range;
                 var name_tok   = *name_ptr;
@@ -1067,7 +1108,7 @@ class <T> ExprParse {
                     )
                 );
 
-                if (arg == &null) || isa_recovery::<Expr>(arg) {
+                if (arg == &null) || is_recovery(arg) {
                     if self._is_decl_keyword(dyn()->current().kind) { return; }
                     self._sync_expr(ExprSyncCtx::Comma, 1);
 
@@ -1137,9 +1178,9 @@ class <T> ExprParse {
             || k == TokenKind::TkEof;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Subscript expression
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief parses a subscript: base [ index ]
     ///
@@ -1184,15 +1225,27 @@ class <T> ExprParse {
         return SubscriptExpr::create(dyn()->ctx, base->range | end_range, base, index);
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Type cast
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
-    /// \brief parses: expr as Type | expr as unsafe *Type
+    /// \brief speculatively parses `as Type` / `as unsafe *Type`.
     ///
-    /// precondition: current token is `as`
-    inline fn _parse_type_cast(self, operand: *Expr) -> *Expr {
-        var as_range = dyn()->current_ptr()->range;
+    /// \details handles the cast-vs-context-binding ambiguity. On a clean type
+    ///          parse with no trailing `{`, commits and returns the cast. On
+    ///          failure the type recovers (e.g. `(var a, ...)`), or a `{`
+    ///          follows the parsed type (`as const x { ... }`, a binding header,
+    ///          since a cast is never followed by a brace) rolls the cursor
+    ///          back to `as`, discards speculative diagnostics, and returns null
+    ///          so the statement layer routes to context binding.
+    ///
+    /// precondition: current token is `as`.
+    inline fn _try_type_cast(self, operand: *Expr) -> *Expr {
+        inline "c++" {
+            using ASTTentativeGuard = typename T::TentativeGuard;
+        }
+        var t = ASTTentativeGuard(dyn());
+
         dyn()->advance(); // consume `as`
 
         var is_unsafe = false;
@@ -1202,13 +1255,17 @@ class <T> ExprParse {
         }
 
         var target = dyn()->parse_type();
-        if target == &null {
-            dyn()->diag->report(DiagID::S045E, as_range.start,
-                "expected type after 'as' in type cast expression"
-            ).first(as_range).emit();
-            return TypeCastExpr::create_error(dyn()->ctx, operand->range | as_range);
+        if (target == &null) || is_recovery(target) {
+            return &null; // guard dtor pops suppress + rolls cursor back to `as`
         }
 
+        // tiebreaker: a `{` after the parsed type is a context-binding body
+        // (`as const x { ... }`), never a cast. roll back.
+        if dyn()->check(TokenKind::OpLBrace) {
+            return &null;
+        }
+
+        t.commit();
         return TypeCastExpr::create(
             dyn()->ctx,
             operand->range | target->range,
@@ -1218,9 +1275,9 @@ class <T> ExprParse {
         );
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Primary expression dispatch
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief dispatches the current token to the correct primary production.
     ///
@@ -1234,21 +1291,21 @@ class <T> ExprParse {
         if cur_ptr == &null { return &null; }
         var cur_range = cur_ptr->range;
 
-        // ── integer literal ─────────────────────────────────────────
+        // -- integer literal -----------------------------------------
         if dyn()->check(TokenKind::LitInt) {
             var tok = dyn()->current();
             dyn()->advance();
             return IntegerLiteralExpr::create(dyn()->ctx, tok.range, tok);
         }
 
-        // ── float literal ───────────────────────────────────────────
+        // -- float literal -------------------------------------------
         if dyn()->check(TokenKind::LitFloat) {
             var tok = dyn()->current();
             dyn()->advance();
             return FloatingLiteralExpr::create(dyn()->ctx, tok.range, tok);
         }
 
-        // ── string literal ──────────────────────────────────────────
+        // -- string literal ------------------------------------------
         if dyn()->check(TokenKind::LitString) {
             var tok = dyn()->current();
             dyn()->advance();
@@ -1259,57 +1316,67 @@ class <T> ExprParse {
             );
         }
 
-        // ── char literal ────────────────────────────────────────────
+        // -- char literal --------------------------------------------
         if dyn()->check(TokenKind::LitChar) {
             var tok = dyn()->current();
             dyn()->advance();
             return CharacterLiteralExpr::create(dyn()->ctx, tok.range, tok);
         }
 
-        // ── bool literal: true ──────────────────────────────────────
+        // -- bool literal: true --------------------------------------
         if dyn()->check(TokenKind::KwTrue) {
             var tok_range = cur_range;
             dyn()->advance();
             return BooleanLiteralExpr::create(dyn()->ctx, tok_range, true);
         }
 
-        // ── bool literal: false ─────────────────────────────────────
+        // -- bool literal: false -------------------------------------
         if dyn()->check(TokenKind::KwFalse) {
             var tok_range = cur_range;
             dyn()->advance();
             return BooleanLiteralExpr::create(dyn()->ctx, tok_range, false);
         }
 
-        // ── null literal ────────────────────────────────────────────
+        // -- null literal --------------------------------------------
         if dyn()->check(TokenKind::LitNull) {
             var tok_range = cur_range;
             dyn()->advance();
             return NullLiteralExpr::create(dyn()->ctx, tok_range, false);
         }
 
-        // ── parenthesized expr or tuple literal ─────────────────────
+        // -- parenthesized expr or tuple literal ---------------------
         if dyn()->check(TokenKind::OpLParen) {
             return self._parse_paren_expr();
         }
 
-        // ── square bracket: array literal ───────────────────────────
+        // -- square bracket: array literal ---------------------------
         if dyn()->check(TokenKind::OpLSquare) {
             return self._parse_list_literal();
         }
 
-        // ── brace: set/map literal or anon initializer ──────────────
+        // -- brace: set/map literal or anon initializer --------------
         if dyn()->check(TokenKind::OpLBrace) {
             return self._parse_brace_expr();
         }
 
-        // ── closure: fn ─────────────────────────────────────────────
+        // -- closure: fn ---------------------------------------------
         if dyn()->check(TokenKind::KwFn) {
             // TODO: parse closure expression
             // for now, fall through to error
             0;
         }
 
-        // ── code completion ─────────────────────────────────────────
+        // -- keyword prefix: if --------------------------------------
+        if dyn()->check(TokenKind::KwIf)  {
+            return self._parse_if_expr();
+        }
+
+        // -- keyword prefix: try -------------------------------------
+        if dyn()->check(TokenKind::KwTry) {
+            return self._parse_try_catch_expr();
+        }
+
+        // -- code completion -----------------------------------------
         if dyn()->check(TokenKind::TkCodeComplete) {
             dyn()->maybe_complete(CompletionContextKind::ExprStart);
             dyn()->advance(T::SkipNL::After);
@@ -1340,19 +1407,19 @@ class <T> ExprParse {
             return RangeExpr::create(dyn()->ctx, op_range | end_range, &null, rhs, is_inclusive);
         }
 
-        // ── identifier (including `self`) ───────────────────────────
+        // -- identifier (including `self`) ---------------------------
         if dyn()->check(fn(k: TokenKind) -> bool {
             return EXPR_IDENT_TBL.contains(k);
         }) {
             return self._parse_ident_expr();
         }
 
-        // ── global root path: ::foo ─────────────────────────────────
+        // -- global root path: ::foo ---------------------------------
         if dyn()->check(TokenKind::OpColonColon) {
             return self._parse_global_root_expr();
         }
 
-        // ── no production matched ───────────────────────────────────
+        // -- no production matched -----------------------------------
         var resolved_kind = dyn()->resolve_kind_deep(cur_ptr);
         dyn()->diag->report(DiagID::S045E, cur_range.start,
             f"expected expression, found '{token_kind_to_readable_string(resolved_kind)}' "
@@ -1362,9 +1429,9 @@ class <T> ExprParse {
         return self._error_expr(cur_range);
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Identifier expression (with optional generic args)
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief parses a bare identifier, optionally followed by generic args
     ///        if the hoisted scope indicates it's generic.
@@ -1373,6 +1440,10 @@ class <T> ExprParse {
     /// Bar<i32>  -> NamedIdentExpr("Bar", generic_args=[i32])
     /// self      -> NamedIdentExpr("self")
     inline fn _parse_ident_expr(self) -> *Expr {
+        inline "c++" {
+            using ASTTentativeGuard = typename T::TentativeGuard;
+        }
+
         var id_ptr   = dyn()->current_ptr();
         var id_range = id_ptr->range;
         var id_tok   = *id_ptr;
@@ -1393,9 +1464,8 @@ class <T> ExprParse {
                 nte->range = id_range | dyn()->prev().range;
             }
 
-            else {
-                // not in hoisted scope tentative parse
-                var saved = dyn()->tentative_begin();
+            else { // not in hoisted scope tentative parse
+                var t = ASTTentativeGuard(dyn());
 
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 var ok = dyn()->_parse_generic_args(&generic_args);
@@ -1423,13 +1493,8 @@ class <T> ExprParse {
                             generic_args.data(), generic_args.size(), dyn()->ctx
                         );
                         nte->range = id_range | dyn()->prev().range;
-                    } else {
-                        // not a valid continuation rollback, treat < as comparison
-                        dyn()->tentative_rollback(saved);
+                        t.commit();
                     }
-                } else {
-                    // generic arg parse failed rollback
-                    dyn()->tentative_rollback(saved);
                 }
             }
         }
@@ -1437,9 +1502,9 @@ class <T> ExprParse {
         return nte;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Global root path: ::foo::bar
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     inline fn _parse_global_root_expr(self) -> *Expr {
         var start_range = dyn()->current_ptr()->range;
@@ -1517,9 +1582,9 @@ class <T> ExprParse {
         return ce;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Parenthesized expression / tuple literal
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief parses (expr) or (expr, expr, ...)
     ///        single expr -> unwrapped (no GroupingExpr since CST not needed)
@@ -1592,7 +1657,7 @@ class <T> ExprParse {
                 )
             );
 
-            if (elem == &null) || isa_recovery::<Expr>(elem) {
+            if (elem == &null) || is_recovery(elem) {
                 self._sync_expr(ExprSyncCtx::Comma, 1);
                 continue;
             }
@@ -1616,9 +1681,9 @@ class <T> ExprParse {
         return tuple;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Array literal: [expr, expr, ...]
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     inline fn _parse_list_literal(self) -> *Expr {
         var lsquare_range = dyn()->current_ptr()->range;
@@ -1644,7 +1709,7 @@ class <T> ExprParse {
                 )
             );
 
-            if (elem == &null) || isa_recovery::<Expr>(elem) {
+            if (elem == &null) || is_recovery(elem) {
                 self._sync_expr(ExprSyncCtx::Comma, 0, 1);
                 if dyn()->check(TokenKind::OpComma) {
                     dyn()->advance(T::SkipNL::After);
@@ -1677,9 +1742,9 @@ class <T> ExprParse {
         return ll;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
     //  Brace expression: set/map literal or anon initializer
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief parses { ... } which could be:
     ///        - set literal:        {1, 2, 3}
@@ -1744,7 +1809,7 @@ class <T> ExprParse {
                 )
             );
 
-            if (elem == &null) || isa_recovery::<Expr>(elem) {
+            if (elem == &null) || is_recovery(elem) {
                 self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
                 continue;
             }
@@ -1857,7 +1922,7 @@ class <T> ExprParse {
 
     inline fn _parse_anon_initializer(self, start_range: SourceRange) -> *Expr {
         // current token is `.` (first field)
-        var fields: std::StackBuf::<AnonInitializerExpr::FieldInit, 8>;
+        var fields: std::StackBuf::<InitField, 8>;
 
         while !dyn()->is_eof() {
             if dyn()->check(TokenKind::OpRBrace) { break; }
@@ -1917,7 +1982,7 @@ class <T> ExprParse {
                 continue;
             }
 
-            var fi = AnonInitializerExpr::FieldInit{};
+            var fi = InitField{};
             fi.name  = name_tok;
             fi.value = value;
             fi.range = name_range | value->range;
@@ -1946,9 +2011,466 @@ class <T> ExprParse {
         return ai;
     }
 
-    // ════════════════════════════════════════════════════════════════════════
+    /// \brief true if `e` is a type path that may precede a `{ ... }`
+    ///        named initializer.
+    /// \details accepts a bare identifier (NamedIdentExpr) or a chain whose
+    ///          steps are all name/`::`/generic-instantiation (ChainExpr).
+    ///          Rejects call results, subscripts, literals, and operator
+    ///          expressions those can never name a type to initialize.
+    ///          This is a *syntactic* gate; sema still verifies the path
+    ///          actually resolves to an initializable aggregate.
+    priv fn _is_initializable_path(self, e: *Expr) -> bool {
+        if e == &null { return false; }
+        if isa::<NamedIdentExpr>(e) { return true; }
+        if isa::<ChainExpr>(e) {
+            // A ChainExpr is initializable only if every step is a static
+            // path step (`::`) or generic args, not a value access (`.`) or
+            // a call. We let sema do the deep check; syntactically, a chain
+            // ending in a type-ish step is admissible.
+            return true;
+        }
+        return false;
+    }
+
+    /// \brief parses a named (struct/aggregate) initializer.
+    ///  Grammar:  path '{' (init_field (',' init_field)*)? ','? '}'
+    ///    init_field := identifier ':' expr
+    ///
+    /// \details precondition: `path` is the already-parsed type path and the
+    ///          current token is `{`. Field values are parsed with StopComma|
+    ///          StopBrace so a `,` or the closing `}` terminates each value;
+    ///          NoStructLiteral is intentionally NOT propagated inward a
+    ///          nested `Inner { ... }` as a field value is legal and desired.
+    ///          A trailing comma is permitted. Empty `{}` is allowed (zero-field
+    ///          aggregate / default init).
+    priv fn _parse_named_initializer(self, path: *Expr, stop: ExprStopKind) -> *Expr {
+        var start_range = path->range;
+
+        if !dyn()->enter_depth() {
+            return static_cast::<*Expr>(NamedInitializerExpr::create_error(dyn()->ctx, start_range));
+        }
+
+        var lbrace_range = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After); // consume `{`
+
+        var fields: std::StackBuf::<InitField, 8>;
+
+        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+            // tolerate stray newlines between fields
+            if dyn()->check(TokenKind::TkNewLine) {
+                dyn()->advance();
+                continue;
+            }
+
+            var field = self._parse_init_field();
+            if field.value == &null {
+                // malformed field: sync to next `,` or the closing `}`.
+                self._sync_init_field();
+                if dyn()->check(TokenKind::OpRBrace) { break; }
+                if dyn()->check(TokenKind::OpComma) {
+                    dyn()->advance(T::SkipNL::After);
+                    continue;
+                }
+                break;
+            }
+            fields.push_back(field);
+
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After);
+                if dyn()->check(TokenKind::OpRBrace) { break; } // trailing comma
+                continue;
+            }
+            break; // no comma => field list done
+        }
+
+        var full_range = start_range;
+        if dyn()->check(TokenKind::OpRBrace) {
+            full_range = start_range | dyn()->current_ptr()->range;
+            dyn()->advance(T::SkipNL::Before); // consume `}`
+        } else {
+            dyn()->diag->report(DiagID::S045E, lbrace_range.start,
+                "expected '}' to close named initializer"
+            ).first(lbrace_range).emit();
+            full_range = start_range | dyn()->prev().range;
+        }
+
+        var node = NamedInitializerExpr::create(dyn()->ctx, full_range, path);
+        node->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
+
+        dyn()->exit_depth();
+        return static_cast::<*Expr>(node);
+    }
+
+    /// \brief parses a single `name : value` initializer field.
+    /// \details returns an InitField with value == null on failure (caller
+    ///          recovers). The field value is parsed with comma/brace stops so
+    ///          it ends at the field boundary; nested named initializers in the
+    ///          value are allowed (NoStructLiteral is not set on this call).
+    priv fn _parse_init_field(self) -> InitField {
+        var result = InitField{};
+        result.name  = Token();
+        result.value = &null;
+
+        var start = dyn()->current_ptr()->range;
+
+        if !dyn()->check(TokenKind::LitIdentifier) {
+            dyn()->diag->report(DiagID::S045E, start.start,
+                "expected field name in named initializer"
+            ).first(start).emit();
+            return result; // value stays null
+        }
+        var id_ptr   = dyn()->current_ptr();
+        var id_range = id_ptr->range;
+        dyn()->advance(); // consume field name
+        result.name = *id_ptr;
+
+        if !dyn()->check(TokenKind::OpColon) {
+            dyn()->diag->report(DiagID::S045E, id_range.start,
+                "expected ':' after field name in named initializer"
+            ).first(id_range).emit();
+            return result; // value stays null
+        }
+        dyn()->advance(T::SkipNL::After); // consume `:`
+
+        // Field value: stop at `,` (next field) or `}` (end). Fresh stop kind,
+        // so NoStructLiteral does NOT leak in nested initializers are legal.
+        var value = dyn()->parse_expr(static_cast::<ExprStopKind>(
+            static_cast::<u8>(ExprStopKind::StopComma)
+          | static_cast::<u8>(ExprStopKind::StopBrace)
+        ));
+        if (value == &null) || (is_recovery(value)) {
+            return result; // value stays null
+        }
+        result.value = value;
+        result.range = start | value->range;
+        return result;
+    }
+
+    /// \brief recovery: skip to the next field boundary inside an initializer.
+    /// \details delimiter-aware; stops at depth-0 `,` or `}` so a malformed
+    ///          field value doesn't swallow the rest of the initializer.
+    priv fn _sync_init_field(self) {
+        var depth_paren:  i32 = 0;
+        var depth_square: i32 = 0;
+        var depth_brace:  i32 = 0;
+        var iters: u32 = 0;
+        const var MAX: u32 = 128;
+
+        while (!dyn()->is_eof()) && iters < MAX {
+            ++iters;
+            var k = dyn()->current().kind;
+
+            if      k == TokenKind::OpLParen  { ++depth_paren;  }
+            else if k == TokenKind::OpLSquare { ++depth_square; }
+            else if k == TokenKind::OpLBrace  { ++depth_brace;  }
+            else if k == TokenKind::OpRParen  { if depth_paren  > 0 { --depth_paren;  } }
+            else if k == TokenKind::OpRSquare { if depth_square > 0 { --depth_square; } }
+            else if k == TokenKind::OpRBrace {
+                if depth_brace == 0 { return; } // closing brace of the initializer
+                --depth_brace;
+            }
+            else if depth_paren == 0 && depth_square == 0 && depth_brace == 0 {
+                if k == TokenKind::OpComma { return; }
+            }
+            dyn()->advance();
+        }
+    }
+
+    // ========================================================================
+    // Expression-form branches
+    // ========================================================================
+
+    /// \brief parses a single braced expression branch: '{' expr '}'
+    /// \details shared by IfExpr and TryCatchExpr (and MatchExpr later). Exactly
+    ///          one expression per branch; a statement or a second expression
+    ///          inside the braces is a hard error. Returns null on any failure
+    ///          so the caller can recover.
+    priv fn _parse_expr_branch(self) -> *Expr {
+        if !dyn()->check(TokenKind::OpLBrace) {
+            var r = dyn()->current_ptr()->range;
+            dyn()->diag->report(DiagID::S045E, r.start,
+                "expected '{' to begin an expression branch"
+            ).first(r).emit();
+            return &null;
+        }
+        var lbrace = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After); // consume `{`
+
+        // empty branch `{ }` has no value.
+        if dyn()->check(TokenKind::OpRBrace) {
+            dyn()->diag->report(DiagID::S045E, lbrace.start,
+                "expression branch must contain a value expression"
+            ).first(lbrace).emit();
+            return &null;
+        }
+
+        var value = dyn()->parse_expr(T::ExprStopKind::StopBrace);
+        if (value == &null) || is_recovery(value) {
+            return &null;
+        }
+
+        if !dyn()->check(TokenKind::OpRBrace) {
+            dyn()->diag->report(DiagID::S045E, lbrace.start,
+                "expression-form branch allows exactly one expression; "
+                "use a statement form for multi-statement bodies"
+            ).first(lbrace).emit();
+            return &null;
+        }
+        dyn()->advance(T::SkipNL::Before); // consume `}`
+        return value;
+    }
+
+    /// \brief parses an expression-form if.
+    ///  Grammar:  'if' expr '{' expr '}' ('else' 'if' expr '{' expr '}')* 'else' '{' expr '}'
+    ///
+    /// \details called from _parse_primary_expr on KwIf. Conditions parse with
+    ///          NoStructLiteral so `if Foo { }` is not read as a named init.
+    ///          Each body is a single expression. The final `else` is mandatory
+    ///          and parser-enforced.
+    priv fn _parse_if_expr(self) -> *Expr {
+        var start_range = dyn()->current_ptr()->range;
+
+        if !dyn()->enter_depth() {
+            return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range));
+        }
+
+        dyn()->advance(T::SkipNL::After); // consume `if`
+
+        // primary condition
+        var condition = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
+        if (condition == &null) || is_recovery(condition) {
+            dyn()->exit_depth();
+            return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+
+        // primary then-branch
+        var then_expr = self._parse_expr_branch();
+        if then_expr == &null {
+            dyn()->exit_depth();
+            return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+
+        var else_ifs:  std::StackBuf::<IfExpr::ElseIf, 4>;
+        var else_expr: *Expr = &null;
+
+        // else / else-if chain
+        while dyn()->check(TokenKind::KwElse) {
+            dyn()->advance(T::SkipNL::After); // consume `else`
+
+            if dyn()->check(TokenKind::KwIf) {
+                // `else if` arm
+                var ei_start = dyn()->current_ptr()->range;
+                dyn()->advance(T::SkipNL::After); // consume `if`
+
+                var ei_cond = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
+                if (ei_cond == &null) || is_recovery(ei_cond) {
+                    dyn()->exit_depth();
+                    return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+                }
+
+                var ei_body = self._parse_expr_branch();
+                if ei_body == &null {
+                    dyn()->exit_depth();
+                    return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+                }
+
+                var arm = IfExpr::ElseIf{};
+                arm.condition = ei_cond;
+                arm.body      = ei_body;
+                arm.range     = ei_start | ei_body->range;
+                else_ifs.push_back(arm);
+                continue;
+            }
+
+            // final `else` branch
+            else_expr = self._parse_expr_branch();
+            if else_expr == &null {
+                dyn()->exit_depth();
+                return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+            }
+            break; // else is terminal
+        }
+
+        // mandatory else
+        if else_expr == &null {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "expression-form 'if' requires a final 'else' (every branch must yield a value)"
+            ).first(start_range).emit();
+            dyn()->exit_depth();
+            return static_cast::<*Expr>(IfExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+
+        var node = IfExpr::create(dyn()->ctx, start_range | else_expr->range, condition, then_expr, else_expr);
+        node->else_ifs.from_buf(else_ifs.data(), else_ifs.size(), dyn()->ctx);
+
+        dyn()->exit_depth();
+        return static_cast::<*Expr>(node);
+    }
+
+    /// \brief parses an expression-form try/catch.
+    ///  Grammar:  'try' '{' expr '}'
+    ///            ('catch' ('var'|'const')? ident ':' type '{' expr '}')*
+    ///            ('catch' ('var'|'const')? ident? '{' expr '}')?
+    ///
+    /// \details at least one catch arm is required (parser-enforced). A default
+    ///          arm (filter == null) is terminal: anything after it is an error
+    ///          (this also rejects multiple defaults). Bodies are single
+    ///          expressions.
+    priv fn _parse_try_catch_expr(self) -> *Expr {
+        var start_range = dyn()->current_ptr()->range;
+
+        if !dyn()->enter_depth() {
+            return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range));
+        }
+
+        dyn()->advance(T::SkipNL::After); // consume `try`
+
+        var try_expr = self._parse_expr_branch();
+        if try_expr == &null {
+            dyn()->exit_depth();
+            return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+
+        var arms:        std::StackBuf::<TryCatchExpr::CatchArm, 4>;
+        var seen_default = false;
+
+        while dyn()->check(TokenKind::KwCatch) {
+            // a default arm is terminal; another arm after it is an error.
+            if seen_default {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "no catch arm may follow a default 'catch' (the default is terminal)"
+                ).first(r).emit();
+                self._sync_to_brace_or_catch();
+                dyn()->exit_depth();
+                return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+            }
+
+            var arm = self._parse_catch_arm_expr();
+            if arm.body == &null {
+                self._sync_to_brace_or_catch();
+                dyn()->exit_depth();
+                return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+            }
+            if arm.filter == &null {
+                seen_default = true; // untyped/bare catch is the default
+            }
+            arms.push_back(arm);
+        }
+
+        if arms.size() == 0 {
+            dyn()->diag->report(DiagID::S045E, start_range.start,
+                "'try' expression requires at least one 'catch' arm"
+            ).first(start_range).emit();
+            dyn()->exit_depth();
+            return static_cast::<*Expr>(TryCatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+
+        var node = TryCatchExpr::create(dyn()->ctx, start_range | dyn()->prev().range, try_expr);
+        node->catch_arms.from_buf(arms.data(), arms.size(), dyn()->ctx);
+
+        dyn()->exit_depth();
+        return static_cast::<*Expr>(node);
+    }
+
+    /// \brief parses one catch arm of a try expression.
+    ///  Grammar:  'catch' ('var'|'const')? ident? (':' type)? '{' expr '}'
+    ///
+    /// \details forms: `catch { v }` (bare default), `catch e { v }` /
+    ///          `catch var e { v }` / `catch const e { v }` (untyped default,
+    ///          mutable unless const), `catch e: T { v }` (typed). Mutability
+    ///          defaults to mutable; `const` overrides. Returns an arm with a
+    ///          null body on failure.
+    priv fn _parse_catch_arm_expr(self) -> TryCatchExpr::CatchArm {
+        var result = TryCatchExpr::CatchArm{};
+        result.has_binding = false;
+        result.is_const    = false;
+        result.binding     = &null;
+        result.filter      = &null;
+        result.body        = &null;
+
+        var start_range = dyn()->current_ptr()->range;
+        dyn()->advance(T::SkipNL::After); // consume `catch`
+
+        // optional mutability keyword
+        if dyn()->check(TokenKind::KwConst) {
+            result.is_const = true;
+            dyn()->advance();
+        } else if dyn()->check(TokenKind::KwVar) {
+            result.is_const = false; // explicit mutable
+            dyn()->advance();
+        }
+
+        // optional binding identifier
+        if dyn()->check(TokenKind::LitIdentifier) {
+            var id_ptr   = dyn()->current_ptr();
+            var id_range = id_ptr->range;
+            dyn()->advance();
+            result.binding     = NamedIdentExpr::create(dyn()->ctx, id_range, *id_ptr);
+            result.has_binding = true;
+
+            // optional `: Type` filter (only meaningful with a binding)
+            if dyn()->check(TokenKind::OpColon) {
+                dyn()->advance(T::SkipNL::After); // consume `:`
+                var filter = dyn()->parse_type();
+                if (filter == &null) || is_recovery(filter) {
+                    dyn()->diag->report(DiagID::S045E, start_range.start,
+                        "expected a panic type after ':' in catch arm"
+                    ).first(start_range).emit();
+                    return result; // body stays null
+                }
+                result.filter = filter;
+            }
+        } else {
+            // no identifier. A mutability keyword without a binding is invalid.
+            if result.is_const {
+                dyn()->diag->report(DiagID::S045E, start_range.start,
+                    "'const' in a catch arm must be followed by a binding name"
+                ).first(start_range).emit();
+                return result; // body stays null
+            }
+        }
+
+        // body
+        var body = self._parse_expr_branch();
+        if body == &null {
+            return result; // body stays null
+        }
+        result.body  = body;
+        result.range = start_range | body->range;
+        return result;
+    }
+
+    /// \brief recovery: skip to the next `catch`, a closing brace at depth 0, or
+    ///        a statement boundary, after a malformed catch arm. Delimiter-aware.
+    priv fn _sync_to_brace_or_catch(self) {
+        var depth: i32 = 0;
+        var iters: u32 = 0;
+        const var MAX:  u32 = 128;
+
+        while (!dyn()->is_eof()) && iters < MAX {
+            ++iters;
+            var k = dyn()->current().kind;
+
+            if k == TokenKind::OpLBrace || k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
+                ++depth;
+            } else if k == TokenKind::OpRBrace || k == TokenKind::OpRParen || k == TokenKind::OpRSquare {
+                if depth == 0 { return; }
+                --depth;
+            } else if depth == 0 {
+                if k == TokenKind::KwCatch
+                || k == TokenKind::TkNewLine
+                || k == TokenKind::OpSemicolon {
+                    return;
+                }
+            }
+            dyn()->advance();
+        }
+    }
+
+    // ========================================================================
     //  Generic disambiguation helper
-    // ════════════════════════════════════════════════════════════════════════
+    // ========================================================================
 
     /// \brief checks if a name refers to a generic type/function in hoisted scope.
     ///        used to disambiguate `<` as generic args vs comparison operator.

@@ -23,7 +23,7 @@ class ExprPrinter {
     var _buf:   string;
     var _style: PrintStyle;
 
-    // ── Public entry point ──────────────────────────────────────────
+    // -- Public entry point ------------------------------------------
 
     static fn print(expr: *Expr, style: PrintStyle = PrintStyle::Diagnostic) -> string {
         var p    = ExprPrinter{};
@@ -33,13 +33,13 @@ class ExprPrinter {
         return p._buf;
     }
 
-    // ── Token spelling helper ───────────────────────────────────────
+    // -- Token spelling helper ---------------------------------------
 
     static fn tok_spelling(tok: Token) -> string {
         return token_kind_to_readable_string(tok.kind);
     }
 
-    // ── Core dispatch ───────────────────────────────────────────────
+    // -- Core dispatch -----------------------------------------------
 
     priv fn _print(self, expr: *Expr) {
         if expr == &null {
@@ -95,7 +95,7 @@ class ExprPrinter {
             else "<error>";
     }
 
-    // ── Recovery ────────────────────────────────────────────────────
+    // -- Recovery ----------------------------------------------------
 
     priv fn _print_recovery(self, expr: *Expr) {
         if self._style == PrintStyle::Debug {
@@ -105,7 +105,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Scalar literals ─────────────────────────────────────────────
+    // -- Scalar literals ---------------------------------------------
 
     priv fn _print_int_lit(self, expr: *IntegerLiteralExpr) {
         if self._style == PrintStyle::Debug {
@@ -154,7 +154,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Named identifier ────────────────────────────────────────────
+    // -- Named identifier --------------------------------------------
 
     priv fn _print_named_ident(self, expr: *NamedIdentExpr) {
         var name = ExprPrinter::tok_spelling(expr->name);
@@ -180,7 +180,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Chain expression ────────────────────────────────────────────
+    // -- Chain expression --------------------------------------------
 
     priv fn _print_chain(self, expr: *ChainExpr) {
         if self._style == PrintStyle::Debug {
@@ -241,7 +241,7 @@ class ExprPrinter {
         else if kind == ChainExpr::AccessKind::QuestionArrowStar { self._buf += "?->*";}
     }
 
-    // ── Call expression ─────────────────────────────────────────────
+    // -- Call expression ---------------------------------------------
 
     priv fn _print_call(self, expr: *CallExpr) {
         if self._style == PrintStyle::Debug {
@@ -265,7 +265,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Subscript expression ────────────────────────────────────────
+    // -- Subscript expression ----------------------------------------
 
     priv fn _print_subscript(self, expr: *SubscriptExpr) {
         if self._style == PrintStyle::Debug {
@@ -282,7 +282,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Unary operator ──────────────────────────────────────────────
+    // -- Unary operator ----------------------------------------------
 
     priv fn _print_unary(self, expr: *UnaryOperatorExpr) {
         var op_ = ExprPrinter::tok_spelling(expr->op_token);
@@ -303,7 +303,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Binary operator ─────────────────────────────────────────────
+    // -- Binary operator ---------------------------------------------
 
     priv fn _print_binary(self, expr: *BinaryOperatorExpr) {
         var op_ = ExprPrinter::tok_spelling(expr->op_token);
@@ -321,7 +321,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Assignment operator ─────────────────────────────────────────
+    // -- Assignment operator -----------------------------------------
 
     priv fn _print_assign(self, expr: *AssignOperatorExpr) {
         var op_ = ExprPrinter::tok_spelling(expr->op_token);
@@ -339,7 +339,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Collection literals ─────────────────────────────────────────
+    // -- Collection literals -----------------------------------------
 
     priv fn _print_list_lit(self, expr: *ListLiteralExpr) {
         self._buf += "[";
@@ -380,7 +380,7 @@ class ExprPrinter {
         self._buf += "}";
     }
 
-    // ── Initializer expressions ─────────────────────────────────────
+    // -- Initializer expressions -------------------------------------
 
     priv fn _print_named_init(self, expr: *NamedInitializerExpr) {
         if self._style == PrintStyle::Debug {
@@ -420,7 +420,7 @@ class ExprPrinter {
         self._buf += " }";
     }
 
-    // ── Control flow expressions ────────────────────────────────────
+    // -- Control flow expressions ------------------------------------
 
     priv fn _print_if(self, expr: *IfExpr) {
         if self._style == PrintStyle::Debug {
@@ -502,7 +502,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Closure ─────────────────────────────────────────────────────
+    // -- Closure -----------------------------------------------------
 
     priv fn _print_closure(self, expr: *ClosureExpr) {
         if self._style == PrintStyle::Debug {
@@ -522,7 +522,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Async / concurrency ─────────────────────────────────────────
+    // -- Async / concurrency -----------------------------------------
 
     priv fn _print_await(self, expr: *AwaitExpr) {
         if self._style == PrintStyle::Debug {
@@ -557,7 +557,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Intrinsic / builtin ─────────────────────────────────────────
+    // -- Intrinsic / builtin -----------------------------------------
 
     priv fn _print_sizeof(self, expr: *SizeOfExpr) {
         self._buf += "sizeof(";
@@ -605,7 +605,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Memory / lifetime ───────────────────────────────────────────
+    // -- Memory / lifetime -------------------------------------------
 
     priv fn _print_delete(self, expr: *DeleteExpr) {
         if self._style == PrintStyle::Debug {
@@ -620,7 +620,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Pack expansion ──────────────────────────────────────────────
+    // -- Pack expansion ----------------------------------------------
 
     priv fn _print_pack_expansion(self, expr: *PackExpansionExpr) {
         if self._style == PrintStyle::Debug {
@@ -633,7 +633,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Type cast ───────────────────────────────────────────────────
+    // -- Type cast ---------------------------------------------------
 
     priv fn _print_type_cast(self, expr: *TypeCastExpr) {
         if self._style == PrintStyle::Debug {
@@ -650,7 +650,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Type relation expressions ───────────────────────────────────
+    // -- Type relation expressions -----------------------------------
 
     priv fn _print_impl_conf(self, expr: *ImplConformanceExpr) {
         if self._style == PrintStyle::Debug {
@@ -680,7 +680,7 @@ class ExprPrinter {
         }
     }
 
-    // ── Sema-inserted ───────────────────────────────────────────────
+    // -- Sema-inserted -----------------------------------------------
 
     priv fn _print_boundary_cast(self, expr: *ImplicitBoundaryCastExpr) {
         if self._style == PrintStyle::Debug {
