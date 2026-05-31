@@ -162,7 +162,7 @@ class TranslationUnit derives DeclContext {
     pub var global_scope: obs::<GlobalHoistedScope>;
 
     fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *HoistedScope, g_scope: *GlobalHoistedScope) {
-        self.init_dc(DeclContextKind::TranslationUnit, ctx, &null);
+        self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
         self.ctx          = ctx;
         self.fid          = fid;
         self.scope        = scope;
