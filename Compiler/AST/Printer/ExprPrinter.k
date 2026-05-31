@@ -428,6 +428,13 @@ class ExprPrinter {
             self._print(expr->condition);
             self._buf += ", then=";
             self._print(expr->then_expr);
+            for var i: usize = 0; i < expr->else_ifs.size(); ++i {
+                var arm = expr->else_ifs.get(i);
+                self._buf += ", elif=";
+                self._print(arm->condition);
+                self._buf += "=>";
+                self._print(arm->body);
+            }
             self._buf += ", else=";
             self._print(expr->else_expr);
             self._buf += ")";
@@ -437,11 +444,17 @@ class ExprPrinter {
             self._buf += " { ";
             self._print(expr->then_expr);
             self._buf += " }";
-            if expr->else_expr != &null {
-                self._buf += " else { ";
-                self._print(expr->else_expr);
+            for var i: usize = 0; i < expr->else_ifs.size(); ++i {
+                var arm = expr->else_ifs.get(i);
+                self._buf += " else if ";
+                self._print(arm->condition);
+                self._buf += " { ";
+                self._print(arm->body);
                 self._buf += " }";
             }
+            self._buf += " else { ";
+            self._print(expr->else_expr);
+            self._buf += " }";
         }
     }
 
@@ -451,14 +464,26 @@ class ExprPrinter {
             self._print(expr->try_expr);
             self._buf += f", arms={expr->catch_arms.size()})";
         } else {
-            self._buf += "try: ";
+            self._buf += "try { ";
             self._print(expr->try_expr);
+            self._buf += " }";
             for var i: usize = 0; i < expr->catch_arms.size(); ++i {
                 var arm = expr->catch_arms.get(i);
                 self._buf += " catch ";
-                self._buf += ExprPrinter::tok_spelling(arm->binding);
-                self._buf += ": ";
+                if arm->has_binding {
+                    if arm->is_const {
+                        self._buf += "const ";
+                    }
+                    self._print(arm->binding);
+                    if arm->filter != &null {
+                        self._buf += ": ";
+                        TypePrinter::print(arm->filter, self._style);
+                    }
+                    self._buf += " ";
+                }
+                self._buf += "{ ";
                 self._print(arm->body);
+                self._buf += " }";
             }
         }
     }

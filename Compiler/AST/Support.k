@@ -279,7 +279,6 @@ class TokenText {
         return TokenText(sm->get_text(tok.range), tok.range, false, false);
     }
 
-
     static fn resolve(
         tok:     Token,
         sm:      *SourceManager,
@@ -320,30 +319,30 @@ class TokenText {
         }
 
         // these have no meaningful text return canonical representation
-        if kind == TokenKind::TkNewLine    { return TokenText("\n",  tok_range, true, false); }
-        if kind == TokenKind::TkWhitespace { return TokenText(" ",   tok_range, true, false); }
-
-        // -- punctuation canonical spacing -----------------------------------
-        if kind == TokenKind::OpComma      { return TokenText(",",   tok_range, true, false); }
-        if kind == TokenKind::OpSemicolon  { return TokenText(";",   tok_range, true, false); }
-        if kind == TokenKind::OpLParen     { return TokenText("(",   tok_range, true, false); }
-        if kind == TokenKind::OpRParen     { return TokenText(")",   tok_range, true, false); }
-        if kind == TokenKind::OpLBrace     { return TokenText("{",   tok_range, true, false); }
-        if kind == TokenKind::OpRBrace     { return TokenText("}",   tok_range, true, false); }
-        if kind == TokenKind::OpLSquare    { return TokenText("[",   tok_range, true, false); }
-        if kind == TokenKind::OpRSquare    { return TokenText("]",   tok_range, true, false); }
-        if kind == TokenKind::OpExclaim    { return TokenText("!",   tok_range, true, false); }
-        if kind == TokenKind::OpColonColon { return TokenText("::",  tok_range, true, false); }
-        if kind == TokenKind::OpEllipsis   { return TokenText("...", tok_range, true, false); }
-        if kind == TokenKind::OpPlus       { return TokenText("+",   tok_range, true, false); }
-        if kind == TokenKind::OpMinus      { return TokenText("-",   tok_range, true, false); }
-        if kind == TokenKind::OpStar       { return TokenText("*",   tok_range, true, false); }
-        if kind == TokenKind::OpSlash      { return TokenText("/",   tok_range, true, false); }
-        if kind == TokenKind::OpEqual      { return TokenText("=",   tok_range, true, false); }
-        if kind == TokenKind::OpEqualEqual { return TokenText("==",  tok_range, true, false); }
-        if kind == TokenKind::OpLess       { return TokenText("<",   tok_range, true, false); }
-        if kind == TokenKind::OpGreater    { return TokenText(">",   tok_range, true, false); }
-        if kind == TokenKind::OpArrow      { return TokenText("->",  tok_range, true, false); }
+        if kind == TokenKind::TkNewLine    { return TokenText("\n",    tok_range, true, false); }
+        if kind == TokenKind::TkWhitespace { return TokenText(" ",     tok_range, true, false); }
+        if kind == TokenKind::TkEof        { return TokenText("<eof>", tok_range, true, false); }
+        // -- punctuation canonical spacing -----------------------------------------------------
+        if kind == TokenKind::OpComma      { return TokenText(",",     tok_range, true, false); }
+        if kind == TokenKind::OpSemicolon  { return TokenText(";",     tok_range, true, false); }
+        if kind == TokenKind::OpLParen     { return TokenText("(",     tok_range, true, false); }
+        if kind == TokenKind::OpRParen     { return TokenText(")",     tok_range, true, false); }
+        if kind == TokenKind::OpLBrace     { return TokenText("{",     tok_range, true, false); }
+        if kind == TokenKind::OpRBrace     { return TokenText("}",     tok_range, true, false); }
+        if kind == TokenKind::OpLSquare    { return TokenText("[",     tok_range, true, false); }
+        if kind == TokenKind::OpRSquare    { return TokenText("]",     tok_range, true, false); }
+        if kind == TokenKind::OpExclaim    { return TokenText("!",     tok_range, true, false); }
+        if kind == TokenKind::OpColonColon { return TokenText("::",    tok_range, true, false); }
+        if kind == TokenKind::OpEllipsis   { return TokenText("...",   tok_range, true, false); }
+        if kind == TokenKind::OpPlus       { return TokenText("+",     tok_range, true, false); }
+        if kind == TokenKind::OpMinus      { return TokenText("-",     tok_range, true, false); }
+        if kind == TokenKind::OpStar       { return TokenText("*",     tok_range, true, false); }
+        if kind == TokenKind::OpSlash      { return TokenText("/",     tok_range, true, false); }
+        if kind == TokenKind::OpEqual      { return TokenText("=",     tok_range, true, false); }
+        if kind == TokenKind::OpEqualEqual { return TokenText("==",    tok_range, true, false); }
+        if kind == TokenKind::OpLess       { return TokenText("<",     tok_range, true, false); }
+        if kind == TokenKind::OpGreater    { return TokenText(">",     tok_range, true, false); }
+        if kind == TokenKind::OpArrow      { return TokenText("->",    tok_range, true, false); }
 
         // pull the actual value out of the immediate table if available
         // otherwise fall back to raw source text
