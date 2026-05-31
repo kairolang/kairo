@@ -270,6 +270,7 @@ fn main() -> i32 {
         .includes(["Compiler", "Lib/bootstrap/lib-helix/core"])
         .define(KAIRO_VERSION)
         .passthrough("-fno-lto")
+        .passthrough("-w")
         .pre_build(llvm_prebuild);
     apply_llvm(kairo, llvm_src, llvm_build, out_lib);
 

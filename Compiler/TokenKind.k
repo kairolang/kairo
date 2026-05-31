@@ -172,6 +172,7 @@ enum TokenKind derives u32 {
     KwFn         = compute_hash::<r"fn">(),        // "fn"
     KwOp         = compute_hash::<r"op">(),        // "op"
     KwClass      = compute_hash::<r"class">(),     // "class"
+    KwUnion      = compute_hash::<r"union">(),     // "union"
     KwEnum       = compute_hash::<r"enum">(),      // "enum"
     KwType       = compute_hash::<r"type">(),      // "type"
     KwStruct     = compute_hash::<r"struct">(),    // "struct"
@@ -192,7 +193,8 @@ enum TokenKind derives u32 {
     KwImpl       = compute_hash::<r"impl">(),      // "impl"
     KwDerives    = compute_hash::<r"derives">(),   // "derives"
 
-    KwRequires   = compute_hash::<r"where">(),  // "where"
+    KwWhere    = compute_hash::<r"where">(),    // "where"
+    KwRequires = compute_hash::<r"requires">(), // "requires"
 
     /// Access control
     KwPub        = compute_hash::<r"pub">(),       // "pub"
@@ -362,7 +364,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::KwFfi:              case TokenKind::OpCaretEqual:
         case TokenKind::KwImpl:             case TokenKind::OpAtEqual:
         case TokenKind::KwDerives:          case TokenKind::OpEqualEqual:
-        case TokenKind::KwRequires:         case TokenKind::OpGreaterGreater:
+        case TokenKind::KwWhere:            case TokenKind::OpGreaterGreater:
         case TokenKind::KwPub:              case TokenKind::OpAmpAmp:
         case TokenKind::KwPriv:             case TokenKind::KwAtomic:
         case TokenKind::KwProt:             case TokenKind::KwContinue:
@@ -400,7 +402,8 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::BiDeprecated:       case TokenKind::AtU32:
         case TokenKind::BiMustUse:          case TokenKind::AtU512:
         case TokenKind::AtI512:             case TokenKind::AtF256:
-        case TokenKind::BiSelf:
+        case TokenKind::BiSelf:             case TokenKind::KwRequires:
+        case TokenKind::KwUnion:
             return true;
         default:
             return false;
@@ -526,7 +529,9 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::KwFfi {                 return "kw-ffi"; }
         case TokenKind::KwImpl {                return "kw-impl"; }
         case TokenKind::KwDerives {             return "kw-derives"; }
+        case TokenKind::KwWhere {               return "kw-where"; }
         case TokenKind::KwRequires {            return "kw-requires"; }
+        case TokenKind::KwUnion {               return "kw-union"; }
         case TokenKind::KwPub {                 return "kw-pub"; }
         case TokenKind::KwPriv {                return "kw-priv"; }
         case TokenKind::KwProt {                return "kw-prot"; }
@@ -716,7 +721,9 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::KwFfi                 { return "ffi"; }
         case TokenKind::KwImpl                { return "impl"; }
         case TokenKind::KwDerives             { return "derives"; }
+        case TokenKind::KwWhere               { return "where"; }
         case TokenKind::KwRequires            { return "requires"; }
+        case TokenKind::KwUnion               { return "union"; }
         case TokenKind::KwPub                 { return "pub"; }
         case TokenKind::KwPriv                { return "priv"; }
         case TokenKind::KwProt                { return "prot"; }
@@ -823,7 +830,7 @@ fn is_keyword(kind: TokenKind) -> bool {
         case TokenKind::KwClass:       case TokenKind::KwEnum:
         case TokenKind::KwExtend:      case TokenKind::KwModule:
         case TokenKind::KwFinal:       case TokenKind::KwFfi:
-        case TokenKind::KwDerives:     case TokenKind::KwRequires:
+        case TokenKind::KwDerives:     case TokenKind::KwWhere:
         case TokenKind::KwEval:        case TokenKind::KwUnsafe:
         case TokenKind::KwAwait:       case TokenKind::KwThread:
         case TokenKind::KwSizeOf:      case TokenKind::KwAlignOf:
@@ -842,7 +849,8 @@ fn is_keyword(kind: TokenKind) -> bool {
         case TokenKind::KwAssert:      case TokenKind::KwOverride:
         case TokenKind::KwOp:          case TokenKind::KwProt:
         case TokenKind::KwInterface:   case TokenKind::KwInline:
-        case TokenKind::KwYield:
+        case TokenKind::KwYield:       case TokenKind::KwRequires:
+        case TokenKind::KwUnion:
             return true;
         default:
             return false;
