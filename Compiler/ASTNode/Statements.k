@@ -31,10 +31,6 @@ import Lexer::Token::*;
 /// only hold observer pointers into it, so a forward declaration suffices.
 class Pattern;
 
-/// Forward decl: many nodes hold `*CompoundStmt` bodies. Pointer use only,
-/// so the forward decl is enough; the full definition follows below.
-class CompoundStmt;
-
 /// ============================================================================
 ///  Binding shorthand qualifiers
 ///
@@ -136,41 +132,6 @@ enum InlineLang derives u8 {
     Wgsl,   ///< inline "wgsl" { }
     Glsl,   ///< inline "glsl" { }
     Kairo,  ///< inline "kairo" { }
-}
-
-/// ============================================================================
-///  CompoundStmt
-///  Grammar:  '{' stmt* '}'
-///
-///  Introduces a lexical scope. Destructors run at the closing brace in
-///  reverse declaration order. `body` is populated by the parser.
-/// ============================================================================
-class CompoundStmt derives Stmt {
-    pub var body: FrozenList::<*Stmt>;
-
-    static fn create(ctx: *ASTContext, range: SourceRange) -> *CompoundStmt {
-        var node   = ctx->alloc::<CompoundStmt>();
-        node->kind  = StmtKind::CompoundStmt;
-        node->range = range;
-        node->annotations.set_allocator(&(ctx->nodes));
-        return node;
-    }
-
-    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *CompoundStmt {
-        var node            = ctx->alloc::<CompoundStmt>();
-        node->kind          = StmtKind::RecoveryStmt;
-        node->recovery_kind = StmtKind::CompoundStmt;
-        node->range         = range;
-        node->annotations.set_allocator(&(ctx->nodes));
-        return node;
-    }
-
-    /* OVERRIDE */ static fn classof(ptr: *Stmt) -> bool {
-        return ptr->kind == StmtKind::CompoundStmt;
-    }
-    /* OVERRIDE */ static fn stmt_kind() -> StmtKind {
-        return StmtKind::CompoundStmt;
-    }
 }
 
 /// ============================================================================
