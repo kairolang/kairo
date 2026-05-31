@@ -191,7 +191,7 @@ module MixedNs {
 fn another_root_fn()
 
 // ============================================================
-// parse_fn / parse_name — operator + qualified impl test suite
+// parse_fn / parse_name operator + qualified impl test suite
 // ============================================================
 
 // --- 1. Plain fn, sanity check ---
@@ -214,23 +214,23 @@ fn op >=()
 fn <T> op +()
 fn <T, U> op ==()
 
-// --- 4. Qualified impl — current scope, should NOT be hoisted ---
+// --- 4. Qualified impl current scope, should NOT be hoisted ---
 fn Foo::bar()
 fn Foo::op +()
 fn Foo::baz()
 
-// --- 5. Deeply qualified impl — should NOT be hoisted ---
+// --- 5. Deeply qualified impl should NOT be hoisted ---
 fn Foo::Bar::baz()
 fn Foo::Bar::op +()
 fn Foo::Bar::Baz::qux()
 
-// --- 6. Global qualified impl — should NOT be hoisted ---
+// --- 6. Global qualified impl should NOT be hoisted ---
 fn ::Foo::bar()
 fn ::Foo::op +()
 fn ::Foo::Bar::baz()
 fn ::Foo::Bar::op -()
 
-// --- 7. Generic qualified impl — should NOT be hoisted ---
+// --- 7. Generic qualified impl should NOT be hoisted ---
 fn <T> Foo::bar()
 fn <T, U> Foo::op +()
 fn <T> ::Foo::bar()
@@ -371,12 +371,12 @@ interface Serializable derives Encodable, Decodable {
     fn serialize() -> string
 }
 
-// --- 17. Specifiers before class — pub ---
+// --- 17. Specifiers before class pub ---
 pub class PubClass {
     fn pub_fn()
 }
 
-// --- 18. Specifiers before class — priv ---
+// --- 18. Specifiers before class priv ---
 priv class PrivClass {
     fn priv_fn()
 }
@@ -673,7 +673,7 @@ ffi "c++" {
     enum CppError { Ok, Fail }
 }
 
-// --- 5. FFI import — should be skipped entirely ---
+// --- 5. FFI import should be skipped entirely ---
 ffi "c++" import "stdio.h"
 ffi "c++" import "vector"
 ffi "c" import "math.h"
@@ -937,11 +937,11 @@ counted_enum!(Colors, Red, Green, Blue);
 // ASTIndex malformed / error recovery tests
 // ============================================================
 
-// --- 1. Missing closing '>' — should recover, not infinite loop ---
+// --- 1. Missing closing '>' should recover, not infinite loop ---
 fn <T bork()
 fn recovery_after_bad_generic()
 
-// --- 2. Unclosed nested generic in default — recovery should kick in ---
+// --- 2. Unclosed nested generic in default recovery should kick in ---
 fn <T = std::vec<u32> broken_nest()
 fn recovery_after_broken_nest()
 
@@ -949,14 +949,14 @@ fn recovery_after_broken_nest()
 fn <T, +++, U> garbage_params()
 fn recovery_after_garbage()
 
-// --- 4. Decl keyword inside generics — should sync to next decl ---
+// --- 4. Decl keyword inside generics should sync to next decl ---
 fn <T, fn bad_inner()
 fn recovery_after_decl_in_generic()
 
 // --- 5. Double comma (empty param slot) ---
 fn <T,,U> double_comma()
 
-// --- 6. Valid fn after a broken one — must survive and hoist ---
+// --- 6. Valid fn after a broken one must survive and hoist ---
 fn <T> survivor_after_errors() -> T
 
 // --- 7. Missing class name ---
@@ -982,7 +982,7 @@ class Unclosed {
     fn inside_unclosed()
     // no closing brace
 
-// --- 11. Fn after unclosed class — should still hoist ---
+// --- 11. Fn after unclosed class should still hoist ---
 fn after_unclosed_class()
 
 // --- 12. Unclosed module body ---
@@ -1080,7 +1080,7 @@ pub {
 }
 fn after_broken_pub_block()
 
-// --- 29. Module with ffi with inline — nested recovery ---
+// --- 29. Module with ffi with inline nested recovery ---
 module RecoveryModule {
     ffi "c++" {
         fn valid_in_ffi()

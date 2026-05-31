@@ -7,7 +7,7 @@
 //  are placeholder-limited, NOT misparses.
 // ============================================================================
 
-// ── expression statements ──────────────────────────────────────────────────
+// -- expression statements --------------------------------------------------
 foo()
 foo.bar.baz
 a + b * c
@@ -20,7 +20,7 @@ sizeof(i32)
 foo as i32                 // cast, NOT context binding (no var/const)
 foo as unsafe *i32         // unsafe cast
 
-// ── return / break / continue ───────────────────────────────────────────────
+// -- return / break / continue -----------------------------------------------
 return
 return 42
 return foo() + bar()
@@ -32,7 +32,7 @@ continue loop_label
 // NEGATIVE: malformed return value
 return +
 
-// ── panic / yield ───────────────────────────────────────────────────────────
+// -- panic / yield -----------------------------------------------------------
 panic "something broke"
 panic MyError { code: 5 }
 yield 1
@@ -42,7 +42,7 @@ yield compute(x)
 panic
 yield
 
-// ── assert (runtime + static) ────────────────────────────────────────────────
+// -- assert (runtime + static) ------------------------------------------------
 // assert x > 0
 // assert x > 0, "x must be positive"
 // assert static sizeof(i32) == 4
@@ -52,7 +52,7 @@ yield
 // assert
 // assert static
 
-// ── if / else-if / else ──────────────────────────────────────────────────────
+// -- if / else-if / else ------------------------------------------------------
 // if x > 0 { foo() }
 // if x > 0 { foo() } else { bar() }
 // if x > 0 { a() } else if x < 0 { b() } else { c() }
@@ -66,7 +66,7 @@ yield
 // // NEGATIVE: dangling else
 // if x { a() } else
 
-// ── while / loop ──────────────────────────────────────────────────────────────
+// -- while / loop --------------------------------------------------------------
 while x < 10 { x += 1 }
 while running { tick() }
 loop { work() }
@@ -77,7 +77,7 @@ while x < 10
 // NEGATIVE: missing condition
 while { foo() }
 
-// // ── ranged for (real: bindings parse) ───────────────────────────────────────
+// // -- ranged for (real: bindings parse) ---------------------------------------
 // for var i in 0..10 { print(i) }
 // for const x in items { use(x) }
 // for var (k, v) in map { print(k) }
@@ -97,7 +97,7 @@ for var i in items
 // NEGATIVE: empty binding list
 for var () in items { foo() }
 
-// ── C-style for (init is <decl>, placeholder) ───────────────────────────────
+// -- C-style for (init is <decl>, placeholder) -------------------------------
 for var i = 0; i < 10; i += 1 { foo() }
 for var i = 0, j = n; i < j; i += 1 { swap(i, j) }
 eval for var k = 0; k < 4; k += 1 { unroll(k) }
@@ -107,7 +107,7 @@ for var i = 0 i < 10 i += 1 { foo() }
 // NEGATIVE: missing update
 for var i = 0; i < 10; { foo() }
 
-// ── match (patterns are <pattern>, placeholder) ─────────────────────────────
+// -- match (patterns are <pattern>, placeholder) -----------------------------
 match x {
     case 1 { one() }
     case 2, 3, 4 { few() }
@@ -133,7 +133,7 @@ match x {
 // NEGATIVE: missing scrutinee block
 match x
 
-// ── labeled loops ───────────────────────────────────────────────────────────
+// -- labeled loops -----------------------------------------------------------
 outer: while x { inner: while y { break outer } }
 loop_a: for var i in items { continue loop_a }
 counted: for var i = 0; i < n; i += 1 { foo() }
@@ -144,14 +144,11 @@ mylabel: foo()
 // NEGATIVE: label on return
 ret: return 5
 
-// ── try / catch / finally ────────────────────────────────────────────────────
+// -- try / catch / finally ----------------------------------------------------
 try { risky() } catch { recover() }
 try { risky() } catch e { handle(e) }
 try { risky() } catch e: IoError { handleIo(e) }
-try { risky() }
-    catch e: IoError { io(e) }
-    catch e: NetError { net(e) }
-    catch { fallback() }
+try { risky() } catch e: IoError { io(e) } catch e: NetError { net(e) } catch { fallback() }
 finally { cleanup() }
 try { a() } catch e: Error { b() } finally { c() }
 
@@ -164,19 +161,19 @@ try { x() } catch e: { y() }
 // NEGATIVE: finally missing block
 finally
 
-// ── unsafe block vs unsafe expr ───────────────────────────────────────────────
+// -- unsafe block vs unsafe expr -----------------------------------------------
 unsafe { deref(p) }
 unsafe { *raw = 5 }
 unsafe foo()             // unsafe EXPR (no brace) -> expr-stmt
 
 // NEGATIVE: nothing after unsafe block open... handled by block recovery
-unsafe {
+// unsafe {
 
-// ── context binding (real: bindings parse) ────────────────────────────────────
+// -- context binding (real: bindings parse) ------------------------------------
 file as var f { use(f) }
 getResource() as var r { work(r) }
 std::Io::File("foo.k", "w") as (var file, const disc) { write(file) }
-acquire() as (var a, var b) { combine(a, b) }
+acquire() as var (a, var b) { combine(a, b) }
 lock(mutex) as var guard { critical() }
 
 // NEGATIVE: binding spec but no block (hard error)
@@ -186,7 +183,7 @@ foo as
 // NEGATIVE: empty binding list
 res as var () { foo() }
 
-// ── destructuring decl (real: bindings parse, value is expr) ──────────────────
+// -- destructuring decl (real: bindings parse, value is expr) ------------------
 var (a, b) = pair
 const (x, y, z) = triple
 var (a, const b) = pair
@@ -202,7 +199,7 @@ var (a, b) =
 // NEGATIVE: empty pattern
 var () = thing
 
-// ── label! / jump! intrinsics ─────────────────────────────────────────────────
+// -- label! / jump! intrinsics -------------------------------------------------
 //  NOTE: verify against your PP lowering -- these depend on how label!/jump!
 //  tokenize. If PP rewrites them, adjust expectations.
 label!(retry)
@@ -213,7 +210,7 @@ label!retry
 // NEGATIVE: missing name
 jump!()
 
-// ── inline foreign blocks ─────────────────────────────────────────────────────
+// -- inline foreign blocks -----------------------------------------------------
 inline "c++" { ::std::printf("hi"); }
 inline "c" { puts("hi"); }
 inline "asm" { nop }
@@ -223,14 +220,14 @@ inline { foo() }
 // NEGATIVE: unknown language (defaults to cpp + diag)
 inline "rust" { foo() }
 
-// ── eval block (decl-only, bodies are <decl> placeholder) ─────────────────────
+// -- eval block (decl-only, bodies are <decl> placeholder) ---------------------
 eval { var x = 5 }
 eval { const TABLE = compute() }
 
 // NEGATIVE: missing brace
 eval var x = 5
 
-// ── nested / compound structure ───────────────────────────────────────────────
+// -- nested / compound structure -----------------------------------------------
 {
     var (a, b) = pair
     if a > b {

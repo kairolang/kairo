@@ -5,71 +5,71 @@ test_import::foo!(3)
 test_import::foo!(3, 4)
 test_import::foo!(3)
 
-// ── 1. parameterless macro ───────────────────────────────────────────────
+// -- 1. parameterless macro -----------------------------------------------
 macro pi! {
     3.14159265358979f64
 }
 
-// ── 2. single param ─────────────────────────────────────────────────────
+// -- 2. single param -----------------------------------------------------
 macro square!(x) {
     x * x
 }
 
-// ── 3. multi param ──────────────────────────────────────────────────────
+// -- 3. multi param ------------------------------------------------------
 macro add!(a, b) {
     a + b
 }
 
-// ── 4. default param ────────────────────────────────────────────────────
+// -- 4. default param ----------------------------------------------------
 macro greet!(name, greeting = "hello") {
     greeting + " " + name
 }
 
-// ── 5. variadic named ────────────────────────────────────────────────────
+// -- 5. variadic named ----------------------------------------------------
 macro sum!(first, rest...) {
     first + rest
 }
 
-// ── 6. variadic unnamed ──────────────────────────────────────────────────
+// -- 6. variadic unnamed --------------------------------------------------
 macro ignore!(...) {
     0
 }
 
-// ── 7. nested macro invocation inside body ───────────────────────────────
+// -- 7. nested macro invocation inside body -------------------------------
 macro quad!(x) {
     square!(square!(x))
 }
 
-// ── 8. nested args at callsite ───────────────────────────────────────────
+// -- 8. nested args at callsite -------------------------------------------
 macro wrap!(x) {
     (x)
 }
 
-// ── 9. macro in module scope ─────────────────────────────────────────────
+// -- 9. macro in module scope ---------------------------------------------
 module Math {
     macro clamp!(val, lo, hi) {
         (lo if val < lo else (hi if val > hi else val))
     }
 }
 
-// ── 10. macro with operator tokens in body ───────────────────────────────
+// -- 10. macro with operator tokens in body -------------------------------
 macro is_zero!(x) {
     x == 0
 }
 
-// ── 11. string / char literals in body ──────────────────────────────────
+// -- 11. string / char literals in body ----------------------------------
 macro tag!(x) {
     f"value={x}"
 }
 
-// ── 12. deeply nested body tokens ────────────────────────────────────────
+// -- 12. deeply nested body tokens ----------------------------------------
 macro triple!(x) {
     x + x + x
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 //  INVOCATION SITES
-// ═══════════════════════════════════════════════════════════════════════════
+// ===========================================================================
 
 var a = pi!;
 var b = square!(4);
@@ -85,31 +85,31 @@ var k = is_zero!(42);
 var l = tag!(99);
 var m = triple!(7);
 
-// ── builtin: source location ─────────────────────────────────────────────
+// -- builtin: source location ---------------------------------------------
 var src_file   = file!;
 var src_line   = line!;
 var src_col    = column!;
 var src_mod    = module_path!;
 
-// ── builtin: variadic helpers ────────────────────────────────────────────
+// -- builtin: variadic helpers --------------------------------------------
 var cnt  = count!(a, b, c, d);
 var fst  = first!(10, 20, 30);
 var lst  = last!(10, 20, 30);
 var rst  = rest!(10, 20, 30);
 var ini  = init!(10, 20, 30);
 
-// ── builtin: token manipulation ─────────────────────────────────────────
+// -- builtin: token manipulation -----------------------------------------
 var s    = stringify!(hello_world);
 var uid  = unique_id!;
 var uid2 = unique_id!;
 var foo  = unstringify!("fn foo() -> i32 { return 42 }");
 
-// ── builtin: defined / undef ─────────────────────────────────────────────
+// -- builtin: defined / undef ---------------------------------------------
 var def_check    = defined!(pi);
 var undef_result = undef!(ignore);
 var def_check2   = defined!(ignore);   // should be 0 after undef
 
-// ── builtin: todo / unreachable ──────────────────────────────────────────
+// -- builtin: todo / unreachable ------------------------------------------
 fn might_fail() -> i32 {
     todo!("not implemented yet");
 }
@@ -118,19 +118,19 @@ fn never_here() -> i32 {
     unreachable!("this path is dead");
 }
 
-// ── edge: empty variadic ─────────────────────────────────────────────────
+// -- edge: empty variadic -------------------------------------------------
 var empty_ignore = ignore!();
 
-// ── edge: macro used as sub-expression ──────────────────────────────────
+// -- edge: macro used as sub-expression ----------------------------------
 var expr = add!(square!(3), triple!(2));
 
-// ── edge: macro name shadows nothing (not a keyword) ────────────────────
+// -- edge: macro name shadows nothing (not a keyword) --------------------
 macro and_also!(x, y) {
     x + y + 1
 }
 var shadow = and_also!(1, 2);
 
-// ── edge: recursive cycle detection (should emit error, not crash) ───────
+// -- edge: recursive cycle detection (should emit error, not crash) -------
 macro boom!() {
     boom!()
 }
