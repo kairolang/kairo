@@ -209,6 +209,7 @@ enum TokenKind derives u32 {
     KwInline     = compute_hash::<r"inline">(),    // "inline"
     KwAtomic     = compute_hash::<r"atomic">(),    // "atomic"
     KwVolatile   = compute_hash::<r"volatile">(),  // "volatile"
+    KwVirtual    = compute_hash::<r"virtual">(),   // "virtual"
 
     /// Special identifiers
     KwSelf       = compute_hash::<r"self">(),      // "self"
@@ -403,7 +404,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::BiMustUse:          case TokenKind::AtU512:
         case TokenKind::AtI512:             case TokenKind::AtF256:
         case TokenKind::BiSelf:             case TokenKind::KwRequires:
-        case TokenKind::KwUnion:
+        case TokenKind::KwUnion:            case TokenKind::KwVirtual:
             return true;
         default:
             return false;
@@ -591,6 +592,7 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::BiSelf {                return "bi-self"; }
         case TokenKind::BiModule {              return "bi-module"; }
         case TokenKind::KwVolatile {            return "kw-volatile"; }
+        case TokenKind::KwVirtual {             return "kw-virtual"; }
         case TokenKind::BiPacked {              return "bi-packed"; }
         case TokenKind::BiUnlikely {            return "bi-unlikely"; }
         case TokenKind::BiLikely {              return "bi-likely"; }
@@ -785,7 +787,8 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::BiFunction            { return "@__function__"; }
         case TokenKind::BiModule              { return "@__module__"; }
         case TokenKind::BiSelf                { return "Self"; }
-        case TokenKind::KwVolatile            { return "@volatile"; }
+        case TokenKind::KwVolatile            { return "volatile"; }
+        case TokenKind::KwVirtual             { return "virtual"; }
         case TokenKind::BiPacked              { return "@packed"; }
         case TokenKind::BiUnlikely            { return "@unlikely"; }
         case TokenKind::BiLikely              { return "@likely"; }
@@ -965,7 +968,7 @@ fn is_builtin(kind: TokenKind) -> bool {
         case TokenKind::BiColumn:     case TokenKind::BiExperimental:
         case TokenKind::BiFunction:   case TokenKind::BiForceInline:
         case TokenKind::BiModule:     case TokenKind::BiNoInline:
-        case TokenKind::BiSelf:
+        case TokenKind::BiSelf:       case TokenKind::KwVirtual:
         case TokenKind::KwVolatile:   case TokenKind::BiDeprecated:
         case TokenKind::BiPacked:     case TokenKind::BiMustUse:
         case TokenKind::BiUnlikely:   case TokenKind::BiAlignAs:

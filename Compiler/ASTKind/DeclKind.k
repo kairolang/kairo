@@ -29,83 +29,93 @@ enum DeclKind derives u8 {
     RecoveryDecl = 0,
 
     // -----------------------------------------------------------------------
-    //  Callable declarations  [1 .. 2]
+    //  Callable / binding declarations
     // -----------------------------------------------------------------------
 
-    /// Function / method / operator declaration:
-    ///   fn foo(x: i32) -> i32 { }
-    ///   fn op+(self, other: Self) -> Self { }
-    ///   override fn bar() { }
-    /// Node: FunctionDecl params + return type + body (nullable for fwd decl).
+    /// fn foo(...) -> T { } | fn op+(...) | override fn bar()
+    /// Out-of-line defs (fn Class::method) are still FunctionDecl.
     FunctionDecl,
 
-    /// Variable / constant declaration:
-    ///   var x: i32 = 1;
-    ///   const PI: f64 = 3.14159;
-    ///   static mut COUNTER: u64 = 0;
-    /// Node: VariableDecl type (inferred if omitted) + init (nullable).
+    /// var/const/static/eval binding at local or namespace scope.
+    /// NOT class/struct members (see FieldDecl).
     VariableDecl,
 
+    /// Class/struct/union member: var/const/static/eval, may be `mutable`.
+    /// Distinct from VariableDecl: lives in a type scope, has at-decl
+    /// default semantics, carries `mutable`.
+    FieldDecl,
+
+    /// A single function/closure parameter: `name: Type = default`.
+    /// Owns its type, optional default expr, and binding shorthand.
+    ParamDecl,
+
+    /// A generic parameter: `<T>`, `<T impl Foo>`, `<T: class>`,
+    /// `<const N: i32>`, `<...T>`. Carries bounds, kind constraint,
+    /// pack flag, and optional default.
+    GenericParamDecl,
+
     // -----------------------------------------------------------------------
-    //  Type declarations  [3 .. 7]
+    //  Type declarations
     // -----------------------------------------------------------------------
 
-    /// Struct declaration:  struct Foo<T> impl Bar { }
-    /// Node: StructDecl generics + implements list + body.
+    /// struct Foo<T> impl Bar { }
     StructDecl,
 
-    /// Class declaration:  class Foo<T> derives Bar impl Baz { }
-    /// Node: ClassDecl generics + derives list + implements list + body.
+    /// class Foo<T> derives Bar impl Baz { }
     ClassDecl,
 
-    /// Interface declaration:  interface Printable<T> { }
-    /// Node: InterfaceDecl generics + implements list + body.
+    /// interface Printable<T> { }
     InterfaceDecl,
 
-    /// Extension declaration:  extend Foo<T> impl Bar derives Baz { }
-    /// Adds methods / interface conformances to an existing type.
-    /// Node: ExtensionDecl target type + implements + derives + body.
+    /// extend Foo<T> impl Bar { }  (adds methods/conformance)
     ExtensionDecl,
 
-    /// Enum declaration:  enum Direction derives u8 { North, South = 2 }
-    /// Node: EnumDecl underlying type (nullable) + variant list.
+    /// enum Direction derives u8 { } | enum <T> Result { Ok { value: T } }
     EnumDecl,
 
-    // Union declaration: union Foo { x: i32, y: f32 }
-    // Unsafe by default, needed for C++ FFI
+    /// A single enum variant (plain or ADT-payload).
+    /// EnumDecl owns a list of these.
+    EnumVariantDecl,
+
+    /// union Foo { } (unsafe by default, C++ FFI)
     UnionDecl,
 
     // -----------------------------------------------------------------------
-    //  Alias / module declarations  [8 .. 9]
+    //  Alias / module / import declarations
     // -----------------------------------------------------------------------
 
-    /// Type alias:  type Meters<T> = Vec<T>
-    /// Node: TypeAliasDecl generics + aliased TypeRef.
+    /// type Meters<T> = Vec<T>
     TypeAliasDecl,
 
-    /// Module declaration:  module Foo { } | inline module Foo { }
-    /// Node: ModuleDecl is_inline flag + body.
+    /// module Foo { } | inline module Foo { } | anonymous module { }
     ModuleDecl,
 
+    /// import a::b::c | import x as y | ffi "c++" import "h.hh" as z
+    ImportDecl,
+
     // -----------------------------------------------------------------------
-    //  Meta / tooling declarations  [10 .. 12]
+    //  Grouping declarations
     // -----------------------------------------------------------------------
 
-    /// Test declaration:  test "should add correctly" { assert 1 + 1 == 2, ""; }
-    /// Node: TestDecl label StringLiteralExpr* + body.
+    /// pub { fn foo() {} fn bar() {} } visibility group at decl scope.
+    VisibilityGroupDecl,
+
+    /// eval { decl* } decl-only compile-time block at namespace/type scope.
+    /// (The stmt-position eval block is StmtKind::EvalBlockStmt.)
+    EvalBlockDecl,
+
+    // -----------------------------------------------------------------------
+    //  Meta / tooling declarations
+    // -----------------------------------------------------------------------
+
+    /// test "name" { }
     TestDecl,
 
-    /// Declarative macro:  macro foo!(x) { ... }
-    /// Node: MacroDecl params + body.
+    /// macro foo!(x) { }
     MacroDecl,
 
-    /// Procedural macro:  macro @derive_debug(...) { ... }
-    /// Node: ProcedureMacroDecl params + body.
+    /// macro @derive(...) { } procedural / attribute macro.
     ProcedureMacroDecl,
-
-    // Visibility group declaration (at decl scope)
-    // pub { fn foo() {} fn bar() {} }
-    VisibilityGroupDecl,
 
     // -----------------------------------------------------------------------
     //  Marker
