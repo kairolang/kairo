@@ -203,6 +203,7 @@ class ChainType derives Type {
 class NamedIdentExpr derives Expr {
     pub var name: Token;
     pub var generic_args: FrozenList::<ChainType::GenericArg>;
+    pub var ctx: *ASTContext; ///< for TokenText::get_name()
 
     static fn create(
         ctx:   *ASTContext,
@@ -214,6 +215,7 @@ class NamedIdentExpr derives Expr {
         node->range = range;
         node->name  = name;
         node->ctx   = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -247,7 +249,9 @@ class NamedIdentExpr derives Expr {
 /// ============================================================================
 class IntegerLiteralExpr derives Expr {
     pub var token: Token;
-
+    pub var imm: *Immediate::IntData = &null; ///< pointer to the immediate table entry
+    pub var ctx: *ASTContext;
+    
     static fn create(
         ctx:   *ASTContext,
         range: SourceRange,
@@ -258,6 +262,8 @@ class IntegerLiteralExpr derives Expr {
         node->range = range;
         node->token = token;
         node->ctx   = ctx;
+        node->imm   = ctx->get_imm_table()->get::<Immediate::IntData>(token.imm);
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -269,7 +275,7 @@ class IntegerLiteralExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::IntegerLiteralExpr;
         node->range         = range;
-        node->ctx           = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -280,6 +286,90 @@ class IntegerLiteralExpr derives Expr {
     static fn expr_kind() -> ExprKind {
         return ExprKind::IntegerLiteralExpr;
     }
+
+    fn get_text(self) -> string {
+        return TokenText::from_token(self.token, self.ctx).get_text();
+    }
+
+    fn get_body_range(self) -> SourceRange {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_body_range: imm pointer is null");
+        return self.imm->body;
+    }
+    
+    fn get_prefix_range(self) -> SourceRange {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_prefix_range: imm pointer is null");
+        return self.imm->prefix;
+    }
+    
+    fn get_suffix_range(self) -> SourceRange {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_suffix_range: imm pointer is null");
+        return self.imm->suffix;
+    }
+    
+    fn get_body_text(self) -> string {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_body_text: imm pointer is null");
+        return TokenText::from_range(self.get_body_range(), self.ctx).get_text();
+    }
+    
+    fn get_prefix_text(self) -> string {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_prefix_text: imm pointer is null");
+        return TokenText::from_range(self.get_prefix_range(), self.ctx).get_text();
+    }
+    
+    fn get_suffix_text(self) -> string {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_suffix_text: imm pointer is null");
+        return TokenText::from_range(self.get_suffix_range(), self.ctx).get_text();
+    }
+    
+    fn get_value_lo(self) -> u64 {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_value_lo: imm pointer is null");
+        return self.imm->value_lo;
+    }
+
+    fn get_value_hi(self) -> u64 {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_value_hi: imm pointer is null");
+        return self.imm->value_hi;
+    }
+
+    fn get_big(self) -> *BigInt {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_big: imm pointer is null");
+        return self.imm->big;
+    }
+
+    fn get_bits(self) -> u16 {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_bits: imm pointer is null");
+        return self.imm->bits;
+    }
+
+    fn get_base(self) -> u8 {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::get_base: imm pointer is null");
+        return self.imm->base;
+    }
+
+    fn is_unsigned(self) -> bool {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::is_unsigned: imm pointer is null");
+        return ((self.imm->flags) & 0b00000001) != 0;
+    }
+
+    fn is_negative(self) -> bool {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::is_negative: imm pointer is null");
+        return ((self.imm->flags) & 0b00000010) != 0;
+    }
+
+    fn is_big(self) -> bool {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::is_big: imm pointer is null");
+        return ((self.imm->flags) & 0b00000100) != 0;
+    }
+
+    fn has_suffix(self) -> bool {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::has_suffix: imm pointer is null");
+        return ((self.imm->flags) & 0b00001000) != 0;
+    }
+
+    fn has_prefix(self) -> bool {
+        assert((self.imm != &null) && r"IntegerLiteralExpr::has_prefix: imm pointer is null");
+        return ((self.imm->flags) & 0b00010000) != 0;
+    }
 }
 
 /// ============================================================================
@@ -288,6 +378,8 @@ class IntegerLiteralExpr derives Expr {
 /// ============================================================================
 class FloatingLiteralExpr derives Expr {
     pub var token: Token;
+    pub var ctx: *ASTContext; ///< for TokenText::get_name()
+    pub var imm: *Immediate::FloatData = &null; ///< pointer to the immediate table entry
 
     static fn create(
         ctx:   *ASTContext,
@@ -299,6 +391,7 @@ class FloatingLiteralExpr derives Expr {
         node->range = range;
         node->token = token;
         node->ctx   = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -311,6 +404,7 @@ class FloatingLiteralExpr derives Expr {
         node->recovery_kind = ExprKind::FloatingLiteralExpr;
         node->range         = range;
         node->ctx           = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -320,6 +414,85 @@ class FloatingLiteralExpr derives Expr {
 
     static fn expr_kind() -> ExprKind {
         return ExprKind::FloatingLiteralExpr;
+    }
+
+    fn get_text(self) -> string {
+        return TokenText::from_token(self.token, self.ctx).get_text();
+    }
+
+    fn get_body_range(self) -> SourceRange {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_body_range: imm pointer is null");
+        return self.imm->body;
+    }
+    
+    fn get_prefix_range(self) -> SourceRange {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_prefix_range: imm pointer is null");
+        return self.imm->prefix;
+    }
+    
+    fn get_suffix_range(self) -> SourceRange {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_suffix_range: imm pointer is null");
+        return self.imm->suffix;
+    }
+    
+    fn get_body_text(self) -> string {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_body_text: imm pointer is null");
+        return TokenText::from_range(self.get_body_range(), self.ctx).get_text();
+    }
+    
+    fn get_prefix_text(self) -> string {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_prefix_text: imm pointer is null");
+        return TokenText::from_range(self.get_prefix_range(), self.ctx).get_text();
+    }
+    
+    fn get_suffix_text(self) -> string {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_suffix_text: imm pointer is null");
+        return TokenText::from_range(self.get_suffix_range(), self.ctx).get_text();
+    }
+    
+    fn get_bits(self) -> u32 {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_bits: imm pointer is null");
+        return self.imm->bits;
+    }
+    
+    fn get_base(self) -> u8 {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_base: imm pointer is null");
+        return self.imm->base;
+    }
+    
+    fn get_value_ieee(self) -> f80 {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_value_ieee: imm pointer is null");
+        return self.imm->value_ieee;
+    }
+    
+    fn get_big_float(self) -> *BigFloat {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::get_big_float: imm pointer is null");
+        return self.imm->big_float;
+    }
+
+    fn is_negative(self) -> bool {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::is_negative: imm pointer is null");
+        return ((self.imm->flags) & 0b00000010) != 0;
+    }
+
+    fn is_hex(self) -> bool {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::is_hex: imm pointer is null");
+        return ((self.imm->flags) & 0b00000100) != 0;
+    }
+    
+    fn is_big(self) -> bool {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::is_big: imm pointer is null");
+        return ((self.imm->flags) & 0b00001000) != 0;
+    }
+
+    fn has_exponent(self) -> bool {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::has_exponent: imm pointer is null");
+        return ((self.imm->flags) & 0b00000001) != 0;
+    }
+    
+    fn has_suffix(self) -> bool {
+        assert((self.imm != &null) && r"FloatingLiteralExpr::has_suffix: imm pointer is null");
+        return ((self.imm->flags) & 0b00010000) != 0;
     }
 }
 
@@ -337,6 +510,8 @@ class StringLiteralExpr derives Expr {
     pub var token:       Token;
     pub var string_kind: StringKind;
     pub var parts:       FrozenList::<*Expr>; ///< interpolation exprs for Format strings, empty otherwise.
+    pub var ctx:         *ASTContext;
+    pub var imm:         *Immediate::StringData = &null; ///< pointer to the immediate table entry
 
     static fn create(
         ctx:         *ASTContext,
@@ -350,6 +525,7 @@ class StringLiteralExpr derives Expr {
         node->token       = token;
         node->string_kind = string_kind;
         node->ctx         = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -362,6 +538,7 @@ class StringLiteralExpr derives Expr {
         node->recovery_kind = ExprKind::StringLiteralExpr;
         node->range         = range;
         node->ctx           = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -372,6 +549,78 @@ class StringLiteralExpr derives Expr {
     static fn expr_kind() -> ExprKind {
         return ExprKind::StringLiteralExpr;
     }
+
+    fn get_text(self) -> string {
+        return TokenText::from_token(self.token, self.ctx).get_text();
+    }
+
+    fn get_body_range(self) -> SourceRange {
+        assert((self.imm != &null) && r"StringLiteralExpr::get_body_range: imm pointer is null");
+        return self.imm->body;
+    }
+
+    fn get_body_text(self) -> string {
+        assert((self.imm != &null) && r"StringLiteralExpr::get_body_text: imm pointer is null");
+        return TokenText::from_range(self.get_body_range(), self.ctx).get_text();
+    }
+
+    fn get_prefix(self) -> Token {
+        assert((self.imm != &null) && r"StringLiteralExpr::get_prefix: imm pointer is null");
+        return self.imm->prefix;
+    }
+
+    fn get_suffix(self) -> Token {
+        assert((self.imm != &null) && r"StringLiteralExpr::get_suffix: imm pointer is null");
+        return self.imm->suffix;
+    }
+
+    fn get_prefix_kind(self) -> Immediate::TextPrefixKind {
+        assert((self.imm != &null) && r"StringLiteralExpr::get_prefix_kind: imm pointer is null");
+        return self.imm->prefix_kind;
+    }
+
+    fn get_next(self) -> u32 {
+        assert((self.imm != &null) && r"StringLiteralExpr::get_next: imm pointer is null");
+        return self.imm->next;
+    }
+
+    fn has_next(self) -> bool {
+        assert((self.imm != &null) && r"StringLiteralExpr::has_next: imm pointer is null");
+        return self.imm->next != static_cast::<u32>(-1);
+    }
+
+    fn has_interpolation(self) -> bool {
+        assert((self.imm != &null) && r"StringLiteralExpr::has_interpolation: imm pointer is null");
+        return self.imm->exprs.size() > 0;
+    }
+
+    fn get_exprs(self) -> *libcxx::deque::<(*TokenBuffer::<16>, SourceRange)> {
+        assert((self.imm != &null) && r"StringLiteralExpr::get_exprs: imm pointer is null");
+        return &(self.imm->exprs);
+    }
+
+    fn interpolation_count(self) -> usize {
+        assert((self.imm != &null) && r"StringLiteralExpr::interpolation_count: imm pointer is null");
+        return self.imm->exprs.size();
+    }
+
+    fn is_format(self) -> bool {
+        return self.string_kind == StringKind::Format;
+    }
+
+    fn is_raw(self) -> bool {
+        return self.string_kind == StringKind::Raw;
+    }
+
+    fn is_plain(self) -> bool {
+        return self.string_kind == StringKind::Plain;
+    }
+
+    fn is_byte_string(self) -> bool {
+        assert((self.imm != &null) && r"StringLiteralExpr::is_byte_string: imm pointer is null");
+        return (self.imm->prefix_kind == Immediate::TextPrefixKind::Bytes)
+            || (self.imm->prefix_kind == Immediate::TextPrefixKind::BytesFormat);
+    }
 }
 
 /// ============================================================================
@@ -380,6 +629,8 @@ class StringLiteralExpr derives Expr {
 /// ============================================================================
 class CharacterLiteralExpr derives Expr {
     pub var token: Token;
+    pub var ctx: *ASTContext; ///< for TokenText::get_name()
+    pub var imm: *Immediate::CharData = &null; ///< pointer to the immediate table entry
 
     static fn create(
         ctx:   *ASTContext,
@@ -391,6 +642,7 @@ class CharacterLiteralExpr derives Expr {
         node->range = range;
         node->token = token;
         node->ctx   = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -403,6 +655,7 @@ class CharacterLiteralExpr derives Expr {
         node->recovery_kind = ExprKind::CharacterLiteralExpr;
         node->range         = range;
         node->ctx           = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -412,6 +665,66 @@ class CharacterLiteralExpr derives Expr {
 
     static fn expr_kind() -> ExprKind {
         return ExprKind::CharacterLiteralExpr;
+    }
+
+    fn get_text(self) -> string {
+        return TokenText::from_token(self.token, self.ctx).get_text();
+    }
+
+    fn get_body_range(self) -> SourceRange {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::get_body_range: imm pointer is null");
+        return self.imm->body;
+    }
+
+    fn get_body_text(self) -> string {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::get_body_text: imm pointer is null");
+        return TokenText::from_range(self.get_body_range(), self.ctx).get_text();
+    }
+
+    fn get_prefix(self) -> Token {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::get_prefix: imm pointer is null");
+        return self.imm->prefix;
+    }
+
+    fn get_suffix(self) -> Token {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::get_suffix: imm pointer is null");
+        return self.imm->suffix;
+    }
+
+    fn get_prefix_kind(self) -> Immediate::TextPrefixKind {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::get_prefix_kind: imm pointer is null");
+        return self.imm->prefix_kind;
+    }
+
+    fn get_next(self) -> u32 {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::get_next: imm pointer is null");
+        return self.imm->next;
+    }
+
+    fn has_next(self) -> bool {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::has_next: imm pointer is null");
+        return self.imm->next != static_cast::<u32>(-1);
+    }
+
+    fn has_interpolation(self) -> bool {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::has_interpolation: imm pointer is null");
+        return self.imm->exprs.size() > 0;
+    }
+
+    fn get_exprs(self) -> *libcxx::deque::<(*TokenBuffer::<16>, SourceRange)> {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::get_exprs: imm pointer is null");
+        return &(self.imm->exprs);
+    }
+
+    fn interpolation_count(self) -> usize {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::interpolation_count: imm pointer is null");
+        return self.imm->exprs.size();
+    }
+
+    fn is_byte_char(self) -> bool {
+        assert((self.imm != &null) && r"CharacterLiteralExpr::is_byte_char: imm pointer is null");
+        return (self.imm->prefix_kind == Immediate::TextPrefixKind::Bytes)
+            || (self.imm->prefix_kind == Immediate::TextPrefixKind::BytesFormat);
     }
 }
 
@@ -431,7 +744,7 @@ class BooleanLiteralExpr derives Expr {
         node->kind  = ExprKind::BooleanLiteralExpr;
         node->range = range;
         node->value = value;
-        node->ctx   = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -443,7 +756,7 @@ class BooleanLiteralExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::BooleanLiteralExpr;
         node->range         = range;
-        node->ctx           = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -472,7 +785,7 @@ class NullLiteralExpr derives Expr {
         node->kind   = ExprKind::NullLiteralExpr;
         node->range  = range;
         node->is_ref = is_ref;
-        node->ctx    = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
@@ -484,7 +797,7 @@ class NullLiteralExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::NullLiteralExpr;
         node->range         = range;
-        node->ctx           = ctx;
+        node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
 
