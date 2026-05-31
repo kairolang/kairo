@@ -103,14 +103,14 @@ enum StmtKind derives u8 {
 
     /// Label intrinsic:  label!(name)
     /// Declares a raw branch target within the current function.
-    /// Not a structured loop label — those are LabeledStmt.
+    /// Not a structured loop label those are LabeledStmt.
     /// Surfaced as macro syntax but parsed as a first-class AST node.
     /// Node: LabelIntrinsicStmt with name Token.
     LabelIntrinsicStmt,
 
     /// Jump intrinsic:  jump!(name)
     /// Unconditional jump to a `label!`-declared target in the same function.
-    /// Bypasses destructors and `finally` blocks — caller's responsibility.
+    /// Bypasses destructors and `finally` blocks caller's responsibility.
     /// Node: JumpIntrinsicStmt with target name Token.
     JumpIntrinsicStmt,
 
@@ -210,7 +210,7 @@ enum StmtKind derives u8 {
     ///   inline "asm" { ... }
     ///   inline "c" { ... }
     ///   inline "c++" { ... }
-    /// Body is opaque to the Kairo parser — handed off to the foreign
+    /// Body is opaque to the Kairo parser handed off to the foreign
     /// backend lexer/parser unmodified.
     /// Node: InlineBlockStmt with lang Token + raw body span.
     InlineBlockStmt,

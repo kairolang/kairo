@@ -86,7 +86,7 @@ class ASTParse
     pub var error_count_base:     u32 = 0;      ///< error count recorded at parse start.
     pub var in_recovery:          bool = false; ///< true if parser is currently skipping to a SyncSet.
     
-    var _fatal_sentinels: u32 = 0;        ///< special marker type used to signal unrecoverable errors during type parsing.
+    pub var _fatal_sentinels: u32 = 0;        ///< special marker type used to signal unrecoverable errors during type parsing.
 
     class TentativeGuard {
         priv var _parser:    obs::<ASTParse>;
