@@ -126,6 +126,24 @@ enum DiagID derives u32 {
   S044E = compute_hash::<r"S044E">(),
   S045E = compute_hash::<r"S045E">(),
   S045N = compute_hash::<r"S045N">(),
+  S046E = compute_hash::<r"S046E">(),
+  S047E = compute_hash::<r"S047E">(),
+  S048E = compute_hash::<r"S048E">(),
+  S049E = compute_hash::<r"S049E">(),
+  S050E = compute_hash::<r"S050E">(),
+  S051E = compute_hash::<r"S051E">(),
+  S052E = compute_hash::<r"S052E">(),
+  S053E = compute_hash::<r"S053E">(),
+  S054E = compute_hash::<r"S054E">(),
+  S055E = compute_hash::<r"S055E">(),
+  S055W = compute_hash::<r"S055W">(),
+  S056E = compute_hash::<r"S056E">(),
+  S056N = compute_hash::<r"S056N">(),
+  S057E = compute_hash::<r"S057E">(),
+  S058E = compute_hash::<r"S058E">(),
+  S059E = compute_hash::<r"S059E">(),
+  S060E = compute_hash::<r"S060E">(),
+  S060W = compute_hash::<r"S060W">(),
   R001W = compute_hash::<r"R001W">(),
   R001I = compute_hash::<r"R001I">(),
   R001R = compute_hash::<r"R001R">(),
@@ -1229,6 +1247,186 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Note
       };
     }
+    case DiagID::S046E {
+      return DiagMeta{
+        brief: "expected identifier or name in declaration",
+        group: "ast",
+        number: 46,
+        hash: static_cast::<u32>(compute_hash::<r"S046E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S047E {
+      return DiagMeta{
+        brief: "invalid function or parameter list syntax",
+        group: "ast",
+        number: 47,
+        hash: static_cast::<u32>(compute_hash::<r"S047E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S048E {
+      return DiagMeta{
+        brief: "invalid type body or member syntax",
+        group: "ast",
+        number: 48,
+        hash: static_cast::<u32>(compute_hash::<r"S048E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S049E {
+      return DiagMeta{
+        brief: "invalid generic parameter or argument syntax",
+        group: "ast",
+        number: 49,
+        hash: static_cast::<u32>(compute_hash::<r"S049E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S050E {
+      return DiagMeta{
+        brief: "missing required structural token in declaration",
+        group: "ast",
+        number: 50,
+        hash: static_cast::<u32>(compute_hash::<r"S050E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S051E {
+      return DiagMeta{
+        brief: "missing closing delimiter in declaration body",
+        group: "ast",
+        number: 51,
+        hash: static_cast::<u32>(compute_hash::<r"S051E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S052E {
+      return DiagMeta{
+        brief: "expected expression",
+        group: "ast",
+        number: 52,
+        hash: static_cast::<u32>(compute_hash::<r"S052E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S053E {
+      return DiagMeta{
+        brief: "expected type expression",
+        group: "ast",
+        number: 53,
+        hash: static_cast::<u32>(compute_hash::<r"S053E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S054E {
+      return DiagMeta{
+        brief: "malformed expression construct",
+        group: "ast",
+        number: 54,
+        hash: static_cast::<u32>(compute_hash::<r"S054E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S055E {
+      return DiagMeta{
+        brief: "malformed type expression",
+        group: "ast",
+        number: 55,
+        hash: static_cast::<u32>(compute_hash::<r"S055E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S055W {
+      return DiagMeta{
+        brief: "malformed type expression",
+        group: "ast",
+        number: 55,
+        hash: static_cast::<u32>(compute_hash::<r"S055W">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Warning
+      };
+    }
+    case DiagID::S056E {
+      return DiagMeta{
+        brief: "missing block body after statement keyword",
+        group: "ast",
+        number: 56,
+        hash: static_cast::<u32>(compute_hash::<r"S056E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S056N {
+      return DiagMeta{
+        brief: "missing block body after statement keyword",
+        group: "ast",
+        number: 56,
+        hash: static_cast::<u32>(compute_hash::<r"S056N">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Note
+      };
+    }
+    case DiagID::S057E {
+      return DiagMeta{
+        brief: "missing closing brace for statement block",
+        group: "ast",
+        number: 57,
+        hash: static_cast::<u32>(compute_hash::<r"S057E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S058E {
+      return DiagMeta{
+        brief: "invalid binding syntax",
+        group: "ast",
+        number: 58,
+        hash: static_cast::<u32>(compute_hash::<r"S058E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S059E {
+      return DiagMeta{
+        brief: "invalid control flow statement structure",
+        group: "ast",
+        number: 59,
+        hash: static_cast::<u32>(compute_hash::<r"S059E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S060E {
+      return DiagMeta{
+        brief: "invalid inline block or intrinsic syntax",
+        group: "ast",
+        number: 60,
+        hash: static_cast::<u32>(compute_hash::<r"S060E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S060W {
+      return DiagMeta{
+        brief: "invalid inline block or intrinsic syntax",
+        group: "ast",
+        number: 60,
+        hash: static_cast::<u32>(compute_hash::<r"S060W">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Warning
+      };
+    }
     case DiagID::R001W {
       return DiagMeta{
         brief: "place holder diagnostics",
@@ -1721,6 +1919,24 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::S044E { return "# empty default value in macro parameter\n\nthis error occurs when a macro parameter is declared with `=` for a default value but the expression\nthat follows is empty or missing.\n\n## example\n\n- incorrect usage:\n```kairo\nmacro foo!(a = ) { }   // nothing after `=`\nmacro foo!(a =  ) { }  // only whitespace after `=`\n```\n\n## how to fix\nprovide a valid token expression after `=`, e.g. `a = 0` or `a = \"default\"`."; }
     case DiagID::S045E { return "# unexpected token in parsing\n\nthis error occurs when the parser encounters a token that is not valid in the current parsing context. this can happen due to syntax errors, missing tokens, or incorrect token ordering.\n\n## example\n\n- correct usage:\n```kairo\nfn main() {\n    var x = 10 // this is correct syntax\n}\n```\n\n- incorrect usage:\n```kairo\nfn main() {\n    var x = 10 129$ // this is incorrect syntax, as the token #129# is\n                    // invalid in kairo, the parser does not recognize\n                    // `129$` as a valid token.\n}\n```\n\n## how to fix\ncheck the syntax of your code and ensure that all tokens are valid and correctly placed. look for missing punctuation, incorrect token ordering, or other syntax issues that may be causing the error."; }
     case DiagID::S045N { return "# note on macro expansions and error locations\n\nwhen an error occurs inside a macro expansion, the primary error message will be reported at the location of the macro expansion (where the macro is invoked), while a secondary note will indicate the location of the original error in the macro definition. this helps clarify that the error originates from the macro definition but is being triggered by its use."; }
+    case DiagID::S046E { return "# expected declaration name\n\nan identifier was expected at this position to name a declaration,\nbut a different token was found. common causes:\n- missing the name after `class`, `struct`, `enum`, `union`, `fn`,\n  `interface`, `type`, `macro`, `extend`, or a binding keyword (`var`/`const`)\n- a keyword used where an identifier is expected"; }
+    case DiagID::S047E { return "# invalid function declaration syntax\n\nan unexpected or missing token was found while parsing a function\ndeclaration or its parameter list. common causes:\n- missing the function name after `fn`\n- missing `(` to open the parameter list\n- invalid or incomplete parameter (missing name, `:`, or type)\n- missing `)` to close the parameter list"; }
+    case DiagID::S048E { return "# invalid type body syntax\n\nan unexpected or missing token was found while parsing the body of a type\ndeclaration (class, struct, union, enum, or interface). common causes:\n- missing `{` to open the body\n- missing `}` to close the body\n- a member does not start with `var`, `const`, `static`, `eval`, or `fn`\n- a method modifier (`virtual`, `override`, `final`) not followed by `fn`\n- an unrecognised token in a type body position\n- missing or malformed enum variant or payload field"; }
+    case DiagID::S049E { return "# invalid generic syntax\n\nan unexpected or missing token was found while parsing a generic parameter\nlist `<T, U, ...>` or a generic argument list `<i32, bool>`. common causes:\n- empty generic list `<>` at least one parameter or argument is required\n- missing `>` to close the list\n- missing name in a const generic: `const N: u32`\n- expected `class`, `struct`, `enum`, or `union` after a kind bound `:`\n- missing type name after `...` in a variadic pack parameter\n- invalid token in place of a type argument"; }
+    case DiagID::S050E { return "# missing required declaration token\n\na required punctuation token or keyword was not found while parsing a\ndeclaration. common causes include a missing `{`, `=`, or another structural\ntoken expected after a declaration keyword or name."; }
+    case DiagID::S051E { return "# unclosed declaration body\n\na closing `}` was expected to end a declaration body but was not found.\nensure every opening brace has a matching closing brace."; }
+    case DiagID::S052E { return "# expected expression\n\nan expression was expected at this position but a different token was\nfound. common causes:\n- missing operand after a unary or binary operator\n- missing value after a keyword that takes an expression (`await`, `spawn`,\n  `delete`, `panic`, `yield`, `assert`, etc.)\n- missing expression in a call argument, subscript index, or initialiser field\n- invalid token at the start of an expression"; }
+    case DiagID::S053E { return "# expected type expression\n\na type was expected at this position but a different token was found.\ncommon causes:\n- missing type after `sizeof`, `alignof`, `typeof`, or a pointer `*`\n- missing element type in `[T]`, `{T}`, or `{K: V}`\n- unexpected token at the start of a type position"; }
+    case DiagID::S054E { return "# malformed expression\n\na structural problem was found inside an expression. common causes:\n- unclosed delimiter: missing `)`, `]`, or `}` to close a sub-expression\n- empty construct that requires at least one element\n- unexpected or out-of-order tokens inside an expression\n- expression-form control flow (`if`, `try`) with structural violations"; }
+    case DiagID::S055E { return "# malformed type expression\n\na structural problem was found inside a type expression. common causes:\n- empty type construct: `()`, `[]`, or `{}` without element types\n- unclosed delimiter in a tuple, array, set, map, or function pointer type\n- wrong separator token (e.g. `,` instead of `;` in `[T; N]`)\n- invalid function pointer syntax (e.g. generic params, or an identifier name)\n- variadic pack used with generic arguments or as a non-simple path\n- double nullable `??` used where only `?` is valid\n- single-element tuple tuples require at least two elements\n- tuple arity exceeds the allowed maximum"; }
+    case DiagID::S055W { return "# redundant nullable modifier\n\na `?` nullable suffix was applied to a type that is already nullable.\nthe extra `?` has no effect and can be removed.\n\n## example\n\n```kairo\nvar x: i32??   // second `?` is redundant\n```\n\n## how to fix\nremove the extra `?`."; }
+    case DiagID::S056E { return "# missing block body\n\na block `{ }` was expected to start a statement body but was not found.\ncontrol flow statements (`if`, `while`, `loop`, `for`, `match`, `try`,\n`catch`, `finally`, `eval`, `unsafe`, `inline`) all require a braced body."; }
+    case DiagID::S056N { return "# context binding requires a block body\n\na binding after `as` (e.g. `value as var x`) introduces a context block,\nnot a type cast. the binding form always requires a `{ }` body immediately\nafter the binding specifier.\n\nif you intended a type cast, write `value as Type` without `var` or `const`."; }
+    case DiagID::S057E { return "# unclosed statement block\n\nthe parser reached the end of a statement block without finding the\nclosing `}`. ensure every opening brace has a matching closing brace."; }
+    case DiagID::S058E { return "# invalid binding syntax\n\na structural problem was found in a binding declaration. common causes:\n- missing `var` or `const` keyword before a binding\n- empty binding list `()` at least one binding is required\n- missing `)` to close a binding list\n- missing binding name or `_` discard placeholder\n- empty destructuring pattern\n- missing closing delimiter in a destructuring pattern\n- missing `=` after a destructuring pattern"; }
+    case DiagID::S059E { return "# invalid statement structure\n\nunexpected or missing tokens were found in a statement\'s structural\nelements. common causes:\n- missing `;` between for-loop clauses\n- `match` body missing `case` or `default`\n- a `try` block without any `catch` arms\n- a label applied to a non-loop statement"; }
+    case DiagID::S060E { return "# invalid inline block or intrinsic\n\na structural problem was found in an `inline` foreign block or a\n`label!`/`jump!` intrinsic call.\n\nfor `inline` blocks:\n- missing language string (e.g. `inline \"c++\"`)\n- missing `{` to open the inline body\n\nfor `label!`/`jump!` intrinsics:\n- missing `!` sigil after the keyword\n- missing `(` after the sigil\n- missing the label or target identifier\n- missing `)` to close the intrinsic"; }
+    case DiagID::S060W { return "# unknown inline foreign language\n\nthe string passed to `inline` is not one of the recognised foreign\nlanguage identifiers. the compiler will fall back to treating the body\nas C++ (`inline \"c++\"`) and continue, but the intent may not be met.\n\n## recognised identifiers\n`asm`, `c`, `c++` / `cpp` / `cxx`, `cuda`, `hip`, `opencl`,\n`hlsl`, `metal`, `spirv`, `wgsl`, `glsl`, `kairo`\n\n## how to fix\nuse one of the identifiers above, matching the language of the embedded\nsource block."; }
     case DiagID::R001W { return "This is placeholder diagnostics. (Warning)"; }
     case DiagID::R001I { return "This is placeholder diagnostics. (Info)"; }
     case DiagID::R001R { return "This is placeholder diagnostics. (Remark)"; }
@@ -1793,6 +2009,7 @@ module Diag {
         switch num {
           case 1 { return DiagID::S001N; }
           case 45 { return DiagID::S045N; }
+          case 56 { return DiagID::S056N; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for S and severity Note")); }
         }
       }
@@ -1808,6 +2025,8 @@ module Diag {
           case 41 { return DiagID::S041W; }
           case 22 { return DiagID::S022W; }
           case 25 { return DiagID::S025W; }
+          case 55 { return DiagID::S055W; }
+          case 60 { return DiagID::S060W; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for S and severity Warning")); }
         }
       }
@@ -1847,6 +2066,21 @@ module Diag {
           case 43 { return DiagID::S043E; }
           case 44 { return DiagID::S044E; }
           case 45 { return DiagID::S045E; }
+          case 46 { return DiagID::S046E; }
+          case 47 { return DiagID::S047E; }
+          case 48 { return DiagID::S048E; }
+          case 49 { return DiagID::S049E; }
+          case 50 { return DiagID::S050E; }
+          case 51 { return DiagID::S051E; }
+          case 52 { return DiagID::S052E; }
+          case 53 { return DiagID::S053E; }
+          case 54 { return DiagID::S054E; }
+          case 55 { return DiagID::S055E; }
+          case 56 { return DiagID::S056E; }
+          case 57 { return DiagID::S057E; }
+          case 58 { return DiagID::S058E; }
+          case 59 { return DiagID::S059E; }
+          case 60 { return DiagID::S060E; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for S and severity Error")); }
         }
       }

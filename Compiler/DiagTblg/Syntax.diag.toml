@@ -1022,3 +1022,276 @@ group = "ast"
 
     when an error occurs inside a macro expansion, the primary error message will be reported at the location of the macro expansion (where the macro is invoked), while a secondary note will indicate the location of the original error in the macro definition. this helps clarify that the error originates from the macro definition but is being triggered by its use.
     """
+
+# -- Parser / AST diagnostic codes (S046–S060) ----------------------------------
+# S045 is retained for macro-expansion chaining; the codes below cover specific
+# parse errors in the declaration, expression, type, and statement parsers.
+
+[S046]
+brief = "expected identifier or name in declaration"
+group = "ast"
+    [S046.E]
+    explain = """
+    # expected declaration name
+
+    an identifier was expected at this position to name a declaration,
+    but a different token was found. common causes:
+    - missing the name after `class`, `struct`, `enum`, `union`, `fn`,
+      `interface`, `type`, `macro`, `extend`, or a binding keyword (`var`/`const`)
+    - a keyword used where an identifier is expected
+    """
+
+[S047]
+brief = "invalid function or parameter list syntax"
+group = "ast"
+    [S047.E]
+    explain = """
+    # invalid function declaration syntax
+
+    an unexpected or missing token was found while parsing a function
+    declaration or its parameter list. common causes:
+    - missing the function name after `fn`
+    - missing `(` to open the parameter list
+    - invalid or incomplete parameter (missing name, `:`, or type)
+    - missing `)` to close the parameter list
+    """
+
+[S048]
+brief = "invalid type body or member syntax"
+group = "ast"
+    [S048.E]
+    explain = """
+    # invalid type body syntax
+
+    an unexpected or missing token was found while parsing the body of a type
+    declaration (class, struct, union, enum, or interface). common causes:
+    - missing `{` to open the body
+    - missing `}` to close the body
+    - a member does not start with `var`, `const`, `static`, `eval`, or `fn`
+    - a method modifier (`virtual`, `override`, `final`) not followed by `fn`
+    - an unrecognised token in a type body position
+    - missing or malformed enum variant or payload field
+    """
+
+[S049]
+brief = "invalid generic parameter or argument syntax"
+group = "ast"
+    [S049.E]
+    explain = """
+    # invalid generic syntax
+
+    an unexpected or missing token was found while parsing a generic parameter
+    list `<T, U, ...>` or a generic argument list `<i32, bool>`. common causes:
+    - empty generic list `<>` at least one parameter or argument is required
+    - missing `>` to close the list
+    - missing name in a const generic: `const N: u32`
+    - expected `class`, `struct`, `enum`, or `union` after a kind bound `:`
+    - missing type name after `...` in a variadic pack parameter
+    - invalid token in place of a type argument
+    """
+
+[S050]
+brief = "missing required structural token in declaration"
+group = "ast"
+    [S050.E]
+    explain = """
+    # missing required declaration token
+
+    a required punctuation token or keyword was not found while parsing a
+    declaration. common causes include a missing `{`, `=`, or another structural
+    token expected after a declaration keyword or name.
+    """
+
+[S051]
+brief = "missing closing delimiter in declaration body"
+group = "ast"
+    [S051.E]
+    explain = """
+    # unclosed declaration body
+
+    a closing `}` was expected to end a declaration body but was not found.
+    ensure every opening brace has a matching closing brace.
+    """
+
+[S052]
+brief = "expected expression"
+group = "ast"
+    [S052.E]
+    explain = """
+    # expected expression
+
+    an expression was expected at this position but a different token was
+    found. common causes:
+    - missing operand after a unary or binary operator
+    - missing value after a keyword that takes an expression (`await`, `spawn`,
+      `delete`, `panic`, `yield`, `assert`, etc.)
+    - missing expression in a call argument, subscript index, or initialiser field
+    - invalid token at the start of an expression
+    """
+
+[S053]
+brief = "expected type expression"
+group = "ast"
+    [S053.E]
+    explain = """
+    # expected type expression
+
+    a type was expected at this position but a different token was found.
+    common causes:
+    - missing type after `sizeof`, `alignof`, `typeof`, or a pointer `*`
+    - missing element type in `[T]`, `{T}`, or `{K: V}`
+    - unexpected token at the start of a type position
+    """
+
+[S054]
+brief = "malformed expression construct"
+group = "ast"
+    [S054.E]
+    explain = """
+    # malformed expression
+
+    a structural problem was found inside an expression. common causes:
+    - unclosed delimiter: missing `)`, `]`, or `}` to close a sub-expression
+    - empty construct that requires at least one element
+    - unexpected or out-of-order tokens inside an expression
+    - expression-form control flow (`if`, `try`) with structural violations
+    """
+
+[S055]
+brief = "malformed type expression"
+group = "ast"
+    [S055.E]
+    explain = """
+    # malformed type expression
+
+    a structural problem was found inside a type expression. common causes:
+    - empty type construct: `()`, `[]`, or `{}` without element types
+    - unclosed delimiter in a tuple, array, set, map, or function pointer type
+    - wrong separator token (e.g. `,` instead of `;` in `[T; N]`)
+    - invalid function pointer syntax (e.g. generic params, or an identifier name)
+    - variadic pack used with generic arguments or as a non-simple path
+    - double nullable `??` used where only `?` is valid
+    - single-element tuple tuples require at least two elements
+    - tuple arity exceeds the allowed maximum
+    """
+
+    [S055.W]
+    explain = """
+    # redundant nullable modifier
+
+    a `?` nullable suffix was applied to a type that is already nullable.
+    the extra `?` has no effect and can be removed.
+
+    ## example
+
+    ```kairo
+    var x: i32??   // second `?` is redundant
+    ```
+
+    ## how to fix
+    remove the extra `?`.
+    """
+
+[S056]
+brief = "missing block body after statement keyword"
+group = "ast"
+    [S056.E]
+    explain = """
+    # missing block body
+
+    a block `{ }` was expected to start a statement body but was not found.
+    control flow statements (`if`, `while`, `loop`, `for`, `match`, `try`,
+    `catch`, `finally`, `eval`, `unsafe`, `inline`) all require a braced body.
+    """
+
+    [S056.N]
+    explain = """
+    # context binding requires a block body
+
+    a binding after `as` (e.g. `value as var x`) introduces a context block,
+    not a type cast. the binding form always requires a `{ }` body immediately
+    after the binding specifier.
+
+    if you intended a type cast, write `value as Type` without `var` or `const`.
+    """
+
+[S057]
+brief = "missing closing brace for statement block"
+group = "ast"
+    [S057.E]
+    explain = """
+    # unclosed statement block
+
+    the parser reached the end of a statement block without finding the
+    closing `}`. ensure every opening brace has a matching closing brace.
+    """
+
+[S058]
+brief = "invalid binding syntax"
+group = "ast"
+    [S058.E]
+    explain = """
+    # invalid binding syntax
+
+    a structural problem was found in a binding declaration. common causes:
+    - missing `var` or `const` keyword before a binding
+    - empty binding list `()` at least one binding is required
+    - missing `)` to close a binding list
+    - missing binding name or `_` discard placeholder
+    - empty destructuring pattern
+    - missing closing delimiter in a destructuring pattern
+    - missing `=` after a destructuring pattern
+    """
+
+[S059]
+brief = "invalid control flow statement structure"
+group = "ast"
+    [S059.E]
+    explain = """
+    # invalid statement structure
+
+    unexpected or missing tokens were found in a statement's structural
+    elements. common causes:
+    - missing `;` between for-loop clauses
+    - `match` body missing `case` or `default`
+    - a `try` block without any `catch` arms
+    - a label applied to a non-loop statement
+    """
+
+[S060]
+brief = "invalid inline block or intrinsic syntax"
+group = "ast"
+    [S060.E]
+    explain = """
+    # invalid inline block or intrinsic
+
+    a structural problem was found in an `inline` foreign block or a
+    `label!`/`jump!` intrinsic call.
+
+    for `inline` blocks:
+    - missing language string (e.g. `inline "c++"`)
+    - missing `{` to open the inline body
+
+    for `label!`/`jump!` intrinsics:
+    - missing `!` sigil after the keyword
+    - missing `(` after the sigil
+    - missing the label or target identifier
+    - missing `)` to close the intrinsic
+    """
+
+    [S060.W]
+    explain = """
+    # unknown inline foreign language
+
+    the string passed to `inline` is not one of the recognised foreign
+    language identifiers. the compiler will fall back to treating the body
+    as C++ (`inline "c++"`) and continue, but the intent may not be met.
+
+    ## recognised identifiers
+    `asm`, `c`, `c++` / `cpp` / `cxx`, `cuda`, `hip`, `opencl`,
+    `hlsl`, `metal`, `spirv`, `wgsl`, `glsl`, `kairo`
+
+    ## how to fix
+    use one of the identifiers above, matching the language of the embedded
+    source block.
+    """
