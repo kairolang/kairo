@@ -231,7 +231,7 @@ def __lldb_init_module(debugger, internal_dict):
     print('  kframe, kti, ktl, kimg for the rest.')
 
 class KairoStopHook:
-    """Class-based stop hook — cleaner than shelling out to script."""
+    """Class-based stop hook cleaner than shelling out to script."""
     def __init__(self, target, extra_args, internal_dict):
         pass
 

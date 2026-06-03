@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GDB Kairo demangler — type printer + frame filter for clean names in VSCode."""
+"""GDB Kairo demangler type printer + frame filter for clean names in VSCode."""
 
 import gdb
 import gdb.types
@@ -93,7 +93,7 @@ def demangle_kairo(text):
 
 
 # ---------------------------------------------------------------------------
-#  Type printer — cleans up type names in the Variables panel
+#  Type printer cleans up type names in the Variables panel
 # ---------------------------------------------------------------------------
 
 class KairoTypePrinter(gdb.types.TypePrinter):
@@ -114,7 +114,7 @@ class KairoTypeRecognizer:
 
 
 # ---------------------------------------------------------------------------
-#  Frame filter — cleans up function names in the Call Stack panel
+#  Frame filter cleans up function names in the Call Stack panel
 # ---------------------------------------------------------------------------
 
 class KairoFrameDecorator(gdb.FrameDecorator.FrameDecorator):
@@ -140,7 +140,7 @@ class KairoFrameFilter:
 
 
 # ---------------------------------------------------------------------------
-#  Pretty printer — cleans up type names when printing values
+#  Pretty printer cleans up type names when printing values
 # ---------------------------------------------------------------------------
 
 try:
@@ -169,7 +169,7 @@ class KairoValuePrinter:
 
 
 # ---------------------------------------------------------------------------
-#  Commands — kbt for demangled backtraces in the debug console
+#  Commands kbt for demangled backtraces in the debug console
 # ---------------------------------------------------------------------------
 
 class KairoBtCommand(gdb.Command):
@@ -222,7 +222,7 @@ KairoFrameFilter()
 KairoBtCommand()
 KairoPrintType()
 
-# Pretty printer — only register if gdb.printing exists
+# Pretty printer only register if gdb.printing exists
 try:
     gdb.printing.register_pretty_printer(None, KairoPrettyPrinter(), replace=True)
 except AttributeError:
