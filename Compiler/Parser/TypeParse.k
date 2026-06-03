@@ -293,7 +293,7 @@ class <T> TypeParse {
                 var cur_ptr = dyn()->current_ptr();
                 var loc     = (cur_ptr->range.start) if (cur_ptr != &null) else SourceLocation();
 
-                dyn()->diag->report(DiagID::S045E, loc, "unexpected start of input, expected expression").emit();
+                dyn()->diag->report(DiagID::S053E, loc, "unexpected start of input, expected expression").emit();
                 dyn()->exit_depth();
                 return &null;
             }
@@ -422,7 +422,7 @@ class <T> TypeParse {
         // no production matched; report error and attempt recovery.
         var resolved_kind = dyn()->resolve_kind_deep(cur_ptr);
         dyn()->diag->report(
-            DiagID::S045E,
+            DiagID::S053E,
             cur_range.start,
             f"expected type, found '{token_kind_to_readable_string(resolved_kind)}' "
         ).first(cur_range).emit();
@@ -446,7 +446,7 @@ class <T> TypeParse {
 
         var inner = dyn()->parse_expr();
         if inner == &null {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S053E, start_range.start,
                 "expected type after 'typeof' "
             ).first(start_range).emit();
 
@@ -483,7 +483,7 @@ class <T> TypeParse {
         // empty tuple: `()`
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance(); // consume `)`
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "empty tuple types are not allowed, did you mean 'void'?"
             ).first(start_range).emit();
 
@@ -493,7 +493,7 @@ class <T> TypeParse {
 
         var first = self.parse_type(false, true);
         if (first == &null) || (is_recovery(first)) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S053E, start_range.start,
                 "expected type after '(' "
             ).first(start_range).emit();
 
@@ -513,7 +513,7 @@ class <T> TypeParse {
         }
 
         // missing `)` emit diagnostic but still return what we parsed
-        dyn()->diag->report(DiagID::S045E, start_range.start,
+        dyn()->diag->report(DiagID::S055E, start_range.start,
             "expected ')' after type in grouping expression "
         ).first(start_range).emit();
 
@@ -538,7 +538,7 @@ class <T> TypeParse {
     ///         arity constraints are violated.
     inline fn _finish_tuple_type(self, start_range: SourceRange, first: *Type) -> *TupleType {
         if !dyn()->enter_depth() {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "exceeded maximum nesting depth in tuple type"
             ).first(start_range).emit();
 
@@ -594,7 +594,7 @@ class <T> TypeParse {
             full_range = full_range | dyn()->current_ptr()->range;
             dyn()->advance(T::SkipNL::Before); // consume `)`
         } else {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "expected ')' to close tuple type"
             ).first(start_range).emit();
         }
@@ -602,7 +602,7 @@ class <T> TypeParse {
         /// \note Kairo requires tuples to have N >= 2 elements. single-element
         ///       parenthesized expressions are desugared to their inner type.
         if vals.size() == 1 {
-            dyn()->diag->report(DiagID::S045E, full_range.start,
+            dyn()->diag->report(DiagID::S055E, full_range.start,
                 "tuple types must contain at least two elements or more, did you "
                 "mean to write '(T)' without the comma for a parenthesised type? "
             ).first(comma_range).fix(comma_range, "remove", "remove this comma to make it a parenthesised type")
@@ -615,7 +615,7 @@ class <T> TypeParse {
             var range = vals[(dyn()->ctx->ci->frontend.max_tuple_arity)]->range;
             var endr  = vals[vals.size() - 1]->range;
 
-            dyn()->diag->report(DiagID::S045E, range.start,
+            dyn()->diag->report(DiagID::S055E, range.start,
                 f"tuple arity exceeds the maximum of {dyn()->ctx->ci->frontend.max_tuple_arity} (got {vals.size()})"
             ).first(range)
             .fix(range | endr, "remove", "reduce the number of elements in "
@@ -669,7 +669,7 @@ class <T> TypeParse {
 
         if dyn()->check(TokenKind::OpRSquare) {
             dyn()->advance(); // consume `]`
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "empty arrays/vector types are not allowed, expected a type `[T]` or `[T; N]`"
             ).first(start_range).emit();
             var vt = VectorType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
@@ -689,7 +689,7 @@ class <T> TypeParse {
         if elem_type == &null {
             // this should never get called since we should
             // always be making a fully valid tree (even with broken nodes)
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S053E, start_range.start,
                 "expected type after '[' "
             ).first(start_range).emit();
             return &null;
@@ -704,14 +704,14 @@ class <T> TypeParse {
         // common error, if we have a , in here this is invalid syntax, maybe they
         // meant to write a tuple type with parentheses instead of square brackets?
         if dyn()->check(TokenKind::OpComma) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "unexpected ',' in square bracket type, did you mean to use parentheses for a tuple type?"
             ).first(start_range).emit();
             return self._finish_array_type(start_range, elem_type, true); // in error state
         }
 
         if dyn()->check(TokenKind::OpColon) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "unexpected ':' in square bracket type, did you mean ';' for an array type with size '[T; N]'?"
             ).first(start_range).emit();
             return self._finish_array_type(start_range, elem_type, true); // in error state
@@ -722,7 +722,7 @@ class <T> TypeParse {
         }
 
         if !dyn()->check(TokenKind::OpRSquare) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "expected ']' after type in square brackets"
             ).first(start_range).emit();
             // try to sync to ']' to continue parsing
@@ -773,7 +773,7 @@ class <T> TypeParse {
 
         if dyn()->check(TokenKind::OpRSquare) {
             if is_error {
-                dyn()->diag->report(DiagID::S045E, semicolon_range.start,
+                dyn()->diag->report(DiagID::S055E, semicolon_range.start,
                     "expected array size expression after ';' in array type"
                 ).first(semicolon_range).emit();
                 dyn()->advance();
@@ -795,7 +795,7 @@ class <T> TypeParse {
         dyn()->advance(T::SkipNL::Only);
 
         if size_expr == &null {
-            dyn()->diag->report(DiagID::S045E, semicolon_range.start,
+            dyn()->diag->report(DiagID::S055E, semicolon_range.start,
                 "expected constant expression for array size after ';' in array type"
             ).first(semicolon_range).emit();
             return &null;
@@ -803,7 +803,7 @@ class <T> TypeParse {
 
         // if we have a , here this is invalid syntax, maybe they meant to write a tuple type with parentheses instead of square brackets?
         if dyn()->check(TokenKind::OpComma) {
-            dyn()->diag->report(DiagID::S045E, semicolon_range.start,
+            dyn()->diag->report(DiagID::S055E, semicolon_range.start,
                 "unexpected ',' in array type, did you mean to use parentheses for a tuple type?"
             ).first(semicolon_range).emit();
             self._sync_type(TypeSyncCtx::Square, 0, 1); // sync to closing `]` to continue parsing
@@ -812,7 +812,7 @@ class <T> TypeParse {
 
         // check for ']'
         if !dyn()->check(TokenKind::OpRSquare) {
-            dyn()->diag->report(DiagID::S045E, semicolon_range.start,
+            dyn()->diag->report(DiagID::S055E, semicolon_range.start,
                 "expected ']' after array size expression in array type"
             ).first(semicolon_range).emit();
             // try to sync to ']' to continue parsing
@@ -866,7 +866,7 @@ class <T> TypeParse {
 
             dyn()->advance(); // consume `}`
             dyn()->diag->report(
-                DiagID::S045E,
+                DiagID::S055E,
                 start_range.start,
                 "empty braced types are not allowed, use 'void' for empty or '{T}' for a set type"
             ).first(start_range).emit();
@@ -889,7 +889,7 @@ class <T> TypeParse {
 
         if key_type == &null {
             dyn()->diag->report(
-                DiagID::S045E,
+                DiagID::S053E,
                 start_range.start,
                 "expected type after '{' "
             ).first(start_range).emit();
@@ -915,7 +915,7 @@ class <T> TypeParse {
         // common error: `{K; V}` semicolon instead of colon
         if dyn()->check(TokenKind::OpSemicolon) {
             dyn()->diag->report(
-                DiagID::S045E,
+                DiagID::S055E,
                 dyn()->current_ptr()->range.start,
                 "unexpected ';' in braced type, did you mean ':' for a map type '{K: V}'?"
             ).first(dyn()->current_ptr()->range).emit();
@@ -926,7 +926,7 @@ class <T> TypeParse {
         // common error: `{K, V}` comma instead of colon, probably confused with tuple
         if dyn()->check(TokenKind::OpComma) {
             dyn()->diag->report(
-                DiagID::S045E,
+                DiagID::S055E,
                 dyn()->current_ptr()->range.start,
                 "unexpected ',' in braced type, did you mean ':' for a map type '{K: V}' "
                 "or '(' for a tuple type?"
@@ -949,7 +949,7 @@ class <T> TypeParse {
 
         // missing `}` or `:`
         dyn()->diag->report(
-            DiagID::S045E,
+            DiagID::S055E,
             start_range.start,
             "expected '}' to close set type or ':' to begin map type value"
         ).first(start_range).emit();
@@ -986,7 +986,7 @@ class <T> TypeParse {
 
         // `{K:}` missing value type
         if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->diag->report(DiagID::S045E, sep_range.start,
+            dyn()->diag->report(DiagID::S053E, sep_range.start,
                 "expected value type after ':' in map type '{K: V}' "
             ).first(sep_range).emit();
             dyn()->advance(); // consume `}`
@@ -1007,7 +1007,7 @@ class <T> TypeParse {
         dyn()->advance(T::SkipNL::Only);
 
         if val_type == &null {
-            dyn()->diag->report(DiagID::S045E, sep_range.start,
+            dyn()->diag->report(DiagID::S053E, sep_range.start,
                 "expected value type after ':' in map type '{K: V}' "
             ).first(sep_range).emit();
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
@@ -1026,7 +1026,7 @@ class <T> TypeParse {
 
         // common error: `{K: V, ...}`
         if dyn()->check(TokenKind::OpComma) {
-            dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+            dyn()->diag->report(DiagID::S055E, dyn()->current_ptr()->range.start,
                 "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}' "
             ).first(dyn()->current_ptr()->range).emit();
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
@@ -1038,7 +1038,7 @@ class <T> TypeParse {
 
         // common error: `{K: V: W}` double colon
         if dyn()->check(TokenKind::OpColon) {
-            dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+            dyn()->diag->report(DiagID::S055E, dyn()->current_ptr()->range.start,
                 "unexpected ':' in map type, expected '}' after value type"
             ).first(dyn()->current_ptr()->range).emit();
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
@@ -1049,7 +1049,7 @@ class <T> TypeParse {
         }
 
         if !dyn()->check(TokenKind::OpRBrace) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "expected '}' to close map type"
             ).first(start_range).emit();
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
@@ -1105,7 +1105,7 @@ class <T> TypeParse {
         // because parse_type() will see `const` as a qualifier and `*` as another pointer
         var pointee = self.parse_type();
         if pointee == &null {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S053E, start_range.start,
                 "expected type after '*' "
             ).first(start_range).emit();
 
@@ -1149,7 +1149,7 @@ class <T> TypeParse {
         dyn()->advance(); // consume `fn`
 
         if dyn()->check(TokenKind::OpLess) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "unexpected '<' after 'fn' in function pointer type, generic parameters are not supported here"
             ).first(start_range).emit();
             self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
@@ -1159,7 +1159,7 @@ class <T> TypeParse {
         if dyn()->check(fn (k: TokenKind) -> bool {
             return TYPE_TOK_TBL.contains(k);
         }) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "unexpected identifier after 'fn' in function pointer type, "
                 "did you mean to write a function declaration?"
             ).first(start_range).emit();
@@ -1169,7 +1169,7 @@ class <T> TypeParse {
 
         // require `(`
         if !dyn()->check(TokenKind::OpLParen) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "expected '(' after 'fn' in function pointer type"
             ).first(start_range).emit();
             self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
@@ -1187,7 +1187,7 @@ class <T> TypeParse {
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "expected ')' to close function pointer parameter list"
             ).first(start_range).emit();
             self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
@@ -1247,7 +1247,7 @@ class <T> TypeParse {
             // function pointer types cannot have default values (e.g., `fn(u32 = 0)` is invalid).
             if dyn()->check(TokenKind::OpEqual) {
                 dyn()->diag->report(
-                    DiagID::S045E,
+                    DiagID::S055E,
                     dyn()->current_ptr()->range.start,
                     "unexpected '=' in function pointer type parameter list, default values are not allowed here"
                 ).first(dyn()->current_ptr()->range).emit();
@@ -1270,7 +1270,7 @@ class <T> TypeParse {
 
             if !dyn()->check(TokenKind::OpRParen) {
                 dyn()->diag->report(
-                    DiagID::S045E,
+                    DiagID::S055E,
                     dyn()->current_ptr()->range.start,
                     "expected ',' or ')' after parameter type in function pointer type"
                 ).first(dyn()->current_ptr()->range).emit();
@@ -1289,7 +1289,7 @@ class <T> TypeParse {
         if !dyn()->check(fn(k: TokenKind) -> bool {
             return TYPE_TOK_TBL.contains(k);
         }) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S055E, start_range.start,
                 "expected type parameter name after '...' for variadic pack type"
             ).first(start_range).emit();
             return VariadicPackType::create_error(dyn()->ctx, start_range);
@@ -1298,7 +1298,7 @@ class <T> TypeParse {
         var chain = self._parse_qual_type();
 
         if chain == &null {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S053E, start_range.start,
                 "expected type after '...' for variadic pack type"
             ).first(start_range).emit();
             return VariadicPackType::create_error(dyn()->ctx, start_range);
@@ -1310,7 +1310,7 @@ class <T> TypeParse {
 
         // variadic pack must be a single unqualified name no generics, no scoping
         if !chain->is_simple() {
-            dyn()->diag->report(DiagID::S045E, chain->range.start,
+            dyn()->diag->report(DiagID::S055E, chain->range.start,
                 "variadic pack type must be a single type parameter name, "
                 "not a qualified or generic type path"
             ).first(chain->range).emit();
@@ -1318,7 +1318,7 @@ class <T> TypeParse {
         }
 
         if chain->has_generic_args() {
-            dyn()->diag->report(DiagID::S045E, chain->range.start,
+            dyn()->diag->report(DiagID::S055E, chain->range.start,
                 "variadic pack type cannot have generic arguments"
             ).first(chain->range).emit();
             return VariadicPackType::create_error(dyn()->ctx, start_range | chain->range);
@@ -1344,7 +1344,7 @@ class <T> TypeParse {
     inline fn _parse_pack_expansion_type(self, ty: *Type) -> *PackExpansionType {
         // current token is `...`
         if (ty == &null) {
-            dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+            dyn()->diag->report(DiagID::S055E, dyn()->current_ptr()->range.start,
                 "Fatal compiler bug, please raise an issue on our github at "
                 "https://github.com/kairolang/kairo/issues "
                 "along with the code to reproduce it"
@@ -1356,7 +1356,7 @@ class <T> TypeParse {
         dyn()->advance(); //consume '...'
 
         if isa::<PackExpansionType>(ty) { // `T......` is not valid syntax
-            dyn()->diag->report(DiagID::S045E, ty->range.start,
+            dyn()->diag->report(DiagID::S055E, ty->range.start,
                 "unexpected '...' after type in pack expansion type, '...' can only "
                 "appear once in a pack expansion type declaration"
             ).first(ty->range).emit();
@@ -1364,7 +1364,7 @@ class <T> TypeParse {
         }
 
         if isa::<VariadicPackType>(ty) { // `...T...` is not valid syntax
-            dyn()->diag->report(DiagID::S045E, ty->range.start,
+            dyn()->diag->report(DiagID::S055E, ty->range.start,
                 "unexpected '...' before type in pack expansion type, '...' can only "
                 "appear once in a pack expansion type declaration"
             ).first(ty->range).emit();
@@ -1411,7 +1411,7 @@ class <T> TypeParse {
             if !dyn()->check(fn(k: TokenKind) -> bool {
                 return TYPE_TOK_TBL.contains(k);
             }) {
-                dyn()->diag->report(DiagID::S045E, sep_range.start,
+                dyn()->diag->report(DiagID::S053E, sep_range.start,
                     "expected identifier after '::' in type path"
                 ).first(sep_range).emit();
                 break;
@@ -1491,7 +1491,7 @@ class <T> TypeParse {
         }
 
         if dyn()->check(TokenKind::OpGreater) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S049E, start_range.start,
                 "expected at least one type argument in generic parameter list"
             ).first(start_range).emit();
             dyn()->advance(); // consume `>`
@@ -1546,7 +1546,7 @@ class <T> TypeParse {
 
             var ty = self.parse_type(false, true);
             if ty == &null {
-                dyn()->diag->report(DiagID::S045E, start_range.start,
+                dyn()->diag->report(DiagID::S049E, start_range.start,
                     "expected type argument in generic parameter list"
                 ).first(start_range).emit();
                 self._sync_generic_args(angle_depth);
@@ -1593,7 +1593,7 @@ class <T> TypeParse {
             }
 
             if (!dyn()->check(TokenKind::OpGreater)) && (!dyn()->check(TokenKind::OpGreaterGreater)) {
-                dyn()->diag->report(DiagID::S045E, dyn()->prev().range.start,
+                dyn()->diag->report(DiagID::S049E, dyn()->prev().range.start,
                     "expected ',' or '>' after type argument in generic parameter list"
                 ).first(dyn()->prev().range).emit();
                 self._sync_generic_args(angle_depth);
@@ -1680,7 +1680,7 @@ class <T> TypeParse {
         }
 
         dyn()->diag->report(
-            DiagID::S045E,
+            DiagID::S055E,
             dyn()->current_ptr()->range.start,
             "expected constant expression for array size"
         ).first(dyn()->current_ptr()->range).emit();
@@ -1692,7 +1692,7 @@ class <T> TypeParse {
         var expr = dyn()->parse_expr();
         if expr == &null {
             dyn()->diag->report(
-                DiagID::S045E,
+                DiagID::S053E,
                 dyn()->current_ptr()->range.start,
                 "expected expression for 'typeof' type"
             ).first(dyn()->current_ptr()->range).emit();
@@ -1713,7 +1713,7 @@ class <T> TypeParse {
         // cur token is `?`
         var end_range = dyn()->current_ptr()->range;
         if dyn()->check(TokenKind::OpQuestionQuestion) {
-            dyn()->diag->report(DiagID::S045E, end_range.start,
+            dyn()->diag->report(DiagID::S055E, end_range.start,
                 "unexpected '??' after type, did you mean to write a nullable type with a single '?'?"
             ).first(end_range).emit();
             self._sync_type(TypeSyncCtx::TopLevel, 0, 0, 0, true);
@@ -1723,7 +1723,7 @@ class <T> TypeParse {
         dyn()->advance(); // consume '?'
 
         if ty == &null {
-            dyn()->diag->report(DiagID::S045E, end_range.start,
+            dyn()->diag->report(DiagID::S055E, end_range.start,
                 "Fatal compiler bug, please raise an issue on our github at "
                 "https://github.com/kairolang/kairo/issues "
                 "along with the code to reproduce it"
@@ -1738,8 +1738,8 @@ class <T> TypeParse {
         }
 
         if isa::<NullableType>(ty) {
-            dyn()->diag->report(DiagID::S045E, end_range.start,
-                "redundant nullable operator '?', type is already nullable"
+            dyn()->diag->report(DiagID::S055W, end_range.start,
+                "redundant '?': type is already nullable"
             ).first(end_range).emit();
             return cast::<NullableType>(ty);
         }

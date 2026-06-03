@@ -207,7 +207,7 @@ class <T> ExprParse {
 
                 var rhs = self._parse_unary_expr(stop);
                 if rhs == &null {
-                    dyn()->diag->report(DiagID::S045E, op_tok.range.start,
+                    dyn()->diag->report(DiagID::S052E, op_tok.range.start,
                         f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}' "
                     ).first(op_tok.range).emit();
                     return lhs;
@@ -231,7 +231,7 @@ class <T> ExprParse {
 
                 var rhs = self._parse_unary_expr(stop);
                 if rhs == &null {
-                    dyn()->diag->report(DiagID::S045E, op_tok.range.start,
+                    dyn()->diag->report(DiagID::S052E, op_tok.range.start,
                         "expected expression after '^^' "
                     ).first(op_tok.range).emit();
                     return lhs;
@@ -254,7 +254,7 @@ class <T> ExprParse {
 
             var rhs = self._parse_unary_expr(stop);
             if rhs == &null {
-                dyn()->diag->report(DiagID::S045E, op_tok.range.start,
+                dyn()->diag->report(DiagID::S052E, op_tok.range.start,
                     f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}' "
                 ).first(op_tok.range).emit();
                 return lhs;
@@ -488,7 +488,7 @@ class <T> ExprParse {
 
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
-                dyn()->diag->report(DiagID::S045E, cur_range.start,
+                dyn()->diag->report(DiagID::S052E, cur_range.start,
                     f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}' "
                 ).first(cur_range).emit();
                 return self._error_expr(cur_range);
@@ -509,7 +509,7 @@ class <T> ExprParse {
             dyn()->advance();
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S052E, kw_range.start,
                     "expected expression after 'await' "
                 ).first(kw_range).emit();
                 return AwaitExpr::create_error(dyn()->ctx, kw_range);
@@ -523,7 +523,7 @@ class <T> ExprParse {
             dyn()->advance();
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S052E, kw_range.start,
                     "expected expression after 'spawn' "
                 ).first(kw_range).emit();
                 return SpawnExpr::create_error(dyn()->ctx, kw_range);
@@ -537,7 +537,7 @@ class <T> ExprParse {
             dyn()->advance();
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S052E, kw_range.start,
                     "expected expression after 'thread' "
                 ).first(kw_range).emit();
                 return ThreadExpr::create_error(dyn()->ctx, kw_range);
@@ -551,7 +551,7 @@ class <T> ExprParse {
             dyn()->advance();
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S052E, kw_range.start,
                     "expected expression after 'eval' "
                 ).first(kw_range).emit();
                 return EvalExpr::create_error(dyn()->ctx, kw_range);
@@ -565,7 +565,7 @@ class <T> ExprParse {
             dyn()->advance();
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S052E, kw_range.start,
                     "expected expression after 'unsafe' "
                 ).first(kw_range).emit();
                 return UnsafeExpr::create_error(dyn()->ctx, kw_range);
@@ -582,7 +582,7 @@ class <T> ExprParse {
             if dyn()->check(TokenKind::OpLSquare) {
                 dyn()->advance();
                 if !dyn()->check(TokenKind::OpRSquare) {
-                    dyn()->diag->report(DiagID::S045E, kw_range.start,
+                    dyn()->diag->report(DiagID::S054E, kw_range.start,
                         "expected ']' after 'delete [' "
                     ).first(kw_range).emit();
                 } else {
@@ -593,7 +593,7 @@ class <T> ExprParse {
 
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S052E, kw_range.start,
                     "expected expression after 'delete' "
                 ).first(kw_range).emit();
                 return DeleteExpr::create_error(dyn()->ctx, kw_range);
@@ -633,7 +633,7 @@ class <T> ExprParse {
 
         var ty = dyn()->parse_type();
         if ty == &null {
-            dyn()->diag->report(DiagID::S045E, kw_range.start,
+            dyn()->diag->report(DiagID::S053E, kw_range.start,
                 "expected type after 'sizeof' "
             ).first(kw_range).emit();
             return SizeOfExpr::create_error(dyn()->ctx, kw_range);
@@ -641,7 +641,7 @@ class <T> ExprParse {
 
         if has_paren {
             if !dyn()->check(TokenKind::OpRParen) {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S054E, kw_range.start,
                     "expected ')' after type in 'sizeof(T)' "
                 ).first(kw_range).emit();
             } else {
@@ -661,7 +661,7 @@ class <T> ExprParse {
 
         var ty = dyn()->parse_type();
         if ty == &null {
-            dyn()->diag->report(DiagID::S045E, kw_range.start,
+            dyn()->diag->report(DiagID::S053E, kw_range.start,
                 "expected type after 'alignof' "
             ).first(kw_range).emit();
             return AlignOfExpr::create_error(dyn()->ctx, kw_range);
@@ -669,7 +669,7 @@ class <T> ExprParse {
 
         if has_paren {
             if !dyn()->check(TokenKind::OpRParen) {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S054E, kw_range.start,
                     "expected ')' after type in 'alignof(T)' "
                 ).first(kw_range).emit();
             } else {
@@ -689,7 +689,7 @@ class <T> ExprParse {
 
         var operand = self.parse_expr(ExprStopKind::StopParen);
         if operand == &null {
-            dyn()->diag->report(DiagID::S045E, kw_range.start,
+            dyn()->diag->report(DiagID::S052E, kw_range.start,
                 "expected expression after 'typeof' "
             ).first(kw_range).emit();
             return TypeOfExpr::create_error(dyn()->ctx, kw_range);
@@ -697,7 +697,7 @@ class <T> ExprParse {
 
         if has_paren {
             if !dyn()->check(TokenKind::OpRParen) {
-                dyn()->diag->report(DiagID::S045E, kw_range.start,
+                dyn()->diag->report(DiagID::S054E, kw_range.start,
                     "expected ')' after expression in 'typeof(expr)' "
                 ).first(kw_range).emit();
             } else {
@@ -890,7 +890,7 @@ class <T> ExprParse {
         if !dyn()->check(fn(k: TokenKind) -> bool {
             return EXPR_IDENT_TBL.contains(k);
         }) {
-            dyn()->diag->report(DiagID::S045E, sep_range.start,
+            dyn()->diag->report(DiagID::S052E, sep_range.start,
                 f"expected identifier after '{token_kind_to_readable_string(dyn()->resolve_kind_deep(dyn()->current_ptr()))}' in access expression"
             ).first(sep_range).emit();
             return result; // name stays null
@@ -909,21 +909,19 @@ class <T> ExprParse {
         // also check hoisted scope for disambiguation of foo::Bar<T>
         if dyn()->check(TokenKind::OpLess) {
             if result.access_kind == ChainExpr::AccessKind::ColonColon {
-                // :: disambiguator: check hoisted scope first
                 var name_text = TokenText::from_token(*id_ptr, dyn()->ctx);
                 if self._is_generic_name(name_text.text) {
                     var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                     dyn()->_parse_generic_args(&generic_args);
+                    if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
                     result.generic_args.from_buf(
                         generic_args.data(), generic_args.size(), dyn()->ctx
                     );
                     result.range = sep_range | dyn()->prev().range;
                 } else {
-                    // not in hoisted scope tentative fallback
                     self._try_step_generic_args(&result, id_range, sep_range);
                 }
             } else {
-                // all other access kinds: always tentative
                 self._try_step_generic_args(&result, id_range, sep_range);
             }
         }
@@ -942,9 +940,9 @@ class <T> ExprParse {
         }
 
         var t = ASTTentativeGuard(dyn());
-
         var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
         var ok = dyn()->_parse_generic_args(&generic_args);
+        if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
 
         if ok && !generic_args.is_empty() {
             var k = dyn()->current().kind;
@@ -1026,7 +1024,7 @@ class <T> ExprParse {
             end_range = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `)`
         } else {
-            dyn()->diag->report(DiagID::S045E, lparen_range.start,
+            dyn()->diag->report(DiagID::S054E, lparen_range.start,
                 "expected ')' to close function call argument list"
             ).first(lparen_range).emit();
             self._sync_expr(ExprSyncCtx::Paren, 1, 0, 0, true);
@@ -1078,7 +1076,7 @@ class <T> ExprParse {
                 );
 
                 if value == &null {
-                    dyn()->diag->report(DiagID::S045E, name_range.start,
+                    dyn()->diag->report(DiagID::S052E, name_range.start,
                         "expected expression after ':' in named argument"
                     ).first(name_range).emit();
 
@@ -1139,7 +1137,7 @@ class <T> ExprParse {
                 // check bail before reporting
                 if self._is_decl_keyword(dyn()->current().kind) { return; }
 
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S054E, dyn()->current_ptr()->range.start,
                     "expected ',' or ')' after argument in function call"
                 ).first(dyn()->current_ptr()->range).emit();
 
@@ -1190,7 +1188,7 @@ class <T> ExprParse {
         dyn()->advance(T::SkipNL::After); // consume `[`
 
         if dyn()->check(TokenKind::OpRSquare) {
-            dyn()->diag->report(DiagID::S045E, lsquare_range.start,
+            dyn()->diag->report(DiagID::S054E, lsquare_range.start,
                 "expected index expression inside '[]' "
             ).first(lsquare_range).emit();
             var rsquare_range = dyn()->current_ptr()->range;
@@ -1203,7 +1201,7 @@ class <T> ExprParse {
         );
 
         if index == &null {
-            dyn()->diag->report(DiagID::S045E, lsquare_range.start,
+            dyn()->diag->report(DiagID::S052E, lsquare_range.start,
                 "expected index expression after '[' "
             ).first(lsquare_range).emit();
             self._sync_expr(ExprSyncCtx::Square, 0, 1);
@@ -1215,7 +1213,7 @@ class <T> ExprParse {
             end_range = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `]`
         } else {
-            dyn()->diag->report(DiagID::S045E, lsquare_range.start,
+            dyn()->diag->report(DiagID::S054E, lsquare_range.start,
                 "expected ']' after index expression"
             ).first(lsquare_range).emit();
             self._sync_expr(ExprSyncCtx::Square, 0, 1, 0, true);
@@ -1421,7 +1419,7 @@ class <T> ExprParse {
 
         // -- no production matched -----------------------------------
         var resolved_kind = dyn()->resolve_kind_deep(cur_ptr);
-        dyn()->diag->report(DiagID::S045E, cur_range.start,
+        dyn()->diag->report(DiagID::S052E, cur_range.start,
             f"expected expression, found '{token_kind_to_readable_string(resolved_kind)}' "
         ).first(cur_range).emit();
 
@@ -1458,6 +1456,7 @@ class <T> ExprParse {
             if self._is_generic_name(name_text.text) {
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 dyn()->_parse_generic_args(&generic_args);
+                if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
                 nte->generic_args.from_buf(
                     generic_args.data(), generic_args.size(), dyn()->ctx
                 );
@@ -1466,9 +1465,10 @@ class <T> ExprParse {
 
             else { // not in hoisted scope tentative parse
                 var t = ASTTentativeGuard(dyn());
-
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 var ok = dyn()->_parse_generic_args(&generic_args);
+
+                if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
 
                 if ok && !generic_args.is_empty() {
                     // check what follows: must be a valid postfix continuation
@@ -1514,7 +1514,7 @@ class <T> ExprParse {
         if !dyn()->check(fn(k: TokenKind) -> bool {
             return EXPR_IDENT_TBL.contains(k);
         }) {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S052E, start_range.start,
                 "expected identifier after '::' in global scope path"
             ).first(start_range).emit();
             return self._error_expr(start_range);
@@ -1541,9 +1541,12 @@ class <T> ExprParse {
             if self._is_generic_name(name_text.text) {
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 dyn()->_parse_generic_args(&generic_args);
+                if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
+
                 first_step.generic_args.from_buf(
                     generic_args.data(), generic_args.size(), dyn()->ctx
                 );
+                
                 first_step.range = start_range | dyn()->prev().range;
             }
         }
@@ -1597,7 +1600,7 @@ class <T> ExprParse {
         if dyn()->check(TokenKind::OpRParen) {
             var rparen_range = dyn()->current_ptr()->range;
             dyn()->advance();
-            dyn()->diag->report(DiagID::S045E, lparen_range.start,
+            dyn()->diag->report(DiagID::S054E, lparen_range.start,
                 "empty parenthesized expression is not valid, did you mean to call a function?"
             ).first(lparen_range | rparen_range).emit();
             return self._error_expr(lparen_range | rparen_range);
@@ -1611,7 +1614,7 @@ class <T> ExprParse {
         );
 
         if first == &null {
-            dyn()->diag->report(DiagID::S045E, lparen_range.start,
+            dyn()->diag->report(DiagID::S052E, lparen_range.start,
                 "expected expression after '(' "
             ).first(lparen_range).emit();
             self._sync_expr(ExprSyncCtx::Paren, 1, 0, 0, true);
@@ -1633,7 +1636,7 @@ class <T> ExprParse {
         }
 
         // missing `)`
-        dyn()->diag->report(DiagID::S045E, first->range.start,
+        dyn()->diag->report(DiagID::S054E, first->range.start,
             "expected ')' or ',' after expression"
         ).first(first->range).emit();
 
@@ -1670,7 +1673,7 @@ class <T> ExprParse {
             end_range = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `)`
         } else {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S054E, start_range.start,
                 "expected ')' to close tuple literal"
             ).first(start_range).emit();
         }
@@ -1732,7 +1735,7 @@ class <T> ExprParse {
             end_range = dyn()->current_ptr()->range;
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, lsquare_range.start,
+            dyn()->diag->report(DiagID::S054E, lsquare_range.start,
                 "expected ']' to close array literal"
             ).first(lsquare_range).emit();
         }
@@ -1777,7 +1780,7 @@ class <T> ExprParse {
         );
 
         if first == &null {
-            dyn()->diag->report(DiagID::S045E, lbrace_range.start,
+            dyn()->diag->report(DiagID::S052E, lbrace_range.start,
                 "expected expression after '{' "
             ).first(lbrace_range).emit();
             self._sync_expr(ExprSyncCtx::Brace, 0, 0, 1);
@@ -1822,7 +1825,7 @@ class <T> ExprParse {
             end_range = dyn()->current_ptr()->range;
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S054E, start_range.start,
                 "expected '}' to close set literal"
             ).first(start_range).emit();
         }
@@ -1847,7 +1850,7 @@ class <T> ExprParse {
         );
 
         if first_val == &null {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S054E, start_range.start,
                 "expected value after ':' in map literal"
             ).first(start_range).emit();
             self._sync_expr(ExprSyncCtx::Brace, 0, 0, 1);
@@ -1878,7 +1881,7 @@ class <T> ExprParse {
             }
 
             if !dyn()->check(TokenKind::OpColon) {
-                dyn()->diag->report(DiagID::S045E, key->range.start,
+                dyn()->diag->report(DiagID::S054E, key->range.start,
                     "expected ':' after key in map literal"
                 ).first(key->range).emit();
                 self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
@@ -1910,7 +1913,7 @@ class <T> ExprParse {
             end_range = dyn()->current_ptr()->range;
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S054E, start_range.start,
                 "expected '}' to close map literal"
             ).first(start_range).emit();
         }
@@ -1928,7 +1931,7 @@ class <T> ExprParse {
             if dyn()->check(TokenKind::OpRBrace) { break; }
 
             if !dyn()->check(TokenKind::OpDot) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S054E, dyn()->current_ptr()->range.start,
                     "expected '.field: value' in anonymous initializer"
                 ).first(dyn()->current_ptr()->range).emit();
                 self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
@@ -1941,7 +1944,7 @@ class <T> ExprParse {
             dyn()->advance(); // consume `.`
 
             if !dyn()->check(TokenKind::LitIdentifier) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S054E, dyn()->current_ptr()->range.start,
                     "expected field name after '.' in anonymous initializer"
                 ).first(dyn()->current_ptr()->range).emit();
                 self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
@@ -1956,7 +1959,7 @@ class <T> ExprParse {
             dyn()->advance(); // consume field name
 
             if !dyn()->check(TokenKind::OpColon) {
-                dyn()->diag->report(DiagID::S045E, name_range.start,
+                dyn()->diag->report(DiagID::S054E, name_range.start,
                     "expected ':' after field name in anonymous initializer"
                 ).first(name_range).emit();
                 self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
@@ -2001,7 +2004,7 @@ class <T> ExprParse {
             end_range = dyn()->current_ptr()->range;
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S054E, start_range.start,
                 "expected '}' to close anonymous initializer"
             ).first(start_range).emit();
         }
@@ -2088,7 +2091,7 @@ class <T> ExprParse {
             full_range = start_range | dyn()->current_ptr()->range;
             dyn()->advance(T::SkipNL::Before); // consume `}`
         } else {
-            dyn()->diag->report(DiagID::S045E, lbrace_range.start,
+            dyn()->diag->report(DiagID::S054E, lbrace_range.start,
                 "expected '}' to close named initializer"
             ).first(lbrace_range).emit();
             full_range = start_range | dyn()->prev().range;
@@ -2114,7 +2117,7 @@ class <T> ExprParse {
         var start = dyn()->current_ptr()->range;
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S054E, start.start,
                 "expected field name in named initializer"
             ).first(start).emit();
             return result; // value stays null
@@ -2125,7 +2128,7 @@ class <T> ExprParse {
         result.name = *id_ptr;
 
         if !dyn()->check(TokenKind::OpColon) {
-            dyn()->diag->report(DiagID::S045E, id_range.start,
+            dyn()->diag->report(DiagID::S054E, id_range.start,
                 "expected ':' after field name in named initializer"
             ).first(id_range).emit();
             return result; // value stays null
@@ -2188,7 +2191,7 @@ class <T> ExprParse {
     priv fn _parse_expr_branch(self) -> *Expr {
         if !dyn()->check(TokenKind::OpLBrace) {
             var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S045E, r.start,
+            dyn()->diag->report(DiagID::S054E, r.start,
                 "expected '{' to begin an expression branch"
             ).first(r).emit();
             return &null;
@@ -2198,7 +2201,7 @@ class <T> ExprParse {
 
         // empty branch `{ }` has no value.
         if dyn()->check(TokenKind::OpRBrace) {
-            dyn()->diag->report(DiagID::S045E, lbrace.start,
+            dyn()->diag->report(DiagID::S054E, lbrace.start,
                 "expression branch must contain a value expression"
             ).first(lbrace).emit();
             return &null;
@@ -2210,7 +2213,7 @@ class <T> ExprParse {
         }
 
         if !dyn()->check(TokenKind::OpRBrace) {
-            dyn()->diag->report(DiagID::S045E, lbrace.start,
+            dyn()->diag->report(DiagID::S054E, lbrace.start,
                 "expression-form branch allows exactly one expression; "
                 "use a statement form for multi-statement bodies"
             ).first(lbrace).emit();
@@ -2293,7 +2296,7 @@ class <T> ExprParse {
 
         // mandatory else
         if else_expr == &null {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S054E, start_range.start,
                 "expression-form 'if' requires a final 'else' (every branch must yield a value)"
             ).first(start_range).emit();
             dyn()->exit_depth();
@@ -2338,7 +2341,7 @@ class <T> ExprParse {
             // a default arm is terminal; another arm after it is an error.
             if seen_default {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start,
+                dyn()->diag->report(DiagID::S054E, r.start,
                     "no catch arm may follow a default 'catch' (the default is terminal)"
                 ).first(r).emit();
                 self._sync_to_brace_or_catch();
@@ -2359,7 +2362,7 @@ class <T> ExprParse {
         }
 
         if arms.size() == 0 {
-            dyn()->diag->report(DiagID::S045E, start_range.start,
+            dyn()->diag->report(DiagID::S054E, start_range.start,
                 "'try' expression requires at least one 'catch' arm"
             ).first(start_range).emit();
             dyn()->exit_depth();
@@ -2414,7 +2417,7 @@ class <T> ExprParse {
                 dyn()->advance(T::SkipNL::After); // consume `:`
                 var filter = dyn()->parse_type();
                 if (filter == &null) || is_recovery(filter) {
-                    dyn()->diag->report(DiagID::S045E, start_range.start,
+                    dyn()->diag->report(DiagID::S053E, start_range.start,
                         "expected a panic type after ':' in catch arm"
                     ).first(start_range).emit();
                     return result; // body stays null
@@ -2424,7 +2427,7 @@ class <T> ExprParse {
         } else {
             // no identifier. A mutability keyword without a binding is invalid.
             if result.is_const {
-                dyn()->diag->report(DiagID::S045E, start_range.start,
+                dyn()->diag->report(DiagID::S054E, start_range.start,
                     "'const' in a catch arm must be followed by a binding name"
                 ).first(start_range).emit();
                 return result; // body stays null

@@ -175,7 +175,7 @@ class <T> DeclParse {
         // decl head report and recover; otherwise let the caller decide.
         if lead.any {
             var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S045E, r.start,
+            dyn()->diag->report(DiagID::S050E, r.start,
                 "expected a declaration after modifiers"
             ).first(r).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -243,8 +243,16 @@ class <T> DeclParse {
         var open = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `<`
 
+        // A nested generic in a *prior* sibling could have left us a pending
+        // close-angle, but at the param-list opener that can't have happened
+        // yet. Still, clear it defensively so a stale flag from an earlier
+        // recovered parse can't leak in.
+        if dyn()->_pending_close_angle {
+            dyn()->_pending_close_angle = false;
+        }
+
         if dyn()->check(TokenKind::OpGreater) {
-            dyn()->diag->report(DiagID::S045E, open.start,
+            dyn()->diag->report(DiagID::S049E, open.start,
                 "empty generic parameter list is not allowed"
             ).first(open).emit();
             dyn()->advance(); // consume `>`
@@ -256,34 +264,51 @@ class <T> DeclParse {
             var gp = self._parse_one_generic_param(idx);
             if gp == &null {
                 self._sync_decl(DeclSyncCtx::Generics);
+                // honor a pending close-angle during recovery too
+                if dyn()->_pending_close_angle {
+                    dyn()->_pending_close_angle = false;
+                    return false;
+                }
                 if dyn()->check(TokenKind::OpGreater) { dyn()->advance(); }
                 return false;
             }
             out->push_back(gp);
             ++idx;
 
+            // A bound type on this param (`T: Vec<U>`) may have consumed a
+            // `>>` and left us owing one `>`. That closes THIS list.
+            if dyn()->_pending_close_angle {
+                dyn()->_pending_close_angle = false;
+                return true;
+            }
+
             if dyn()->check(TokenKind::OpComma) {
                 dyn()->advance(T::SkipNL::After);
-                if dyn()->check(TokenKind::OpGreater) { break; } // trailing comma
+                // trailing comma before either closer
+                if dyn()->check(TokenKind::OpGreater) { break; }
+                if dyn()->check(TokenKind::OpGreaterGreater) { break; }
                 continue;
             }
             break;
         }
 
+        // single `>` closes the list cleanly
         if dyn()->check(TokenKind::OpGreater) {
             dyn()->advance();
             return true;
         }
-        // `>>` split: a nested generic left us one `>`.
+
+        // `>>` here means a nested generic did NOT consume it (e.g. the list
+        // itself nests: `<T<U>>` is not valid param syntax, but a trailing
+        // comma path can land us on `>>`). Consume one level, leave the other
+        // for an enclosing list via the pending flag mirroring TypeParse.
         if dyn()->check(TokenKind::OpGreaterGreater) {
-            // consume one angle; leave the cursor logically past a single `>`.
-            // (Mirrors TypeParse's pending-close-angle handling at the type
-            //  level; at decl level we just accept and advance.)
+            dyn()->_pending_close_angle = true;
             dyn()->advance();
             return true;
         }
 
-        dyn()->diag->report(DiagID::S045E, open.start,
+        dyn()->diag->report(DiagID::S049E, open.start,
             "expected '>' to close generic parameter list"
         ).first(open).emit();
         self._sync_decl(DeclSyncCtx::Generics);
@@ -298,7 +323,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::KwConst) {
             dyn()->advance(T::SkipNL::After); // consume `const`
             if !dyn()->check(TokenKind::LitIdentifier) {
-                dyn()->diag->report(DiagID::S045E, start.start,
+                dyn()->diag->report(DiagID::S049E, start.start,
                     "expected parameter name after 'const' in generic parameter list"
                 ).first(start).emit();
                 return &null;
@@ -306,7 +331,7 @@ class <T> DeclParse {
             var nm = dyn()->current();
             dyn()->advance();
             if !dyn()->check(TokenKind::OpColon) {
-                dyn()->diag->report(DiagID::S045E, start.start,
+                dyn()->diag->report(DiagID::S049E, start.start,
                     "expected ':' and a type for a const generic value parameter"
                 ).first(start).emit();
                 return &null;
@@ -331,7 +356,7 @@ class <T> DeclParse {
         }
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S049E, start.start,
                 "expected type parameter name in generic parameter list"
             ).first(start).emit();
             return &null;
@@ -365,7 +390,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::KwStruct)    { dyn()->advance(); return GenericParamKindBound::Struct; }
         if dyn()->check(TokenKind::KwEnum)      { dyn()->advance(); return GenericParamKindBound::Enum;   }
         if dyn()->check(TokenKind::KwUnion)     { dyn()->advance(); return GenericParamKindBound::Union;  }
-        dyn()->diag->report(DiagID::S045E, ctx_range.start,
+        dyn()->diag->report(DiagID::S049E, ctx_range.start,
             "expected 'class', 'struct', 'enum', or 'union' as a kind bound after ':' "
         ).first(ctx_range).emit();
         return GenericParamKindBound::Any;
@@ -472,7 +497,7 @@ class <T> DeclParse {
                 fd->name = name_tok;
             }
         } else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S047E, start.start,
                 "expected function name, 'op', or a qualified name after 'fn' "
             ).first(start).emit();
             dyn()->exit_depth();
@@ -484,7 +509,7 @@ class <T> DeclParse {
         dyn()->enter_scope(ScopeKind::Function, static_cast::<*DeclContext>(fd));
 
         if !dyn()->check(TokenKind::OpLParen) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S047E, start.start,
                 "expected '(' to begin the parameter list"
             ).first(start).emit();
             dyn()->exit_scope();
@@ -612,7 +637,7 @@ class <T> DeclParse {
             }
 
             if !dyn()->check(TokenKind::LitIdentifier) {
-                dyn()->diag->report(DiagID::S045E, p_start.start,
+                dyn()->diag->report(DiagID::S047E, p_start.start,
                     "expected parameter name"
                 ).first(p_start).emit();
                 self._sync_decl(DeclSyncCtx::Params);
@@ -623,7 +648,7 @@ class <T> DeclParse {
             dyn()->advance();
 
             if !dyn()->check(TokenKind::OpColon) {
-                dyn()->diag->report(DiagID::S045E, p_start.start,
+                dyn()->diag->report(DiagID::S047E, p_start.start,
                     "expected ':' and a type for parameter"
                 ).first(p_start).emit();
                 self._sync_decl(DeclSyncCtx::Params);
@@ -671,7 +696,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, lparen.start,
+            dyn()->diag->report(DiagID::S047E, lparen.start,
                 "expected ')' to close the parameter list"
             ).first(lparen).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -753,7 +778,7 @@ class <T> DeclParse {
         dyn()->advance(); // consume the storage keyword
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected a name after the binding keyword"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -815,7 +840,7 @@ class <T> DeclParse {
         else if dyn()->check(TokenKind::KwEval)   { storage = StorageClass::Eval;   }
         else if dyn()->check(TokenKind::KwVar)    { storage = StorageClass::Var;    }
         else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S048E, start.start,
                 "expected 'var', 'const', 'static', or 'eval' to begin a field"
             ).first(start).emit();
             return FieldDecl::create_error(dyn()->ctx, start);
@@ -823,7 +848,7 @@ class <T> DeclParse {
         dyn()->advance(); // consume storage keyword
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S048E, start.start,
                 "expected field name"
             ).first(start).emit();
             return FieldDecl::create_error(dyn()->ctx, start | dyn()->prev().range);
@@ -939,7 +964,7 @@ class <T> DeclParse {
     ) -> bool {
         if !dyn()->check(TokenKind::OpLBrace) {
             var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S045E, r.start,
+            dyn()->diag->report(DiagID::S048E, r.start,
                 "expected '{' to begin the type body"
             ).first(r).emit();
             return false;
@@ -980,7 +1005,7 @@ class <T> DeclParse {
                     }
                 } else {
                     var r = dyn()->current_ptr()->range;
-                    dyn()->diag->report(DiagID::S045E, r.start,
+                    dyn()->diag->report(DiagID::S048E, r.start,
                         "expected 'fn' after method modifiers"
                     ).first(r).emit();
                     self._sync_decl(DeclSyncCtx::TypeBody);
@@ -1020,7 +1045,7 @@ class <T> DeclParse {
 
             // unknown member lead recover.
             var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S045E, r.start,
+            dyn()->diag->report(DiagID::S048E, r.start,
                 "expected a field, method, or nested type in the type body"
             ).first(r).emit();
             self._sync_decl(DeclSyncCtx::TypeBody);
@@ -1030,7 +1055,7 @@ class <T> DeclParse {
             dyn()->advance(T::SkipNL::Before); // consume `}`
             return true;
         }
-        dyn()->diag->report(DiagID::S045E, dyn()->prev().range.start,
+        dyn()->diag->report(DiagID::S048E, dyn()->prev().range.start,
             "expected '}' to close the type body"
         ).first(dyn()->prev().range).emit();
         return false;
@@ -1059,7 +1084,7 @@ class <T> DeclParse {
         }
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected class name"
             ).first(start).emit();
             dyn()->exit_depth();
@@ -1134,7 +1159,7 @@ class <T> DeclParse {
         }
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected struct name"
             ).first(start).emit();
             dyn()->exit_depth();
@@ -1197,7 +1222,7 @@ class <T> DeclParse {
         }
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected union name"
             ).first(start).emit();
             dyn()->exit_depth();
@@ -1248,7 +1273,7 @@ class <T> DeclParse {
         }
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected interface name"
             ).first(start).emit();
             dyn()->exit_depth();
@@ -1315,7 +1340,7 @@ class <T> DeclParse {
 
         var target = dyn()->parse_type();
         if (target == &null) || is_recovery(target) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected a type to extend after 'extend' "
             ).first(start).emit();
             dyn()->exit_depth();
@@ -1370,7 +1395,7 @@ class <T> DeclParse {
         }
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected enum name"
             ).first(start).emit();
             dyn()->exit_depth();
@@ -1444,7 +1469,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpRBrace) {
             dyn()->advance(T::SkipNL::Before); // consume `}`
         } else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S048E, start.start,
                 "expected '}' to close the enum body"
             ).first(start).emit();
         }
@@ -1459,7 +1484,7 @@ class <T> DeclParse {
     priv fn _parse_enum_variant(self, idx: u32) -> *EnumVariantDecl {
         if !dyn()->check(TokenKind::LitIdentifier) {
             var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S045E, r.start,
+            dyn()->diag->report(DiagID::S048E, r.start,
                 "expected variant name in enum body"
             ).first(r).emit();
             return &null;
@@ -1486,7 +1511,7 @@ class <T> DeclParse {
                 var fstart = fname.range;
                 dyn()->advance();
                 if !dyn()->check(TokenKind::OpColon) {
-                    dyn()->diag->report(DiagID::S045E, fstart.start,
+                    dyn()->diag->report(DiagID::S048E, fstart.start,
                         "expected ':' and a type in enum variant payload"
                     ).first(fstart).emit();
                     break;
@@ -1534,7 +1559,7 @@ class <T> DeclParse {
         }
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected alias name after 'type' "
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1544,7 +1569,7 @@ class <T> DeclParse {
         dyn()->advance();
 
         if !dyn()->check(TokenKind::OpEqual) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S050E, start.start,
                 "expected '=' in type alias declaration"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1600,7 +1625,7 @@ class <T> DeclParse {
         md->is_anonymous = anon;
 
         if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S050E, start.start,
                 "expected '{' to begin module body"
             ).first(start).emit();
             dyn()->exit_depth();
@@ -1625,7 +1650,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpRBrace) {
             dyn()->advance(T::SkipNL::Before); // consume `}`
         } else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S051E, start.start,
                 "expected '}' to close module body"
             ).first(start).emit();
         }
@@ -1658,7 +1683,7 @@ class <T> DeclParse {
         }
 
         if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S050E, start.start,
                 "expected '{' to begin test body"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1691,7 +1716,7 @@ class <T> DeclParse {
 
         // token macro: `macro name!(params) { raw }`
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected macro name after 'macro' "
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1729,7 +1754,7 @@ class <T> DeclParse {
 
         // raw body: balance braces, record the span.
         if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S050E, start.start,
                 "expected '{' to begin macro body"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1760,7 +1785,7 @@ class <T> DeclParse {
     priv fn _parse_proc_macro(self, start: SourceRange) -> *Decl {
         dyn()->advance(); // consume `@`
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected name after 'macro @' "
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1854,7 +1879,7 @@ class <T> DeclParse {
         dyn()->advance(T::SkipNL::After); // consume `eval`
 
         if !dyn()->check(TokenKind::OpLBrace) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S050E, start.start,
                 "expected '{' after 'eval' "
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1879,7 +1904,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpRBrace) {
             dyn()->advance(T::SkipNL::Before); // consume `}`
         } else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S051E, start.start,
                 "expected '}' to close eval block"
             ).first(start).emit();
         }
