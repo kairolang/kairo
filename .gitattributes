@@ -1,2 +1,2 @@
-*.k linguist-language=Kairo
+*.k linguist-language=Rust linguist-detectable=false
 *.kh linguist-language=Kairo
