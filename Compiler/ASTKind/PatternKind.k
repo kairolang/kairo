@@ -1,56 +1,56 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ---------------- Compiler/ASTKind/PatternKind.k --- ///
 ///
-///   <short description>
+///   Discriminator enum for all pattern-position AST nodes.
 ///
-///   Part of the Kairo Project, under the Apache License v2.0 with the
-///   Kairo Runtime Library Exception.
+///   Recovery (error) nodes set kind = RecoveryPattern and store the intended
+///   PatternKind in recovery_kind, mirroring the Expr/Stmt/Decl/Type contract.
 ///
-///   See: https://www.kairolang.org/LICENSE.txt
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
-enum PatternKind {
-    // -----------------------------------------------------------------------
-    //  Sentinel
-    // -----------------------------------------------------------------------
+enum PatternKind derives u8 {
+    // -- Sentinel --------------------------------------------------------
+    /// Parser error sentinel. recovery_kind holds the intended kind.
+    RecoveryPattern = 0,
 
-    /// Parser error sentinel.
-    RecoveryPattern = 0, // parser error sentinel
+    // -- Leaf patterns ---------------------------------------------------
+    /// Wildcard:  _
+    WildcardPattern,
 
-    /// Wildcard / default:  _ | default
-    WildcardPattern = 0,
-
-    /// Literal value match:  1 | "foo" | true | null
+    /// Literal value:  1 | "foo" | true | null | 'a'
     LiteralPattern,
 
-    /// Name binding:  var x | const x
+    /// Name binding:  var x | const x | var x: i32
+    /// Carries the explicit-type case too (no separate TypeAscribed kind).
     BindingPattern,
 
-    /// Struct / class field destructure:  Point { x: 1, y: var y }
-    StructDestructurePattern,
-
-    /// Tuple destructure:  (var x, var y)
+    // -- Composite patterns ----------------------------------------------
+    /// Tuple destructure:  (p, p, ...)   no path head, unambiguous.
     TupleDestructurePattern,
 
-    /// Enum variant match:  Direction::North | Option::Some(var x)
-    EnumVariantPattern,
+    /// Constructor with a RESOLVED path head:  Foo(p, ...) | Foo<T>(p, ...)
+    /// | .Variant(p, ...) | Kind::Variant(p, ...). Covers both enum-variant
+    /// and struct destructure; sema splits on the resolved decl. Set when the
+    /// hoisted lookup hits (or for the dotted form, which is always a variant).
+    ConstructorPattern,
 
-    /// Alternation (or-pattern):  1 | 2 | 3
+    /// Constructor whose path head MISSED the hoisted lookup. Distinct kind so
+    /// sema walks a single "resolve-or-error" path instead of re-deriving the
+    /// hit/miss split. Never produced for the dotted form (dotted is always a
+    /// ConstructorPattern: it needs no lookup).
+    UnresolvedConstructorPattern,
+
+    /// Alternation (or-pattern):  1 | 2 | 3  (top-level comma in a case)
     AlternationPattern,
 
-    /// Guard pattern:  var x if x > 5
-    GuardedPattern,
-
-    /// Range pattern:  1..10 | 'a'..='z'
+    /// Range:  1..10 | 'a'..='z'   bounds are *Expr, sema enforces const.
     RangePattern,
 
-    // Slice destructure pattern: [first, ..rest] | [a, b, ..] | [.., last]
+    /// Slice destructure:  [first, ..rest] | [a, b, ..] | [.., last]
     SlicePattern,
 
-    // Type-ascribed binding: var x: i32 (binding with explicit type check)
-    TypeAscribedBindingPattern,
-
+    // -- Marker ----------------------------------------------------------
     PatternKindCount,
 }

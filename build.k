@@ -324,3 +324,5 @@ __inline_cpp("
 #   pragma comment(lib, \"advapi32.lib\")
 #endif
 ");
+
+// -O3 -c -xc++ -std=c++23 -fexceptions -fno-omit-frame-pointer -fno-elide-type  -rdynamic -flto -stdlib=libc++ -lc++ -lc++abi

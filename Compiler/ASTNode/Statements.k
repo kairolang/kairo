@@ -26,10 +26,7 @@ import AST::Support::*;
 import ASTNode::PrimaryExpressions::*;
 import Source::SourceRange::*;
 import Lexer::Token::*;
-
-/// Pattern lives in its own hierarchy (ASTKind::PatternKind). Statement nodes
-/// only hold observer pointers into it, so a forward declaration suffices.
-class Pattern;
+import ASTNode::Patterns::*;
 
 /// ============================================================================
 ///  Binding shorthand qualifiers

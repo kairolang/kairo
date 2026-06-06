@@ -220,3 +220,40 @@ class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qual
         return TypeKind::RecoveryType; // default, overridden by concrete nodes
     }
 }
+
+class Pattern derives Annotation::<Pattern> {
+    pub var kind:          PatternKind = PatternKind::RecoveryPattern;
+    pub var range:         SourceRange = SourceRange::invalid();
+    pub var recovery_kind: PatternKind = PatternKind::RecoveryPattern;
+
+    static fn classof(ptr: *Pattern) -> bool {
+        return true; // all Pattern* are valid for classof(Pattern)
+    }
+
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::RecoveryPattern; // default, overridden by concrete nodes
+    }
+
+    fn is_valid(self) -> bool {
+        return self.kind != PatternKind::RecoveryPattern;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == PatternKind::RecoveryPattern;
+    }
+
+    fn get_excepted(self) -> PatternKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        return self.kind;
+    }
+
+    static fn classof(ptr: *Pattern) -> bool {
+        return true; // all Pattern* are valid for classof(Pattern)
+    }
+
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::RecoveryPattern; // overridden by concrete nodes
+    }
+}
