@@ -17,8 +17,8 @@
 ///   Kairo Runtime Library Exception.
 ///
 ///   See: https://kairo-lang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
-///   Copyright (c) 2026 Kairo Software Foundation
+///   SPDX-License-Identifier: ApKairo Software Foundationache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 ///

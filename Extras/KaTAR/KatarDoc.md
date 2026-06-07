@@ -1,8 +1,8 @@
-# KTAR Format — Structure Draft v0.1
+# KaTAR Format — Structure Draft v0.1
 
 ## Overview
 
-KTAR is a single-file archive format for Kairo projects. It stores raw file data contiguously, followed by a lookup table and a trailing offset to locate that table. Directory structure is inferred from `/` delimiters in file paths — no explicit folder entries are stored.
+KaTAR is a single-file archive format for Kairo projects. It stores raw file data contiguously, followed by a lookup table and a trailing offset to locate that table. Directory structure is inferred from `/` delimiters in file paths — no explicit folder entries are stored.
 
 ---
 
