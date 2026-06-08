@@ -1,7 +1,7 @@
-/// --- The Kairo Project ------------------ Extras/KaTAR/KTDecompress.k ---- ///
+/// --- The Kairo Project -------------- Extras/KaTAR/KTDecompress.k ------- ///
 ///
 ///   Archive extractor - reverses KTCompress.
-///   Reads the trailer, walks the table, and writes each file to disk.
+///   Reads the trailer, walks the table, writes each file to disk.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -12,14 +12,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-struct TableEntry {
-    var filename: libcxx::string;
-    var offset:   usize;
-    var length:   usize;
-}
-
-
-
+import TableEntry::*;
 
 fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     if argc != 3 {
@@ -30,8 +23,6 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     var archive_path = argv[1];
     var output_root  = argv[2];
 
-   
-
     var f = libcxx::ifstream(archive_path, libcxx::ios::binary | libcxx::ios::ate);
     if !f.is_open() {
         std::print(f"Error: cannot open '{archive_path}' ");
@@ -40,7 +31,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
 
     var file_size: usize = static_cast::<usize>(f.tellg());
 
-    
+    // Scan backwards for the third newline to find the trailer start.
     var newline_count: i32 = 0;
     var trailer_start: i64 = static_cast::<i64>(file_size) - 1;
 
@@ -49,7 +40,6 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         var ch: char = static_cast::<char>(f.get());
         if ch == '\n' {
             newline_count += 1;
-            
             if newline_count == 3 {
                 break;
             }
@@ -66,8 +56,6 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     var table_offset_str: libcxx::string;
     libcxx::getline(f, table_offset_str);
     var table_offset: usize = libcxx::stoull(table_offset_str);
-
-    
 
     f.seekg(static_cast::<i64>(table_offset));
 
@@ -98,14 +86,11 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         });
     }
 
-    
-
     var output_dir = libcxx::filesystem::path(output_root);
     libcxx::filesystem::create_directories(output_dir);
 
     for entry in table {
         var dest = output_dir / libcxx::filesystem::path(entry.filename);
-
         libcxx::filesystem::create_directories(dest.parent_path());
 
         var contents: libcxx::string;
