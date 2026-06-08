@@ -251,7 +251,7 @@ private:
             arena_.sm = &sm;
             std::vector<TokenBuildCtx::PendingArenaTok> pending;
             std::vector<clang::Token> toks;
-            TokenBuildCtx ctx{pp, sm, kfid, arena_, toks};
+            TokenBuildCtx ctx{.pp=pp, .sm=sm, .kfid=kfid, .arena=arena_, .out=toks};
             ctx.pending = &pending;
             builder_(ctx);
 
