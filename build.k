@@ -309,12 +309,20 @@ fn main() -> i32 {
         .pre_build(llvm_prebuild);
     apply_llvm(kpkg, llvm_src, llvm_build, out_lib);
 
+    var katar = Target("katar")
+        .entry("Extras/KaTAR/KTCompress.k")
+        .includes(["Compiler", "Lib/bootstrap/lib-helix/core"])
+        .define(KAIRO_VERSION)
+        .passthrough("-fno-lto")
+        .passthrough("-w");
+
     p.target(kairo);
     p.target(kbld);
     p.target(kfmt);
     p.target(kld);
     p.target(klsp);
     p.target(kpkg);
+    p.target(katar);
 
     return 0;
 }
