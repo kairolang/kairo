@@ -1,0 +1,60 @@
+# LLVM Patches
+
+Patches applied to the vendored LLVM (`Lib/llvm-runtimes`) on top of the
+upstream release tag. These are carried as a downstream fork branch
+(`kairolang/llvm-project @ kairo-llvm-22.1.0`) and mirrored here as
+standalone `.patch` files for review, re-application across version bumps,
+and upstreaming.
+
+## Current base
+
+- Upstream tag: `llvmorg-22.1.0`
+- Fork branch: `kairo-llvm-22.1.0` (upstream tag + patches below)
+- Submodule `Lib/llvm-runtimes` is pinned to that branch.
+
+## Patches
+
+### 0001-file-tokenizer-hook.patch
+
+Adds a `FileTokenizer` hook to the Clang preprocessor: an embedder may
+supply pre-lexed tokens for a `FileID` instead of having the preprocessor
+lex its buffer. Generalizes the existing dependency-directives token
+mechanism.
+
+Used by `kcc` to make `#include "file.k"` work: when the preprocessor
+enters a `.k` file, the hook returns lowered Kairo tokens located natively
+into that file's `FileID`. The `.k` include traverses the normal include
+path (works inside `#if`, mid-file, anywhere) with full preprocessor
+fidelity, and diagnostics attribute back to the `.k` source with column
+precision — no `#line`, no source map, no proxy file.
+
+- Files: `clang/include/clang/Lex/{Lexer,Preprocessor}.h`,
+  `clang/lib/Lex/{Lexer,PPLexerChange,Preprocessor}.cpp`
+- Size: 5 files, ~55 insertions, ~6 deletions
+- Upstream status: RFC pending (see below)
+
+## Applying manually
+
+The fork branch already includes these, so a normal recursive checkout of
+the submodule needs no manual step. To apply onto a fresh upstream tree:
+
+    git checkout -b <branch> llvmorg-22.1.0
+    git am patches/0001-file-tokenizer-hook.patch
+    # or: git apply patches/0001-file-tokenizer-hook.patch
+
+## Version bumps
+
+When moving to a new LLVM release:
+
+1. In the fork, branch off the new tag: `git checkout -b kairo-llvm-<ver> llvmorg-<ver>`
+2. Cherry-pick / re-apply each patch; resolve conflicts from upstream drift.
+3. Regenerate the `.patch` files: `git format-patch llvmorg-<ver> -o patches/`
+4. Update the base/branch references in this README.
+5. Re-pin `Lib/llvm-runtimes` and update `.gitmodules` `branch`.
+
+## Upstreaming
+
+`0001-file-tokenizer-hook.patch` is intended for upstream submission as a
+generalization of the dependency-directives mechanism. RFC: <link once posted>.
+If accepted upstream, this patch is dropped and the submodule returns to a
+stock LLVM release.

@@ -1,0 +1,179 @@
+From fcee6a01830a42ad165150cacc7a1000712baee6 Mon Sep 17 00:00:00 2001
+From: Dhruvan <kartd01@purdue.edu>
+Date: Mon, 8 Jun 2026 18:48:59 -0400
+Subject: [PATCH] Add FileTokenizer hook: embedder-supplied pre-lexed tokens
+ per FileID
+
+Generalizes the dependency-directives token mechanism so an embedder can
+supply pre-lexed tokens for a FileID instead of buffer-lexing it. Used by
+kcc to enter lowered Kairo tokens via the normal #include path with native
+source locations. Based on llvmorg-22.1.0.
+---
+ clang/include/clang/Lex/Lexer.h        | 15 +++++++++++++++
+ clang/include/clang/Lex/Preprocessor.h | 16 ++++++++++++++++
+ clang/lib/Lex/Lexer.cpp                | 11 +++++++++++
+ clang/lib/Lex/PPLexerChange.cpp        | 11 ++++++++---
+ clang/lib/Lex/Preprocessor.cpp         |  8 +++++---
+ 5 files changed, 55 insertions(+), 6 deletions(-)
+
+diff --git a/clang/include/clang/Lex/Lexer.h b/clang/include/clang/Lex/Lexer.h
+index 423f2ffe2f85..cbb22adacdbf 100644
+--- a/clang/include/clang/Lex/Lexer.h
++++ b/clang/include/clang/Lex/Lexer.h
+@@ -153,6 +153,12 @@ class Lexer : public PreprocessorLexer {
+   /// Non-empty if this \p Lexer is \p isDependencyDirectivesLexer().
+   ArrayRef<dependency_directives_scan::Directive> DepDirectives;
+ 
++  /// Non-empty if this Lexer yields embedder-supplied pre-lexed tokens instead
++  /// of lexing the buffer. Non-owning; storage outlives the Lexer. Token
++  /// locations are supplied by the embedder and may point into any FileID.
++  ArrayRef<Token> PrebuiltTokens;
++  unsigned NextPrebuiltTokenIndex = 0;
++
+   /// If this \p Lexer is \p isDependencyDirectivesLexer(), it represents the
+   /// next token to use from the current dependency directive.
+   unsigned NextDepDirectiveTokenIndex = 0;
+@@ -206,6 +212,10 @@ private:
+   /// Called when the preprocessor is in 'dependency scanning lexing mode'.
+   bool LexDependencyDirectiveToken(Token &Result);
+ 
++  /// Called to retrieve the next token when this Lexer is supplying
++  /// embedder-provided pre-lexed tokens (see \p isPrebuiltTokenLexer).
++  bool LexPrebuiltToken(Token &Result);
++
+   /// Called when the preprocessor is in 'dependency scanning lexing mode' and
+   /// is skipping a conditional block.
+   bool LexDependencyDirectiveTokenWhileSkipping(Token &Result);
+@@ -214,6 +224,11 @@ private:
+   /// created this \p Lexer for lexing a set of dependency directive tokens.
+   bool isDependencyDirectivesLexer() const { return !DepDirectives.empty(); }
+ 
++  /// True when this Lexer yields embedder-supplied pre-lexed tokens instead of
++  /// lexing the buffer, as set up via Preprocessor::setFileTokenizer. The
++  /// tokens carry embedder-provided locations.
++  bool isPrebuiltTokenLexer() const { return !PrebuiltTokens.empty(); }
++
+   /// Initializes \p Result with data from \p DDTok and advances \p BufferPtr to
+   /// the position just after the token.
+   /// \returns the buffer pointer at the beginning of the token.
+diff --git a/clang/include/clang/Lex/Preprocessor.h b/clang/include/clang/Lex/Preprocessor.h
+index 4bff1b395b5f..a0d0b709da7e 100644
+--- a/clang/include/clang/Lex/Preprocessor.h
++++ b/clang/include/clang/Lex/Preprocessor.h
+@@ -146,6 +146,13 @@ class Preprocessor {
+   friend class VAOptDefinitionContext;
+   friend class VariadicMacroScopeGuard;
+ 
++public:
++  /// Hook allowing an embedder to supply pre-lexed tokens for a file instead
++  /// of having the preprocessor lex its buffer. Returns nullopt to fall back
++  /// to normal buffer lexing. Generalizes the dependency-directives mechanism.
++  using FileTokenizer = llvm::unique_function<std::optional<ArrayRef<Token>>(FileID)>;
++
++private:
+   llvm::unique_function<void(const clang::Token &)> OnToken;
+   /// Functor for getting the dependency preprocessor directives of a file.
+   ///
+@@ -163,6 +170,7 @@ class Preprocessor {
+   std::unique_ptr<ScratchBuffer> ScratchBuf;
+   HeaderSearch      &HeaderInfo;
+   ModuleLoader      &TheModuleLoader;
++  FileTokenizer     FileTokenizerHook;
+ 
+   /// External source of macros.
+   ExternalPreprocessorSource *ExternalSource;
+@@ -308,6 +316,11 @@ public:
+   /// The kind of translation unit we are processing.
+   const TranslationUnitKind TUKind;
+ 
++  /// Hook allowing an embedder to supply pre-lexed tokens for a file instead
++  /// of having the preprocessor lex its buffer. Returns nullopt to fall back
++  /// to normal buffer lexing. Generalizes the dependency-directives mechanism
++  void setFileTokenizer(FileTokenizer G) { FileTokenizerHook = std::move(G); }
++
+   /// Returns a pointer into the given file's buffer that's guaranteed
+   /// to be between tokens. The returned pointer is always before \p Start.
+   /// The maximum distance betweenthe returned pointer and \p Start is
+@@ -3131,6 +3144,9 @@ private:
+   static bool CLK_DependencyDirectivesLexer(Preprocessor &P, Token &Result) {
+     return P.CurLexer->LexDependencyDirectiveToken(Result);
+   }
++  static bool CLK_PrebuiltTokenLexer(Preprocessor &P, Token &Result) {
++    return P.CurLexer->LexPrebuiltToken(Result);
++  }
+   static bool CLK_LexAfterModuleImport(Preprocessor &P, Token &Result) {
+     return P.LexAfterModuleImport(Result);
+   }
+diff --git a/clang/lib/Lex/Lexer.cpp b/clang/lib/Lex/Lexer.cpp
+index afebef097401..f10be87c9c17 100644
+--- a/clang/lib/Lex/Lexer.cpp
++++ b/clang/lib/Lex/Lexer.cpp
+@@ -4612,6 +4612,17 @@ bool Lexer::LexDependencyDirectiveToken(Token &Result) {
+   return true;
+ }
+ 
++bool Lexer::LexPrebuiltToken(Token &Result) {
++  if (NextPrebuiltTokenIndex < PrebuiltTokens.size()) {
++    Result = PrebuiltTokens[NextPrebuiltTokenIndex++];
++    return true;  // produced a token -> PP loop stops, hands it up
++  }
++  // Exhausted: route through the same EOF machinery the buffer lexer uses, so
++  // the include stack pops and control returns to the includer normally.
++  BufferPtr = BufferEnd;
++  return PP->HandleEndOfFile(Result, isPragmaLexer());
++}
++
+ bool Lexer::LexDependencyDirectiveTokenWhileSkipping(Token &Result) {
+   assert(isDependencyDirectivesLexer());
+ 
+diff --git a/clang/lib/Lex/PPLexerChange.cpp b/clang/lib/Lex/PPLexerChange.cpp
+index b014124153c8..c019744d5780 100644
+--- a/clang/lib/Lex/PPLexerChange.cpp
++++ b/clang/lib/Lex/PPLexerChange.cpp
+@@ -92,6 +92,9 @@ bool Preprocessor::EnterSourceFile(FileID FID, ConstSearchDirIterator CurDir,
+   }
+ 
+   Lexer *TheLexer = new Lexer(FID, *InputFile, *this, IsFirstIncludeOfFile);
++  if (FileTokenizerHook && FID != PredefinesFileID)
++    if (auto T = FileTokenizerHook(FID))
++      TheLexer->PrebuiltTokens = *T;
+   if (GetDependencyDirectives && FID != PredefinesFileID)
+     if (OptionalFileEntryRef File = SourceMgr.getFileEntryRefForID(FID))
+       if (auto MaybeDepDirectives = (*GetDependencyDirectives)(*File))
+@@ -116,9 +119,11 @@ void Preprocessor::EnterSourceFileWithLexer(Lexer *TheLexer,
+   CurDirLookup = CurDir;
+   CurLexerSubmodule = nullptr;
+   if (CurLexerCallback != CLK_LexAfterModuleImport)
+-    CurLexerCallback = TheLexer->isDependencyDirectivesLexer()
+-                           ? CLK_DependencyDirectivesLexer
+-                           : CLK_Lexer;
++    CurLexerCallback = TheLexer->isPrebuiltTokenLexer()
++                           ? CLK_PrebuiltTokenLexer
++                           : TheLexer->isDependencyDirectivesLexer()
++                                 ? CLK_DependencyDirectivesLexer
++                                 : CLK_Lexer;
+ 
+   // Notify the client, if desired, that we are in a new source file.
+   if (Callbacks && !CurLexer->Is_PragmaLexer) {
+diff --git a/clang/lib/Lex/Preprocessor.cpp b/clang/lib/Lex/Preprocessor.cpp
+index 0a25dc19548e..94e3479c7288 100644
+--- a/clang/lib/Lex/Preprocessor.cpp
++++ b/clang/lib/Lex/Preprocessor.cpp
+@@ -384,9 +384,11 @@ StringRef Preprocessor::getLastMacroWithSpelling(
+ 
+ void Preprocessor::recomputeCurLexerKind() {
+   if (CurLexer)
+-    CurLexerCallback = CurLexer->isDependencyDirectivesLexer()
+-                           ? CLK_DependencyDirectivesLexer
+-                           : CLK_Lexer;
++    CurLexerCallback = CurLexer->isPrebuiltTokenLexer()
++                           ? CLK_PrebuiltTokenLexer
++                           : CurLexer->isDependencyDirectivesLexer()
++                                 ? CLK_DependencyDirectivesLexer
++                                 : CLK_Lexer;
+   else if (CurTokenLexer)
+     CurLexerCallback = CLK_TokenLexer;
+   else
+-- 
+2.54.0
+
