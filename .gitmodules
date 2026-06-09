@@ -15,9 +15,9 @@
 
 [submodule "Lib/llvm-runtimes"]
 	path = Lib/llvm-runtimes
-	url = https://github.com/llvm/llvm-project
+	url = https://github.com/kairolang/llvm-project
 	shallow = true
-    branch = llvmorg-22.1.0
+    branch = kairo-llvm-22.1.0
 
 [submodule "Lib/bootstrap/lib-helix"]
 	path = Lib/bootstrap/lib-helix
