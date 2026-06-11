@@ -786,7 +786,7 @@ class DerivesRelationExpr derives Expr {
     static fn expr_kind() -> ExprKind { return ExprKind::DerivesRelationExpr; }
 }
 
-/// ============================================================================
+///
 ///  IfExpr
 ///  Grammar:  'if' expr '{' expr '}'
 ///            ('else' 'if' expr '{' expr '}')*
@@ -800,7 +800,7 @@ class DerivesRelationExpr derives Expr {
 ///  Flat representation (no nested IfExpr): the primary arm is
 ///  `condition`/`then_expr`; zero or more `else if` arms live in `else_ifs`;
 ///  the trailing `else` value is `else_expr`. Sema walks `else_ifs` in order.
-/// ============================================================================
+///
 class IfExpr derives Expr {
     struct ElseIf {
         var condition: *Expr;       ///< the `else if` guard.
@@ -847,7 +847,7 @@ class IfExpr derives Expr {
     }
 }
 
-/// ============================================================================
+///
 ///  TryCatchExpr
 ///  Grammar:  'try' '{' expr '}'
 ///            ('catch' ('var'|'const')? identifier ':' type '{' expr '}')*
@@ -864,7 +864,7 @@ class IfExpr derives Expr {
 ///  Binding mutability follows the usual rule: bare `e` is mutable, `const e`
 ///  is immutable, `var e` is the explicit mutable form. `has_binding` is false
 ///  only for the bare `catch { }` default.
-/// ============================================================================
+///
 class TryCatchExpr derives Expr {
     struct CatchArm {
         var has_binding: bool;            ///< false for bare `catch { }`.

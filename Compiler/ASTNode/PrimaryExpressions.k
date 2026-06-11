@@ -19,7 +19,7 @@ import AST::Support::*;
 
 class NamedIdentExpr; // forward decl for ChainType segments
 
-/// ============================================================================
+///
 ///  ChainType
 ///  i32 | Foo | Foo::Bar | ::std::String | Foo<i32>::slice::Underlying
 ///
@@ -34,7 +34,7 @@ class NamedIdentExpr; // forward decl for ChainType segments
 ///    var str: std::bad::string             3 segments
 ///    var x:   ::GlobalType                 1 segment, sep = ColonColon
 ///    var y:   i32                          1 segment, is_simple() = true
-/// ============================================================================
+///
 class ChainType derives Type {
     /// \enum SegmentSeparator
     /// \brief the operator prefixing a segment in the type path.
@@ -188,7 +188,7 @@ class ChainType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  NamedIdentExpr
 ///  A single identifier in expression position, optionally carrying generic
 ///  arguments for bare generic usage like `Bar<i32>(x)`.
@@ -199,7 +199,7 @@ class ChainType derives Type {
 ///    foo            bare identifier, no generics
 ///    Bar<i32>       generic instantiation on a bare name
 ///    self           self reference, sema resolves contextually
-/// ============================================================================
+///
 class NamedIdentExpr derives Expr {
     pub var name: Token;
     pub var generic_args: FrozenList::<ChainType::GenericArg>;
@@ -243,10 +243,10 @@ class NamedIdentExpr derives Expr {
     }
 }
 
-/// ============================================================================
+///
 ///  IntegerLiteralExpr
 ///  42 | 0xFF | 0b1010 | 0o77 | 1_000_000
-/// ============================================================================
+///
 class IntegerLiteralExpr derives Expr {
     pub var token: Token;
     pub var imm: *Immediate::IntData = &null; ///< pointer to the immediate table entry
@@ -372,10 +372,10 @@ class IntegerLiteralExpr derives Expr {
     }
 }
 
-/// ============================================================================
+///
 ///  FloatingLiteralExpr
 ///  1.2 | 1.2e-3 | 0x1.8p+1 | .5f32
-/// ============================================================================
+///
 class FloatingLiteralExpr derives Expr {
     pub var token: Token;
     pub var ctx: *ASTContext; ///< for TokenText::get_name()
@@ -496,10 +496,10 @@ class FloatingLiteralExpr derives Expr {
     }
 }
 
-/// ============================================================================
+///
 ///  StringLiteralExpr
 ///  "hello" | r"raw \n" | f"hi {name}!"
-/// ============================================================================
+///
 class StringLiteralExpr derives Expr {
     enum StringKind derives u8 {
         Plain,    ///< "hello"
@@ -623,10 +623,10 @@ class StringLiteralExpr derives Expr {
     }
 }
 
-/// ============================================================================
+///
 ///  CharacterLiteralExpr
 ///  'a' | '\n' | '\u{1F600}'
-/// ============================================================================
+///
 class CharacterLiteralExpr derives Expr {
     pub var token: Token;
     pub var ctx: *ASTContext; ///< for TokenText::get_name()
@@ -728,10 +728,10 @@ class CharacterLiteralExpr derives Expr {
     }
 }
 
-/// ============================================================================
+///
 ///  BooleanLiteralExpr
 ///  true | false
-/// ============================================================================
+///
 class BooleanLiteralExpr derives Expr {
     pub var value: bool;
 
@@ -769,10 +769,10 @@ class BooleanLiteralExpr derives Expr {
     }
 }
 
-/// ============================================================================
+///
 ///  NullLiteralExpr
 ///  null | &null
-/// ============================================================================
+///
 class NullLiteralExpr derives Expr {
     pub var is_ref: bool; ///< true for &null (null pointer literal).
 
@@ -810,13 +810,13 @@ class NullLiteralExpr derives Expr {
     }
 }
 
-/// ============================================================================
+///
 ///  CompoundStmt
 ///  Grammar:  '{' stmt* '}'
 ///
 ///  Introduces a lexical scope. Destructors run at the closing brace in
 ///  reverse declaration order. `body` is populated by the parser.
-/// ============================================================================
+///
 class CompoundStmt derives Stmt {
     pub var body: FrozenList::<*Stmt>;
 

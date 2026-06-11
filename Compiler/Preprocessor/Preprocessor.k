@@ -17,56 +17,39 @@
 ///
 /// Pipeline
 /// --------
+/// Token Stream
 ///
-///    ┌------------------┐
-///    │ Token Stream     │
-///    └--------┬---------┘
-///             │
-///             ▼
-///   ┌-----------------------------┐
-///   │ 1. Collect Definitions      │
-///   │    - Walk tokens            │
-///   │    - Track module scope     │
-///   │    - Register macro!(...){} │
-///   │    - Register macro!{}      │
-///   │    - Store body tokens      │
-///   └-----------------------------┘
-///             │
-///             ▼
-///   ┌-----------------------------┐
-///   │ 2. Track Imports            │
-///   │    - Record use decls       │
-///   │    - Map alias -> origin     │
-///   │    - No expansion yet       │
-///   └-----------------------------┘
-///             │
-///             ▼
-///   ┌-----------------------------┐
-///   │ 3. Resolve Invocations      │
-///   │    - Match ident! or ident!(│
-///   │    - Qualified: exact lookup│
-///   │    - Unqualified: scoped    │
-///   │    - Validate delimiters    │
-///   └-----------------------------┘
-///             │
-///             ▼
-///   ┌-----------------------------┐
-///   │ 4. Expand Tokens            │
-///   │    - Substitute params      │
-///   │    - Handle defaults        │
-///   │    - Handle variadics       │
-///   │    - Paste body tokens      │
-///   │    - Recurse if nested      │
-///   │    - Detect cycles          │
-///   └-----------------------------┘
-///             │
-///             ▼
-///   ┌-----------------------------┐
-///   │ 5. Return Expanded          │
-///   │    - Modified stream        │
-///   │    - Preserve locations     │
-///   │    - Report errors          │
-///   └-----------------------------┘
+/// 1. Collect Definitions
+///  - Walk tokens
+///  - Track module scope
+///  - Register macro!(...){}
+///  - Register macro!{}
+///  - Store body tokens
+///
+/// 2. Track Imports
+///  - Record use decls
+///  - Map alias -> origin
+///  - No expansion yet
+///
+/// 3. Resolve Invocations
+///  - Match ident! or ident!(
+///  - Qualified: exact lookup│
+///  - Unqualified: scoped
+///  - Validate delimiters
+///
+/// 4. Expand Tokens
+///  - Substitute params
+///  - Handle defaults
+///  - Handle variadics
+///  - Paste body tokens
+///  - Recurse if nested
+///  - Detect cycles
+///
+/// 5. Return Expanded
+///  - Modified stream
+///  - Preserve locations
+///  - Report errors
+///
 ///
 /// Definition Syntax
 /// -----------------
@@ -628,7 +611,7 @@ class MacroExpander {
             self.error(str_tok, "builtin 'unstringify!()': could not re-lex string content (no lexer available)", DiagID::R009E);
             return out;
         }
-        
+
         // get string body range (inside quotes)
         var str_range = str_tok->range;
         // +1 / -1 to skip the quote characters
@@ -831,7 +814,7 @@ class MacroExpander {
 
             if !invoke.found {
                 var end = i + scope_consumed + 1;
-                
+
                 for var k: usize = i; k < end; ++k {
                     output->append(*(tokens->get(k)));
                 }
@@ -839,7 +822,7 @@ class MacroExpander {
                 i = end;
                 continue;
             }
-            
+
             // -- try builtins first --------------------------------------
             var builtin_result = self.try_builtin(tokens, invoke, &ctx);
             if builtin_result != &null {
@@ -1298,10 +1281,10 @@ class MacroExpander {
 
         var saved_active = self._active_macros;
         self._active_macros.clear();
-    
+
         var expanded_args = self.expand(arg_buf, self._fid, self._scope);
         var final_buf = (expanded_args) if (expanded_args != &null) else arg_buf;
-    
+
         self._active_macros = saved_active;
 
         // -- parse arguments from (possibly expanded) buffer ---------
@@ -1691,10 +1674,10 @@ class PreProcessor {
         // Phase 0: build dep graph (single-threaded)
         Logger::info(Logger::Stage::Preprocessor, "PreProcessor: phase 0 dep scan");
         var t0 = libcxx::chrono::high_resolution_clock::now();
-        
+
         var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._pp_sym_table);
         var graph   = scanner.build_graph(entry_fid, entry_path);
-        
+
         var t1 = libcxx::chrono::high_resolution_clock::now();
         var dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
 
@@ -2264,7 +2247,7 @@ priv fn ImportProcessor::resolve_import(
         Logger::info(Logger::Stage::Preprocessor,
             f"resolve_import: EARLY RETURN - path_strings empty after fallback");
         Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
-        
+
         var full_loc = parsed->import_loc;
         for item in parsed->items {
             var tok = item.name.token;
@@ -2295,7 +2278,7 @@ priv fn ImportProcessor::resolve_import(
                 loc = ((loc) | (tok->range));
             }
         }
-        
+
         self._diag->report(DiagCode(DiagID::R011E), start_loc,
             f"failed to resolve import path '{self.segments_to_string(path_strings)}' ")
             .first(loc)

@@ -37,10 +37,10 @@ import AST::ASTContext::*;
 import AST::Support::*;
 import ASTNode::PrimaryExpressions::*;
 
-/// ============================================================================
+///
 ///  Helper propagate type_flags from children into a parent node.
 ///  Call this after setting all child type pointers on a newly created node.
-/// ============================================================================
+///
 fn propagate_flags(parent: *Type, child: *Type) {
     parent->type_flags = static_cast::<Type::TypeFlags>(
         static_cast::<u8>(parent->type_flags)
@@ -48,11 +48,11 @@ fn propagate_flags(parent: *Type, child: *Type) {
     );
 }
 
-/// ============================================================================
+///
 ///  GenericParamType
 ///  T inside fn foo<T>(x: T) unresolved generic parameter.
 ///  Always dependent. Sema substitutes at instantiation.
-/// ============================================================================
+///
 class GenericParamType derives Type {
     pub var param_name: *NamedIdentExpr; ///< The declared param name, e.g. T.
     pub var param_index: u32;           ///< Index in the generic param list.
@@ -109,13 +109,13 @@ class GenericParamType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  SubstGenericParamType
 ///  Post-substitution wrapper: records that this type resulted from
 ///  substituting a concrete type for a generic param. Sema wraps the
 ///  replacement so diagnostics can report which param was substituted.
 ///  Canonical points to the replacement type directly.
-/// ============================================================================
+///
 class SubstGenericParamType derives Type {
     pub var original:    *GenericParamType; ///< The param that was substituted.
     pub var replacement: *Type;             ///< The concrete type substituted in.
@@ -162,11 +162,11 @@ class SubstGenericParamType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  TypeOfType
 ///  typeof(foo()) in type position.
 ///  Sema evaluates expr and sets canonical to the resolved type.
-/// ============================================================================
+///
 class TypeOfType derives Type {
     pub var expr:     *Expr;  ///< The expression whose type is queried.
     pub var resolved: *Type = &null; ///< Set by sema after expr type is known.
@@ -208,12 +208,12 @@ class TypeOfType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  VariadicPackType
 ///  ...T at declaration site the bare pack parameter in a generic signature.
 ///  Always sets IsDependent and ContainsUnexpandedPack.
 ///  This is the declaration-site node; PackExpansionType is the use-site node.
-/// ============================================================================
+///
 class VariadicPackType derives Type {
     pub var param: *GenericParamType; ///< The pack param this refers to.
 
@@ -258,13 +258,13 @@ class VariadicPackType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  PackExpansionType
 ///  pattern... use-site expansion of a pack in type position.
 ///  e.g. std::vector<Ts>... where pattern is std::vector<Ts>.
 ///  Clears ContainsUnexpandedPack on itself (expansion consumed it)
 ///  but remains IsDependent since result still varies per instantiation.
-/// ============================================================================
+///
 class PackExpansionType derives Type {
     pub var pattern: *Type; ///< The type pattern being expanded.
 
@@ -317,10 +317,10 @@ class PackExpansionType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  PointerType
 ///  *T fat pointer. length set by sema if size is statically known.
-/// ============================================================================
+///
 class PointerType derives Type {
     pub var pointee: *Type;
     pub var length:  usize = 0; ///< Statically known length. 0 = unknown.
@@ -363,10 +363,10 @@ class PointerType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  NullableType
 ///  T? lowered to std::Optional<T> by sema.
-/// ============================================================================
+///
 class NullableType derives Type {
     pub var inner: *Type;
 
@@ -407,10 +407,10 @@ class NullableType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  TupleType
 ///  (i32, str, f64)
-/// ============================================================================
+///
 class TupleType derives Type {
     pub var elements: FrozenList::<*Type>;
 
@@ -449,11 +449,11 @@ class TupleType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  FixedArrayType
 ///  [i32; 6] fixed size. [i32;] incomplete (FFI/C interop only),
 ///  indicated by is_incomplete = true and size_expr = null.
-/// ============================================================================
+///
 class FixedArrayType derives Type {
     pub var element:      *Type;
     pub var size_expr:    *Expr;  ///< Null if is_incomplete.
@@ -516,10 +516,10 @@ class FixedArrayType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  VectorType
 ///  [i32] growable. Lowered to std::vector<T> or equivalent.
-/// ============================================================================
+///
 class VectorType derives Type {
     pub var element: *Type;
 
@@ -560,10 +560,10 @@ class VectorType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  MapType
 ///  {str: i32}
-/// ============================================================================
+///
 class MapType derives Type {
     pub var key:   *Type;
     pub var value: *Type;
@@ -608,10 +608,10 @@ class MapType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  SetType
 ///  {i32}
-/// ============================================================================
+///
 class SetType derives Type {
     pub var element: *Type;
 
@@ -652,11 +652,11 @@ class SetType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  SelfType
 ///  Self inside class/interface bodies. Sema resolves to the implementing type.
 ///  Canonical set by sema to the enclosing type.
-/// ============================================================================
+///
 class SelfType derives Type {
 
     static fn create(
@@ -695,11 +695,11 @@ class SelfType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  FunctionPointerType
 ///  fn(i32, str) -> bool
 ///  is_unprototyped = true for C headers with no param info: int foo()
-/// ============================================================================
+///
 class FunctionPointerType derives Type {
     pub var params:         FrozenList::<*Type>;
     pub var return_type:    *Type;
@@ -758,11 +758,11 @@ class FunctionPointerType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  InferredType
 ///  _ or omitted annotation. Sema assigns concrete type by solving constraints.
 ///  Each node carries a unique infer_id for the constraint solver.
-/// ============================================================================
+///
 class InferredType derives Type {
     pub var infer_id: u32; ///< Unique ID assigned by parser/sema for solver tracking.
 
@@ -802,10 +802,10 @@ class InferredType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  CXXLValueRefType
 ///  T& imported from C++ headers. Sema treats as a reference, not a pointer.
-/// ============================================================================
+///
 class CXXLValueRefType derives Type {
     pub var referee: *Type;
 
@@ -846,10 +846,10 @@ class CXXLValueRefType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  CXXRValueRefType
 ///  T&& imported from C++ headers.
-/// ============================================================================
+///
 class CXXRValueRefType derives Type {
     pub var referee: *Type;
 
@@ -890,11 +890,11 @@ class CXXRValueRefType derives Type {
     }
 }
 
-/// ============================================================================
+///
 ///  OpaqueFFIType
 ///  Opaque type from ffi "c++" sema treats as a black box.
 ///  name is the original C++ type spelling for diagnostics and codegen.
-/// ============================================================================
+///
 class OpaqueFFIType derives Type {
     pub var name: InternedStr; ///< Original C++ spelling, e.g. "std::FILE".
 

@@ -61,9 +61,9 @@ class <T> TemplateParams {
     }
 }
 
-/// ============================================================================
+///
 ///  Shared small enums
-/// ============================================================================
+///
 
 /// Linkage / dispatch modifier on a callable. Mirrors the abi_mod grammar
 /// production (ffi "c"/"c++", static, virtual, override) plus the plain case.
@@ -131,7 +131,7 @@ struct InheritEdge {
     var range:      SourceRange;
 }
 
-/// ============================================================================
+///
 ///  GenericParamDecl
 ///  <T> | <T impl Foo> | <T derives Base> | <T: class> | <const N: i32>
 ///  | <...T>
@@ -140,7 +140,7 @@ struct InheritEdge {
 ///  `: class/struct/enum/union` kind bound; `bounds` holds impl/derives
 ///  constraint types. `is_const_param` marks a value parameter (`const N: T`),
 ///  whose type is `value_type`. `is_pack` marks `...T`.
-/// ============================================================================
+///
 enum GenericParamKindBound derives u8 {
     Any = 0,   ///< no `: kind` bound.
     Class,
@@ -191,14 +191,14 @@ class GenericParamDecl derives Decl {
     }
 }
 
-/// ============================================================================
+///
 ///  ParamDecl
 ///  `name: Type` | `name: Type = default`
 ///
 ///  A single function/closure/method parameter. Binding shorthands (`*x`,
 ///  `unsafe *x`, `x?`) are folded into the parsed `type` by the parser, so
 ///  ParamDecl only stores the resolved type + optional default.
-/// ============================================================================
+///
 class ParamDecl derives Decl {
     pub var name:        Token;            ///< parameter name.
     pub var type_:       *Type;            ///< declared type (never inferred for params).
@@ -254,7 +254,7 @@ class ParamDecl derives Decl {
     }
 }
 
-/// ============================================================================
+///
 ///  FunctionDecl
 ///  fn foo(...) -> T { } | fn op+(...) | override fn bar() | fn Class::method
 ///
@@ -264,7 +264,7 @@ class ParamDecl derives Decl {
 ///  Operators: is_operator + op_token carry the overloaded operator. Out-of-
 ///  line defs: qualifier holds the `Class::` (or `Class::Inner::`) path as a
 ///  ChainExpr; null for in-line / free functions.
-/// ============================================================================
+///
 class FunctionDecl
   derives Decl,
           DeclContext,
@@ -336,14 +336,14 @@ class FunctionDecl
     fn param_count(self)    -> usize { return self.params.size(); }
 }
 
-/// ============================================================================
+///
 ///  VariableDecl
 ///  var/const/static/eval binding at local or namespace scope.
 ///  NOT a class/struct member (that is FieldDecl).
 ///
 ///  `type_` is null when inferred. `is_eval` is derived from storage == Eval
 ///  but kept explicit for the `eval var` stmt path.
-/// ============================================================================
+///
 class VariableDecl derives Decl {
     pub var name:    Token;
     pub var storage: StorageClass = StorageClass::Var;
@@ -387,7 +387,7 @@ class VariableDecl derives Decl {
     fn is_inferred(self) -> bool { return self.type_ == &null; }
 }
 
-/// ============================================================================
+///
 ///  FieldDecl
 ///  Class/struct/union member: var/const/static/eval, optionally `mutable`.
 ///  Also used for ADT enum-variant payload fields.
@@ -395,7 +395,7 @@ class VariableDecl derives Decl {
 ///  Distinct from VariableDecl: lives in a type scope, carries `is_mutable`,
 ///  and `init` is the at-declaration default used by aggregate init / ctor
 ///  one-shot assignment.
-/// ============================================================================
+///
 class FieldDecl derives Decl {
     pub var name:       Token;
     pub var storage:    StorageClass = StorageClass::Var;
@@ -444,14 +444,14 @@ class FieldDecl derives Decl {
     fn is_const(self)  -> bool { return self.storage == StorageClass::Const; }
 }
 
-/// ============================================================================
+///
 ///  StructDecl
 ///  struct Foo<T> impl Bar { var x: T ... }
 ///
 ///  Owns fields (FieldDecl) and nested type decls via DeclContext. Structs
 ///  cannot have methods in-body (extends add those), so dc_decls holds fields
 ///  and nested types only. `implements` lists interface conformances.
-/// ============================================================================
+///
 class StructDecl
   derives Decl,
           DeclContext,
@@ -498,14 +498,14 @@ class StructDecl
     fn field_count(self) -> usize { return self.fields.size(); }
 }
 
-/// ============================================================================
+///
 ///  ClassDecl
 ///  class Foo<T> derives Bar impl Baz { var x: T; fn m(self) { } }
 ///
 ///  Owns fields + methods + nested types via DeclContext. `derives_list`
 ///  holds base classes (with per-edge visibility + virtual), `implements`
 ///  holds interface conformances. is_final / is_abstract drive sema checks.
-/// ============================================================================
+///
 class ClassDecl
   derives Decl,
           DeclContext,
@@ -556,14 +556,14 @@ class ClassDecl
     fn has_bases(self) -> bool { return !self.derives_list.is_empty(); }
 }
 
-/// ============================================================================
+///
 ///  InterfaceDecl
 ///  interface Printable<T> derives Other { fn draw(self) const -> string }
 ///
 ///  Body holds only method/operator/ctor/static SIGNATURES (no bodies). Stored
 ///  as FunctionDecl with body_kind == None. `derives_list` is interface
 ///  inheritance (additive, no state).
-/// ============================================================================
+///
 class InterfaceDecl
   derives Decl,
           DeclContext,
@@ -608,7 +608,7 @@ class InterfaceDecl
     }
 }
 
-/// ============================================================================
+///
 ///  ExtensionDecl
 ///  extend Foo<T> impl Bar { fn m(self) { } }
 ///
@@ -616,7 +616,7 @@ class InterfaceDecl
 ///  is the extended type reference. Owns the methods written in the body via
 ///  DeclContext. Not Redeclarable (each extend block is its own decl; multiple
 ///  blocks are allowed and merged by sema, not by the redecl chain).
-/// ============================================================================
+///
 class ExtensionDecl
   derives Decl,
           DeclContext,
@@ -659,14 +659,14 @@ class ExtensionDecl
     }
 }
 
-/// ============================================================================
+///
 ///  EnumVariantDecl
 ///  North | Ok = 2 | Found { key: K, value: V }
 ///
 ///  A single variant. Plain variants carry an optional explicit `discriminant`
 ///  expr. ADT variants carry `payload` fields (FieldDecl). Owned by EnumDecl;
 ///  not independently looked up, so no DeclContext.
-/// ============================================================================
+///
 class EnumVariantDecl derives Decl {
     pub var name:         Token;
     pub var discriminant: *Expr = &null;          ///< `= <const expr>`; null if implicit.
@@ -708,7 +708,7 @@ class EnumVariantDecl derives Decl {
     fn has_value(self) -> bool { return self.discriminant != &null; }
 }
 
-/// ============================================================================
+///
 ///  EnumDecl
 ///  enum Direction derives u8 { } | enum <T> Result { Ok { value: T }, Err }
 ///
@@ -716,7 +716,7 @@ class EnumVariantDecl derives Decl {
 ///  defaulted (u32) or for ADT enums. Generic enums (TemplateParams) must be
 ///  ADT (a plain enum has nothing to parameterize). Owns variants via the
 ///  `variants` list; DeclContext holds nested type decls.
-/// ============================================================================
+///
 class EnumDecl
   derives Decl,
           DeclContext,
@@ -765,13 +765,13 @@ class EnumDecl
     fn has_explicit_underlying(self) -> bool { return self.underlying != &null; }
 }
 
-/// ============================================================================
+///
 ///  UnionDecl
 ///  union Register { var as_u32: u32; var as_bytes: [u8; 4] }
 ///
 ///  Trivial-field overlay. Fields stored as FieldDecl. Unsafe by default
 ///  (type-punning); DeclContext holds nested type decls.
-/// ============================================================================
+///
 class UnionDecl
   derives Decl,
           DeclContext,
@@ -815,13 +815,13 @@ class UnionDecl
     }
 }
 
-/// ============================================================================
+///
 ///  TypeAliasDecl
 ///  type Meters = f64 | type <T> Matrix = [[T]]
 ///
 ///  Transparent alias by default (opaque under -fno-type-aliasing, a sema
 ///  concern). TemplateParams for generic aliases; not a scope owner.
-/// ============================================================================
+///
 class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl> {
     pub var name:    Token;
     pub var aliased: *Type;   ///< the right-hand-side type.
@@ -859,13 +859,13 @@ class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl> {
     }
 }
 
-/// ============================================================================
+///
 ///  ModuleDecl
 ///  module Foo { } | inline module Foo { } | module { } (anonymous)
 ///
 ///  Owns its declarations via DeclContext. Redeclarable: modules reopen
 ///  (must match visibility, sema-checked). `is_anonymous` => no name token.
-/// ============================================================================
+///
 class ModuleDecl
   derives Decl,
           DeclContext,
@@ -909,14 +909,14 @@ class ModuleDecl
     }
 }
 
-/// ============================================================================
+///
 ///  ImportDecl
 ///  import a::b::c | import x as y | import module foo | ffi "c++" import "h" as z
 ///
 ///  `path_segments` holds the dotted/scoped path tokens. `alias` is the `as`
 ///  rename (empty token if none). `ffi_lang` distinguishes a native import
 ///  (empty) from ffi "c"/"c++" header imports, whose `header` literal is set.
-/// ============================================================================
+///
 enum ImportKind derives u8 {
     Native = 0,   ///< import a::b::c
     SourceOnly,   ///< import module foo (disallow library resolution)
@@ -985,7 +985,7 @@ class ImportDecl derives Decl {
     }
 }
 
-/// ============================================================================
+///
 ///  VisibilityGroupDecl
 ///  pub { fn foo() {} fn bar() {} }
 ///
@@ -993,7 +993,7 @@ class ImportDecl derives Decl {
 ///  visibility and the contained decls. The parser stamps each child's
 ///  visibility from `group_visibility`; this node is retained for printing /
 ///  source fidelity.
-/// ============================================================================
+///
 class VisibilityGroupDecl derives Decl {
     pub var group_visibility: u8 = 0;          ///< matches VisibilityKind.
     pub var members:          FrozenList::<*Decl>;
@@ -1024,11 +1024,11 @@ class VisibilityGroupDecl derives Decl {
     }
 }
 
-/// ============================================================================
+///
 ///  EvalBlockDecl
 ///  eval { decl* } at namespace/type scope (decl-only compile-time block).
 ///  The stmt-position eval block is StmtKind::EvalBlockStmt.
-/// ============================================================================
+///
 class EvalBlockDecl derives Decl {
     pub var body: FrozenList::<*Decl>;
 
@@ -1057,10 +1057,10 @@ class EvalBlockDecl derives Decl {
     }
 }
 
-/// ============================================================================
+///
 ///  TestDecl
 ///  test "should add correctly" { assert 1 + 1 == 2, "" }
-/// ============================================================================
+///
 class TestDecl derives Decl, DeclContext {
     pub var label: *Expr = &null;          ///< StringLiteralExpr label.
     pub var body:  *CompoundStmt = &null;
@@ -1092,13 +1092,13 @@ class TestDecl derives Decl, DeclContext {
     }
 }
 
-/// ============================================================================
+///
 ///  MacroDecl
 ///  macro foo!(x) { ... } token-level macro.
 ///
 ///  Params are bare identifier tokens (typeless). `body_span` covers the raw
 ///  token run between braces; the macro engine re-lexes/substitutes it.
-/// ============================================================================
+///
 class MacroDecl derives Decl {
     pub var name:      Token;
     pub var params:    FrozenList::<Token>;   ///< typeless macro params.
@@ -1131,14 +1131,14 @@ class MacroDecl derives Decl {
     }
 }
 
-/// ============================================================================
+///
 ///  ProcedureMacroDecl
 ///  macro @derive(node: *AST::ClassDecl, ...) { ... } attribute/proc macro.
 ///
 ///  Unlike MacroDecl, a proc macro has typed params and a real Kairo body
 ///  (a CompoundStmt) that runs at compile time over AST nodes. Owns a scope
 ///  via DeclContext for its params + locals.
-/// ============================================================================
+///
 class ProcedureMacroDecl derives Decl, DeclContext {
     pub var name:   Token;                       ///< the `@name` identifier.
     pub var params: FrozenList::<*ParamDecl>;

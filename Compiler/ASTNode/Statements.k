@@ -28,7 +28,7 @@ import Source::SourceRange::*;
 import Lexer::Token::*;
 import ASTNode::Patterns::*;
 
-/// ============================================================================
+///
 ///  Binding shorthand qualifiers
 ///
 ///  Bitmask of the declaration shorthands documented under Variables:
@@ -39,7 +39,7 @@ import ASTNode::Patterns::*;
 ///
 ///  These reshape the *inferred* type of the binding; sema applies them after
 ///  inferring the underlying type from the destructured/iterated source.
-/// ============================================================================
+///
 enum BindingShorthand derives u8 {
     None     = 0,
     Pointer  = 1 << 0, ///< `*x`        leading star.
@@ -47,7 +47,7 @@ enum BindingShorthand derives u8 {
     Nullable = 1 << 2, ///< `x?`        nullable suffix.
 }
 
-/// ============================================================================
+///
 ///  Binding
 ///
 ///  A single introduced name in a binding position. Shared by:
@@ -61,7 +61,7 @@ enum BindingShorthand derives u8 {
 ///  whether this element wrote its own keyword (for redundant-qualifier
 ///  diagnostics). `_` produces a discard with `is_discard = true` and a null
 ///  `name`.
-/// ============================================================================
+///
 struct Binding {
     var name:        *NamedIdentExpr;  ///< null when is_discard.
     var is_const:    bool;             ///< resolved mutability (default + override).
@@ -71,14 +71,14 @@ struct Binding {
     var range:       SourceRange;      ///< span of this binding element.
 }
 
-/// ============================================================================
+///
 ///  CatchArm
 ///
 ///  One arm of a `try`/`catch` statement:
 ///    `catch e: std::Error::IO { }`  -> filter + binding
 ///    `catch e { }`                  -> binding, no filter
 ///    `catch { }`                    -> bare catch-all, neither
-/// ============================================================================
+///
 struct CatchArm {
     var filter:  *Type;           ///< panic-type filter; null for bare catch-all.
     var binding: *NamedIdentExpr; ///< bound error name; null if unbound.
@@ -86,7 +86,7 @@ struct CatchArm {
     var range:   SourceRange;
 }
 
-/// ============================================================================
+///
 ///  MatchCase
 ///
 ///  One case of a `match` statement:
@@ -96,7 +96,7 @@ struct CatchArm {
 ///
 ///  `patterns` holds the comma-separated alternatives that share one body
 ///  (Kairo has no fall-through; comma is the only way to share a body).
-/// ============================================================================
+///
 struct MatchCase {
     var patterns:   FrozenList::<*Pattern>; ///< empty when is_default.
     var guard:      *Expr;                  ///< optional `where` guard; null if none.
@@ -105,17 +105,17 @@ struct MatchCase {
     var is_default: bool;
 }
 
-/// ============================================================================
+///
 ///  Destructure kind discriminator for DestructuringDeclStmt.
-/// ============================================================================
+///
 enum DestructureKind derives u8 {
     Tuple,  ///< `var (a, b) = t`   positional.
     Struct, ///< `var {a, b} = s`   by field name.
 }
 
-/// ============================================================================
+///
 ///  Foreign-block language for InlineBlockStmt.
-/// ============================================================================
+///
 enum InlineLang derives u8 {
     Asm,    ///< inline "asm" { }
     C,      ///< inline "c"   { }
@@ -131,12 +131,12 @@ enum InlineLang derives u8 {
     Kairo,  ///< inline "kairo" { }
 }
 
-/// ============================================================================
+///
 ///  ExpressionStmt
 ///  Grammar:  expr
 ///
 ///  An expression in statement position; its value is discarded.
-/// ============================================================================
+///
 class ExpressionStmt derives Stmt {
     pub var expr: *Expr;
 
@@ -166,12 +166,12 @@ class ExpressionStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  DeclStmt
 ///  Grammar:  decl    (var/const/fn/class/struct/enum/... at stmt scope)
 ///
 ///  Wraps a declaration appearing inside a function body.
-/// ============================================================================
+///
 class DeclStmt derives Stmt {
     pub var decl: *Decl;
 
@@ -201,10 +201,10 @@ class DeclStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  ReturnStmt
 ///  Grammar:  'return' | 'return' expr
-/// ============================================================================
+///
 class ReturnStmt derives Stmt {
     pub var value: *Expr; ///< null for a bare `return`.
 
@@ -234,10 +234,10 @@ class ReturnStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  BreakStmt
 ///  Grammar:  'break' | 'break' identifier
-/// ============================================================================
+///
 class BreakStmt derives Stmt {
     pub var has_label: bool;  ///< true if a loop label follows.
     pub var label:     Token; ///< meaningful only when has_label.
@@ -269,10 +269,10 @@ class BreakStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  ContinueStmt
 ///  Grammar:  'continue' | 'continue' identifier
-/// ============================================================================
+///
 class ContinueStmt derives Stmt {
     pub var has_label: bool;
     pub var label:     Token;
@@ -304,12 +304,12 @@ class ContinueStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  PanicStmt
 ///  Grammar:  'panic' expr
 ///
 ///  Only legal in functions carrying the `panic` specifier (sema-checked).
-/// ============================================================================
+///
 class PanicStmt derives Stmt {
     pub var payload: *Expr;
 
@@ -339,12 +339,12 @@ class PanicStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  YieldStmt
 ///  Grammar:  'yield' expr
 ///
 ///  Only legal in functions returning a `yield T` type (sema-checked).
-/// ============================================================================
+///
 class YieldStmt derives Stmt {
     pub var value: *Expr;
 
@@ -374,13 +374,13 @@ class YieldStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  RuntimeAssertStmt
 ///  Grammar:  'assert' expr (',' expr)?
 ///
 ///  Runtime assertion. Behavior controlled by -fassert-mode. `message` is the
 ///  optional second operand.
-/// ============================================================================
+///
 class RuntimeAssertStmt derives Stmt {
     pub var condition: *Expr;
     pub var message:   *Expr; ///< null if no message operand.
@@ -412,13 +412,13 @@ class RuntimeAssertStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  StaticAssertStmt
 ///  Grammar:  'assert' 'static' expr (',' expr)?
 ///
 ///  Compile-time assertion. `condition` must be const-evaluable; failure is a
 ///  compile error. `message` is the optional second operand.
-/// ============================================================================
+///
 class StaticAssertStmt derives Stmt {
     pub var condition: *Expr;
     pub var message:   *Expr; ///< null if no message operand.
@@ -450,13 +450,13 @@ class StaticAssertStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  LabelIntrinsicStmt
 ///  Grammar:  'label' '!' '(' identifier ')'
 ///
 ///  Declares a raw branch target. Distinct from a structured loop label
 ///  (LabeledStmt). Surfaced as macro syntax, parsed as a first-class node.
-/// ============================================================================
+///
 class LabelIntrinsicStmt derives Stmt {
     pub var name: Token;
 
@@ -486,13 +486,13 @@ class LabelIntrinsicStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  JumpIntrinsicStmt
 ///  Grammar:  'jump' '!' '(' identifier ')'
 ///
 ///  Unconditional jump to a `label!`-declared target in the same function.
 ///  Bypasses destructors and finally blocks.
-/// ============================================================================
+///
 class JumpIntrinsicStmt derives Stmt {
     pub var target: Token;
 
@@ -522,7 +522,7 @@ class JumpIntrinsicStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  ConditionalStmt
 ///  Grammar:  'if' expr block ('else' 'if' expr block)* ('else' block)?
 ///
@@ -530,7 +530,7 @@ class JumpIntrinsicStmt derives Stmt {
 ///  ConditionalStmt (an `else if`) or a CompoundStmt (the final `else`).
 ///  (Deviates from the doc-2 comment that says both branches are CompoundStmt;
 ///   *Stmt avoids wrapping else-if chains in throwaway blocks.)
-/// ============================================================================
+///
 class ConditionalStmt derives Stmt {
     pub var cond:  *Expr;
     pub var then_: *CompoundStmt;
@@ -570,10 +570,10 @@ class ConditionalStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  WhileLoopStmt
 ///  Grammar:  'while' expr block
-/// ============================================================================
+///
 class WhileLoopStmt derives Stmt {
     pub var cond: *Expr;
     pub var body: *CompoundStmt;
@@ -605,12 +605,12 @@ class WhileLoopStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  LoopStmt
 ///  Grammar:  'loop' block
 ///
 ///  Unconditional infinite loop. Runs until `break` or `return`.
-/// ============================================================================
+///
 class LoopStmt derives Stmt {
     pub var body: *CompoundStmt;
 
@@ -640,7 +640,7 @@ class LoopStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  RangedForStmt
 ///  Grammar:  'eval'? 'for' binding_spec 'in' expr block
 ///    binding_spec := ('var'|'const')? (binding | '(' binding (',' binding)* ')')
@@ -648,7 +648,7 @@ class LoopStmt derives Stmt {
 ///  `bindings` holds the loop bindings (1 for `for var x in`, N for a tuple
 ///  destructure `for var (k, const v) in`). `is_eval` marks the compile-time
 ///  unroll form. `iterable` must implement `fn op in (self) -> yield T`.
-/// ============================================================================
+///
 class RangedForStmt derives Stmt {
     pub var bindings: FrozenList::<Binding>;
     pub var iterable: *Expr;
@@ -689,14 +689,14 @@ class RangedForStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  IndexedForStmt
 ///  Grammar:  'eval'? 'for' decl_stmt ';' expr ';' expr block
 ///
 ///  C-style three-part for. `init` declares a loop-scoped variable (a
 ///  DeclStmt). `cond` and `update` are bare expressions. `is_eval` marks the
 ///  compile-time unroll form.
-/// ============================================================================
+///
 class IndexedForStmt derives Stmt {
     pub var init:    *Stmt; ///< the loop-variable declaration (DeclStmt).
     pub var cond:    *Expr;
@@ -742,7 +742,7 @@ class IndexedForStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  MatchStmt
 ///  Grammar:  'match' expr '{' match_case* '}'
 ///    match_case := 'case' pattern (',' pattern)* ('where' expr)? block
@@ -750,7 +750,7 @@ class IndexedForStmt derives Stmt {
 ///
 ///  Statement-position match. Non-exhaustive matching on integer/string
 ///  scrutinees is permitted (sema), unlike the expression form.
-/// ============================================================================
+///
 class MatchStmt derives Stmt {
     pub var scrutinee: *Expr;
     pub var cases:     FrozenList::<MatchCase>;
@@ -781,13 +781,13 @@ class MatchStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  LabeledStmt
 ///  Grammar:  identifier ':' (while_stmt | ranged_for | indexed_for | loop_stmt)
 ///
 ///  Only legal on loop statements. Provides the target for `break label` /
 ///  `continue label`.
-/// ============================================================================
+///
 class LabeledStmt derives Stmt {
     pub var label: Token;
     pub var inner: *Stmt; ///< the labeled loop statement.
@@ -819,7 +819,7 @@ class LabeledStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  TryCatchStmt
 ///  Grammar:  'try' block ('catch' catch_filter? block)+
 ///    catch_filter := identifier (':' type)?
@@ -827,7 +827,7 @@ class LabeledStmt derives Stmt {
 ///  `finally` is NOT a clause here; `try { } finally { }` parses as a
 ///  TryCatchStmt followed by a separate FinallyStmt. `arms` holds the catch
 ///  arms; a bare `catch { }` arm has both filter and binding null.
-/// ============================================================================
+///
 class TryCatchStmt derives Stmt {
     pub var try_body: *CompoundStmt;
     pub var arms:     FrozenList::<CatchArm>;
@@ -858,13 +858,13 @@ class TryCatchStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  FinallyStmt
 ///  Grammar:  'finally' block
 ///
 ///  Standalone deferred cleanup. Runs at function exit in reverse declaration
 ///  order (LIFO).
-/// ============================================================================
+///
 class FinallyStmt derives Stmt {
     pub var body: *CompoundStmt;
 
@@ -894,12 +894,12 @@ class FinallyStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  UnsafeBlockStmt
 ///  Grammar:  'unsafe' block
 ///
 ///  Introduces an UnsafeContext. Suspends AMT tracking for the body.
-/// ============================================================================
+///
 class UnsafeBlockStmt derives Stmt {
     pub var body: *CompoundStmt;
 
@@ -929,7 +929,7 @@ class UnsafeBlockStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  ContextBindingStmt
 ///  Grammar:  expr 'as' binding_spec block
 ///    binding_spec := ('var'|'const') (binding | '(' binding (',' binding)* ')')
@@ -942,7 +942,7 @@ class UnsafeBlockStmt derives Stmt {
 ///
 ///  A binding_spec with no following block is a hard error (it is neither a
 ///  valid cast nor a valid context block).
-/// ============================================================================
+///
 class ContextBindingStmt derives Stmt {
     pub var value:    *Expr;
     pub var bindings: FrozenList::<Binding>;
@@ -975,7 +975,7 @@ class ContextBindingStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  DestructuringDeclStmt
 ///  Grammar:  ('var'|'const') (tuple_pat | struct_pat) '=' expr
 ///    tuple_pat  := '(' binding (',' binding)* ')'
@@ -984,7 +984,7 @@ class ContextBindingStmt derives Stmt {
 ///  `kind` distinguishes positional (tuple) from by-field-name (struct)
 ///  destructuring. `leading_is_const` records the lead keyword (each Binding
 ///  also carries its own resolved `is_const`). `bindings` is parser-populated.
-/// ============================================================================
+///
 class DestructuringDeclStmt derives Stmt {
     pub var kind_:            DestructureKind; ///< Tuple vs Struct. (kind_ to avoid Stmt::kind clash.)
     pub var bindings:         FrozenList::<Binding>;
@@ -1025,13 +1025,13 @@ class DestructuringDeclStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  InlineBlockStmt
 ///  Grammar:  'inline' string_literal '{' <opaque body> '}'
 ///
 ///  Foreign block. The body is opaque to the Kairo parser and handed to the
 ///  foreign backend unmodified; `body_span` covers the raw inner text.
-/// ============================================================================
+///
 class InlineBlockStmt derives Stmt {
     pub var lang:      InlineLang;
     pub var body_span: SourceRange; ///< raw inner body, excluding braces.
@@ -1063,14 +1063,14 @@ class InlineBlockStmt derives Stmt {
     }
 }
 
-/// ============================================================================
+///
 ///  EvalBlockStmt
 ///  Grammar:  'eval' '{' decl* '}'
 ///
 ///  Decl-only compile-time block. Statements inside are a sema error (parser
 ///  still recovers). `eval if` / `eval for` / `eval var` are handled by their
 ///  own stmt/decl nodes with `is_eval = true`, NOT by this kind.
-/// ============================================================================
+///
 class EvalBlockStmt derives Stmt {
     pub var body: FrozenList::<*Decl>;
 
