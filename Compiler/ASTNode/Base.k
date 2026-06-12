@@ -248,12 +248,4 @@ class Pattern derives Annotation::<Pattern> {
         }
         return self.kind;
     }
-
-    static fn classof(ptr: *Pattern) -> bool {
-        return true; // all Pattern* are valid for classof(Pattern)
-    }
-
-    static fn pattern_kind() -> PatternKind {
-        return PatternKind::RecoveryPattern; // overridden by concrete nodes
-    }
 }

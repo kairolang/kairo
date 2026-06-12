@@ -206,6 +206,10 @@ enum ExprKind derives u8 {
     /// Node: InlineTryCatchExpr: try_expr + catch arms.
     TryCatchExpr,
 
+    /// Match expression: match scrutinee { arms }
+    /// Node: MatchExpr: scrutinee + cases.
+    MatchExpr,
+
     /// Range expression: x..y | x..=y | ..y | x.. | ..
     /// Node: RangeExpr: begin (nullable) + end (nullable) + is_inclusive.
     RangeExpr,

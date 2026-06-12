@@ -70,6 +70,14 @@ fn <T> isa(ptr: *Type) -> bool {
     return T::classof(ptr);
 }
 
+fn <T> isa(ptr: *Pattern) -> bool {
+    if ptr == &null {
+        return false;
+    }
+
+    return T::classof(ptr);
+}
+
 inline "c++" {
     template <typename T>
     inline const T *cast(const Expr *ptr) {
@@ -98,6 +106,13 @@ inline "c++" {
         assert(T::classof(ptr) && "cast<>: incorrect type");
         return static_cast<const T*>(ptr);
     }
+
+    template <typename T>
+    inline const T *cast(const Pattern *ptr) {
+        assert(ptr != nullptr && "cast<>: null pointer");
+        assert(T::classof(ptr) && "cast<>: incorrect type");
+        return static_cast<const T*>(ptr);
+    }
 }
 
 fn <T> cast(ptr: *Expr) -> *T {
@@ -119,6 +134,12 @@ fn <T> cast(ptr: *Decl) -> *T {
 }
 
 fn <T> cast(ptr: *Type) -> *T {
+    assert((ptr != &null)    && r"cast<>: null pointer");
+    assert((T::classof(ptr)) && r"cast<>: incorrect type");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> cast(ptr: *Pattern) -> *T {
     assert((ptr != &null)    && r"cast<>: null pointer");
     assert((T::classof(ptr)) && r"cast<>: incorrect type");
     return static_cast::<*T>(ptr);
@@ -157,6 +178,14 @@ fn <T> dyn_cast(ptr: *Type) -> *T {
     return &null;
 }
 
+fn <T> dyn_cast(ptr: *Pattern) -> *T {
+    if (ptr != &null) && isa::<T>(ptr) {
+        return static_cast::<*T>(ptr);
+    }
+
+    return &null;
+}
+
 
 inline "c++" {
     template <typename T>
@@ -188,6 +217,15 @@ inline "c++" {
 
     template <typename T>
     inline const T *dyn_cast(const Type *ptr) {
+        if (ptr != nullptr && T::classof(ptr)) {
+            return static_cast<const T*>(ptr);
+        }
+
+        return nullptr;
+    }
+
+    template <typename T>
+    inline const T *dyn_cast(const Pattern *ptr) {
         if (ptr != nullptr && T::classof(ptr)) {
             return static_cast<const T*>(ptr);
         }
@@ -424,6 +462,59 @@ inline "c++" {
     }
 }
 
+fn <T> isa_recovery(ptr: *Pattern) -> bool {
+    if ptr == &null {
+        return false;
+    }
+    if ptr->kind != PatternKind::RecoveryPattern {
+        return false;
+    }
+    return ptr->recovery_kind == T::pattern_kind();
+}
+
+fn <T> cast_recovery(ptr: *Pattern) -> *T {
+    assert((ptr != &null)                              && r"cast_recovery<>: null pointer");
+    assert((ptr->kind == PatternKind::RecoveryPattern) && r"cast_recovery<>: not a recovery node");
+    assert((ptr->recovery_kind == T::pattern_kind())   && r"cast_recovery<>: wrong recovery_kind");
+    return static_cast::<*T>(ptr);
+}
+
+fn <T> dyn_cast_recovery(ptr: *Pattern) -> *T {
+    if (ptr != &null)
+    && (ptr->kind == PatternKind::RecoveryPattern)
+    && (ptr->recovery_kind == T::pattern_kind()) {
+        return static_cast::<*T>(ptr);
+    }
+    return &null;
+}
+
+inline "c++" {
+    template <typename T>
+    inline bool isa_recovery(const Pattern *ptr) {
+        if (ptr == nullptr) return false;
+        if (ptr->kind != PatternKind::RecoveryPattern) return false;
+        return ptr->recovery_kind == T::pattern_kind();
+    }
+
+    template <typename T>
+    inline const T *cast_recovery(const Pattern *ptr) {
+        assert(ptr != nullptr                       && "cast_recovery<>: null pointer");
+        assert(ptr->kind == PatternKind::RecoveryPattern  && "cast_recovery<>: not a recovery node");
+        assert(ptr->recovery_kind == T::pattern_kind() && "cast_recovery<>: wrong recovery_kind");
+        return static_cast<const T*>(ptr);
+    }
+
+    template <typename T>
+    inline const T *dyn_cast_recovery(const Pattern *ptr) {
+        if (ptr != nullptr
+        &&  ptr->kind == PatternKind::RecoveryPattern
+        &&  ptr->recovery_kind == T::pattern_kind()) {
+            return static_cast<const T*>(ptr);
+        }
+        return nullptr;
+    }
+}
+
 fn is_recovery(ptr: *Expr) -> bool {
     return (ptr != &null) && (ptr->kind == ExprKind::RecoveryExpr);
 }
@@ -435,6 +526,10 @@ fn is_recovery(ptr: *Type) -> bool {
 }
 fn is_recovery(ptr: *Decl) -> bool {
     return (ptr != &null) && (ptr->kind == DeclKind::RecoveryDecl);
+}
+
+fn is_recovery(ptr: *Pattern) -> bool {
+    return (ptr != &null) && (ptr->kind == PatternKind::RecoveryPattern);
 }
 
 inline "c++" {
@@ -452,5 +547,9 @@ inline "c++" {
     
     inline bool is_recovery(const Decl *ptr) {
         return ptr != nullptr && ptr->kind == DeclKind::RecoveryDecl;
+    }
+
+    inline bool is_recovery(const Pattern *ptr) {
+        return ptr != nullptr && ptr->kind == PatternKind::RecoveryPattern;
     }
 }
