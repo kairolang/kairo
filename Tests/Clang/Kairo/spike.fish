@@ -8,7 +8,7 @@ clang++ -std=c++23 -stdlib=libc++ \
   -Lbuild/llvm/lib \
   -fno-lto -Wno-parentheses-equality -Wno-return-type \
   -fuse-ld=lld \
-  test_clang.cc \
+  Tests/Clang/Kairo/test_clang.cc \
   -llldMinGW -llldCOFF -llldELF -llldCommon \
   -lclang-cpp -lLLVM \
   -g -Wl,-rpath,build/llvm/lib \

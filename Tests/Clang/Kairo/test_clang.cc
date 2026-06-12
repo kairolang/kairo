@@ -384,47 +384,47 @@ private:
                     << " emitted_object=" << (ok ? "yes" : "no") << "\n";
         return ok;
     }
-    // bool link(const std::string &obj, const std::string &exe) {
-    //     std::string L    = "-L" + cfg_.sysroot + "/lib";
-    //     std::string crt1 = cfg_.sysroot + "/lib/crt1.o";
-    //     std::string crti = cfg_.sysroot + "/lib/crti.o";
-    //     std::string crtn = cfg_.sysroot + "/lib/crtn.o";
-    //     std::vector<const char *> args = {
-    //         "ld.lld", "-o", exe.c_str(), "-static",
-    //         crt1.c_str(), crti.c_str(), obj.c_str(), L.c_str(),
-    //         "-lc++", "-lc++abi", "-lunwind", "-lc", crtn.c_str(),
-    //     };
-    //     lld::Result r = lld::lldMain(args, llvm::outs(), llvm::errs(),
-    //                                  {{lld::Gnu, &lld::elf::link}});
-    //     return r.retCode == 0;
-    // }
     bool link(const std::string &obj, const std::string &exe) {
-        SysrootConfig sc = load_sysroot(cfg_.sysroot);
-        std::string L = "-L" + cfg_.sysroot + "/lib";
-
-        // manual for now — the one thing not cleanly in the TOML
-        std::string builtins = cfg_.sysroot + "/compiler-rt/lib/windows/libclang_rt.builtins-x86_64.a";
-
-        std::vector<std::string> owned;   // keep strings alive for c_str()
-        std::vector<const char*> args;
-        auto push = [&](const std::string &s){ owned.push_back(s); };
-
-        push("ld.lld"); push("-m"); push("i386pep"); push("-o"); push(exe);
-        if (sc.static_link) push("-static");
-        for (auto &o : sc.crt_startup) push(cfg_.sysroot + "/lib/" + o);
-        push(obj);
-        push(L);
-        for (auto &l : sc.libcxx_link) push(l);   // -lc++ -lunwind  (from TOML)
-        for (auto &l : sc.libc_link)   push(l);   // mingw chain     (from TOML)
-        push(builtins);
-        for (auto &o : sc.crt_end) push(cfg_.sysroot + "/lib/" + o);
-
-        for (auto &s : owned) args.push_back(s.c_str());   // build after owned is stable
-
+        std::string L    = "-L" + cfg_.sysroot + "/lib";
+        std::string crt1 = cfg_.sysroot + "/lib/crt1.o";
+        std::string crti = cfg_.sysroot + "/lib/crti.o";
+        std::string crtn = cfg_.sysroot + "/lib/crtn.o";
+        std::vector<const char *> args = {
+            "ld.lld", "-o", exe.c_str(), "-static",
+            crt1.c_str(), crti.c_str(), obj.c_str(), L.c_str(),
+            "-lc++", "-lc++abi", "-lunwind", "-lc", crtn.c_str(),
+        };
         lld::Result r = lld::lldMain(args, llvm::outs(), llvm::errs(),
-                                    {{.f=lld::MinGW, .d=&lld::mingw::link}});
+                                     {{lld::Gnu, &lld::elf::link}});
         return r.retCode == 0;
     }
+    // bool link(const std::string &obj, const std::string &exe) {
+    //     SysrootConfig sc = load_sysroot(cfg_.sysroot);
+    //     std::string L = "-L" + cfg_.sysroot + "/lib";
+
+    //     // manual for now — the one thing not cleanly in the TOML
+    //     std::string builtins = cfg_.sysroot + "/compiler-rt/lib/windows/libclang_rt.builtins-x86_64.a";
+
+    //     std::vector<std::string> owned;   // keep strings alive for c_str()
+    //     std::vector<const char*> args;
+    //     auto push = [&](const std::string &s){ owned.push_back(s); };
+
+    //     push("ld.lld"); push("-m"); push("i386pep"); push("-o"); push(exe);
+    //     if (sc.static_link) push("-static");
+    //     for (auto &o : sc.crt_startup) push(cfg_.sysroot + "/lib/" + o);
+    //     push(obj);
+    //     push(L);
+    //     for (auto &l : sc.libcxx_link) push(l);   // -lc++ -lunwind  (from TOML)
+    //     for (auto &l : sc.libc_link)   push(l);   // mingw chain     (from TOML)
+    //     push(builtins);
+    //     for (auto &o : sc.crt_end) push(cfg_.sysroot + "/lib/" + o);
+
+    //     for (auto &s : owned) args.push_back(s.c_str());   // build after owned is stable
+
+    //     lld::Result r = lld::lldMain(args, llvm::outs(), llvm::errs(),
+    //                                 {{.f=lld::MinGW, .d=&lld::mingw::link}});
+    //     return r.retCode == 0;
+    // }
 };
 
 // ===========================================================================
@@ -436,9 +436,9 @@ int main(int argc, char **argv) {
         if (std::string(argv[i]) == "-o") out_exe = argv[i + 1];
 
     KairoDriver driver{KairoDriver::Config{
-        .sysroot   = "/home/dhruvan/linux-dev/sysroots/staging/x86_64-windows-gnu",
+        .sysroot   = "/home/dhruvan/linux-dev/sysroots/staging/x86_64-linux-musl",
         .resource  = "build/llvm/lib/clang/22",
-        .triple    = "x86_64-windows-gnu",
+        .triple    = "x86_64-linux-musl",
         .includes = {"iostream"}
     }};
 
@@ -466,7 +466,7 @@ int main(int argc, char **argv) {
         c.str_lit("\"\\n\"", 45);
         c.punct(clang::tok::semi, 45, 1);
         c.punct(clang::tok::kw_return, 51, 6);
-        c.num("0", 58);
+        c.str_lit("\"0\"", 58);
         c.punct(clang::tok::semi, 59, 1);
         c.punct(clang::tok::r_brace, 61, 1);
         c.eof(62);
