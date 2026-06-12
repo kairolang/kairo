@@ -19,54 +19,6 @@
 ///   - Common data strcutures, interfaces, and utilities for the parser and related tools.
 ///   - Also our custom RTTI system.
 
-///   [x] IntegerLiteralExpr                                                 ///
-///   [x] FloatingLiteralExpr                                                ///
-///   [x] StringLiteralExpr                                                  ///
-///   [x] CharacterLiteralExpr                                               ///
-///   [x] BooleanLiteralExpr                                                 ///
-///   [x] NullLiteralExpr                                                    ///
-
-///   [-] ListLiteralExpr                                                    ///
-///   [-] TupleLiteralExpr                                                   ///
-///   [-] SetLiteralExpr                                                     ///
-///   [-] MapLiteralExpr                                                     ///
-
-///   [-] ArrayInitializerExpr                                               ///
-///   [-] VectorInitializerExpr                                              ///
-///   [-] MapInitializerExpr                                                 ///
-///   [-] SetInitializerExpr                                                 ///
-
-///   [ ] NamedInitializerExpr                                               ///
-///   [ ] AnonInitializerExpr                                                ///
-///   [ ] QualifiedPathExpr                                                  ///
-///   [ ] GroupingExpr                                                       ///
-///   [ ] UnaryOperatorExpr                                                  ///
-///   [ ] BinaryOperatorExpr                                                 ///
-///   [ ] ImplConformanceExpr                                                ///
-///   [ ] DerivesRelationExpr                                                ///
-///   [ ] ConditionalExpr                                                    ///
-///   [ ] IfExpr                                                             ///
-///   [ ] InlineTryCatchExpr                                                 ///
-///   [ ] RangeExpr                                                          ///
-///   [ ] ClosureExpr                                                        ///
-///   [ ] AwaitExpr                                                          ///
-///   [ ] SpawnExpr                                                          ///
-///   [ ] ThreadExpr                                                         ///
-///   [ ] MacroInvocationExpr                                                ///
-///   [ ] SizeOfExpr                                                         ///
-///   [ ] AlignOfExpr                                                        ///
-///   [ ] TypeOfExpr                                                         ///
-///   [ ] EvalExpr                                                           ///
-///   [ ] SelfExpr                                                           ///
-///   [ ] DeleteExpr                                                         ///
-///   [ ] SubscriptExpr                                                      ///
-///   [ ] PackExpansionExpr                                                  ///
-///   [ ] DestructuringBindingExpr                                           ///
-///   [ ] MatchBindingExpr                                                   ///
-///   [ ] TypeCastExpr                                                       ///
-///   [ ] InlineBlockExpr                                                    ///
-///   [ ] ImplicitBoundaryCastExpr                                           ///
-
 import AST::ASTContext::*;
 import TokenKind::*;
 import Memory::ArenaList::*;

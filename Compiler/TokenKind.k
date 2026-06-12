@@ -97,7 +97,7 @@ enum TokenKind derives u32 {
 
     OpSemicolon         = compute_hash::<r";">(),    // ";"
     OpColon             = compute_hash::<r":">(),    // ":"
-    
+
     OpArrow             = compute_hash::<r"->">(),   // "->"
     OpArrowStar         = compute_hash::<r"->*">(),  // "->*"
     OpQuestionArrow     = compute_hash::<r"?->">(),  // "?->"   NOT (clang-comp)
@@ -266,7 +266,7 @@ enum TokenKind derives u32 {
     AtI128  = compute_hash::<r"i128">(),  // "i128"
     AtI256  = compute_hash::<r"i256">(),  // "i256"
     AtI512  = compute_hash::<r"i512">(),  // "i512"
-    
+
     ///===----------------------------------------------------------------===///
     /// # Unary keywords
     ///===----------------------------------------------------------------===///
@@ -290,18 +290,6 @@ enum TokenKind derives u32 {
     BiFunction     = compute_hash::<r"__function__">(), // "__function__"
     BiModule       = compute_hash::<r"__module__">(),   // "__module__"
     BiSelf         = compute_hash::<r"Self">(),         // "Self"
-
-    /// builtin attributes
-    BiPacked       = compute_hash::<r"packed">(),       // "packed"
-    BiUnlikely     = compute_hash::<r"unlikely">(),     // "unlikely"
-    BiLikely       = compute_hash::<r"likely">(),       // "likely"
-    BiInternal     = compute_hash::<r"internal">(),     // "internal"
-    BiExperimental = compute_hash::<r"experimental">(), // "experimental"
-    BiForceInline  = compute_hash::<r"force_inline">(), // "force_inline"
-    BiNoInline     = compute_hash::<r"no_inline">(),    // "no_inline"
-    BiDeprecated   = compute_hash::<r"deprecated">(),   // "deprecated"
-    BiMustUse      = compute_hash::<r"must_use">(),     // "must_use"
-    BiAlignAs      = compute_hash::<r"alignas">(),      // "alignas"
 };
 
 /******************************************************************************/
@@ -327,7 +315,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::OpArrowStar:        case TokenKind::OpQuestionArrow:
         case TokenKind::OpSemicolon:        case TokenKind::OpComma:
         case TokenKind::OpDotStar:          case TokenKind::OpColonColon:
-        case TokenKind::OpQuestionDotStar:  case TokenKind::BiAlignAs:
+        case TokenKind::OpQuestionDotStar:
         case TokenKind::OpEllipsis:         case TokenKind::OpPlusEqual:
         case TokenKind::OpStarEqual:        case TokenKind::OpSlashEqual:
         case TokenKind::OpAmpEqual:         case TokenKind::OpPipeEqual:
@@ -393,15 +381,15 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::BiFunction:         case TokenKind::AtVoid:
         case TokenKind::BiModule:           case TokenKind::AtBool:
         case TokenKind::KwVolatile:         case TokenKind::AtUsize:
-        case TokenKind::BiPacked:           case TokenKind::AtIsize:
-        case TokenKind::BiUnlikely:         case TokenKind::AtF32:
-        case TokenKind::BiLikely:           case TokenKind::AtF64:
-        case TokenKind::BiInternal:         case TokenKind::AtF80:
-        case TokenKind::BiExperimental:     case TokenKind::AtF128:
-        case TokenKind::BiForceInline:      case TokenKind::AtU8:
-        case TokenKind::BiNoInline:         case TokenKind::AtU16:
-        case TokenKind::BiDeprecated:       case TokenKind::AtU32:
-        case TokenKind::BiMustUse:          case TokenKind::AtU512:
+        case TokenKind::AtIsize:
+        case TokenKind::AtF32:
+        case TokenKind::AtF64:
+        case TokenKind::AtF80:
+        case TokenKind::AtF128:
+        case TokenKind::AtU8:
+        case TokenKind::AtU16:
+        case TokenKind::AtU32:
+        case TokenKind::AtU512:
         case TokenKind::AtI512:             case TokenKind::AtF256:
         case TokenKind::BiSelf:             case TokenKind::KwRequires:
         case TokenKind::KwUnion:            case TokenKind::KwVirtual:
@@ -593,16 +581,6 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::BiModule {              return "bi-module"; }
         case TokenKind::KwVolatile {            return "kw-volatile"; }
         case TokenKind::KwVirtual {             return "kw-virtual"; }
-        case TokenKind::BiPacked {              return "bi-packed"; }
-        case TokenKind::BiUnlikely {            return "bi-unlikely"; }
-        case TokenKind::BiLikely {              return "bi-likely"; }
-        case TokenKind::BiInternal {            return "bi-internal"; }
-        case TokenKind::BiExperimental {        return "bi-experimental"; }
-        case TokenKind::BiForceInline {         return "bi-force-inline"; }
-        case TokenKind::BiNoInline {            return "bi-no-inline"; }
-        case TokenKind::BiDeprecated {          return "bi-deprecated"; }
-        case TokenKind::BiMustUse {             return "bi-must-use"; }
-        case TokenKind::BiAlignAs {             return "bi-align-as"; }
     }
 
     return "tk-unknown";
@@ -781,24 +759,14 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::KwSizeOf              { return "sizeof"; }
         case TokenKind::KwAlignOf             { return "alignof"; }
         case TokenKind::KwTypeOf              { return "typeof"; }
-        case TokenKind::BiFile                { return "@__file__"; }
-        case TokenKind::BiLine                { return "@__line__"; }
-        case TokenKind::BiColumn              { return "@__column__"; }
-        case TokenKind::BiFunction            { return "@__function__"; }
-        case TokenKind::BiModule              { return "@__module__"; }
+        case TokenKind::BiFile                { return "__file__!"; }
+        case TokenKind::BiLine                { return "__line__!"; }
+        case TokenKind::BiColumn              { return "__column__!"; }
+        case TokenKind::BiFunction            { return "__function__!"; }
+        case TokenKind::BiModule              { return "__module__!"; }
         case TokenKind::BiSelf                { return "Self"; }
         case TokenKind::KwVolatile            { return "volatile"; }
         case TokenKind::KwVirtual             { return "virtual"; }
-        case TokenKind::BiPacked              { return "@packed"; }
-        case TokenKind::BiUnlikely            { return "@unlikely"; }
-        case TokenKind::BiLikely              { return "@likely"; }
-        case TokenKind::BiInternal            { return "@internal"; }
-        case TokenKind::BiExperimental        { return "@experimental"; }
-        case TokenKind::BiForceInline         { return "@force_inline"; }
-        case TokenKind::BiNoInline            { return "@no_inline"; }
-        case TokenKind::BiDeprecated          { return "@deprecated"; }
-        case TokenKind::BiMustUse             { return "@must_use"; }
-        case TokenKind::BiAlignAs             { return "@alignas"; }
         case TokenKind::KwAtomic              { return "atomic"; }
     }
 
@@ -963,15 +931,13 @@ fn is_operator(kind: TokenKind) -> bool {
 
 fn is_builtin(kind: TokenKind) -> bool {
     switch kind {
-        case TokenKind::BiFile:       case TokenKind::BiLikely:
-        case TokenKind::BiLine:       case TokenKind::BiInternal:
-        case TokenKind::BiColumn:     case TokenKind::BiExperimental:
-        case TokenKind::BiFunction:   case TokenKind::BiForceInline:
-        case TokenKind::BiModule:     case TokenKind::BiNoInline:
+        case TokenKind::BiFile:
+        case TokenKind::BiLine:
+        case TokenKind::BiColumn:
+        case TokenKind::BiFunction:
+        case TokenKind::BiModule:
         case TokenKind::BiSelf:       case TokenKind::KwVirtual:
-        case TokenKind::KwVolatile:   case TokenKind::BiDeprecated:
-        case TokenKind::BiPacked:     case TokenKind::BiMustUse:
-        case TokenKind::BiUnlikely:   case TokenKind::BiAlignAs:
+        case TokenKind::KwVolatile:
             return true;
         default:
             return false;
