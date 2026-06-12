@@ -481,6 +481,71 @@ class <T> StmtParse {
         return true;
     }
 
+    /// \brief parses a binding spec where the leading 'var'/'const' is OPTIONAL.
+    ///  Grammar:  ('var'|'const')? (binding | '(' binding (',' binding)* ')')
+    ///
+    /// \details when no leading keyword is present, bindings default to mutable
+    ///          (var). A per-element 'var'/'const' still overrides per binding.
+    ///          Unlike _parse_binding_spec, absence of a leading keyword is NOT
+    ///          an error here it's the mutable-by-default case.
+    fn _parse_binding_spec_opt(self, out: *std::StackBuf::<Binding, 4>, ctx_range: SourceRange) -> bool {
+        // leading 'var' | 'const' sets the default mutability; absent => mutable.
+        var leading_const = false;
+        if dyn()->check(TokenKind::KwVar) {
+            leading_const = false;
+            dyn()->advance();
+        } else if dyn()->check(TokenKind::KwConst) {
+            leading_const = true;
+            dyn()->advance();
+        }
+        // no else: missing keyword is fine, leading_const stays false (mutable).
+
+        // parenthesized tuple binding list
+        if dyn()->check(TokenKind::OpLParen) {
+            dyn()->advance(T::SkipNL::After); // consume `(`
+
+            if dyn()->check(TokenKind::OpRParen) {
+                dyn()->diag->report(DiagID::S058E, ctx_range.start,
+                    "empty binding list is not allowed"
+                ).first(ctx_range).emit();
+                dyn()->advance(); // consume `)`
+                return false;
+            }
+
+            while !dyn()->is_eof() {
+                var b = self._parse_binding(leading_const);
+                if (!b.is_discard) && (b.name == &null) {
+                    return false; // malformed binding element
+                }
+                out->push_back(b);
+
+                if dyn()->check(TokenKind::OpComma) {
+                    dyn()->advance(T::SkipNL::After);
+                    if dyn()->check(TokenKind::OpRParen) { break; } // trailing comma
+                    continue;
+                }
+                break;
+            }
+
+            if !dyn()->check(TokenKind::OpRParen) {
+                dyn()->diag->report(DiagID::S058E, ctx_range.start,
+                    "expected ')' to close binding list"
+                ).first(ctx_range).emit();
+                return false;
+            }
+            dyn()->advance(); // consume `)`
+            return true;
+        }
+
+        // single bare binding
+        var b = self._parse_binding(leading_const);
+        if (!b.is_discard) && (b.name == &null) {
+            return false;
+        }
+        out->push_back(b);
+        return true;
+    }
+
     /// \brief parses a single binding element.
     ///  Grammar:  ('var'|'const')? ('unsafe'? '*')? (identifier | '_') '?'?
     ///
@@ -860,7 +925,7 @@ class <T> StmtParse {
         var saved = dyn()->tentative_begin();
 
         var bindings: std::StackBuf::<Binding, 4>;
-        var spec_ok = self._parse_binding_spec(&bindings, start_range);
+        var spec_ok = self._parse_binding_spec_opt(&bindings, start_range);
 
         if spec_ok && dyn()->check(TokenKind::KwIn) {
             // -- ranged form ------------------------------------------
@@ -980,7 +1045,7 @@ class <T> StmtParse {
     /// \details precondition: current token is `match`. The scrutinee is parsed
     ///          with struct-literal suppression. Cases are collected until `}`.
     ///          Pattern parsing delegates to _parse_pattern (currently a stub).
-    priv fn _parse_match(self) -> *Stmt {
+    pub fn _parse_match(self) -> *Stmt {
         var start_range = dyn()->current_ptr()->range;
 
         if !dyn()->enter_depth() {
@@ -1088,10 +1153,7 @@ class <T> StmtParse {
 
         while !dyn()->is_eof() {
             var p = self._parse_pattern();
-            // _parse_pattern is a stub returning null; once PatternParse lands
-            // this becomes a real node. We still parse the arm structure.
             pats.push_back(p);
-
             if dyn()->check(TokenKind::OpComma) {
                 dyn()->advance(T::SkipNL::After);
                 continue;
@@ -1129,22 +1191,7 @@ class <T> StmtParse {
     ///          returns null. Replace with a real `dyn()->parse_pattern()`
     ///          call once PatternParse exists.
     priv fn _parse_pattern(self) -> *Pattern {
-        // FIXME(PatternParse): real pattern parsing.
-        var guard_iters: u32 = 0;
-        const var MAX: u32 = 64;
-        while (!dyn()->is_eof()) && guard_iters < MAX {
-            ++guard_iters;
-            var k = dyn()->current().kind;
-            if k == TokenKind::OpComma
-            || k == TokenKind::KwWhere
-            || k == TokenKind::OpLBrace
-            || k == TokenKind::OpRBrace
-            || k == TokenKind::TkNewLine {
-                break;
-            }
-            dyn()->advance();
-        }
-        return &null;
+        return dyn()->parse_pattern();
     }
 
     // ========================================================================
@@ -1672,7 +1719,7 @@ class <T> StmtParse {
         if txt.text == "wgsl"   { return InlineLang::Wgsl;   }
         if txt.text == "glsl"   { return InlineLang::Glsl;   }
         if txt.text == "kairo"  { return InlineLang::Kairo;  }
-        
+
         if txt.text == "Asm"    { return InlineLang::Asm;    }
         if txt.text == "C"      { return InlineLang::C;      }
         if txt.text == "Cpp"    { return InlineLang::Cpp;    }
@@ -1702,12 +1749,12 @@ class <T> StmtParse {
         if txt.text == "cxx"    { return InlineLang::Cpp;    }
         if txt.text == "Cxx"    { return InlineLang::Cpp;    }
         if txt.text == "CXX"    { return InlineLang::Cpp;    }
-        
+
         if txt.text == "c++"    { return InlineLang::Cpp;    }
         if txt.text == "C++"    { return InlineLang::Cpp;    }
 
         dyn()->diag->report(DiagID::S060W, ctx_range.start,
-            f"unknown inline foreign language '{txt.text}'; falling back to 'c++'"
+            f"unknown inline foreign language '{txt.text}'; falling back to 'c++' "
         ).first(ctx_range).emit();
         return InlineLang::Cpp;
     }

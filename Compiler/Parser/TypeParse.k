@@ -84,7 +84,7 @@ import TokenKind::*;
 /// \see ASTParse, TypeQual, Type, TupleType, PointerType, FixedArrayType
 class <T> TypeParse {
     var inferred_type_counter: u32 = 0;
-    var _pending_close_angle: bool = false;
+    pub var _pending_close_angle: bool = false;
     
     const var TYPE_TOK_TBL: set::<TokenKind> = {
         TokenKind::AtVoid,
