@@ -440,12 +440,9 @@ class StmtPrinter {
             self._buf += "default ";
         } else {
             self._buf += "case ";
-            // patterns delegate to PatternPrinter once it exists; for now
-            // show count so structure is visible.
-            if self._style == PrintStyle::Debug {
-                self._buf += f"<{mc.patterns.size()} pattern(s)>";
-            } else {
-                self._buf += "<pattern>";
+            for var i: usize = 0; i < mc.patterns.size(); ++i {
+                if i > 0 { self._buf += ", "; }
+                self._buf += PatternPrinter::print(*(mc.patterns.get(i)), self._style);
             }
             if mc.guard != &null {
                 self._buf += " where ";

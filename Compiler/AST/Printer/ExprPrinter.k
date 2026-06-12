@@ -14,10 +14,34 @@
 import ASTNode::Base::*;
 import ASTNode::PrimaryExpressions::*;
 import ASTNode::Expressions::*;
+import ASTNode::Patterns::*;
 import ASTNode::Types::*;
 import ASTNode::Casting::*;
 import AST::Printer::TypePrinter::*;
 import TokenKind::*;
+
+class PatternPrinter {
+    var _buf:    string;
+    var _style:  PrintStyle;
+    var _indent: u32;
+
+    static fn print(pat: *Pattern, style: PrintStyle = PrintStyle::Diagnostic) -> string;
+    priv fn _expr(self, e: *Expr);
+    priv fn _type(self, t: *Type);
+    priv fn _name(self, tok: Token) -> string;
+    priv fn _list(self, pats: FrozenList::<*Pattern>);
+    priv fn _print(self, pat: *Pattern);
+    priv fn _print_recovery(self, pat: *Pattern);
+    priv fn _print_wildcard(self, pat: *WildcardPattern);
+    priv fn _print_literal(self, pat: *LiteralPattern);
+    priv fn _print_binding(self, pat: *BindingPattern);
+    priv fn _print_tuple(self, pat: *TupleDestructurePattern);
+    priv fn _print_ctor(self, pat: *ConstructorPattern);
+    priv fn _print_unresolved_ctor(self, pat: *UnresolvedConstructorPattern);
+    priv fn _print_alternation(self, pat: *AlternationPattern);
+    priv fn _print_range(self, pat: *RangePattern);
+    priv fn _print_slice(self, pat: *SlicePattern);
+}
 
 class ExprPrinter {
     var _buf:   string;
@@ -89,6 +113,7 @@ class ExprPrinter {
         if isa::<ImplConformanceExpr>(expr)   { self._print_impl_conf(cast::<ImplConformanceExpr>(expr));    return; }
         if isa::<DerivesRelationExpr>(expr)   { self._print_derives_rel(cast::<DerivesRelationExpr>(expr));  return; }
         if isa::<ImplicitBoundaryCastExpr>(expr) { self._print_boundary_cast(cast::<ImplicitBoundaryCastExpr>(expr)); return; }
+        if isa::<MatchExpr>(expr)                { self._print_match(cast::<MatchExpr>(expr));                  return; }
 
         self._buf += (f"<unknown expr kind={static_cast::<u32>(expr->kind)}>")
             if (self._style == PrintStyle::Debug)
@@ -695,4 +720,259 @@ class ExprPrinter {
             self._print(expr->original);
         }
     }
+
+    // -- Match expression --------------------------------------------
+
+    priv fn _print_match(self, expr: *MatchExpr) {
+        if self._style == PrintStyle::Debug {
+            self._buf += "match_expr(";
+            self._print(expr->scrutinee);
+            self._buf += f", cases={expr->cases.size()}";
+            for var i: usize = 0; i < expr->cases.size(); ++i {
+                self._buf += ", ";
+                self._print_match_case(*(expr->cases.get(i)));
+            }
+            self._buf += ")";
+        } else {
+            self._buf += "match ";
+            self._print(expr->scrutinee);
+            self._buf += " { ";
+            for var i: usize = 0; i < expr->cases.size(); ++i {
+                if i > 0 { self._buf += " "; }
+                self._print_match_case(*(expr->cases.get(i)));
+            }
+            self._buf += " }";
+        }
+    }
+
+    priv fn _print_match_case(self, mc: MatchCase) {
+        if mc.is_default {
+            self._buf += "default ";
+        } else {
+            self._buf += "case ";
+            for var i: usize = 0; i < mc.patterns.size(); ++i {
+                if i > 0 { self._buf += ", "; }
+                self._buf += PatternPrinter::print(*(mc.patterns.get(i)), self._style);
+            }
+            if mc.guard != &null {
+                self._buf += " where ";
+                self._print(mc.guard);
+            }
+            self._buf += " ";
+        }
+
+        // expression-form body: print the value expr. Fall back to body block
+        // if (defensively) expression is null but body isn't.
+        self._buf += "{ ";
+        if mc.expression != &null {
+            self._print(mc.expression);
+        }
+        self._buf += " }";
+    }
+}
+
+fn PatternPrinter::print(pat: *Pattern, style: PrintStyle) -> string {
+    var p     = PatternPrinter{};
+    p._style  = style;
+    p._buf    = "";
+    p._indent = 0;
+    p._print(pat);
+    return p._buf;
+}
+
+// -- Delegation helpers ------------------------------------------
+
+fn PatternPrinter::_expr(e: *Expr) { self._buf += ExprPrinter::print(e, self._style); }
+fn PatternPrinter::_type(t: *Type) { self._buf += TypePrinter::print(t, self._style); }
+
+fn PatternPrinter::_name(tok: Token) -> string {
+    return ExprPrinter::tok_spelling(tok);
+}
+
+fn PatternPrinter::_list(pats: FrozenList::<*Pattern>) {
+    for var i: usize = 0; i < pats.size(); ++i {
+        if i > 0 { self._buf += ", "; }
+        self._print(*(pats.get(i)));
+    }
+}
+
+// -- Core dispatch -----------------------------------------------
+
+fn PatternPrinter::_print(pat: *Pattern) {
+    if pat == &null {
+        self._buf += ("<null>") if (self._style == PrintStyle::Debug) else ("<error>");
+        return;
+    }
+
+    if pat->is_error() {
+        self._print_recovery(pat);
+        return;
+    }
+
+    if isa::<WildcardPattern>(pat)              { self._print_wildcard(cast::<WildcardPattern>(pat));                       return; }
+    if isa::<LiteralPattern>(pat)               { self._print_literal(cast::<LiteralPattern>(pat));                        return; }
+    if isa::<BindingPattern>(pat)               { self._print_binding(cast::<BindingPattern>(pat));                        return; }
+    if isa::<TupleDestructurePattern>(pat)      { self._print_tuple(cast::<TupleDestructurePattern>(pat));                 return; }
+    if isa::<ConstructorPattern>(pat)           { self._print_ctor(cast::<ConstructorPattern>(pat));                       return; }
+    if isa::<UnresolvedConstructorPattern>(pat) { self._print_unresolved_ctor(cast::<UnresolvedConstructorPattern>(pat));  return; }
+    if isa::<AlternationPattern>(pat)           { self._print_alternation(cast::<AlternationPattern>(pat));                return; }
+    if isa::<RangePattern>(pat)                 { self._print_range(cast::<RangePattern>(pat));                            return; }
+    if isa::<SlicePattern>(pat)                 { self._print_slice(cast::<SlicePattern>(pat));                            return; }
+
+    self._buf += (f"<unknown pattern kind={static_cast::<u32>(pat->kind)}>")
+        if (self._style == PrintStyle::Debug)
+        else "<error>";
+}
+
+// -- Recovery ----------------------------------------------------
+
+fn PatternPrinter::_print_recovery(pat: *Pattern) {
+    if self._style == PrintStyle::Debug {
+        self._buf += f"<recovery:{static_cast::<u32>(pat->recovery_kind)}>";
+    } else {
+        self._buf += "<error>";
+    }
+}
+
+// -- Wildcard  `_` -----------------------------------------------
+
+fn PatternPrinter::_print_wildcard(pat: *WildcardPattern) {
+    self._buf += ("wildcard(_)") if (self._style == PrintStyle::Debug) else ("_");
+}
+
+// -- Literal  `1` | `"foo"` | `true` -----------------------------
+
+fn PatternPrinter::_print_literal(pat: *LiteralPattern) {
+    if self._style == PrintStyle::Debug {
+        self._buf += "lit(";
+        self._expr(pat->value);
+        self._buf += ")";
+    } else {
+        self._expr(pat->value);
+    }
+}
+
+// -- Binding  `var x` | `const x` | `var x: T` -------------------
+
+fn PatternPrinter::_print_binding(pat: *BindingPattern) {
+    if self._style == PrintStyle::Debug {
+        self._buf += "bind(";
+        self._buf += ("const ") if (pat->is_const) else ("var ");
+        self._buf += self._name(pat->name);
+        if pat->type_ != &null {
+            self._buf += ": ";
+            self._type(pat->type_);
+        }
+        self._buf += ")";
+    } else {
+        self._buf += ("const ") if (pat->is_const) else ("var ");
+        self._buf += self._name(pat->name);
+        if pat->type_ != &null {
+            self._buf += ": ";
+            self._type(pat->type_);
+        }
+    }
+}
+
+// -- Tuple  `(p, p, ...)` ----------------------------------------
+
+fn PatternPrinter::_print_tuple(pat: *TupleDestructurePattern) {
+    if self._style == PrintStyle::Debug { self._buf += "tuple"; }
+    self._buf += "(";
+    self._list(pat->elements);
+    self._buf += ")";
+}
+
+// -- Constructor  `Foo(...)` | `.Variant(...)` -------------------
+
+fn PatternPrinter::_print_ctor(pat: *ConstructorPattern) {
+    if self._style == PrintStyle::Debug { self._buf += "ctor("; }
+
+    if pat->is_dotted {
+        self._buf += ".";
+        self._buf += self._name(pat->dotted_name);
+    } else if pat->head != &null {
+        self._expr(pat->head);
+    }
+
+    if pat->has_parens {
+        self._buf += "(";
+        self._list(pat->subpatterns);
+        self._buf += ")";
+    }
+
+    if self._style == PrintStyle::Debug { self._buf += ")"; }
+}
+
+// -- Unresolved constructor  `Foo(...)` (lookup miss) ------------
+
+fn PatternPrinter::_print_unresolved_ctor(pat: *UnresolvedConstructorPattern) {
+    if self._style == PrintStyle::Debug { self._buf += "unresolved_ctor("; }
+
+    if pat->head != &null {
+        self._expr(pat->head);
+    }
+
+    if pat->has_parens {
+        self._buf += "(";
+        self._list(pat->subpatterns);
+        self._buf += ")";
+    }
+
+    if self._style == PrintStyle::Debug { self._buf += ")"; }
+}
+
+// -- Alternation  `p | p | p`  (reserved) ------------------------
+
+fn PatternPrinter::_print_alternation(pat: *AlternationPattern) {
+    if self._style == PrintStyle::Debug { self._buf += "alt("; }
+    for var i: usize = 0; i < pat->alternatives.size(); ++i {
+        if i > 0 { self._buf += " | "; }
+        self._print(*(pat->alternatives.get(i)));
+    }
+    if self._style == PrintStyle::Debug { self._buf += ")"; }
+}
+
+// -- Range  `lo..hi` | `lo..=hi` | `..hi` | `lo..` ---------------
+
+fn PatternPrinter::_print_range(pat: *RangePattern) {
+    if self._style == PrintStyle::Debug { self._buf += "range("; }
+
+    if pat->lo != &null { self._expr(pat->lo); }
+    self._buf += ("..=") if (pat->is_inclusive) else ("..");
+    if pat->hi != &null { self._expr(pat->hi); }
+
+    if self._style == PrintStyle::Debug { self._buf += ")"; }
+}
+
+// -- Slice  `[p, p, ..rest]` -------------------------------------
+
+fn PatternPrinter::_print_slice(pat: *SlicePattern) {
+    if self._style == PrintStyle::Debug { self._buf += "slice"; }
+    self._buf += "[";
+
+    var first = true;
+    for var i: usize = 0; i < pat->prefix.size(); ++i {
+        if !first { self._buf += ", "; }
+        self._print(*(pat->prefix.get(i)));
+        first = false;
+    }
+
+    if pat->has_rest {
+        if !first { self._buf += ", "; }
+        self._buf += "..";
+        if pat->rest_binding != &null {
+            // rest_binding is a BindingPattern; print just its name part.
+            self._print(pat->rest_binding);
+        }
+        first = false;
+    }
+
+    for var i: usize = 0; i < pat->suffix.size(); ++i {
+        if !first { self._buf += ", "; }
+        self._print(*(pat->suffix.get(i)));
+        first = false;
+    }
+
+    self._buf += "]";
 }
