@@ -33,163 +33,6 @@ import AST::ASTContext::*;
 import AST::Support::*;
 
 ///
-///  ChainExpr
-///  Pure access chain: field access, scope resolution, pointer member access,
-///  safe-navigation, and generic instantiation on accessed names.
-///
-///  No calls, no subscripts those are separate nodes (CallExpr, SubscriptExpr)
-///  that wrap this as their base/callee.
-///
-///  examples:
-///    foo.bar         base=NamedIdentExpr("foo"), 1 step (Dot, "bar")
-///    foo::bar::baz   base=NamedIdentExpr("foo"), 2 steps (ColonColon)
-///    foo::bar::<T>   base=NamedIdentExpr("foo"), 1 step with generic_args
-///    foo?.bar->baz   base=NamedIdentExpr("foo"), 2 steps (QuestionDot, Arrow)
-///    ::std::print    base=null (global root), 2 steps (ColonColon)
-///    (expr).field    base=any Expr, 1 step (Dot)
-///
-class ChainExpr derives Expr {
-    /// \enum AccessKind
-    /// \brief the separator/operator for an access step.
-    enum AccessKind derives u8 {
-        Dot,               ///< `.`
-        Arrow,             ///< `->`
-        ColonColon,        ///< `::`
-        QuestionDot,       ///< `?.`
-        QuestionArrow,     ///< `?->`
-        DotStar,           ///< `.*`
-        ArrowStar,         ///< `->*`
-        QuestionDotStar,   ///< `?.*`
-        QuestionArrowStar, ///< `?->*`
-    }
-
-    /// \struct Step
-    /// \brief a single access operation in the chain.
-    struct Step {
-        /// the identifier being accessed.
-        var name:          *NamedIdentExpr;
-
-        /// generic arguments on this step, e.g. `bar::<i32, bool>`.
-        /// empty if no generic args. reuses GenericArg from ChainType.
-        var generic_args:  FrozenList::<ChainType::GenericArg>;
-
-        /// source range covering the separator and the identifier.
-        var range:         SourceRange;
-
-        /// the access operator used to reach this step.
-        var access_kind:   AccessKind;
-
-        /// resolved type of this step's result. set by sema, null before.
-        var resolved_type: *Type;
-
-        /// resolved declaration this step refers to. set by sema, null before.
-        var resolved_decl: *Decl;
-
-        /// true if sema resolved this as a UFCS call (extension method).
-        var is_ufcs:       bool = false;
-    }
-
-    /// the root expression of the chain. any primary expression.
-    /// null only for global-root paths (`::std::print`).
-    pub var base:  *Expr;
-
-    /// zero or more postfix access operations.
-    pub var steps: FrozenList::<Step>;
-
-    static fn create(
-        ctx:   *ASTContext,
-        range: SourceRange,
-        base:  *Expr
-    ) -> *ChainExpr {
-        var node    = ctx->alloc::<ChainExpr>();
-        node->kind  = ExprKind::ChainExpr;
-        node->range = range;
-        node->base  = base;
-        node->annotations.set_allocator(&(ctx->nodes));
-        return node;
-    }
-
-    /// global-root chain: `::std::print` no base expression.
-    static fn create_global(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *ChainExpr {
-        var node    = ctx->alloc::<ChainExpr>();
-        node->kind  = ExprKind::ChainExpr;
-        node->range = range;
-        node->base  = &null;
-        node->annotations.set_allocator(&(ctx->nodes));
-        return node;
-    }
-
-    static fn create_error(
-        ctx:   *ASTContext,
-        range: SourceRange
-    ) -> *ChainExpr {
-        var node            = ctx->alloc::<ChainExpr>();
-        node->kind          = ExprKind::RecoveryExpr;
-        node->recovery_kind = ExprKind::ChainExpr;
-        node->range         = range;
-        node->base          = &null;
-        node->annotations.set_allocator(&(ctx->nodes));
-        return node;
-    }
-
-    static fn classof(ptr: *Expr) -> bool {
-        return ptr->kind == ExprKind::ChainExpr;
-    }
-
-    static fn expr_kind() -> ExprKind {
-        return ExprKind::ChainExpr;
-    }
-
-    /// true if the chain has no base (global-root path `::foo`).
-    fn is_global_root(self) -> bool {
-        return (self.base == &null) && (!self.steps.is_empty());
-    }
-
-    /// true if any step uses optional chaining operators.
-    fn has_optional_chaining(self) -> bool {
-        return self.steps.any(fn(s: *Step) -> bool {
-            return (s->access_kind == AccessKind::QuestionDot)
-                || (s->access_kind == AccessKind::QuestionArrow)
-                || (s->access_kind == AccessKind::QuestionDotStar)
-                || (s->access_kind == AccessKind::QuestionArrowStar);
-        });
-    }
-
-    /// true if the chain is purely scope resolution (`::` only).
-    fn is_scope_path(self) -> bool {
-        return self.steps.all(fn(s: *Step) -> bool {
-            return s->access_kind == AccessKind::ColonColon;
-        });
-    }
-
-    /// true if any step carries generic arguments.
-    fn has_generic_args(self) -> bool {
-        return self.steps.any(fn(s: *Step) -> bool {
-            return !s->generic_args.is_empty();
-        });
-    }
-
-    /// returns the identifier of the final step, or null if steps is empty.
-    fn trailing_name(self) -> *NamedIdentExpr {
-        if self.steps.is_empty() { return &null; }
-        return self.steps.get(self.steps.size() - 1)->name;
-    }
-
-    /// returns the base as a NamedIdentExpr if it is one, or null.
-    fn leading_name(self) -> *NamedIdentExpr {
-        if self.base == &null { return &null; }
-        if isa::<NamedIdentExpr>(self.base) {
-            return cast::<NamedIdentExpr>(self.base);
-        }
-
-        return &null;
-    }
-}
-
-///
 ///  CallExpr
 ///  expr(args) function call, method call, constructor call.
 ///  Callee is any expression. Separate from ChainExpr so sema can resolve
@@ -901,6 +744,42 @@ class TryCatchExpr derives Expr {
     }
     /* OVERRIDE */ static fn expr_kind() -> ExprKind {
         return ExprKind::TryCatchExpr;
+    }
+}
+
+///  MatchExpr :  match scrutinee { (case pattern.. (where guard)? { expr })+ }
+///
+///  Expression-form match. Each case yields a single value expression (held in
+///  MatchCase.expression; body stays null in expr form). Exhaustiveness is a
+///  sema concern. The scrutinee is the matched operand.
+class MatchExpr derives Expr {
+    pub var scrutinee: *Expr = &null;
+    pub var cases:     FrozenList::<MatchCase>;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, scrutinee: *Expr) -> *MatchExpr {
+        var node        = ctx->alloc::<MatchExpr>();
+        node->kind       = ExprKind::MatchExpr;
+        node->range      = range;
+        node->scrutinee  = scrutinee;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *MatchExpr {
+        var node            = ctx->alloc::<MatchExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::MatchExpr;
+        node->range         = range;
+        node->scrutinee     = &null;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::MatchExpr;
+    }
+    /* OVERRIDE */ static fn expr_kind() -> ExprKind {
+        return ExprKind::MatchExpr;
     }
 }
 

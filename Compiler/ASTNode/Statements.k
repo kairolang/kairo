@@ -87,25 +87,6 @@ struct CatchArm {
 }
 
 ///
-///  MatchCase
-///
-///  One case of a `match` statement:
-///    `case 1, 2, 3 { }`                    -> patterns = [1,2,3]
-///    `case .Found(var k) where k > 0 { }`  -> one pattern + guard
-///    `default { }`                         -> is_default, patterns empty
-///
-///  `patterns` holds the comma-separated alternatives that share one body
-///  (Kairo has no fall-through; comma is the only way to share a body).
-///
-struct MatchCase {
-    var patterns:   FrozenList::<*Pattern>; ///< empty when is_default.
-    var guard:      *Expr;                  ///< optional `where` guard; null if none.
-    var body:       *CompoundStmt;
-    var range:      SourceRange;
-    var is_default: bool;
-}
-
-///
 ///  Destructure kind discriminator for DestructuringDeclStmt.
 ///
 enum DestructureKind derives u8 {

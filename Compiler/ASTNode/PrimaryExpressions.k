@@ -16,6 +16,7 @@
 import ASTNode::Base::*;
 import AST::ASTContext::*;
 import AST::Support::*;
+import ASTNode::Casting::*;
 
 class NamedIdentExpr; // forward decl for ChainType segments
 
@@ -240,6 +241,163 @@ class NamedIdentExpr derives Expr {
 
     fn get_name(self) -> TokenText {
         return TokenText::from_token(self.name, self.ctx);
+    }
+}
+
+///
+///  ChainExpr
+///  Pure access chain: field access, scope resolution, pointer member access,
+///  safe-navigation, and generic instantiation on accessed names.
+///
+///  No calls, no subscripts those are separate nodes (CallExpr, SubscriptExpr)
+///  that wrap this as their base/callee.
+///
+///  examples:
+///    foo.bar         base=NamedIdentExpr("foo"), 1 step (Dot, "bar")
+///    foo::bar::baz   base=NamedIdentExpr("foo"), 2 steps (ColonColon)
+///    foo::bar::<T>   base=NamedIdentExpr("foo"), 1 step with generic_args
+///    foo?.bar->baz   base=NamedIdentExpr("foo"), 2 steps (QuestionDot, Arrow)
+///    ::std::print    base=null (global root), 2 steps (ColonColon)
+///    (expr).field    base=any Expr, 1 step (Dot)
+///
+class ChainExpr derives Expr {
+    /// \enum AccessKind
+    /// \brief the separator/operator for an access step.
+    enum AccessKind derives u8 {
+        Dot,               ///< `.`
+        Arrow,             ///< `->`
+        ColonColon,        ///< `::`
+        QuestionDot,       ///< `?.`
+        QuestionArrow,     ///< `?->`
+        DotStar,           ///< `.*`
+        ArrowStar,         ///< `->*`
+        QuestionDotStar,   ///< `?.*`
+        QuestionArrowStar, ///< `?->*`
+    }
+
+    /// \struct Step
+    /// \brief a single access operation in the chain.
+    struct Step {
+        /// the identifier being accessed.
+        var name:          *NamedIdentExpr;
+
+        /// generic arguments on this step, e.g. `bar::<i32, bool>`.
+        /// empty if no generic args. reuses GenericArg from ChainType.
+        var generic_args:  FrozenList::<ChainType::GenericArg>;
+
+        /// source range covering the separator and the identifier.
+        var range:         SourceRange;
+
+        /// the access operator used to reach this step.
+        var access_kind:   AccessKind;
+
+        /// resolved type of this step's result. set by sema, null before.
+        var resolved_type: *Type;
+
+        /// resolved declaration this step refers to. set by sema, null before.
+        var resolved_decl: *Decl;
+
+        /// true if sema resolved this as a UFCS call (extension method).
+        var is_ufcs:       bool = false;
+    }
+
+    /// the root expression of the chain. any primary expression.
+    /// null only for global-root paths (`::std::print`).
+    pub var base:  *Expr;
+
+    /// zero or more postfix access operations.
+    pub var steps: FrozenList::<Step>;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        base:  *Expr
+    ) -> *ChainExpr {
+        var node    = ctx->alloc::<ChainExpr>();
+        node->kind  = ExprKind::ChainExpr;
+        node->range = range;
+        node->base  = base;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    /// global-root chain: `::std::print` no base expression.
+    static fn create_global(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *ChainExpr {
+        var node    = ctx->alloc::<ChainExpr>();
+        node->kind  = ExprKind::ChainExpr;
+        node->range = range;
+        node->base  = &null;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *ChainExpr {
+        var node            = ctx->alloc::<ChainExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ChainExpr;
+        node->range         = range;
+        node->base          = &null;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::ChainExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::ChainExpr;
+    }
+
+    /// true if the chain has no base (global-root path `::foo`).
+    fn is_global_root(self) -> bool {
+        return (self.base == &null) && (!self.steps.is_empty());
+    }
+
+    /// true if any step uses optional chaining operators.
+    fn has_optional_chaining(self) -> bool {
+        return self.steps.any(fn(s: *Step) -> bool {
+            return (s->access_kind == AccessKind::QuestionDot)
+                || (s->access_kind == AccessKind::QuestionArrow)
+                || (s->access_kind == AccessKind::QuestionDotStar)
+                || (s->access_kind == AccessKind::QuestionArrowStar);
+        });
+    }
+
+    /// true if the chain is purely scope resolution (`::` only).
+    fn is_scope_path(self) -> bool {
+        return self.steps.all(fn(s: *Step) -> bool {
+            return s->access_kind == AccessKind::ColonColon;
+        });
+    }
+
+    /// true if any step carries generic arguments.
+    fn has_generic_args(self) -> bool {
+        return self.steps.any(fn(s: *Step) -> bool {
+            return !s->generic_args.is_empty();
+        });
+    }
+
+    /// returns the identifier of the final step, or null if steps is empty.
+    fn trailing_name(self) -> *NamedIdentExpr {
+        if self.steps.is_empty() { return &null; }
+        return self.steps.get(self.steps.size() - 1)->name;
+    }
+
+    /// returns the base as a NamedIdentExpr if it is one, or null.
+    fn leading_name(self) -> *NamedIdentExpr {
+        if self.base == &null { return &null; }
+        if isa::<NamedIdentExpr>(self.base) {
+            return cast::<NamedIdentExpr>(self.base);
+        }
+
+        return &null;
     }
 }
 
@@ -843,4 +1001,24 @@ class CompoundStmt derives Stmt {
     /* OVERRIDE */ static fn stmt_kind() -> StmtKind {
         return StmtKind::CompoundStmt;
     }
+}
+
+///
+///  MatchCase
+///
+///  One case of a `match` statement:
+///    `case 1, 2, 3 { }`                    -> patterns = [1,2,3]
+///    `case .Found(var k) where k > 0 { }`  -> one pattern + guard
+///    `default { }`                         -> is_default, patterns empty
+///
+///  `patterns` holds the comma-separated alternatives that share one body
+///  (Kairo has no fall-through; comma is the only way to share a body).
+///
+struct MatchCase {
+    var patterns:   FrozenList::<*Pattern>; ///< empty when is_default.
+    var guard:      *Expr;                  ///< optional `where` guard; null if none.
+    var body:       *CompoundStmt;
+    var expression: *Expr;                  ///< expr only path invalidates the body.
+    var range:      SourceRange;
+    var is_default: bool;
 }
