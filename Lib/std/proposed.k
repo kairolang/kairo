@@ -110,7 +110,7 @@ module core {
 
         fn realloc(self, ptr: *void, old_size: usize, new_size: usize, align: usize) -> bool {
             if align > __builtin_max_align() {
-                // aligned realloc: alloc new, copy, free old — caller handles via try_realloc
+                // aligned realloc: alloc new, copy, free old caller handles via try_realloc
                 // crashing variant assumes in-place; if we can't guarantee it, abort
                 __builtin_crash("LibcAllocator: aligned realloc cannot guarantee in-place", 1)
             }
@@ -227,4 +227,156 @@ module std {
             return mem as *T
         }
     }
+}
+
+
+module std {
+    ///
+    ///   Storage strategy for `Nullable<T>` (the desugaring of `T?`). Three
+    ///   specializations selected by `requires`:
+    ///     * safe-pointer T  -> niche-filled, null == 0x0, no tag, sizeof(T).
+    ///     * niche-capable T  -> niche-filled in a spare bit pattern (e.g. bool).
+    ///     * everything else  -> tagged { value; present } fallback.
+    ///
+    ///   This type exposes ONLY primitives. The surface operators `?`, `?.`, `??`,
+    ///   and the `unwrap!()` macro are sema desugarings (see lang spec) that call
+    ///   these primitives. `__value()` does NOT null-check; callers (the desugars)
+    ///   gate it with `is_null()` or a narrowing proof.
+    ///
+
+    eval fn <T> is_safe_pointer_t()                          -> bool = false
+    eval fn     is_safe_pointer_t<*T>()                      -> bool = true
+    eval fn     is_safe_pointer_t<const *T>()                -> bool = true
+    eval fn     is_safe_pointer_t<*const T>()                -> bool = true
+    eval fn     is_safe_pointer_t<volatile *T>()             -> bool = true
+    eval fn     is_safe_pointer_t<const volatile *T>()       -> bool = true
+    eval fn     is_safe_pointer_t<const *const T>()          -> bool = true
+    eval fn     is_safe_pointer_t<const volatile *const T>() -> bool = true
+
+    eval fn <T> is_unsafe_pointer_t()                                 -> bool = false
+    eval fn     is_unsafe_pointer_t<unsafe *T>()                      -> bool = true
+    eval fn     is_unsafe_pointer_t<unsafe const *T>()                -> bool = true
+    eval fn     is_unsafe_pointer_t<unsafe *const T>()                -> bool = true
+    eval fn     is_unsafe_pointer_t<unsafe volatile *T>()             -> bool = true
+    eval fn     is_unsafe_pointer_t<unsafe const volatile *T>()       -> bool = true
+    eval fn     is_unsafe_pointer_t<unsafe const *const T>()          -> bool = true
+    eval fn     is_unsafe_pointer_t<unsafe const volatile *const T>() -> bool = true
+
+    //  Default: tagged fallback. Unconstrained, matches any T with no niche.
+    //  (A more-specialized specialization wins when its `requires` holds.)
+    struct <T> NullableStorage {
+        var value:   T
+        var present: bool
+    }
+    
+    //  NOTE: there is deliberately no @packed tagged specialization. Kairo follows
+    //  C++ layout rules, so a non-@packed T already has sizeof(T) % alignof(T) == 0.
+    //  For align-1 T, the tagged { value; present } is identical packed or not.
+    //  For align>1 T, packing would save bytes only by misaligning `value` in
+    //  aggregates, a hidden access cost we don't impose by default. A user who
+    //  wants the packed layout expresses it with @packed at their own declaration.
+    extend <T> NullableStorage {
+        @copy
+        inline fn NullableStorage(self, other: Self) {
+            self.value = other.value; self.present = other.present
+        }
+        inline fn NullableStorage(self, value: T) { self.value = value; self.present = true }
+        inline fn NullableStorage(self)            { self.value = T(); self.present = false }
+
+        inline static fn null() -> NullableStorage<T> = NullableStorage()
+
+        inline fn is_null(self) -> bool = !self.present
+
+        /// UNCHECKED. Precondition: !is_null(). Sema-only call site.
+        inline fn __value(self) -> T = self.value
+
+        inline fn op == (self, other: Self) -> bool =
+            self.present == other.present && ((!self.present) || self.value == other.value)
+        inline fn op != (self, other: Self) -> bool = !(self == other)
+    }
+
+    //  Safe-pointer specialization: niche-filled. null == 0x0. No tag. sizeof(P).
+    @kairo::__intrinsic_always_safe()   // suppress AMT on the raw-pointer slot; std-only
+    struct <> NullableStorage<P>
+      requires is_safe_pointer_t<P>() {
+        priv var ptr: unsafe P       // holds P's bits raw; 0x0 == None
+    }
+
+    @kairo::__intrinsic_always_safe()
+    extend <> NullableStorage<P>
+      requires is_safe_pointer_t<P>() {
+        @copy
+        inline fn NullableStorage(self, other: Self) { self.ptr = other.ptr }
+        inline fn NullableStorage(self, value: P)    { self.ptr = value as unsafe P }
+        inline fn NullableStorage(self)              { self.ptr = 0x0 as unsafe P }
+
+        inline static fn null() -> NullableStorage<P> = NullableStorage()
+
+        inline fn is_null(self) -> bool = self.ptr == (0x0 as unsafe P)
+
+        /// UNCHECKED. Precondition: !is_null(). Reinterprets the raw slot as the
+        /// non-null P. Sema-only call site; the desugar/narrowing proves non-null.
+        inline fn __value(self) -> P = self.ptr as P
+
+        inline fn op == (self, other: Self) -> bool = self.ptr == other.ptr
+        inline fn op != (self, other: Self) -> bool = self.ptr != other.ptr
+    }
+
+    //  bool specialization: niche in the spare bit patterns (bool uses 0/1).
+    //  INVALID (0x02) is the None pattern. One byte, no tag.
+    @kairo::__intrinsic_always_safe()
+    struct <> NullableStorage<bool> {
+        priv var byte: u8   // 0x00 == Some(false), 0x01 == Some(true), 0x02 == None
+    }
+
+    @kairo::__intrinsic_always_safe()
+    extend <> NullableStorage<bool> {
+        eval INVALID: u8 = 0x02
+
+        @copy
+        inline fn NullableStorage(self, other: Self) { self.byte = other.byte }
+        inline fn NullableStorage(self, value: bool) { self.byte = value as u8 }   // 0/1
+        inline fn NullableStorage(self)              { self.byte = INVALID }
+
+        inline static fn null() -> NullableStorage<bool> = NullableStorage()
+
+        inline fn is_null(self) -> bool = self.byte == INVALID
+
+        /// UNCHECKED. Precondition: !is_null(). byte is 0 or 1 here.
+        inline fn __value(self) -> bool = self.byte != 0x00
+
+        inline fn op == (self, other: Self) -> bool = self.byte == other.byte
+        inline fn op != (self, other: Self) -> bool = self.byte != other.byte
+    }
+
+    // the ONE user-facing type, methods live here, storage delegated.
+    struct <T> Nullable {
+        var storage: NullableStorage<T>
+
+        fn is_null(self) -> bool  { return self.storage.is_null(); }
+        fn unwrap(self) -> T      { /* panic if null, else return value */ }
+        // map, unwrap_or, ?? lowering, etc.
+    }
+}
+
+class Foo {
+    var data: i32?
+
+    fn Foo() = default
+
+    fn change_data(self) {
+        self.data = null
+    }
+
+    fn make_data(self) {
+        self.data = 42
+    }
+}
+
+var foo = Foo()
+foo.make_data()
+if foo.data? {
+    std::println(f"Data is: {foo.data}")
+    foo.change_data()
+    std::println(f"Data is now: {foo.data}")
 }
