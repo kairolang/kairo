@@ -35,6 +35,7 @@ import Parser::ExprParse::*;
 import Parser::StmtParse::*;
 import Parser::DeclParse::*;
 import Parser::TypeParse::*;
+import Parser::PatternParse::*;
 
 /// \class ASTParse
 /// \brief the primary recursive-descent parser for the Kairo language.
@@ -55,7 +56,8 @@ class ASTParse
   derives ExprParse::<ASTParse>,
           StmtParse::<ASTParse>,
           DeclParse::<ASTParse>,
-          TypeParse::<ASTParse> {
+          TypeParse::<ASTParse>,
+          PatternParse::<ASTParse> {
     inline "c++" {
         using PendingAnnotations = PendingAnnotations;
         using PendingQuals = PendingQuals;

@@ -33,6 +33,7 @@ import Diag::DiagRegistry::*;
 import Source::SourceRange::*;
 import Lexer::Token::*;
 import TokenKind::*;
+import ASTNode::Statements::*;
 
 class <T> ExprParse {
     /// \brief token set for primary expression dispatch. identifiers, builtins,
@@ -271,6 +272,35 @@ class <T> ExprParse {
         }
 
         return lhs;
+    }
+
+    /// \brief parses a single primary expression for pattern position: the lead
+    ///        of a range bound or a constructor head. Stops before postfix `(`,
+    ///        `..`, `.` the pattern parser owns those. Returns null/recovery
+    ///        on no production.
+    pub fn parse_pattern_lead(self) -> *Expr {
+        var base = self._parse_primary_expr(ExprStopKind::Default);
+        if base == &null { return &null; }
+
+        // accumulate `::` steps only (Direction::North), with generics.
+        // stop before `(`, `..`, `.`, `[` the pattern parser owns those.
+        if dyn()->check(TokenKind::OpColonColon) {
+            var chain_steps: std::StackBuf::<ChainExpr::Step, 4>;
+            var chain_start = base->range;
+            while dyn()->check(TokenKind::OpColonColon) {
+                var step = self._parse_access_step();
+                if step.name == &null { break; }
+                chain_steps.push_back(step);
+            }
+
+            if chain_steps.size() > 0 {
+                var ce = ChainExpr::create(dyn()->ctx, chain_start | dyn()->prev().range, base);
+                ce->steps.from_buf(chain_steps.data(), chain_steps.size(), dyn()->ctx);
+                return static_cast::<*Expr>(ce);
+            }
+        }
+
+        return base;
     }
 
     /// \brief parses a range expression: lhs .. rhs | lhs ..= rhs
@@ -1374,6 +1404,11 @@ class <T> ExprParse {
             return self._parse_try_catch_expr();
         }
 
+        // -- keyword prefix: match -----------------------------------
+        if dyn()->check(TokenKind::KwMatch) {
+            return self._parse_match_expr();
+        }
+
         // -- code completion -----------------------------------------
         if dyn()->check(TokenKind::TkCodeComplete) {
             dyn()->maybe_complete(CompletionContextKind::ExprStart);
@@ -2374,6 +2409,105 @@ class <T> ExprParse {
 
         dyn()->exit_depth();
         return static_cast::<*Expr>(node);
+    }
+
+    /// \brief parses an expression-form match.
+    ///  Grammar:  'match' expr '{' (case|default)+ '}'
+    ///
+    /// \details reuses the statement-form match parser, then lifts each case's
+    ///          body into expression position: every branch must be a single
+    ///          ExpressionStmt, whose inner expr becomes the case value. A branch
+    ///          that is empty, multi-statement, a non-expression statement, or a
+    ///          recovery node is an error (the case is dropped to recovery).
+    ///          Exhaustiveness is NOT checked here; sema owns coverage.
+    priv fn _parse_match_expr(self) -> *Expr {
+        var start_range = dyn()->current_ptr()->range;
+
+        // parse via the statement form: scrutinee, braces, cases, patterns,
+        // guards, and block bodies are all handled there and stay in sync.
+        var ms_stmt = dyn()->_parse_match();
+        if (ms_stmt == &null) || is_recovery(ms_stmt) {
+            return static_cast::<*Expr>(
+                MatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+        if !isa::<MatchStmt>(ms_stmt) {
+            // defensive: _parse_match should always yield a MatchStmt on success.
+            return static_cast::<*Expr>(
+                MatchExpr::create_error(dyn()->ctx, start_range | dyn()->prev().range));
+        }
+        var ms = cast::<MatchStmt>(ms_stmt);
+
+        // lift each case body (a CompoundStmt) into a single expression.
+        var cases: std::StackBuf::<MatchCase, 8>;
+
+        for var i: usize = 0; i < ms->cases.size(); ++i {
+            var src = *(ms->cases.get(i));
+            var lifted = self._lift_case_to_expr(&src);
+            cases.push_back(lifted);
+        }
+
+        var node = MatchExpr::create(dyn()->ctx, ms->range, ms->scrutinee);
+        node->cases.from_buf(cases.data(), cases.size(), dyn()->ctx);
+        return static_cast::<*Expr>(node);
+    }
+
+    /// \brief lifts a single block-form MatchCase into expression form.
+    /// \details copies patterns/guard/default flag, then resolves the body: the
+    ///          CompoundStmt must hold exactly one non-error ExpressionStmt whose
+    ///          expr is non-recovery. On any violation, emits a diagnostic and
+    ///          returns the case with both body and expression null (recovery).
+    priv fn _lift_case_to_expr(self, src: *MatchCase) -> MatchCase {
+        var out = MatchCase{};
+        out.patterns   = src->patterns;     // FrozenList copy; same arena nodes.
+        out.guard      = src->guard;
+        out.is_default = src->is_default;
+        out.range      = src->range;
+        out.body       = &null;
+        out.expression = &null;
+
+        var cb = src->body;
+        if cb == &null {
+            dyn()->diag->report(DiagID::S045E, src->range.start,
+                "match expression branch must yield a value"
+            ).first(src->range).emit();
+            return out;
+        }
+
+        // exactly one statement
+        if cb->body.size() == 0 {
+            dyn()->diag->report(DiagID::S045E, cb->range.start,
+                "match expression branch must contain a value expression"
+            ).first(cb->range).emit();
+            return out;
+        }
+        if cb->body.size() > 1 {
+            dyn()->diag->report(DiagID::S045E, cb->range.start,
+                "match expression branch allows exactly one expression; "
+                "use a statement-form match for multi-statement bodies"
+            ).first(cb->range).emit();
+            return out;
+        }
+
+        // the single statement must be a non-error ExpressionStmt
+        var only = *(cb->body.get(0));
+        if (only == &null) || only->is_error() || (!isa::<ExpressionStmt>(only)) {
+            dyn()->diag->report(DiagID::S045E, cb->range.start,
+                "match expression branch must be a single value expression"
+            ).first(cb->range).emit();
+            return out;
+        }
+
+        // and its inner expression must be non-recovery
+        var es = cast::<ExpressionStmt>(only);
+        if (es->expr == &null) || is_recovery(es->expr) {
+            dyn()->diag->report(DiagID::S045E, cb->range.start,
+                "match expression branch contains an invalid expression"
+            ).first(cb->range).emit();
+            return out;
+        }
+
+        out.expression = es->expr;   // body stays null: expression path is live.
+        return out;
     }
 
     /// \brief parses one catch arm of a try expression.
