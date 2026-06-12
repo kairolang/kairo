@@ -22,9 +22,7 @@ import ASTNode::PrimaryExpressions::*;
 import Source::SourceRange::*;
 import Lexer::Token::*;
 
-/// ============================================================================
 ///  WildcardPattern :  _
-/// ============================================================================
 class WildcardPattern derives Pattern {
     static fn create(ctx: *ASTContext, range: SourceRange) -> *WildcardPattern {
         var node   = ctx->alloc::<WildcardPattern>();
@@ -49,10 +47,8 @@ class WildcardPattern derives Pattern {
     }
 }
 
-/// ============================================================================
 ///  LiteralPattern :  1 | "foo" | true | null | 'a'
 ///  `value` is the literal expr (IntegerLiteralExpr, StringLiteralExpr, etc).
-/// ============================================================================
 class LiteralPattern derives Pattern {
     pub var value: *Expr;
 
@@ -81,11 +77,9 @@ class LiteralPattern derives Pattern {
     }
 }
 
-/// ============================================================================
 ///  BindingPattern :  var x | const x | var x: i32
 ///  Type-ascribed binding folds in here: type_ non-null when `: T` was written.
 ///  `is_const` is the resolved mutability. `name` is the bound identifier.
-/// ============================================================================
 class BindingPattern derives Pattern {
     pub var name:     Token;
     pub var is_const: bool  = false;
@@ -124,9 +118,7 @@ class BindingPattern derives Pattern {
     }
 }
 
-/// ============================================================================
 ///  TupleDestructurePattern :  (p, p, ...)
-/// ============================================================================
 class TupleDestructurePattern derives Pattern {
     pub var elements: FrozenList::<*Pattern>;
 
@@ -153,7 +145,6 @@ class TupleDestructurePattern derives Pattern {
     }
 }
 
-/// ============================================================================
 ///  ConstructorPattern :  Foo(p, ...) | Foo<T>(p, ...) | Kind::V(p, ...)
 ///                      | .Variant(p, ...) | .Variant
 ///
@@ -163,9 +154,8 @@ class TupleDestructurePattern derives Pattern {
 ///  the `.Ident`. `is_dotted` selects between them. `subpatterns` is the paren
 ///  payload, empty for a bare `.Variant` or `Foo` with no parens.
 ///  `has_parens` distinguishes `Foo` (nullary path pattern) from `Foo()`.
-/// ============================================================================
 class ConstructorPattern derives Pattern {
-    pub var head:        *Type  = &null;          ///< resolved path; null when is_dotted.
+    pub var head:        *Expr  = &null;          ///< resolved path (ChainExpr / NamedIdentExpr); null when is_dotted.
     pub var dotted_name: Token;                   ///< the `.Ident`; valid when is_dotted.
     pub var is_dotted:   bool   = false;
     pub var has_parens:  bool   = false;          ///< `Foo()` / `.V()` vs `Foo` / `.V`.
@@ -174,7 +164,7 @@ class ConstructorPattern derives Pattern {
     static fn create(
         ctx:        *ASTContext,
         range:      SourceRange,
-        head:       *Type,
+        head:       *Expr,                        // <-- was *Type
         dotted:     Token,
         is_dotted:  bool,
         has_parens: bool
@@ -189,6 +179,7 @@ class ConstructorPattern derives Pattern {
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
+
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ConstructorPattern {
         var node            = ctx->alloc::<ConstructorPattern>();
         node->kind          = PatternKind::RecoveryPattern;
@@ -200,6 +191,7 @@ class ConstructorPattern derives Pattern {
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
+
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
         return ptr->kind == PatternKind::ConstructorPattern;
     }
@@ -208,22 +200,20 @@ class ConstructorPattern derives Pattern {
     }
 }
 
-/// ============================================================================
 ///  UnresolvedConstructorPattern :  Foo(p, ...) where Foo MISSED the lookup.
 ///
 ///  Identical shape to ConstructorPattern minus the dotted case (dotted never
 ///  misses). Distinct kind so sema runs one "resolve-or-error" path instead of
 ///  re-deriving hit vs miss. Never produced for `.Variant`.
-/// ============================================================================
 class UnresolvedConstructorPattern derives Pattern {
-    pub var head:        *Type = &null;           ///< the unresolved path.
+    pub var head:        *Expr = &null;           ///< the unresolved path (ChainExpr / NamedIdentExpr).
     pub var has_parens:  bool  = false;
     pub var subpatterns: FrozenList::<*Pattern>;
 
     static fn create(
         ctx:        *ASTContext,
         range:      SourceRange,
-        head:       *Type,
+        head:       *Expr,                        // <-- was *Type
         has_parens: bool
     ) -> *UnresolvedConstructorPattern {
         var node        = ctx->alloc::<UnresolvedConstructorPattern>();
@@ -234,6 +224,7 @@ class UnresolvedConstructorPattern derives Pattern {
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
+
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *UnresolvedConstructorPattern {
         var node            = ctx->alloc::<UnresolvedConstructorPattern>();
         node->kind          = PatternKind::RecoveryPattern;
@@ -244,6 +235,7 @@ class UnresolvedConstructorPattern derives Pattern {
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
+
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
         return ptr->kind == PatternKind::UnresolvedConstructorPattern;
     }
@@ -252,12 +244,10 @@ class UnresolvedConstructorPattern derives Pattern {
     }
 }
 
-/// ============================================================================
 ///  AlternationPattern :  p | p | p   (NOT the top-level case comma; this is
 ///  the `|` or-pattern. The match parser builds the comma list into MatchCase
 ///  patterns; this node is for `|` inside a single pattern position once we
 ///  add it. Reserved now so sema and the printer have the kind.)
-/// ============================================================================
 class AlternationPattern derives Pattern {
     pub var alternatives: FrozenList::<*Pattern>;
 
@@ -284,11 +274,9 @@ class AlternationPattern derives Pattern {
     }
 }
 
-/// ============================================================================
 ///  RangePattern :  lo..hi | lo..=hi   bounds are *Expr (sema enforces const).
 ///  Either bound may be null for open ranges (..hi, lo..) if we allow them in
 ///  pattern position; parser fills what's present.
-/// ============================================================================
 class RangePattern derives Pattern {
     pub var lo:           *Expr = &null;
     pub var hi:           *Expr = &null;
@@ -328,13 +316,11 @@ class RangePattern derives Pattern {
     }
 }
 
-/// ============================================================================
 ///  SlicePattern :  [p, p, ..rest] | [p, .., p] | [.., p]
 ///  `prefix` = patterns before the `..`, `suffix` = patterns after. `has_rest`
 ///  marks the `..`; `rest_binding` is the optional `..name` (null for bare `..`
 ///  or no rest). Without a rest, all elements live in `prefix` and suffix is
 ///  empty.
-/// ============================================================================
 class SlicePattern derives Pattern {
     pub var prefix:       FrozenList::<*Pattern>;
     pub var suffix:       FrozenList::<*Pattern>;

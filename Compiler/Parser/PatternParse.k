@@ -4,16 +4,36 @@
 ///
 ///   \detail
 ///     Entry: parse_pattern() -> dispatches on the leading resolved token.
-///     Constructor heads parse via TypeParse::parse_type (ChainType handles
-///     `Foo<T>`, `A::B`, and the `>>` split). The hoisted scope is consulted
-///     ONLY for the non-dotted constructor head to pick ConstructorPattern
-///     (hit) vs UnresolvedConstructorPattern (miss); the dotted form never
-///     looks up. Range bounds are *Expr; sema enforces const-evaluability.
 ///
-///     Derives from ASTParse (CRTP): check, check_peek, match_tok, advance,
-///     current, prev, current_ptr, ctx, diag, is_eof, enter_depth/exit_depth,
-///     parse_type (TypeParse), parse_expr (ExprParse).
+///     Pattern-only forms are ruled out first (`_`, `var`/`const`, `(`, `[`,
+///     leading `.`, leading `..`). What remains -- a literal or a path head --
+///     is parsed via ExprParse::parse_pattern_lead (a single primary expr that
+///     stops before postfix `(`, `..`, `.`), then disambiguated by lookahead:
+///       lead `..` hi      -> RangePattern  (lead is the lower bound)
+///       lead `(` payload  -> ConstructorPattern / UnresolvedConstructorPattern
+///       bare literal      -> LiteralPattern
+///       bare path         -> nullary ConstructorPattern / Unresolved...
 ///
+///     Constructor hit/miss is decided by a SHALLOW hoisted lookup on the
+///     leading path segment only (full resolution is sema's job). A hit tags
+///     ConstructorPattern; a miss tags UnresolvedConstructorPattern so sema
+///     walks one resolve-or-error path instead of re-deriving the split.
+///
+///     The dotted form (`.Variant` / `.Variant(...)`) never looks up: the
+///     scrutinee type (a sema fact) selects the enum. `(` at pattern start is
+///     ALWAYS a tuple pattern; parenthesized range lower bounds are not
+///     supported. Range bounds are full expressions (the upper via parse_expr,
+///     the lower via the primary-led lead); sema enforces const-evaluability.
+///
+///     Derives from ASTParse (CRTP): check, check_peek, advance, current, prev,
+///     current_ptr, ctx, diag, is_eof, enter_depth/exit_depth,
+///     resolve_kind_deep, parse_type (TypeParse), parse_expr /
+///     parse_pattern_lead (ExprParse).
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the Kairo
+///   Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
@@ -21,7 +41,6 @@
 
 import ASTNode::Base::*;
 import ASTNode::Patterns::*;
-import ASTNode::Types::*;
 import ASTNode::PrimaryExpressions::*;
 import ASTNode::Casting::*;
 import AST::ASTContext::*;
@@ -45,7 +64,7 @@ class <T> PatternParse {
     // ========================================================================
 
     /// \brief parses a single pattern. Returns a recovery pattern (never null)
-    ///        on failure so the match-arm structure keeps its shape.
+    ///        on failure so the surrounding match-arm structure keeps its shape.
     fn parse_pattern(self) -> *Pattern {
         if dyn()->is_eof() {
             return self._error_pattern(SourceRange::invalid());
@@ -67,7 +86,7 @@ class <T> PatternParse {
 
         var k = dyn()->resolve_kind_deep(cur_ptr);
 
-        // -- wildcard `_` (an identifier whose text is exactly "_") ----------
+        // -- wildcard `_` (identifier whose text is exactly "_") -------------
         if (k == TokenKind::LitIdentifier)
         && (TokenText::from_token(*cur_ptr, dyn()->ctx).text == "_") {
             dyn()->advance();
@@ -79,7 +98,7 @@ class <T> PatternParse {
             return self._parse_binding_pattern();
         }
 
-        // -- tuple `(p, ...)` -------------------------------------------------
+        // -- tuple `(p, ...)` : always a tuple at pattern start --------------
         if k == TokenKind::OpLParen {
             return self._parse_tuple_pattern();
         }
@@ -100,14 +119,9 @@ class <T> PatternParse {
             return self._parse_open_lower_range(start);
         }
 
-        // -- literals (and literal-led ranges) -------------------------------
-        if self._starts_literal(k) {
-            return self._parse_literal_or_range(start);
-        }
-
-        // -- path-headed: constructor, or path-constant range ----------------
-        if self._starts_path_head(k) {
-            return self._parse_path_pattern(start);
+        // -- literal or path head: parse a primary lead, then disambiguate ---
+        if self._starts_literal(k) || self._starts_path_head(k) {
+            return self._parse_primary_led_pattern(start);
         }
 
         // -- nothing matched --------------------------------------------------
@@ -132,19 +146,27 @@ class <T> PatternParse {
             || k == TokenKind::LitNull;
     }
 
-    /// path head: a bare identifier or a global-root `::`. Builtins
-    /// (u32 etc.) are also valid heads via the type parser.
+    /// path head: a bare identifier, a global-root `::`, or `self`. Builtins
+    /// (u32 etc.) also flow through primary's identifier-table dispatch.
     priv fn _starts_path_head(self, k: TokenKind) -> bool {
         return k == TokenKind::LitIdentifier
             || k == TokenKind::OpColonColon
             || k == TokenKind::KwSelf;
     }
 
+    priv fn _is_literal_expr(self, e: *Expr) -> bool {
+        return isa::<IntegerLiteralExpr>(e)
+            || isa::<FloatingLiteralExpr>(e)
+            || isa::<StringLiteralExpr>(e)
+            || isa::<CharacterLiteralExpr>(e)
+            || isa::<BooleanLiteralExpr>(e)
+            || isa::<NullLiteralExpr>(e);
+    }
+
     // ========================================================================
-    //  Binding
+    //  Binding   `var x` | `const x` | `var x: T`
     // ========================================================================
 
-    /// `var x` | `const x` | `var x: T`
     priv fn _parse_binding_pattern(self) -> *Pattern {
         var start    = dyn()->current_ptr()->range;
         var is_const = dyn()->check(TokenKind::KwConst);
@@ -169,17 +191,14 @@ class <T> PatternParse {
             }
         }
 
-        var end = start | dyn()->prev().range;
         return static_cast::<*Pattern>(
-            BindingPattern::create(dyn()->ctx, end, name, is_const, ty));
+            BindingPattern::create(dyn()->ctx, start | dyn()->prev().range, name, is_const, ty));
     }
 
     // ========================================================================
-    //  Tuple
+    //  Tuple   `(p, p, ...)`
     // ========================================================================
 
-    /// `(p, p, ...)` allows a trailing comma. A single `(p)` is still a tuple
-    /// node of arity 1 here; sema may unwrap. Empty `()` is an error.
     priv fn _parse_tuple_pattern(self) -> *Pattern {
         var start = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `(`
@@ -228,12 +247,9 @@ class <T> PatternParse {
     }
 
     // ========================================================================
-    //  Slice
+    //  Slice   `[p, p, ..rest]` | `[p, .., p]` | `[.., p]` | `[p, p]`
     // ========================================================================
 
-    /// `[p, p, ..rest]` | `[p, .., p]` | `[.., p]` | `[p, p]`
-    /// A single `..` (optionally `..name`) splits prefix from suffix. More than
-    /// one rest is an error.
     priv fn _parse_slice_pattern(self) -> *Pattern {
         var start = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `[`
@@ -257,7 +273,6 @@ class <T> PatternParse {
                 var rest_start = dyn()->current_ptr()->range;
                 dyn()->advance(); // consume `..`
 
-                // optional `..name` binds the rest slice
                 if dyn()->check(TokenKind::LitIdentifier) {
                     var nm = dyn()->current();
                     dyn()->advance();
@@ -302,7 +317,7 @@ class <T> PatternParse {
     }
 
     // ========================================================================
-    //  Dotted constructor  `.Variant` / `.Variant(...)`
+    //  Dotted constructor   `.Variant` / `.Variant(...)`
     // ========================================================================
 
     priv fn _parse_dotted_pattern(self) -> *Pattern {
@@ -333,71 +348,122 @@ class <T> PatternParse {
     }
 
     // ========================================================================
-    //  Path-headed  `Foo` | `Foo(...)` | `Foo<T>(...)` | `A::B(...)`
-    //               | path-constant range `Kind::Lo .. Kind::Hi`
+    //  Primary-led: literal value, range, or path constructor
     // ========================================================================
 
-    priv fn _parse_path_pattern(self, start: SourceRange) -> *Pattern {
-        // parse the head via the type parser: ChainType handles `A::B`,
-        // `Foo<T>`, and the `>>` split. `<` after a path head in pattern
-        // position is unambiguously generics (no comparison operator here).
-        var head = dyn()->parse_type();
-        if (head == &null) || is_recovery(head) {
-            return static_cast::<*Pattern>(
-                ConstructorPattern::create_error(dyn()->ctx, start | dyn()->prev().range));
+    /// pattern led by something primary can parse: a literal or a path
+    /// (`foo`, `A::B`, `Foo<T>`). parse_pattern_lead stops before postfix `(`
+    /// and before `..`, so we peek after to choose range vs constructor vs bare.
+    priv fn _parse_primary_led_pattern(self, start: SourceRange) -> *Pattern {
+        var lead = dyn()->parse_pattern_lead();
+        if (lead == &null) || is_recovery(lead) {
+            return self._error_pattern(start | dyn()->prev().range);
         }
 
-        // range with a path-constant lower bound: `Kind::Lo .. Kind::Hi`
+        // range: `lead .. hi` / `lead ..= hi`  (lead is the lower bound)
         if dyn()->check(TokenKind::OpRange) || dyn()->check(TokenKind::OpRangeEqual) {
-            // lower bound is the head re-read as an expression value. We model
-            // the bound as the type's trailing-name path; for the parser we
-            // wrap it through parse of the remaining range via _finish_range,
-            // passing the head's range as the lo marker. sema resolves the
-            // path constant from `head`.
-            return self._finish_range_from_type_head(start, head);
+            var inclusive = dyn()->check(TokenKind::OpRangeEqual);
+            dyn()->advance(T::SkipNL::After); // consume `..` / `..=`
+            var hi = self._parse_range_hi();
+            return static_cast::<*Pattern>(
+                RangePattern::create(dyn()->ctx, start | dyn()->prev().range, lead, hi, inclusive));
         }
 
-        var has_parens = false;
-        var subs: std::StackBuf::<*Pattern, 8>;
+        // constructor with payload: `lead ( ... )`
         if dyn()->check(TokenKind::OpLParen) {
-            has_parens = true;
+            var subs: std::StackBuf::<*Pattern, 8>;
             self._parse_ctor_payload(&subs);
+            return self._build_ctor(start, lead, true, &subs);
         }
 
-        // hoisted lookup on the head's leading name decides hit vs miss.
-        var hit = self._head_resolves(head);
+        // bare literal value
+        if self._is_literal_expr(lead) {
+            return static_cast::<*Pattern>(
+                LiteralPattern::create(dyn()->ctx, start | dyn()->prev().range, lead));
+        }
 
-        if hit {
+        // bare (nullary) path constructor / name
+        var empty: std::StackBuf::<*Pattern, 8>;
+        return self._build_ctor(start, lead, false, &empty);
+    }
+
+    /// `..hi` / `..=hi` with no lower bound at pattern start.
+    priv fn _parse_open_lower_range(self, start: SourceRange) -> *Pattern {
+        var inclusive = dyn()->check(TokenKind::OpRangeEqual);
+        dyn()->advance(T::SkipNL::After); // consume `..` / `..=`
+        var hi = self._parse_range_hi();
+        return static_cast::<*Pattern>(
+            RangePattern::create(dyn()->ctx, start | dyn()->prev().range, &null, hi, inclusive));
+    }
+
+    /// the upper bound of a range: a full runtime expression. Stop at the case
+    /// boundary so we don't eat the next alternation arm (`,`) or the case body
+    /// (`{`). `where` ends the expr naturally (not an infix continuation).
+    priv fn _parse_range_hi(self) -> *Expr {
+        if dyn()->is_eof() { return &null; }
+        // an open-upper range `lo..` is followed by the case body `{`, a guard
+        // `where`, the next arm `,`, or end. None can start the upper bound.
+        var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+        if k == TokenKind::OpLBrace
+        || k == TokenKind::OpComma
+        || k == TokenKind::KwWhere
+        || k == TokenKind::TkNewLine {
+            return &null;   // genuinely open-ended `lo..`
+        }
+        var hi = dyn()->parse_expr(static_cast::<T::ExprStopKind>(
+            static_cast::<u8>(T::ExprStopKind::StopComma)
+          | static_cast::<u8>(T::ExprStopKind::StopBrace)));
+        if (hi == &null) || is_recovery(hi) { return &null; }
+        return hi;
+    }
+
+    /// shared hit/miss split for constructor patterns (paren + bare path).
+    priv fn _build_ctor(
+        self,
+        start:      SourceRange,
+        head:       *Expr,
+        has_parens: bool,
+        subs:       *std::StackBuf::<*Pattern, 8>
+    ) -> *Pattern {
+        if self._head_resolves(head) {
             var node = ConstructorPattern::create(
                 dyn()->ctx, start | dyn()->prev().range, head, Token(), false, has_parens);
-            node->subpatterns.from_buf(subs.data(), subs.size(), dyn()->ctx);
+            node->subpatterns.from_buf(subs->data(), subs->size(), dyn()->ctx);
             return static_cast::<*Pattern>(node);
         }
-
-        // miss: distinct node, sema runs a single resolve-or-error path.
         var miss = UnresolvedConstructorPattern::create(
             dyn()->ctx, start | dyn()->prev().range, head, has_parens);
-        miss->subpatterns.from_buf(subs.data(), subs.size(), dyn()->ctx);
+        miss->subpatterns.from_buf(subs->data(), subs->size(), dyn()->ctx);
         return static_cast::<*Pattern>(miss);
     }
 
-    /// hoisted lookup on the leading segment of the parsed head. Mirrors
-    /// ExprParse::_is_generic_name's use of ctx->hoisted. A ChainType's first
-    /// segment name is the lookup key.
-    priv fn _head_resolves(self, head: *Type) -> bool {
-        if !isa::<ChainType>(head) { return false; }
-        var ct = cast::<ChainType>(head);
-        var first = ct->first();
-        if first == &null { return false; }
-        if first->name == &null { return false; }
+    /// SHALLOW hoisted lookup on the leading path segment. Hit -> the head is a
+    /// known declaration (ConstructorPattern); miss -> unknown root, sema runs
+    /// one resolve-or-error path (UnresolvedConstructorPattern). Full path
+    /// resolution (does B live in A, is C a real variant) is sema's job.
+    priv fn _head_resolves(self, head: *Expr) -> bool {
+        var lead: *NamedIdentExpr = &null;
 
-        var name_text = TokenText::from_token(first->name->name, dyn()->ctx);
-        var hr = dyn()->ctx->hoisted->lookup(name_text.text);
-        return hr.found();
+        if isa::<NamedIdentExpr>(head) {
+            lead = cast::<NamedIdentExpr>(head);
+        } else if isa::<ChainExpr>(head) {
+            var ce = cast::<ChainExpr>(head);
+            if ce->base != &null {
+                lead = ce->leading_name();          // base as NamedIdentExpr, or null
+            }
+            if (lead == &null) && (!ce->steps.is_empty()) {
+                lead = ce->steps.get(0)->name;      // global-root chain: first step
+            }
+        }
+
+        if lead == &null { return false; }
+
+        var name_text = TokenText::from_token(lead->name, dyn()->ctx);
+        return dyn()->ctx->hoisted->lookup(name_text.text).found();
     }
 
     // ========================================================================
-    //  Constructor payload  `( p (, p)* ,? )`
+    //  Constructor payload   `( p (, p)* ,? )`
     // ========================================================================
 
     /// precondition: current is `(`. Consumes through the matching `)`.
@@ -436,119 +502,6 @@ class <T> PatternParse {
                 "expected ')' to close constructor pattern payload"
             ).first(lparen).emit();
         }
-    }
-
-    // ========================================================================
-    //  Ranges
-    // ========================================================================
-
-    /// literal-led: `1`, or `1..10` / `1..=10`. Reads the literal as an expr,
-    /// then checks for a range operator.
-    priv fn _parse_literal_or_range(self, start: SourceRange) -> *Pattern {
-        var lo = self._parse_literal_expr();
-        if lo == &null {
-            return self._error_pattern(start);
-        }
-
-        if dyn()->check(TokenKind::OpRange) || dyn()->check(TokenKind::OpRangeEqual) {
-            var inclusive = dyn()->check(TokenKind::OpRangeEqual);
-            dyn()->advance(T::SkipNL::After); // consume `..` / `..=`
-
-            var hi = self._parse_range_bound_expr();
-            // hi may be null for an open-ended `lo..` if we permit it.
-            var node = RangePattern::create(
-                dyn()->ctx, start | dyn()->prev().range, lo, hi, inclusive);
-            return static_cast::<*Pattern>(node);
-        }
-
-        return static_cast::<*Pattern>(
-            LiteralPattern::create(dyn()->ctx, start | dyn()->prev().range, lo));
-    }
-
-    /// `..hi` / `..=hi` with no lower bound.
-    priv fn _parse_open_lower_range(self, start: SourceRange) -> *Pattern {
-        var inclusive = dyn()->check(TokenKind::OpRangeEqual);
-        dyn()->advance(T::SkipNL::After); // consume `..` / `..=`
-
-        var hi = self._parse_range_bound_expr();
-        var node = RangePattern::create(
-            dyn()->ctx, start | dyn()->prev().range, &null, hi, inclusive);
-        return static_cast::<*Pattern>(node);
-    }
-
-    /// the head was already parsed as a *Type (path constant like `Kind::Lo`);
-    /// finish the range. lo is carried as null at the expr level the type head
-    /// holds the lower-bound path and sema resolves it. We still parse an
-    /// upper-bound expr.
-    priv fn _finish_range_from_type_head(self, start: SourceRange, head: *Type) -> *Pattern {
-        var inclusive = dyn()->check(TokenKind::OpRangeEqual);
-        dyn()->advance(T::SkipNL::After); // consume `..` / `..=`
-
-        var hi = self._parse_range_bound_expr();
-
-        // wrap the type head as the lo via a TypeExpr-bearing range is overkill
-        // here; instead we store lo = null and let sema read the head. To keep
-        // the head reachable, we attach it through a RangePattern whose lo is a
-        // synthesized path expr. Simplest: re-read the head's trailing name as
-        // a NamedIdentExpr is lossy for `A::B`. So we keep lo = null and rely on
-        // sema + the diagnostic note that path-constant range bounds resolve via
-        // the type head. (A dedicated lo_type field can be added if sema wants
-        // it without re-walking.)
-        var node = RangePattern::create(
-            dyn()->ctx, start | dyn()->prev().range, &null, hi, inclusive);
-        return static_cast::<*Pattern>(node);
-    }
-
-    /// parses a literal as an expression (Integer/Float/String/Char/Bool/Null).
-    priv fn _parse_literal_expr(self) -> *Expr {
-        var cur = dyn()->current_ptr();
-        if cur == &null { return &null; }
-        var r = cur->range;
-        var k = dyn()->resolve_kind_deep(cur);
-
-        if k == TokenKind::LitInt {
-            var tok = dyn()->current(); dyn()->advance();
-            return IntegerLiteralExpr::create(dyn()->ctx, r, tok);
-        }
-        if k == TokenKind::LitFloat {
-            var tok = dyn()->current(); dyn()->advance();
-            return FloatingLiteralExpr::create(dyn()->ctx, r, tok);
-        }
-        if k == TokenKind::LitString {
-            var tok = dyn()->current(); dyn()->advance();
-            return StringLiteralExpr::create(
-                dyn()->ctx, r, tok, StringLiteralExpr::StringKind::Plain);
-        }
-        if k == TokenKind::LitChar {
-            var tok = dyn()->current(); dyn()->advance();
-            return CharacterLiteralExpr::create(dyn()->ctx, r, tok);
-        }
-        if k == TokenKind::KwTrue  { dyn()->advance(); return BooleanLiteralExpr::create(dyn()->ctx, r, true);  }
-        if k == TokenKind::KwFalse { dyn()->advance(); return BooleanLiteralExpr::create(dyn()->ctx, r, false); }
-        if k == TokenKind::LitNull { dyn()->advance(); return NullLiteralExpr::create(dyn()->ctx, r, false);    }
-
-        return &null;
-    }
-
-    /// an upper/lower range bound: a literal or a path-constant. We accept a
-    /// full primary via the literal reader first; if it's a path head, defer to
-    /// parse_expr for `A::B`. sema enforces const-evaluability.
-    priv fn _parse_range_bound_expr(self) -> *Expr {
-        var cur = dyn()->current_ptr();
-        if cur == &null { return &null; }
-        var k = dyn()->resolve_kind_deep(cur);
-
-        if self._starts_literal(k) {
-            return self._parse_literal_expr();
-        }
-        if self._starts_path_head(k) {
-            // `A::B` path constant as a bound. parse_expr handles the chain;
-            // StopComma|StopBrace so it ends at the case boundary.
-            return dyn()->parse_expr(static_cast::<T::ExprStopKind>(
-                static_cast::<u8>(T::ExprStopKind::StopComma)
-              | static_cast::<u8>(T::ExprStopKind::StopBrace)));
-        }
-        return &null;
     }
 
     // ========================================================================
