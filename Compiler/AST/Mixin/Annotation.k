@@ -14,6 +14,7 @@
 import Memory::ArenaList::*;
 import Source::SourceRange::*;
 import AST::InternedStr::*;
+import AST::Support::*;
 
 /// CRTP mixin: Decl nodes derive VisibilityAnnotation::<SelfType> to get
 /// inline visibility storage and the query/mutation API.
@@ -97,10 +98,13 @@ enum AnnotationPresence derives u8 {
 /// (e.g. the atom for "inline" in `@inline`). For comment entries,
 /// `name` is InternedStr::invalid() do NOT use the zero sentinel,
 /// which collides with the empty-string atom.
+/// STAGE0: bug, stage0 doesnt like fwd decls so we use *void here MUST
+///         change to *Expr once stage1 is complete.
 class AnnotationEntry {
     pub var kind:  AnnotationKind = AnnotationKind::Attribute;
     pub var name:  InternedStr    = InternedStr::invalid();
     pub var range: SourceRange    = SourceRange::invalid();
+    pub var args:  FrozenList::<*void>; // Expr always, we need to check
 
     fn AnnotationEntry(self) { }
 
@@ -108,6 +112,9 @@ class AnnotationEntry {
         self.kind  = k;
         self.name  = n;
         self.range = r;
+        inline "c++" {
+            this->args  = FrozenList<void*>::empty();
+        }
     }
 }
 
@@ -116,8 +123,6 @@ class AnnotationEntry {
 ///
 /// Call `init_annotations(ctx)` exactly once before any `add_*` call.
 class <T> Annotation {
-    
-
     pub var annotations: ArenaList::<AnnotationEntry>;
     
     /// `presence` is a redundant bitmask of which AnnotationKinds are present
@@ -209,6 +214,16 @@ class <T> Annotation {
         assert(self.annotations.has_allocator()
                && r"Annotation::add_* called before init_annotations()");
         self.annotations.push(AnnotationEntry(kind, name, range));
+        self.presence |= __inline_cpp("Annotation<T>::_bit_for(kind)");
+    }
+
+    fn add_annotation(self, kind: AnnotationKind, name: InternedStr,
+                      range: SourceRange, args: FrozenList::<*void>) {
+        assert(self.annotations.has_allocator()
+               && r"Annotation::add_* called before allocator wiring");
+        var e  = AnnotationEntry(kind, name, range);
+        e.args = args;
+        self.annotations.push(e);
         self.presence |= __inline_cpp("Annotation<T>::_bit_for(kind)");
     }
 
