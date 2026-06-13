@@ -116,6 +116,7 @@ import Preprocessor::Preprocessor::*;
 import AST::ASTIndex::*;
 import Parser::ASTParse::*;
 import AST::GlobalHoistedScope::*;
+import AST::Printer::ASTPrinter::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -930,8 +931,7 @@ fn FrontendAction::_parse() -> bool {
     var tu = parser.parse();
 
     if self._ci->invocation().frontend.print_ast {
-        std::print(f"-- AST: {self.path.full_path()} (not yet implemented) --");
-        self._global_scope->dump();
+        ASTPrinter::print(tu);
     }
 
     return true;
