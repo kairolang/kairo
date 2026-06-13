@@ -26,9 +26,6 @@ import ASTNode::Program::*;
 import Lexer::TokenSpan::*;
 import Lexer::Token::*;
 import Diag::DiagEngine::*;
-import AST::Printer::TypePrinter::*;
-import AST::Printer::ExprPrinter::*;
-import AST::Printer::StmtPrinter::*;
 
 import Parser::LexicalScope::*;
 import Parser::ExprParse::*;
@@ -83,21 +80,24 @@ class ASTParse
     pub var tu: obs::<TranslationUnit>;         ///< the TU being populated by this parse.
 
     // --- Recovery state -----------------------------------------------------
-    pub var depth:                u32 = 0;      ///< current recursion depth.
-    pub var max_depth:            u32 = 256;    ///< limit to prevent stack overflow on malicious input.
-    pub var error_count_base:     u32 = 0;      ///< error count recorded at parse start.
-    pub var in_recovery:          bool = false; ///< true if parser is currently skipping to a SyncSet.
+    pub var _fatal_sentinels:  u32 = 0;      ///< special marker type used to signal unrecoverable errors during type parsing.
+    pub var depth:             u32  = 0;     ///< current recursion depth.
+    pub var max_depth:         u32  = 256;   ///< limit to prevent stack overflow on malicious input.
+    pub var error_count_base:  u32  = 0;     ///< error count recorded at parse start.
+    pub var nl_depth:          u32  = 0;     ///< if non-zero, the parser ignores newlines.
+    pub var in_recovery:       bool = false; ///< true if parser is currently skipping to a SyncSet.
     
-    pub var _fatal_sentinels: u32 = 0;        ///< special marker type used to signal unrecoverable errors during type parsing.
 
     class TentativeGuard {
         priv var _parser:    obs::<ASTParse>;
         priv var _cursor:    usize;
+        priv var _nl_depth:  u32;
         priv var _committed: bool;
 
         fn TentativeGuard(self, p: *ASTParse) {
             self._parser    = p;
             self._cursor    = p->c_idx;
+            self._nl_depth  = p->nl_depth;
             self._committed = false;
             p->diag->push_suppress();
         }
@@ -110,6 +110,7 @@ class ASTParse
             self._parser->diag->pop_suppress();
             if !self._committed {
                 self._parser->_restore_cursor(self._cursor);
+                self._parser->nl_depth = self._nl_depth;
             }
         }
     }
@@ -138,12 +139,20 @@ class ASTParse
 
     /// \brief executes the full parse of the token stream.
     ///
-    /// \details initializes the top-level `Program` and iterates through global
-    ///          declarations until `TkEof` is reached.
+    /// \details top-level loop. Annotations are consumed ONCE per item and
+    ///          stamped on the routed node. Decl lead-ins go to parse_decl and
+    ///          land in tu->dc_decls (source order) AND program->items;
+    ///          everything else parses as a statement (script-style top level
+    ///          is legal). var/const always route through the stmt path it
+    ///          owns the plain-decl vs destructuring split. After the loop, a
+    ///          wiring pass connects each named DeclContext to its hoisted
+    ///          ScopeNode so sema lookup_local works.
     fn parse(self) -> *TranslationUnit {
         var program = self.ctx->alloc_init::<Program>(self.ctx->fid, self.ctx);
         self.tu->program = program;
-        self.scope.push(ScopeKind::Function, self.tu);
+        self.scope.push(ScopeKind::Block, self.tu);
+
+        var warn_count_base = self.diag->warn_count();
 
         var iterations: usize = 0;
         var max_iter = self.span.size() << 2;
@@ -152,21 +161,46 @@ class ASTParse
             ++iterations;
             if iterations > max_iter { break; }
 
-            // collapse blank lines / stray semicolons between statements
             if self.check(TokenKind::TkNewLine) || self.check(TokenKind::OpSemicolon) {
                 self.advance();
                 continue;
             }
 
-            var st = self.parse_stmt();
-            if st == &null { break; }              // EOF mid-statement
+            inline "c++" { PendingAnnotations annot; }
+            self.consume_leading_annotations(&annot);
+            if self.is_eof() { break; }
 
-            std::print(StmtPrinter::print(st, PrintStyle::Debug));
+            var k = self.resolve_kind_deep(self._current);
 
-            if self.is_fatal::<Stmt>(st) { break; }
+            var route_decl = self._starts_decl_kw(k);
+            if (k == TokenKind::KwVar) || (k == TokenKind::KwConst) {
+                route_decl = false; // stmt path owns destructuring split
+            }
 
-            // parse_stmt leaves the terminator unconsumed; eat it so we don't
-            // re-enter on the same TkNewLine and stall.
+            if route_decl {
+                var d = self.parse_decl();
+                if d == &null { break; }
+                if self.is_fatal::<Decl>(d) { break; }
+
+                self.apply_annotations_to_decl(d, &annot);
+                self.tu->add_decl(d);
+                program->add_item(TopLevelItem::from_decl(d));
+            } else {
+                var s = self.parse_stmt();
+                if s == &null { break; }
+                if self.is_fatal::<Stmt>(s) { break; }
+
+                if isa::<DeclStmt>(s) {
+                    var ds = cast::<DeclStmt>(s);
+                    if ds->decl != &null {
+                        self.apply_annotations_to_decl(ds->decl, &annot);
+                    }
+                } else {
+                    self.apply_annotations_to_node(s, &annot);
+                }
+                program->add_item(TopLevelItem::from_stmt(s));
+            }
+
             while self.check(TokenKind::TkNewLine) || self.check(TokenKind::OpSemicolon) {
                 self.advance();
             }
@@ -174,6 +208,9 @@ class ASTParse
 
         self.scope.pop();
         self.tu->error_count = self.diag->error_count() - self.error_count_base;
+        self.tu->warn_count  = self.diag->warn_count()  - warn_count_base;
+
+        self._wire_scopes();
         return self.tu;
     }
 
@@ -183,9 +220,61 @@ class ASTParse
         return TopLevelItem::from_decl(&null);
     }
 
-    // ========================================================================
+    //  Hoisted-scope wiring (post-parse)
+
+    /// \brief connects each named DeclContext in the tree to its ScopeNode in
+    ///        the hoisted trie, descending both in lockstep. Decls the indexer
+    ///        didn't hoist (locals, anonymous modules) are skipped lexical
+    ///        lookup covers them. A missing trie node for a hoisted-eligible
+    ///        type is an indexer/parser disagreement; we stay silent here and
+    ///        let sema's resolve-or-error path surface it with context.
+    fn _wire_scopes(self) {
+        var root = self.ctx->hoisted->root();
+        self.tu->set_scope(root);
+        self._wire_dc_children(static_cast::<*DeclContext>(self.tu), root);
+    }
+
+    priv fn _wire_dc_children(self, dc: *DeclContext, node: *ScopeNode) {
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i { // FIXME
+            var d = *(dc->dc_decls.get(i)); // FIXME
+            if d == &null { continue; }
+
+            var name_tok = Token();
+            var child_dc: *DeclContext = &null;
+
+            if isa::<ClassDecl>(d) {
+                var n = cast::<ClassDecl>(d);
+                name_tok = n->name; child_dc = static_cast::<*DeclContext>(n);
+            } else if isa::<StructDecl>(d) {
+                var n = cast::<StructDecl>(d);
+                name_tok = n->name; child_dc = static_cast::<*DeclContext>(n);
+            } else if isa::<EnumDecl>(d) {
+                var n = cast::<EnumDecl>(d);
+                name_tok = n->name; child_dc = static_cast::<*DeclContext>(n);
+            } else if isa::<UnionDecl>(d) {
+                var n = cast::<UnionDecl>(d);
+                name_tok = n->name; child_dc = static_cast::<*DeclContext>(n);
+            } else if isa::<InterfaceDecl>(d) {
+                var n = cast::<InterfaceDecl>(d);
+                name_tok = n->name; child_dc = static_cast::<*DeclContext>(n);
+            } else if isa::<ModuleDecl>(d) {
+                var n = cast::<ModuleDecl>(d);
+                if n->is_anonymous { continue; }
+                name_tok = n->name; child_dc = static_cast::<*DeclContext>(n);
+            } else {
+                continue; // fns/vars: no trie children; ScopeStack covers bodies
+            }
+
+            var text  = TokenText::from_token(name_tok, self.ctx);
+            var child = node->get_child(self.ctx->hoisted->intern(text.text));
+            if child == &null { continue; }
+
+            child_dc->set_scope(child);
+            self._wire_dc_children(child_dc, child);
+        }
+    }
+
     //  Token accessors return 16-byte copies (trivial)
-    // ========================================================================
 
     inline pub fn current(self) -> Token {
         if self._current == &null { return Token(); }
@@ -208,9 +297,7 @@ class ASTParse
     inline pub fn prev_ptr(self)    -> *Token { return self._prev; }
     inline pub fn peek_ptr(self)    -> *Token { return self._peek; }
 
-    // ========================================================================
     //  Cursor movement
-    // ========================================================================
 
     /// \enum SkipNL
     /// \brief controls newline skipping behavior during cursor movement.
@@ -225,7 +312,7 @@ class ASTParse
 
     inline fn _skip_nl_fwd(self) {
         while self.current().kind == TokenKind::TkNewLine {
-            self.advance();
+            self._advance();
         }
     }
 
@@ -240,18 +327,12 @@ class ASTParse
     /// \brief moves the cursor forward one token.
     inline pub fn advance(self, const skip: SkipNL = SkipNL::None) {
         switch skip {
-            case SkipNL::Before {
-                self._skip_nl_fwd();
-                self._advance();
-            } case SkipNL::After {
-                self._advance();
-                self._skip_nl_fwd();
-            } case SkipNL::Only {
-                self._skip_nl_fwd();
-            } default {
-                self._advance();
-            }
+            case SkipNL::Before { self._skip_nl_fwd(); self._advance(); }
+            case SkipNL::After  { self._advance(); self._skip_nl_fwd(); }
+            case SkipNL::Only   { self._skip_nl_fwd(); }
+            default             { self._advance(); }
         }
+        if self.nl_depth > 0 { self._skip_nl_fwd(); }
     }
 
     /// \brief moves the cursor backward one token.
@@ -301,9 +382,7 @@ class ASTParse
         self._peek    = (self.span.get(self.c_idx + 1)) if (self.c_idx + 1 < self.span.size()) else (&null);
     }
 
-    // ========================================================================
     //  Token resolution
-    // ========================================================================
 
     /// \brief resolves macro expansion chains to the underlying token identity.
     ///
@@ -385,9 +464,7 @@ class ASTParse
         return resolved;
     }
 
-    // ========================================================================
     //  Token checking unified core + convenience wrappers
-    // ========================================================================
 
     /// \brief internal shared logic for token checking and attribute skipping.
     ///
@@ -527,9 +604,7 @@ class ASTParse
         return err;
     }
 
-    // ========================================================================
     //  Macro expansion chain diagnostics
-    // ========================================================================
 
     /// \brief appends notes to a diagnostic builder showing the macro expansion history.
     inline pub fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
@@ -569,9 +644,7 @@ class ASTParse
         }
     }
 
-    // ========================================================================
     //  EOF / first-token queries
-    // ========================================================================
 
     inline pub fn is_eof(self) -> bool {
         return (self._current == &null)
@@ -587,14 +660,16 @@ class ASTParse
         return &null;
     }
 
-    // ========================================================================
     //  Annotation consumption
-    // ========================================================================
 
-    /// \brief consumes all doc-comments and visibility keywords before a production.
+    /// \brief consumes doc-comments, @attributes, and visibility keywords
+    ///        before a production into a PendingAnnotations buffer.
     ///
-    /// \details fills a `PendingAnnotations` buffer which is later stamped onto
-    ///          the resulting AST node.
+    /// \details attribute args reuse the call-argument grammar verbatim,
+    ///          including named args (`@ser(do_sum: true)`); the attr pass
+    ///          distinguishes named/positional exactly like call sema does.
+    ///          A visibility keyword followed by `{` is NOT consumed it
+    ///          is the lead-in of a visibility group decl, owned by DeclParse.
     pub fn consume_leading_annotations(self, out: *PendingAnnotations) {
         out->clear();
 
@@ -610,23 +685,70 @@ class ASTParse
                 continue;
             }
 
-            if resolved.kind == TokenKind::KwPub {
-                out->set_visibility(
-                    PendingAnnotations::VisAnnotation::VisibilityKind::Public, tok->range);
-                self.advance();
+            // -- @attribute ( args? ) ------------------------------------
+            if resolved.kind == TokenKind::OpAt {
+                var at_range = tok->range;
+                self.advance(); // consume `@`
+
+                if !self.check(TokenKind::LitIdentifier) {
+                    self.diag->report(DiagID::S045E, at_range.start,
+                        "expected attribute name after '@' "
+                    ).first(at_range).emit();
+                    continue; // `@` consumed; forward progress made
+                }
+
+                var name_tok  = self.current();
+                var name_text = TokenText::from_token(name_tok, self.ctx);
+                var name      = self.ctx->hoisted->intern(name_text.text);
+                self.advance(); // consume identifier
+
+                var end_range = name_tok.range;
+                inline "c++" {
+                    FrozenList<Expr*> frozen = FrozenList<Expr*>::empty();
+                }
+
+                if self.check(TokenKind::OpLParen) {
+                    var lparen = self.current_ptr()->range;
+                    self.advance(SkipNL::After); // consume `(`
+                    self.nl_push();
+
+                    var args: std::StackBuf::<*Expr, 8>;
+                    if !self.check(TokenKind::OpRParen) {
+                        self._parse_call_args(&args, lparen);
+                    }
+
+                    self.nl_pop();
+                    if self.check(TokenKind::OpRParen) {
+                        end_range = self.current_ptr()->range;
+                        self.advance_raw();
+                    } else {
+                        self.diag->report(DiagID::S045E, lparen.start,
+                            "expected ')' to close attribute argument list"
+                        ).first(lparen).emit();
+                        // _parse_call_args already synced
+                    }
+
+                    frozen.from_buf(args.data(), args.size(), self.ctx);
+                }
+
+                out->add_attr(name, at_range | end_range, frozen);
                 continue;
             }
 
-            if resolved.kind == TokenKind::KwPriv {
-                out->set_visibility(
-                    PendingAnnotations::VisAnnotation::VisibilityKind::Private, tok->range);
-                self.advance();
-                continue;
-            }
+            // -- visibility ------------------------------------------------
+            if resolved.kind == TokenKind::KwPub
+            || resolved.kind == TokenKind::KwPriv
+            || resolved.kind == TokenKind::KwProt {
+                // `pub {` is a visibility group, not a modifier leave it.
+                if self.check_peek(TokenKind::OpLBrace) { break; }
 
-            if resolved.kind == TokenKind::KwProt {
-                out->set_visibility(
-                    PendingAnnotations::VisAnnotation::VisibilityKind::Protected, tok->range);
+                var vk = PendingAnnotations::VisAnnotation::VisibilityKind::Public;
+                if resolved.kind == TokenKind::KwPriv {
+                    vk = PendingAnnotations::VisAnnotation::VisibilityKind::Private;
+                } else if resolved.kind == TokenKind::KwProt {
+                    vk = PendingAnnotations::VisAnnotation::VisibilityKind::Protected;
+                }
+                out->set_visibility(vk, tok->range);
                 self.advance();
                 continue;
             }
@@ -641,7 +763,7 @@ class ASTParse
 
         for var i: usize = 0; i < annot->entries.size(); ++i {
             var e = &annot->entries[i];
-            decl->add_annotation(e->kind, e->name, e->range);
+            decl->add_annotation(e->kind, e->name, e->range, e->args);
         }
 
         if annot->visibility != PendingAnnotations::VisAnnotation::VisibilityKind::None {
@@ -652,33 +774,44 @@ class ASTParse
     /// \brief transfers annotations to an expression node.
     pub fn apply_annotations_to_node(self, node: *Expr, annot: *PendingAnnotations) {
         if annot->empty() { return; }
+        self._diag_vis_on_non_decl(annot, "an expression");
         for var i: usize = 0; i < annot->entries.size(); ++i {
             var e = &annot->entries[i];
-            node->add_annotation(e->kind, e->name, e->range);
+            node->add_annotation(e->kind, e->name, e->range, e->args);
         }
+    }
+
+    /// \brief reports a diagnostic error if a visibility modifier is applied to a non-declaration.
+    priv fn _diag_vis_on_non_decl(self, annot: *PendingAnnotations, what: string) {
+        if annot->visibility == PendingAnnotations::VisAnnotation::VisibilityKind::None {
+            return;
+        }
+        self.diag->report(DiagID::S045E, annot->vis_range.start,
+            f"a visibility modifier cannot be applied to {what}"
+        ).first(annot->vis_range).emit();
     }
 
     /// \brief transfers annotations to a statement node.
     pub fn apply_annotations_to_node(self, node: *Stmt, annot: *PendingAnnotations) {
         if annot->empty() { return; }
+        self._diag_vis_on_non_decl(annot, "a statement");
         for var i: usize = 0; i < annot->entries.size(); ++i {
             var e = &annot->entries[i];
-            node->add_annotation(e->kind, e->name, e->range);
+            node->add_annotation(e->kind, e->name, e->range, e->args);
         }
     }
 
     /// \brief transfers annotations to a type node.
     pub fn apply_annotations_to_node(self, node: *Type, annot: *PendingAnnotations) {
         if annot->empty() { return; }
+        self._diag_vis_on_non_decl(annot, "a type");
         for var i: usize = 0; i < annot->entries.size(); ++i {
             var e = &annot->entries[i];
-            node->add_annotation(e->kind, e->name, e->range);
+            node->add_annotation(e->kind, e->name, e->range, e->args);
         }
     }
 
-    // ========================================================================
     //  Type qualifier consumption
-    // ========================================================================
 
     /// \brief consumes leading type qualifier keywords (const, atomic, etc.).
     ///
@@ -718,9 +851,7 @@ class ASTParse
         }
     }
 
-    // ========================================================================
     //  Recovery primitives
-    // ========================================================================
 
     /// \brief starts a speculative parse branch.
     /// \return the current cursor index to be used for rollback.
@@ -772,9 +903,7 @@ class ASTParse
         if self.depth > 0 { --self.depth; }
     }
 
-    // ========================================================================
     //  Scope primitives
-    // ========================================================================
 
     /// \brief pushes a new lexical scope and associates it with `dc`.
     fn enter_scope(self, kind: ScopeKind, dc: *DeclContext) -> *LexicalScope {
@@ -786,9 +915,7 @@ class ASTParse
         self.scope.pop();
     }
 
-    // ========================================================================
     //  Unified lookup (lexical -> hoisted -> global)
-    // ========================================================================
 
     /// \brief performs a full scope-walking name lookup.
     /// \note slower than direct hoisted scope access; intended for non-parser consumers.
@@ -806,9 +933,7 @@ class ASTParse
         return ParentRef::none();
     }
 
-    // ========================================================================
     //  Completion hooks
-    // ========================================================================
 
     /// \brief notifies completion consumer of a generic context point.
     fn maybe_complete(self, kind: CompletionContextKind) {
@@ -834,6 +959,34 @@ class ASTParse
     fn maybe_complete_sighelp(self, callee: *Expr, arg_index: u32) {
         if self.cc == &null { return; }
         self.cc->on_signature_help(callee, arg_index);
+    }
+
+    inline pub fn nl_push(self) {
+        ++self.nl_depth;
+        self._skip_nl_fwd();
+    }
+
+    inline pub fn nl_pop(self) {
+        if self.nl_depth > 0 { --self.nl_depth; }
+    }
+
+    /// \brief raw single-step advance that NEVER applies suppression skipping.
+    ///        used to consume closing delimiters so a trailing statement
+    ///        terminator after `)`/`]`/`}`/`>` survives for the caller.
+    inline pub fn advance_raw(self) {
+        self._advance();
+    }
+
+    /// \brief resolved kind of the next non-newline token, without moving.
+    inline pub fn peek_past_nl_kind(self) -> TokenKind {
+        var i = self.c_idx;
+        while i < self.span.size() {
+            var t = self.span.get(i);
+            var k = self.resolve_kind_shallow(t);
+            if k != TokenKind::TkNewLine { return k; }
+            ++i;
+        }
+        return TokenKind::TkEof;
     }
 
     ///
