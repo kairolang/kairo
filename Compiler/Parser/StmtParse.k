@@ -199,7 +199,18 @@ class <T> StmtParse {
 
         var s = self._dispatch_stmt();
         if (s != &null) && (!is_fatal_stmt(s)) {
-            dyn()->apply_annotations_to_node(s, &annot);
+            // DeclStmt annotations (incl. visibility) belong to the decl;
+            // the Stmt overload would drop visibility (with a diagnostic).
+            if isa::<DeclStmt>(s) {
+                var ds = cast::<DeclStmt>(s);
+                
+                if ds->decl != &null {
+                    dyn()->apply_annotations_to_decl(ds->decl, &annot);
+                }
+
+            } else {
+                dyn()->apply_annotations_to_node(s, &annot);
+            }
         }
         return s;
     }
@@ -230,17 +241,17 @@ class <T> StmtParse {
             }
 
             // -- jump / signal --------------------------------------------
-            case TokenKind::KwReturn   {
+            case TokenKind::KwReturn {
                 return self._parse_return();
-            } case TokenKind::KwBreak    {
+            } case TokenKind::KwBreak {
                 return self._parse_break();
             } case TokenKind::KwContinue {
                 return self._parse_continue();
-            } case TokenKind::KwPanic    {
+            } case TokenKind::KwPanic {
                 return self._parse_panic();
-            } case TokenKind::KwYield    {
+            } case TokenKind::KwYield {
                 return self._parse_yield();
-            } case TokenKind::KwAssert   {
+            } case TokenKind::KwAssert {
                 return self._parse_assert();
             }
 

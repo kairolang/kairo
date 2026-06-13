@@ -270,6 +270,20 @@ class PendingAnnotations {
         self.entries.push_back(AnnotationEntry(kind, name, range));
     }
 
+    /// \brief appends an `@attr(...)` with already-frozen args.
+    fn add_attr(self, name: InternedStr, range: SourceRange, args: FrozenList::<*Expr>) {
+        var e  = AnnotationEntry(AnnotationKind::Attribute, name, range);
+
+        var erased: FrozenList::<*void>;
+        erased.from_raw(
+            reinterpret_cast::<*(*void)>(args.items),
+            args.count
+        );
+        e.args = erased;
+
+        self.entries.push_back(e);
+    }
+
     /// \brief records a visibility modifier (pub, prot, priv).
     ///
     /// \details visibility is tracked separately from `entries` because it maps
