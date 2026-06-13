@@ -765,7 +765,22 @@ class <T> ExprParse {
         var chain_start = base->range;
 
         while !dyn()->is_eof() {
-            // -- access operators: accumulate into chain steps --------
+            // -- newline continuation: only the member-access family may
+            //    continue an expression across a raw newline. `::` is
+            //    excluded (ambiguous with a new statement); binary ops
+            //    require enclosing parens (nl_depth handles those).
+            if (dyn()->nl_depth == 0) && (dyn()->current().kind == TokenKind::TkNewLine) {
+                var nk = dyn()->peek_past_nl_kind();
+                if (nk == TokenKind::OpDot)
+                || (nk == TokenKind::OpArrow)
+                || (nk == TokenKind::OpQuestionDot)
+                || (nk == TokenKind::OpQuestionArrow) {
+                    dyn()->advance(T::SkipNL::Only);
+                    continue;
+                }
+                break; // newline ends the postfix chain
+            }
+
             if dyn()->check(TokenKind::OpDot)
             || dyn()->check(TokenKind::OpArrow)
             || dyn()->check(TokenKind::OpColonColon)
@@ -1072,7 +1087,7 @@ class <T> ExprParse {
     /// named args are parsed as AssignOperatorExpr with lhs=NamedIdentExpr
     /// and rhs=value. sema distinguishes named vs positional by checking
     /// if the arg is an AssignOperatorExpr with a bare NamedIdentExpr lhs.
-    priv fn _parse_call_args(self, out: *std::StackBuf::<*Expr, 8>, start_range: SourceRange) {
+    pub fn _parse_call_args(self, out: *std::StackBuf::<*Expr, 8>, start_range: SourceRange) {
         while !dyn()->is_eof() {
             if dyn()->check(TokenKind::OpRParen) { return; }
 
@@ -1627,14 +1642,16 @@ class <T> ExprParse {
     /// \brief parses (expr) or (expr, expr, ...)
     ///        single expr -> unwrapped (no GroupingExpr since CST not needed)
     ///        comma-separated -> TupleLiteralExpr
+    /// TODO apply the same nl logic to <> [] and {} parse functions
     inline fn _parse_paren_expr(self) -> *Expr {
         var lparen_range = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `(`
+        dyn()->nl_push();
 
-        // empty parens: () error, not a valid expression
         if dyn()->check(TokenKind::OpRParen) {
             var rparen_range = dyn()->current_ptr()->range;
-            dyn()->advance();
+            dyn()->nl_pop();
+            dyn()->advance_raw();
             dyn()->diag->report(DiagID::S054E, lparen_range.start,
                 "empty parenthesized expression is not valid, did you mean to call a function?"
             ).first(lparen_range | rparen_range).emit();
@@ -1653,28 +1670,26 @@ class <T> ExprParse {
                 "expected expression after '(' "
             ).first(lparen_range).emit();
             self._sync_expr(ExprSyncCtx::Paren, 1, 0, 0, true);
+            dyn()->nl_pop();
             return self._error_expr(lparen_range | dyn()->prev().range);
         }
 
-        // tuple: (expr, ...)
         if dyn()->check(TokenKind::OpComma) {
+            // _finish_tuple_literal pops on all of its exits
             return self._finish_tuple_literal(lparen_range, first);
         }
 
-        // single parenthesized expr: (expr) just unwrap
+        dyn()->nl_pop();
         if dyn()->check(TokenKind::OpRParen) {
-            dyn()->advance(); // consume `)`
+            dyn()->advance_raw(); // consume `)` keep trailing NL significant
             return first;
-        } else {
-            // advance one more token
-            dyn()->advance();
         }
 
-        // missing `)`
+        // missing `)` report WITHOUT eating the offending token (old code
+        // advanced blindly and could swallow the statement terminator).
         dyn()->diag->report(DiagID::S054E, first->range.start,
             "expected ')' or ',' after expression"
         ).first(first->range).emit();
-
         return first;
     }
 

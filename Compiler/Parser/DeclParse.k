@@ -123,8 +123,23 @@ class <T> DeclParse {
 
         var d = self._dispatch_decl();
         if (d != &null) && (!is_fatal_decl(d)) {
-            dyn()->apply_annotations_to_decl(d, &annot);
+            if isa::<VisibilityGroupDecl>(d) {
+                // group keyword wasn't consumed into annot, but @attrs and
+                // doc comments before `pub {` were and they're banned: an
+                // attribute at line 1 silently applying to a decl at line
+                // 500 inside the group is unreadable.
+                inline "c++" { bool annot_has_any = !annot.empty(); }
+                if annot_has_any {
+                    dyn()->diag->report(DiagID::S045E, d->range.start,
+                        "annotations and attributes cannot be applied to a visibility group; "
+                        "apply them to individual members instead"
+                    ).first(d->range).emit();
+                }
+            } else {
+                dyn()->apply_annotations_to_decl(d, &annot);
+            }
         }
+
         return d;
     }
 
@@ -136,6 +151,16 @@ class <T> DeclParse {
     priv fn _dispatch_decl(self) -> *Decl {
         var cur_ptr = dyn()->current_ptr();
         if cur_ptr == &null { return &null; }
+
+        // pub { ... } / priv { ... } / prot { ... } visibility group.
+        // consume_leading_annotations leaves the keyword when `{` follows.
+        var lead_k = dyn()->resolve_kind_deep(cur_ptr);
+        if (   lead_k == TokenKind::KwPub
+            || lead_k == TokenKind::KwPriv
+            || lead_k == TokenKind::KwProt
+           ) && dyn()->check_peek(TokenKind::OpLBrace) {
+            return self._parse_visibility_group();
+        }
 
         // leading abi/dispatch modifiers (static/virtual/override) and the
         // `final` class/method modifier are collected, then we re-dispatch on
@@ -223,6 +248,185 @@ class <T> DeclParse {
 
         if m.any { m.range = start | dyn()->prev().range; }
         return m;
+    }
+
+    // ========================================================================
+    //  Visibility group   pub { decl* }
+    // ========================================================================
+
+    /// \brief parses a visibility group at decl scope.
+    ///  Grammar:  ('pub'|'priv'|'prot') '{' decl* '}'
+    ///
+    /// \details every member's visibility is stamped from the group keyword.
+    ///          an explicit visibility keyword on a member inside the group is
+    ///          an ERROR the group is an at-a-glance guarantee and local
+    ///          overrides destroy it. nesting another group inside is the same
+    ///          error by construction (the inner keyword is explicit
+    ///          visibility). attributes/doc-comments on the GROUP itself are
+    ///          rejected by parse_decl (see annotation check there); members
+    ///          carry their own annotations normally.
+    priv fn _parse_visibility_group(self) -> *Decl {
+        var start = dyn()->current_ptr()->range;
+
+        var vis: u8 = 3; // Public
+        if      dyn()->check(TokenKind::KwPriv) { vis = 1; }
+        else if dyn()->check(TokenKind::KwProt) { vis = 2; }
+        var vis_kind = static_cast::<T::PendingAnnotations::VisAnnotation::VisibilityKind>(vis);
+
+        dyn()->advance(T::SkipNL::After); // consume visibility keyword
+        dyn()->advance(T::SkipNL::After); // consume `{`
+
+        var vg = VisibilityGroupDecl::create(dyn()->ctx, start, vis);
+        var members: std::StackBuf::<*Decl, 8>;
+
+        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
+                dyn()->advance();
+                continue;
+            }
+
+            var d = self.parse_decl();
+            if d == &null { break; }
+            if is_fatal_decl(d) { break; }
+
+            if d->has_visibility() {
+                dyn()->diag->report(DiagID::S050E, d->visibility_range().start,
+                    "explicit visibility is not allowed inside a visibility group"
+                ).first(d->visibility_range())
+                 .note(DiagID::S045E, d->visibility_range().start,
+                    "every member of this group already has the group's visibility; "
+                    "move the declaration outside the group to give it different visibility")
+                 .emit();
+            }
+            d->set_visibility(vis_kind, start);
+
+            members.push_back(d);
+        }
+
+        if dyn()->check(TokenKind::OpRBrace) {
+            dyn()->advance(T::SkipNL::Before);
+        } else {
+            dyn()->diag->report(DiagID::S051E, start.start,
+                "expected '}' to close visibility group"
+            ).first(start).emit();
+        }
+
+        vg->members.from_buf(members.data(), members.size(), dyn()->ctx);
+        vg->range = start | dyn()->prev().range;
+        return static_cast::<*Decl>(vg);
+    }
+
+    /// \brief visibility group inside a type body. Same rules as decl scope;
+    ///        members land in the SAME fields/methods buffers as ungrouped
+    ///        members (sema walks one list), and the group node goes into
+    ///        owner->dc_decls for printing fidelity, holding member pointers.
+    priv fn _parse_member_vis_group(
+        self,
+        owner:         *DeclContext,
+        fields_out:    *std::StackBuf::<*FieldDecl, 8>,
+        methods_out:   *std::StackBuf::<*FunctionDecl, 8>,
+        allow_methods: bool,
+        field_idx:     *u32
+    ) {
+        var start = dyn()->current_ptr()->range;
+
+        var vis: u8 = 3;
+        if      dyn()->check(TokenKind::KwPriv) { vis = 1; }
+        else if dyn()->check(TokenKind::KwProt) { vis = 2; }
+        var vis_kind = static_cast::<T::PendingAnnotations::VisAnnotation::VisibilityKind>(vis);
+
+        dyn()->advance(T::SkipNL::After); // visibility keyword
+        dyn()->advance(T::SkipNL::After); // `{`
+
+        var vg = VisibilityGroupDecl::create(dyn()->ctx, start, vis);
+        var members: std::StackBuf::<*Decl, 8>;
+
+        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
+                dyn()->advance();
+                continue;
+            }
+
+            inline "c++" { typename T::PendingAnnotations m_annot; }
+            dyn()->consume_leading_annotations(&m_annot);
+            if dyn()->check(TokenKind::OpRBrace) { break; }
+
+            // explicit visibility inside the group: error, then proceed.
+            var m_has_vis = m_annot.visibility != T::PendingAnnotations::VisAnnotation::VisibilityKind::None;
+            if m_has_vis {
+                dyn()->diag->report(DiagID::S050E, dyn()->current_ptr()->range.start,
+                    "explicit visibility is not allowed inside a visibility group"
+                ).first(dyn()->current_ptr()->range).emit();
+            }
+
+            var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+
+            var is_method_lead = (k == TokenKind::KwFn)
+                              || (k == TokenKind::KwStatic)
+                              || (k == TokenKind::KwVirtual)
+                              || (k == TokenKind::KwOverride)
+                              || (k == TokenKind::KwFinal);
+
+            if is_method_lead && allow_methods {
+                var lead = self._consume_leading_modifiers();
+                if dyn()->check(TokenKind::KwFn) {
+                    var m = self._parse_function(&lead);
+                    if (m != &null) && isa::<FunctionDecl>(m) {
+                        var fm = cast::<FunctionDecl>(m);
+                        dyn()->apply_annotations_to_decl(static_cast::<*Decl>(fm), &m_annot);
+                        fm->set_visibility(vis_kind, start);
+                        methods_out->push_back(fm);
+                        members.push_back(static_cast::<*Decl>(fm));
+                    }
+                } else {
+                    self._sync_decl(DeclSyncCtx::TypeBody);
+                }
+                continue;
+            }
+
+            var is_field_lead = (k == TokenKind::KwVar) || (k == TokenKind::KwConst)
+                             || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
+                             || ((k == TokenKind::LitIdentifier)
+                                  && (TokenText::from_token(*(dyn()->current_ptr()), dyn()->ctx).text == "mutable"));
+
+            if is_field_lead {
+                var f = self._parse_field(*field_idx);
+                if !is_recovery(static_cast::<*Decl>(f)) {
+                    dyn()->apply_annotations_to_decl(static_cast::<*Decl>(f), &m_annot);
+                    f->set_visibility(vis_kind, start);
+                    fields_out->push_back(f);
+                    members.push_back(static_cast::<*Decl>(f));
+                    *field_idx += 1;
+                } else {
+                    self._sync_decl(DeclSyncCtx::TypeBody);
+                }
+                continue;
+            }
+
+            // nested types etc.
+            var nested = self._dispatch_decl();
+            if (nested != &null) && (!is_fatal_decl(nested)) {
+                dyn()->apply_annotations_to_decl(nested, &m_annot);
+                nested->set_visibility(vis_kind, start);
+                owner->add_decl(nested);
+                members.push_back(nested);
+                continue;
+            }
+
+            self._sync_decl(DeclSyncCtx::TypeBody);
+        }
+
+        if dyn()->check(TokenKind::OpRBrace) {
+            dyn()->advance(T::SkipNL::Before);
+        } else {
+            dyn()->diag->report(DiagID::S051E, start.start,
+                "expected '}' to close visibility group"
+            ).first(start).emit();
+        }
+
+        vg->members.from_buf(members.data(), members.size(), dyn()->ctx);
+        vg->range = start | dyn()->prev().range;
+        owner->add_decl(static_cast::<*Decl>(vg));
     }
 
     // ========================================================================
@@ -986,6 +1190,22 @@ class <T> DeclParse {
             if dyn()->check(TokenKind::OpRBrace) { break; }
 
             var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+
+            // visibility group inside a type body: members route through the
+            // normal field/method paths with the group's visibility stamped.
+            if (k == TokenKind::KwPub || k == TokenKind::KwPriv || k == TokenKind::KwProt)
+            && dyn()->check_peek(TokenKind::OpLBrace) {
+                var grp_annot = !m_annot.empty();
+                if grp_annot {
+                    dyn()->diag->report(DiagID::S050E, dyn()->current_ptr()->range.start,
+                        "annotations and attributes cannot be applied to a visibility group; "
+                        "apply them to individual members instead"
+                    ).first(dyn()->current_ptr()->range).emit();
+                }
+                self._parse_member_vis_group(owner, fields_out, methods_out,
+                                             allow_methods, &field_idx);
+                continue;
+            }
 
             // method (only in classes / interfaces)
             var is_method_lead = (k == TokenKind::KwFn)
@@ -1803,6 +2023,19 @@ class <T> DeclParse {
             var params: std::StackBuf::<*ParamDecl, 8>;
             self._parse_param_list(&params);
             pm->params.from_buf(params.data(), params.size(), dyn()->ctx);
+        }
+
+        // attribute macros transform AST in place they cannot declare a
+        // return type. catch `-> T` here for a targeted message instead of
+        // letting the body parser produce garbage.
+        if dyn()->check(TokenKind::OpArrow) {
+            var r = dyn()->current_ptr()->range;
+            dyn()->diag->report(DiagID::S050E, r.start,
+                "an attribute macro cannot declare a return type; it transforms its node argument in place"
+            ).first(r).emit();
+            dyn()->advance(T::SkipNL::After); // consume `->`
+            var dead = dyn()->parse_type();   // consume the type for recovery
+            // discard; body parse continues below
         }
 
         // STUB: proc-macro bodies execute compile-time AST transforms; the
