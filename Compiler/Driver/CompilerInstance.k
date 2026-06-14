@@ -117,6 +117,7 @@ import AST::ASTIndex::*;
 import Parser::ASTParse::*;
 import AST::GlobalHoistedScope::*;
 import AST::Printer::ASTPrinter::*;
+import Lexer::TokenPrinter::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -971,71 +972,14 @@ fn FrontendAction::_dump_tokens() {
 
     var lexer_ptr = self._ci->tcm()->get_lexer(self._file_id);
     var imm_tbl   = (lexer_ptr->get_imm_tbl()) if (lexer_ptr != &null) else (&null);
-    var sm        = self._ci->sm();
 
-    std::print(f"-- token stream: {self.path.full_path()} ({tokens->size()} tokens) --");
+    var printer = TokenPrinter(
+        self._ci->sm(),
+        imm_tbl,
+        self._ci->invocation().diag.no_color
+    );
 
-    for var i: usize = 0; i < tokens->size(); ++i {
-        var tok       = tokens->get(i);
-        var kind      = tok->kind;
-        var imm       = tok->imm;
-        var tok_range = tok->range;
-
-        // unwrap macro expansion to get real kind/imm/range
-        if (tok->kind == TokenKind::TkMacroExpand)
-        && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
-        && (imm_tbl != &null) {
-            var info  = imm_tbl->get::<Immediate::MacroExpansionInfo>(tok->imm);
-            kind      = info->original_kind;
-            imm       = info->original_imm;
-            tok_range = info->def_range;
-        }
-
-        // compute display text
-        var text: string;
-
-        if (tok->kind == TokenKind::TkMacroExpand)
-        && (tok->imm >= static_cast::<u32>(MacroSentinel::Threshold)) {
-            if      tok->imm == static_cast::<u32>(MacroSentinel::Todo)         { text = "<todo>";        }
-            else if tok->imm == static_cast::<u32>(MacroSentinel::Unreachable)  { text = "<unreachable>"; }
-            else if tok->imm == static_cast::<u32>(MacroSentinel::Include)      { text = "<include>";     }
-            else if tok->imm == static_cast::<u32>(MacroSentinel::IncludeStr)   { text = "<include_str>"; }
-            else if tok->imm == static_cast::<u32>(MacroSentinel::Embed)        { text = "<embed>";       }
-            else                                                                { text = "<sentinel>";    }
-        } else if kind == TokenKind::LitInt && imm_tbl != &null {
-            var int_data = imm_tbl->get::<Immediate::IntData>(imm);
-            // text = f"[body: {sm->get_text(int_data->body)},";
-            // text += f" prefix: {sm->get_text(int_data->prefix)},";
-            // text += f" suffix: {sm->get_text(int_data->suffix)},";
-            text = f" value: {int_data->value_hi}:{int_data->value_lo}";
-            // text += f" bits: {int_data->bits},";
-            // text += f" base: {int_data->base},";
-            // text += f" flags: {int_data->flags}]";
-        } else if (kind == TokenKind::LitIdentifier)
-               && (imm > 0)
-               && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
-            text = f"__unique_{imm}";
-        } else if kind == TokenKind::OpComma {
-            text = ",";
-        } else if kind == TokenKind::TkError {
-            text = "ERROR"; // we do not attempt to get the text since we might
-                            // segfault trying to read an invalid source range
-        } else if kind == TokenKind::TkNewLine {
-            text = "\\n";
-        } else if kind == TokenKind::TkEof {
-            text = "<eof>";
-        } else {
-            text = sm->get_text(tok_range);
-        }
-        
-        if tok->kind == TokenKind::TkMacroExpand {
-            std::print(f"  [{i}] MACRO EXPANDED '{text}' @ {tok->range}");
-        } else if tok->kind == TokenKind::TkError {
-            std::print(f"  [{i}] <error token> expected `{token_kind_to_readable_string(static_cast::<TokenKind>(tok->imm))}' @ {tok->range}");
-        } else {
-            std::print(f"  [{i}] {tok->readable_kind()} '{text}' @ {tok->range}");
-        }
-    }
+    printer.print_stream(tokens, self.path.full_path());
 }
 
 fn FrontendAction::_dump_macros() {

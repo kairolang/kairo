@@ -1140,6 +1140,7 @@ module Immediate {
 
         fn StringData(self, parsing_status_cb: fn (bool)) {
             self._evaluation_status_cb = parsing_status_cb;
+            self.next = u32(-1);
         }
 
         /// basic cleanup of all internally stored pools
@@ -1168,6 +1169,7 @@ module Immediate {
 
         fn CharData(self, parsing_status_cb: fn (bool)) {
             self._evaluation_status_cb = parsing_status_cb;
+            self.next = u32(-1);
         }
 
         fn op delete (self) {
