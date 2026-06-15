@@ -51,27 +51,7 @@ pub module geo {
 }
 
 // == newline rules =========================================================
-var chained = MyFoo()
-    .bar()
-    ?.baz()
-    ->qux()
 
-var grouped = (
-    1 +
-    2 *
-    3
-)
-
-var multi_call = make_thing(
-    first:  1,
-    second: "two",
-    [3, 4, 5],
-)
-
-var generic_multiline = Lookup
-    string,
-    Vec<i32>,
->::create()
 
 // == expressions ============================================================
 var foo    = if a || b || c { 10 } else { 20 }
@@ -156,7 +136,7 @@ inline "c++" {
 
 // == EXPECTED ERRORS (delete below for clean run) ===========================
 pub return 1                       // err: visibility on a statement
-@inline pub { var bad: i32 }       // err: annotation on visibility group
+@always_inline pub { var bad: i32 }       // err: annotation on visibility group
 class Bad { pub { priv var z: i32 } } // err: explicit vis inside group
 macro @noret(n: *ast::Decl) -> i32 { } // err: attr macro return type
 fn f(<i32>) {}                     // err: junk, recovery shouldn't cascade

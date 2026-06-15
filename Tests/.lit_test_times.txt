@@ -1,0 +1,4 @@
+1.857560e-01 Regression/generics_multiline_comma_nl.k
+1.872456e-01 Regression/generics_multiline_comma_tight.k
+1.895068e-01 Regression/generics_multiline_nocomma_nl.k
+1.906173e-01 Regression/generics_multiline_nocomma_tight.k
