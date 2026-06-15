@@ -95,6 +95,33 @@ class DiagBuilder {
         self._emitted = false;
     }
 
+    fn DiagBuilder(self, other: mref!(DiagBuilder)) {
+        self._engine   = other._engine;
+        self._diag     = other._diag;
+        self._emitted  = other._emitted;
+        other._emitted = true;     // source must not emit on its dtor
+        other._diag    = &null;    // source no longer owns the diag
+    }
+
+    // Move-assign: drop what we hold (if un-emitted), then steal.
+    fn op = (self, other: mref!(DiagBuilder)) -> ref!(DiagBuilder) {
+        if (&self) == (&other) { return self; }
+        if (!self._emitted) && (self._diag != &null) {
+            std::destroy(self._diag);
+        }
+        self._engine   = other._engine;
+        self._diag     = other._diag;
+        self._emitted  = other._emitted;
+        other._emitted = true;
+        other._diag    = &null;
+        return self;
+    }
+
+    // Copy is forbidden: a raw-pointer member with a freeing dtor double-frees
+    // on any copy. Misuse (pass-by-value, auto b2 = b) is now a compile error.
+    delete fn DiagBuilder(self, other: ref!(DiagBuilder));
+    delete fn op = (self, other: ref!(DiagBuilder)) -> ref!(DiagBuilder);
+
     // --- Labels --------------------------------------------------------------
 
     /// Attaches a primary label (\c ^^^) to \p range.
@@ -331,10 +358,14 @@ class DiagBuilder {
     /// to avoid a leak.
     fn op delete (self) {
         if !self._emitted {
-            self.emit();
-        }
-        if self._emitted == false {
-            std::destroy(self._diag);
+            // built but never emitted: a bug. We do NOT implicitly emit —
+            // implicit emit-at-scope-exit collides with suppression scopes
+            // (TentativeGuard) and hides the mistake. Debug aborts; release
+            // frees the orphan to avoid a leak, dropping the diagnostic.
+            assert(false && r"DiagBuilder dropped without emit()");
+            if self._diag != &null {
+                std::destroy(self._diag);
+            }
         }
     }
 }
