@@ -133,38 +133,31 @@ class ExprPrinter {
     // -- Scalar literals ---------------------------------------------
 
     priv fn _print_int_lit(self, expr: *IntegerLiteralExpr) {
-        if self._style == PrintStyle::Debug {
-            self._buf += f"int({ExprPrinter::tok_spelling(expr->token)})";
-        } else {
-            self._buf += ExprPrinter::tok_spelling(expr->token);
-        }
+        var text = expr->get_text();
+        if self._style == PrintStyle::Debug { self._buf += f"int({text})"; }
+        else { self._buf += text; }
     }
 
     priv fn _print_float_lit(self, expr: *FloatingLiteralExpr) {
-        if self._style == PrintStyle::Debug {
-            self._buf += f"float({ExprPrinter::tok_spelling(expr->token)})";
-        } else {
-            self._buf += ExprPrinter::tok_spelling(expr->token);
-        }
+        var text = expr->get_text();
+        if self._style == PrintStyle::Debug { self._buf += f"float({text})"; }
+        else { self._buf += text; }
     }
 
     priv fn _print_string_lit(self, expr: *StringLiteralExpr) {
+        var text = expr->get_text();
         if self._style == PrintStyle::Debug {
             var kind_str = "plain";
             if expr->string_kind == StringLiteralExpr::StringKind::Raw    { kind_str = "raw";    }
             if expr->string_kind == StringLiteralExpr::StringKind::Format { kind_str = "format"; }
-            self._buf += f"str({kind_str}, {ExprPrinter::tok_spelling(expr->token)})";
-        } else {
-            self._buf += ExprPrinter::tok_spelling(expr->token);
-        }
+            self._buf += f"str({kind_str}, {text})";
+        } else { self._buf += text; }
     }
 
     priv fn _print_char_lit(self, expr: *CharacterLiteralExpr) {
-        if self._style == PrintStyle::Debug {
-            self._buf += f"char({ExprPrinter::tok_spelling(expr->token)})";
-        } else {
-            self._buf += ExprPrinter::tok_spelling(expr->token);
-        }
+        var text = expr->get_text();
+        if self._style == PrintStyle::Debug { self._buf += f"char({text})"; }
+        else { self._buf += text; }
     }
 
     priv fn _print_bool_lit(self, expr: *BooleanLiteralExpr) {
@@ -182,8 +175,7 @@ class ExprPrinter {
     // -- Named identifier --------------------------------------------
 
     priv fn _print_named_ident(self, expr: *NamedIdentExpr) {
-        var name = ExprPrinter::tok_spelling(expr->name);
-
+        var name = TokenText::from_token(expr->name, expr->ctx).get_text();
         if self._style == PrintStyle::Debug {
             self._buf += f"ident({name})";
         } else {
@@ -196,7 +188,7 @@ class ExprPrinter {
                 if i > 0 { self._buf += ", "; }
                 var arg = expr->generic_args.get(i);
                 if arg->name != &null {
-                    self._buf += ExprPrinter::tok_spelling(arg->name->name);
+                    self._buf += TokenText::from_token(arg->name->name, expr->ctx).get_text();
                     self._buf += ": ";
                 }
                 self._buf += TypePrinter::print(arg->ty, self._style);
@@ -204,7 +196,7 @@ class ExprPrinter {
             self._buf += ">";
         }
     }
-
+    
     // -- Chain expression --------------------------------------------
 
     priv fn _print_chain(self, expr: *ChainExpr) {
@@ -229,7 +221,7 @@ class ExprPrinter {
             self._print_access_kind(step->access_kind);
 
             if step->name != &null {
-                self._buf += ExprPrinter::tok_spelling(step->name->name);
+                self._buf += TokenText::from_token(step->name->name, expr->ctx).get_text();
             } else {
                 self._buf += "<error>";
             }
@@ -240,7 +232,7 @@ class ExprPrinter {
                     if j > 0 { self._buf += ", "; }
                     var arg = step->generic_args.get(j);
                     if arg->name != &null {
-                        self._buf += ExprPrinter::tok_spelling(arg->name->name);
+                        self._buf += TokenText::from_token(arg->name->name, expr->ctx).get_text();
                         self._buf += ": ";
                     }
                     self._buf += TypePrinter::print(arg->ty, self._style);
@@ -420,7 +412,7 @@ class ExprPrinter {
         for var i: usize = 0; i < expr->fields.size(); ++i {
             if i > 0 { self._buf += ", "; }
             var field = expr->fields.get(i);
-            self._buf += ExprPrinter::tok_spelling(field->name);
+            self._buf += TokenText::from_token(field->name, expr->ctx).get_text();
             self._buf += ": ";
             self._print(field->value);
         }
@@ -438,7 +430,7 @@ class ExprPrinter {
             if i > 0 { self._buf += ", "; }
             var field = expr->fields.get(i);
             self._buf += ".";
-            self._buf += ExprPrinter::tok_spelling(field->name);
+            self._buf += TokenText::from_token(field->name, expr->ctx).get_text();
             self._buf += ": ";
             self._print(field->value);
         }
