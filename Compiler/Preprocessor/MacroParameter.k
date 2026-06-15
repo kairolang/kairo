@@ -27,7 +27,7 @@ class MacroParameter {
     pub var default_value: TokenSpan;
 
     const fn as_string(self, sym_table: *PreprocessorSymbolTable) -> string {
-        var repr = f"MacroParameter(name: '{self.name.as_string(sym_table)}' ";
+        var repr = f"MacroParameter(name: '{self.name.as_string(sym_table)}\x27";
         switch self.is_variadic {
             case VariadicType::Named {
                 repr += ", is_variadic: named";

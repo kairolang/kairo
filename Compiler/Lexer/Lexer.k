@@ -334,7 +334,7 @@ class Lexer {
         ///  operators/punctuation:
         /// '{' '}' '(' ')' '[' ']' '+' '-' '*' '/' '%' '^' '|' '&' '~' '<' '>' '!' '=' '?' '@' ':' ';' ',' '.' '\'
         /// string literals are a coumpund or single since they can have a prefix or postfix
-        /// 0x22 "' " '#"' '#"'
+        /// 0x22 "\x27" '#"' '#"'
 
         while !self.is_eof() {
             /// this is where the main lexing loop will go
@@ -371,7 +371,7 @@ class Lexer {
 
             // if token.kind == TokenKind::TkError {
             //     self._diag->report(DiagCode(DiagID::S011E), token.range.start,
-            //         f"invalid token '{self._sm->get_text(token.range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token.imm))}' ")
+            //         f"invalid token '{self._sm->get_text(token.range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token.imm))}\x27")
             //         .first(token.range).emit();
             // }
             // we do not emit errors here since some of them are expected to be handled later with better context
@@ -403,7 +403,7 @@ class Lexer {
 
             } else if i.kind == BalanceTracker::BalanceErrorKind::Mismatched {
                 self._diag->report(DiagCode(DiagID::S035E), i.loc,
-                    f"mismatched delimiter: expected '{token_kind_to_readable_string(i.expected)}', found '{token_kind_to_readable_string(i.found)}' ")
+                    f"mismatched delimiter: expected '{token_kind_to_readable_string(i.expected)}', found '{token_kind_to_readable_string(i.found)}\x27")
                     .first(SourceRange::single(i.loc))
                     .second(SourceRange::single(i.open_loc)).emit();
             }
@@ -425,9 +425,9 @@ class Lexer {
 
             switch err.kind {
                 case BalanceTracker::BalanceErrorKind::Unclosed {
-                    var msg = (f"unclosed macro invocation delimiter; expected '{token_kind_to_readable_string(err.expected)}' ")
+                    var msg = (f"unclosed macro invocation delimiter; expected '{token_kind_to_readable_string(err.expected)}\x27")
                         if err.is_macro
-                        else (f"unclosed delimiter; expected '{token_kind_to_readable_string(err.expected)}' ");
+                        else (f"unclosed delimiter; expected '{token_kind_to_readable_string(err.expected)}\x27");
 
                     var code: DiagID;
                     if      err.expected == TokenKind::OpRParen  { code = DiagID::S019E; }
@@ -443,9 +443,9 @@ class Lexer {
                         .first(err_range).emit();
 
                 } case BalanceTracker::BalanceErrorKind::Mismatched {
-                    var msg = (f"mismatched macro delimiter: expected '{token_kind_to_readable_string(err.expected)}' to close macro, found '{token_kind_to_readable_string(err.found)}' ")
+                    var msg = (f"mismatched macro delimiter: expected '{token_kind_to_readable_string(err.expected)}' to close macro, found '{token_kind_to_readable_string(err.found)}\x27")
                         if err.is_macro
-                        else (f"mismatched delimiter: expected '{token_kind_to_readable_string(err.expected)}', found '{token_kind_to_readable_string(err.found)}' ");
+                        else (f"mismatched delimiter: expected '{token_kind_to_readable_string(err.expected)}', found '{token_kind_to_readable_string(err.found)}\x27");
 
                     self._diag->report(DiagCode(DiagID::S035E), err.loc, msg)
                         .first(err_range)
@@ -509,7 +509,7 @@ class Lexer {
 
             // if (token->kind) == TokenKind::TkError {
             //     self._diag->report(DiagCode(DiagID::S011E), token->range.start,
-            //         f"invalid token '{self._sm->get_text(token->range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}' ")
+            //         f"invalid token '{self._sm->get_text(token->range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}\x27")
             //         .first(token->range).emit();
             // }
             // we handle the TkError tokens in the parser not here.
@@ -2156,7 +2156,7 @@ class Lexer {
                 );
 
                 self._diag->report(DiagCode(DiagID::S033E), range.start,
-                    f"unknown escape sequence '{self._sm->get_text(range)}' ")
+                    f"unknown escape sequence '{self._sm->get_text(range)}\x27")
                     .first(range).emit();
                 return false;
             }
@@ -2307,7 +2307,7 @@ fn Test() -> i32 {
             return f"expected LitIdentifier, got {token_kind_to_readable_string(tok->kind)}";
         }
         if sm->get_text(tok->range) != "foo" {
-            return f"expected text 'foo', got '{sm->get_text(tok->range)}' ";
+            return f"expected text 'foo', got '{sm->get_text(tok->range)}\x27";
         }
         
         if lexer->has_errors() {
@@ -4037,7 +4037,7 @@ fn Test() -> i32 {
     // =========================================================================
 
     suite.equal::<string>("lex simple char", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("'a' 'Z' '0' ", sm, pool, &test_diag);
+        var res = create_lexer_from_string_with_diag("'a' 'Z' '0\x27", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4064,7 +4064,7 @@ fn Test() -> i32 {
     }, 1000);
 
     suite.equal::<string>("lex char with escapes", "pass", fn () -> string {
-        var res   = create_lexer_from_string_with_diag("'\\n' '\\t' '\\'' '\\\\' ", sm, pool, &test_diag);
+        var res   = create_lexer_from_string_with_diag("'\\n' '\\t' '\\'' '\\\\\x27", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid   = libcxx::get::<1>(res);
         

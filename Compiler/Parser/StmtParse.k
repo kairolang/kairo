@@ -389,7 +389,7 @@ class <T> StmtParse {
             ).first(as_range)
              .note(DiagID::S056N, as_range.start,
                 "a binding after 'as' (e.g. 'as var x') begins a context block and requires a body; "
-                "for a type cast write 'as <Type>' with no 'var'/'const' ")
+                "for a type cast write 'as <Type>' with no 'var'/'const\x27")
              .emit();
             var err = ContextBindingStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range);
             return static_cast::<*Stmt>(err);
@@ -843,7 +843,7 @@ class <T> StmtParse {
                 else_ = static_cast::<*Stmt>(self.parse_compound());
             } else {
                 dyn()->diag->report(DiagID::S056E, start_range.start,
-                    "expected '{' or 'if' after 'else' "
+                    "expected '{' or 'if' after 'else\x27"
                 ).first(start_range).emit();
                 // leave else_ null; recover.
             }
@@ -891,7 +891,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::OpLBrace) {
             dyn()->diag->report(DiagID::S056E, start_range.start,
-                "expected '{' after 'loop' "
+                "expected '{' after 'loop\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(LoopStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1279,7 +1279,7 @@ class <T> StmtParse {
         var payload = dyn()->parse_expr();
         if (payload == &null) || is_recovery(payload) {
             dyn()->diag->report(DiagID::S052E, start_range.start,
-                "expected expression after 'panic' "
+                "expected expression after 'panic\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(PanicStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1297,7 +1297,7 @@ class <T> StmtParse {
         var value = dyn()->parse_expr();
         if (value == &null) || is_recovery(value) {
             dyn()->diag->report(DiagID::S052E, start_range.start,
-                "expected expression after 'yield' "
+                "expected expression after 'yield\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(YieldStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1325,7 +1325,7 @@ class <T> StmtParse {
         var cond = dyn()->parse_expr(T::ExprStopKind::StopComma);
         if (cond == &null) || is_recovery(cond) {
             dyn()->diag->report(DiagID::S052E, start_range.start,
-                "expected condition expression after 'assert' "
+                "expected condition expression after 'assert\x27"
             ).first(start_range).emit();
             if is_static {
                 return static_cast::<*Stmt>(StaticAssertStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
@@ -1368,7 +1368,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::OpLBrace) {
             dyn()->diag->report(DiagID::S056E, start_range.start,
-                "expected '{' after 'try' "
+                "expected '{' after 'try\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(TryCatchStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1452,7 +1452,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::OpLBrace) {
             dyn()->diag->report(DiagID::S056E, start_range.start,
-                "expected '{' after 'finally' "
+                "expected '{' after 'finally\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(FinallyStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1495,7 +1495,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::OpLBrace) {
             dyn()->diag->report(DiagID::S056E, start_range.start,
-                "expected '{' after 'eval' "
+                "expected '{' after 'eval\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(EvalBlockStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1558,7 +1558,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::OpLParen) {
             dyn()->diag->report(DiagID::S060E, start_range.start,
-                "expected '(' after 'label!' "
+                "expected '(' after 'label!\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(LabelIntrinsicStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1566,7 +1566,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S060E, start_range.start,
-                "expected label name inside 'label!(...)' "
+                "expected label name inside 'label!(...)\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(LabelIntrinsicStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1575,7 +1575,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::OpRParen) {
             dyn()->diag->report(DiagID::S060E, start_range.start,
-                "expected ')' to close 'label!(...)' "
+                "expected ')' to close 'label!(...)\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(LabelIntrinsicStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1602,7 +1602,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::OpLParen) {
             dyn()->diag->report(DiagID::S060E, start_range.start,
-                "expected '(' after 'jump!' "
+                "expected '(' after 'jump!\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(JumpIntrinsicStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1610,7 +1610,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S060E, start_range.start,
-                "expected target name inside 'jump!(...)' "
+                "expected target name inside 'jump!(...)\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(JumpIntrinsicStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1619,7 +1619,7 @@ class <T> StmtParse {
 
         if !dyn()->check(TokenKind::OpRParen) {
             dyn()->diag->report(DiagID::S060E, start_range.start,
-                "expected ')' to close 'jump!(...)' "
+                "expected ')' to close 'jump!(...)\x27"
             ).first(start_range).emit();
             return static_cast::<*Stmt>(JumpIntrinsicStmt::create_error(dyn()->ctx, start_range | dyn()->prev().range));
         }
@@ -1765,7 +1765,7 @@ class <T> StmtParse {
         if txt.text == "C++"    { return InlineLang::Cpp;    }
 
         dyn()->diag->report(DiagID::S060W, ctx_range.start,
-            f"unknown inline foreign language '{txt.text}'; falling back to 'c++' "
+            f"unknown inline foreign language '{txt.text}'; falling back to 'c++\x27"
         ).first(ctx_range).emit();
         return InlineLang::Cpp;
     }

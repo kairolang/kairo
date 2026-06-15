@@ -424,7 +424,7 @@ class <T> TypeParse {
         dyn()->diag->report(
             DiagID::S053E,
             cur_range.start,
-            f"expected type, found '{token_kind_to_readable_string(resolved_kind)}' "
+            f"expected type, found '{token_kind_to_readable_string(resolved_kind)}\x27"
         ).first(cur_range).emit();
 
         dyn()->advance(); // skip offending token to prevent infinite loops during recovery.
@@ -447,7 +447,7 @@ class <T> TypeParse {
         var inner = dyn()->parse_expr();
         if inner == &null {
             dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after 'typeof' "
+                "expected type after 'typeof\x27"
             ).first(start_range).emit();
 
             return TypeOfType::create_error(dyn()->ctx, start_range);
@@ -494,7 +494,7 @@ class <T> TypeParse {
         var first = self.parse_type(false, true);
         if (first == &null) || (is_recovery(first)) {
             dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after '(' "
+                "expected type after '(\x27"
             ).first(start_range).emit();
 
             self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
@@ -690,7 +690,7 @@ class <T> TypeParse {
             // this should never get called since we should
             // always be making a fully valid tree (even with broken nodes)
             dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after '[' "
+                "expected type after '[\x27"
             ).first(start_range).emit();
             return &null;
         }
@@ -891,7 +891,7 @@ class <T> TypeParse {
             dyn()->diag->report(
                 DiagID::S053E,
                 start_range.start,
-                "expected type after '{' "
+                "expected type after '{\x27"
             ).first(start_range).emit();
 
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1, true);
@@ -928,7 +928,7 @@ class <T> TypeParse {
             dyn()->diag->report(
                 DiagID::S055E,
                 dyn()->current_ptr()->range.start,
-                "unexpected ',' in braced type, did you mean ':' for a map type '{K: V}' "
+                "unexpected ',' in braced type, did you mean ':' for a map type '{K: V}\x27"
                 "or '(' for a tuple type?"
             ).first(dyn()->current_ptr()->range).emit();
 
@@ -987,7 +987,7 @@ class <T> TypeParse {
         // `{K:}` missing value type
         if dyn()->check(TokenKind::OpRBrace) {
             dyn()->diag->report(DiagID::S053E, sep_range.start,
-                "expected value type after ':' in map type '{K: V}' "
+                "expected value type after ':' in map type '{K: V}\x27"
             ).first(sep_range).emit();
             dyn()->advance(); // consume `}`
             var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
@@ -1008,7 +1008,7 @@ class <T> TypeParse {
 
         if val_type == &null {
             dyn()->diag->report(DiagID::S053E, sep_range.start,
-                "expected value type after ':' in map type '{K: V}' "
+                "expected value type after ':' in map type '{K: V}\x27"
             ).first(sep_range).emit();
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
             var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
@@ -1027,7 +1027,7 @@ class <T> TypeParse {
         // common error: `{K: V, ...}`
         if dyn()->check(TokenKind::OpComma) {
             dyn()->diag->report(DiagID::S055E, dyn()->current_ptr()->range.start,
-                "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}' "
+                "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}\x27"
             ).first(dyn()->current_ptr()->range).emit();
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
             var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
@@ -1106,7 +1106,7 @@ class <T> TypeParse {
         var pointee = self.parse_type();
         if pointee == &null {
             dyn()->diag->report(DiagID::S053E, start_range.start,
-                "expected type after '*' "
+                "expected type after '*\x27"
             ).first(start_range).emit();
 
             return PointerType::create_error(dyn()->ctx, start_range);

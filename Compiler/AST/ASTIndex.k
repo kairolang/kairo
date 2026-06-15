@@ -843,7 +843,7 @@ class ASTIndex {
 
         } else {
             // self._diag->report(DiagID::S036E, tok.range.start,
-            //     "expected macro name after 'macro' "
+            //     "expected macro name after 'macro\x27"
             // ).first(tok.range).emit();
             self.skip_until_balanced(SkipUntil::EndLine);
         }

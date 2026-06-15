@@ -603,7 +603,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::KwEnum)      { dyn()->advance(); return GenericParamKindBound::Enum;   }
         if dyn()->check(TokenKind::KwUnion)     { dyn()->advance(); return GenericParamKindBound::Union;  }
         dyn()->diag->report(DiagID::S049E, ctx_range.start,
-            "expected 'class', 'struct', 'enum', or 'union' as a kind bound after ':' "
+            "expected 'class', 'struct', 'enum', or 'union' as a kind bound after ':\x27"
         ).first(ctx_range).emit();
         return GenericParamKindBound::Any;
     }
@@ -710,7 +710,7 @@ class <T> DeclParse {
             }
         } else {
             dyn()->diag->report(DiagID::S047E, start.start,
-                "expected function name, 'op', or a qualified name after 'fn' "
+                "expected function name, 'op', or a qualified name after 'fn\x27"
             ).first(start).emit();
             dyn()->exit_depth();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1569,7 +1569,7 @@ class <T> DeclParse {
         var target = dyn()->parse_type();
         if (target == &null) || is_recovery(target) {
             dyn()->diag->report(DiagID::S046E, start.start,
-                "expected a type to extend after 'extend' "
+                "expected a type to extend after 'extend\x27"
             ).first(start).emit();
             dyn()->exit_depth();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1788,7 +1788,7 @@ class <T> DeclParse {
 
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S046E, start.start,
-                "expected alias name after 'type' "
+                "expected alias name after 'type\x27"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(TypeAliasDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
@@ -1945,7 +1945,7 @@ class <T> DeclParse {
         // token macro: `macro name!(params) { raw }`
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S046E, start.start,
-                "expected macro name after 'macro' "
+                "expected macro name after 'macro\x27"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(MacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
@@ -2014,7 +2014,7 @@ class <T> DeclParse {
         dyn()->advance(); // consume `@`
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S046E, start.start,
-                "expected name after 'macro @' "
+                "expected name after 'macro @\x27"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(ProcedureMacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
@@ -2121,7 +2121,7 @@ class <T> DeclParse {
 
         if !dyn()->check(TokenKind::OpLBrace) {
             dyn()->diag->report(DiagID::S050E, start.start,
-                "expected '{' after 'eval' "
+                "expected '{' after 'eval\x27"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(EvalBlockDecl::create_error(dyn()->ctx, start | dyn()->prev().range));

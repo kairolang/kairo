@@ -1337,7 +1337,7 @@ group = "ast"
     # malformed pattern construct
 
     a structural problem was found inside a pattern. common causes:
-    - empty tuple pattern `()` — at least one element is required
+    - empty tuple pattern `()`, at least one element is required
     - missing binding name after `var`/`const` in a binding pattern
     - missing `)` to close a tuple pattern or constructor payload
     - missing `]` to close a slice pattern

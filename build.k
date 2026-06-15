@@ -198,9 +198,9 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
              .passthrough("-lclang-cpp")
              .passthrough("-lLLVM");
         } else {
-            var inc    = run(["sh", "-c", "llvm-config --includedir | tr -d '\\n' "]).stdout_str;
-            var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n' "]).stdout_str;
-            var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n' "]).stdout_str;
+            var inc    = run(["sh", "-c", "llvm-config --includedir | tr -d '\\n\x27"]).stdout_str;
+            var libdir = run(["sh", "-c", "llvm-config --libdir | tr -d '\\n\x27"]).stdout_str;
+            var prefix = run(["sh", "-c", "llvm-config --prefix | tr -d '\\n\x27"]).stdout_str;
             t.passthrough("-I" + inc);
             t.passthrough("-I" + prefix + "/include");
             t.passthrough("-I" + prefix + "/tools/clang/include");

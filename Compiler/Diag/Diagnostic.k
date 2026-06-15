@@ -42,7 +42,7 @@ struct DiagLabel {
 /// the intent of the fix.
 struct FixIt {
     pub var replacement: string;
-    pub var message:     string; ///< e.g. "change the return type to 'i32' "
+    pub var message:     string; ///< e.g. "change the return type to 'i32\x27"
     pub var range:       SourceRange;
 }
 

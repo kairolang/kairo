@@ -346,7 +346,7 @@ class Command {
                 var v: i32 = 0;
                 if !self._parse_i32(raw, &v) {
                     self._diag->report(DiagCode(DiagID::U003E),
-                        f"flag '-{def->short_}' / '--{def->long_}' expects an integer, got '{raw}' ")
+                        f"flag '-{def->short_}' / '--{def->long_}' expects an integer, got '{raw}\x27")
                         .emit();
                     result->ok = false;
                     return;
@@ -364,7 +364,7 @@ class Command {
                 var v: f64 = 0.0;
                 if !self._parse_f64(raw, &v) {
                     self._diag->report(DiagCode(DiagID::U003E),
-                        f"flag '--{def->long_}' expects a number, got '{raw}' ")
+                        f"flag '--{def->long_}' expects a number, got '{raw}\x27")
                         .emit();
                     result->ok = false;
                     return;
@@ -552,7 +552,7 @@ class Command {
 
                 if elem[1] == '-' { // '/-' is invalid
                     self._diag->report(DiagCode(DiagID::U003E),
-                        "'/-' is not a valid flag prefix; use '-flag', '--flag', or '/flag' ")
+                        "'/-' is not a valid flag prefix; use '-flag', '--flag', or '/flag\x27")
                         .emit();
                     result.ok = false;
                     i += 1; continue;
@@ -589,7 +589,7 @@ class Command {
 
                         if def == &null {
                             self._diag->report(DiagCode(DiagID::U002E),
-                                f"unknown flag '/{ch}' ").emit();
+                                f"unknown flag '/{ch}\x27").emit();
                             result.ok = false;
                             j += 1; continue;
                         }

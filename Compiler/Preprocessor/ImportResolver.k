@@ -358,7 +358,7 @@ class ImportResolver {
             }
         }
 
-        Logger::debug(Logger::Stage::Preprocessor, f"ImportResolver::resolve_module: not found key='{cache_key}' ");
+        Logger::debug(Logger::Stage::Preprocessor, f"ImportResolver::resolve_module: not found key='{cache_key}\x27");
         return ResolveError::NotFound;
     }
 

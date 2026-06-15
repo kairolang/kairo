@@ -846,14 +846,14 @@ class MacroExpander {
                 // validate: parens vs no-parens
 
                 if (def->accepts_params) && (!invoke.has_args) {
-                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' requires arguments but was invoked without any; add '(...)' ", DiagID::R006E);
+                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' requires arguments but was invoked without any; add '(...)\x27", DiagID::R006E);
                     output->append(*tok);
                     i += 1;
                     continue;
                 }
 
                 if (!def->accepts_params) && (invoke.has_args) {
-                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' is parameterless and does not accept arguments; remove the '(...)' ", DiagID::R007E);
+                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' is parameterless and does not accept arguments; remove the '(...)\x27", DiagID::R007E);
                     output->append(*tok);
                     i += 1;
                     continue;
@@ -2257,7 +2257,7 @@ priv fn ImportProcessor::resolve_import(
         }
 
         self._diag->report(DiagCode(DiagID::R011E), parsed->import_loc.start,
-            f"failed to resolve import path '{self.segments_to_string(path_strings)}' ")
+            f"failed to resolve import path '{self.segments_to_string(path_strings)}\x27")
             .first(full_loc)
             .emit();
         return;
@@ -2280,7 +2280,7 @@ priv fn ImportProcessor::resolve_import(
         }
 
         self._diag->report(DiagCode(DiagID::R011E), start_loc,
-            f"failed to resolve import path '{self.segments_to_string(path_strings)}' ")
+            f"failed to resolve import path '{self.segments_to_string(path_strings)}\x27")
             .first(loc)
             .emit();
         return;
@@ -2416,7 +2416,7 @@ priv fn ImportProcessor::resolve_module_greedy(
                 var path = *retry;
                 var fid = self._sm->load_file(path);
                 if fid != 0 {
-                    Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_module_greedy: ambiguous module '{self.segments_to_string(try_segments)}' ");
+                    Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_module_greedy: ambiguous module '{self.segments_to_string(try_segments)}\x27");
                     self._diag->report(DiagCode(DiagID::R005W),
                         f"ambiguous module '{self.segments_to_string(try_segments)}': both a file and a directory exist for this path; the file will be used").emit();
 
@@ -2688,7 +2688,7 @@ fn Test() -> i32 {
 
         // should contain "hello" and NOT contain "greet !"
         if !result.contains("hello") {
-            return f"expected 'hello' in output, got: '{result}' ";
+            return f"expected 'hello' in output, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -2783,7 +2783,7 @@ fn Test() -> i32 {
             pos = found + 2;
         }
 
-        if count != 4 { return f"expected 4 occurrences of '42', got {count}, output: '{result}' "; }
+        if count != 4 { return f"expected 4 occurrences of '42', got {count}, output: '{result}\x27"; }
         return "pass";
     }, 100);
 
@@ -2806,7 +2806,7 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("99") {
-            return f"expected '99' from nested expansion, got: '{result}' ";
+            return f"expected '99' from nested expansion, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -2832,7 +2832,7 @@ fn Test() -> i32 {
         if (!result.contains("[ hello ]")) && (!result.contains("[hello]")) {
             // check individual tokens
             if !result.contains("hello") {
-                return f"expected 'hello' in expansion, got: '{result}' ";
+                return f"expected 'hello' in expansion, got: '{result}\x27";
             }
         }
         return "pass";
@@ -2858,7 +2858,7 @@ fn Test() -> i32 {
 
         // should expand to: 10 + 20
         if !result.contains("10") || !result.contains("20") || !result.contains("+") {
-            return f"expected '10 + 20' in expansion, got: '{result}' ";
+            return f"expected '10 + 20' in expansion, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -2882,10 +2882,10 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("hi") {
-            return f"expected 'hi' in expansion, got: '{result}' ";
+            return f"expected 'hi' in expansion, got: '{result}\x27";
         }
         if !result.contains("false") {
-            return f"expected default 'false' in expansion, got: '{result}' ";
+            return f"expected default 'false' in expansion, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -2909,11 +2909,11 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if (!result.contains("hi")) || (!result.contains("true")) {
-            return f"expected 'hi true' in expansion, got: '{result}' ";
+            return f"expected 'hi true' in expansion, got: '{result}\x27";
         }
 
         if (result.contains("false")) && (!result.contains("true")) {
-            return f"default 'false' should be overridden, got: '{result}' ";
+            return f"default 'false' should be overridden, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3030,7 +3030,7 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("scoped_val") {
-            return f"expected 'scoped_val' from Foo::bar!, got: '{result}' ";
+            return f"expected 'scoped_val' from Foo::bar!, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3054,7 +3054,7 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("found_it") {
-            return f"expected 'found_it' from A::B::deep!, got: '{result}' ";
+            return f"expected 'found_it' from A::B::deep!, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3101,10 +3101,10 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("from_A") {
-            return f"expected 'from_A' from A::mac!, got: '{result}' ";
+            return f"expected 'from_A' from A::mac!, got: '{result}\x27";
         }
         if !result.contains("from_B") {
-            return f"expected 'from_B' from B::mac!, got: '{result}' ";
+            return f"expected 'from_B' from B::mac!, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3128,13 +3128,13 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("expanded") {
-            return f"expected 'expanded', got: '{result}' ";
+            return f"expected 'expanded', got: '{result}\x27";
         }
         if !result.contains("var") {
-            return f"expected 'var' preserved, got: '{result}' ";
+            return f"expected 'var' preserved, got: '{result}\x27";
         }
         if !result.contains("10") {
-            return f"expected '10' preserved, got: '{result}' ";
+            return f"expected '10' preserved, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3159,7 +3159,7 @@ fn Test() -> i32 {
 
         // should produce: ( x + y ) * ( x - y )
         if !result.contains("x") || !result.contains("y") || !result.contains("*") {
-            return f"expected complex expression, got: '{result}' ";
+            return f"expected complex expression, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3184,7 +3184,7 @@ fn Test() -> i32 {
 
         // should still contain "not_a_macro" and "!" as tokens
         if !result.contains("not_a_macro") {
-            return f"expected unresolved invocation preserved, got: '{result}' ";
+            return f"expected unresolved invocation preserved, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3209,10 +3209,10 @@ fn Test() -> i32 {
 
         // macro definition should be in dead zone but still in output
         if !result.contains("macro") {
-            return f"expected 'macro' keyword preserved in dead zone, got: '{result}' ";
+            return f"expected 'macro' keyword preserved in dead zone, got: '{result}\x27";
         }
         if !result.contains("42") {
-            return f"expected '42' from expansion, got: '{result}' ";
+            return f"expected '42' from expansion, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3237,7 +3237,7 @@ fn Test() -> i32 {
 
         // should have "var x =" but nothing where empty! was
         if !result.contains("var") {
-            return f"expected 'var' preserved, got: '{result}' ";
+            return f"expected 'var' preserved, got: '{result}\x27";
         }
         return "pass";
     }, 100);
@@ -3261,7 +3261,7 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         if !result.contains("var") || !result.contains("1") || !result.contains("2") {
-            return f"expected multi-statement expansion, got: '{result}' ";
+            return f"expected multi-statement expansion, got: '{result}\x27";
         }
         return "pass";
     }, 100);

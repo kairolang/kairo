@@ -136,7 +136,7 @@ class MacroDefinitionCollector {
 
         // -- expect: identifier ----------------------------------------------
         if j >= tokens->size() {
-            self.error(tokens->get(start), "expected macro name after 'macro' ");
+            self.error(tokens->get(start), "expected macro name after 'macro\x27");
             return 0;
         }
 
@@ -315,7 +315,7 @@ class MacroDefinitionCollector {
 
             // -- expect identifier -------------------------------------------
             if t->kind != TokenKind::LitIdentifier {
-                self.error(t, f"expected a parameter name (identifier), got '{t->kind}' ", DiagID::S042E);
+                self.error(t, f"expected a parameter name (identifier), got '{t->kind}\x27", DiagID::S042E);
                 return result;
             }
 
@@ -326,7 +326,7 @@ class MacroDefinitionCollector {
 
             // -- check what follows the identifier ---------------------------
             if (*j) >= tokens->size() {
-                self.error(t, "unexpected end of tokens in macro parameter list; expected a parameter name or ')' ", DiagID::S043E);
+                self.error(t, "unexpected end of tokens in macro parameter list; expected a parameter name or ')\x27", DiagID::S043E);
                 return result;
             }
 
@@ -400,7 +400,7 @@ class MacroDefinitionCollector {
         var result = DefaultParseResult();
 
         if (*j) >= tokens->size() {
-            self.error(tokens->get((*j) - 1), "expected a default value expression after '=' ", DiagID::S044E);
+            self.error(tokens->get((*j) - 1), "expected a default value expression after '=\x27", DiagID::S044E);
             return result;
         }
 
@@ -435,7 +435,7 @@ class MacroDefinitionCollector {
         }
 
         if (*j) == span_start {
-            self.error(tokens->get(span_start), "empty default value expression; provide at least one token after '=' ", DiagID::S044E);
+            self.error(tokens->get(span_start), "empty default value expression; provide at least one token after '=\x27", DiagID::S044E);
             return result;
         }
 

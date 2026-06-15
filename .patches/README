@@ -26,7 +26,7 @@ enters a `.k` file, the hook returns lowered Kairo tokens located natively
 into that file's `FileID`. The `.k` include traverses the normal include
 path (works inside `#if`, mid-file, anywhere) with full preprocessor
 fidelity, and diagnostics attribute back to the `.k` source with column
-precision — no `#line`, no source map, no proxy file.
+precision, no `#line`, no source map, no proxy file.
 
 - Files: `clang/include/clang/Lex/{Lexer,Preprocessor}.h`,
   `clang/lib/Lex/{Lexer,PPLexerChange,Preprocessor}.cpp`

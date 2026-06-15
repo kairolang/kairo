@@ -126,7 +126,7 @@ class <T> PatternParse {
 
         // -- nothing matched --------------------------------------------------
         dyn()->diag->report(DiagID::S061E, start.start,
-            f"expected a pattern, found '{token_kind_to_readable_string(k)}' "
+            f"expected a pattern, found '{token_kind_to_readable_string(k)}\x27"
         ).first(start).emit();
         dyn()->advance(); // forward progress
         return self._error_pattern(start);

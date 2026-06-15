@@ -25,7 +25,7 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
 
     var f = libcxx::ifstream(archive_path, libcxx::ios::binary | libcxx::ios::ate);
     if !f.is_open() {
-        std::print(f"Error: cannot open '{archive_path}' ");
+        std::print(f"Error: cannot open '{archive_path}\x27");
         return 1;
     }
 
@@ -98,13 +98,13 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
 
         f.seekg(static_cast::<i64>(entry.offset));
         if !f.read(contents.data(), static_cast::<i64>(entry.length)) {
-            std::print(f"Error: failed to read data for '{entry.filename}' ");
+            std::print(f"Error: failed to read data for '{entry.filename}\x27");
             return 1;
         }
 
         var out = libcxx::ofstream(dest, libcxx::ios::binary);
         if !out.is_open() {
-            std::print(f"Error: cannot create '{dest.string()}' ");
+            std::print(f"Error: cannot create '{dest.string()}\x27");
             return 1;
         }
         out.write(contents.data(), static_cast::<i64>(entry.length));

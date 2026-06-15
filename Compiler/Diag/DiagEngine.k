@@ -32,10 +32,10 @@
 ///
 ///   // Emit a diagnostic with labels, a fix-it, and an attached note:
 ///   engine.report(DiagCode(DiagID::SC041E), some_loc,
-///           f"function '{name}' has a 'void' return type but returns '{ret}' ")
+///           f"function '{name}' has a 'void' return type but returns '{ret}\x27")
 ///       .first(fn_name_range)
-///       .second(ret_type_range, f"expected 'void', found '{ret}' ")
-///       .fix(ret_type_range, ret, f"change the return type to '{ret}' ")
+///       .second(ret_type_range, f"expected 'void', found '{ret}\x27")
+///       .fix(ret_type_range, ret, f"change the return type to '{ret}\x27")
 ///       .note(DiagCode(DiagID::SC021N), ret_loc, "the return is here")
 ///           .child_first(ret_range, "returns here")
 ///       .emit();

@@ -157,7 +157,7 @@ class SourceManager {
 
         if !path.exists() {
             self._diag->report(DiagID::U001F,
-                f"no such file: '{path.full_path()}' ").emit();
+                f"no such file: '{path.full_path()}\x27").emit();
             return static_cast::<FileID>(u32(-1));
         }
 
@@ -879,21 +879,21 @@ fn Test() -> i32 {
     // GET_TEXT: FILE 0
     // =========================================================================
 
-    suite.equal::<string>("file0: get_text [0,5] = 'hello' ", "pass", fn () -> string {
+    suite.equal::<string>("file0: get_text [0,5] = 'hello\x27", "pass", fn () -> string {
         var text = sm->get_text(sm->get_range(fid0, 0, 5));
-        if text != "hello" { return f"expected 'hello', got '{text}' "; }
+        if text != "hello" { return f"expected 'hello', got '{text}\x27"; }
         return "pass";
     });
 
-    suite.equal::<string>("file0: get_text [6,11] = 'world' ", "pass", fn () -> string {
+    suite.equal::<string>("file0: get_text [6,11] = 'world\x27", "pass", fn () -> string {
         var text = sm->get_text(sm->get_range(fid0, 6, 5));
-        if text != "world" { return f"expected 'world', got '{text}' "; }
+        if text != "world" { return f"expected 'world', got '{text}\x27"; }
         return "pass";
     });
 
-    suite.equal::<string>("file0: get_text [0,11] = 'hello world' ", "pass", fn () -> string {
+    suite.equal::<string>("file0: get_text [0,11] = 'hello world\x27", "pass", fn () -> string {
         var text = sm->get_text(sm->get_range(fid0, 0, 11));
-        if text != "hello world" { return f"expected 'hello world', got '{text}' "; }
+        if text != "hello world" { return f"expected 'hello world', got '{text}\x27"; }
         return "pass";
     });
 
@@ -901,21 +901,21 @@ fn Test() -> i32 {
     // GET_TEXT: FILE 1
     // =========================================================================
 
-    suite.equal::<string>("file1: get_text [0,6] = 'module' ", "pass", fn () -> string {
+    suite.equal::<string>("file1: get_text [0,6] = 'module\x27", "pass", fn () -> string {
         var text = sm->get_text(sm->get_range(fid1, 0, 6));
-        if text != "module" { return f"expected 'module', got '{text}' "; }
+        if text != "module" { return f"expected 'module', got '{text}\x27"; }
         return "pass";
     });
 
-    suite.equal::<string>("file1: get_text [7,10] = 'Foo' ", "pass", fn () -> string {
+    suite.equal::<string>("file1: get_text [7,10] = 'Foo\x27", "pass", fn () -> string {
         var text = sm->get_text(sm->get_range(fid1, 7, 3));
-        if text != "Foo" { return f"expected 'Foo', got '{text}' "; }
+        if text != "Foo" { return f"expected 'Foo', got '{text}\x27"; }
         return "pass";
     });
 
-    suite.equal::<string>("file1: get_text [17,22] = 'macro' ", "pass", fn () -> string {
+    suite.equal::<string>("file1: get_text [17,22] = 'macro\x27", "pass", fn () -> string {
         var text = sm->get_text(sm->get_range(fid1, 17, 5));
-        if text != "macro" { return f"expected 'macro', got '{text}' "; }
+        if text != "macro" { return f"expected 'macro', got '{text}\x27"; }
         return "pass";
     });
 
@@ -923,7 +923,7 @@ fn Test() -> i32 {
     // GET_VIEW: BUFFER CORRECTNESS
     // =========================================================================
 
-    suite.equal::<string>("file0: get_view bytes match 'hello' ", "pass", fn () -> string {
+    suite.equal::<string>("file0: get_view bytes match 'hello\x27", "pass", fn () -> string {
         var view = sm->get_view(sm->get_range(fid0, 0, 5));
         if view.data() == &null { return "view data is null"; }
         if view.size() != 5 { return f"expected size 5, got {view.size()}"; }
@@ -934,7 +934,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    suite.equal::<string>("file1: get_view bytes match 'Foo' ", "pass", fn () -> string {
+    suite.equal::<string>("file1: get_view bytes match 'Foo\x27", "pass", fn () -> string {
         var view = sm->get_view(sm->get_range(fid1, 7, 3));
         if view.data() == &null { return "view data is null"; }
         if view.size() != 3 { return f"expected size 3, got {view.size()}"; }

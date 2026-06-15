@@ -214,7 +214,7 @@ class TokenPrinter {
 
         line += " ";
         line += kind_color;
-        line += f"'{self._spelling(kind, imm, tok_range)}' ";
+        line += f"'{self._spelling(kind, imm, tok_range)}\x27";
         line += s.reset;
         line += " ";
         line += self._fmt_range(tok->range);
@@ -358,8 +358,8 @@ class TokenPrinter {
 
         line += s.field;
         line += f"  base={(d->base) as u64}";
-        if has_prefix  { line += f" prefix='{self._sm->get_text(d->prefix)}' "; }
-        if has_suffix  { line += f" suffix='{self._sm->get_text(d->suffix)}' "; }
+        if has_prefix  { line += f" prefix='{self._sm->get_text(d->prefix)}\x27"; }
+        if has_suffix  { line += f" suffix='{self._sm->get_text(d->suffix)}\x27"; }
         if is_negative { line += " neg"; }
         line += s.reset;
         std::print(line);
@@ -388,7 +388,7 @@ class TokenPrinter {
         if is_hex       { line += " hex"; }
         if use_big      { line += " bigfloat"; }
         if is_negative  { line += " neg"; }
-        if has_suffix   { line += f" suffix='{self._sm->get_text(d->suffix)}' "; }
+        if has_suffix   { line += f" suffix='{self._sm->get_text(d->suffix)}\x27"; }
         line += s.reset;
         std::print(line);
     }
@@ -427,7 +427,7 @@ class TokenPrinter {
         line += self._field_line("char", depth);
         line += " ";
         line += s.fvalue;
-        line += f"'{body_text}' ";
+        line += f"'{body_text}\x27";
         line += s.reset;
 
         line += s.field;

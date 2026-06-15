@@ -9,8 +9,6 @@ import ASTNode::Program::*;
 import Lexer::TokenSpan::*;
 import Lexer::Token::*;
 import Diag::DiagEngine::*;
-import AST::Printer::TypePrinter::*;
-import AST::Printer::ExprPrinter::*;
 
 /// \enum SyncSet
 /// \brief bitmask of synchronization points used for error recovery during parsing.
