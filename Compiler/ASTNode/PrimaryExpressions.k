@@ -304,6 +304,7 @@ class ChainExpr derives Expr {
     /// the root expression of the chain. any primary expression.
     /// null only for global-root paths (`::std::print`).
     pub var base:  *Expr;
+    pub var ctx:   *ASTContext;
 
     /// zero or more postfix access operations.
     pub var steps: FrozenList::<Step>;
@@ -317,6 +318,7 @@ class ChainExpr derives Expr {
         node->kind  = ExprKind::ChainExpr;
         node->range = range;
         node->base  = base;
+        node->ctx   = ctx;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
@@ -330,6 +332,7 @@ class ChainExpr derives Expr {
         node->kind  = ExprKind::ChainExpr;
         node->range = range;
         node->base  = &null;
+        node->ctx   = ctx;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
@@ -343,6 +346,7 @@ class ChainExpr derives Expr {
         node->recovery_kind = ExprKind::ChainExpr;
         node->range         = range;
         node->base          = &null;
+        node->ctx           = ctx;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }

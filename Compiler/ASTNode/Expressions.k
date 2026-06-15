@@ -322,7 +322,7 @@ struct InitField {
 class NamedInitializerExpr derives Expr {
     /// the type being initialized. ChainExpr or NamedIdentExpr.
     pub var type_expr: *Expr;
-
+    pub var ctx: *ASTContext;
     /// field initializers in source order.
     pub var fields:    FrozenList::<InitField>;
 
@@ -335,6 +335,7 @@ class NamedInitializerExpr derives Expr {
         node->kind      = ExprKind::NamedInitializerExpr;
         node->range     = range;
         node->type_expr = type_expr;
+        node->ctx       = ctx;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
@@ -348,6 +349,7 @@ class NamedInitializerExpr derives Expr {
         node->recovery_kind = ExprKind::NamedInitializerExpr;
         node->range         = range;
         node->type_expr     = &null;
+        node->ctx           = ctx;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
@@ -368,6 +370,7 @@ class NamedInitializerExpr derives Expr {
 ///
 class AnonInitializerExpr derives Expr {
     pub var fields: FrozenList::<InitField>;
+    pub var ctx: *ASTContext;
 
     static fn create(
         ctx:   *ASTContext,
@@ -376,6 +379,7 @@ class AnonInitializerExpr derives Expr {
         var node    = ctx->alloc::<AnonInitializerExpr>();
         node->kind  = ExprKind::AnonInitializerExpr;
         node->range = range;
+        node->ctx   = ctx;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
@@ -388,6 +392,7 @@ class AnonInitializerExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::AnonInitializerExpr;
         node->range         = range;
+        node->ctx           = ctx;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }
