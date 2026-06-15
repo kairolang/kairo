@@ -377,7 +377,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump LLVM IR before and after optimization passes",                            false);
     cmd->define::<FlagKind::Bool>  ("print-bcir",       "",  "print-bcir",       "dump BCIR before and after borrow-check lowering",                             false);
-    cmd->define::<FlagKind::Bool>  ("print-ast",        "",  "print-ast",        "dump AST after parsing",                                                       false);
+    cmd->define::<FlagKind::String>("print-ast",        "",  "print-ast",        "AST dump format: tree|flat|canonical (default: tree)",                         "");
     cmd->define::<FlagKind::Bool>  ("print-sema",       "",  "print-sema",       "dump IR after semantic analysis",                                              false);
     cmd->define::<FlagKind::Bool>  ("print-tokens",     "",  "print-tokens",     "dump token stream after preprocessing",                                        false);
     cmd->define::<FlagKind::Bool>  ("print-macros",     "",  "print-macros",     "dump macro symbol table after preprocessing",                                  false);
@@ -645,7 +645,7 @@ fn Test() -> i32 {
     suite.equal::<string>("--output=./bin/app", "pass", fn () -> string {
         var r = cmd.parse_string("--output=./bin/app main.k");
         if r.get_string("output") != "./bin/app" {
-            return f"got '{r.get_string("output")}' ";
+            return f"got '{r.get_string("output")}\x27";
         }
         return "pass";
     }, 1000);
@@ -653,7 +653,7 @@ fn Test() -> i32 {
     suite.equal::<string>("-o space-separated", "pass", fn () -> string {
         var r = cmd.parse_string("-o ./bin/app main.k");
         if r.get_string("output") != "./bin/app" {
-            return f"got '{r.get_string("output")}' ";
+            return f"got '{r.get_string("output")}\x27";
         }
         return "pass";
     }, 1000);
@@ -661,7 +661,7 @@ fn Test() -> i32 {
     suite.equal::<string>("-ofoo inline on short", "pass", fn () -> string {
         var r = cmd.parse_string("-ofoo.k main.k");
         if r.get_string("output") != "foo.k" {
-            return f"got '{r.get_string("output")}' ";
+            return f"got '{r.get_string("output")}\x27";
         }
         return "pass";
     }, 1000);
@@ -735,8 +735,8 @@ fn Test() -> i32 {
         var r = cmd.parse_string("-I./include -I/usr/include main.k");
         var lst = r.get_list("include-dirs");
         if lst.size() != 2 { return f"expected 2 entries, got {lst.size()}"; }
-        if lst[0] != "./include"    { return f"entry 0: '{lst[0]}' "; }
-        if lst[1] != "/usr/include" { return f"entry 1: '{lst[1]}' "; }
+        if lst[0] != "./include"    { return f"entry 0: '{lst[0]}\x27"; }
+        if lst[1] != "/usr/include" { return f"entry 1: '{lst[1]}\x27"; }
         return "pass";
     }, 1000);
 
@@ -760,7 +760,7 @@ fn Test() -> i32 {
     suite.equal::<string>("single file", "pass", fn () -> string {
         var r = cmd.parse_string("main.k");
         if r.files.size() != 1     { return f"expected 1, got {r.files.size()}"; }
-        if r.files[0] != "main.k" { return f"got '{r.files[0]}' "; }
+        if r.files[0] != "main.k" { return f"got '{r.files[0]}\x27"; }
         return "pass";
     }, 1000);
 
@@ -831,7 +831,7 @@ fn Test() -> i32 {
     suite.equal::<string>("kairo test.k ---I something -Lotherlib", "pass", fn () -> string {
         var r = cmd.parse_string("test.k ---I something -Lotherlib");
         if r.files.size() != 1                      { return f"files: {r.files.size()}"; }
-        if r.files[0] != "test.k"                 { return f"file: '{r.files[0]}' "; }
+        if r.files[0] != "test.k"                 { return f"file: '{r.files[0]}\x27"; }
         if r.get_list("include-dirs").size() != 1   { return "include-dirs count"; }
         if r.get_list("include-dirs")[0] != "something" { return "include value"; }
         if r.get_list("lib-dirs").size() != 1       { return "lib-dirs count"; }
@@ -985,7 +985,7 @@ fn Test() -> i32 {
     suite.equal::<string>("--cerror-format=json", "pass", fn () -> string {
         var r = cmd.parse_string("--cerror-format=json main.k");
         if r.get_cfg_str("error-format") != "json" {
-            return f"expected 'json', got '{r.get_cfg_str("error-format")}' ";
+            return f"expected 'json', got '{r.get_cfg_str("error-format")}\x27";
         }
         return "pass";
     }, 1000);

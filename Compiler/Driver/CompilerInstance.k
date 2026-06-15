@@ -245,6 +245,7 @@ class CompilerInstance {
         self._vfm    = std::create::<VirtualFileManager>();
         self._diag   = std::create::<DiagEngine>        ();
         self._pretty = std::create::<PrettyDiagConsumer>();
+        self._basic  = std::create::<BasicDiagConsumer> ();
         self._diag->add_consumer(self._pretty); // pretty is the default consumer
 
         // no sm for now since we only want cli diags
@@ -267,7 +268,7 @@ class CompilerInstance {
         self._sm      = std::create::<SourceManager>     (self._pool, self._vfm, self._diag);
         self._tcm     = std::create::<TokenCacheManager> (self._sm, self._pool, self._diag);
         self._g_scope = std::create::<GlobalHoistedScope>();
-        self._basic   = std::create::<BasicDiagConsumer> (self._sm);
+        self._basic->attach_source_manager(self._sm);
         self._pretty->attach_source_manager(self._sm);
     }
 
@@ -361,7 +362,7 @@ class CompilerInstance {
         var diag_id = diag_from_string(code);
         var explain = diag_explain(diag_id);
         if explain.empty() {
-            std::eprintln(f"error: unknown diagnostic code '{code}' ");
+            std::eprintln(f"error: unknown diagnostic code '{code}\x27");
             return 1;
         }
 
@@ -470,7 +471,7 @@ class CompilerInstance {
         );
 
         if TM == &null {
-            self._diag->report(DiagID::U001F, f"failed to create TargetMachine for '{string(triple.raw())}' ").emit();
+            self._diag->report(DiagID::U001F, f"failed to create TargetMachine for '{string(triple.raw())}\x27").emit();
             return 1;
         }
 
@@ -480,7 +481,7 @@ class CompilerInstance {
 
         var STI: *llvm::MCSubtargetInfo = const_cast::<*llvm::MCSubtargetInfo>(TM->getMCSubtargetInfo());
         if STI == &null {
-            self._diag->report(DiagID::U001F, f"no subtarget info for '{string(triple.raw())}' ").emit();
+            self._diag->report(DiagID::U001F, f"no subtarget info for '{string(triple.raw())}\x27").emit();
             return 1;
         }
 
@@ -622,7 +623,7 @@ class CompilerInstance {
 
         if TM == &null {
             self._diag->report(DiagID::U001F,
-                f"failed to create TargetMachine for '{string(triple.raw())}' "
+                f"failed to create TargetMachine for '{string(triple.raw())}\x27"
             ).emit();
             return 1;
         }
@@ -663,7 +664,11 @@ class CompilerInstance {
     }
 
     fn flush_errors(self) {
-        self._pretty->finalize_to_stderr();
+        if self._inv.diag.format == "basic" {
+            self._basic->finalize_to_stderr();
+        } else {
+            self._pretty->finalize_to_stderr();
+        }
     }
 
     // --- Compilation pipeline --------------------------------------------
@@ -789,7 +794,7 @@ fn FrontendAction::run() {
     }
 
     Logger::info(Logger::Stage::Driver,
-        f"FrontendAction: begin '{self.path.full_path()}' ");
+        f"FrontendAction: begin '{self.path.full_path()}\x27");
 
     // Phase 1: shared-state stages driver thread only.
     if !self._load() { return; }
@@ -830,7 +835,7 @@ fn FrontendAction::_load() -> bool {
     self._stage   = TUStage::Loading;
     self._file_id = self._ci->sm()->load_file(self.path);
     if self._file_id == u32(-1) {
-        return self._fatal(f"cannot open '{self.path.full_path()}' ");
+        return self._fatal(f"cannot open '{self.path.full_path()}\x27");
     }
     return true;
 }
@@ -839,7 +844,7 @@ fn FrontendAction::_load() -> bool {
 fn FrontendAction::_lex() -> bool {
     self._stage = TUStage::Lexing;
     if !self._ci->tcm()->lex_file(self._file_id) {
-        return self._fatal(f"lexer failed on '{self.path.full_path()}' ");
+        return self._fatal(f"lexer failed on '{self.path.full_path()}\x27");
     }
     return true;
 }
@@ -931,10 +936,25 @@ fn FrontendAction::_parse() -> bool {
     var parser = ASTParse(ctx, &null, self._global_scope);
     var tu = parser.parse();
 
-    if self._ci->invocation().frontend.print_ast {
-        ASTPrinter::print(tu);
+    var ast_mode = self._ci->invocation().frontend.print_ast;
+    if !ast_mode.empty() {
+        var use_color = !self._ci->invocation().diag.no_color;
+        var opts: PrintOptions;
+        if ast_mode == "tree" {
+            opts = PrintOptions::dump();
+        } else if ast_mode == "flat" {
+            opts = PrintOptions::diag();
+        } else if ast_mode == "canonical" {
+            opts = PrintOptions::canonical();
+        } else {
+            return self._fatal(
+                f"invalid --print-ast value '{ast_mode}'; expected one of: tree, flat, canonical"
+            );
+        }
+        opts.color = use_color;
+        ASTPrinter::print(tu, opts);
     }
-
+    
     return true;
 }
 

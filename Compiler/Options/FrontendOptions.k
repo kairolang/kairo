@@ -68,7 +68,7 @@ class FrontendOptions {
     pub var print_tokens:        bool   = false;
     pub var print_macros:        bool   = false;
     pub var print_imports:       bool   = false;
-    pub var print_ast:           bool   = false;
+    pub var print_ast:           string = "";
     pub var print_sema:          bool   = false;
     pub var print_ir:            bool   = false;
     pub var print_bcir:          bool   = false;
@@ -134,6 +134,16 @@ class FrontendOptions {
     fn stops_before_codegen(self) -> bool {
         return self.stops_at_sema();
     }
+    
+    /// Three-state string flag: absent -> "", bare -> `dfl`, =value -> value.
+    priv static fn _mode_or(args: ref!(ParsedArgs), key: string, dfl: string) -> string {
+        if !args.is_set(key) {
+            return "";
+        }
+        
+        var v = args.get_string(key);
+        return (dfl) if (v.empty()) else (v);
+    }
 
     static fn from_args(args: ref!(ParsedArgs)) -> FrontendOptions {
         var o = FrontendOptions();
@@ -162,7 +172,7 @@ class FrontendOptions {
         (o.print_tokens)        = args.get_bool("print-tokens");
         (o.print_macros)        = args.get_bool("print-macros");
         (o.print_imports)       = args.get_bool("print-imports");
-        (o.print_ast)           = args.get_bool("print-ast");
+        (o.print_ast)           = FrontendOptions::_mode_or(args, "print-ast", "tree");
         (o.print_sema)          = args.get_bool("print-sema");
         (o.print_ir)            = args.get_bool("print-ir");
         (o.print_bcir)          = args.get_bool("print-bcir");
@@ -177,7 +187,7 @@ class FrontendOptions {
 
         // -- parser / sema -------------------------------------------------
         (o.max_generic_instantiations) = args.get_cfg_i32("max-generic-instantiations");
-        (o.max_tuple_arity)         = args.get_cfg_i32("max-tuple-arity");
+        (o.max_tuple_arity)            = args.get_cfg_i32("max-tuple-arity");
 
         // -- incremental compilation ---------------------------------------
         (o.incremental)      = args.get_bool("incremental");
