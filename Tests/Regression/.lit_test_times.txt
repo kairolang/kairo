@@ -1,4 +1,0 @@
--7.555485e-03 generics_multiline_comma_nl.k
--6.989479e-03 generics_multiline_comma_tight.k
--7.095098e-03 generics_multiline_nocomma_nl.k
--6.454706e-03 generics_multiline_nocomma_tight.k
