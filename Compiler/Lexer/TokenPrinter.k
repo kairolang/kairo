@@ -99,6 +99,17 @@ class TokenPrinter {
         return result != 0;
     }
 
+    /// \brief left indent for a given nesting depth.
+    ///        2 leading spaces + 4 per level, matching the "  [N]" gutter.
+    priv fn _indent(self, depth: usize) -> string {
+        var out: string;
+        out += "  ";
+        for var i: usize = 0; i < depth; ++i {
+            out += "    ";
+        }
+        return out;
+    }
+
     /// \brief prints the whole stream with a header.
     fn print_stream(self, tokens: *(TokenBuffer::<512>), path: string) {
         var s = self._sgr;
@@ -107,20 +118,26 @@ class TokenPrinter {
         header += s.bold;
         header += f"-- token stream: {path} ";
         header += s.reset;
-        header += s.dim;
+        header += s.field;
         header += f"({tokens->size()} tokens) --";
         header += s.reset;
         std::print(header);
 
         for var i: usize = 0; i < tokens->size(); ++i {
-            self.print_token(i, tokens->get(i));
+            self._print_token_at(i, tokens->get(i), 0);
         }
     }
 
-    /// \brief prints a single token line, plus an indented imm detail line
-    ///        when the token carries an immediate payload.
+    /// \brief prints a single top-level token (depth 0).
     fn print_token(self, idx: usize, tok: *Token) {
-        var s = self._sgr;
+        self._print_token_at(idx, tok, 0);
+    }
+
+    /// \brief prints a token line plus any imm detail, at a given nesting depth.
+    /// \param depth 0 = top-level file token, >0 = inside an f-string hole.
+    priv fn _print_token_at(self, idx: usize, tok: *Token, depth: usize) {
+        var s   = self._sgr;
+        var pad = self._indent(depth);
 
         // -- resolve display kind / imm / range, unwrapping macro expansion --
         var kind      = tok->kind;
@@ -140,8 +157,9 @@ class TokenPrinter {
 
         // -- gutter: [N] --
         var line: string;
+        line += pad;
         line += s.gutter;
-        line += f"  [{idx}]";
+        line += f"[{idx}]";
         line += s.reset;
         line += " ";
 
@@ -195,7 +213,7 @@ class TokenPrinter {
         }
 
         line += " ";
-        line += s.text;
+        line += kind_color;
         line += f"'{self._spelling(kind, imm, tok_range)}' ";
         line += s.reset;
         line += " ";
@@ -203,12 +221,13 @@ class TokenPrinter {
         std::print(line);
 
         // -- imm detail sub-line(s) --
-        self._print_imm_detail(kind, imm);
+        self._print_imm_detail(kind, imm, depth);
 
         // -- if macro, also show where it expanded from --
         if is_macro {
             var sub: string;
-            sub += "        ";
+            sub += self._indent(depth);
+            sub += "      ";
             sub += s.field;
             sub += "expanded-at: ";
             sub += s.reset;
@@ -236,12 +255,13 @@ class TokenPrinter {
 
         if kind == TokenKind::AtComment      { return s.comment; }
         if kind == TokenKind::LitIdentifier  { return s.ident;   }
+        if kind == TokenKind::TkWhitespace   { return s.range;   }
         if is_keyword(kind)                  { return s.kw;      }
         if is_literal(kind)                  { return s.lit;     }
         if is_builtin(kind)                  { return s.ty;      }
         if is_annotation(kind)               { return s.ty;      } // primitive types are annotations
-        if is_operator(kind)                 { return s.opr;      }
-        if is_punctuator(kind)               { return s.opr;      }
+        if is_operator(kind)                 { return s.opr;     }
+        if is_punctuator(kind)               { return s.opr;     }
 
         return s.kind; // fallback
     }
@@ -271,29 +291,29 @@ class TokenPrinter {
         return "<sentinel>";
     }
 
-    /// \brief emits an indented, dim-labeled detail line for tokens that own
-    ///        an immediate-table entry. no-op for everything else.
-    priv fn _print_imm_detail(self, kind: TokenKind, imm: u32) {
+    /// \brief emits an indented detail line for tokens that own an
+    ///        immediate-table entry. no-op for everything else.
+    priv fn _print_imm_detail(self, kind: TokenKind, imm: u32, depth: usize) {
         if self._imm_tbl == &null { return; }
         if imm == u32(-1)         { return; }
 
         if kind == TokenKind::LitInt {
-            self._print_int_detail(imm);
+            self._print_int_detail(imm, depth);
         } else if kind == TokenKind::LitFloat {
-            self._print_float_detail(imm);
+            self._print_float_detail(imm, depth);
         } else if kind == TokenKind::LitString {
-            self._print_string_detail(imm);
+            self._print_string_detail(imm, depth);
         } else if kind == TokenKind::LitChar {
-            self._print_char_detail(imm);
+            self._print_char_detail(imm, depth);
         }
     }
 
-    /// \brief begins a detail line: 8-space indent + tree connector + label.
-    priv fn _field_line(self, label: string) -> string {
+    /// \brief begins a detail line: indent + "`- " connector + label.
+    priv fn _field_line(self, label: string, depth: usize) -> string {
         var s = self._sgr;
-        var out: string;
-        out += "        ";
-        out += s.dim;
+        var out = self._indent(depth);
+        out += "      ";
+        out += s.range;
         out += "`- ";
         out += s.reset;
         out += s.field;
@@ -302,27 +322,19 @@ class TokenPrinter {
         return out;
     }
 
-    priv fn _kv(self, label: string, value: string) -> string {
-        var s = self._sgr;
-        var out = self._field_line(label);
-        out += " ";
-        out += s.fvalue;
-        out += value;
-        out += s.reset;
-        return out;
-    }
-
-    priv fn _print_int_detail(self, imm: u32) {
+    priv fn _print_int_detail(self, imm: u32, depth: usize) {
         var d = self._imm_tbl->get::<Immediate::IntData>(imm);
         var s = self._sgr;
 
         var is_unsigned = (d->flags & 0b00000001) != 0;
         var is_negative = (d->flags & 0b00000010) != 0;
         var is_big      = (d->flags & 0b00000100) != 0;
+        var has_suffix  = (d->flags & 0b00001000) != 0;
+        var has_prefix  = (d->flags & 0b00010000) != 0;
         var sign        = "u" if is_unsigned else "i";
 
         var line: string;
-        line += self._field_line("int");
+        line += self._field_line("int", depth);
         line += " ";
         line += s.fvalue;
 
@@ -330,7 +342,7 @@ class TokenPrinter {
             // value lives in BigInt; lo/hi are a truncated convenience copy.
             line += f"big {sign}{d->bits}";
             line += s.reset;
-            line += s.dim;
+            line += s.field;
             line += f" (lo=0x{to_hex_string(d->value_lo)} hi=0x{to_hex_string(d->value_hi)}, truncated)";
             line += s.reset;
         } else if d->value_hi != 0 {
@@ -339,42 +351,49 @@ class TokenPrinter {
         } else {
             line += f"{sign}{d->bits} = {d->value_lo}";
             line += s.reset;
-            line += s.dim;
+            line += s.field;
             line += f" (0x{to_hex_string(d->value_lo)})";
             line += s.reset;
         }
 
-        line += s.dim;
-        line += f"  base={d->base}";
+        line += s.field;
+        line += f"  base={(d->base) as u64}";
+        if has_prefix  { line += f" prefix='{self._sm->get_text(d->prefix)}' "; }
+        if has_suffix  { line += f" suffix='{self._sm->get_text(d->suffix)}' "; }
         if is_negative { line += " neg"; }
         line += s.reset;
         std::print(line);
     }
 
-    priv fn _print_float_detail(self, imm: u32) {
+    priv fn _print_float_detail(self, imm: u32, depth: usize) {
         var d = self._imm_tbl->get::<Immediate::FloatData>(imm);
         var s = self._sgr;
 
-        var is_hex      = (d->flags & 0b00000100) != 0;
-        var use_big     = (d->flags & 0b00001000) != 0;
-        var is_negative = (d->flags & 0b00000010) != 0;
+        var has_exponent = (d->flags & 0b00000001) != 0;
+        var is_negative  = (d->flags & 0b00000010) != 0;
+        var is_hex       = (d->flags & 0b00000100) != 0;
+        var use_big      = (d->flags & 0b00001000) != 0;
+        var has_suffix   = (d->flags & 0b00010000) != 0;
 
         var line: string;
-        line += self._field_line("float");
+        line += self._field_line("float", depth);
         line += " ";
         line += s.fvalue;
         line += f"f{d->bits} = {d->value_ieee}";
         line += s.reset;
-        line += s.dim;
-        line += f"  base={d->base}";
-        if is_hex      { line += " hex"; }
-        if use_big     { line += " bigfloat"; }
-        if is_negative { line += " neg"; }
+
+        line += s.field;
+        line += f"  base={(d->base) as u64}";
+        if has_exponent { line += " exp"; }
+        if is_hex       { line += " hex"; }
+        if use_big      { line += " bigfloat"; }
+        if is_negative  { line += " neg"; }
+        if has_suffix   { line += f" suffix='{self._sm->get_text(d->suffix)}' "; }
         line += s.reset;
         std::print(line);
     }
 
-    priv fn _print_string_detail(self, imm: u32) {
+    priv fn _print_string_detail(self, imm: u32, depth: usize) {
         var d = self._imm_tbl->get::<Immediate::StringData>(imm);
         var s = self._sgr;
 
@@ -382,19 +401,22 @@ class TokenPrinter {
         var kind_str  = self._text_prefix_kind_str(d->prefix_kind);
 
         var line: string;
-        line += self._field_line("string");
+        line += self._field_line("string", depth);
         line += " ";
         line += s.fvalue;
-        line += f"\"{body_text}\"";
+        line += f"\"{body_text}\" ";
         line += s.reset;
-        line += s.dim;
+
+        line += s.field;
         line += f"  kind={kind_str} interp-exprs={d->exprs.size()}";
         if d->next != u32(-1) { line += f" next={d->next}"; }
         line += s.reset;
         std::print(line);
+
+        self._print_interp_exprs(d->exprs, depth);
     }
 
-    priv fn _print_char_detail(self, imm: u32) {
+    priv fn _print_char_detail(self, imm: u32, depth: usize) {
         var d = self._imm_tbl->get::<Immediate::CharData>(imm);
         var s = self._sgr;
 
@@ -402,23 +424,58 @@ class TokenPrinter {
         var kind_str  = self._text_prefix_kind_str(d->prefix_kind);
 
         var line: string;
-        line += self._field_line("char");
+        line += self._field_line("char", depth);
         line += " ";
         line += s.fvalue;
         line += f"'{body_text}' ";
         line += s.reset;
-        line += s.dim;
+
+        line += s.field;
         line += f"  kind={kind_str} interp-exprs={d->exprs.size()}";
         line += s.reset;
         std::print(line);
+
+        self._print_interp_exprs(d->exprs, depth);
+    }
+
+    /// \brief prints each f-string interpolation hole as a nested token stream,
+    ///        one nesting level deeper than the owning string/char.
+    priv fn _print_interp_exprs(
+        self,
+        exprs: ref!(libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>),
+        depth: usize
+    ) {
+        var s = self._sgr;
+
+        for var e: usize = 0; e < exprs.size(); ++e {
+            var buf        = libcxx::get::<0>(exprs[e]);
+            var hole_range = libcxx::get::<1>(exprs[e]);
+
+            var head: string;
+            head += self._field_line(f"expr[{e}]", depth);
+            head += " ";
+            head += self._fmt_range(hole_range);
+            std::print(head);
+
+            if buf == &null {
+                var warn: string;
+                warn += self._field_line("<null buffer>", depth + 1);
+                std::print(warn);
+                continue;
+            }
+
+            for var i: usize = 0; i < buf->size(); ++i {
+                self._print_token_at(i, buf->get(i), depth + 1);
+            }
+        }
     }
 
     priv fn _text_prefix_kind_str(self, k: Immediate::TextPrefixKind) -> string {
         switch (k) {
             case Immediate::TextPrefixKind::None        { return "none";  }
             case Immediate::TextPrefixKind::Format      { return "f";     }
-            case Immediate::TextPrefixKind::Bytes       { return "b";     }
-            case Immediate::TextPrefixKind::BytesFormat { return "bf";    }
+            case Immediate::TextPrefixKind::Bytes       { return "r";     }
+            case Immediate::TextPrefixKind::BytesFormat { return "rf";    }
         }
         return "?";
     }
