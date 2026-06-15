@@ -617,12 +617,12 @@ class ASTParse
         }
 
         self.diag->report(DiagID::S063E, tok->range.start,
-            f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
+            f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}\x27"
         ).first(tok->range).emit();
 
         if tok->kind == TokenKind::TkMacroExpand {
             var builder = self.diag->report(DiagID::S063N, tok->range.start,
-                f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
+                f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}\x27"
             );
             builder.first(tok->range);
             self.attach_macro_expansion_chain(&builder, tok);
@@ -724,7 +724,7 @@ class ASTParse
 
                 if !self.check(TokenKind::LitIdentifier) {
                     self.diag->report(DiagID::S046E, at_range.start,
-                        "expected attribute name after '@' "
+                        "expected attribute name after '@\x27"
                     ).first(at_range).emit();
                     continue; // `@` consumed; forward progress made
                 }
