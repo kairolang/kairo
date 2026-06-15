@@ -61,14 +61,22 @@ default class Path {
         var raw = std::Memory::move(input).raw_string();
         self.path_data = libcxx::filesystem::absolute(FilePath(raw));
 
-        if mustExist && (!libcxx::filesystem::exists(self.path_data)) {
+        if self.path_data.empty() {
+            std::crash(std::Error::RuntimeError("Path: empty path string"));
+        }
+
+        if libcxx::filesystem::exists(self.path_data) {
+            self.entry_type = libcxx::filesystem::status(self.path_data)
+                            .__inline_cpp("type()");
+        } else {
+            self.entry_type = FileType::not_found;
+        }
+
+        if mustExist && (self.entry_type == FileType::not_found) {
             std::crash(std::Error::RuntimeError(
                 f"Path: path does not exist: {self.path_data.generic_wstring()}"
             ));
         }
-
-        self.entry_type = libcxx::filesystem::status(self.path_data)
-                         .__inline_cpp("type()");
     }
 
     static fn cwd() -> Path {

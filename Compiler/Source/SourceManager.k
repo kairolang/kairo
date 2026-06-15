@@ -22,6 +22,8 @@ import Source::SourceLineTable::*;
 import ThreadPool::*;
 import VirtualFileManager::*;
 import Assert::*;
+import Diag::DiagEngine::*;
+import Diag::DiagRegistry::*;
 
 type FileID = u32;;
 
@@ -74,6 +76,7 @@ class SourceManager {
     priv var _pool:       obs::<ThreadPool>;         ///< background worker pool
     priv var _vfile_mgr:  obs::<VirtualFileManager>; ///< underlying virtual filesystem
     priv var _load_mu:    std::Mutex;                ///< mutex for synchronizing file loads
+    priv var _diag:       obs::<DiagEngine>;         ///< diagnostic engine for reporting errors
 
     ///
     /// \brief constructs a new SourceManager with pool and vfile manager.
@@ -83,7 +86,7 @@ class SourceManager {
     ///
     /// \throws RuntimeError if either argument is null.
     ///
-    fn SourceManager(self, pool: obs::<ThreadPool>, vfile_mgr: *VirtualFileManager) {
+    fn SourceManager(self, pool: obs::<ThreadPool>, vfile_mgr: *VirtualFileManager, diag: *DiagEngine) {
         if pool == &null {
             std::crash(std::Error::RuntimeError(
                 "SourceManager: A valid ThreadPool is required"
@@ -96,6 +99,13 @@ class SourceManager {
             ));
         }
 
+        if diag == &null {
+            std::crash(std::Error::RuntimeError(
+                "SourceManager: A valid DiagEngine is required"
+            ));
+        }
+
+        self._diag      = diag;
         self._pool      = pool;
         self._files     = vec::<*SourceFile>();
         self._total_b   = 0;
@@ -146,12 +156,40 @@ class SourceManager {
         }
 
         if !path.exists() {
-            Logger::warn(Logger::Stage::Driver,
-                f"SourceManager::load_file: path does not exist: {path.full_path()}");
+            self._diag->report(DiagID::U001F,
+                f"no such file: '{path.full_path()}' ").emit();
             return static_cast::<FileID>(u32(-1));
         }
 
+        if path.is_directory() {
+            self._diag->report(DiagID::U001F,
+                f"'{path.full_path()}' is a directory, not a source file").emit();
+            return static_cast::<FileID>(u32(-1));
+        }
+
+        if path.is_symlink() && (!path.is_regular_file()) {
+            self._diag->report(DiagID::U001F,
+                f"'{path.full_path()}' is a symlink to a non-file target").emit();
+            return static_cast::<FileID>(u32(-1));
+        }
+
+        if (!path.is_regular_file()) {
+            self._diag->report(DiagID::U001F,
+                f"'{path.full_path()}' is not a regular file").emit();
+            return static_cast::<FileID>(u32(-1));
+        }
+
+        // Metadata says regular file, but we may still lack read permission
+        // (chmod 000). Path does no I/O, so the open can still fail with EACCES.
+        // register_file below opens/maps the file; validate it succeeded
+        // BEFORE handing its (possibly null) buffer to the line table.
         var base_fid = _vfile_mgr->register_file(path);
+        if base_fid == static_cast::<FileID>(u32(-1)) {
+            self._diag->report(DiagID::U001F,
+                f"cannot read '{path.full_path()}': permission denied or I/O error").emit();
+            return static_cast::<FileID>(u32(-1));
+        }
+
         var info     = _vfile_mgr->get_info(base_fid);
         var size     = info.size;
 
@@ -718,7 +756,8 @@ class SourceManager {
 fn Test() -> i32 {
     var pool = std::create::<ThreadPool>(4);
     var vfm  = std::create::<VirtualFileManager>();
-    var sm   = std::create::<SourceManager>(pool, vfm);
+    var diag = DiagEngine();
+    var sm   = std::create::<SourceManager>(pool, vfm, &diag);
 
     finally {
         std::destroy(sm);

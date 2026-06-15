@@ -264,7 +264,7 @@ class CompilerInstance {
             else (self._inv.frontend.thread_count)
         ));
 
-        self._sm      = std::create::<SourceManager>     (self._pool, self._vfm);
+        self._sm      = std::create::<SourceManager>     (self._pool, self._vfm, self._diag);
         self._tcm     = std::create::<TokenCacheManager> (self._sm, self._pool, self._diag);
         self._g_scope = std::create::<GlobalHoistedScope>();
         self._basic   = std::create::<BasicDiagConsumer> (self._sm);

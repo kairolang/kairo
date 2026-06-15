@@ -2657,7 +2657,8 @@ fn Test() -> i32 {
 
     var pool = std::create::<ThreadPool>(4);
     var vfm  = std::create::<VirtualFileManager>();
-    var sm   = std::create::<SourceManager>(pool, vfm);
+    var diag = DiagEngine();
+    var sm   = std::create::<SourceManager>(pool, vfm, &diag);
 
     finally {
         std::destroy(sm);
