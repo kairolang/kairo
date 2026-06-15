@@ -1295,3 +1295,81 @@ group = "ast"
     use one of the identifiers above, matching the language of the embedded
     source block.
     """
+
+# -- Pattern diagnostic codes (S061–S062) ------------------------------------
+
+[S061]
+brief = "expected pattern"
+group = "ast"
+    [S061.E]
+    explain = """
+    # expected pattern
+
+    a pattern was expected at this position but a different token was found.
+    patterns are used in `match` arms and destructuring bindings. common
+    causes:
+    - an unrecognised token where a pattern should start
+    - a misplaced keyword or operator at the start of a `match` arm
+    - an empty arm with no pattern before `{` or `=>`
+
+    ## examples of valid pattern starts
+    - `_` (wildcard)
+    - `var x` / `const x` (binding)
+    - `(p, q)` (tuple)
+    - `[p, .., q]` (slice)
+    - `.Variant` (dotted constructor)
+    - `1..=10` (range)
+    - a literal value or path head
+    """
+
+[S062]
+brief = "malformed pattern construct"
+group = "ast"
+    [S062.E]
+    explain = """
+    # malformed pattern construct
+
+    a structural problem was found inside a pattern. common causes:
+    - empty tuple pattern `()` — at least one element is required
+    - missing binding name after `var`/`const` in a binding pattern
+    - missing `)` to close a tuple pattern or constructor payload
+    - missing `]` to close a slice pattern
+    - missing variant name after `.` in a dotted constructor pattern
+    - more than one `..` rest element in a slice pattern
+    """
+
+# -- Generic parser state codes (S063) ---------------------------------------
+
+[S063]
+brief = "unexpected token or parser state"
+group = "ast"
+    [S063.E]
+    explain = """
+    # unexpected token or parser state
+
+    the parser encountered an unexpected token or reached an internal limit
+    that prevents it from continuing. common causes:
+    - a token that does not match what the grammar requires at this point
+      (reported by `expect` when the actual token differs from the expected
+      one, or when an unexpected end-of-file is reached)
+    - a `TkError` recovery token produced by an earlier parse failure being
+      seen again during a second-pass check
+    - the parser's recursion depth ceiling was exceeded, which can happen
+      with very deeply nested expressions or with accidentally recursive
+      macro expansions; consider reducing nesting depth or raising
+      `--cmax-scope-depth`
+    """
+    [S063.N]
+    explain = """
+    # parser state context note
+
+    this note provides additional context for a parser-state diagnostic.
+    common uses:
+    - showing the macro expansion chain when a token was produced by a
+      macro (`TkMacroExpand`) and expanded unexpectedly, including the
+      definition site and each intermediate expansion level
+    - explaining why the parser's nesting-depth limit was hit (e.g.,
+      excessively deep or infinite recursion in the source)
+    - identifying the token whose resolution chain was truncated due to
+      hitting `--cmax-scope-depth`
+    """
