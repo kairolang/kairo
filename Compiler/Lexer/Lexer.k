@@ -1,6 +1,6 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ----------------------- Compiler/Lexer/Lexer.k --- ///
 ///
-///   <short description>
+///   A utf-8 aware lexer for kairo source files.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -1768,8 +1768,8 @@ class Lexer {
         self._last_kind = LastTokenKind::Text;
 
         ctx.imm.get_body() = SourceRange::from_bounds(
-            ctx.start,
-            ctx.body_start
+            ctx.body_start,
+            ctx.body_end
         );
 
         (ctx.imm.get_prefix()) = ctx.prefix;
@@ -2237,10 +2237,10 @@ fn Test() -> i32 {
     var create_lexer_from_string_with_diag = fn (content: string, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) -> (*Lexer, u32) {
         var temp_path = (libcxx::filesystem::temp_directory_path()) / (libcxx::filesystem::path(r"hlx_lexer_test.k"));
         sm->reset();
-        var temp_data = std::string_to_nstring(content);
+        var temp_data = (content);
         data = libcxx::string(temp_data);
 
-        var path  = Path(temp_path.generic_wstring(), false);
+        var path  = Path(temp_path.generic_string(), false);
         var ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(data.data());
         var fid   = sm->load_virtual(path, ptr, data.size());
         var lexer = std::create::<Lexer>(sm, pool, diag);
