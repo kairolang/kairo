@@ -19,3 +19,5 @@ index.html
 # Temp folder
 temp/
 private/
+
+.lit_test_times.txt
