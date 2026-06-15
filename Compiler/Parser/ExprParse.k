@@ -147,20 +147,21 @@ class <T> ExprParse {
     enum Precedence derives u8 {
         None       = 0,
         Assign     = 1,   // = += -= *= /= %= &= |= ^= <<= >>=
-        Range      = 2,   // .. ..=
-        Or         = 3,   // || or
-        And        = 4,   // && and
-        BitOr      = 5,   // | bitor
-        BitXor     = 6,   // ^ xor
-        BitAnd     = 7,   // & bitand
-        Equality   = 8,   // == != ===
-        Comparison = 9,   // < > <= >= <=>
-        Shift      = 10,  // << >>
-        Add        = 11,  // + -
-        Multiply   = 12,  // * / %
-        Power      = 13,  // ^^
-        Prefix     = 14,  // unary (not used in table, just for reference)
-        Postfix    = 15,  // call, subscript, access (not used in table)
+        Coalesce   = 2,   // ?? (right-assoc, lower than ||)
+        Range      = 3,   // .. ..=
+        Or         = 4,   // || or
+        And        = 5,   // && and
+        BitOr      = 6,   // | bitor
+        BitXor     = 7,   // ^ xor
+        BitAnd     = 8,   // & bitand
+        Equality   = 9,   // == != ===
+        Comparison = 10,  // < > <= >= <=>
+        Shift      = 11,  // << >>
+        Add        = 12,  // + -
+        Multiply   = 13,  // * / %
+        Power      = 14,  // ^^
+        Prefix     = 15,  // unary (not used in table, just for reference)
+        Postfix    = 16,  // call, subscript, access (not used in table)
     }
 
     fn parse_expr(self, stop: ExprStopKind = ExprStopKind::Default) -> *Expr {
@@ -209,7 +210,7 @@ class <T> ExprParse {
                 var rhs = self._parse_unary_expr(stop);
                 if rhs == &null {
                     dyn()->diag->report(DiagID::S052E, op_tok.range.start,
-                        f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}' "
+                        f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}\x27"
                     ).first(op_tok.range).emit();
                     return lhs;
                 }
@@ -233,7 +234,7 @@ class <T> ExprParse {
                 var rhs = self._parse_unary_expr(stop);
                 if rhs == &null {
                     dyn()->diag->report(DiagID::S052E, op_tok.range.start,
-                        "expected expression after '^^' "
+                        "expected expression after '^^\x27"
                     ).first(op_tok.range).emit();
                     return lhs;
                 }
@@ -249,6 +250,27 @@ class <T> ExprParse {
                 continue;
             }
 
+            // -- null-coalescing (right-associative) -------------
+            if cur_kind == TokenKind::OpQuestionQuestion {
+                var op_tok = dyn()->current();
+                dyn()->advance(T::SkipNL::After);
+                var rhs = self._parse_unary_expr(stop);
+                if rhs == &null {
+                    dyn()->diag->report(DiagID::S052E, op_tok.range.start,
+                        "expected expression after '??\x27"
+                    ).first(op_tok.range).emit();
+                    return lhs;
+                }
+                // right-associative: recurse at prec - 1
+                rhs = self._parse_expr_prec(rhs, static_cast::<Precedence>(static_cast::<u8>(prec) - 1), stop);
+                lhs = BinaryOperatorExpr::create(
+                    dyn()->ctx,
+                    lhs->range | rhs->range,
+                    lhs, rhs, op_tok
+                );
+                continue;
+            }
+
             // -- regular binary operators (left-associative) ---------
             var op_tok = dyn()->current();
             dyn()->advance(T::SkipNL::After); // consume operator
@@ -256,7 +278,7 @@ class <T> ExprParse {
             var rhs = self._parse_unary_expr(stop);
             if rhs == &null {
                 dyn()->diag->report(DiagID::S052E, op_tok.range.start,
-                    f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}' "
+                    f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}\x27"
                 ).first(op_tok.range).emit();
                 return lhs;
             }
@@ -355,6 +377,10 @@ class <T> ExprParse {
         || (k == TokenKind::OpLessLessEqual)
         || (k == TokenKind::OpGreaterGreaterEqual) {
             return Precedence::Assign;
+        }
+
+        if k == TokenKind::OpQuestionQuestion {
+            return Precedence::Coalesce;
         }
 
         // range
@@ -519,7 +545,7 @@ class <T> ExprParse {
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
                 dyn()->diag->report(DiagID::S052E, cur_range.start,
-                    f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}' "
+                    f"expected expression after '{token_kind_to_readable_string(op_tok.kind)}\x27"
                 ).first(cur_range).emit();
                 return self._error_expr(cur_range);
             }
@@ -540,7 +566,7 @@ class <T> ExprParse {
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
                 dyn()->diag->report(DiagID::S052E, kw_range.start,
-                    "expected expression after 'await' "
+                    "expected expression after 'await\x27"
                 ).first(kw_range).emit();
                 return AwaitExpr::create_error(dyn()->ctx, kw_range);
             }
@@ -554,7 +580,7 @@ class <T> ExprParse {
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
                 dyn()->diag->report(DiagID::S052E, kw_range.start,
-                    "expected expression after 'spawn' "
+                    "expected expression after 'spawn\x27"
                 ).first(kw_range).emit();
                 return SpawnExpr::create_error(dyn()->ctx, kw_range);
             }
@@ -568,7 +594,7 @@ class <T> ExprParse {
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
                 dyn()->diag->report(DiagID::S052E, kw_range.start,
-                    "expected expression after 'thread' "
+                    "expected expression after 'thread\x27"
                 ).first(kw_range).emit();
                 return ThreadExpr::create_error(dyn()->ctx, kw_range);
             }
@@ -582,7 +608,7 @@ class <T> ExprParse {
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
                 dyn()->diag->report(DiagID::S052E, kw_range.start,
-                    "expected expression after 'eval' "
+                    "expected expression after 'eval\x27"
                 ).first(kw_range).emit();
                 return EvalExpr::create_error(dyn()->ctx, kw_range);
             }
@@ -596,7 +622,7 @@ class <T> ExprParse {
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
                 dyn()->diag->report(DiagID::S052E, kw_range.start,
-                    "expected expression after 'unsafe' "
+                    "expected expression after 'unsafe\x27"
                 ).first(kw_range).emit();
                 return UnsafeExpr::create_error(dyn()->ctx, kw_range);
             }
@@ -613,7 +639,7 @@ class <T> ExprParse {
                 dyn()->advance();
                 if !dyn()->check(TokenKind::OpRSquare) {
                     dyn()->diag->report(DiagID::S054E, kw_range.start,
-                        "expected ']' after 'delete [' "
+                        "expected ']' after 'delete [\x27"
                     ).first(kw_range).emit();
                 } else {
                     dyn()->advance(); // consume ]
@@ -624,7 +650,7 @@ class <T> ExprParse {
             var operand = self._parse_unary_expr(stop);
             if operand == &null {
                 dyn()->diag->report(DiagID::S052E, kw_range.start,
-                    "expected expression after 'delete' "
+                    "expected expression after 'delete\x27"
                 ).first(kw_range).emit();
                 return DeleteExpr::create_error(dyn()->ctx, kw_range);
             }
@@ -664,7 +690,7 @@ class <T> ExprParse {
         var ty = dyn()->parse_type();
         if ty == &null {
             dyn()->diag->report(DiagID::S053E, kw_range.start,
-                "expected type after 'sizeof' "
+                "expected type after 'sizeof\x27"
             ).first(kw_range).emit();
             return SizeOfExpr::create_error(dyn()->ctx, kw_range);
         }
@@ -672,7 +698,7 @@ class <T> ExprParse {
         if has_paren {
             if !dyn()->check(TokenKind::OpRParen) {
                 dyn()->diag->report(DiagID::S054E, kw_range.start,
-                    "expected ')' after type in 'sizeof(T)' "
+                    "expected ')' after type in 'sizeof(T)\x27"
                 ).first(kw_range).emit();
             } else {
                 dyn()->advance(); // consume )
@@ -692,7 +718,7 @@ class <T> ExprParse {
         var ty = dyn()->parse_type();
         if ty == &null {
             dyn()->diag->report(DiagID::S053E, kw_range.start,
-                "expected type after 'alignof' "
+                "expected type after 'alignof\x27"
             ).first(kw_range).emit();
             return AlignOfExpr::create_error(dyn()->ctx, kw_range);
         }
@@ -700,7 +726,7 @@ class <T> ExprParse {
         if has_paren {
             if !dyn()->check(TokenKind::OpRParen) {
                 dyn()->diag->report(DiagID::S054E, kw_range.start,
-                    "expected ')' after type in 'alignof(T)' "
+                    "expected ')' after type in 'alignof(T)\x27"
                 ).first(kw_range).emit();
             } else {
                 dyn()->advance();
@@ -720,7 +746,7 @@ class <T> ExprParse {
         var operand = self.parse_expr(ExprStopKind::StopParen);
         if operand == &null {
             dyn()->diag->report(DiagID::S052E, kw_range.start,
-                "expected expression after 'typeof' "
+                "expected expression after 'typeof\x27"
             ).first(kw_range).emit();
             return TypeOfExpr::create_error(dyn()->ctx, kw_range);
         }
@@ -728,7 +754,7 @@ class <T> ExprParse {
         if has_paren {
             if !dyn()->check(TokenKind::OpRParen) {
                 dyn()->diag->report(DiagID::S054E, kw_range.start,
-                    "expected ')' after expression in 'typeof(expr)' "
+                    "expected ')' after expression in 'typeof(expr)\x27"
                 ).first(kw_range).emit();
             } else {
                 dyn()->advance();
@@ -1237,7 +1263,7 @@ class <T> ExprParse {
 
         if dyn()->check(TokenKind::OpRSquare) {
             dyn()->diag->report(DiagID::S054E, lsquare_range.start,
-                "expected index expression inside '[]' "
+                "expected index expression inside '[]\x27"
             ).first(lsquare_range).emit();
             var rsquare_range = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `]`
@@ -1250,7 +1276,7 @@ class <T> ExprParse {
 
         if index == &null {
             dyn()->diag->report(DiagID::S052E, lsquare_range.start,
-                "expected index expression after '[' "
+                "expected index expression after '[\x27"
             ).first(lsquare_range).emit();
             self._sync_expr(ExprSyncCtx::Square, 0, 1);
             return SubscriptExpr::create_error(dyn()->ctx, base->range | dyn()->prev().range);
@@ -1473,7 +1499,7 @@ class <T> ExprParse {
         // -- no production matched -----------------------------------
         var resolved_kind = dyn()->resolve_kind_deep(cur_ptr);
         dyn()->diag->report(DiagID::S052E, cur_range.start,
-            f"expected expression, found '{token_kind_to_readable_string(resolved_kind)}' "
+            f"expected expression, found '{token_kind_to_readable_string(resolved_kind)}\x27"
         ).first(cur_range).emit();
 
         dyn()->advance(); // skip to prevent infinite loop
@@ -1670,7 +1696,7 @@ class <T> ExprParse {
 
         if first == &null {
             dyn()->diag->report(DiagID::S052E, lparen_range.start,
-                "expected expression after '(' "
+                "expected expression after '(\x27"
             ).first(lparen_range).emit();
             self._sync_expr(ExprSyncCtx::Paren, 1, 0, 0, true);
             dyn()->nl_pop();
@@ -1834,7 +1860,7 @@ class <T> ExprParse {
 
         if first == &null {
             dyn()->diag->report(DiagID::S052E, lbrace_range.start,
-                "expected expression after '{' "
+                "expected expression after '{\x27"
             ).first(lbrace_range).emit();
             self._sync_expr(ExprSyncCtx::Brace, 0, 0, 1);
             return self._error_expr(lbrace_range | dyn()->prev().range);
