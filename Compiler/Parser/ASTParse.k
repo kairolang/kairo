@@ -191,18 +191,18 @@ class ASTParse
                     if annot_has_any {
                         var first_span: SourceRange = annot.entries.front().range;
 
-                        var b = self.diag->report(DiagID::S045E, first_span.start,
+                        var b = self.diag->report(DiagID::S048E, first_span.start,
                             "annotations and attributes cannot be applied to a visibility group; "
                             "apply them to individual members instead"
                         );
 
                         b.first(first_span);
-                        
+
                         // one note per additional annotation: each gets its own
                         // caret on its own line, instead of one fused multi-line span.
                         for var i: usize = 1; i < annot.entries.size(); ++i {
                             var e = &annot.entries[i];
-                            b.note(DiagID::S045N, e->range.start,
+                            b.note(DiagID::S048E, e->range.start,
                                 "this annotation also cannot apply to the group"
                             ).first(e->range);
                         }
@@ -431,7 +431,7 @@ class ASTParse
                 self.diag->report(DiagID::I002F, tok->range.start,
                     "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
                 ).first(tok->range)
-                 .note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
+                 .note(DiagID::S063N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
                  .emit();
                 return Token(tok->range, TokenKind::TkUnknown, 0);
             }
@@ -517,7 +517,7 @@ class ASTParse
 
         if resolved_kind == TokenKind::TkError {
             // the imm of this token stores the expected kind from recovery
-            self.diag->report(DiagID::S045E, tok->range.start,
+            self.diag->report(DiagID::S063E, tok->range.start,
                 f"unexpected token found where '{token_kind_to_readable_string(static_cast::<TokenKind>(resolved.imm))}' expected"
             ).first(tok->range).emit();
             resolved_kind = static_cast::<TokenKind>(resolved.imm);
@@ -546,7 +546,7 @@ class ASTParse
 
         if resolved_kind == TokenKind::TkError {
             if !self.in_recovery {
-                self.diag->report(DiagID::S045E, self._current->range.start,
+                self.diag->report(DiagID::S063E, self._current->range.start,
                     f"unexpected token found where '{token_kind_to_readable_string(static_cast::<TokenKind>(resolved.imm))}' expected"
                 ).first(self._current->range).emit();
             }
@@ -586,7 +586,7 @@ class ASTParse
         if tok == &null {
             // unexpected EOF emit diag with best available location
             var eof_range = (self._prev->range) if (self._prev != &null) else SourceRange::invalid();
-            self.diag->report(DiagID::S045E, eof_range.start,
+            self.diag->report(DiagID::S063E, eof_range.start,
                 f"expected '{token_kind_to_readable_string(kind)}', found end of file"
             ).first(eof_range).emit();
 
@@ -616,12 +616,12 @@ class ASTParse
             return resolved;
         }
 
-        self.diag->report(DiagID::S045E, tok->range.start,
+        self.diag->report(DiagID::S063E, tok->range.start,
             f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
         ).first(tok->range).emit();
 
         if tok->kind == TokenKind::TkMacroExpand {
-            var builder = self.diag->report(DiagID::S045N, tok->range.start,
+            var builder = self.diag->report(DiagID::S063N, tok->range.start,
                 f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
             );
             builder.first(tok->range);
@@ -649,14 +649,14 @@ class ASTParse
 
         while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
             if depth >= static_cast::<u32>(self.ctx->ci->pp.max_backtrace) {
-                builder->note(DiagID::S045N, tok->range.start,
+                builder->note(DiagID::S063N, tok->range.start,
                     f"macro expansion chain truncated after {depth} levels"
                 );
                 return;
             }
 
             if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
-                builder->note(DiagID::S045N, tok->range.start,
+                builder->note(DiagID::S063N, tok->range.start,
                     f"expanded from compiler-internal macro sentinel"
                 );
                 return;
@@ -666,7 +666,7 @@ class ASTParse
 
             var info = self.imm->get::<Immediate::MacroExpansionInfo>(imm);
 
-            builder->note(DiagID::S045N, info->def_range.start,
+            builder->note(DiagID::S063N, info->def_range.start,
                 f"expanded from macro defined here (depth {depth})"
             );
 
@@ -723,7 +723,7 @@ class ASTParse
                 self.advance(); // consume `@`
 
                 if !self.check(TokenKind::LitIdentifier) {
-                    self.diag->report(DiagID::S045E, at_range.start,
+                    self.diag->report(DiagID::S046E, at_range.start,
                         "expected attribute name after '@' "
                     ).first(at_range).emit();
                     continue; // `@` consumed; forward progress made
@@ -754,7 +754,7 @@ class ASTParse
                         end_range = self.current_ptr()->range;
                         self.advance_raw();
                     } else {
-                        self.diag->report(DiagID::S045E, lparen.start,
+                        self.diag->report(DiagID::S051E, lparen.start,
                             "expected ')' to close attribute argument list"
                         ).first(lparen).emit();
                         // _parse_call_args already synced
@@ -822,7 +822,7 @@ class ASTParse
         if annot->visibility == PendingAnnotations::VisAnnotation::VisibilityKind::None {
             return;
         }
-        self.diag->report(DiagID::S045E, annot->vis_range.start,
+        self.diag->report(DiagID::S048E, annot->vis_range.start,
             f"a visibility modifier cannot be applied to {what}"
         ).first(annot->vis_range).emit();
     }
@@ -922,10 +922,10 @@ class ASTParse
     fn enter_depth(self) -> bool {
         if self.depth >= self.max_depth {
             var cur_range = self.current_ptr()->range;
-            self.diag->report(DiagID::S045E, cur_range.start,
+            self.diag->report(DiagID::S063E, cur_range.start,
                 "exceeded maximum nesting depth"
             ).first(cur_range)
-             .note(DiagID::S045N, "this is likely caused by excessively deep or infinite recursion while parsing. consider refactoring to reduce nesting depth or changing `--cmax-scope-depth` to a higher value if necessary.")
+             .note(DiagID::S063N, "this is likely caused by excessively deep or infinite recursion while parsing. consider refactoring to reduce nesting depth or changing `--cmax-scope-depth` to a higher value if necessary.")
              .emit();
             return false;
         }

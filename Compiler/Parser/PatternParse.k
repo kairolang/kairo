@@ -125,7 +125,7 @@ class <T> PatternParse {
         }
 
         // -- nothing matched --------------------------------------------------
-        dyn()->diag->report(DiagID::S045E, start.start,
+        dyn()->diag->report(DiagID::S061E, start.start,
             f"expected a pattern, found '{token_kind_to_readable_string(k)}' "
         ).first(start).emit();
         dyn()->advance(); // forward progress
@@ -173,7 +173,7 @@ class <T> PatternParse {
         dyn()->advance(); // consume var/const
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S062E, start.start,
                 "expected a binding name after 'var'/'const' in pattern"
             ).first(start).emit();
             return static_cast::<*Pattern>(
@@ -204,7 +204,7 @@ class <T> PatternParse {
         dyn()->advance(T::SkipNL::After); // consume `(`
 
         if dyn()->check(TokenKind::OpRParen) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S062E, start.start,
                 "empty tuple pattern '()' is not allowed"
             ).first(start).emit();
             dyn()->advance(); // consume `)`
@@ -236,7 +236,7 @@ class <T> PatternParse {
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S062E, start.start,
                 "expected ')' to close tuple pattern"
             ).first(start).emit();
         }
@@ -263,7 +263,7 @@ class <T> PatternParse {
             // rest element: `..` or `..name`
             if dyn()->check(TokenKind::OpRange) {
                 if seen_rest {
-                    dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    dyn()->diag->report(DiagID::S062E, dyn()->current_ptr()->range.start,
                         "a slice pattern may contain at most one '..' rest element"
                     ).first(dyn()->current_ptr()->range).emit();
                     self._sync_pattern_in_square();
@@ -304,7 +304,7 @@ class <T> PatternParse {
         if dyn()->check(TokenKind::OpRSquare) {
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S062E, start.start,
                 "expected ']' to close slice pattern"
             ).first(start).emit();
         }
@@ -325,7 +325,7 @@ class <T> PatternParse {
         dyn()->advance(); // consume `.`
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S062E, start.start,
                 "expected a variant name after '.' in pattern"
             ).first(start).emit();
             return static_cast::<*Pattern>(
@@ -498,7 +498,7 @@ class <T> PatternParse {
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S045E, lparen.start,
+            dyn()->diag->report(DiagID::S062E, lparen.start,
                 "expected ')' to close constructor pattern payload"
             ).first(lparen).emit();
         }

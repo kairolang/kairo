@@ -2482,7 +2482,7 @@ class <T> ExprParse {
 
         var cb = src->body;
         if cb == &null {
-            dyn()->diag->report(DiagID::S045E, src->range.start,
+            dyn()->diag->report(DiagID::S052E, src->range.start,
                 "match expression branch must yield a value"
             ).first(src->range).emit();
             return out;
@@ -2490,13 +2490,13 @@ class <T> ExprParse {
 
         // exactly one statement
         if cb->body.size() == 0 {
-            dyn()->diag->report(DiagID::S045E, cb->range.start,
+            dyn()->diag->report(DiagID::S052E, cb->range.start,
                 "match expression branch must contain a value expression"
             ).first(cb->range).emit();
             return out;
         }
         if cb->body.size() > 1 {
-            dyn()->diag->report(DiagID::S045E, cb->range.start,
+            dyn()->diag->report(DiagID::S054E, cb->range.start,
                 "match expression branch allows exactly one expression; "
                 "use a statement-form match for multi-statement bodies"
             ).first(cb->range).emit();
@@ -2506,7 +2506,7 @@ class <T> ExprParse {
         // the single statement must be a non-error ExpressionStmt
         var only = *(cb->body.get(0));
         if (only == &null) || only->is_error() || (!isa::<ExpressionStmt>(only)) {
-            dyn()->diag->report(DiagID::S045E, cb->range.start,
+            dyn()->diag->report(DiagID::S054E, cb->range.start,
                 "match expression branch must be a single value expression"
             ).first(cb->range).emit();
             return out;
@@ -2515,7 +2515,7 @@ class <T> ExprParse {
         // and its inner expression must be non-recovery
         var es = cast::<ExpressionStmt>(only);
         if (es->expr == &null) || is_recovery(es->expr) {
-            dyn()->diag->report(DiagID::S045E, cb->range.start,
+            dyn()->diag->report(DiagID::S054E, cb->range.start,
                 "match expression branch contains an invalid expression"
             ).first(cb->range).emit();
             return out;

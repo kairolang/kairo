@@ -282,10 +282,10 @@ class <T> DeclParse {
             if is_fatal_decl(d) { break; }
 
             if d->has_visibility() {
-                dyn()->diag->report(DiagID::S045E, d->visibility_range().start,
+                dyn()->diag->report(DiagID::S048E, d->visibility_range().start,
                     "explicit visibility is not allowed inside a visibility group"
                 ).first(d->visibility_range())
-                 .note(DiagID::S045E, d->visibility_range().start,
+                 .note(DiagID::S048E, d->visibility_range().start,
                     "every member of this group already has the group's visibility; "
                     "move the declaration outside the group to give it different visibility")
                  .emit();
@@ -346,10 +346,10 @@ class <T> DeclParse {
             // explicit visibility inside the group: error, then proceed.
             var m_has_vis = m_annot.visibility != T::PendingAnnotations::VisAnnotation::VisibilityKind::None;
             if m_has_vis {
-                dyn()->diag->report(DiagID::S045E, m_annot.vis_range.start,
+                dyn()->diag->report(DiagID::S048E, m_annot.vis_range.start,
                     "explicit visibility is not allowed inside a visibility group"
                 ).first(m_annot.vis_range)
-                 .note(DiagID::S045N, start.start,
+                 .note(DiagID::S048E, start.start,
                     "this visibility group already fixes the visibility of every member; "
                     "move the declaration out of the group to give it different visibility"
                  ).child_first(start)
@@ -1205,7 +1205,7 @@ class <T> DeclParse {
             && dyn()->check_peek(TokenKind::OpLBrace) {
                 var grp_annot = !m_annot.empty();
                 if grp_annot {
-                    dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    dyn()->diag->report(DiagID::S048E, dyn()->current_ptr()->range.start,
                         "annotations and attributes cannot be applied to a visibility group; "
                         "apply them to individual members instead"
                     ).first(dyn()->current_ptr()->range).emit();
@@ -2038,7 +2038,7 @@ class <T> DeclParse {
         // letting the body parser produce garbage.
         if dyn()->check(TokenKind::OpArrow) {
             var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S045E, r.start,
+            dyn()->diag->report(DiagID::S047E, r.start,
                 "an attribute macro cannot declare a return type; it transforms its node argument in place"
             ).first(r).emit();
             dyn()->advance(T::SkipNL::After); // consume `->`
