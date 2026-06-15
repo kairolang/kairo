@@ -76,7 +76,7 @@ LLD_HAS_DRIVER(mingw)
 // ===========================================================================
 //  Arena: owns canonical C++ spellings for divergent literals, deduped.
 //  One MemoryBuffer registered as a FileID; entries concatenated into `text`.
-//  Must outlive the parse — owned by the Action.
+//  Must outlive the parse, owned by the Action.
 // ===========================================================================
 struct LiteralArena {
     std::string text;                              // concatenated C++ spellings
@@ -87,7 +87,7 @@ struct LiteralArena {
     // Intern a canonical C++ spelling; returns (offset, length) into the arena.
     // Dedups so repeated values share one slot. NOTE: this appends to `text`
     // BEFORE the buffer is registered, so call only during the build phase
-    // (we register the buffer after the builder runs — see Action).
+    // (we register the buffer after the builder runs, see Action).
     std::pair<unsigned, unsigned> intern(const std::string &cxx_spelling) {
         auto it = dedup.find(cxx_spelling);
         if (it != dedup.end())
@@ -301,7 +301,7 @@ private:
         auto vfs = llvm::vfs::getRealFileSystem();
         clang::DiagnosticOptions diag_opts;
 
-        // Diagnostics engine first — CreateFromArgs needs one to parse the args.
+        // Diagnostics engine first, CreateFromArgs needs one to parse the args.
         auto diags = clang::CompilerInstance::createDiagnostics(
             *vfs, diag_opts,
             new clang::TextDiagnosticPrinter(llvm::errs(), diag_opts),
@@ -402,7 +402,7 @@ private:
     //     SysrootConfig sc = load_sysroot(cfg_.sysroot);
     //     std::string L = "-L" + cfg_.sysroot + "/lib";
 
-    //     // manual for now — the one thing not cleanly in the TOML
+    //     // manual for now, the one thing not cleanly in the TOML
     //     std::string builtins = cfg_.sysroot + "/compiler-rt/lib/windows/libclang_rt.builtins-x86_64.a";
 
     //     std::vector<std::string> owned;   // keep strings alive for c_str()

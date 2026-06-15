@@ -19,7 +19,7 @@ config.test_format = lit.formats.ShTest(execute_external=True)
 config.suffixes = [".k"]
 
 # Directories never scanned for tests (inputs/fixtures live here).
-config.excludes = ["Inputs"]
+config.excludes = ["Inputs", "Manual", "Clang"]
 
 # --- Where tests live --------------------------------------------------------
 config.test_source_root = os.path.dirname(__file__)
@@ -52,7 +52,7 @@ def _find_kairo():
         lit_config.fatal(
             "Stage 1 kairo not found at {}. Build it first, or pass "
             "--param kairo=/abs/path / set KAIRO_BIN. (Refusing to fall back "
-            "to PATH — a stale /usr/local/bin/kairo is Stage 0 and lacks "
+            "to PATH, a stale /usr/local/bin/kairo is Stage 0 and lacks "
             "--print-ast.)".format(default)
         )
     return default
@@ -77,9 +77,8 @@ filecheck_bin = _find_filecheck()
 # --- Substitutions -----------------------------------------------------------
 # Plain-text substitution. Order matters only when one pattern is a prefix of
 # another; ours are distinct, but list longest-first as habit.
-config.substitutions.append(("%kairo", kairo_bin))
+config.substitutions.append(("%kairo", kairo_bin + " --error-format=basic"))
 config.substitutions.append(("%FileCheck", filecheck_bin))
-
 # %s and %t are provided by lit automatically:
 #   %s -> absolute path to the current test file
 #   %t -> a temp path unique to this test (use for scratch output)

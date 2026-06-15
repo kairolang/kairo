@@ -1,0 +1,19 @@
+// RUN: { %kairo %s --print-ast=tree 2>/dev/null || true; } | %FileCheck %s --check-prefix=AST
+a -= 3
+a *= b
+a <<= 2
+a >>= 2
+a &= 1
+a |= 1
+a ^= 1
+a %= 2
+a /= 2
+// AST: AssignOperatorExpr -=
+// AST: AssignOperatorExpr *=
+// AST: AssignOperatorExpr <<=
+// AST: AssignOperatorExpr >>=
+// AST: AssignOperatorExpr &=
+// AST: AssignOperatorExpr |=
+// AST: AssignOperatorExpr ^=
+// AST: AssignOperatorExpr %=
+// AST: AssignOperatorExpr /=
