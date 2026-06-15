@@ -1033,6 +1033,9 @@ class <T> ExprParse {
         var ce = ChainExpr::create(dyn()->ctx, full_range, base);
         ce->steps.from_buf(steps->data(), steps->size(), dyn()->ctx);
 
+        steps->clear();   // consume the accumulator; without this, the next
+                          // flush re-freezes these same steps onto the next chain
+
         return ce;
     }
 
