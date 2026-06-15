@@ -1023,7 +1023,7 @@ group = "ast"
     when an error occurs inside a macro expansion, the primary error message will be reported at the location of the macro expansion (where the macro is invoked), while a secondary note will indicate the location of the original error in the macro definition. this helps clarify that the error originates from the macro definition but is being triggered by its use.
     """
 
-# -- Parser / AST diagnostic codes (S046–S060) ----------------------------------
+# -- Parser / AST diagnostic codes (S046-S060) ----------------------------------
 # S045 is retained for macro-expansion chaining; the codes below cover specific
 # parse errors in the declaration, expression, type, and statement parsers.
 
@@ -1071,6 +1071,13 @@ group = "ast"
     - a method modifier (`virtual`, `override`, `final`) not followed by `fn`
     - an unrecognised token in a type body position
     - missing or malformed enum variant or payload field
+    """
+    [S048.N]
+    explain = """
+    # note on type body syntax
+
+    ensure that all type declarations have a properly structured body with
+    appropriate member declarations and syntax.
     """
 
 [S049]
@@ -1296,7 +1303,7 @@ group = "ast"
     source block.
     """
 
-# -- Pattern diagnostic codes (S061–S062) ------------------------------------
+# -- Pattern diagnostic codes (S061-S062) ------------------------------------
 
 [S061]
 brief = "expected pattern"

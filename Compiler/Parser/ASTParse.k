@@ -202,7 +202,7 @@ class ASTParse
                         // caret on its own line, instead of one fused multi-line span.
                         for var i: usize = 1; i < annot.entries.size(); ++i {
                             var e = &annot.entries[i];
-                            b.note(DiagID::S048E, e->range.start,
+                            b.note(DiagID::S048N, e->range.start,
                                 "this annotation also cannot apply to the group"
                             ).first(e->range);
                         }

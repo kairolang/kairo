@@ -285,7 +285,7 @@ class <T> DeclParse {
                 dyn()->diag->report(DiagID::S048E, d->visibility_range().start,
                     "explicit visibility is not allowed inside a visibility group"
                 ).first(d->visibility_range())
-                 .note(DiagID::S048E, d->visibility_range().start,
+                 .note(DiagID::S048N, d->visibility_range().start,
                     "every member of this group already has the group's visibility; "
                     "move the declaration outside the group to give it different visibility")
                  .emit();
@@ -349,7 +349,7 @@ class <T> DeclParse {
                 dyn()->diag->report(DiagID::S048E, m_annot.vis_range.start,
                     "explicit visibility is not allowed inside a visibility group"
                 ).first(m_annot.vis_range)
-                 .note(DiagID::S048E, start.start,
+                 .note(DiagID::S048N, start.start,
                     "this visibility group already fixes the visibility of every member; "
                     "move the declaration out of the group to give it different visibility"
                  ).child_first(start)

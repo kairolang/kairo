@@ -129,6 +129,7 @@ enum DiagID derives u32 {
   S046E = compute_hash::<r"S046E">(),
   S047E = compute_hash::<r"S047E">(),
   S048E = compute_hash::<r"S048E">(),
+  S048N = compute_hash::<r"S048N">(),
   S049E = compute_hash::<r"S049E">(),
   S050E = compute_hash::<r"S050E">(),
   S051E = compute_hash::<r"S051E">(),
@@ -1281,6 +1282,16 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Error
       };
     }
+    case DiagID::S048N {
+      return DiagMeta{
+        brief: "invalid type body or member syntax",
+        group: "ast",
+        number: 48,
+        hash: static_cast::<u32>(compute_hash::<r"S048N">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Note
+      };
+    }
     case DiagID::S049E {
       return DiagMeta{
         brief: "invalid generic parameter or argument syntax",
@@ -1966,6 +1977,7 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::S046E { return "# expected declaration name\n\nan identifier was expected at this position to name a declaration,\nbut a different token was found. common causes:\n- missing the name after `class`, `struct`, `enum`, `union`, `fn`,\n  `interface`, `type`, `macro`, `extend`, or a binding keyword (`var`/`const`)\n- a keyword used where an identifier is expected"; }
     case DiagID::S047E { return "# invalid function declaration syntax\n\nan unexpected or missing token was found while parsing a function\ndeclaration or its parameter list. common causes:\n- missing the function name after `fn`\n- missing `(` to open the parameter list\n- invalid or incomplete parameter (missing name, `:`, or type)\n- missing `)` to close the parameter list"; }
     case DiagID::S048E { return "# invalid type body syntax\n\nan unexpected or missing token was found while parsing the body of a type\ndeclaration (class, struct, union, enum, or interface). common causes:\n- missing `{` to open the body\n- missing `}` to close the body\n- a member does not start with `var`, `const`, `static`, `eval`, or `fn`\n- a method modifier (`virtual`, `override`, `final`) not followed by `fn`\n- an unrecognised token in a type body position\n- missing or malformed enum variant or payload field"; }
+    case DiagID::S048N { return "# note on type body syntax\n\nensure that all type declarations have a properly structured body with\nappropriate member declarations and syntax."; }
     case DiagID::S049E { return "# invalid generic syntax\n\nan unexpected or missing token was found while parsing a generic parameter\nlist `<T, U, ...>` or a generic argument list `<i32, bool>`. common causes:\n- empty generic list `<>` at least one parameter or argument is required\n- missing `>` to close the list\n- missing name in a const generic: `const N: u32`\n- expected `class`, `struct`, `enum`, or `union` after a kind bound `:`\n- missing type name after `...` in a variadic pack parameter\n- invalid token in place of a type argument"; }
     case DiagID::S050E { return "# missing required declaration token\n\na required punctuation token or keyword was not found while parsing a\ndeclaration. common causes include a missing `{`, `=`, or another structural\ntoken expected after a declaration keyword or name."; }
     case DiagID::S051E { return "# unclosed declaration body\n\na closing `}` was expected to end a declaration body but was not found.\nensure every opening brace has a matching closing brace."; }
@@ -1982,7 +1994,7 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::S060E { return "# invalid inline block or intrinsic\n\na structural problem was found in an `inline` foreign block or a\n`label!`/`jump!` intrinsic call.\n\nfor `inline` blocks:\n- missing language string (e.g. `inline \"c++\"`)\n- missing `{` to open the inline body\n\nfor `label!`/`jump!` intrinsics:\n- missing `!` sigil after the keyword\n- missing `(` after the sigil\n- missing the label or target identifier\n- missing `)` to close the intrinsic"; }
     case DiagID::S060W { return "# unknown inline foreign language\n\nthe string passed to `inline` is not one of the recognised foreign\nlanguage identifiers. the compiler will fall back to treating the body\nas C++ (`inline \"c++\"`) and continue, but the intent may not be met.\n\n## recognised identifiers\n`asm`, `c`, `c++` / `cpp` / `cxx`, `cuda`, `hip`, `opencl`,\n`hlsl`, `metal`, `spirv`, `wgsl`, `glsl`, `kairo`\n\n## how to fix\nuse one of the identifiers above, matching the language of the embedded\nsource block."; }
     case DiagID::S061E { return "# expected pattern\n\na pattern was expected at this position but a different token was found.\npatterns are used in `match` arms and destructuring bindings. common\ncauses:\n- an unrecognised token where a pattern should start\n- a misplaced keyword or operator at the start of a `match` arm\n- an empty arm with no pattern before `{` or `=>`\n\n## examples of valid pattern starts\n- `_` (wildcard)\n- `var x` / `const x` (binding)\n- `(p, q)` (tuple)\n- `[p, .., q]` (slice)\n- `.Variant` (dotted constructor)\n- `1..=10` (range)\n- a literal value or path head"; }
-    case DiagID::S062E { return "# malformed pattern construct\n\na structural problem was found inside a pattern. common causes:\n- empty tuple pattern `()`, at least one element is required\n- missing binding name after `var`/`const` in a binding pattern\n- missing `)` to close a tuple pattern or constructor payload\n- missing `]` to close a slice pattern\n- missing variant name after `.` in a dotted constructor pattern\n- more than one `..` rest element in a slice pattern"; }
+    case DiagID::S062E { return "# malformed pattern construct\n\na structural problem was found inside a pattern. common causes:\n- empty tuple pattern `()` — at least one element is required\n- missing binding name after `var`/`const` in a binding pattern\n- missing `)` to close a tuple pattern or constructor payload\n- missing `]` to close a slice pattern\n- missing variant name after `.` in a dotted constructor pattern\n- more than one `..` rest element in a slice pattern"; }
     case DiagID::S063E { return "# unexpected token or parser state\n\nthe parser encountered an unexpected token or reached an internal limit\nthat prevents it from continuing. common causes:\n- a token that does not match what the grammar requires at this point\n  (reported by `expect` when the actual token differs from the expected\n  one, or when an unexpected end-of-file is reached)\n- a `TkError` recovery token produced by an earlier parse failure being\n  seen again during a second-pass check\n- the parser\'s recursion depth ceiling was exceeded, which can happen\n  with very deeply nested expressions or with accidentally recursive\n  macro expansions; consider reducing nesting depth or raising\n  `--cmax-scope-depth`"; }
     case DiagID::S063N { return "# parser state context note\n\nthis note provides additional context for a parser-state diagnostic.\ncommon uses:\n- showing the macro expansion chain when a token was produced by a\n  macro (`TkMacroExpand`) and expanded unexpectedly, including the\n  definition site and each intermediate expansion level\n- explaining why the parser\'s nesting-depth limit was hit (e.g.,\n  excessively deep or infinite recursion in the source)\n- identifying the token whose resolution chain was truncated due to\n  hitting `--cmax-scope-depth`"; }
     case DiagID::R001W { return "This is placeholder diagnostics. (Warning)"; }
@@ -2057,6 +2069,7 @@ module Diag {
         switch num {
           case 1 { return DiagID::S001N; }
           case 45 { return DiagID::S045N; }
+          case 48 { return DiagID::S048N; }
           case 56 { return DiagID::S056N; }
           case 63 { return DiagID::S063N; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for S and severity Note")); }
