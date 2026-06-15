@@ -1,0 +1,4 @@
+to run these tests use the lit test runner with the following command:
+  llvm-lit -v Tests/Regression/
+
+from the kairo/ folder as you cwd.
