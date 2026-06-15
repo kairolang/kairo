@@ -166,7 +166,7 @@ class ASTParse
                 continue;
             }
 
-            inline "c++" { PendingAnnotations annot; }
+            var annot: PendingAnnotations;
             self.consume_leading_annotations(&annot);
             if self.is_eof() { break; }
 
@@ -176,13 +176,44 @@ class ASTParse
             if (k == TokenKind::KwVar) || (k == TokenKind::KwConst) {
                 route_decl = false; // stmt path owns destructuring split
             }
+            if (k == TokenKind::KwEval) && (!self.check_peek(TokenKind::OpLBrace)) {
+                route_decl = false; // `eval {` is a decl block; `eval for/if/var`
+                                    // are statements (stmt dispatcher owns them).
+            }
 
-            if route_decl {
+             if route_decl {
                 var d = self.parse_decl();
                 if d == &null { break; }
                 if self.is_fatal::<Decl>(d) { break; }
 
-                self.apply_annotations_to_decl(d, &annot);
+                if isa::<VisibilityGroupDecl>(d) {
+                    var annot_has_any: bool = !annot.empty();
+                    if annot_has_any {
+                        var first_span: SourceRange = annot.entries.front().range;
+
+                        var b = self.diag->report(DiagID::S045E, first_span.start,
+                            "annotations and attributes cannot be applied to a visibility group; "
+                            "apply them to individual members instead"
+                        );
+
+                        b.first(first_span);
+                        
+                        // one note per additional annotation: each gets its own
+                        // caret on its own line, instead of one fused multi-line span.
+                        for var i: usize = 1; i < annot.entries.size(); ++i {
+                            var e = &annot.entries[i];
+                            b.note(DiagID::S045N, e->range.start,
+                                "this annotation also cannot apply to the group"
+                            ).first(e->range);
+                        }
+
+                        b.emit();
+                    }
+                    // do NOT stamp annot onto the group
+                } else {
+                    self.apply_annotations_to_decl(d, &annot);
+                }
+
                 self.tu->add_decl(d);
                 program->add_item(TopLevelItem::from_decl(d));
             } else {
@@ -592,7 +623,8 @@ class ASTParse
         if tok->kind == TokenKind::TkMacroExpand {
             var builder = self.diag->report(DiagID::S045N, tok->range.start,
                 f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}' "
-            ).first(tok->range);
+            );
+            builder.first(tok->range);
             self.attach_macro_expansion_chain(&builder, tok);
             builder.emit();
         }
@@ -732,6 +764,10 @@ class ASTParse
                 }
 
                 out->add_attr(name, at_range | end_range, frozen);
+                self._skip_nl_fwd(); // an attribute attaches to the next decl/stmt;
+                                     // a newline between `@attr` and its target is
+                                     // never significant. without this the top-level
+                                     // parse() loop sees the NL as the decl lead.
                 continue;
             }
 

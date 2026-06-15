@@ -123,23 +123,15 @@ class <T> DeclParse {
 
         var d = self._dispatch_decl();
         if (d != &null) && (!is_fatal_decl(d)) {
-            if isa::<VisibilityGroupDecl>(d) {
-                // group keyword wasn't consumed into annot, but @attrs and
-                // doc comments before `pub {` were and they're banned: an
-                // attribute at line 1 silently applying to a decl at line
-                // 500 inside the group is unreadable.
-                inline "c++" { bool annot_has_any = !annot.empty(); }
-                if annot_has_any {
-                    dyn()->diag->report(DiagID::S045E, d->range.start,
-                        "annotations and attributes cannot be applied to a visibility group; "
-                        "apply them to individual members instead"
-                    ).first(d->range).emit();
-                }
-            } else {
+            if !isa::<VisibilityGroupDecl>(d) {
                 dyn()->apply_annotations_to_decl(d, &annot);
             }
-        }
 
+            // group case: caller owns the annotation-on-group diagnostic,
+            // since parse_decl's local annot buffer is empty when the caller
+            // (parse / member-body) already consumed the annotations.
+        }
+        
         return d;
     }
 
@@ -290,7 +282,7 @@ class <T> DeclParse {
             if is_fatal_decl(d) { break; }
 
             if d->has_visibility() {
-                dyn()->diag->report(DiagID::S050E, d->visibility_range().start,
+                dyn()->diag->report(DiagID::S045E, d->visibility_range().start,
                     "explicit visibility is not allowed inside a visibility group"
                 ).first(d->visibility_range())
                  .note(DiagID::S045E, d->visibility_range().start,
@@ -354,11 +346,15 @@ class <T> DeclParse {
             // explicit visibility inside the group: error, then proceed.
             var m_has_vis = m_annot.visibility != T::PendingAnnotations::VisAnnotation::VisibilityKind::None;
             if m_has_vis {
-                dyn()->diag->report(DiagID::S050E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S045E, m_annot.vis_range.start,
                     "explicit visibility is not allowed inside a visibility group"
-                ).first(dyn()->current_ptr()->range).emit();
+                ).first(m_annot.vis_range)
+                 .note(DiagID::S045N, start.start,
+                    "this visibility group already fixes the visibility of every member; "
+                    "move the declaration out of the group to give it different visibility"
+                 ).child_first(start)
+                 .emit();
             }
-
             var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
 
             var is_method_lead = (k == TokenKind::KwFn)
@@ -446,6 +442,7 @@ class <T> DeclParse {
         if !dyn()->check(TokenKind::OpLess) { return false; }
         var open = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `<`
+        dyn()->nl_push();                 // suppress newlines inside `< >`
 
         // A nested generic in a *prior* sibling could have left us a pending
         // close-angle, but at the param-list opener that can't have happened
@@ -459,7 +456,8 @@ class <T> DeclParse {
             dyn()->diag->report(DiagID::S049E, open.start,
                 "empty generic parameter list is not allowed"
             ).first(open).emit();
-            dyn()->advance(); // consume `>`
+            dyn()->nl_pop();
+            dyn()->advance_raw(); // consume `>`
             return false;
         }
 
@@ -471,9 +469,15 @@ class <T> DeclParse {
                 // honor a pending close-angle during recovery too
                 if dyn()->_pending_close_angle {
                     dyn()->_pending_close_angle = false;
+                    dyn()->nl_pop();
                     return false;
                 }
-                if dyn()->check(TokenKind::OpGreater) { dyn()->advance(); }
+                if dyn()->check(TokenKind::OpGreater) {
+                    dyn()->nl_pop();
+                    dyn()->advance_raw();
+                    return false;
+                }
+                dyn()->nl_pop();
                 return false;
             }
             out->push_back(gp);
@@ -483,6 +487,7 @@ class <T> DeclParse {
             // `>>` and left us owing one `>`. That closes THIS list.
             if dyn()->_pending_close_angle {
                 dyn()->_pending_close_angle = false;
+                dyn()->nl_pop();
                 return true;
             }
 
@@ -498,7 +503,8 @@ class <T> DeclParse {
 
         // single `>` closes the list cleanly
         if dyn()->check(TokenKind::OpGreater) {
-            dyn()->advance();
+            dyn()->nl_pop();
+            dyn()->advance_raw();
             return true;
         }
 
@@ -508,7 +514,8 @@ class <T> DeclParse {
         // for an enclosing list via the pending flag mirroring TypeParse.
         if dyn()->check(TokenKind::OpGreaterGreater) {
             dyn()->_pending_close_angle = true;
-            dyn()->advance();
+            dyn()->nl_pop();
+            dyn()->advance_raw();
             return true;
         }
 
@@ -516,6 +523,7 @@ class <T> DeclParse {
             "expected '>' to close generic parameter list"
         ).first(open).emit();
         self._sync_decl(DeclSyncCtx::Generics);
+        dyn()->nl_pop();
         return false;
     }
 
@@ -1197,7 +1205,7 @@ class <T> DeclParse {
             && dyn()->check_peek(TokenKind::OpLBrace) {
                 var grp_annot = !m_annot.empty();
                 if grp_annot {
-                    dyn()->diag->report(DiagID::S050E, dyn()->current_ptr()->range.start,
+                    dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
                         "annotations and attributes cannot be applied to a visibility group; "
                         "apply them to individual members instead"
                     ).first(dyn()->current_ptr()->range).emit();
@@ -2030,7 +2038,7 @@ class <T> DeclParse {
         // letting the body parser produce garbage.
         if dyn()->check(TokenKind::OpArrow) {
             var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S050E, r.start,
+            dyn()->diag->report(DiagID::S045E, r.start,
                 "an attribute macro cannot declare a return type; it transforms its node argument in place"
             ).first(r).emit();
             dyn()->advance(T::SkipNL::After); // consume `->`

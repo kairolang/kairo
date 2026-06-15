@@ -1399,6 +1399,10 @@ class <T> TypeParse {
         segments.push_back(seg);
 
         while dyn()->check(TokenKind::OpColonColon) {
+            if self._pending_close_angle {
+                break;
+            }
+
             var sep_range = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `::`
 
@@ -1483,10 +1487,12 @@ class <T> TypeParse {
     inline fn _parse_generic_args(self, out: *std::StackBuf::<ChainType::GenericArg, 4>) -> bool {
         var start_range = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `<`
+        dyn()->nl_push();                 // suppress newlines inside `< >`
 
         // a prior nested generic consumed >> and left one > for us
         if self._pending_close_angle {
             self._pending_close_angle = false;
+            dyn()->nl_pop();
             return true;
         }
 
@@ -1494,7 +1500,8 @@ class <T> TypeParse {
             dyn()->diag->report(DiagID::S049E, start_range.start,
                 "expected at least one type argument in generic parameter list"
             ).first(start_range).emit();
-            dyn()->advance(); // consume `>`
+            dyn()->nl_pop();
+            dyn()->advance_raw(); // consume `>`
             return false;
         }
 
@@ -1504,6 +1511,7 @@ class <T> TypeParse {
             if  dyn()->check(TokenKind::TkCodeComplete) {
                 dyn()->maybe_complete(CompletionContextKind::TypeRef);
                 dyn()->advance(T::SkipNL::After);
+                dyn()->nl_pop();
                 return false;
             }
 
@@ -1511,19 +1519,22 @@ class <T> TypeParse {
             if dyn()->check(TokenKind::OpGreaterGreater) {
                 if angle_depth == 1 {
                     self._pending_close_angle = true;
-                    dyn()->advance();
+                    dyn()->nl_pop();
+                    dyn()->advance_raw();
                     return true;
                 }
                 if angle_depth >= 2 {
                     angle_depth -= 2;
-                    dyn()->advance();
+                    dyn()->nl_pop();
+                    dyn()->advance_raw();
                     return true;
                 }
             }
 
             if dyn()->check(TokenKind::OpGreater) {
                 angle_depth -= 1;
-                dyn()->advance();
+                dyn()->nl_pop();
+                dyn()->advance_raw();
                 return true;
             }
 
@@ -1550,16 +1561,26 @@ class <T> TypeParse {
                     "expected type argument in generic parameter list"
                 ).first(start_range).emit();
                 self._sync_generic_args(angle_depth);
+                dyn()->nl_pop();
                 return false;
             }
 
             if is_recovery(ty) {
                 self._sync_generic_args(angle_depth);
+                dyn()->nl_pop();
                 return false;
             }
 
             arg.ty = ty;
             out->push_back(arg);
+
+            // parse_type can leave the cursor parked ON a newline. check()
+            // does NOT see through newlines even with nl_depth > 0 (only
+            // advance() skips them), so without this the comma/closer checks
+            // below test the newline token and wrongly fall through to the
+            // "expected ',' or '>'" error → whole generic list bails → the
+            // tentative guard rolls back → `Lookup < string` reparses as `<`.
+            dyn()->advance(T::SkipNL::Only); // skip NLs, do not move past real tokens
 
             if dyn()->check(TokenKind::OpComma) {
                 dyn()->advance(T::SkipNL::After); // consume `,`
@@ -1567,18 +1588,21 @@ class <T> TypeParse {
                 // trailing comma before closer
                 if dyn()->check(TokenKind::OpGreater) {
                     angle_depth -= 1;
-                    dyn()->advance();
+                    dyn()->nl_pop();
+                    dyn()->advance_raw();
                     return true;
                 }
                 if dyn()->check(TokenKind::OpGreaterGreater) {
                     if angle_depth == 1 {
                         self._pending_close_angle = true;
-                        dyn()->advance();
+                        dyn()->nl_pop();
+                        dyn()->advance_raw();
                         return true;
                     }
                     if angle_depth >= 2 {
                         angle_depth -= 2;
-                        dyn()->advance();
+                        dyn()->nl_pop();
+                        dyn()->advance_raw();
                         return true;
                     }
                 }
@@ -1589,6 +1613,7 @@ class <T> TypeParse {
             // a nested generic consumed >> and left a > for us
             if self._pending_close_angle {
                 self._pending_close_angle = false;
+                dyn()->nl_pop();
                 return true;
             }
 
@@ -1597,10 +1622,12 @@ class <T> TypeParse {
                     "expected ',' or '>' after type argument in generic parameter list"
                 ).first(dyn()->prev().range).emit();
                 self._sync_generic_args(angle_depth);
+                dyn()->nl_pop();
                 return false;
             }
         }
 
+        dyn()->nl_pop();
         return angle_depth == 0;
     }
 
