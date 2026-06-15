@@ -57,13 +57,9 @@ default class Path {
     /// \warning
     /// this constructor performs a system call to check existence.
     ///
-    fn Path(self, input: string, mustExist: bool = true) {
+    fn Path(self, input: string, mustExist: bool = false) {
         var raw = std::Memory::move(input).raw_string();
         self.path_data = libcxx::filesystem::absolute(FilePath(raw));
-
-        if self.path_data.empty() {
-            std::crash(std::Error::RuntimeError("Path: empty path string"));
-        }
 
         if mustExist && (!libcxx::filesystem::exists(self.path_data)) {
             std::crash(std::Error::RuntimeError(

@@ -402,6 +402,12 @@ class Command {
         var gstate: GlobalState = GlobalState::Normal;
         var pending: *FlagDef  = &null;
 
+        const eval if defined(_WIN32) || defined(_WIN64) {
+            const var _IS_WINDOWS: bool = true;
+        } else {
+            const var _IS_WINDOWS: bool = false;
+        }
+
         // seed result map with flag defaults
         for var t: usize = 0; t < self._table.size(); ++t {
             result._init(self._table[t].key, self._table[t].default_);
@@ -541,8 +547,7 @@ class Command {
                 }
 
             // -- '/' prefix (Windows-style) ---------------------------------
-            } else if elem[0] == '/' {
-
+            } else if elem[0] == '/' && _IS_WINDOWS {
                 if elen == 1 { i += 1; continue; }
 
                 if elem[1] == '-' { // '/-' is invalid

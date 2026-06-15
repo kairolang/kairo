@@ -210,7 +210,10 @@ class VirtualFileManager {
         parent->load(&abs_full);
 
         if !parent->is_valid() {
-            std::crash(std::Error::RuntimeError(f"VirtualFileManager: IOError - Failed to map {abs_full}"));
+            std::destroy(parent);
+            Logger::error(Logger::Stage::Driver,
+                f"VirtualFileManager::register_file: failed to map {abs_full}");
+            return u32(-1);
         }
 
         var total     = parent->bytes().size();

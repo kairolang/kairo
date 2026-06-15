@@ -145,6 +145,12 @@ class SourceManager {
             }
         }
 
+        if !path.exists() {
+            Logger::warn(Logger::Stage::Driver,
+                f"SourceManager::load_file: path does not exist: {path.full_path()}");
+            return static_cast::<FileID>(u32(-1));
+        }
+
         var base_fid = _vfile_mgr->register_file(path);
         var info     = _vfile_mgr->get_info(base_fid);
         var size     = info.size;
