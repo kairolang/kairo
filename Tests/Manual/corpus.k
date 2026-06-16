@@ -18,9 +18,9 @@ class Foo derives OldThing impl Printable {
         var y: i32 = 10
         fn get_x(self) -> i32 { return self.x }
     }
-    
+
     priv var secret: u64
-    
+
     prot {
         var shared_state: *u8
         static fn helper() -> bool = true
@@ -28,16 +28,16 @@ class Foo derives OldThing impl Printable {
 
     fn <T impl Numeric> sum(self, items: [T]) -> T {
         var total: T = 0 as T
-        for var i in items { 
-            total += i 
+        for var i in items {
+            total += i
         }
         return total
     }
 
     virtual fn describe(self) -> string = virtual
 
-    fn op == (self, other: *Foo) -> bool { 
-        return self.x == other->x 
+    fn op == (self, other: *Foo) -> bool {
+        return self.x == other->x
     }
 }
 
