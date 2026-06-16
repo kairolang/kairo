@@ -413,7 +413,7 @@ class CompilerInstance {
 
         // collect into a vector so we can sort and align the output
         var rows: libcxx::vector::<libcxx::pair::<llvm::StringRef, llvm::StringRef>>;
-        var max_name: usize = 0;
+        var max_name: size_t = 0;
 
         for T in llvm::TargetRegistry::targets() {
             rows.emplace_back(T.getName(), T.getShortDescription());
@@ -488,7 +488,7 @@ class CompilerInstance {
         std::print(f"Available CPUs for target '{string(triple.raw())}':");
 
         var cpu_rows: libcxx::vector::<libcxx::string>;
-        var max_cpu:  usize = 0;
+        var max_cpu:  size_t = 0;
 
         for cpu in STI->getAllProcessorDescriptions() {
             cpu_rows.emplace_back(cpu.Key);
@@ -508,7 +508,7 @@ class CompilerInstance {
         std::print("Available features:");
 
         var feat_rows: libcxx::vector::<libcxx::pair::<libcxx::string, libcxx::string>>;
-        var max_feat:  usize = 0;
+        var max_feat:  size_t = 0;
 
         inline "c++" {
             for (const llvm::SubtargetFeatureKV &feat : STI->getAllProcessorFeatures()) {
