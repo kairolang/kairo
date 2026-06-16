@@ -87,11 +87,12 @@ class ThreadPool {
         }
     }
 
-    priv var _count:   usize = 0;
-    priv var _queues:  vec::<own::<PartitionQueue>>;
-    priv var _groups:  array::<std::Atomic::<u64>, 256> = array::<std::Atomic::<u64>, 256>();
-    priv var _rr:      std::Atomic::<usize> = std::Atomic::<usize>(0);
-    priv var _active:  std::Atomic::<bool>  = std::Atomic::<bool>(true);
+    priv var _count:        usize = 0;
+    priv var _queues:       vec::<own::<PartitionQueue>>;
+    priv var _groups:       array::<std::Atomic::<u64>, 256> = array::<std::Atomic::<u64>, 256>();
+    priv var _rr:           std::Atomic::<usize>             = std::Atomic::<usize>(0);
+    priv var _active:       std::Atomic::<bool>              = std::Atomic::<bool>(true);
+    priv var _live_workers: std::Atomic::<usize>             = std::Atomic::<usize>(0);
 
     ///
     /// \class Task
@@ -390,6 +391,14 @@ class ThreadPool {
             self._groups[gi].store(0, std::MemoryOrder::relaxed);
         }
 
+        // Single-threaded: no workers. enqueue() runs inline.
+        if n == 1 {
+            Logger::info(Logger::Stage::ThreadPool, "ThreadPool: single-threaded (inline) mode");
+            return;  // skip thread spawning entirely
+        }
+
+        self._live_workers.store(n, std::MemoryOrder::release);
+
         // Allocate all queues first before any thread can index into _queues
         for _ in range::<usize>(0, n) {
             var q = std::create_unique::<PartitionQueue>(DEFAULT_QUEUE_SIZE);
@@ -479,6 +488,14 @@ class ThreadPool {
     ///
     inline fn enqueue(self, _fn: FunctionT, group: u8 = 0) {
         if !self._active.load(std::MemoryOrder::relaxed) { return; }
+
+        // Single-threaded pool: run inline on the calling thread. No queue, no
+        // worker handoff - the task is fully complete before enqueue returns, so
+        // group counters never need to move and wait_group is a no-op.
+        if self._count == 1 {
+            _fn();
+            return;
+        }
 
         // increment BEFORE task is visible to any worker
         self._groups[group].fetch_add(1, std::MemoryOrder::relaxed);
@@ -578,8 +595,12 @@ class ThreadPool {
         
         inline "c++" {
             while (get_total_pending_tasks() > 0) {
-                libcxx::this_thread::sleep_for(libcxx::chrono::milliseconds(1));
+                libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
             }
+        }
+
+        while self._live_workers.load(std::MemoryOrder::acquire) > 0 {
+            _thread_pause();
         }
 
         for q: ref!(*PartitionQueue) in self._queues {
@@ -622,7 +643,7 @@ class ThreadPool {
             if q->pop(&task) {
                 task._fn();
 
-                self._groups[task._group].fetch_sub(1, std::MemoryOrder::relaxed);
+                self._groups[task._group].fetch_sub(1, std::MemoryOrder::release);
                 spins = 0;
 
                 continue;
@@ -643,7 +664,7 @@ class ThreadPool {
                     if self._queues[target]->steal(&task) {
                         task._fn();
                         self._groups[task._group].fetch_sub(
-                            1, std::MemoryOrder::relaxed
+                            1, std::MemoryOrder::release
                         );
 
                         found = true;
@@ -669,6 +690,8 @@ class ThreadPool {
                 }
             }
         }
+
+        self._live_workers.fetch_sub(1, std::MemoryOrder::release);
     }
 
     ///
@@ -739,6 +762,8 @@ class ThreadPool {
     /// \see enqueue
     ///
     fn warmup(self, spins: i32 = 1000000) {
+        if self._count == 1 { return; }
+
         var barrier: std::Atomic::<usize> = std::Atomic::<usize>(0);
         Logger::debug(Logger::Stage::ThreadPool, f"ThreadPool::warmup: {self._count} threads spins={spins}");
 
