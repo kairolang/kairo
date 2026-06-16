@@ -7,6 +7,7 @@
 
 import os
 import shutil
+import glob
 import lit.formats
 
 # --- Suite identity ----------------------------------------------------------
@@ -40,10 +41,25 @@ def _find_kairo():
 
     # Default: the freshly-built Stage 1 binary. test_source_root is Tests/,
     # so repo root is one up.
-    default = os.path.normpath(os.path.join(
-        config.test_source_root, "..",
-        "build", "x86_64-linux-gnu", "release", "bin", "kairo",
-    ))
+    matches = sorted(
+        p for p in glob.glob(os.path.join(
+            config.test_source_root,
+            "..",
+            "build",
+            "*",
+            "release",
+            "bin",
+            "kairo*",
+        ))
+        if os.path.basename(p) in ("kairo", "kairo.exe")
+    )
+
+    if not matches:
+        raise FileNotFoundError(
+            "Could not locate Kairo compiler under build/*/release/bin/kairo"
+        )
+
+    default = os.path.normpath(matches[0])
 
     # DO NOT fall through to PATH. A stale Stage 0 install at /usr/local/bin
     # will silently answer and you'll test the wrong compiler with the wrong
