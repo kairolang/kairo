@@ -2237,10 +2237,10 @@ fn Test() -> i32 {
     var create_lexer_from_string_with_diag = fn (content: string, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) -> (*Lexer, u32) {
         var temp_path = (libcxx::filesystem::temp_directory_path()) / (libcxx::filesystem::path(r"hlx_lexer_test.k"));
         sm->reset();
-        var temp_data = (content);
+        var temp_data = std::string_to_nstring(content);
         data = libcxx::string(temp_data);
 
-        var path  = Path(temp_path.generic_string(), false);
+        var path  = Path(temp_path.generic_wstring(), false);
         var ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(data.data());
         var fid   = sm->load_virtual(path, ptr, data.size());
         var lexer = std::create::<Lexer>(sm, pool, diag);
