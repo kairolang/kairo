@@ -392,7 +392,11 @@ class <T> DeclParse {
                     f->set_visibility(vis_kind, start);
                     fields_out->push_back(f);
                     members.push_back(static_cast::<*Decl>(f));
-                    *field_idx += 1;
+                    // NOTE: parenthesize the deref. Stage 0 gives prefix `*`
+                    // lower precedence than `+=`, so `*field_idx += 1` is
+                    // miscompiled as `*(field_idx += 1)` (pointer bump, not
+                    // counter bump) -- see the stack-buffer-overflow it caused.
+                    (*field_idx) += 1;
                 } else {
                     self._sync_decl(DeclSyncCtx::TypeBody);
                 }
