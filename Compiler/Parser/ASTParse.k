@@ -181,7 +181,7 @@ class ASTParse
                                     // are statements (stmt dispatcher owns them).
             }
 
-             if route_decl {
+            if route_decl {
                 var d = self.parse_decl();
                 if d == &null { break; }
                 if self.is_fatal::<Decl>(d) { break; }

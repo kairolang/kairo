@@ -1461,11 +1461,29 @@ class AstDumper {
         self.src_expr(e);
         self.p.put("\x27");
         self.p.newline();
-        if e->base != &null {
-            self.p.enter(is_last);
-            self.dump_expr(e->base, true);
-            self.p.leave();
+
+        self.p.enter(is_last);
+        var has_base = (e->base != &null);
+        var nsteps   = e->steps.size();
+
+        if has_base {
+            self.dump_expr(e->base, nsteps == 0);
         }
+        for var i: usize = 0; i < nsteps; ++i {
+            var s    = e->steps.get(i);
+            var last = (i == nsteps - 1);
+            self._head("Step", last);
+            self.p.put(" ");
+            self._access_op(s->access_kind);
+            if s->name != &null {
+                self.p.paint(Color::Ident, self.tok(s->name->name));
+            } else {
+                self.p.paint(Color::Error, "<error>");
+            }
+            self._generic_args(s->generic_args);
+            self.p.newline();
+        }
+        self.p.leave();
     }
 
     fn _dx_call(self, e: *CallExpr, is_last: bool) {

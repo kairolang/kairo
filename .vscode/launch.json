@@ -6,7 +6,7 @@
       "type": "lldb",
       "request": "launch",
       "cwd": "${workspaceFolder}",
-      "program": "${workspaceFolder}/build/x86_64-linux-gnu/release/bin/kairo",
+      "program": "${workspaceFolder}/build/x86_64-linux-gnu/debug/bin/kairo",
       "args": ["test.k", "--print-ast"],
       "initCommands": [
         "command script import ${workspaceFolder}/Scripts/cppvsdbg.py",
@@ -18,8 +18,8 @@
       "type": "cppdbg",
       "request": "launch",
       "cwd": "${workspaceFolder}",
-      "program": "${workspaceFolder}/build/x86_64-linux-gnu/release/bin/kairo",
-      "args": ["test.k", "--print-ast"],
+      "program": "${workspaceFolder}/build/x86_64-linux-gnu/debug/bin/kairo",
+      "args": ["Tests/Parser/ExprParse/chain_trailing_access_after_call_BUG.k", "--print-ast=tree"],
       "MIMode": "gdb",
       "miDebuggerPath": "/usr/bin/gdb",
       "setupCommands": [
