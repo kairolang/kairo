@@ -297,13 +297,13 @@ module std {
 
     //  Safe-pointer specialization: niche-filled. null == 0x0. No tag. sizeof(P).
     @kairo::__intrinsic_always_safe()   // suppress AMT on the raw-pointer slot; std-only
-    struct <> NullableStorage<P>
+    struct <P> NullableStorage<P>
       requires is_safe_pointer_t<P>() {
         priv var ptr: unsafe P       // holds P's bits raw; 0x0 == None
     }
 
     @kairo::__intrinsic_always_safe()
-    extend <> NullableStorage<P>
+    extend <P> NullableStorage<P>
       requires is_safe_pointer_t<P>() {
         @copy
         inline fn NullableStorage(self, other: Self) { self.ptr = other.ptr }
