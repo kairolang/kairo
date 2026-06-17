@@ -95,10 +95,7 @@ class ImportResolver {
     priv var _cache:           map::<string, Path>;      ///< resolution cache keyed by "prefix:seg1::seg2::..."
     priv var _roots:           vec::<own::<SearchRoot>>; ///< priority-sorted search roots (index 0 = cwd)
     priv var _ext_cfg:         oot::<FileExtensions>;    ///< file extension classification config
-    priv var _index_completed: std::Atomic::<bool>;      ///< set to true when indexing finishes
     priv var _owns_ext_cfg:    bool;                     ///< true if destructor should free `_ext_cfg`
-
-    
 
     /// \class Builder
     /// \brief fluent builder for constructing an `ImportResolver`
@@ -202,14 +199,13 @@ class ImportResolver {
     /// \param cwd the current working directory (priority 0)
     /// \param include_paths additional include directories (priority 1+)
     /// \param pool optional thread pool; currently unused in body but reserved for parallel indexing
-    ///
-    /// sets `_index_completed` to true on exit via `finally` block.
     fn build_index(self, cwd: Path, include_paths: vec::<Path>, pool: *ThreadPool = &null) {
-        self._index_completed.store(false, std::MemoryOrder::release);
         Logger::info(Logger::Stage::Preprocessor,
             f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={include_paths.size() + 1}");
 
-        // build root list first (cheap, just path checks)
+        // Build the root list. Cheap: path checks only. SearchRoot's constructor
+        // stamps each root's fs_path and ext_cfg so it can probe lazily on first
+        // access; there is no eager directory walk here anymore.
         if cwd.exists() && cwd.is_directory() {
             var root = std::create::<SearchRoot>(cwd, 0, self._ext_cfg);
             self._roots.push_back(root);
@@ -224,37 +220,11 @@ class ImportResolver {
             }
         }
 
-        if (pool == &null) || (self._roots.size() <= 1) {
-            // single-threaded fallback
-            for root: *SearchRoot in self._roots {
-                root->build_index(&null);
-            }
-            Logger::info(Logger::Stage::Preprocessor,
-                f"ImportResolver::build_index: complete roots={self._roots.size()}");
-            self._index_completed.store(true, std::MemoryOrder::release);
-            return;
-        }
-
-        // parallel: each root gets its own task on group 0
-        var pending = std::Atomic::<usize>(self._roots.size());
-
-        for root: *SearchRoot in self._roots {
-            inline "c++" {
-                pool->enqueue([root, &pending, pool, this]() {
-                    root->build_index(pool);
-                    if (pending.fetch_sub(1, std::MemoryOrder::acq_rel) == 1) {
-                        Logger::info(Logger::Stage::Preprocessor,
-                            libcxx::format(
-                                WIDE_STR("ImportResolver::build_index: complete roots={}"),
-                                _roots.size()
-                            ));
-                        _index_completed.store(true, std::MemoryOrder::release);
-                    }
-                }, static_cast<uint8_t>(0));
-            }
-        }
-
-        // don't wait here - caller calls wait_for_index() when needed
+        // `pool` retained for signature compatibility; lazy resolution needs no
+        // worker dispatch. Resolution methods probe on demand; wait_for_index() is
+        // a no-op.
+        Logger::info(Logger::Stage::Preprocessor,
+            f"ImportResolver::build_index: registered roots={self._roots.size()}");
     }
 
     /// \brief destructor; frees all owned search roots and optionally the extension config
@@ -282,15 +252,13 @@ class ImportResolver {
     ///
     /// uses `libcxx::this_thread::yield()` to avoid busy-waiting.
     fn wait_for_index(self) {
-        while !self.is_index_ready() {
-            __inline_cpp("libcxx::this_thread::yield()");
-        }
+        // Lazy resolution: no index to wait on. Retained for API compatibility.
     }
 
     /// \brief checks whether indexing has finished
     /// \return true if the index is ready for queries
     fn is_index_ready(self) -> bool {
-        return self._index_completed.load(std::MemoryOrder::acquire);
+        return true;
     }
 
     /// \brief resolves a qualified module path to a filesystem path

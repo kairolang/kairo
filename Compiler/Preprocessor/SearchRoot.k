@@ -25,128 +25,28 @@ class SearchRoot {
     pub var root:      own::<DirEntry>;
     pub var priority:  u32;
 
-    __inline_cpp("
-    private:
-        static libcxx::wstring normalize_extension_cpp(const libcxx::wstring& ext) {
-            if (!ext.empty() && ext[0] == L'.') return ext.substr(1);
-            return ext;
-        }
-    public:
-    ");
-
     fn SearchRoot(self, path: Path, priority: u32, ext_cfg: *FileExtensions) {
-        self.base_path = path;
-        self.priority  = priority;
-        self.ext_cfg   = ext_cfg;
-        self.root      = std::create::<DirEntry>(path.filename(), true);
+        self.base_path     = path;
+        self.priority      = priority;
+        self.ext_cfg       = ext_cfg;
+        self.root          = std::create::<DirEntry>(path.filename(), true);
+        self.root->fs_path = path;
+        self.root->ext_cfg = ext_cfg;
     }
 
+    /// \deprecated Do not use this function.
     fn build_index(self, pool: *ThreadPool = &null) {
-        if pool == &null {
-            self.index_recursive(self.root, self.base_path);
-            return;
-        }
+        // Lazy: nothing to walk. Root is stamped at construction; children are
+        // materialised on demand via DirEntry::probe_* / ensure_scanned.
+        // `pool` retained only for signature compatibility.
 
-        // scan top level on calling thread fast, single directory read
-        // collect immediate children, dispatch subdirs as tasks
-        __inline_cpp("
-            if (!libcxx::filesystem::exists(base_path.path_data) ||
-                !libcxx::filesystem::is_directory(base_path.path_data)) {
-                return;
-            }
-
-            struct SubdirTask {
-                string     name;
-                libcxx::filesystem::path fs_path;
-                DirEntry*       node;  // pre-allocated, owned by root after attach
-            };
-
-            vec<SubdirTask> subdirs;
-
-            try {
-                for (auto& entry : libcxx::filesystem::directory_iterator(base_path.path_data)) {
-                    auto name_raw = entry.path().filename().generic_wstring();
-                    if (name_raw.starts_with(L'.')) continue;
-
-                    if (entry.is_directory()) {
-                        auto* child_node = root->get_or_create_dir(name_raw);
-                        subdirs.push_back({ name_raw, entry.path(), child_node });
-                    } else if (entry.is_regular_file()) {
-                        auto ext_raw = entry.path().extension().generic_wstring();
-                        auto ext     = normalize_extension_cpp(ext_raw);
-                        if (ext_cfg->should_index(ext)) {
-                            auto stem     = entry.path().stem().generic_wstring();
-                            auto full     = Path(entry.path().generic_wstring(), false);
-                            auto category = ext_cfg->categorize(ext);
-                            root->insert_file(stem, full, ext, category);
-                        }
-                    }
-                }
-            } catch (...) {}
-
-            if (subdirs.empty()) return;
-
-            // dispatch one task per immediate subdir
-            std::Atomic<size_t> pending { subdirs.size() };
-
-            for (auto& sub : subdirs) {
-                auto sub_path = Path(sub.fs_path.generic_wstring(), false);
-                auto* node    = sub.node;
-                auto* self_   = this;
-
-                pool->enqueue([self_, node, sub_path, &pending]() {
-                    self_->index_recursive(node, sub_path);
-                    pending.fetch_sub(1, libcxx::memory_order::acq_rel);
-                }, static_cast<uint8_t>(0));
-            }
-
-            // spin-wait for all subtree tasks build_index is called async
-            // from ImportResolver so blocking here is fine
-            while (pending.load(libcxx::memory_order::acquire) > 0) {
-                libcxx::this_thread::yield();
-            }
-        ");
+        // DEPRECATED NO-OP: This function is no longer used
     }
 
     fn op delete (self) {
         if self.root != &null {
             std::destroy(self.root);
         }
-    }
-
-    priv fn index_recursive(self, node: *DirEntry, dir: Path) {
-        if !dir.exists() || !dir.is_directory() { return; }
-
-        __inline_cpp("
-            try {
-                for (auto& entry : libcxx::filesystem::directory_iterator(dir.path_data)) {
-                    auto name_raw = entry.path().filename().generic_wstring();
-                    if (name_raw.starts_with(L'.')) continue;
-
-                    if (entry.is_directory()) {
-                        auto child_path = Path(entry.path().generic_wstring(), false);
-                        auto* child_node = node->get_or_create_dir(name_raw);
-                        index_recursive(child_node, child_path);
-                    } else if (entry.is_regular_file()) {
-                        auto ext_raw = entry.path().extension().generic_wstring();
-                        auto ext     = normalize_extension_cpp(ext_raw);
-                        if (ext_cfg->should_index(ext)) {
-                            auto stem     = entry.path().stem().generic_wstring();
-                            auto full     = Path(entry.path().generic_wstring(), false);
-                            auto category = ext_cfg->categorize(ext);
-                            node->insert_file(stem, full, ext, category);
-                        }
-                    }
-                }
-            } catch (...) {}
-        ");
-    }
-
-    priv fn normalize_extension(self, ext: string) -> string {
-        if (ext.size() > 0) && (ext.raw_string()[0] == '.') {
-            return ext.raw_string().substr(1);
-        }
-        return ext;
     }
 
     fn traverse(self, segments: vec::<string>) -> *DirEntry {
