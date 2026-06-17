@@ -852,6 +852,7 @@ class <T> ExprParse {
                 // Only a *type path* can be initialized. Reject `foo() { }`,
                 // `(a + b) { }`, `arr[i] { }` the base must be a name or a
                 // qualified/generic path, never a call/subscript/operator result.
+                base = self._flush_chain(base, &chain_steps, chain_start);
                 if !self._is_initializable_path(base) {
                     break; // not a named-init; let the caller see the `{`
                 }
