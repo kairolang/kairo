@@ -784,7 +784,7 @@ class <T> ExprParse {
     /// while allowing arbitrary postfix interleaving.
     inline fn _parse_postfix_expr(self, stop: ExprStopKind) -> *Expr {
         var base = self._parse_primary_expr(stop);
-        if base == &null { return &null; }
+        if (base == &null) { return &null; }
 
         // pending chain steps accumulator
         var chain_steps: std::StackBuf::<ChainExpr::Step, 8>;
@@ -1532,6 +1532,8 @@ class <T> ExprParse {
         // only if `<` follows AND hoisted scope says this name is generic
         if dyn()->check(TokenKind::OpLess) {
             var name_text = TokenText::from_token(id_tok, dyn()->ctx);
+
+            
             if self._is_generic_name(name_text.text) {
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 dyn()->_parse_generic_args(&generic_args);
@@ -1541,7 +1543,6 @@ class <T> ExprParse {
                 );
                 nte->range = id_range | dyn()->prev().range;
             }
-
             else { // not in hoisted scope tentative parse
                 var t = ASTTentativeGuard(dyn());
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
