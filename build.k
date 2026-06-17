@@ -271,6 +271,9 @@ fn main() -> i32 {
         .define(KAIRO_VERSION)
         .passthrough("-fno-lto")
         .passthrough("-w")
+        // .passthrough("-gdwarf-5")
+        // .passthrough("-gsplit-dwarf")
+        // .passthrough("-fstandalone-debug")
         .pre_build(llvm_prebuild);
     apply_llvm(kairo, llvm_src, llvm_build, out_lib);
 
