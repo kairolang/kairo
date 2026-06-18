@@ -19,12 +19,7 @@ When the test flips to PASS, the bug is resolved, update/remove the entry.
 - **Fix direction:** Allow a param to be a bare type (no `name:` prefix) in `_parse_param_list`, producing a `ParamDecl` with an empty name token and the parsed type. Disambiguate `name: T` vs bare `T` by lookahead on the `:` after the first token. Confirm this only applies where a type-only sig is legal (bodyless `fn` decls / FnType position), and that named and unnamed params aren't mixed in one list (decide and enforce that rule).
 - **Priority:** Medium blocks abstract/FFI-style signatures and any place a function-pointer-shaped decl is written with the `fn` keyword.
 
-## 6. `TypeExpr` integration unverified
 
-- **Test:** TODO (no guard yet)
-- **Symptom:** Unclear whether `TypeExpr` is fully wired through the pipeline. The AST printer handles it (`src_type` routes `TypeExpr` to `src_expr(expr)`, RAV has `traverse_type_expr`), but whether the parser produces it in all the positions it should, and whether sema consumes it, has not been confirmed end to end.
-- **Fix direction:** Audit where `TypeExpr` is meant to appear (type-position expressions, `typeof`-style constructs, dependent names), confirm the parser emits it there, and confirm sema resolves it. Write a `--print-ast` case that forces a `TypeExpr` and check it round-trips.
-- **Priority:** Low/unknown until the audit says otherwise; promote if the audit finds a real gap.
 
 ## 7. `DeclContext.dc_decls` is not the complete member list it claims to be
 
