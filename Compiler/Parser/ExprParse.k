@@ -507,6 +507,39 @@ class <T> ExprParse {
         return false;
     }
 
+    /// \brief true if the current token continues a value expression, i.e. it is
+    ///        an infix operator or a postfix opener (call/index/member).
+    ///
+    /// \details used by the type parser to disambiguate a value generic argument
+    ///          (`Foo<i32, N + 1>`, `Foo<i32, bar()>`) from a type argument: a
+    ///          clean type parse that stops here on an operator means the arg was
+    ///          really a value expression that merely began with a type-shaped
+    ///          token. The generic-list terminators `,` `>` `>>` are deliberately
+    ///          excluded (`>`/`>>` are operators in the precedence table but here
+    ///          they close the list, not continue an expression).
+    pub fn at_value_expr_continuation(self) -> bool {
+        var k = dyn()->current().kind;
+
+        if (k == TokenKind::OpComma)
+        || (k == TokenKind::OpGreater)
+        || (k == TokenKind::OpGreaterGreater) {
+            return false;
+        }
+
+        // postfix openers: call, subscript, member access
+        if (k == TokenKind::OpLParen)
+        || (k == TokenKind::OpLSquare)
+        || (k == TokenKind::OpDot)
+        || (k == TokenKind::OpArrow)
+        || (k == TokenKind::OpQuestionDot)
+        || (k == TokenKind::OpQuestionArrow) {
+            return true;
+        }
+
+        // any remaining infix operator (arithmetic, bitwise, logical, ...)
+        return self._infix_precedence(k) != Precedence::None;
+    }
+
 
     // ========================================================================
     //  Unary expressions

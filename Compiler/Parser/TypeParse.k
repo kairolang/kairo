@@ -1569,7 +1569,16 @@ class <T> TypeParse {
                 arg.name_range = name_range;
             }
 
-            var ty = self.parse_type(false, true, true);
+            // speculatively parse the argument as a type. if it parses cleanly
+            // but stops on an operator/postfix (not a `,`/`>`/`>>` terminator),
+            // the argument was actually a value expression that merely begins
+            // with a type-shaped token (`foo()`, `N + 1`); rewind and reparse it
+            // as a value. literals/prefix-op values are already handled inside
+            // parse_type via the gen_arg fall-through, so this only catches
+            // identifier-led value exprs. a clean name parse emits no
+            // diagnostics, so the rollback is side-effect free.
+            var saved = dyn()->tentative_begin();
+            var ty    = self.parse_type(false, true, true);
             if ty == &null {
                 dyn()->diag->report(DiagID::S049E, start_range.start,
                     "expected type argument in generic parameter list"
@@ -1585,9 +1594,6 @@ class <T> TypeParse {
                 return false;
             }
 
-            arg.ty = ty;
-            out->push_back(arg);
-
             // parse_type can leave the cursor parked ON a newline. check()
             // does NOT see through newlines even with nl_depth > 0 (only
             // advance() skips them), so without this the comma/closer checks
@@ -1595,6 +1601,29 @@ class <T> TypeParse {
             // "expected ',' or '>'" error -> whole generic list bails -> the
             // tentative guard rolls back -> `Lookup < string` reparses as `<`.
             dyn()->advance(T::SkipNL::Only); // skip NLs, do not move past real tokens
+
+            // skip the value-continuation check when a nested generic already
+            // consumed our closing `>>` (_pending_close_angle): the list is
+            // closing, so a trailing operator like the `=` of a var initializer
+            // (`var v: Array<Foo<i32>> = ...`) is NOT part of this argument.
+            if (!self._pending_close_angle) && dyn()->at_value_expr_continuation() {
+                dyn()->tentative_rollback(saved);
+                ty = self._parse_type_expr(
+                    static_cast::<u8>(T::ExprStopKind::StopAngle)
+                  | static_cast::<u8>(T::ExprStopKind::StopComma)
+                );
+
+                if (ty == &null) || is_recovery(ty) {
+                    self._sync_generic_args(angle_depth);
+                    dyn()->nl_pop();
+                    return false;
+                }
+
+                dyn()->advance(T::SkipNL::Only); // skip NLs after the value expr
+            }
+
+            arg.ty = ty;
+            out->push_back(arg);
 
             if dyn()->check(TokenKind::OpComma) {
                 dyn()->advance(T::SkipNL::After); // consume `,`
