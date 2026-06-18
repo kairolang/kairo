@@ -837,8 +837,18 @@ class RangeExpr derives Expr {
 ///  The body is a *Stmt (block statement) or *Expr (single expression).
 ///
 class ClosureExpr derives Expr {
+
+    struct Capture {
+        var name:  *NamedIdentExpr; ///< the captured variable's name token.
+        var by_ref: bool;             ///< true if `|&captured|`, false if `|captured|`.
+    }
     pub var body:        *Expr;  ///< single-expression body or block.
+    pub var params:      FrozenList::<*ParamDecl>;
+    pub var modifiers:   FnModifier = FnModifier::None;
     pub var return_type: *Type;  ///< null if inferred.
+    pub var is_variadic: bool = false;          ///< trailing `...name: T` pack param.
+    pub var is_noreturn: bool = false;   
+    pub var captures:    FrozenList::<Capture>; ///< captured variables, in source order.
     // params and generics stored as FrozenLists once DeclParse defines ParamDecl.
 
     static fn create(
@@ -850,6 +860,7 @@ class ClosureExpr derives Expr {
         node->kind  = ExprKind::ClosureExpr;
         node->range = range;
         node->body  = body;
+        
         node->return_type = &null;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
