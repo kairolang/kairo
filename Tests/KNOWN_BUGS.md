@@ -64,3 +64,65 @@ When the test flips to PASS, the bug is resolved, update/remove the entry.
 - **Priority:** Low (cosmetic + latent typing debt). The Stage 1 field flip is
   the real resolution; until then the contained cast + token-discriminated
   render is correct.
+
+## 11. Generic specialization is not fully parsed (functions, classes, and partial specialization split)
+
+- **Test:** TODO
+
+- **Repro:**
+  ```kairo
+  // Function generic (primary)
+  fn <T> sum(items: [T]) -> T
+
+  // Function explicit specialization
+  fn <> sum<i32>(items: [i32]) -> i32
+
+
+  // Class generic (primary)
+  class <> Box<T> {
+      var value: T;
+  }
+
+  // Class explicit specialization
+  class <> Box<i32> {
+      var value: i32;
+  }
+
+  // Class partial specialization
+  class <> Box<[T]> {
+      var value: [T];
+  }
+  ```
+
+- **Symptom:** The parser does not currently support generic specialization
+  constructs consistently across declaration types. Explicit specialization and
+  partial specialization syntax are either rejected or incorrectly parsed,
+  especially for class-like declarations.
+
+- **Expected:**
+  Generic specialization must be supported for:
+  - classes
+  - structs
+  - unions
+
+  Supported forms:
+  - Primary generic declaration
+  - Explicit specialization (`<>`)
+  - Partial specialization (specializing a subset or pattern of generic params)
+
+  Functions:
+  - Only primary generics and explicit specialization are supported
+  - Partial specialization is NOT supported for functions
+
+- **Fix direction:**
+  - Extend declaration parsing to support specialization suffixes after the
+    identifier for class/struct/union declarations
+  - Add AST representation for specialization variants (primary / explicit /
+    partial)
+  - Restrict partial specialization parsing strictly to type-like declarations
+    (class/struct/union)
+  - Ensure function declaration parsing only accepts primary + explicit
+    specialization, rejecting partial specialization patterns
+
+- **Priority:** Medium. Required for a consistent generic system across type
+  declarations and function specialization semantics.
