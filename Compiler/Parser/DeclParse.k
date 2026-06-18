@@ -979,6 +979,98 @@ class <T> DeclParse {
         return variadic;
     }
 
+    /// \brief parses closure Capture list into 
+    /// 
+    /// Grammar:  '|' capture , capture2 .... '|'
+    /// Current token is on the first '|'
+    fn _parse_capture_list(self, out: *std::StackBuf::<Capture, 8>) -> void {
+        dyn()->advance(T::SkipNL::After); // consume `|`
+
+        // empty capture list `||`
+        if dyn()->check(TokenKind::OpPipe) {
+            dyn()->advance(); // consume closing `|`
+            return;
+        }
+
+        
+        if dyn()->check(TokenKind::OpAmp) {
+            var amp_range = dyn()->current_ptr()->range;
+            dyn()->advance(); // consume `&`
+
+            // `|&|` — all captures by reference, no named entries
+            if dyn()->check(TokenKind::OpPipe) {
+                dyn()->advance(); // consume `|`
+                out->push_back(Capture {
+                    .name   = &null,
+                    .by_ref = true,
+                });
+                return;
+            }
+            // `&name` — first capture is by-ref, fall into shared emit below
+            if !dyn()->check(TokenKind::LitIdentifier) {
+                dyn()->diag->report(DiagID::S047E, amp_range.start,
+                    "expected capture name after '&'"
+                ).first(amp_range).emit();
+                self._sync_decl(DeclSyncCtx::Params);
+            } else {
+                var cname = dyn()->current();
+                dyn()->advance();
+                out->push_back(Capture {
+                    .name   = NamedIdentExpr::create(dyn()->ctx, amp_range | cname.range, cname),
+                    .by_ref = true,
+                });
+            }
+            if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); }
+            else {
+                if dyn()->check(TokenKind::OpPipe) { dyn()->advance(); }
+                return;
+            }
+        }
+
+        while !dyn()->is_eof() {
+            var p_start = dyn()->current_ptr()->range;
+            var by_ref: bool = false;
+
+            if dyn()->check(TokenKind::OpAmp) {
+                by_ref = true;
+                dyn()->advance(); // consume `&`
+            }
+
+            if !dyn()->check(TokenKind::LitIdentifier) {
+                dyn()->diag->report(DiagID::S047E, p_start.start,
+                    "expected capture name"
+                ).first(p_start).emit();
+                self._sync_decl(DeclSyncCtx::Params);
+                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
+                break;
+            }
+
+            var cname = dyn()->current();
+            dyn()->advance();
+
+            out->push_back(Capture {
+                .name   = NamedIdentExpr::create(dyn()->ctx, p_start | cname.range, cname),
+                .by_ref = by_ref,
+            });
+
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After);
+                if dyn()->check(TokenKind::OpPipe) { break; } // trailing comma
+                continue;
+            }
+            break;
+        }
+
+        if dyn()->check(TokenKind::OpPipe) {
+            dyn()->advance(); // consume closing `|`
+        } else {
+            dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                "expected '|' to close the capture list"
+            ).first(dyn()->current_ptr()->range).emit();
+            self._sync_decl(DeclSyncCtx::TopLevel);
+        }
+    }
+
     /// \brief parses trailing function modifiers into fd->modifiers.
     priv fn _parse_fn_modifiers(self, fd: *FunctionDecl) {
         while true {
@@ -2314,5 +2406,57 @@ class <T> DeclParse {
 
             dyn()->advance();
         }
+    }
+
+
+    pub fn _parse_closure_sig(self) -> (FrozenList::<*ParamDecl>, FrozenList::<*GenericParamDecl>, FrozenList::<Capture>, FnModifier, *Type) {
+        var gparams: std::StackBuf::<*GenericParamDecl, 4>;
+        var params:   std::StackBuf::<*ParamDecl, 8>;
+        var captures: std::StackBuf::<Capture, 8>;
+        var modifiers = FnModifier::None;
+        var ret_type: *Type = &null;
+
+        // optional generic params: `fn <T> |captures| (params) -> T`
+        if dyn()->check(TokenKind::OpLess) {
+            self._parse_generic_params(&gparams);
+        }
+
+        // parameter list: `(x: i32, y: i32)`
+        if dyn()->check(TokenKind::OpLParen) {
+            self._parse_param_list(&params);
+        }
+        
+        // capture list: `|a, &b|` / `|&|` / `||`
+        if dyn()->check(TokenKind::OpPipe) {
+            self._parse_capture_list(&captures);
+        }
+
+        
+
+        // trailing modifiers: const / unsafe / async / eval
+        self._parse_fn_modifiers_closure(&modifiers);
+
+        // return type: `-> T`
+        if dyn()->check(TokenKind::OpArrow) {
+            dyn()->advance(T::SkipNL::After); // consume `->`
+            if dyn()->check(TokenKind::OpExclaim) {
+                dyn()->advance(); // consume `!` — noreturn closure, sema validates
+            } else {
+                var rty = dyn()->parse_type();
+                if (rty != &null) && (!is_recovery(rty)) {
+                    ret_type = rty;
+                }
+            }
+        }
+
+        var gp_list:  FrozenList::<*GenericParamDecl>;
+        var p_list:   FrozenList::<*ParamDecl>;
+        var cap_list: FrozenList::<Capture>;
+
+        gp_list.from_buf(gparams.data(),  gparams.size(),  dyn()->ctx);
+        p_list.from_buf(params.data(),    params.size(),   dyn()->ctx);
+        cap_list.from_buf(captures.data(), captures.size(), dyn()->ctx);
+
+        return (p_list, gp_list, cap_list, modifiers, ret_type);
     }
 }
