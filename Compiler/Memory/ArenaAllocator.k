@@ -70,8 +70,8 @@ class ArenaAllocator {
     }
 
     pub var stats:      Stats;
-    var head:       own::<ArenaBlock>;
-    var block_size: usize;
+    var head:           own::<ArenaBlock>;
+    var block_size:     usize;
 
     fn ArenaAllocator(self) {
         self.block_size = (1 << 10); // 1 KiB default block size

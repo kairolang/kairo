@@ -33,7 +33,7 @@ class <T> VisibilityAnnotation {
                   ///< Not accessible across module boundaries even with import.
     }
 
-    pub var visibility:       VisibilityKind = VisibilityKind::None;
+    pub var visibility:        VisibilityKind = VisibilityKind::None;
     pub var _visibility_range: SourceRange    = SourceRange::invalid();
 
     // --- Queries --------------------------------------------------------

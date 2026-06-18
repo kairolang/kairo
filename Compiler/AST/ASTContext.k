@@ -91,6 +91,7 @@ class ASTContext {
 
     fn <T> alloc(self) -> *T {
         var mem: *void = self.nodes.alloc(sizeof(T), alignof(T));
+        libcxx::memset(mem, 0, sizeof(T));
         return static_cast::<*T>(mem);
 
         // NOTE: we deliberately do NOT construct, its the parsers job to fill
