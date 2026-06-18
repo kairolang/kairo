@@ -17,17 +17,17 @@
 /// Transport: JSON-RPC 2.0 over stdio (Content-Length framed)
 ///
 ///   stdin  ← editor sends requests/notifications
-///   stdout → klsp sends responses/notifications
-///   stderr → internal diagnostics/logging only (never touches LSP stream)
+///   stdout -> klsp sends responses/notifications
+///   stderr -> internal diagnostics/logging only (never touches LSP stream)
 ///
 /// Wire Format
 /// -----------
-///   Request (editor → klsp):
+///   Request (editor -> klsp):
 ///     Content-Length: <n>\r\n
 ///     \r\n
 ///     {"jsonrpc":"2.0","id":1,"method":"textDocument/hover","params":{...}}
 ///
-///   Response (klsp → editor):
+///   Response (klsp -> editor):
 ///     Content-Length: <n>\r\n
 ///     \r\n
 ///     {"jsonrpc":"2.0","id":1,"result":{...}}
@@ -44,7 +44,7 @@
 ///
 /// Lifecycle
 /// ---------
-///   initialize → initialized → [requests] → shutdown → exit
+///   initialize -> initialized -> [requests] -> shutdown -> exit
 ///
 ///   initialize params:  { processId, clientInfo, capabilities, rootUri }
 ///   initialize result:  { capabilities: { textDocumentSync, hoverProvider,
@@ -64,7 +64,7 @@
 ///
 /// Language Features
 /// -----------------
-///   textDocument/publishDiagnostics  (klsp → editor, notification)
+///   textDocument/publishDiagnostics  (klsp -> editor, notification)
 ///     out: { uri, diagnostics: [{ range, severity, code, message, source }] }
 ///
 ///   textDocument/hover

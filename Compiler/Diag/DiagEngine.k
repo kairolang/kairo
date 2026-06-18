@@ -358,7 +358,7 @@ class DiagBuilder {
     /// to avoid a leak.
     fn op delete (self) {
         if !self._emitted {
-            // built but never emitted: a bug. We do NOT implicitly emit —
+            // built but never emitted: a bug. We do NOT implicitly emit
             // implicit emit-at-scope-exit collides with suppression scopes
             // (TentativeGuard) and hides the mistake. Debug aborts; release
             // frees the orphan to avoid a leak, dropping the diagnostic.

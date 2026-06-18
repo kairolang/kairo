@@ -6,10 +6,11 @@
 // Correct behavior: .c must be a real access node over the call result.
 // This test SHOULD FAIL until the chain representation models every access.
 a.b().c
-// AST: ChainExpr
 // The trailing access must appear as structure, not only in a label string.
 // Once fixed, tighten this to the real node shape.
+// AST: ChainExpr
 // AST: CallExpr (0 args)
-// AST-NEXT: ChainExpr 'a.b'
-// AST-NEXT: NamedIdentExpr a
-// AST: NamedIdentExpr c
+// AST: ChainExpr
+// AST: NamedIdentExpr a
+// AST: Step .b
+// AST: Step .c
