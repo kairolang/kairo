@@ -1586,6 +1586,142 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.src_type(ty);
         self.p.put("\x27");
         self.p.newline();
+
+        // structured types that carry generic arguments (or a value-expr
+        // payload) explode into child rows so the args  including nested
+        // value expressions like `Array<i32, foo()>`  are walkable.
+        if self._type_is_expandable(ty) {
+            self.p.enter(is_last);
+            self._dump_type_children(ty);
+            self.p.leave();
+        }
+    }
+
+    // -- generic-aware type expansion --------------------------------------
+    // The dumper renders types inline by default; these helpers add child rows
+    // only when a type carries a generic argument list (or a TypeExpr value),
+    // keeping leaf types (`i32`, `*u8`) on a single inline row.
+
+    fn _chain_generic_arg_count(self, ty: *ChainType) -> usize {
+        var n: usize = 0;
+        for var i: usize = 0; i < ty->segments.size(); ++i {
+            n += ty->segments.get(i)->generic_args.size();
+        }
+        return n;
+    }
+
+    /// True when `ty` (or a nested element/pointee/arg) carries generic
+    /// arguments or is a value-expression type, i.e. it has children worth
+    /// exploding into the tree.
+    fn _type_is_expandable(self, ty: *Type) -> bool {
+        if ty == &null      { return false; }
+        if ty->is_error()   { return false; }
+        if isa::<ChainType>(ty)             { return self._chain_generic_arg_count(cast::<ChainType>(ty)) > 0; }
+        if isa::<TypeExpr>(ty)              { return true; }
+        if isa::<PointerType>(ty)           { return self._type_is_expandable(cast::<PointerType>(ty)->pointee); }
+        if isa::<NullableType>(ty)          { return self._type_is_expandable(cast::<NullableType>(ty)->inner); }
+        if isa::<VectorType>(ty)            { return self._type_is_expandable(cast::<VectorType>(ty)->element); }
+        if isa::<SetType>(ty)               { return self._type_is_expandable(cast::<SetType>(ty)->element); }
+        if isa::<VariadicPackType>(ty)      { return self._type_is_expandable(cast::<VariadicPackType>(ty)->param); }
+        if isa::<PackExpansionType>(ty)     { return self._type_is_expandable(cast::<PackExpansionType>(ty)->pattern); }
+        if isa::<CXXLValueRefType>(ty)      { return self._type_is_expandable(cast::<CXXLValueRefType>(ty)->referee); }
+        if isa::<CXXRValueRefType>(ty)      { return self._type_is_expandable(cast::<CXXRValueRefType>(ty)->referee); }
+        if isa::<FixedArrayType>(ty)        { return self._type_is_expandable(cast::<FixedArrayType>(ty)->element); }
+        if isa::<TupleType>(ty) {
+            var tt = cast::<TupleType>(ty);
+            for var i: usize = 0; i < tt->elements.size(); ++i {
+                if self._type_is_expandable(tt->elements[i]) { return true; }
+            }
+            return false;
+        }
+        if isa::<MapType>(ty) {
+            return self._type_is_expandable(cast::<MapType>(ty)->key)
+                || self._type_is_expandable(cast::<MapType>(ty)->value);
+        }
+        if isa::<FunctionPointerType>(ty) {
+            var fp = cast::<FunctionPointerType>(ty);
+            for var i: usize = 0; i < fp->params.size(); ++i {
+                if self._type_is_expandable(fp->params[i]) { return true; }
+            }
+            return (fp->return_type != &null) && self._type_is_expandable(fp->return_type);
+        }
+        return false;
+    }
+
+    /// Emit the structural child rows of an expandable type. Mirrors the set in
+    /// `_type_is_expandable`.
+    fn _dump_type_children(self, ty: *Type) {
+        if isa::<ChainType>(ty) {
+            var ct    = cast::<ChainType>(ty);
+            var total = self._chain_generic_arg_count(ct);
+            var seen: usize = 0;
+            for var i: usize = 0; i < ct->segments.size(); ++i {
+                var seg = ct->segments.get(i);
+                for var j: usize = 0; j < seg->generic_args.size(); ++j {
+                    ++seen;
+                    self._dump_generic_arg_row(seg->generic_args.get(j), seen == total);
+                }
+            }
+            return;
+        }
+        if isa::<TypeExpr>(ty)          { self._child_expr(cast::<TypeExpr>(ty)->expr, true);            return; }
+        if isa::<PointerType>(ty)       { self._child_type(cast::<PointerType>(ty)->pointee, true);      return; }
+        if isa::<NullableType>(ty)      { self._child_type(cast::<NullableType>(ty)->inner, true);       return; }
+        if isa::<VectorType>(ty)        { self._child_type(cast::<VectorType>(ty)->element, true);       return; }
+        if isa::<SetType>(ty)           { self._child_type(cast::<SetType>(ty)->element, true);          return; }
+        if isa::<VariadicPackType>(ty)  { self._child_type(cast::<VariadicPackType>(ty)->param, true);   return; }
+        if isa::<PackExpansionType>(ty) { self._child_type(cast::<PackExpansionType>(ty)->pattern, true); return; }
+        if isa::<CXXLValueRefType>(ty)  { self._child_type(cast::<CXXLValueRefType>(ty)->referee, true); return; }
+        if isa::<CXXRValueRefType>(ty)  { self._child_type(cast::<CXXRValueRefType>(ty)->referee, true); return; }
+        if isa::<FixedArrayType>(ty)    { self._child_type(cast::<FixedArrayType>(ty)->element, true);   return; }
+        if isa::<TupleType>(ty) {
+            var tt = cast::<TupleType>(ty);
+            for var i: usize = 0; i < tt->elements.size(); ++i {
+                self._child_type(tt->elements[i], i == tt->elements.size() - 1);
+            }
+            return;
+        }
+        if isa::<MapType>(ty) {
+            var mt = cast::<MapType>(ty);
+            self._child_type(mt->key, false);
+            self._child_type(mt->value, true);
+            return;
+        }
+        if isa::<FunctionPointerType>(ty) {
+            var fp      = cast::<FunctionPointerType>(ty);
+            var np      = fp->params.size();
+            var has_ret = (fp->return_type != &null);
+            for var i: usize = 0; i < np; ++i {
+                self._child_type(fp->params[i], (i == np - 1) && !has_ret);
+            }
+            if has_ret { self._child_type(fp->return_type, true); }
+            return;
+        }
+    }
+
+    fn _dump_generic_args_children(self, args: FrozenList::<ChainType::GenericArg>) {
+        for var i: usize = 0; i < args.size(); ++i {
+            self._dump_generic_arg_row(args.get(i), i == args.size() - 1);
+        }
+    }
+
+    fn _dump_generic_arg_row(self, arg: *ChainType::GenericArg, is_last: bool) {
+        self._head("GenericArg", is_last);
+        if arg->name != &null {
+            self.p.put(" ");
+            self.p.paint(Color::Ident, self.tok(arg->name->name));
+            self.p.paint(Color::Punct, ":");
+        }
+        self.p.put(" \x27");
+        self.src_type(arg->ty);
+        self.p.put("\x27");
+        self.p.newline();
+
+        if self._type_is_expandable(arg->ty) {
+            self.p.enter(is_last);
+            self._dump_type_children(arg->ty);
+            self.p.leave();
+        }
     }
 
     // ======================================================================
@@ -1598,11 +1734,25 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
         if isa::<IntegerLiteralExpr>(e) || isa::<FloatingLiteralExpr>(e)
         || isa::<StringLiteralExpr>(e)  || isa::<CharacterLiteralExpr>(e)
-        || isa::<BooleanLiteralExpr>(e) || isa::<NullLiteralExpr>(e)
-        || isa::<NamedIdentExpr>(e) {
+        || isa::<BooleanLiteralExpr>(e) || isa::<NullLiteralExpr>(e) {
             self._head(self._expr_kind_name(e), is_last);
             self._inline_expr(e);
             self.p.newline();
+            return;
+        }
+
+        // NamedIdentExpr is a leaf row unless it carries generic arguments
+        // (`foo<sizeof i32>`), which explode into walkable child rows.
+        if isa::<NamedIdentExpr>(e) {
+            var ni = cast::<NamedIdentExpr>(e);
+            self._head(self._expr_kind_name(e), is_last);
+            self._inline_expr(e);
+            self.p.newline();
+            if !ni->generic_args.is_empty() {
+                self.p.enter(is_last);
+                self._dump_generic_args_children(ni->generic_args);
+                self.p.leave();
+            }
             return;
         }
 
@@ -2304,16 +2454,20 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(vd->name));
-        if vd->type_ != &null { self.p.paint(Color::Punct, ": "); self.src_type(vd->type_); }
+        // a generic-bearing type becomes its own child subtree; a leaf type
+        // stays inline on this row.
+        var ty_child = (vd->type_ != &null) && self._type_is_expandable(vd->type_);
+        if (vd->type_ != &null) && !ty_child { self.p.paint(Color::Punct, ": "); self.src_type(vd->type_); }
         self.p.newline();
 
         var has_attrs = self._has_annotations(static_cast::<*Decl>(vd));
         var has_init  = (vd->init != &null);
-        if (!has_attrs) && !has_init { return; }
+        if (!has_attrs) && (!ty_child) && !has_init { return; }
 
         self.p.enter(is_last);
-        if has_attrs { self._dump_annotations(static_cast::<*Decl>(vd), !has_init); }
-        if has_init { self._child_expr(vd->init, true); }
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(vd), !(ty_child || has_init)); }
+        if ty_child  { self._child_type(vd->type_, !has_init); }
+        if has_init  { self._child_expr(vd->init, true); }
         self.p.leave();
     }
 
@@ -2325,16 +2479,18 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, self._storage_kw(fd->storage));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(fd->name));
-        if fd->type_ != &null { self.p.paint(Color::Punct, ": "); self.src_type(fd->type_); }
+        var ty_child = (fd->type_ != &null) && self._type_is_expandable(fd->type_);
+        if (fd->type_ != &null) && !ty_child { self.p.paint(Color::Punct, ": "); self.src_type(fd->type_); }
         self.p.newline();
 
         var has_attrs = self._has_annotations(static_cast::<*Decl>(fd));
         var has_init  = (fd->init != &null);
-        if (!has_attrs) && !has_init { return; }
+        if (!has_attrs) && (!ty_child) && !has_init { return; }
 
         self.p.enter(is_last);
-        if has_attrs { self._dump_annotations(static_cast::<*Decl>(fd), !has_init); }
-        if has_init { self._child_expr(fd->init, true); }
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(fd), !(ty_child || has_init)); }
+        if ty_child  { self._child_type(fd->type_, !has_init); }
+        if has_init  { self._child_expr(fd->init, true); }
         self.p.leave();
     }
 

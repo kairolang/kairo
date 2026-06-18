@@ -277,7 +277,7 @@ class <T> TypeParse {
     ///                     type tokens.
     /// \return a pointer to the parsed `Type` node, or `null` on exhaustion or
     ///         error.
-    fn parse_type(self, is_inferred: bool = false, skip_newline: bool = false) -> *Type {
+    fn parse_type(self, is_inferred: bool = false, skip_newline: bool = false, gen_arg: bool = false) -> *Type {
         if dyn()->is_eof() {
             return &null;
         }
@@ -313,7 +313,7 @@ class <T> TypeParse {
         dyn()->consume_leading_annotations(&annot);
         dyn()->consume_leading_quals(&quals);
 
-        var ty = self.parse_primary_type(skip_newline);
+        var ty = self.parse_primary_type(skip_newline, gen_arg);
         if ty == &null {
             dyn()->exit_depth();
             return &null;
@@ -354,7 +354,7 @@ class <T> TypeParse {
     /// \return a pointer to the parsed `Type` node, or `_error_type` if no
     ///         valid
     ///         type production could be matched. returns null only on `is_eof`.
-    fn parse_primary_type(self, skip_newline: bool = false) -> *Type {
+    fn parse_primary_type(self, skip_newline: bool = false, gen_arg: bool = false) -> *Type {
         if dyn()->is_eof() { return &null; }
 
         if skip_newline {
@@ -417,6 +417,20 @@ class <T> TypeParse {
             return TYPE_TOK_TBL.contains(k);
         }) {
             return self._parse_qual_type();
+        }
+
+        // no type production matched. in a generic-argument position a value
+        // expression is legal (const/value generic args like `Array<i32, 12>`),
+        // so fall through to parsing the token as a value expression wrapped in
+        // a TypeExpr. StopAngle|StopComma keeps `parse_expr` from swallowing the
+        // `>`/`>>` closer or the `,` separator as binary operators. Outside
+        // generic args (sizeof/alignof/typeof operands, param/tuple types, ...)
+        // a bare value is still an error, so the diagnostic below stands.
+        if gen_arg {
+            return self._parse_type_expr(
+                static_cast::<u8>(T::ExprStopKind::StopAngle)
+              | static_cast::<u8>(T::ExprStopKind::StopComma)
+            );
         }
 
         // no production matched; report error and attempt recovery.
@@ -1555,7 +1569,16 @@ class <T> TypeParse {
                 arg.name_range = name_range;
             }
 
-            var ty = self.parse_type(false, true);
+            // speculatively parse the argument as a type. if it parses cleanly
+            // but stops on an operator/postfix (not a `,`/`>`/`>>` terminator),
+            // the argument was actually a value expression that merely begins
+            // with a type-shaped token (`foo()`, `N + 1`); rewind and reparse it
+            // as a value. literals/prefix-op values are already handled inside
+            // parse_type via the gen_arg fall-through, so this only catches
+            // identifier-led value exprs. a clean name parse emits no
+            // diagnostics, so the rollback is side-effect free.
+            var saved = dyn()->tentative_begin();
+            var ty    = self.parse_type(false, true, true);
             if ty == &null {
                 dyn()->diag->report(DiagID::S049E, start_range.start,
                     "expected type argument in generic parameter list"
@@ -1571,9 +1594,6 @@ class <T> TypeParse {
                 return false;
             }
 
-            arg.ty = ty;
-            out->push_back(arg);
-
             // parse_type can leave the cursor parked ON a newline. check()
             // does NOT see through newlines even with nl_depth > 0 (only
             // advance() skips them), so without this the comma/closer checks
@@ -1581,6 +1601,29 @@ class <T> TypeParse {
             // "expected ',' or '>'" error -> whole generic list bails -> the
             // tentative guard rolls back -> `Lookup < string` reparses as `<`.
             dyn()->advance(T::SkipNL::Only); // skip NLs, do not move past real tokens
+
+            // skip the value-continuation check when a nested generic already
+            // consumed our closing `>>` (_pending_close_angle): the list is
+            // closing, so a trailing operator like the `=` of a var initializer
+            // (`var v: Array<Foo<i32>> = ...`) is NOT part of this argument.
+            if (!self._pending_close_angle) && dyn()->at_value_expr_continuation() {
+                dyn()->tentative_rollback(saved);
+                ty = self._parse_type_expr(
+                    static_cast::<u8>(T::ExprStopKind::StopAngle)
+                  | static_cast::<u8>(T::ExprStopKind::StopComma)
+                );
+
+                if (ty == &null) || is_recovery(ty) {
+                    self._sync_generic_args(angle_depth);
+                    dyn()->nl_pop();
+                    return false;
+                }
+
+                dyn()->advance(T::SkipNL::Only); // skip NLs after the value expr
+            }
+
+            arg.ty = ty;
+            out->push_back(arg);
 
             if dyn()->check(TokenKind::OpComma) {
                 dyn()->advance(T::SkipNL::After); // consume `,`
@@ -1674,62 +1717,55 @@ class <T> TypeParse {
         }
     }
 
-    /// \brief parses a limited constant expression for use in type
-    ///        specifications.
+    /// \brief parses a constant-expression for an array bound, e.g. the `N` in
+    ///        `[T; N]`.
     ///
-    /// \details currently only supports single integer literals (e.g.,
-    ///          `[4]u8`). this
-    ///          is a placeholder implementation used during the compiler's
-    ///          early stages of type parsing.
+    /// \details delegates to the full expression parser so any value expression
+    ///          is accepted as a bound: integer literals (`[T; 4]`), const names
+    ///          (`[T; N]`), and folded operands (`[T; sizeof i32]`,
+    ///          `[T; N + 1]`). `StopSquare|StopComma` keeps `parse_expr` from
+    ///          consuming the closing `]` or a stray `,` (the caller diagnoses
+    ///          the comma case). Whether the bound is a compile-time constant is
+    ///          a semantic question deferred to sema; the parser only builds the
+    ///          expression node.
     ///
-    /// \note FIXME: once expression parsing is fully implemented including
-    ///       folding
-    ///       of `eval` functions directly into constant expressions this method
-    ///       must be replaced with a call to the full expression parser to
-    ///       support complex array bounds and template arguments.
-    ///
-    /// \return an AST node representing the constant value, or `&null` on
-    ///         error.
+    /// \return the size expression node, or `&null` if no expression could be
+    ///         parsed.
     inline fn _parse_const_expr(self) -> *Expr {
-        if dyn()->check(TokenKind::LitInt) {
-            var lit_ptr   = dyn()->current_ptr();
-            var lit_range = lit_ptr->range;
+        var expr = dyn()->parse_expr(static_cast::<T::ExprStopKind>(
+            static_cast::<u8>(T::ExprStopKind::StopSquare)
+          | static_cast::<u8>(T::ExprStopKind::StopComma)
+        ));
 
-            dyn()->advance(); // consume integer literal
+        if expr == &null {
+            dyn()->diag->report(
+                DiagID::S055E,
+                dyn()->current_ptr()->range.start,
+                "expected constant expression for array size"
+            ).first(dyn()->current_ptr()->range).emit();
 
-            var int_lit = NamedIdentExpr::create(
-                dyn()->ctx,
-                lit_range,
-                *lit_ptr
-            );
-
-            return int_lit;
+            return &null;
         }
 
-        dyn()->diag->report(
-            DiagID::S055E,
-            dyn()->current_ptr()->range.start,
-            "expected constant expression for array size"
-        ).first(dyn()->current_ptr()->range).emit();
-
-        return &null;
+        return expr;
     }
 
-    inline fn _parse_type_expr(self) -> *TypeExpr {
-        var expr = dyn()->parse_expr();
+    inline fn _parse_type_expr(self, stop_bits: u8 = 0) -> *TypeExpr {
+        var expr = dyn()->parse_expr(static_cast::<T::ExprStopKind>(stop_bits));
         if expr == &null {
             dyn()->diag->report(
                 DiagID::S053E,
                 dyn()->current_ptr()->range.start,
-                "expected expression for 'typeof' type"
+                "expected a type or value expression"
             ).first(dyn()->current_ptr()->range).emit();
             return &null;
         }
 
         if is_recovery(expr) {
-            var err_te = TypeExpr::create_error(dyn()->ctx, expr->range);
-            propagate_flags(err_te, expr);
-            return err_te;
+            // the wrapped expr is itself a recovery node; create_error already
+            // marks the TypeExpr as an error type. (no propagate_flags here: it
+            // takes *Type/*Type and the child is an *Expr.)
+            return TypeExpr::create_error(dyn()->ctx, expr->range);
         }
 
         var te = TypeExpr::create(dyn()->ctx, expr->range, expr);
