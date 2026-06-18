@@ -668,7 +668,12 @@ class <T> DeclParse {
         }
         dyn()->advance(T::SkipNL::After); // consume `fn`
 
-        var fd = FunctionDecl::create(dyn()->ctx, start, Token(), dyn()->scope.current_dc());
+        // capture the enclosing context *before* the function opens its own
+        // scope: it tells us whether a `self` receiver is legal here.
+        var enclosing_dc  = dyn()->scope.current_dc();
+        var in_type_scope = (enclosing_dc != &null) && enclosing_dc->is_type_scope();
+
+        var fd = FunctionDecl::create(dyn()->ctx, start, Token(), enclosing_dc);
         fd->abi = lead->abi;
         if lead->is_final {
             fd->modifiers |= FnModifier::IsFinal;
@@ -739,6 +744,25 @@ class <T> DeclParse {
         fd->params.from_buf(params.data(), params.size(), dyn()->ctx);
         fd->is_variadic = is_variadic;
 
+        // a signature with any type-only (unnamed) parameter is a forward
+        // declaration: it is purely a type signature and cannot carry a body.
+        var is_type_only_sig = false;
+        var has_self_param   = false;
+        for var i: usize = 0; i < fd->params.size(); ++i {
+            if fd->params[i]->unname  { is_type_only_sig = true; }
+            if fd->params[i]->is_self { has_self_param   = true; }
+        }
+
+        // `self` is a method receiver: legal only inside a type body or on an
+        // out-of-line method definition (`fn Class::m(self)`), never in a free
+        // function.
+        if has_self_param && (!in_type_scope) && (!fd->is_out_of_line()) {
+            dyn()->diag->report(DiagID::S045E, start.start,
+                "the `self` receiver is only allowed on a method; a free "
+                "function cannot take `self`"
+            ).first(start).emit();
+        }
+
         // function modifiers: const volatile unsafe eval async final panic inline
         self._parse_fn_modifiers(fd);
 
@@ -768,7 +792,19 @@ class <T> DeclParse {
         // body
         self._parse_fn_body(fd);
 
-        if fd->body_kind != FnBodyKind::None {
+        // type-only signatures are forward declarations: reject any body.
+        if is_type_only_sig && (fd->body_kind != FnBodyKind::None) {
+            dyn()->diag->report(DiagID::S045E, start.start,
+                "a function signature with type-only (unnamed) parameters is a "
+                "forward declaration and cannot have a body; name the parameters "
+                "to give it one"
+            ).first(start).emit();
+        }
+
+        // a type-only signature is a forward declaration; never mark it as the
+        // definition (even on the errored with-a-body path above) so it cannot
+        // poison the redeclaration chain.
+        if (fd->body_kind != FnBodyKind::None) && (!is_type_only_sig) {
             fd->mark_definition();
         }
 
@@ -827,13 +863,23 @@ class <T> DeclParse {
         var variadic = false;
         var idx: u32 = 0;
 
+        // a parameter list is either all-named (`name: T`, the ordinary form,
+        // which may carry a body) or all type-only (`T`, a forward-declaration
+        // signature with no body). these track the two so a mixed list errors.
+        var saw_named   = false;
+        var saw_unnamed = false;
+
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance(); // consume `)`
             return false;
         }
 
         while !dyn()->is_eof() {
-            // `self`
+            // `self`. The receiver is neutral w.r.t. the named/type-only split:
+            // it is compatible with both a named method (`fn m(self, x: T)`) and
+            // a type-only member forward declaration (`fn m(self, T)`), so it
+            // sets neither saw_named nor saw_unnamed. (Whether `self` is allowed
+            // at all here is a placement check in `_parse_function`.)
             if dyn()->check(TokenKind::KwSelf) {
                 var s_tok = dyn()->current();
                 dyn()->advance();
@@ -852,26 +898,25 @@ class <T> DeclParse {
                 dyn()->advance(); // consume `...`
             }
 
-            if !dyn()->check(TokenKind::LitIdentifier) {
-                dyn()->diag->report(DiagID::S047E, p_start.start,
-                    "expected parameter name"
-                ).first(p_start).emit();
-                self._sync_decl(DeclSyncCtx::Params);
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
-            }
-            var pname = dyn()->current();
-            dyn()->advance();
+            // Disambiguate a named param (`name: T`) from a bare type-only
+            // param (`T`). A name is an identifier immediately followed by `:`
+            // (but not `::`, which begins a scoped type path). Anything else
+            // -- a leading `*`/`[`/`(`, a scoped name, a bare type name -- is a
+            // type-only parameter, i.e. a forward-declaration signature
+            // (`fn foo(i32, f64)`, the equivalent of C's `void foo(int, double)`).
+            var is_named = dyn()->check(TokenKind::LitIdentifier)
+                        && dyn()->check_peek(TokenKind::OpColon)
+                        && (!dyn()->check_peek(TokenKind::OpColonColon));
 
-            if !dyn()->check(TokenKind::OpColon) {
-                dyn()->diag->report(DiagID::S047E, p_start.start,
-                    "expected ':' and a type for parameter"
-                ).first(p_start).emit();
-                self._sync_decl(DeclSyncCtx::Params);
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
+            var pname = Token();
+            if is_named {
+                saw_named = true;
+                pname = dyn()->current();
+                dyn()->advance();                 // consume name
+                dyn()->advance(T::SkipNL::After); // consume `:`
+            } else {
+                saw_unnamed = true;
             }
-            dyn()->advance(T::SkipNL::After); // consume `:`
 
             var pty = dyn()->parse_type();
             if (pty == &null) || is_recovery(pty) {
@@ -880,7 +925,7 @@ class <T> DeclParse {
                 break;
             }
 
-            var pd = ParamDecl::create(dyn()->ctx, p_start | dyn()->prev().range, pname, pty, idx);
+            var pd = ParamDecl::create(dyn()->ctx, p_start | dyn()->prev().range, pname, pty, idx, !is_named);
 
             // default value
             if dyn()->check(TokenKind::OpEqual) {
@@ -891,12 +936,15 @@ class <T> DeclParse {
                 }
             }
 
-            // bind the param name in the function scope for body lookups.
-            dyn()->scope.bind(
-                TokenText::from_token(pname, dyn()->ctx).text,
-                static_cast::<*Decl>(pd),
-                pname.range
-            );
+            // bind named params in the function scope for body lookups.
+            // type-only params have no name to bind.
+            if is_named {
+                dyn()->scope.bind(
+                    TokenText::from_token(pname, dyn()->ctx).text,
+                    static_cast::<*Decl>(pd),
+                    pname.range
+                );
+            }
 
             out->push_back(pd);
             ++idx;
@@ -916,6 +964,16 @@ class <T> DeclParse {
                 "expected ')' to close the parameter list"
             ).first(lparen).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
+        }
+
+        // a list may be all-named or all type-only, never a mix: type-only
+        // params name no binding for a body to refer to.
+        if saw_named && saw_unnamed {
+            dyn()->diag->report(DiagID::S045E, lparen.start,
+                "cannot mix named parameters (`name: T`) and type-only "
+                "parameters (`T`) in one signature; a type-only signature is a "
+                "bodyless forward declaration"
+            ).first(lparen).emit();
         }
 
         return variadic;
@@ -1346,25 +1404,30 @@ class <T> DeclParse {
             if (req != &null) && (!is_recovery(req)) { cd->requires_clause = req; }
         }
 
-        // body
-        dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(cd));
-        var fields:  std::StackBuf::<*FieldDecl, 8>;
-        var methods: std::StackBuf::<*FunctionDecl, 8>;
-        self._parse_member_body(static_cast::<*DeclContext>(cd), &fields, &methods, true);
-        cd->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
-        cd->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
+        // body, or a bodyless forward declaration (`class Foo`). A `{` opens the
+        // definition; anything else leaves `cd` a forward declaration (a
+        // non-definition redecl link) for FFI / mutually-recursive types.
+        if dyn()->check(TokenKind::OpLBrace) {
+            dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(cd));
+            var fields:  std::StackBuf::<*FieldDecl, 8>;
+            var methods: std::StackBuf::<*FunctionDecl, 8>;
+            self._parse_member_body(static_cast::<*DeclContext>(cd), &fields, &methods, true);
+            cd->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
+            cd->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
 
-        // mark abstract if any method is `= virtual`.
-        for var i: usize = 0; i < cd->methods.size(); ++i {
-            if cd->methods[i]->body_kind == FnBodyKind::Virtual {
-                cd->is_abstract = true;
-                break;
+            // mark abstract if any method is `= virtual`.
+            for var i: usize = 0; i < cd->methods.size(); ++i {
+                if cd->methods[i]->body_kind == FnBodyKind::Virtual {
+                    cd->is_abstract = true;
+                    break;
+                }
             }
+
+            cd->mark_definition();
+            dyn()->exit_scope();
         }
 
-        cd->mark_definition();
         cd->range = start | dyn()->prev().range;
-        dyn()->exit_scope();
         dyn()->exit_depth();
         return static_cast::<*Decl>(cd);
     }

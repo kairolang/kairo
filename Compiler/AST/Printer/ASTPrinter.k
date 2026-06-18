@@ -1111,6 +1111,15 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.p.paint(Color::Keyword, "self");
             return;
         }
+        // type-only forward-decl parameter: no name token to print.
+        if pd->unname {
+            if pd->type_ != &null { self.src_type(pd->type_); }
+            if pd->default_val != &null {
+                self.p.paint(Color::Punct, " = ");
+                self.src_expr(pd->default_val);
+            }
+            return;
+        }
         self.p.paint(Color::Ident, self.tok(pd->name));
         if pd->type_ != &null {
             self.p.paint(Color::Punct, ": ");

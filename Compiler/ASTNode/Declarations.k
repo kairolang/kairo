@@ -205,13 +205,15 @@ class ParamDecl derives Decl {
     pub var default_val: *Expr = &null;    ///< default value expr; null if none.
     pub var is_self:     bool = false;     ///< true for the `self` parameter.
     pub var index:       u32 = 0;          ///< position in the parameter list.
-
+    pub var unname:      bool = false;     ///< true for the `unnamed` parameter.
+    
     static fn create(
         ctx:   *ASTContext,
         range: SourceRange,
         name:  Token,
         type_: *Type,
-        index: u32
+        index: u32,
+        unname: bool = false
     ) -> *ParamDecl {
         var node    = ctx->alloc::<ParamDecl>();
         node->kind   = DeclKind::ParamDecl;
@@ -220,6 +222,7 @@ class ParamDecl derives Decl {
         node->name   = name;
         node->type_  = type_;
         node->index  = index;
+        node->unname = unname;
         return node;
     }
 
