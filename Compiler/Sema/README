@@ -1,3 +1,39 @@
-# contains the code for sema
+# contains the code for sema (right now stubs)
 
-DONT FORGET TO IMPLEMNT CLASS LIFECYCLE PASS
+DONT FORGET CLASS LIFECYCLE PASS
+
+
+Notes:
+- Missing an important one on figuring out what an expr is (lvalue or rvalue or xvalue)
+- Also the import passes to fold imports and thier uses in a file to the right thing like:
+```kairo
+import std::io;
+import std::mem::alloc;
+
+fn main() {
+    io::print("Hello, World!");
+    var ptr = alloc(1024); // alloc is a function from std::mem
+}
+```
+after transformation, the code should be:
+```kairo
+module io {
+    fn print(msg: str);
+}
+
+module mem {
+    fn alloc(size: usize) -> *u8;
+}
+
+fb main() {
+    io::print("Hello, World!");
+    var ptr = mem::alloc(1024);
+}
+```
+this is roughly what the pass does internally, this is the abs first pass done, since this unlocks the rest of sema to be fully independent on a per TU basis allowing for parallel processing of translation units - atleast untill we get to mono pass.
+
+Mono pass is split into 2 parts, part 1 fully parrallel pulls all the invokes of a genericed thing fn class strcut wtv, so foo<i32>() is a usage of the generic function.
+
+pass part 2 is in sync, it goes to wehre the def for each generic is found and adds a new instantiation for each usage, while externing the specific instantiation where its used.
+
+Mono pass is a crucial part of the compilation process that handles the instantiation of generic functions and types.

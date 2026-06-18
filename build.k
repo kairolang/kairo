@@ -139,7 +139,7 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
 
         t.passthrough("-fno-lto");
         t.passthrough("-Wno-parentheses-equality");
-        t.passthrough("-Wno-return-type");
+        t.passthrough("-Werror=return-type");
 
         if platform() == "windows" {
             t.passthrough("-DNOMINMAX"); // avoid conflicts with std::min and std::max
