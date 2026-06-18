@@ -3,15 +3,6 @@
 Each bug below has a regression test that FAILS on purpose until fixed.
 When the test flips to PASS, the bug is resolved, update/remove the entry.
 
-## 3. `lex_slice` OOB panic in fstring expression emission
-
-- **Test:** `f"hello {name}"` with `--print-tokens` (FAIL hard abort)
-- **Repro:** Run `kairo [file] --print-tokens`; panics in `TokenBuffer::operator[]` with index out of bounds
-- **Symptom:** `emit_fstring_exprs` calls `lex_slice<16>`, which allocates a `TokenBuffer<16>` (16-slot capacity). If the interpolated expression inside the fstring tokenizes to more than 16 tokens, the fixed-capacity buffer is overrun and the bounds check panics.
-- **Call chain:** `lex_name -> lex_text -> emit_fstring_exprs -> lex_slice<16> -> TokenBuffer<16>::operator[]`
-- **Root cause candidates:** (a) `lex_slice` template parameter is hardcoded to 16, which is too small for non-trivial expressions; (b) `emit_fstring_exprs` doesn't validate that the expression token count fits the buffer before indexing into it; (c) slice start/end bounds passed to `lex_slice` may be wrong (pointing past end of source range)
-- **Fix direction:** Either make `lex_slice` dynamically sized / heap-backed once the expression exceeds a threshold, or audit `emit_fstring_exprs` to correctly bound the slice and assert/grow before indexing. The `<16>` template parameter being that small is a red flag expressions like `f"{some_fn(a, b, c)}"` will easily exceed it.
-- **Priority:** Blocks any file that uses fstrings with non-trivial interpolated expressions. Fix before fstring support is considered stable.
 
 ## 4. ClosureExpr parsing drops generics and params
 
