@@ -5,9 +5,9 @@
 // own Python-like grammar; will be implemented before Stage 1 ships, after sema
 // has started. These CHECK lines describe the TARGET shape: embedded exprs must
 // parse. When this starts XPASSing, interpolation works, update/remove XFAIL.
-f"n is {n} and {m+1}"
 // AST: InterpolatedStringExpr
-// AST: NamedIdentExpr n
-// AST: BinaryOperatorExpr +
+// AST-NEXT: NamedIdentExpr n
+// AST-NEXT: BinaryOperatorExpr +
 // AST-NEXT: NamedIdentExpr m
 // AST-NEXT: IntegerLiteralExpr 1
+f"n is {n} and {m+1}"

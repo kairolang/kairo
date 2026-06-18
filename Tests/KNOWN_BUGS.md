@@ -11,16 +11,6 @@ When the test flips to PASS, the bug is resolved, update/remove the entry.
 - **Fix direction:** Decide the closure storage shape (param list + optional generics, mirroring `FunctionDecl`'s `params`/`generic_params`), add the fields to `ClosureExpr`, and wire the closure parser to populate them. Once stored, RAV and the dumper can walk them like any other params.
 - **Priority:** Blocks correct closures with parameters; required before closures are usable beyond the no-arg case.
 
-## 5. FnDecl must accept a type-only signature (no param names, no body)
-
-- **Test:** TODO (no guard yet)
-- **Repro:** `fn foo(i32, f64) -> i32` a forward/abstract signature whose params are types only, with no names and no body. This is the same shape as an `FnType`/function-pointer signature and is legal.
-- **Symptom:** The param-list parser (`_parse_param_list` in `DeclParse.k`) currently requires `name : type` for every non-`self` param it errors on a bare type with "expected parameter name". A type-only signature can't parse.
-- **Fix direction:** Allow a param to be a bare type (no `name:` prefix) in `_parse_param_list`, producing a `ParamDecl` with an empty name token and the parsed type. Disambiguate `name: T` vs bare `T` by lookahead on the `:` after the first token. Confirm this only applies where a type-only sig is legal (bodyless `fn` decls / FnType position), and that named and unnamed params aren't mixed in one list (decide and enforce that rule).
-- **Priority:** Medium blocks abstract/FFI-style signatures and any place a function-pointer-shaped decl is written with the `fn` keyword.
-
-
-
 ## 7. `DeclContext.dc_decls` is not the complete member list it claims to be
 
 - **Test:** TODO (the `--print-ast tree` class-body case in `BUG.k` is the de facto repro; promote to a guarded FileCheck test)
@@ -64,6 +54,34 @@ When the test flips to PASS, the bug is resolved, update/remove the entry.
 - **Priority:** Low (cosmetic + latent typing debt). The Stage 1 field flip is
   the real resolution; until then the contained cast + token-discriminated
   render is correct.
+
+## 10. Statement separators only recognize newlines, not semicolons
+
+- **Test:** TODO
+- **Repro:**
+  ```kairo
+  var x = 1; var y = 2
+  foo(); bar()
+  return; foo()
+  ```
+- **Symptom:** The parser treats physical newlines as statement separators but
+  does not yet accept `;` as an equivalent separator.
+- **Expected:** Outside of grammar contexts where `;` has structural meaning,
+  semicolons should be accepted anywhere a newline currently terminates a
+  statement.
+- **Must not regress:**
+  ```kairo
+  [i32; 10]
+  ```
+  where `;` remains part of the array-type grammar rather than a statement
+  separator.
+- **Fix direction:** Make semicolon consumption context-sensitive. Expression
+  and type parsers must retain ownership of `;` where it belongs (array types,
+  future grammar extensions, etc.), while statement parsing should otherwise
+  treat it identically to a newline.
+- **Priority:** Medium. Improves interoperability and formatting flexibility.
+
+---
 
 ## 11. Generic specialization is not fully parsed (functions, classes, and partial specialization split)
 
@@ -126,3 +144,31 @@ When the test flips to PASS, the bug is resolved, update/remove the entry.
 
 - **Priority:** Medium. Required for a consistent generic system across type
   declarations and function specialization semantics.
+
+---
+
+
+## 12. Parenthesized expressions are rejected in several valid expression contexts
+
+- **Test:** TODO
+- **Repro:**
+  ```kairo
+  Foo<i32, (N < 3)>
+  foo((bar))
+  (((x)))
+  ```
+- **Symptom:** The parser is overly aggressive when handling parenthesized
+  expressions. Expressions which parse correctly without redundant parentheses
+  fail once wrapped, even though they remain syntactically equivalent.
+- **Examples:**
+  - `Foo<i32, N < 3>` parses.
+  - `Foo<i32, (N < 3)>` does not.
+  - `foo(bar)` parses.
+  - `foo((bar))` does not.
+- **Expected:** Parentheses should behave as transparent grouping operators
+  unless a grammar rule explicitly assigns them additional meaning.
+- **Fix direction:** Audit expression parsing and generic-argument parsing to
+  ensure parenthesized expressions recurse back through the normal expression
+  parser rather than introducing context-specific restrictions.
+- **Priority:** High. This affects ordinary expression parsing and makes valid
+  code unexpectedly fail depending solely on grouping.

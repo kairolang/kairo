@@ -5,12 +5,13 @@
 // the .c field access. A sema pass cannot resolve .c because there is no node.
 // Correct behavior: .c must be a real access node over the call result.
 // This test SHOULD FAIL until the chain representation models every access.
-a.b().c
 // The trailing access must appear as structure, not only in a label string.
 // Once fixed, tighten this to the real node shape.
-// AST: ChainExpr
-// AST: CallExpr (0 args)
-// AST: ChainExpr
-// AST: NamedIdentExpr a
-// AST: Step .b
-// AST: Step .c
+// AST: `-ExpressionStmt
+// AST-NEXT:   `-ChainExpr 'a.b().c'
+// AST-NEXT:     |-CallExpr (0 args)
+// AST-NEXT:     | `-ChainExpr 'a.b'
+// AST-NEXT:     |   |-NamedIdentExpr a
+// AST-NEXT:     |   `-Step .b
+// AST-NEXT:     `-Step .c
+a.b().c

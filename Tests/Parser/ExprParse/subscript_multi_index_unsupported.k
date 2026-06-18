@@ -3,8 +3,9 @@
 // Multi-index subscript a[i, j] is NOT supported; only single-index a[i].
 // Overload sig is fn op [](self, idx) so adding multi later is non-breaking.
 // When multi-index lands, update this test to expect the two-index shape.
+// AST: `-ExpressionStmt
+// AST-NEXT:   `-SubscriptExpr
+// AST-NEXT:     |-NamedIdentExpr a
+// AST-NEXT:     `-NamedIdentExpr i
+// ERR: error   [S054E]: expected ']' after index expression
 a[i, j]
-// AST: SubscriptExpr
-// AST-NEXT: NamedIdentExpr a
-// AST-NEXT: NamedIdentExpr i
-// ERR: error [S054E]: expected ']' after index expression
