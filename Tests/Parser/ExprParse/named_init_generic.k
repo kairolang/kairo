@@ -2,5 +2,6 @@
 Foo<i32>{ a: 1 }
 // AST: NamedInitializerExpr
 // AST-NEXT: NamedIdentExpr Foo<i32>
+// AST-NEXT: GenericArg 'i32'
 // AST-NEXT: Field a
 // AST-NEXT: IntegerLiteralExpr 1
