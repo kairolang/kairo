@@ -10,27 +10,27 @@
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
-/// [R] NamedType                                                            ///
-/// [R] DependentNameType                                                    ///
-/// [ ] GenericParamType                                                     ///
-/// [ ] SubstGenericParamType                                                ///
-/// [R] GenericInstanceType                                                  ///
-/// [ ] TypeOfType                                                           ///
-/// [ ] VariadicPackType                                                     ///
-/// [ ] PackExpansionType                                                    ///
-/// [ ] PointerType                                                          ///
-/// [ ] NullableType                                                         ///
-/// [ ] TupleType                                                            ///
-/// [ ] FixedArrayType                                                       ///
-/// [ ] VectorType                                                           ///
-/// [ ] MapType                                                              ///
-/// [ ] SetType                                                              ///
-/// [ ] SelfType                                                             ///
-/// [ ] FunctionPointerType                                                  ///
-/// [ ] InferredType                                                         ///
-/// [ ] CXXLValueRefType                                                     ///
-/// [ ] CXXRValueRefType                                                     ///
-/// [ ] OpaqueFFIType                                                        ///
+//  TypeKind::RecoveryType                                                   ///
+//  TypeKind::ChainType                                                      ///
+//  TypeKind::GenericParamType                                               ///
+//  TypeKind::SubstGenericParamType                                          ///
+//  TypeKind::TypeOfType                                                     ///
+//  TypeKind::VariadicPackType                                               ///
+//  TypeKind::PackExpansionType                                              ///
+//  TypeKind::PointerType                                                    ///
+//  TypeKind::NullableType                                                   ///
+//  TypeKind::TupleType                                                      ///
+//  TypeKind::FixedArrayType                                                 ///
+//  TypeKind::VectorType                                                     ///
+//  TypeKind::MapType                                                        ///
+//  TypeKind::SetType                                                        ///
+//  TypeKind::SelfType                                                       ///
+//  TypeKind::FunctionPointerType                                            ///
+//  TypeKind::InferredType                                                   ///
+//  TypeKind::CXXLValueRefType                                               ///
+//  TypeKind::CXXRValueRefType                                               ///
+//  TypeKind::OpaqueFFIType                                                  ///
+//  TypeKind::TypeExpr                                                       ///
 
 import ASTNode::Base::*;
 import AST::ASTContext::*;

@@ -850,6 +850,7 @@ class ClosureExpr derives Expr {
         node->kind  = ExprKind::ClosureExpr;
         node->range = range;
         node->body  = body;
+        node->return_type = &null;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;
     }

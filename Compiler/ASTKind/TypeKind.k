@@ -21,29 +21,8 @@
 ///     [10]       Callable type
 ///     [11 .. 12] Compiler-inserted types
 ///
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
-///
-///   <short description>
-///
-///   Part of the Kairo Project, under the Apache License v2.0 with the
-///   Kairo Runtime Library Exception.
-///
-///   See: https://www.kairolang.org/LICENSE.txt
-///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
-///   Copyright (c) 2026 Dhruvan Kartik
-///
 /// ------------------------------------------------------------------------ ///
-///
-///   TypeKind
-///
-///   Ranges:
-///     [0]        Error sentinel
-///     [1 .. 2]   Named / resolved types
-///     [3 .. 4]   Pointer / optional types
-///     [5 .. 9]   Collection types
-///     [10]       Callable type
-///     [11 .. 12] Compiler-inserted types
-///
+
 enum TypeKind derives u8 {
     /// -----------------------------------------------------------------------
     ///  Sentinel

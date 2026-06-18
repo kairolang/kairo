@@ -1578,8 +1578,8 @@ class <T> TypeParse {
             // does NOT see through newlines even with nl_depth > 0 (only
             // advance() skips them), so without this the comma/closer checks
             // below test the newline token and wrongly fall through to the
-            // "expected ',' or '>'" error → whole generic list bails → the
-            // tentative guard rolls back → `Lookup < string` reparses as `<`.
+            // "expected ',' or '>'" error -> whole generic list bails -> the
+            // tentative guard rolls back -> `Lookup < string` reparses as `<`.
             dyn()->advance(T::SkipNL::Only); // skip NLs, do not move past real tokens
 
             if dyn()->check(TokenKind::OpComma) {

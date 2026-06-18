@@ -2,35 +2,29 @@
 ///
 ///   AstDumper: the single AST renderer for the whole compiler.
 ///
-///   One class on purpose. The old five-file printer layout
-///   (ExprPrinter.k <-> TypePrinter.k <-> ...) cross-imported and cycled;
-///   collapsing every category into one class makes the recursive walk a
-///   set of plain method calls on `self`, with no import graph between
-///   printers and therefore no cycle. Stage 0 has no `extend`, so the
-///   class is grown in place rather than split across extension blocks.
+///   Source-faithful path (src_*) is unchanged: diagnostic/canonical styles
+///   reproduce one-line source for sema diagnostics.
 ///
-///   TWO render paths, selected by PrintOptions.style:
+///   The DEBUG TREE path (--print-ast) is now built on RecursiveASTVisitor.
+///   AstDumper is the RAV's first real consumer. It overrides ONLY the five
+///   family dispatchers (dispatch_decl/_stmt/_expr/_type/_pattern). Every
+///   child recurse in RAV routes through dispatch_F(child) via self.dyn(),
+///   so intercepting the five dispatchers captures the entire walk without
+///   touching the ~113 per-node traverse_ bodies.
 ///
-///     Diagnostic / Canonical -> src_*   source-faithful reproduction,
-///                                        single line, no tree, no kind tags.
-///                                        This is what sema embeds in
-///                                        type-mismatch and other diagnostics.
+///   Why dispatch and not traverse/walkup:
+///     - traverse_* bodies hard-code each node's children; overriding all of
+///       them is 113 shims. dispatch_* is 5 methods and catches everything.
+///     - the dumper needs its own child order + per-child is_last for the
+///       `|-'/"-"` spine. The fixed traverse signature (self, n) -> *N has no
+///       is_last slot, so is_last is stashed on self (_pending_last) and read
+///       at the top of each dispatch override.
 ///
-///     Debug                  -> dump_*  Clang-style AST tree: one node per
-///                                        row, colored kind tag + key attrs,
-///                                        children under an ASCII spine
-///                                        (`|-` / "`-"). This is --print-ast.
-///
-///   The historical "identifier identifier identifier" bug is fixed here:
-///   every name / operator / literal resolves through `tok()` ->
-///   TokenText::from_token -> real source text. Nothing routes through
-///   token_kind_to_readable_string, which returns the literal word
-///   "identifier" for LitIdentifier and was the source of the corruption.
-///
-///   Color is orthogonal to style (PrintOptions.color). Every escape is
-///   plain ANSI SGR over the base-8 palette plus bold, and the tree spine
-///   uses only '|', '`', '-', so output is legible on dumb and legacy
-///   terminals (this is a compiler; it has to render over ssh and in CI).
+///   ATTRIBUTES + VISIBILITY: every decl row now prefixes written visibility
+///   (pub/prot/priv) and renders each annotation entry (@name). Attribute
+///   ARGS are not rendered: AnnotationEntry.args is FrozenList<*void> in
+///   Stage 0 (no typed Expr, no labels stored) so there is nothing faithful
+///   to print. See the honesty note at end of file / chat.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -48,6 +42,8 @@ import AST::Support::*;
 import AST::InternedStr::*;
 import AST::TranslationUnit::*;
 import AST::Mixin::TypeQual::*;
+import AST::Mixin::Annotation::*;
+import ASTVisitor::RecursiveASTVisitor::*;
 import ASTNode::Base::*;
 import ASTNode::Program::*;
 import ASTNode::PrimaryExpressions::*;
@@ -64,9 +60,18 @@ import ASTKind::StmtKind::*;
 import ASTKind::PatternKind::*;
 import TokenKind::*;
 
-class AstDumper {
+/// AstDumper derives RecursiveASTVisitor::<AstDumper> so its dispatch_*
+/// overrides are reached through the CRTP dyn() routing. The source-faithful
+/// (src_*) methods are independent of RAV and unchanged.
+class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     pub var p:   Painter;
     pub var ctx: obs::<ASTContext>;
+
+    /// Stashed is_last for the next dispatch_* call. The traverse/dispatch
+    /// signature has no is_last slot, so the dumper sets this immediately
+    /// before invoking a dispatcher and the override reads it once at entry.
+    /// Defaults true so a bare top-level dispatch renders as a last child.
+    pub var _pending_last: bool = true;
 
     fn AstDumper(self, ctx: *ASTContext, opts: PrintOptions) {
         self.ctx = ctx;
@@ -88,6 +93,13 @@ class AstDumper {
     fn istr(self, s: InternedStr) -> string {
         if self.ctx->hoisted != &null { return self.ctx->hoisted->str(s); }
         return "<ffi>";
+    }
+
+    /// True when istr() could not resolve a real name (hoisted unwired).
+    /// Used by the attribute renderer to avoid printing the bare sentinel as
+    /// if it were a real attribute name.
+    fn _istr_unresolved(self) -> bool {
+        return self.ctx->hoisted == &null;
     }
 
     fn _expr_list(self, open: string, close: string, xs: FrozenList::<*Expr>) {
@@ -145,7 +157,7 @@ class AstDumper {
     }
 
     // ======================================================================
-    //  TYPES  source-faithful
+    //  TYPES  source-faithful  (UNCHANGED)
     // ======================================================================
 
     fn _quals(self, ty: *Type) {
@@ -260,7 +272,7 @@ class AstDumper {
     }
 
     // ======================================================================
-    //  EXPRESSIONS  source-faithful
+    //  EXPRESSIONS  source-faithful  (UNCHANGED)
     // ======================================================================
 
     fn src_expr(self, e: *Expr) {
@@ -550,7 +562,7 @@ class AstDumper {
     }
 
     // ======================================================================
-    //  PATTERNS  source-faithful
+    //  PATTERNS  source-faithful  (UNCHANGED)
     // ======================================================================
 
     fn src_pattern(self, pat: *Pattern) {
@@ -644,7 +656,7 @@ class AstDumper {
     }
 
     // ======================================================================
-    //  BINDINGS  shared by destructure / for / context (source path)
+    //  BINDINGS  shared by destructure / for / context (source path)  (UNCHANGED)
     // ======================================================================
 
     fn _src_binding(self, b: *Binding) {
@@ -672,12 +684,7 @@ class AstDumper {
     }
 
     // ======================================================================
-    //  STATEMENTS  source-faithful
-    //
-    //  Source reproduction is single-line: a block prints `{ a; b; c }` with
-    //  "; " between statements rather than newlines+indent. The tree dump
-    //  (dump_stmt) is where structure-with-indentation lives. Keeping the
-    //  source path flat is what makes it embeddable in a one-line diagnostic.
+    //  STATEMENTS  source-faithful  (UNCHANGED)
     // ======================================================================
 
     fn src_stmt(self, stmt: *Stmt) {
@@ -903,7 +910,7 @@ class AstDumper {
     }
 
     // ======================================================================
-    //  DECLARATIONS  source-faithful
+    //  DECLARATIONS  source-faithful  (UNCHANGED)
     // ======================================================================
 
     fn src_decl(self, decl: *Decl) {
@@ -967,6 +974,7 @@ class AstDumper {
     }
 
     /// Brace member body: fields then methods, "; "-separated on one line.
+    /// NOTE: source path only. The DEBUG tree path walks dc_decls instead.
     fn _member_body(self, fields: FrozenList::<*FieldDecl>, methods: FrozenList::<*FunctionDecl>) {
         if fields.is_empty() && methods.is_empty() { self.p.paint(Color::Punct, " {}"); return; }
         self.p.paint(Color::Punct, " { ");
@@ -1149,7 +1157,11 @@ class AstDumper {
         }
     }
 
-    // -- aggregate decls ----------------------------------------------------
+    // -- aggregate decls (source path) -------------------------------------
+    // NOTE: these use the projection caches because the SOURCE one-liner only
+    // ever reproduced fields+methods; nested types were never in the source
+    // reproduction either. The DEBUG tree path (dump_*) is the surface that
+    // had the drop, and that path walks dc_decls. Left as-is on purpose.
 
     fn _d_struct(self, sd: *StructDecl) {
         var empty_methods: FrozenList::<*FunctionDecl>;
@@ -1370,12 +1382,18 @@ class AstDumper {
     }
 
     // ======================================================================
-    //  DEBUG TREE DUMP
+    //  DEBUG TREE DUMP  (RAV-DRIVEN)
     //
-    //  One node per row: spine + colored kind tag + key attrs, children under
-    //  enter()/leave(). Leaf-ish nodes (literals, idents, plain types/patterns)
-    //  append their source form inline instead of spawning child rows, which
-    //  is what keeps a dump of `1 + 2` three lines tall and not ten.
+    //  Entry points are the dump_* facades (dump_decl / dump_stmt / dump_expr
+    //  / dump_type / dump_pattern). Each sets _pending_last and calls the
+    //  matching RAV dispatcher, which this class OVERRIDES. The override emits
+    //  the node's row (spine + kind tag + attrs + visibility + inline source)
+    //  and recurses into children with its own is_last bookkeeping. It does
+    //  NOT call the RAV traverse_ bodies it owns the child walk so it can
+    //  thread is_last and walk dc_decls.
+    //
+    //  Leaf-ish nodes (literals, idents, plain types/patterns) append their
+    //  source form inline instead of spawning child rows.
     // ======================================================================
 
     /// Spine + colored node-kind tag. Caller appends attrs, then recurses.
@@ -1392,9 +1410,175 @@ class AstDumper {
     fn _inline_type(self, t: *Type) { self.p.put(" "); self.src_type(t); }
     fn _inline_expr(self, e: *Expr) { self.p.put(" "); self.src_expr(e); }
 
-    // -- TYPE dump ----------------------------------------------------------
+    // -- attribute + visibility row prefix ---------------------------------
 
-    fn dump_type(self, ty: *Type, is_last: bool) {
+    /// Emit written visibility, inline on the current decl row, before its
+    /// name. `pub `/`prot `/`priv ` only no output for unspecified.
+    fn _dump_vis(self, decl: *Decl) {
+        if decl->has_visibility() {
+            self.p.put(" ");
+            self._vis(static_cast::<u8>(decl->visibility));
+        }
+    }
+
+    /// Render this decl's annotations as their own child rows, BEFORE the
+    /// decl's structural children. Each attribute is one leaf row `@name`.
+    /// Comment annotations (doc/line/block) render as `@<comment:kind>` so a
+    /// dump never silently swallows an attached doc comment.
+    ///
+    /// Returns nothing; caller has already opened enter() for this decl.
+    /// `attrs_are_last` is true when the decl has NO structural children, so
+    /// the final attribute row gets the "`-" corner.
+    fn _dump_annotations(self, decl: *Decl, attrs_are_last: bool) {
+        var n = decl->annotations.size();
+        for var i: usize = 0; i < n; ++i {
+            var entry = decl->annotations.get(i);
+            var last  = attrs_are_last && (i == n - 1);
+            self._head("Attribute", last);
+            self.p.put(" ");
+            self._dump_one_annotation(entry);
+            self.p.newline();
+        }
+    }
+
+    /// One annotation entry. Attribute => `@name(args)`; comment => `<kind>`.
+    ///
+    /// Args ARE rendered now. AnnotationEntry.args is FrozenList<*void> only
+    /// because Stage 0 cannot forward-declare Expr across files; the grammar
+    /// guarantees every element is an Expr* (attr args reuse the call-arg
+    /// production verbatim), so the reinterpret_cast at this single read site
+    /// is sound. It converts to a typed FrozenList<*Expr> once Stage 1 self-
+    /// hosts (see the STAGE0 note in Annotation.k).
+    ///
+    /// Named args (`@dep(since: 2)`) parse to AssignOperatorExpr(lhs=label,
+    /// rhs=value) -- the call-arg grammar folds `name: val` onto the assign
+    /// production. We render those as `label: value` to match source spelling
+    /// rather than the stored `=`.
+    fn _dump_one_annotation(self, entry: *AnnotationEntry) {
+        if entry->kind == AnnotationKind::Attribute {
+            var nm = self.istr(entry->name);
+            if self._istr_unresolved() {
+                self.p.paint(Color::Attr, "@<unresolved>");
+            } else {
+                self.p.paint(Color::Attr, f"@{nm}");
+            }
+            if !entry->args.is_empty() {
+                self.p.paint(Color::Punct, "(");
+                for var i: usize = 0; i < entry->args.size(); ++i {
+                    if i > 0 { self.p.paint(Color::Punct, ", "); }
+                    var arg = reinterpret_cast::<*Expr>(*(entry->args.get(i)));
+                    self._attr_arg(arg);
+                }
+                self.p.paint(Color::Punct, ")");
+            }
+            return;
+        }
+        if entry->kind == AnnotationKind::DocComment   { self.p.paint(Color::Dim, "/// doc-comment");   return; }
+        if entry->kind == AnnotationKind::LineComment  { self.p.paint(Color::Dim, "// line-comment");   return; }
+        if entry->kind == AnnotationKind::BlockComment { self.p.paint(Color::Dim, "/* block-comment */"); return; }
+        self.p.paint(Color::Dim, "<annotation>");
+    }
+
+    /// Render one attribute arg. Named args parse to AssignOperatorExpr whose
+    /// op_token is a synthesized OpColon (see _parse_call_args: `csome: 4`
+    /// becomes AssignOperatorExpr(csome, 4, <colon>)). A genuine positional
+    /// assignment `foo(x = 4)` is the SAME node kind but with op_token == `=`,
+    /// so we discriminate on op_token.kind, NOT on isa<AssignOperatorExpr>.
+    /// The colon token is synthesized with the name's range, so tok() on it is
+    /// unreliable -- render the `:` literally rather than routing op_token
+    /// through src_expr's spelling lookup.
+    fn _attr_arg(self, arg: *Expr) {
+        if arg == &null { self.p.paint(Color::Error, "<error>"); return; }
+        if isa::<AssignOperatorExpr>(arg) {
+            var a = cast::<AssignOperatorExpr>(arg);
+            if a->op_token.kind == TokenKind::OpColon {
+                // named argument: render label : value
+                self.src_expr(a->lhs);
+                self.p.paint(Color::Punct, ": ");
+                self.src_expr(a->rhs);
+                return;
+            }
+            // genuine positional assignment passed as an arg: let src_expr
+            // render it with its real `=` spelling.
+        }
+        self.src_expr(arg);
+    }
+
+    /// True if this decl has any annotation to render as a child row.
+    fn _has_annotations(self, decl: *Decl) -> bool {
+        return decl->annotations.size() > 0;
+    }
+
+    // ======================================================================
+    //  RAV DISPATCHER OVERRIDES
+    //
+    //  These five are the entire RAV surface AstDumper overrides. Each reads
+    //  _pending_last (set by the caller just before the dispatch call),
+    //  renders the node, recurses on children with its own is_last logic, and
+    //  returns the node unchanged (the dumper never rewrites the tree).
+    // ======================================================================
+
+    /* OVERRIDE */ fn dispatch_type(self, ty: *Type) -> *Type {
+        var is_last = self._pending_last;
+        self.dump_type_row(ty, is_last);
+        return ty;
+    }
+
+    /* OVERRIDE */ fn dispatch_expr(self, e: *Expr) -> *Expr {
+        var is_last = self._pending_last;
+        self.dump_expr_row(e, is_last);
+        return e;
+    }
+
+    /* OVERRIDE */ fn dispatch_pattern(self, pat: *Pattern) -> *Pattern {
+        var is_last = self._pending_last;
+        self.dump_pattern_row(pat, is_last);
+        return pat;
+    }
+
+    /* OVERRIDE */ fn dispatch_stmt(self, s: *Stmt) -> *Stmt {
+        var is_last = self._pending_last;
+        self.dump_stmt_row(s, is_last);
+        return s;
+    }
+
+    /* OVERRIDE */ fn dispatch_decl(self, d: *Decl) -> *Decl {
+        var is_last = self._pending_last;
+        self.dump_decl_row(d, is_last);
+        return d;
+    }
+
+    // -- child-dispatch helpers (set is_last, route through dyn()) ----------
+    // Going through self.dyn()->dispatch_* keeps the CRTP contract: a future
+    // subclass of AstDumper would still intercept. is_last is threaded via
+    // _pending_last because the dispatch signature cannot carry it.
+
+    fn _child_decl(self, d: *Decl, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_decl(d);
+    }
+    fn _child_stmt(self, s: *Stmt, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_stmt(s);
+    }
+    fn _child_expr(self, e: *Expr, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_expr(e);
+    }
+    fn _child_type(self, t: *Type, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_type(t);
+    }
+    fn _child_pattern(self, pat: *Pattern, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_pattern(pat);
+    }
+
+    // ======================================================================
+    //  TYPE dump row
+    // ======================================================================
+
+    fn dump_type_row(self, ty: *Type, is_last: bool) {
         if ty == &null    { self._head("<null-type>", is_last); self.p.paint(Color::Error, " <null>"); self.p.newline(); return; }
         if ty->is_error() { self._head("RecoveryType", is_last); self._dim(self._recovery_name(self._type_kind_name_of(ty->recovery_kind))); self.p.newline(); return; }
         self._head(self._type_kind_name(ty), is_last);
@@ -1404,9 +1588,11 @@ class AstDumper {
         self.p.newline();
     }
 
-    // -- EXPR dump ----------------------------------------------------------
+    // ======================================================================
+    //  EXPR dump row
+    // ======================================================================
 
-    fn dump_expr(self, e: *Expr, is_last: bool) {
+    fn dump_expr_row(self, e: *Expr, is_last: bool) {
         if e == &null    { self._head("<null-expr>", is_last); self.p.paint(Color::Error, " <null>"); self.p.newline(); return; }
         if e->is_error() { self._head("RecoveryExpr", is_last); self._dim(self._recovery_name(self._expr_kind_name_of(e->recovery_kind))); self.p.newline(); return; }
 
@@ -1467,7 +1653,7 @@ class AstDumper {
         var nsteps   = e->steps.size();
 
         if has_base {
-            self.dump_expr(e->base, nsteps == 0);
+            self._child_expr(e->base, nsteps == 0);
         }
         for var i: usize = 0; i < nsteps; ++i {
             var s    = e->steps.get(i);
@@ -1492,9 +1678,9 @@ class AstDumper {
         self.p.newline();
         self.p.enter(is_last);
         var has_args = !e->args.is_empty();
-        self.dump_expr(e->callee, !has_args);
+        self._child_expr(e->callee, !has_args);
         for var i: usize = 0; i < e->args.size(); ++i {
-            self.dump_expr(e->args[i], (i == e->args.size() - 1));
+            self._child_expr(e->args[i], (i == e->args.size() - 1));
         }
         self.p.leave();
     }
@@ -1503,8 +1689,8 @@ class AstDumper {
         self._head("SubscriptExpr", is_last);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e->base, false);
-        self.dump_expr(e->index, true);
+        self._child_expr(e->base, false);
+        self._child_expr(e->index, true);
         self.p.leave();
     }
 
@@ -1515,7 +1701,7 @@ class AstDumper {
         self.p.paint(Color::Operator, self.tok(e->op_token));
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e->operand, true);
+        self._child_expr(e->operand, true);
         self.p.leave();
     }
 
@@ -1525,8 +1711,8 @@ class AstDumper {
         self.p.paint(Color::Operator, self.tok(e->op_token));
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e->lhs, false);
-        self.dump_expr(e->rhs, true);
+        self._child_expr(e->lhs, false);
+        self._child_expr(e->rhs, true);
         self.p.leave();
     }
 
@@ -1536,8 +1722,8 @@ class AstDumper {
         self.p.paint(Color::Operator, self.tok(e->op_token));
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e->lhs, false);
-        self.dump_expr(e->rhs, true);
+        self._child_expr(e->lhs, false);
+        self._child_expr(e->rhs, true);
         self.p.leave();
     }
 
@@ -1547,7 +1733,7 @@ class AstDumper {
         self.p.newline();
         self.p.enter(is_last);
         for var i: usize = 0; i < xs.size(); ++i {
-            self.dump_expr(xs[i], (i == xs.size() - 1));
+            self._child_expr(xs[i], (i == xs.size() - 1));
         }
         self.p.leave();
     }
@@ -1563,8 +1749,8 @@ class AstDumper {
             self._head("Entry", last);
             self.p.newline();
             self.p.enter(last);
-            self.dump_expr(en->key, false);
-            self.dump_expr(en->value, true);
+            self._child_expr(en->key, false);
+            self._child_expr(en->value, true);
             self.p.leave();
         }
         self.p.leave();
@@ -1575,7 +1761,7 @@ class AstDumper {
         self.p.newline();
         self.p.enter(is_last);
         var has_fields = !e->fields.is_empty();
-        self.dump_expr(e->type_expr, !has_fields);
+        self._child_expr(e->type_expr, !has_fields);
         for var i: usize = 0; i < e->fields.size(); ++i {
             var fld  = e->fields.get(i);
             var last = (i == e->fields.size() - 1);
@@ -1584,7 +1770,7 @@ class AstDumper {
             self.p.paint(Color::Ident, self.tok(fld->name));
             self.p.newline();
             self.p.enter(last);
-            self.dump_expr(fld->value, true);
+            self._child_expr(fld->value, true);
             self.p.leave();
         }
         self.p.leave();
@@ -1602,7 +1788,7 @@ class AstDumper {
             self.p.paint(Color::Ident, self.tok(fld->name));
             self.p.newline();
             self.p.enter(last);
-            self.dump_expr(fld->value, true);
+            self._child_expr(fld->value, true);
             self.p.leave();
         }
         self.p.leave();
@@ -1613,21 +1799,21 @@ class AstDumper {
         self.p.newline();
         self.p.enter(is_last);
         self._head("cond", false); self.p.newline();
-        self.p.enter(false); self.dump_expr(e->condition, true); self.p.leave();
+        self.p.enter(false); self._child_expr(e->condition, true); self.p.leave();
         var no_tail = (e->else_ifs.is_empty() && e->else_expr == &null);
         self._head("then", no_tail); self.p.newline();
-        self.p.enter(false); self.dump_expr(e->then_expr, true); self.p.leave();
+        self.p.enter(false); self._child_expr(e->then_expr, true); self.p.leave();
         for var i: usize = 0; i < e->else_ifs.size(); ++i {
             var arm = e->else_ifs.get(i);
             self._head("else-if", false); self.p.newline();
             self.p.enter(false);
-            self.dump_expr(arm->condition, false);
-            self.dump_expr(arm->body, true);
+            self._child_expr(arm->condition, false);
+            self._child_expr(arm->body, true);
             self.p.leave();
         }
         if e->else_expr != &null {
             self._head("else", true); self.p.newline();
-            self.p.enter(true); self.dump_expr(e->else_expr, true); self.p.leave();
+            self.p.enter(true); self._child_expr(e->else_expr, true); self.p.leave();
         }
         self.p.leave();
     }
@@ -1638,7 +1824,7 @@ class AstDumper {
         self.p.newline();
         self.p.enter(is_last);
         var has_arms = !e->catch_arms.is_empty();
-        self.dump_expr(e->try_expr, !has_arms);
+        self._child_expr(e->try_expr, !has_arms);
         for var i: usize = 0; i < e->catch_arms.size(); ++i {
             var arm  = e->catch_arms.get(i);
             var last = (i == e->catch_arms.size() - 1);
@@ -1651,7 +1837,7 @@ class AstDumper {
             if arm->filter != &null { self._inline_type(arm->filter); }
             self.p.newline();
             self.p.enter(last);
-            self.dump_expr(arm->body, true);
+            self._child_expr(arm->body, true);
             self.p.leave();
         }
         self.p.leave();
@@ -1662,7 +1848,7 @@ class AstDumper {
         self._dim(f"({e->cases.size()} cases)");
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e->scrutinee, e->cases.is_empty());
+        self._child_expr(e->scrutinee, e->cases.is_empty());
         for var i: usize = 0; i < e->cases.size(); ++i {
             self._dump_match_case(e->cases.get(i), (i == e->cases.size() - 1));
         }
@@ -1688,9 +1874,9 @@ class AstDumper {
         self.p.newline();
         self.p.enter(is_last);
         if mc->expression != &null {
-            self.dump_expr(mc->expression, true);
+            self._child_expr(mc->expression, true);
         } else if mc->body != &null {
-            self.dump_stmt(static_cast::<*Stmt>(mc->body), true);
+            self._child_stmt(static_cast::<*Stmt>(mc->body), true);
         }
         self.p.leave();
     }
@@ -1701,8 +1887,8 @@ class AstDumper {
         self.p.paint(Color::Operator, (("..=") if (e->is_inclusive) else ("..")));
         self.p.newline();
         self.p.enter(is_last);
-        if e->begin != &null { self.dump_expr(e->begin, e->end == &null); }
-        if e->end   != &null { self.dump_expr(e->end, true); }
+        if e->begin != &null { self._child_expr(e->begin, e->end == &null); }
+        if e->end   != &null { self._child_expr(e->end, true); }
         self.p.leave();
     }
 
@@ -1711,7 +1897,7 @@ class AstDumper {
         if e->return_type != &null { self.p.put(" ->"); self._inline_type(e->return_type); }
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e->body, true);
+        self._child_expr(e->body, true);
         self.p.leave();
     }
 
@@ -1722,7 +1908,7 @@ class AstDumper {
         self.src_type(e->target);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e->operand, true);
+        self._child_expr(e->operand, true);
         self.p.leave();
     }
 
@@ -1734,7 +1920,7 @@ class AstDumper {
         self.src_type(e->target_type);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e->original, true);
+        self._child_expr(e->original, true);
         self.p.leave();
     }
 
@@ -1742,7 +1928,7 @@ class AstDumper {
         self._head(kind, is_last);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(operand, true);
+        self._child_expr(operand, true);
         self.p.leave();
     }
 
@@ -1755,9 +1941,11 @@ class AstDumper {
         self.p.newline();
     }
 
-    // -- PATTERN dump -------------------------------------------------------
+    // ======================================================================
+    //  PATTERN dump row
+    // ======================================================================
 
-    fn dump_pattern(self, pat: *Pattern, is_last: bool) {
+    fn dump_pattern_row(self, pat: *Pattern, is_last: bool) {
         if pat == &null    { self._head("<null-pat>", is_last); self.p.newline(); return; }
         if pat->is_error() { self._head("RecoveryPattern", is_last); self._dim(self._recovery_name(self._pattern_kind_name_of(pat->recovery_kind))); self.p.newline(); return; }
         self._head(self._pattern_kind_name(pat), is_last);
@@ -1767,9 +1955,11 @@ class AstDumper {
         self.p.newline();
     }
 
-    // -- STMT dump ----------------------------------------------------------
+    // ======================================================================
+    //  STMT dump row
+    // ======================================================================
 
-    fn dump_stmt(self, stmt: *Stmt, is_last: bool) {
+    fn dump_stmt_row(self, stmt: *Stmt, is_last: bool) {
         if stmt == &null    { self._head("<null-stmt>", is_last); self.p.newline(); return; }
         if stmt->is_error() { self._head("RecoveryStmt", is_last); self._dim(self._recovery_name(self._stmt_kind_name_of(stmt->recovery_kind))); self.p.newline(); return; }
 
@@ -1798,7 +1988,7 @@ class AstDumper {
         if isa::<ContextBindingStmt>(stmt)    { self._ds_context(cast::<ContextBindingStmt>(stmt), is_last);  return; }
         if isa::<DestructuringDeclStmt>(stmt) { self._ds_destructure(cast::<DestructuringDeclStmt>(stmt), is_last); return; }
         if isa::<InlineBlockStmt>(stmt)       { self._head("InlineBlockStmt", is_last); self._dim(f"({self._inline_lang(cast::<InlineBlockStmt>(stmt)->lang)})"); self.p.newline(); return; }
-        if isa::<EvalBlockStmt>(stmt)         { self._head("EvalBlockStmt", is_last); self._dim(f"({cast::<EvalBlockStmt>(stmt)->body.size()} decls)"); self.p.newline(); return; }
+        if isa::<EvalBlockStmt>(stmt)         { self._ds_eval_block(cast::<EvalBlockStmt>(stmt), is_last);    return; }
 
         self._head("<unknown-stmt>", is_last); self.p.newline();
     }
@@ -1809,7 +1999,7 @@ class AstDumper {
         self.p.newline();
         self.p.enter(is_last);
         for var i: usize = 0; i < stmt->body.size(); ++i {
-            self.dump_stmt(stmt->body[i], (i == stmt->body.size() - 1));
+            self._child_stmt(stmt->body[i], (i == stmt->body.size() - 1));
         }
         self.p.leave();
     }
@@ -1818,7 +2008,7 @@ class AstDumper {
         self._head("DeclStmt", is_last);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_decl(stmt->decl, true);
+        self._child_decl(stmt->decl, true);
         self.p.leave();
     }
 
@@ -1827,7 +2017,7 @@ class AstDumper {
         self.p.newline();
         if stmt->value != &null {
             self.p.enter(is_last);
-            self.dump_expr(stmt->value, true);
+            self._child_expr(stmt->value, true);
             self.p.leave();
         }
     }
@@ -1848,8 +2038,8 @@ class AstDumper {
         self._head(kind, is_last);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(cond, msg == &null);
-        if msg != &null { self.dump_expr(msg, true); }
+        self._child_expr(cond, msg == &null);
+        if msg != &null { self._child_expr(msg, true); }
         self.p.leave();
     }
 
@@ -1858,13 +2048,13 @@ class AstDumper {
         self.p.newline();
         self.p.enter(is_last);
         self._head("cond", false); self.p.newline();
-        self.p.enter(false); self.dump_expr(stmt->cond, true); self.p.leave();
+        self.p.enter(false); self._child_expr(stmt->cond, true); self.p.leave();
         var has_else = (stmt->else_ != &null);
         self._head("then", !has_else); self.p.newline();
-        self.p.enter(!has_else); self.dump_stmt(static_cast::<*Stmt>(stmt->then_), true); self.p.leave();
+        self.p.enter(!has_else); self._child_stmt(static_cast::<*Stmt>(stmt->then_), true); self.p.leave();
         if has_else {
             self._head("else", true); self.p.newline();
-            self.p.enter(true); self.dump_stmt(stmt->else_, true); self.p.leave();
+            self.p.enter(true); self._child_stmt(stmt->else_, true); self.p.leave();
         }
         self.p.leave();
     }
@@ -1873,8 +2063,8 @@ class AstDumper {
         self._head("WhileLoopStmt", is_last);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(stmt->cond, false);
-        self.dump_stmt(static_cast::<*Stmt>(stmt->body), true);
+        self._child_expr(stmt->cond, false);
+        self._child_stmt(static_cast::<*Stmt>(stmt->body), true);
         self.p.leave();
     }
 
@@ -1882,7 +2072,7 @@ class AstDumper {
         self._head("LoopStmt", is_last);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_stmt(static_cast::<*Stmt>(stmt->body), true);
+        self._child_stmt(static_cast::<*Stmt>(stmt->body), true);
         self.p.leave();
     }
 
@@ -1893,8 +2083,8 @@ class AstDumper {
         self._src_binding_list(stmt->bindings);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(stmt->iterable, false);
-        self.dump_stmt(static_cast::<*Stmt>(stmt->body), true);
+        self._child_expr(stmt->iterable, false);
+        self._child_stmt(static_cast::<*Stmt>(stmt->body), true);
         self.p.leave();
     }
 
@@ -1903,10 +2093,10 @@ class AstDumper {
         if stmt->is_eval { self._dim("eval"); }
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_stmt(stmt->init, false);
-        self.dump_expr(stmt->cond, false);
-        self.dump_expr(stmt->update, false);
-        self.dump_stmt(static_cast::<*Stmt>(stmt->body), true);
+        self._child_stmt(stmt->init, false);
+        self._child_expr(stmt->cond, false);
+        self._child_expr(stmt->update, false);
+        self._child_stmt(static_cast::<*Stmt>(stmt->body), true);
         self.p.leave();
     }
 
@@ -1915,7 +2105,7 @@ class AstDumper {
         self._dim(f"({stmt->cases.size()} cases)");
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(stmt->scrutinee, stmt->cases.is_empty());
+        self._child_expr(stmt->scrutinee, stmt->cases.is_empty());
         for var i: usize = 0; i < stmt->cases.size(); ++i {
             self._dump_match_case(stmt->cases.get(i), (i == stmt->cases.size() - 1));
         }
@@ -1928,7 +2118,7 @@ class AstDumper {
         self.p.paint(Color::Ident, self.tok(stmt->label));
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_stmt(stmt->inner, true);
+        self._child_stmt(stmt->inner, true);
         self.p.leave();
     }
 
@@ -1937,7 +2127,7 @@ class AstDumper {
         self._dim(f"({stmt->arms.size()} arms)");
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_stmt(static_cast::<*Stmt>(stmt->try_body), stmt->arms.is_empty());
+        self._child_stmt(static_cast::<*Stmt>(stmt->try_body), stmt->arms.is_empty());
         for var i: usize = 0; i < stmt->arms.size(); ++i {
             var arm  = stmt->arms.get(i);
             var last = (i == stmt->arms.size() - 1);
@@ -1949,7 +2139,7 @@ class AstDumper {
             if arm->filter != &null { self._inline_type(arm->filter); }
             self.p.newline();
             self.p.enter(last);
-            self.dump_stmt(static_cast::<*Stmt>(arm->body), true);
+            self._child_stmt(static_cast::<*Stmt>(arm->body), true);
             self.p.leave();
         }
         self.p.leave();
@@ -1959,7 +2149,7 @@ class AstDumper {
         self._head(kind, is_last);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_stmt(static_cast::<*Stmt>(body), true);
+        self._child_stmt(static_cast::<*Stmt>(body), true);
         self.p.leave();
     }
 
@@ -1969,8 +2159,8 @@ class AstDumper {
         self._src_binding_list(stmt->bindings);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(stmt->value, false);
-        self.dump_stmt(static_cast::<*Stmt>(stmt->body), true);
+        self._child_expr(stmt->value, false);
+        self._child_stmt(static_cast::<*Stmt>(stmt->body), true);
         self.p.leave();
     }
 
@@ -1986,7 +2176,18 @@ class AstDumper {
         self.p.paint(Color::Punct, ((")") if (is_tuple) else ("}")));
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(stmt->value, true);
+        self._child_expr(stmt->value, true);
+        self.p.leave();
+    }
+
+    fn _ds_eval_block(self, stmt: *EvalBlockStmt, is_last: bool) {
+        self._head("EvalBlockStmt", is_last);
+        self._dim(f"({stmt->body.size()} decls)");
+        self.p.newline();
+        self.p.enter(is_last);
+        for var i: usize = 0; i < stmt->body.size(); ++i {
+            self._child_decl(stmt->body[i], (i == stmt->body.size() - 1));
+        }
         self.p.leave();
     }
 
@@ -1994,13 +2195,20 @@ class AstDumper {
         self._head(kind, is_last);
         self.p.newline();
         self.p.enter(is_last);
-        self.dump_expr(e, true);
+        self._child_expr(e, true);
         self.p.leave();
     }
 
-    // -- DECL dump ----------------------------------------------------------
+    // ======================================================================
+    //  DECL dump row
+    //
+    //  Every aggregate now walks dc_decls (DeclContext) the COMPLETE
+    //  source-ordered member list  instead of the fields/methods/variants
+    //  projection caches that dropped nested types and VisibilityGroupDecl.
+    //  Every decl row also renders written visibility + annotation child rows.
+    // ======================================================================
 
-    fn dump_decl(self, decl: *Decl, is_last: bool) {
+    fn dump_decl_row(self, decl: *Decl, is_last: bool) {
         if decl == &null    { self._head("<null-decl>", is_last); self.p.newline(); return; }
         if decl->is_error() { self._head("RecoveryDecl", is_last); self._dim(self._recovery_name(self._decl_kind_name_of(decl->recovery_kind))); self.p.newline(); return; }
 
@@ -2014,7 +2222,7 @@ class AstDumper {
         if isa::<InterfaceDecl>(decl)       { self._dd_interface(cast::<InterfaceDecl>(decl), is_last);     return; }
         if isa::<ExtensionDecl>(decl)       { self._dd_extension(cast::<ExtensionDecl>(decl), is_last);     return; }
         if isa::<EnumDecl>(decl)            { self._dd_enum(cast::<EnumDecl>(decl), is_last);               return; }
-        if isa::<EnumVariantDecl>(decl)     { self._dd_leaf_src("EnumVariantDecl", decl, is_last);           return; }
+        if isa::<EnumVariantDecl>(decl)     { self._dd_enum_variant(cast::<EnumVariantDecl>(decl), is_last); return; }
         if isa::<UnionDecl>(decl)           { self._dd_union(cast::<UnionDecl>(decl), is_last);             return; }
         if isa::<TypeAliasDecl>(decl)       { self._dd_type_alias(cast::<TypeAliasDecl>(decl), is_last);    return; }
         if isa::<ModuleDecl>(decl)          { self._dd_module(cast::<ModuleDecl>(decl), is_last);           return; }
@@ -2028,20 +2236,42 @@ class AstDumper {
         self._head("<unknown-decl>", is_last); self.p.newline();
     }
 
-    /// Decl whose whole content reads fine on one line: tag + source form.
+    /// Decl whose whole content reads fine on one line: tag + visibility +
+    /// source form. Attributes (if any) still get their own child rows.
     fn _dd_leaf_src(self, kind: string, decl: *Decl, is_last: bool) {
         self._head(kind, is_last);
+        self._dump_vis(decl);
         self.p.put(" \x27");
         self.src_decl(decl);
         self.p.put("\x27");
         self.p.newline();
+        if self._has_annotations(decl) {
+            self.p.enter(is_last);
+            self._dump_annotations(decl, true);
+            self.p.leave();
+        }
+    }
+
+    /// Open the decl's child scope and emit annotation rows first. Returns
+    /// nothing; caller has already called enter(). Use when a decl has BOTH
+    /// annotations and structural children: annotations are never last.
+    fn _emit_annotations_if_any(self, decl: *Decl, has_struct_children: bool) {
+        if self._has_annotations(decl) {
+            // attrs are last only when there are no structural children.
+            self._dump_annotations(decl, !has_struct_children);
+        }
     }
 
     fn _dd_function(self, fd: *FunctionDecl, is_last: bool) {
         self._head("FunctionDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(fd));
+        self.p.put(" ");
+        self._generic_params(fd->generic_params);
         self.p.put(" ");
         if fd->is_operator {
+            self.p.put("op ");
             self.p.paint(Color::Operator, self.tok(fd->op_token));
+            self.p.put(" ");
         } else {
             self.p.paint(Color::Ident, self.tok(fd->name));
         }
@@ -2051,34 +2281,45 @@ class AstDumper {
         else if fd->return_type != &null { self.p.paint(Color::Punct, " -> "); self.src_type(fd->return_type); }
         self.p.newline();
 
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(fd));
+        var has_body  = (fd->body_kind == FnBodyKind::Block && (fd->body_block != &null))
+                     || (fd->body_kind == FnBodyKind::Expr  && (fd->body_expr  != &null));
+
+        if (!has_attrs) && !has_body { return; }
+
+        self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(fd), !has_body); }
         if fd->body_kind == FnBodyKind::Block && (fd->body_block != &null) {
-            self.p.enter(is_last);
-            self.dump_stmt(static_cast::<*Stmt>(fd->body_block), true);
-            self.p.leave();
+            self._child_stmt(static_cast::<*Stmt>(fd->body_block), true);
         } else if fd->body_kind == FnBodyKind::Expr && (fd->body_expr != &null) {
-            self.p.enter(is_last);
-            self.dump_expr(fd->body_expr, true);
-            self.p.leave();
+            self._child_expr(fd->body_expr, true);
         }
+        self.p.leave();
     }
 
     fn _dd_variable(self, vd: *VariableDecl, is_last: bool) {
         self._head("VariableDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(vd));
         self.p.put(" ");
         self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(vd->name));
         if vd->type_ != &null { self.p.paint(Color::Punct, ": "); self.src_type(vd->type_); }
         self.p.newline();
-        if vd->init != &null {
-            self.p.enter(is_last);
-            self.dump_expr(vd->init, true);
-            self.p.leave();
-        }
+
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(vd));
+        var has_init  = (vd->init != &null);
+        if (!has_attrs) && !has_init { return; }
+
+        self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(vd), !has_init); }
+        if has_init { self._child_expr(vd->init, true); }
+        self.p.leave();
     }
 
     fn _dd_field(self, fd: *FieldDecl, is_last: bool) {
         self._head("FieldDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(fd));
         self.p.put(" ");
         if fd->is_mutable { self.p.paint(Color::Keyword, "mutable "); }
         self.p.paint(Color::Keyword, self._storage_kw(fd->storage));
@@ -2086,139 +2327,277 @@ class AstDumper {
         self.p.paint(Color::Ident, self.tok(fd->name));
         if fd->type_ != &null { self.p.paint(Color::Punct, ": "); self.src_type(fd->type_); }
         self.p.newline();
-        if fd->init != &null {
-            self.p.enter(is_last);
-            self.dump_expr(fd->init, true);
-            self.p.leave();
-        }
+
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(fd));
+        var has_init  = (fd->init != &null);
+        if (!has_attrs) && !has_init { return; }
+
+        self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(fd), !has_init); }
+        if has_init { self._child_expr(fd->init, true); }
+        self.p.leave();
     }
 
     fn _dd_param(self, pd: *ParamDecl, is_last: bool) {
         self._head("ParamDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(pd));
         self.p.put(" ");
         self.src_decl(static_cast::<*Decl>(pd));
         self.p.newline();
+        if self._has_annotations(static_cast::<*Decl>(pd)) {
+            self.p.enter(is_last);
+            self._dump_annotations(static_cast::<*Decl>(pd), true);
+            self.p.leave();
+        }
+    }
+
+    // -- aggregate dumps: walk dc_decls, not projection caches --------------
+
+    // ======================================================================
+    //  AGGREGATE MEMBER DUMP  (parser-accurate)
+    //
+    //  Reality of the current parser (DeclParse.k), NOT the aspirational
+    //  DeclContext.k comment:
+    //
+    //    - A type body's flat members (fields, methods) live in the node's
+    //      `fields` / `methods` projection lists. Members written inside a
+    //      `pub { }` group ALSO live there, with visibility already stamped
+    //      on each. dc_decls does NOT contain them.
+    //    - dc_decls for a TYPE body holds ONLY: nested type decls (added via
+    //      owner->add_decl) and the VisibilityGroupDecl wrapper node. The
+    //      wrapper's `members` are pointers back into fields/methods, so
+    //      rendering the wrapper as a container double-prints them.
+    //    - Enums: members are in `variants`; dc_decls is EMPTY (the enum body
+    //      parser never calls add_decl). Struct/union: fields + nested types.
+    //    - Modules: everything is in dc_decls (no projection caches, no
+    //      groups) -> walk dc_decls directly.
+    //
+    //  Correct dump = every member once, in source order, with its stamped
+    //  visibility. We achieve this by collecting fields + methods + the
+    //  nested-type decls from dc_decls (skipping VisibilityGroupDecl, whose
+    //  contents are already in fields/methods), sorting by range.start, and
+    //  emitting. The per-member `pub`/`prot`/`priv` the parser stamped is
+    //  more honest in a tree than a group wrapper, so the group node is
+    //  intentionally not rendered as a container.
+    // ======================================================================
+
+    /// Collect every real member of a type body into `out`, in source order.
+    /// fields + methods (flat lists, include grouped members with visibility
+    /// stamped) + nested-type decls from dc_decls (skip VisibilityGroupDecl).
+    fn _collect_type_members(
+        self,
+        dc:      *DeclContext,
+        fields:  FrozenList::<*FieldDecl>,
+        methods: FrozenList::<*FunctionDecl>,
+        out:     *vec::<*Decl>
+    ) {
+        for var i: usize = 0; i < fields.size(); ++i {
+            out->push_back(static_cast::<*Decl>(fields[i]));
+        }
+        for var i: usize = 0; i < methods.size(); ++i {
+            out->push_back(static_cast::<*Decl>(methods[i]));
+        }
+        // dc_decls: nested types + VisibilityGroupDecl wrappers. Take the
+        // nested types; skip the wrappers (their members are already above).
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var d = *(dc->dc_decls.get(i));
+            if d == &null { continue; }
+            if isa::<VisibilityGroupDecl>(d) { continue; }
+            out->push_back(d);
+        }
+        self._sort_by_source(out);
+    }
+
+    /// Stable insertion sort on range.start (offset). Member counts in a type
+    /// body are small; insertion sort keeps it simple and stable for equal
+    /// positions (which shouldn't occur but we don't want a swap if they do).
+    fn _sort_by_source(self, xs: *vec::<*Decl>) {
+        var n = xs->size();
+        for var i: usize = 1; i < n; ++i {
+            var key = (*xs)[i];
+            var key_pos = key->range.start;
+            var j = i;
+            while (j > 0) && ((*xs)[j - 1]->range.start > key_pos) {
+                (*xs)[j] = (*xs)[j - 1];
+                j -= 1;
+            }
+            (*xs)[j] = key;
+        }
+    }
+
+    /// Emit annotation rows for the aggregate, then its members in source
+    /// order. `members` is the pre-collected, pre-sorted list.
+    fn _dump_members(self, decl: *Decl, members: *vec::<*Decl>, is_last: bool) {
+        var has_attrs = self._has_annotations(decl);
+        var n = members->size();
+        if (!has_attrs) && (n == 0) { return; }
+
+        self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(decl, n == 0); }
+        for var i: usize = 0; i < n; ++i {
+            self._child_decl((*members)[i], (i == n - 1));
+        }
+        self.p.leave();
     }
 
     fn _dd_struct(self, sd: *StructDecl, is_last: bool) {
         self._head("StructDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(sd));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(sd->name));
+        self._inherit_list("impl", sd->implements);
         self.p.newline();
-        var n = sd->fields.size();
-        if n == 0 { return; }
-        self.p.enter(is_last);
-        for var i: usize = 0; i < n; ++i {
-            self.dump_decl(static_cast::<*Decl>(sd->fields[i]), (i == n - 1));
-        }
-        self.p.leave();
+        var empty_methods: FrozenList::<*FunctionDecl>;
+        var members = vec::<*Decl>();
+        self._collect_type_members(static_cast::<*DeclContext>(sd), sd->fields, empty_methods, &members);
+        self._dump_members(static_cast::<*Decl>(sd), &members, is_last);
     }
 
     fn _dd_class(self, cd: *ClassDecl, is_last: bool) {
         self._head("ClassDecl", is_last);
         if cd->is_final { self._dim("final"); }
+        self._dump_vis(static_cast::<*Decl>(cd));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(cd->name));
         self._inherit_list("derives", cd->derives_list);
         self._inherit_list("impl", cd->implements);
         self.p.newline();
-        var nf = cd->fields.size();
-        var nm = cd->methods.size();
-        if (nf + nm) == 0 { return; }
-        self.p.enter(is_last);
-        for var i: usize = 0; i < nf; ++i {
-            self.dump_decl(static_cast::<*Decl>(cd->fields[i]), (nm == 0) && (i == nf - 1));
-        }
-        for var i: usize = 0; i < nm; ++i {
-            self.dump_decl(static_cast::<*Decl>(cd->methods[i]), (i == nm - 1));
-        }
-        self.p.leave();
+        var members = vec::<*Decl>();
+        self._collect_type_members(static_cast::<*DeclContext>(cd), cd->fields, cd->methods, &members);
+        self._dump_members(static_cast::<*Decl>(cd), &members, is_last);
     }
 
     fn _dd_interface(self, id: *InterfaceDecl, is_last: bool) {
         self._head("InterfaceDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(id));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(id->name));
         self._inherit_list("derives", id->derives_list);
         self.p.newline();
-        var nm = id->methods.size();
-        if nm == 0 { return; }
-        self.p.enter(is_last);
-        for var i: usize = 0; i < nm; ++i {
-            self.dump_decl(static_cast::<*Decl>(id->methods[i]), (i == nm - 1));
-        }
-        self.p.leave();
+        var empty_fields: FrozenList::<*FieldDecl>;
+        var members = vec::<*Decl>();
+        self._collect_type_members(static_cast::<*DeclContext>(id), empty_fields, id->methods, &members);
+        self._dump_members(static_cast::<*Decl>(id), &members, is_last);
     }
 
     fn _dd_extension(self, ed: *ExtensionDecl, is_last: bool) {
         self._head("ExtensionDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(ed));
         self.p.put(" ");
         self.src_type(ed->target);
         self._inherit_list("impl", ed->implements);
         self.p.newline();
-        var nm = ed->methods.size();
-        if nm == 0 { return; }
-        self.p.enter(is_last);
-        for var i: usize = 0; i < nm; ++i {
-            self.dump_decl(static_cast::<*Decl>(ed->methods[i]), (i == nm - 1));
-        }
-        self.p.leave();
-    }
-
-    fn _dd_enum(self, en: *EnumDecl, is_last: bool) {
-        self._head("EnumDecl", is_last);
-        self.p.put(" ");
-        self.p.paint(Color::TypeName, self.tok(en->name));
-        if en->underlying != &null { self.p.paint(Color::Keyword, " derives "); self.src_type(en->underlying); }
-        self.p.newline();
-        var n = en->variants.size();
-        if n == 0 { return; }
-        self.p.enter(is_last);
-        for var i: usize = 0; i < n; ++i {
-            self.dump_decl(static_cast::<*Decl>(en->variants[i]), (i == n - 1));
-        }
-        self.p.leave();
+        var empty_fields: FrozenList::<*FieldDecl>;
+        var members = vec::<*Decl>();
+        self._collect_type_members(static_cast::<*DeclContext>(ed), empty_fields, ed->methods, &members);
+        self._dump_members(static_cast::<*Decl>(ed), &members, is_last);
     }
 
     fn _dd_union(self, ud: *UnionDecl, is_last: bool) {
         self._head("UnionDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(ud));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ud->name));
         self.p.newline();
-        var n = ud->fields.size();
-        if n == 0 { return; }
+        var empty_methods: FrozenList::<*FunctionDecl>;
+        var members = vec::<*Decl>();
+        self._collect_type_members(static_cast::<*DeclContext>(ud), ud->fields, empty_methods, &members);
+        self._dump_members(static_cast::<*Decl>(ud), &members, is_last);
+    }
+
+    /// Enum: members are in `variants` (the parser never adds them to
+    /// dc_decls; the enum body has no nested-type parsing at all). Walk
+    /// variants directly. No source-order merge needed -- variants is already
+    /// in declaration order.
+    fn _dd_enum(self, en: *EnumDecl, is_last: bool) {
+        self._head("EnumDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(en));
+        self.p.put(" ");
+        self.p.paint(Color::TypeName, self.tok(en->name));
+        if en->underlying != &null { self.p.paint(Color::Keyword, " derives "); self.src_type(en->underlying); }
+        self.p.newline();
+
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(en));
+        var n = en->variants.size();
+        if (!has_attrs) && (n == 0) { return; }
+
         self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(en), n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self.dump_decl(static_cast::<*Decl>(ud->fields[i]), (i == n - 1));
+            self._child_decl(static_cast::<*Decl>(en->variants[i]), (i == n - 1));
+        }
+        self.p.leave();
+    }
+
+    /// Module: every member is in dc_decls (no projection caches, no group
+    /// wrappers). Walk dc_decls directly, in source order as the parser
+    /// appended it.
+    fn _dd_module(self, md: *ModuleDecl, is_last: bool) {
+        self._head("ModuleDecl", is_last);
+        if md->is_inline { self._dim("inline"); }
+        self._dump_vis(static_cast::<*Decl>(md));
+        if !md->is_anonymous {
+            self.p.put(" ");
+            self.p.paint(Color::Ident, self.tok(md->name));
+        }
+        self.p.newline();
+
+        var dc = static_cast::<*DeclContext>(md);
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(md));
+        var n = dc->dc_decls.size();
+        if !has_attrs && (n == 0) { return; }
+
+        self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(md), n == 0); }
+        for var i: usize = 0; i < n; ++i {
+            self._child_decl(*(dc->dc_decls.get(i)), (i == n - 1));
+        }
+        self.p.leave();
+    }
+
+    fn _dd_enum_variant(self, v: *EnumVariantDecl, is_last: bool) {
+        self._head("EnumVariantDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(v));
+        self.p.put(" ");
+        self.p.paint(Color::Ident, self.tok(v->name));
+        self.p.newline();
+
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(v));
+        var has_disc  = (v->discriminant != &null);
+        var npayload  = v->payload.size();
+        if (!has_attrs) && (!has_disc) && (npayload == 0) { return; }
+
+        self.p.enter(is_last);
+        if has_attrs {
+            var attrs_last = (!has_disc) && (npayload == 0);
+            self._dump_annotations(static_cast::<*Decl>(v), attrs_last);
+        }
+        if has_disc {
+            var disc_last = (npayload == 0);
+            self._head("discriminant", disc_last); self.p.newline();
+            self.p.enter(disc_last);
+            self._child_expr(v->discriminant, true);
+            self.p.leave();
+        }
+        for var i: usize = 0; i < npayload; ++i {
+            self._child_decl(static_cast::<*Decl>(*(v->payload.get(i))), (i == npayload - 1));
         }
         self.p.leave();
     }
 
     fn _dd_type_alias(self, ta: *TypeAliasDecl, is_last: bool) {
         self._head("TypeAliasDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(ta));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ta->name));
         self.p.paint(Color::Punct, " = ");
         self.src_type(ta->aliased);
         self.p.newline();
-    }
-
-    fn _dd_module(self, md: *ModuleDecl, is_last: bool) {
-        self._head("ModuleDecl", is_last);
-        if md->is_inline { self._dim("inline"); }
-        if !md->is_anonymous {
-            self.p.put(" ");
-            self.p.paint(Color::Ident, self.tok(md->name));
+        if self._has_annotations(static_cast::<*Decl>(ta)) {
+            self.p.enter(is_last);
+            self._dump_annotations(static_cast::<*Decl>(ta), true);
+            self.p.leave();
         }
-        self.p.newline();
-        var dc = static_cast::<*DeclContext>(md);
-        var n  = dc->dc_decls.size();
-        if n == 0 { return; }
-        self.p.enter(is_last);
-        for var i: usize = 0; i < n; ++i {
-            self.dump_decl(*(dc->dc_decls.get(i)), (i == n - 1));
-        }
-        self.p.leave();
     }
 
     fn _dd_vis_group(self, vg: *VisibilityGroupDecl, is_last: bool) {
@@ -2226,11 +2605,15 @@ class AstDumper {
         self.p.put(" ");
         self._vis(vg->group_visibility);
         self.p.newline();
+
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(vg));
         var n = vg->members.size();
-        if n == 0 { return; }
+        if (!has_attrs) && (n == 0) { return; }
+
         self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(vg), n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self.dump_decl(vg->members[i], (i == n - 1));
+            self._child_decl(vg->members[i], (i == n - 1));
         }
         self.p.leave();
     }
@@ -2238,46 +2621,82 @@ class AstDumper {
     fn _dd_eval_block(self, eb: *EvalBlockDecl, is_last: bool) {
         self._head("EvalBlockDecl", is_last);
         self.p.newline();
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(eb));
         var n = eb->body.size();
-        if n == 0 { return; }
+        if (!has_attrs) && (n == 0) { return; }
         self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(eb), n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self.dump_decl(eb->body[i], (i == n - 1));
+            self._child_decl(eb->body[i], (i == n - 1));
         }
         self.p.leave();
     }
 
     fn _dd_test(self, td: *TestDecl, is_last: bool) {
         self._head("TestDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(td));
         if td->label != &null { self.p.put(" "); self.src_expr(td->label); }
         self.p.newline();
-        if td->body != &null {
-            self.p.enter(is_last);
-            self.dump_stmt(static_cast::<*Stmt>(td->body), true);
-            self.p.leave();
-        }
+
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(td));
+        var has_body  = (td->body != &null);
+        if (!has_attrs) && !has_body { return; }
+
+        self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(td), !has_body); }
+        if has_body { self._child_stmt(static_cast::<*Stmt>(td->body), true); }
+        self.p.leave();
     }
 
     fn _dd_proc_macro(self, pm: *ProcedureMacroDecl, is_last: bool) {
         self._head("ProcedureMacroDecl", is_last);
+        self._dump_vis(static_cast::<*Decl>(pm));
         self.p.put(" ");
         self.p.paint(Color::Attr, f"@{self.tok(pm->name)}");
         self._param_list(pm->params, false);
         self.p.newline();
-        if pm->body != &null {
-            self.p.enter(is_last);
-            self.dump_stmt(static_cast::<*Stmt>(pm->body), true);
-            self.p.leave();
-        }
+
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(pm));
+        var has_body  = (pm->body != &null);
+        if (!has_attrs) && !has_body { return; }
+
+        self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(pm), !has_body); }
+        if has_body { self._child_stmt(static_cast::<*Stmt>(pm->body), true); }
+        self.p.leave();
     }
 
     // ======================================================================
-    //  NODE-KIND NAMES
+    //  PUBLIC DUMP FACADES (entry points)
     //
-    //  No external *_kind_to_string exists for the AST-kind enums (only the
-    //  TokenKind helpers do), so the node class names live here. The *_of
-    //  variants take a raw kind for the recovery path, which reports the
-    //  intended kind without mutating the node it reads.
+    //  Each sets _pending_last and routes through the overridden dispatcher
+    //  via self.dyn() so the CRTP contract holds. A top-level node defaults
+    //  to is_last = true.
+    // ======================================================================
+
+    fn dump_type(self, ty: *Type, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_type(ty);
+    }
+    fn dump_expr(self, e: *Expr, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_expr(e);
+    }
+    fn dump_pattern(self, pat: *Pattern, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_pattern(pat);
+    }
+    fn dump_stmt(self, stmt: *Stmt, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_stmt(stmt);
+    }
+    fn dump_decl(self, decl: *Decl, is_last: bool) {
+        self._pending_last = is_last;
+        self.dyn()->dispatch_decl(decl);
+    }
+
+    // ======================================================================
+    //  NODE-KIND NAMES  (UNCHANGED)
     // ======================================================================
 
     fn _expr_kind_name(self, e: *Expr) -> string { return self._expr_kind_name_of(e->kind); }
@@ -2433,12 +2852,7 @@ class AstDumper {
 }
 
 // ==========================================================================
-//  PUBLIC FACADES
-//
-//  What the rest of the compiler calls. Sema uses the per-node facades in
-//  Diagnostic style to embed source-faithful fragments in error messages;
-//  the driver uses ASTPrinter for --print-ast. All resolve the ASTContext
-//  internally (per-node from the explicit arg, TU-level from tu->ctx).
+//  PUBLIC FACADES  (UNCHANGED API; debug path now RAV-driven)
 // ==========================================================================
 
 class TypePrinter {
@@ -2497,8 +2911,8 @@ class PatternPrinter {
 }
 
 /// Translation-unit dump for --print-ast. Walks Program's top-level items and
-/// routes each to the matching node dumper, under one shared AstDumper so the
-/// tree spine is continuous across items. Resolves ctx from tu->ctx.
+/// routes each through the RAV-overridden dump_* facades, under one shared
+/// AstDumper so the tree spine is continuous across items.
 class ASTPrinter {
     static fn print(tu: *TranslationUnit) {
         ASTPrinter::print(tu, PrintOptions::dump());
