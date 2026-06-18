@@ -1246,8 +1246,21 @@ class <T> DeclParse {
         dyn()->advance(T::SkipNL::After); // consume `{`
 
         var field_idx: u32 = 0;
+        var prev_idx: usize = 0;
+        var have_prev = false;
 
         while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+            // progress guard: if the previous iteration consumed nothing -- a
+            // recovery path whose `_sync_decl` stopped on a member-start token
+            // it could not parse (e.g. a `fn` in a method-less body) -- force a
+            // single advance so a malformed member can never spin the parser.
+            if have_prev && (dyn()->c_idx == prev_idx) {
+                dyn()->advance();
+                continue;
+            }
+            prev_idx  = dyn()->c_idx;
+            have_prev = true;
+
             if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
                 dyn()->advance();
                 continue;
@@ -1300,6 +1313,24 @@ class <T> DeclParse {
                     ).first(r).emit();
                     self._sync_decl(DeclSyncCtx::TypeBody);
                 }
+                continue;
+            }
+
+            // a method where methods are not allowed (struct/union body). Parse
+            // and discard it so the tokens are consumed -- a bare `fn` would
+            // otherwise fall through to the unknown-member path, whose
+            // `_sync_decl` stops on `fn` without consuming it, spinning forever.
+            // (Only `fn` is handled here; `static`/`virtual` leads stay ambiguous
+            // with static fields and are left to the field/recovery paths, which
+            // the progress guard above keeps bounded.)
+            if (k == TokenKind::KwFn) && (!allow_methods) {
+                var mr   = dyn()->current_ptr()->range;
+                var lead = self._consume_leading_modifiers();
+                self._parse_function(&lead);
+                dyn()->diag->report(DiagID::S045E, mr.start,
+                    "methods are not allowed in a struct or union body; only "
+                    "fields and nested types are permitted"
+                ).first(mr).emit();
                 continue;
             }
 
