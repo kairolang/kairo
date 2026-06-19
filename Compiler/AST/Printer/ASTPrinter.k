@@ -513,7 +513,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.src_type(e->return_type);
         }
         self.p.paint(Color::Punct, " { ");
-        self.src_expr(e->body);
+        
+        //Different body type used depending on BodyKind
+        if(e->body_kind == FnBodyKind::Expr) {
+            self.src_expr(e->body_expr);
+        } else if(e->body_kind == FnBodyKind::Block) {
+            self.src_stmt(e->body_block);
+        } 
+
         self.p.paint(Color::Punct, " }");
     }
 
@@ -2056,7 +2063,15 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if e->return_type != &null { self.p.put(" ->"); self._inline_type(e->return_type); }
         self.p.newline();
         self.p.enter(is_last);
-        self._child_expr(e->body, true);
+        //Different body type used depending on BodyKind
+        if(e->body_kind == FnBodyKind::Expr) {
+            self._child_expr(e->body_expr, true);
+        } else if(e->body_kind == FnBodyKind::Block) {
+            self._child_expr(e->body_block, true);
+        } 
+        // self._child_expr(e->body, true);
+         
+
         self.p.leave();
     }
 

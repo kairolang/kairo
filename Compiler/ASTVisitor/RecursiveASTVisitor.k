@@ -682,7 +682,8 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_closure_expr(n) == false { return n; }
         // params + generics not yet stored on the node (see ClosureExpr).
         if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
-        if n->body        != &null { n->body        = self.dyn()->dispatch_expr(n->body); }
+        if n->body_block != &null { n->body_block = self.dyn()->dispatch_stmt(n->body_block); }
+        if n->body_expr  != &null { n->body_expr  = self.dyn()->dispatch_expr(n->body_expr); }
         return n;
     }
 

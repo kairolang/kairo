@@ -358,6 +358,7 @@ class ClosureExpr derives Expr {
     pub var body_block: *CompoundStmt = &null;
     pub var body_expr:  *Expr         = &null;
     pub var params:      FrozenList::<*ParamDecl>;
+    pub var generic_params: FrozenList::<*GenericParamDecl>;
     pub var modifiers:   FnModifier = FnModifier::None;
     pub var return_type: *Type;  ///< null if inferred.
     pub var is_variadic: bool = false;          ///< trailing `...name: T` pack param.
