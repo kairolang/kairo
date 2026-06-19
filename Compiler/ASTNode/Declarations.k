@@ -354,25 +354,27 @@ class ClosureExpr derives Expr {
         var name:  *NamedIdentExpr; ///< the captured variable's name token.
         var by_ref: bool;             ///< true if `|&captured|`, false if `|captured|`.
     }
-    pub var body:        *Expr;  ///< single-expression body or block.
+    pub var body_kind:   FnBodyKind = FnBodyKind::None;
+    pub var body_block: *CompoundStmt = &null;
+    pub var body_expr:  *Expr         = &null;
     pub var params:      FrozenList::<*ParamDecl>;
     pub var modifiers:   FnModifier = FnModifier::None;
     pub var return_type: *Type;  ///< null if inferred.
     pub var is_variadic: bool = false;          ///< trailing `...name: T` pack param.
-    pub var is_noreturn: bool = false;   
+    pub var is_noreturn: bool = false;
     pub var captures:    FrozenList::<Capture>; ///< captured variables, in source order.
     // params and generics stored as FrozenLists once DeclParse defines ParamDecl.
 
     static fn create(
         ctx:   *ASTContext,
-        range: SourceRange,
-        body:  *Expr
+        range: SourceRange
     ) -> *ClosureExpr {
         var node    = ctx->alloc::<ClosureExpr>();
         node->kind  = ExprKind::ClosureExpr;
         node->range = range;
-        node->body  = body;
-        
+        node->body_kind  = FnBodyKind::None;
+        node->body_block = &null;
+        node->body_expr  = &null;
         node->return_type = &null;
         node->annotations.set_allocator(&(ctx->nodes));
         return node;

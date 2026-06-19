@@ -2733,17 +2733,17 @@ class <T> ExprParse {
 
 
         // bind captured names into the closure scope so the body can see them
-        for var i: usize = 0; i < ce->captures.size(); ++i {
-            var cap = ce->captures[i];
-            if cap.name != &null {
-                var cap_name = cast::<NamedIdentExpr>(cap.name);
-                dyn()->scope.bind(
-                    TokenText::from_token(cap_name->token, dyn()->ctx).text,
-                    static_cast::<*Decl>(CaptureDecl::create(dyn()->ctx, cap.name->range, cap_name->token, cap.by_ref)),
-                    cap.name->range
-                );
-            }
-        }
+        // for var i: usize = 0; i < ce->captures.size(); ++i {
+        //     var cap = ce->captures[i];
+        //     if cap.name != &null {
+        //         var cap_name = cast::<NamedIdentExpr>(cap.name);
+        //         dyn()->scope.bind(
+        //             TokenText::from_token(cap_name->token, dyn()->ctx).text,
+        //             static_cast::<*Decl>(CaptureDecl::create(dyn()->ctx, cap.name->range, cap_name->token, cap.by_ref)),
+        //             cap.name->range
+        //         );
+        //     }
+        // }
 
         // body: block `{ ... }` or expression `= expr`
         if dyn()->check(TokenKind::OpLBrace) {

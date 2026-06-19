@@ -1010,7 +1010,7 @@ class <T> DeclParse {
             // `&name` — first capture is by-ref, fall into shared emit below
             if !dyn()->check(TokenKind::LitIdentifier) {
                 dyn()->diag->report(DiagID::S047E, amp_range.start,
-                    "expected capture name after '&' "
+                    "expected capture name after '&\x27"
                 ).first(amp_range).emit();
                 self._sync_decl(DeclSyncCtx::Params);
             } else {
@@ -2428,7 +2428,6 @@ class <T> DeclParse {
         var gparams: std::StackBuf::<*GenericParamDecl, 4>;
         var params:   std::StackBuf::<*ParamDecl, 8>;
         var captures: std::StackBuf::<ClosureExpr::Capture, 8>;
-        var modifiers = FnModifier::None;
         var ret_type: *Type = &null;
 
         // optional generic params: `fn <T> |captures| (params) -> T`
@@ -2449,7 +2448,53 @@ class <T> DeclParse {
         
 
         // trailing modifiers: const / unsafe / async / eval
-        self._parse_fn_modifiers(&modifiers);
+        var modifiers = FnModifier::None;
+        while true {
+            if dyn()->check(TokenKind::KwConst) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'const' is not a valid closure modifier"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+            
+            else if dyn()->check(TokenKind::KwUnsafe) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'unsafe' is not a valid closure modifier"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+            
+            else if dyn()->check(TokenKind::KwEval) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'eval' is not a valid closure modifier"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+            
+            else if dyn()->check(TokenKind::KwFinal) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'final' is not a valid closure modifier"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+            
+            else if dyn()->check(TokenKind::KwInline) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'inline' is not a valid closure modifier"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+            
+            else if dyn()->check(TokenKind::KwPanic)    { modifiers |= FnModifier::IsPanic;    dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwVolatile) { modifiers |= FnModifier::IsVolatile; dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwAsync)    { modifiers |= FnModifier::IsAsync;    dyn()->advance(); }
+            else { break; }
+        }
 
         // return type: `-> T`
         if dyn()->check(TokenKind::OpArrow) {
