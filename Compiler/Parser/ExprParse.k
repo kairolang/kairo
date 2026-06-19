@@ -24,6 +24,7 @@
 import ASTNode::Base::*;
 import ASTNode::PrimaryExpressions::*;
 import ASTNode::Expressions::*;
+import ASTNode::Declarations::*;
 import ASTNode::Types::*;
 import ASTNode::Casting::*;
 import AST::CodeCompleteConsumer::*;
@@ -1467,9 +1468,7 @@ class <T> ExprParse {
 
         // -- closure: fn ---------------------------------------------
         if dyn()->check(TokenKind::KwFn) {
-            // TODO: parse closure expression
-            // for now, fall through to error
-            0;
+            return self._parse_closure_expr();
         }
 
         // -- keyword prefix: if --------------------------------------
@@ -2696,5 +2695,87 @@ class <T> ExprParse {
             return hr.first()->is_generic();
         }
         return false;
+    }
+
+
+    /// \brief parses a closure expression.
+    ///  Grammar:  'fn' ('<' generic_params '>')? ('|' captures '|')?
+    ///            ('(' params ')')? fn_modifiers? ('->' type)? (block | '=' expr)
+    ///
+    /// \details called from _parse_primary_expr on KwFn. Delegates signature
+    ///          parsing to DeclParse::_parse_closure_sig via dyn(), then parses
+    ///          the body as either a block or an expression body.
+    priv fn _parse_closure_expr(self) -> *Expr {
+        var start = dyn()->current_ptr()->range;
+
+        if !dyn()->enter_depth() {
+            return static_cast::<*Expr>(ClosureExpr::create_error(dyn()->ctx, start));
+        }
+
+        dyn()->advance(T::SkipNL::After); // consume `fn`
+
+        var sig_result = dyn()->_parse_closure_sig();
+        // signature: generics, captures, params, modifiers, return type
+        // var (params, gparams, captures, modifiers, ret_type) = dyn()->_parse_closure_sig();
+        var params = libcxx::get::<0>(sig_result);
+        var gparams = libcxx::get::<1>(sig_result);
+        var captures = libcxx::get::<2>(sig_result);
+        var modifiers = libcxx::get::<3>(sig_result);
+        var ret_type = libcxx::get::<4>(sig_result);
+
+        // open a function scope so param names resolve inside the body
+        var ce = ClosureExpr::create(dyn()->ctx, start);
+        ce->generic_params = gparams;
+        ce->captures       = captures;
+        ce->params         = params;
+        ce->modifiers      = modifiers;
+        ce->return_type    = ret_type;
+
+
+        // bind captured names into the closure scope so the body can see them
+        for var i: usize = 0; i < ce->captures.size(); ++i {
+            var cap = ce->captures[i];
+            if cap.name != &null {
+                var cap_name = cast::<NamedIdentExpr>(cap.name);
+                dyn()->scope.bind(
+                    TokenText::from_token(cap_name->token, dyn()->ctx).text,
+                    static_cast::<*Decl>(CaptureDecl::create(dyn()->ctx, cap.name->range, cap_name->token, cap.by_ref)),
+                    cap.name->range
+                );
+            }
+        }
+
+        // body: block `{ ... }` or expression `= expr`
+        if dyn()->check(TokenKind::OpLBrace) {
+            var block = dyn()->parse_compound();
+            ce->body_kind  = FnBodyKind::Block;
+            ce->body_block = block;
+        } else if dyn()->check(TokenKind::OpEqual) {
+            dyn()->advance(T::SkipNL::After); // consume `=`
+            var expr = dyn()->parse_expr();
+            if (expr != &null) && (!is_recovery(expr)) {
+                ce->body_kind = FnBodyKind::Expr;
+                ce->body_expr = expr;
+            } else {
+                dyn()->diag->report(DiagID::S052E, start.start,
+                    "expected expression after '=' in closure body"
+                ).first(start).emit();
+                dyn()->exit_scope();
+                dyn()->exit_depth();
+                return static_cast::<*Expr>(ClosureExpr::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
+        } else {
+            dyn()->diag->report(DiagID::S052E, start.start,
+                "expected '{' or '=' to begin closure body"
+            ).first(start).emit();
+            dyn()->exit_scope();
+            dyn()->exit_depth();
+            return static_cast::<*Expr>(ClosureExpr::create_error(dyn()->ctx, start | dyn()->prev().range));
+        }
+
+        ce->range = start | dyn()->prev().range;
+        dyn()->exit_scope();
+        dyn()->exit_depth();
+        return static_cast::<*Expr>(ce);
     }
 }

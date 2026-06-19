@@ -340,6 +340,58 @@ class FunctionDecl
 }
 
 ///
+///  ClosureExpr
+///  fn <T> (x: T, y: i32)|captured| -> i32 { x + y + captured }
+///  fn (x: i32) { std::print(x) }
+///
+///  params, generics, captures, return type, and body are all parsed by
+///  DeclParse since they share structure with function declarations.
+///  The body is a *Stmt (block statement) or *Expr (single expression).
+///
+class ClosureExpr derives Expr {
+
+    struct Capture {
+        var name:  *NamedIdentExpr; ///< the captured variable's name token.
+        var by_ref: bool;             ///< true if `|&captured|`, false if `|captured|`.
+    }
+    pub var body:        *Expr;  ///< single-expression body or block.
+    pub var params:      FrozenList::<*ParamDecl>;
+    pub var modifiers:   FnModifier = FnModifier::None;
+    pub var return_type: *Type;  ///< null if inferred.
+    pub var is_variadic: bool = false;          ///< trailing `...name: T` pack param.
+    pub var is_noreturn: bool = false;   
+    pub var captures:    FrozenList::<Capture>; ///< captured variables, in source order.
+    // params and generics stored as FrozenLists once DeclParse defines ParamDecl.
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        body:  *Expr
+    ) -> *ClosureExpr {
+        var node    = ctx->alloc::<ClosureExpr>();
+        node->kind  = ExprKind::ClosureExpr;
+        node->range = range;
+        node->body  = body;
+        
+        node->return_type = &null;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ClosureExpr {
+        var node            = ctx->alloc::<ClosureExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ClosureExpr;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::ClosureExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::ClosureExpr; }
+}
+
+///
 ///  VariableDecl
 ///  var/const/static/eval binding at local or namespace scope.
 ///  NOT a class/struct member (that is FieldDecl).
