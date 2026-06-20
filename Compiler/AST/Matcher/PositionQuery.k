@@ -13,7 +13,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Source::SourceRange::*;
+import Location::SourceRange::*;
 import AST::Node::Base::*;
 import AST::Context::TranslationUnit::*;
 import AST::ParentRef::*;

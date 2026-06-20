@@ -1,0 +1,69 @@
+/// --- The Kairo Project ------- Compiler/Preprocessor/WaveExecutor.k ----- ///
+///
+///   Wave-parallel executor for DepGraph traversal.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+
+import Preproces::DepScanner::*;
+import Resolution::ModulePath::*;
+import Threading::ThreadPool::*;
+
+class WaveExecutor {
+    priv var _pool: obs::<ThreadPool>;
+
+    fn WaveExecutor(self, pool: *ThreadPool) {
+        self._pool = pool;
+    }
+
+    /// \brief Runs waves until all fids are processed.
+    /// \param graph        the dep graph (mutated in-place - in_degree decremented)
+    /// \param task_fn      called once per fid with (fid, mod_path)
+    ///                     MUST be thread-safe: multiple calls run concurrently
+    fn run(
+        self,
+        graph:   *DepGraph,
+        task_fn:  std::Function::<void, u32, ModulePath>
+    ) {
+        var ready = graph->roots();
+
+        while ready.size() > 0 {
+            for fid in ready {
+                var mod_path = graph->mod_paths[fid];
+                
+                __inline_cpp("
+                {
+                    u32 captured_fid      = fid;
+                    ModulePath captured_mod_path = mod_path;
+                    auto captured_task_fn = &task_fn;
+                    _pool->enqueue([captured_fid, captured_mod_path, captured_task_fn]() {
+                        (*captured_task_fn)(captured_fid, captured_mod_path);
+                    }, static_cast<u8>(1));
+                }
+                ");
+            }
+
+            // drain this wave - worker_loop decrements group 1 after each task
+            self._pool->wait_group(u8(1));
+
+            // compute next wave
+            var next = vec::<u32>();
+            for fid in ready {
+                for dependent in graph->rdeps[fid] {
+                    graph->in_degree[dependent] -= 1;
+                    if graph->in_degree[dependent] == 0 {
+                        next.push_back(dependent);
+                    }
+                }
+            }
+
+            ready = next;
+        }
+    }
+}

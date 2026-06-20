@@ -58,7 +58,7 @@ import AST::Kind::ExprKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Kind::StmtKind::*;
 import AST::Kind::PatternKind::*;
-import Lexer::TokenKind::*;
+import Token::TokenKind::*;
 
 /// AstDumper derives RecursiveASTVisitor::<AstDumper> so its dispatch_*
 /// overrides are reached through the CRTP dyn() routing. The source-faithful

@@ -44,11 +44,11 @@ import AST::Node::Patterns::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Casting::*;
 import AST::Context::ASTContext::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
-import Source::SourceRange::*;
-import Lexer::Token::*;
-import Lexer::TokenKind::*;
+import Diagnostic::DiagEngine::*;
+import Diagnostic::DiagRegistry::*;
+import Location::SourceRange::*;
+import Token::Token::*;
+import Token::TokenKind::*;
 
 class <T> PatternParse {
     priv inline fn dyn(self) -> *T {

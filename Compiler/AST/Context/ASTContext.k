@@ -14,16 +14,16 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Support::Memory::ArenaList::*;
-import Source::SourceManager::*;
-import Lexer::TokenCacheManager::*;
+import Memory::ArenaList::*;
+import Location::SourceManager::*;
+import Token::TokenCacheManager::*;
 import Lexer::Immediate::*;
-import Preprocessor::ModulePath::*;
-import Preprocessor::ImportProbe::*;
-import Lexer::TokenSpan::*;
+import Resolution::ModulePath::*;
+import Resolution::ImportProbe::*;
+import Token::TokenSpan::*;
 import Options::CompilerInvocation::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
+import Diagnostic::DiagEngine::*;
+import Diagnostic::DiagRegistry::*;
 import Support::InternedStr::*;
 
 /// \brief Forward declaration required by ASTContext.

@@ -14,9 +14,9 @@
 ffi "c++" import "Interop/Clang/ClangBridgeImpl.hh";
 
 import Support::FileIO::Path::*;
-import Source::SourceLocation::*;
-import Source::SourceRange::*;
-import Source::SourceManager::*;
+import Location::SourceLocation::*;
+import Location::SourceRange::*;
+import Location::SourceManager::*;
 
 ///
 /// \file  Clang/ClangBridge.k

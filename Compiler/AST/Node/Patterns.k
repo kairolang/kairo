@@ -19,8 +19,8 @@ import AST::Node::Base::*;
 import AST::Context::ASTContext::*;
 import AST::ASTSupport::*;
 import AST::Node::PrimaryExpressions::*;
-import Source::SourceRange::*;
-import Lexer::Token::*;
+import Location::SourceRange::*;
+import Token::Token::*;
 
 ///  WildcardPattern :  _
 class WildcardPattern derives Pattern {

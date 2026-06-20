@@ -13,8 +13,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Support::Memory::ArenaList::*;
-import Source::SourceRange::*;
+import Memory::ArenaList::*;
+import Location::SourceRange::*;
 import Support::InternedStr::*;
 
 /// Represents the address space of a type when HasAddressSpace is set.

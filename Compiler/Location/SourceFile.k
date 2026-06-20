@@ -1,0 +1,91 @@
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+
+import Support::FileIO::Path::*;
+import Memory::MappedFileBuffer::*;
+import Memory::MemoryBuffer::*;
+
+///
+/// \file SourceFile.k
+/// \brief representation of a single memory-mapped source file.
+///
+/// \details
+/// `SourceFile` acts as a lightweight handle over a memory-mapped file region
+/// managed by `VirtualFileManager`. it holds a reference to a `MappedFileBuffer`
+/// and tracks its base offset and size within the larger virtual memory map.
+///
+/// this abstraction allows higher-level systems- such as the `SourceManager`,
+/// lexer, and parser- to uniformly access source contents without worrying
+/// about file segmentation or buffer ownership.
+///
+/// each `SourceFile` is valid only as long as its parent `MappedFileBuffer`
+/// remains mapped. it provides convenience methods for validity checking and
+/// end offset computation.
+///
+/// \see VirtualFileManager, MappedFileBuffer
+///
+
+///
+/// \class SourceFile
+/// \brief wrapper for a mapped source file region.
+///
+/// \details
+/// represents a contiguous section of a source file stored in memory.
+/// provides metadata such as file path, total size, and base offset.
+/// this type is purely referential and does not manage lifetime of the
+/// underlying buffer.
+///
+class SourceFile {
+    pub var path:        Path;                     ///< filesystem path of the file.
+    pub var buffer:      view::<MappedFileBuffer>; ///< pointer to mapped memory region.
+    pub var base_offset: usize = 0;                ///< base offset within global space.
+    pub var size_bytes:  usize = 0;                ///< size of the file in bytes.
+
+    ///
+    /// \brief constructs a `SourceFile` from an existing mapped buffer.
+    ///
+    /// \param path   absolute or canonical file path.
+    /// \param buffer pointer to a valid `MappedFileBuffer`.
+    /// \param base   base offset within the virtual memory space.
+    ///
+    /// \throws RuntimeError if buffer is null or invalid.
+    ///
+    fn SourceFile(self, path: Path, buffer: *MappedFileBuffer, base: usize) {
+        if (buffer == &null) || (!buffer->is_valid()) {
+            std::crash(std::Error::RuntimeError("SourceFile: Invalid buffer for SourceFile"));
+        }
+
+        self.path        = path;
+        self.buffer      = buffer;
+        self.base_offset = base;
+        self.size_bytes  = buffer->bytes().size();
+    }
+
+    ///
+    /// \brief computes the byte offset immediately after the file.
+    ///
+    /// \return `base_offset + size_bytes`.
+    ///
+    const fn end_offset(self) -> usize {
+        return base_offset + size_bytes;
+    }
+
+    ///
+    /// \brief checks whether the file is in a valid mapped state.
+    ///
+    /// \return true if the buffer exists and is valid.
+    ///
+    const fn is_valid(self) -> bool {
+        return (buffer != &null) && (buffer->is_valid());
+    }
+}

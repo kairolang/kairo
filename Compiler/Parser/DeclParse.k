@@ -39,11 +39,11 @@ import AST::Node::Casting::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Mixin::Annotation::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
-import Source::SourceRange::*;
-import Lexer::Token::*;
-import Lexer::TokenKind::*;
+import Diagnostic::DiagEngine::*;
+import Diagnostic::DiagRegistry::*;
+import Location::SourceRange::*;
+import Token::Token::*;
+import Token::TokenKind::*;
 import Parser::LexicalScope::*;
 
 class <T> DeclParse {

@@ -99,25 +99,25 @@
 ///     DiagEngine writes will be replaced by a per-action capture + merge step.
 ///
 
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
-import Diagnostics::PrettyDiagConsumer::*;
-import Diagnostics::BasicDiagConsumer::*;
-import Source::SourceManager::*;
+import Diagnostic::DiagEngine::*;
+import Diagnostic::DiagRegistry::*;
+import Diagnostic::PrettyDiagConsumer::*;
+import Diagnostic::BasicDiagConsumer::*;
+import Location::SourceManager::*;
 import Support::TermRenderer::*;
-import Lexer::TokenCacheManager::*;
+import Token::TokenCacheManager::*;
 import Command::Command::*;
 import Command::FlagRegistry::*;
 import Options::CompilerInvocation::*;
 import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;
-import Preprocessor::Preprocessor::*;
+import Preproces::Preprocessor::*;
 import AST::Context::ASTIndex::*;
 import Parser::ASTParse::*;
 import AST::Context::GlobalHoistedScope::*;
 import AST::Printer::ASTPrinter::*;
-import Lexer::TokenPrinter::*;
+import Token::TokenPrinter::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";

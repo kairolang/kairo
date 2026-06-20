@@ -11,10 +11,10 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Lexer::TokenKind::*;
-import Source::SourceRange::*;
-import Lexer::Token::*;
-import Lexer::TokenBuffer::*;
+import Token::TokenKind::*;
+import Location::SourceRange::*;
+import Token::Token::*;
+import Token::TokenBuffer::*;
 
 class BalanceTracker {
     

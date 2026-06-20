@@ -6,9 +6,9 @@ import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
-import Lexer::TokenSpan::*;
-import Lexer::Token::*;
-import Diagnostics::DiagEngine::*;
+import Token::TokenSpan::*;
+import Token::Token::*;
+import Diagnostic::DiagEngine::*;
 
 /// \enum SyncSet
 /// \brief bitmask of synchronization points used for error recovery during parsing.

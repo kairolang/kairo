@@ -29,11 +29,11 @@ import AST::Node::Types::*;
 import AST::Node::Casting::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
-import Source::SourceRange::*;
-import Lexer::Token::*;
-import Lexer::TokenKind::*;
+import Diagnostic::DiagEngine::*;
+import Diagnostic::DiagRegistry::*;
+import Location::SourceRange::*;
+import Token::Token::*;
+import Token::TokenKind::*;
 import AST::Node::Statements::*;
 import Parser::LexicalScope::*;
 

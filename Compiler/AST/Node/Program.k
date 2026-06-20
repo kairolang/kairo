@@ -1,5 +1,5 @@
 import AST::Node::Casting::*;
-import Support::Memory::ArenaList::*;
+import Memory::ArenaList::*;
 import AST::Context::ASTContext::*;
 
 

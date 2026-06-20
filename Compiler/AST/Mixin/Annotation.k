@@ -11,8 +11,8 @@
 ///
 /// ------------------------------------------------------------------- ///
 
-import Support::Memory::ArenaList::*;
-import Source::SourceRange::*;
+import Memory::ArenaList::*;
+import Location::SourceRange::*;
 import Support::InternedStr::*;
 import AST::ASTSupport::*;
 

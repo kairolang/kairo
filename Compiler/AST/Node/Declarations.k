@@ -33,8 +33,8 @@ import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
 import AST::Mixin::Redeclarable::*;
 import AST::Mixin::TemplateParams::*;
-import Source::SourceRange::*;
-import Lexer::Token::*;
+import Location::SourceRange::*;
+import Token::Token::*;
 
 /// Forward decls for cross-references between decl nodes.
 class FieldDecl;     // enum-variant payloads, struct/class members

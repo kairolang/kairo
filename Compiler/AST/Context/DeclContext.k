@@ -15,7 +15,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Support::Memory::ArenaList::*;
+import Memory::ArenaList::*;
 import AST::Context::ASTContext::*;
 import AST::Node::Base::*;
 

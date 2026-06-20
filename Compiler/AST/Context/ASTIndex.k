@@ -45,8 +45,8 @@ import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Context::ASTContext::*;
 import AST::Node::Program::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
+import Diagnostic::DiagEngine::*;
+import Diagnostic::DiagRegistry::*;
 
 class ASTIndex {
     priv var _scope_path:   vec::<string>;

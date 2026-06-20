@@ -20,12 +20,12 @@
 ///   - Also our custom RTTI system.
 
 import AST::Context::ASTContext::*;
-import Lexer::TokenKind::*;
-import Support::Memory::ArenaList::*;
-import Source::SourceManager::*;
-import Preprocessor::MacroSentinel::*;
+import Token::TokenKind::*;
+import Memory::ArenaList::*;
+import Location::SourceManager::*;
+import Macro::MacroSentinel::*;
 import Lexer::Immediate::*;
-import Lexer::Token::*;
+import Token::Token::*;
 
 ///
 /// \class FrozenList<T>

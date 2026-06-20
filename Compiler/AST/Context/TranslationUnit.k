@@ -13,13 +13,13 @@
 ///
 /// -------------------------------------------------------------------------- ///
 
-import Support::Memory::ArenaList::*;
+import Memory::ArenaList::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalHoistedScope::*;
 import AST::Context::DeclContext::*;
 import AST::Node::Program::*;
 import AST::Node::Base::*;
-import Preprocessor::ModulePath::*;
+import Resolution::ModulePath::*;
 
 class TranslationUnit; // forward decl for ParentRef
 

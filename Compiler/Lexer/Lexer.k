@@ -11,20 +11,20 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Lexer/CharTable.hh";
+ffi "c++" import "Native/CharTable.hh";
 
-import Lexer::Token::*;
-import Lexer::TokenBuffer::*;
+import Token::Token::*;
+import Token::TokenBuffer::*;
 import Lexer::Immediate::*;
 import Lexer::BalanceTracker::*;
 import Lexer::HexParser::*;
 import Lexer::OctalParser::*;
 
-import Source::SourceManager::*;
+import Location::SourceManager::*;
 import Support::Timer::*;
 import Support::Assert::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
+import Diagnostic::DiagEngine::*;
+import Diagnostic::DiagRegistry::*;
 
 /// \brief tracks git merge conflict marker detection state during lexing
 /// \details used to emit clean diagnostics when conflict markers are found

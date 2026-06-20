@@ -12,7 +12,7 @@
 ///
 /// ----------------------------------------------------------------------------- ///
 
-import Source::SourceRange::*;
+import Location::SourceRange::*;
 import AST::Node::Base::*;
 import AST::Context::DeclContext::*;
 import AST::Context::ASTContext::*;

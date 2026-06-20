@@ -12,9 +12,9 @@
 /// ------------------------------------------------------------------------ ///
 ffi "c++" import "Interop/Clang/ClangBridgeImpl.hh";
 
-import Source::SourceLocation::*;
-import Source::SourceRange::*;
-import Source::SourceManager::*;
+import Location::SourceLocation::*;
+import Location::SourceRange::*;
+import Location::SourceManager::*;
 
 ///
 /// \brief kairo SourceLocation -> clang::SourceLocation.

@@ -27,10 +27,10 @@ import AST::Node::PrimaryExpressions::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
 import AST::Mixin::TypeQual::*;
-import Diagnostics::DiagEngine::*;
-import Diagnostics::DiagRegistry::*;
-import Source::SourceRange::*;
-import Lexer::TokenKind::*;
+import Diagnostic::DiagEngine::*;
+import Diagnostic::DiagRegistry::*;
+import Location::SourceRange::*;
+import Token::TokenKind::*;
 
 /// \class TypeParse
 /// \brief CRTP mixin providing type expression parsing for the Kairo parser.

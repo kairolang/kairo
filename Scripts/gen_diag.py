@@ -94,7 +94,7 @@ def main():
         "////////////////////////////////////////////////////////////////////////////////",
         "",
         "import Support::EvalHash::*;",
-        "import Diagnostics::DiagMeta::*;",
+        "import Diagnostic::DiagMeta::*;",
         "",
         "enum DiagID derives u32 {",
         "  Invalid = 0,"

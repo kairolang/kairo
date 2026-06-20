@@ -11,7 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Source::SourceRange::*;
+import Location::SourceRange::*;
 import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;
 import AST::Kind::DeclKind::*;
