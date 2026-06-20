@@ -992,7 +992,7 @@ class <T> DeclParse {
             return;
         }
 
-        // first capture — handled separately to avoid comma-before-first logic
+        // first capture, handled separately to avoid comma-before-first logic
         {
             var p_start   = dyn()->current_ptr()->range;
             var is_const: bool = false;
@@ -1009,7 +1009,7 @@ class <T> DeclParse {
                 var amp_range = dyn()->current_ptr()->range;
                 dyn()->advance(); // consume `&`
 
-                // `|&|` or `|const &|` — all-by-ref sentinel, no named capture
+                // `|&|` or `|const &|`, all-by-ref sentinel, no named capture
                 if dyn()->check(TokenKind::OpPipe) {
                     dyn()->advance(); // consume `|`
                     var capture = ClosureExpr::Capture();
@@ -2550,7 +2550,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpArrow) {
             dyn()->advance(T::SkipNL::After); // consume `->`
             if dyn()->check(TokenKind::OpExclaim) {
-                dyn()->advance(); // consume `!` — noreturn closure, sema validates
+                dyn()->advance(); // consume `!`, noreturn closure, sema validates
             } else {
                 var rty = dyn()->parse_type();
                 if (rty != &null) && (!is_recovery(rty)) {

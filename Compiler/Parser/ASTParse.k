@@ -115,6 +115,50 @@ class ASTParse
         }
     }
 
+    /// \brief RAII swap of the token cursor onto a foreign TokenBuffer (an
+    ///        f-string interpolation hole), restoring the main stream on exit.
+    ///        Mirrors Lexer::lex_slice's state-stash, but unconditional via
+    ///        op delete so no early-return/throw leaks a half-swapped cursor.
+    ///
+    /// \warning no TentativeGuard may straddle this, a c_idx saved in the outer
+    ///          stream is meaningless in the hole stream. Hole parsing must begin
+    ///          and end fully inside the guard's lifetime.
+    class StreamGuard {
+        priv var _p:        obs::<ASTParse>;
+        priv var _span:     TokenSpan;
+        priv var _c_idx:    usize;
+        priv var _prev:     obs::<Token>;
+        priv var _current:  obs::<Token>;
+        priv var _peek:     obs::<Token>;
+        priv var _nl_depth: u32;
+
+        fn StreamGuard(self, p: *ASTParse, span: TokenSpan) {
+            self._p        = p;
+            self._span     = p->span;
+            self._c_idx    = p->c_idx;
+            self._prev     = p->_prev;
+            self._current  = p->_current;
+            self._peek     = p->_peek;
+            self._nl_depth = p->nl_depth;
+
+            p->span     = span;
+            p->c_idx    = 0;
+            p->nl_depth = 0;
+            p->_prev    = &null;
+            p->_current = (p->span.get(0)) if (p->span.size() > 0) else (&null);
+            p->_peek    = (p->span.get(1)) if (p->span.size() > 1) else (&null);
+        }
+
+        fn op delete (self) {
+            self._p->span     = self._span;
+            self._p->c_idx    = self._c_idx;
+            self._p->_prev    = self._prev;
+            self._p->_current = self._current;
+            self._p->_peek    = self._peek;
+            self._p->nl_depth = self._nl_depth;
+        }
+    }
+
     /// \brief initializes a parser for a specific context and token stream.
     ///
     /// \param ctx      the ASTContext which provides tokens and memory arenas.

@@ -37,8 +37,6 @@ import TokenKind::*;
 import ASTNode::Statements::*;
 import Parser::LexicalScope::*;
 
-
-
 class <T> ExprParse {
     /// \brief token set for primary expression dispatch. identifiers, builtins,
     ///        and `self` can start a primary expression.
@@ -543,7 +541,6 @@ class <T> ExprParse {
         // any remaining infix operator (arithmetic, bitwise, logical, ...)
         return self._infix_precedence(k) != Precedence::None;
     }
-
 
     // ========================================================================
     //  Unary expressions
@@ -1470,11 +1467,7 @@ class <T> ExprParse {
         if dyn()->check(TokenKind::LitString) {
             var tok = dyn()->current();
             dyn()->advance();
-            // TODO: distinguish plain/raw/format by checking token imm
-            return StringLiteralExpr::create(
-                dyn()->ctx, tok.range, tok,
-                StringLiteralExpr::StringKind::Plain
-            );
+            return self._parse_string_literal(tok);
         }
 
         // -- char literal --------------------------------------------
@@ -1910,6 +1903,112 @@ class <T> ExprParse {
         var ll = ListLiteralExpr::create(dyn()->ctx, lsquare_range | end_range);
         ll->elements.from_buf(elements.data(), elements.size(), dyn()->ctx);
         return ll;
+    }
+
+    // ========================================================================
+    // String literal
+    // ========================================================================
+    
+    priv fn _parse_string_literal(self, tok: Token) -> *Expr {
+        // The token reaching here passed check(LitString), but _resolve_and_check
+        // re-badges a failed-string TkError (whose recovery imm == LitString) as
+        // LitString, so a lex error can launder itself into this branch. Resolve
+        // the macro chain and inspect the TRUE kind: if it's TkError, the string
+        // never lexed; emit a recovery node instead of reading tok.imm as a
+        // StringData index (which it isn't, it's the recovery TokenKind).
+        
+        inline "c++" {
+            using _StreamGuard = typename T::StreamGuard;
+        }
+
+        var resolved = dyn()->resolve_deep(&tok);
+        if resolved.kind == TokenKind::TkError {
+            return self._error_expr(tok.range);
+        }
+
+        var imm_tbl = dyn()->ctx->get_imm_table();
+        if imm_tbl == &null {
+            // no imm table: bare plain node so the null-imm accessors are never hit.
+            return static_cast::<*Expr>(
+                StringLiteralExpr::create(dyn()->ctx, tok.range, tok,
+                                        StringLiteralExpr::StringKind::Plain));
+        }
+
+        inline "c++" {
+            auto sdata = imm_tbl->template get<Immediate::StringData>(resolved.imm);
+        }
+
+        // map prefix_kind flags -> StringKind flags. Both are flag enums now, so
+        // raw|format (rf) is representable. prefix_kind: None=0, Format=1<<0, Raw=1<<1.
+        var skind: u8 = 0;
+        if sdata != &null {
+            if (static_cast::<u8>(sdata->prefix_kind)
+            & static_cast::<u8>(Immediate::TextPrefixKind::Format)) != 0 {
+                skind |= static_cast::<u8>(StringLiteralExpr::StringKind::Format);
+            }
+            if (static_cast::<u8>(sdata->prefix_kind)
+            & static_cast::<u8>(Immediate::TextPrefixKind::Raw)) != 0 {
+                skind |= static_cast::<u8>(StringLiteralExpr::StringKind::Raw);
+            }
+        }
+
+        var node = StringLiteralExpr::create(
+            dyn()->ctx, tok.range, tok,
+            static_cast::<StringLiteralExpr::StringKind>(skind));
+        node->imm = sdata;   // attach: every get_*/is_* accessor asserts on null imm
+
+        // Parse holes off the DATA, not the kind: rf is both raw and format, and a
+        // format string with zero holes needs no loop. exprs.size() > 0 is the
+        // unambiguous "has holes" signal the lexer already computed.
+        if (sdata == &null) || (sdata->exprs.size() == 0) {
+            return static_cast::<*Expr>(node);
+        }
+
+        var parts: std::StackBuf::<*Expr, 8>;
+
+        for var i: usize = 0; i < sdata->exprs.size(); ++i {
+            var hole_buf   = libcxx::get::<0>(sdata->exprs[i]);
+            var hole_range = libcxx::get::<1>(sdata->exprs[i]);
+
+            if hole_buf == &null {
+                parts.push_back(self._error_expr(hole_range));
+                continue;
+            }
+
+            var count = hole_buf->size();
+            inline "c++" {
+                auto flat_tokens = dyn()->ctx->template alloc_array<Token>(count);
+            }
+
+            for var k: usize = 0; k < count; ++k {
+                var t_ptr = hole_buf->get(k);
+                if t_ptr != &null {
+                    flat_tokens[k] = *t_ptr;
+                }
+            }
+
+            var hole_span = TokenSpan(flat_tokens, count);
+
+            // swap the cursor onto the hole's TokenBuffer<16>, parse one expr,
+            // restore. No TentativeGuard may outlive this scope.
+            var hole_expr: *Expr = &null;
+            {
+                var g = _StreamGuard(dyn(), hole_span);
+                hole_expr = dyn()->parse_expr();
+            } // g.op delete restores the main stream here
+
+            if (hole_expr == &null) || is_recovery(hole_expr) {
+                dyn()->diag->report(DiagID::S052E, hole_range.start,
+                    "expected an expression inside f-string interpolation '{ }\x27"
+                ).first(hole_range).emit();
+                parts.push_back(self._error_expr(hole_range));
+                continue;
+            }
+            parts.push_back(hole_expr);
+        }
+
+        node->parts.from_buf(parts.data(), parts.size(), dyn()->ctx);
+        return static_cast::<*Expr>(node);
     }
 
     // ========================================================================
