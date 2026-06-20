@@ -16,7 +16,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 import Support::EvalHash::*;
-import Diagnostic::DiagMeta::*;
+import Diagnostic::Meta::*;
 
 enum DiagID derives u32 {
   Invalid = 0,

@@ -13,7 +13,7 @@
 
 ffi "c++" import "Native/Types.hh";
 
-import Diagnostic::DiagCode::*;
+import Diagnostic::Code::*;
 import Location::SourceRange::*;
 
 /// Source annotation attached to a \c Diagnostic.

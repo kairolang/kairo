@@ -19,8 +19,6 @@ import Command::ParsedArgs::*;
 /// \brief Target triple, ISA selection, and C++ interop ABI settings.
 ///
 class TargetOptions {
-    
-
     pub var triple:    string = ""; ///< --target triple
     pub var host:      string = ""; ///< --host triple
     pub var march:     string = ""; ///< -march / --march

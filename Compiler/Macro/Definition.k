@@ -9,7 +9,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Macro::MacroParameterList::*;
+import Macro::ParameterList::*;
 import Resolution::ModulePath::*;
 
 class MacroDefinition {

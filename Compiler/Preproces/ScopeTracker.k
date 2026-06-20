@@ -9,7 +9,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Macro::MacroSymbolTable::*;
+import Macro::SymbolTable::*;
 import Location::SourceManager::*;
 
 enum ModuleVisibility derives u8 {

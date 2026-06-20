@@ -13,7 +13,7 @@
 
 import Memory::MMapRegion::*;
 import Memory::MemoryBuffer::*;
-import Support::Unicode::UTF8View::*;
+import Support::UTF8View::*;
 import Support::Timer::*;
 
 ///

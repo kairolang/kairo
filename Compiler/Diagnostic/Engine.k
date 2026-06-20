@@ -48,9 +48,9 @@
 ffi "c++" import "Native/Types.hh";
 
 import Location::SourceRange::*;
-import Diagnostic::DiagRegistry::*;
+import Diagnostic::Registry::*;
 import Diagnostic::Diagnostic::*;
-import Diagnostic::DiagConsumer::*;
+import Diagnostic::Consumer::*;
 
 class DiagEngine;
 class DiagBuilder;

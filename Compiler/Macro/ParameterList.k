@@ -9,7 +9,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Macro::MacroParameter::*;
+import Macro::Parameter::*;
 import Preproces::PreprocessorSymbolTable::*;
 
 class MacroParameterList {

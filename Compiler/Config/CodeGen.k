@@ -20,7 +20,6 @@ import Command::ParsedArgs::*;
 ///        reproducible builds, and code generation behaviour.
 ///
 class CodeGenOptions {
-
     // -- misc codegen ------------------------------------------------------
     pub var fp_model:              string = "precise";
     pub var fp_contract:           string = "off";

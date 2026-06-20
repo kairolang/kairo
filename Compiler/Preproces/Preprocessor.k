@@ -209,13 +209,13 @@
 import Token::TokenCacheManager::*;
 import Token::TokenSpan::*;
 import Resolution::ImportProbe::*;
-import Macro::MacroDefinitionCollector::*;
+import Macro::DefinitionCollector::*;
 import Preproces::ExpansionContext::*;
-import Diagnostic::BasicDiagConsumer::*;
-import Diagnostic::DiagEngine::*;
-import Diagnostic::DiagRegistry::*;
-import Options::PreprocessorOptions::*;
-import Macro::MacroSentinel::*;
+import Diagnostic::BasicConsumer::*;
+import Diagnostic::Engine::*;
+import Diagnostic::Registry::*;
+import Config::Preprocessor::*;
+import Macro::Sentinel::*;
 import Preproces::DepScanner::*;
 import Preproces::WaveExecutor::*;
 

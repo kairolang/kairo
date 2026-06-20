@@ -25,7 +25,7 @@ import AST::Node::Base::*;
 import AST::Node::Program::*;
 import Token::TokenSpan::*;
 import Token::Token::*;
-import Diagnostic::DiagEngine::*;
+import Diagnostic::Engine::*;
 
 import Parser::LexicalScope::*;
 import Parser::ExprParse::*;

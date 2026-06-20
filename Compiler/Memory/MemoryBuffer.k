@@ -13,7 +13,7 @@
 
 ffi "c++" import "Native/Types.hh";
 
-import Support::Unicode::UTF8View::*;
+import Support::UTF8View::*;
 
 ///
 /// \file MemoryBuffer.k

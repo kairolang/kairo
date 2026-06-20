@@ -11,7 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Diagnostic::DiagRegistry::*;
+import Diagnostic::Registry::*;
 
 /// A resolved diagnostic code, pairing a \c DiagID with its cached \c DiagMeta.
 ///

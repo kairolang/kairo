@@ -22,8 +22,6 @@ import Command::ParsedArgs::*;
 /// debug flags so the preprocessor never reads raw flag keys.
 ///
 class PreprocessorOptions {
-    
-
     // -- CLI defines: each entry is "NAME" or "NAME=VALUE" -----------------
     pub var defines:            vec::<string>;      ///< -D flags
     // -- forced includes prepended before every source file ----------------

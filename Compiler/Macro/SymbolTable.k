@@ -9,7 +9,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Macro::MacroDefinition::*;
+import Macro::Definition::*;
 
 class MacroSymbolTable {
     var     _mu:   std::SharedMutex;

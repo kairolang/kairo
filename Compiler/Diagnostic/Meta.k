@@ -11,8 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Diagnostic::DiagCategory::*;
-import Diagnostic::DiagSeverity::*;
+import Diagnostic::Category::*;
+import Diagnostic::Severity::*;
 
 /// Static metadata for a single diagnostic entry.
 ///

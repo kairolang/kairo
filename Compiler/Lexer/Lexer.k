@@ -23,8 +23,8 @@ import Lexer::OctalParser::*;
 import Location::SourceManager::*;
 import Support::Timer::*;
 import Support::Assert::*;
-import Diagnostic::DiagEngine::*;
-import Diagnostic::DiagRegistry::*;
+import Diagnostic::Engine::*;
+import Diagnostic::Registry::*;
 
 /// \brief tracks git merge conflict marker detection state during lexing
 /// \details used to emit clean diagnostics when conflict markers are found

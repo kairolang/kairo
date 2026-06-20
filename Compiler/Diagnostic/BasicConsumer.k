@@ -28,7 +28,7 @@
 ffi "c++" import "Native/Types.hh";
 
 import Diagnostic::Diagnostic::*;
-import Diagnostic::DiagConsumer::*;
+import Diagnostic::Consumer::*;
 import Location::SourceManager::*;
 
 /// Plain-text diagnostic consumer no color, no ANSI codes.

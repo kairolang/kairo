@@ -99,16 +99,16 @@
 ///     DiagEngine writes will be replaced by a per-action capture + merge step.
 ///
 
-import Diagnostic::DiagEngine::*;
-import Diagnostic::DiagRegistry::*;
-import Diagnostic::PrettyDiagConsumer::*;
-import Diagnostic::BasicDiagConsumer::*;
+import Diagnostic::Engine::*;
+import Diagnostic::Registry::*;
+import Diagnostic::PrettyConsumer::*;
+import Diagnostic::BasicConsumer::*;
 import Location::SourceManager::*;
 import Support::TermRenderer::*;
 import Token::TokenCacheManager::*;
 import Command::Command::*;
 import Command::FlagRegistry::*;
-import Options::CompilerInvocation::*;
+import Config::Invocation::*;
 import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;

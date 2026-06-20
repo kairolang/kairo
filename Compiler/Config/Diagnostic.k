@@ -19,7 +19,6 @@ import Command::ParsedArgs::*;
 /// \brief Controls diagnostic formatting, filtering, and budget limits.
 ///
 class DiagnosticOptions {
-    
     // -- severity overrides ------------------------------------------------
     pub var warn_list:          vec::<string>;     ///< -W<name>
     pub var allow_list:         vec::<string>;     ///< -A<name>

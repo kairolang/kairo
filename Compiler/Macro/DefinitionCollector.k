@@ -13,8 +13,8 @@ import Preproces::ScopeTracker::*;
 import Resolution::FileImportState::*;
 import Resolution::ParsedImport::*;
 import Preproces::SkipList::*;
-import Diagnostic::DiagEngine::*;
-import Diagnostic::DiagRegistry::*;
+import Diagnostic::Engine::*;
+import Diagnostic::Registry::*;
 
 /// Macro Definition Collector
 /// ==========================

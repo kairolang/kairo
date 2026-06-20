@@ -21,9 +21,9 @@ import Lexer::Immediate::*;
 import Resolution::ModulePath::*;
 import Resolution::ImportProbe::*;
 import Token::TokenSpan::*;
-import Options::CompilerInvocation::*;
-import Diagnostic::DiagEngine::*;
-import Diagnostic::DiagRegistry::*;
+import Config::Invocation::*;
+import Diagnostic::Engine::*;
+import Diagnostic::Registry::*;
 import Support::InternedStr::*;
 
 /// \brief Forward declaration required by ASTContext.

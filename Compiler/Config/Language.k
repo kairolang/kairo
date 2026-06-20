@@ -22,7 +22,6 @@ import Command::ParsedArgs::*;
 /// Nothing downstream reads raw flag keys after this point.
 ///
 class LangOptions {
-
     pub var edition:         string = "2026";
 
     // -- build mode / AMT --------------------------------------------------

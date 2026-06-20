@@ -27,8 +27,8 @@ import AST::Node::PrimaryExpressions::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
 import AST::Mixin::TypeQual::*;
-import Diagnostic::DiagEngine::*;
-import Diagnostic::DiagRegistry::*;
+import Diagnostic::Engine::*;
+import Diagnostic::Registry::*;
 import Location::SourceRange::*;
 import Token::TokenKind::*;
 

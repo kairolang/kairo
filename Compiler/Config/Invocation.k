@@ -12,13 +12,13 @@
 /// ------------------------------------------------------------------------ ///
 
 import Command::ParsedArgs::*;
-import Options::LangOptions::*;
-import Options::DiagnosticOptions::*;
-import Options::PreprocessorOptions::*;
-import Options::CodeGenOptions::*;
-import Options::FrontendOptions::*;
-import Options::TargetOptions::*;
-import Options::LinkerOptions::*;
+import Config::Language::*;
+import Config::Diagnostic::*;
+import Config::Preprocessor::*;
+import Config::CodeGen::*;
+import Config::Frontend::*;
+import Config::Target::*;
+import Config::Linker::*;
 
 ///
 /// \class CompilerInvocation
@@ -33,7 +33,6 @@ import Options::LinkerOptions::*;
 /// copyable and can be freely passed around by value or reference.
 ///
 class CompilerInvocation {
-
     // -- sub-option structs (one per subsystem) ----------------------------
     pub var lang:     LangOptions;
     pub var diag:     DiagnosticOptions;

@@ -8,7 +8,7 @@ import AST::Node::Base::*;
 import AST::Node::Program::*;
 import Token::TokenSpan::*;
 import Token::Token::*;
-import Diagnostic::DiagEngine::*;
+import Diagnostic::Engine::*;
 
 /// \enum SyncSet
 /// \brief bitmask of synchronization points used for error recovery during parsing.

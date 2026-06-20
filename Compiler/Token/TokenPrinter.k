@@ -14,7 +14,7 @@
 import Location::SourceManager::*;
 import Token::TokenBuffer::*;
 import Lexer::Immediate::*;
-import Macro::MacroSentinel::*;
+import Macro::Sentinel::*;
 
 /// \brief ANSI SGR escape sequences. all empty-stringed when color is disabled.
 class Sgr {

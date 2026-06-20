@@ -23,7 +23,7 @@ import AST::Context::ASTContext::*;
 import Token::TokenKind::*;
 import Memory::ArenaList::*;
 import Location::SourceManager::*;
-import Macro::MacroSentinel::*;
+import Macro::Sentinel::*;
 import Lexer::Immediate::*;
 import Token::Token::*;
 

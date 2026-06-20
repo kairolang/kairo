@@ -24,7 +24,6 @@ import Command::ParsedArgs::*;
 /// driver having to pick through unrelated option structs.
 ///
 class LinkerOptions {
-
     // -- general linking ---------------------------------------------------
     pub var linker_script:     string = "";
     pub var version_script:    string = "";
