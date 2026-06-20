@@ -1,9 +1,12 @@
 Compiler
 ========
 
-Stage 1 compiler - self-hosted, written in Kairo. This is the Kairo-side compiler; Stage 0 (the C++ transpiler) compiles this tree and is the current shipping compiler. Stage 1 is the target.
+Stage 1 compiler - self-hosted, written in Kairo. This is the
+Kairo-side compiler; Stage 0 (the C++ transpiler) compiles this
+tree and is the current shipping compiler. Stage 1 is the target.
 
-The pipeline runs source -> tokens -> AST -> typed/lowered AST -> IR -> object code. Each stage owns one transformation and hands off; the directory layout follows the pipeline. Codegen is handled by injecting Kairo tokens directly into Clang's SourceManager rather than emitting C++ text - see Interop/Clang.
+Each stage owns one transformation and hands off; the directory
+layout follows the pipeline.
 
   Lex -> Preprocess -> Parse -> Clang Interop -> Semantic Analysis -> KairoIR -> CodeGen
 
@@ -43,9 +46,12 @@ Compiler/
 Notes
 -----
 
-Resolution is import/path resolution (finding files); name resolution lives in Sema. They are different stages despite the similar name.
+Resolution is import/path resolution (finding files); name resolution
+lives in Sema. They are different stages despite the similar name.
 
-Native/ headers are pooled rather than co-located because their #include paths are relative and mutually dependent; -I does not currently reach them. (stage0 limitation)
+Native/ headers are pooled rather than co-located because their
+#include paths are relative and mutually dependent; -I does not
+currently reach them. (stage0 limitation)
 
 
 Build
