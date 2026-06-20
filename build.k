@@ -253,7 +253,7 @@ fn main() -> i32 {
     }
 
     // we also need to add
-    //    "python3 Scripts/gen_diag.py Compiler/DiagTblg > Compiler/Diag/DiagRegistry.k"
+    //    "python3 Scripts/gen_diag.py Compiler/Diagnostics/TableGen > Compiler/Diag/DiagRegistry.k"
     //    as a prebuild step for the entire project, but that is currently not
     //    possible since it would require regenerating DiagRegistry.k before every target
 

@@ -31,16 +31,16 @@
 ///
 /// ------------------------------------------------------------------------- ///
 
-import ASTNode::Base::*;
-import ASTNode::Declarations::*;
-import ASTNode::Statements::*;
-import ASTNode::PrimaryExpressions::*;
-import ASTNode::Casting::*;
-import AST::ASTContext::*;
-import AST::DeclContext::*;
+import AST::Node::Base::*;
+import AST::Node::Declarations::*;
+import AST::Node::Statements::*;
+import AST::Node::PrimaryExpressions::*;
+import AST::Node::Casting::*;
+import AST::Context::ASTContext::*;
+import AST::Context::DeclContext::*;
 import AST::Mixin::Annotation::*;
-import Diag::DiagEngine::*;
-import Diag::DiagRegistry::*;
+import Diagnostics::DiagEngine::*;
+import Diagnostics::DiagRegistry::*;
 import Source::SourceRange::*;
 import Lexer::Token::*;
 import Lexer::TokenKind::*;

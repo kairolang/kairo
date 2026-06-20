@@ -12,7 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Lexer::TokenCacheManager::*;
-import Preprocessor::ImportResolver::*;
+import Preprocessor::ImportProbe::*;
 import Preprocessor::SkipList::*;
 import Source::SourceManager::*;
 import Preprocessor::ScopeTracker::*;

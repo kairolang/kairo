@@ -22,8 +22,8 @@ import Source::SourceLineTable::*;
 import Support::Threading::ThreadPool::*;
 import Support::FileIO::VirtualFileManager::*;
 import Support::Assert::*;
-import Diag::DiagEngine::*;
-import Diag::DiagRegistry::*;
+import Diagnostics::DiagEngine::*;
+import Diagnostics::DiagRegistry::*;
 
 type FileID = u32;;
 

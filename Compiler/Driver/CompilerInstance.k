@@ -99,10 +99,10 @@
 ///     DiagEngine writes will be replaced by a per-action capture + merge step.
 ///
 
-import Diag::DiagEngine::*;
-import Diag::DiagRegistry::*;
-import DiagConsumer::PrettyDiagConsumer::*;
-import DiagConsumer::BasicDiagConsumer::*;
+import Diagnostics::DiagEngine::*;
+import Diagnostics::DiagRegistry::*;
+import Diagnostics::PrettyDiagConsumer::*;
+import Diagnostics::BasicDiagConsumer::*;
 import Source::SourceManager::*;
 import Support::TermRenderer::*;
 import Lexer::TokenCacheManager::*;
@@ -113,9 +113,9 @@ import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;
 import Preprocessor::Preprocessor::*;
-import AST::ASTIndex::*;
+import AST::Context::ASTIndex::*;
 import Parser::ASTParse::*;
-import AST::GlobalHoistedScope::*;
+import AST::Context::GlobalHoistedScope::*;
 import AST::Printer::ASTPrinter::*;
 import Lexer::TokenPrinter::*;
 

@@ -36,28 +36,28 @@
 /// --------------------------------------------------------------------- ///
 
 import AST::Printer::PrintCore::*;
-import AST::ASTContext::*;
-import AST::DeclContext::*;
-import AST::Support::*;
+import AST::Context::ASTContext::*;
+import AST::Context::DeclContext::*;
+import AST::ASTSupport::*;
 import Support::InternedStr::*;
-import AST::TranslationUnit::*;
+import AST::Context::TranslationUnit::*;
 import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;
-import ASTVisitor::RecursiveASTVisitor::*;
-import ASTNode::Base::*;
-import ASTNode::Program::*;
-import ASTNode::PrimaryExpressions::*;
-import ASTNode::Expressions::*;
-import ASTNode::Types::*;
-import ASTNode::Patterns::*;
-import ASTNode::Statements::*;
-import ASTNode::Declarations::*;
-import ASTNode::Casting::*;
-import ASTKind::DeclKind::*;
-import ASTKind::ExprKind::*;
-import ASTKind::TypeKind::*;
-import ASTKind::StmtKind::*;
-import ASTKind::PatternKind::*;
+import AST::Visitor::RecursiveASTVisitor::*;
+import AST::Node::Base::*;
+import AST::Node::Program::*;
+import AST::Node::PrimaryExpressions::*;
+import AST::Node::Expressions::*;
+import AST::Node::Types::*;
+import AST::Node::Patterns::*;
+import AST::Node::Statements::*;
+import AST::Node::Declarations::*;
+import AST::Node::Casting::*;
+import AST::Kind::DeclKind::*;
+import AST::Kind::ExprKind::*;
+import AST::Kind::TypeKind::*;
+import AST::Kind::StmtKind::*;
+import AST::Kind::PatternKind::*;
 import Lexer::TokenKind::*;
 
 /// AstDumper derives RecursiveASTVisitor::<AstDumper> so its dispatch_*

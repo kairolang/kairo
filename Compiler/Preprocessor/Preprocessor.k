@@ -208,12 +208,12 @@
 
 import Lexer::TokenCacheManager::*;
 import Lexer::TokenSpan::*;
-import Preprocessor::ImportResolver::*;
+import Preprocessor::ImportProbe::*;
 import Preprocessor::MacroDefinitionCollector::*;
 import Preprocessor::ExpansionContext::*;
-import DiagConsumer::BasicDiagConsumer::*;
-import Diag::DiagEngine::*;
-import Diag::DiagRegistry::*;
+import Diagnostics::BasicDiagConsumer::*;
+import Diagnostics::DiagEngine::*;
+import Diagnostics::DiagRegistry::*;
 import Options::PreprocessorOptions::*;
 import Preprocessor::MacroSentinel::*;
 import Preprocessor::DepScanner::*;

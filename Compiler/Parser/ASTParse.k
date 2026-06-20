@@ -15,17 +15,17 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::ASTContext::*;
-import AST::TranslationUnit::*;
+import AST::Context::ASTContext::*;
+import AST::Context::TranslationUnit::*;
 import AST::CodeCompleteConsumer::*;
-import AST::DeclContext::*;
+import AST::Context::DeclContext::*;
 import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;
-import ASTNode::Base::*;
-import ASTNode::Program::*;
+import AST::Node::Base::*;
+import AST::Node::Program::*;
 import Lexer::TokenSpan::*;
 import Lexer::Token::*;
-import Diag::DiagEngine::*;
+import Diagnostics::DiagEngine::*;
 
 import Parser::LexicalScope::*;
 import Parser::ExprParse::*;

@@ -39,13 +39,13 @@
 ///
 /// ----------------------------------------------------------------------- ///
 
-import ASTNode::Base::*;
-import ASTNode::Patterns::*;
-import ASTNode::PrimaryExpressions::*;
-import ASTNode::Casting::*;
-import AST::ASTContext::*;
-import Diag::DiagEngine::*;
-import Diag::DiagRegistry::*;
+import AST::Node::Base::*;
+import AST::Node::Patterns::*;
+import AST::Node::PrimaryExpressions::*;
+import AST::Node::Casting::*;
+import AST::Context::ASTContext::*;
+import Diagnostics::DiagEngine::*;
+import Diagnostics::DiagRegistry::*;
 import Source::SourceRange::*;
 import Lexer::Token::*;
 import Lexer::TokenKind::*;

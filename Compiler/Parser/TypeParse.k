@@ -20,15 +20,15 @@
 ///
 /// ----------------------------------------------------------------------- ///
 
-import ASTNode::Base::*;
-import ASTNode::Types::*;
-import ASTNode::Casting::*;
-import ASTNode::PrimaryExpressions::*;
+import AST::Node::Base::*;
+import AST::Node::Types::*;
+import AST::Node::Casting::*;
+import AST::Node::PrimaryExpressions::*;
 import AST::CodeCompleteConsumer::*;
-import AST::ASTContext::*;
+import AST::Context::ASTContext::*;
 import AST::Mixin::TypeQual::*;
-import Diag::DiagEngine::*;
-import Diag::DiagRegistry::*;
+import Diagnostics::DiagEngine::*;
+import Diagnostics::DiagRegistry::*;
 import Source::SourceRange::*;
 import Lexer::TokenKind::*;
 

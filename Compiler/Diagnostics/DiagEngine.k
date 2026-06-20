@@ -1,0 +1,673 @@
+/// --- The Kairo Project ----------------- Compiler/Diag/DiagEngine.k ----- ///
+///
+///   Diagnostic engine, builder, and poison-scope suppression.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+///
+///   BasicDiagConsumer is intentionally not imported here. SourceManager
+///       depends on DiagEngine, and BasicDiagConsumer depends on SourceManager
+///       importing it here would create a circular dependency. Consumers are
+///       registered by the driver.
+///
+/// --- Usage example ------------------------------------------------------ ///
+///
+///   var engine   = DiagEngine();
+///   var consumer = BasicDiagConsumer();
+///   engine.add_consumer(&consumer);
+///
+///   // Wire SourceManager without circular import pass a callback and context:
+///   var sm = SourceManager(pool, vfm,
+///       diag_engine_report_callback,
+///       static_cast::<*void>(&engine));
+///
+///   // Compiler components hold *DiagEngine directly:
+///   var lexer = Lexer(sm, &engine);
+///
+///   // Emit a diagnostic with labels, a fix-it, and an attached note:
+///   engine.report(DiagCode(DiagID::SC041E), some_loc,
+///           f"function '{name}' has a 'void' return type but returns '{ret}\x27")
+///       .first(fn_name_range)
+///       .second(ret_type_range, f"expected 'void', found '{ret}\x27")
+///       .fix(ret_type_range, ret, f"change the return type to '{ret}\x27")
+///       .note(DiagCode(DiagID::SC021N), ret_loc, "the return is here")
+///           .child_first(ret_range, "returns here")
+///       .emit();
+///
+///   consumer.finalize_to_stderr();
+///   std::print(engine.summary());
+///
+/// ------------------------------------------------------------------------ ///
+
+ffi "c++" import "Include/Types.hh";
+
+import Source::SourceRange::*;
+import Diagnostics::DiagRegistry::*;
+import Diagnostics::Diagnostic::*;
+import Diagnostics::DiagConsumer::*;
+
+class DiagEngine;
+class DiagBuilder;
+
+/// Fluent builder for constructing and emitting a single \c Diagnostic.
+///
+/// Obtained from \c DiagEngine::report(). Labels, fix-its, and child
+/// diagnostics are attached via chained method calls. The diagnostic is
+/// emitted either by calling \c emit() explicitly or automatically on
+/// destruction if \c emit() was never called.
+///
+/// Ownership of the underlying \c Diagnostic transfers to \c DiagEngine
+/// on emission. If the builder is destroyed before \c emit() is called,
+/// the diagnostic is emitted first, then the pointer is not freed the
+/// engine owns it from that point.
+///
+/// \note All label and fix-it methods return \c ref!(DiagBuilder) to
+///       support method chaining.
+class DiagBuilder {
+    priv var _engine:  obs::<DiagEngine>;
+    priv var _diag:    own::<Diagnostic>;
+    priv var _emitted: bool;
+
+    // --- Constructors --------------------------------------------------------
+
+    fn DiagBuilder(self, engine: *DiagEngine, code: DiagCode, loc: SourceLocation, msg: string) {
+        if loc == SourceLocation::invalid() {
+            self._engine  = engine;
+            self._diag    = std::create::<Diagnostic>(code, msg);
+            self._emitted = false;
+            return;
+        }
+
+        self._engine  = engine;
+        self._diag    = std::create::<Diagnostic>(code, loc, msg);
+        self._emitted = false;
+    }
+
+    fn DiagBuilder(self, engine: *DiagEngine, code: DiagCode, msg: string) {
+        self._engine  = engine;
+        self._diag    = std::create::<Diagnostic>(code, msg);
+        self._emitted = false;
+    }
+
+    fn DiagBuilder(self, other: mref!(DiagBuilder)) {
+        self._engine   = other._engine;
+        self._diag     = other._diag;
+        self._emitted  = other._emitted;
+        other._emitted = true;     // source must not emit on its dtor
+        other._diag    = &null;    // source no longer owns the diag
+    }
+
+    // Move-assign: drop what we hold (if un-emitted), then steal.
+    fn op = (self, other: mref!(DiagBuilder)) -> ref!(DiagBuilder) {
+        if (&self) == (&other) { return self; }
+        if (!self._emitted) && (self._diag != &null) {
+            std::destroy(self._diag);
+        }
+        self._engine   = other._engine;
+        self._diag     = other._diag;
+        self._emitted  = other._emitted;
+        other._emitted = true;
+        other._diag    = &null;
+        return self;
+    }
+
+    // Copy is forbidden: a raw-pointer member with a freeing dtor double-frees
+    // on any copy. Misuse (pass-by-value, auto b2 = b) is now a compile error.
+    delete fn DiagBuilder(self, other: ref!(DiagBuilder));
+    delete fn op = (self, other: ref!(DiagBuilder)) -> ref!(DiagBuilder);
+
+    // --- Labels --------------------------------------------------------------
+
+    /// Attaches a primary label (\c ^^^) to \p range.
+    fn first(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
+        var label = DiagLabel{};
+        label.range = range;
+        label.text  = text;
+        label.style = DiagLabel::Style::Primary;
+        self._diag->labels.push_back(label);
+        return self;
+    }
+
+    /// Attaches a secondary label (\c +++) to \p range.
+    fn second(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
+        var label = DiagLabel{};
+        label.range = range;
+        label.text  = text;
+        label.style = DiagLabel::Style::Secondary;
+        self._diag->labels.push_back(label);
+        return self;
+    }
+
+    /// Attaches a highlight label (\c ---) to \p range.
+    fn highlight(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
+        var label = DiagLabel{};
+        label.range = range;
+        label.text  = text;
+        label.style = DiagLabel::Style::Highlight;
+        self._diag->labels.push_back(label);
+        return self;
+    }
+
+    /// Attaches a strikethrough label (\c ~~~) to \p range.
+    /// Rendered with Unicode combining strikethrough in \c PrettyConsumer;
+    /// falls back to ASCII in all other consumers.
+    fn strike(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
+        var label = DiagLabel{};
+        label.range = range;
+        label.text  = text;
+        label.style = DiagLabel::Style::StrikeThrough;
+        self._diag->labels.push_back(label);
+        return self;
+    }
+
+    // --- Fix-its -------------------------------------------------------------
+
+    /// Attaches a fix-it that replaces \p range with \p replacement.
+    /// \p msg is shown to the user describing the intent of the edit.
+    fn fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
+        var f = FixIt{};
+        f.range       = range;
+        f.replacement = replacement;
+        f.message     = msg;
+        self._diag->fixits.push_back(f);
+        return self;
+    }
+
+    /// Attaches a fix-it that inserts \p text at \p loc (zero-length replacement).
+    fn insert(self, loc: SourceLocation, text: string, msg: string) -> ref!(DiagBuilder) {
+        var r = SourceRange{};
+        r.start = loc;
+        r.end   = loc;
+
+        if !loc.is_valid() {
+            return self;
+        }
+
+        var f = FixIt{};
+        f.range       = r;
+        f.replacement = text;
+        f.message     = msg;
+        self._diag->fixits.push_back(f);
+        return self;
+    }
+
+    // --- Child diagnostics ---------------------------------------------------
+
+    priv fn _add_child(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
+        var child = std::create::<Diagnostic>(code, loc, msg);
+        self._diag->children.push_back(child);
+        return self;
+    }
+
+    priv fn _add_child_no_loc(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        var child = std::create::<Diagnostic>(code, msg);
+        self._diag->children.push_back(child);
+        return self;
+    }
+
+    /// Attaches a child note. Overloaded for with/without source location.
+    fn note(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+        
+        return self._add_child(code, loc, msg);
+    }
+    fn note(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(code, msg);
+    }
+
+    /// Attaches a child warning.
+    fn warning(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
+        return self._add_child(code, loc, msg);
+    }
+    fn warning(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(code, msg);
+    }
+
+    /// Attaches a child remark.
+    fn remark(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
+        return self._add_child(code, loc, msg);
+    }
+    fn remark(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(code, msg);
+    }
+
+    /// Attaches a child verbose note.
+    fn verbose(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
+        return self._add_child(code, loc, msg);
+    }
+
+    /// Attaches a child debug note (stripped in release builds).
+    fn debug_note(self, code: DiagCode, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(code, msg);
+        }
+
+        return self._add_child(code, loc, msg);
+    }
+
+    // --- Child labels --------------------------------------------------------
+    //
+    // These attach labels to the most recently added child diagnostic.
+    // Silently no-ops if no child has been added yet.
+
+    /// Attaches a primary label to the last child diagnostic.
+    fn child_first(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if range.is_invalid() {
+            return self;
+        }
+
+        if self._diag->children.size() > 0 {
+            var child = self._diag->children[self._diag->children.size() - 1];
+            var label = DiagLabel{};
+            label.range = range;
+            label.text  = text;
+            label.style = DiagLabel::Style::Primary;
+            child->labels.push_back(label);
+        }
+        return self;
+    }
+
+    /// Attaches a secondary label to the last child diagnostic.
+    fn child_second(self, range: SourceRange, text: string = "") -> ref!(DiagBuilder) {
+        if range.is_invalid() {
+            return self;
+        }
+
+        if self._diag->children.size() > 0 {
+            var child = self._diag->children[self._diag->children.size() - 1];
+            var label = DiagLabel{};
+            label.range = range;
+            label.text  = text;
+            label.style = DiagLabel::Style::Secondary;
+            child->labels.push_back(label);
+        }
+        return self;
+    }
+
+    /// Attaches a fix-it to the last child diagnostic.
+    fn child_fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
+        if range.is_invalid() {
+            return self;
+        }
+
+        if self._diag->children.size() > 0 {
+            var child = self._diag->children[self._diag->children.size() - 1];
+            var f = FixIt{};
+            f.range       = range;
+            f.replacement = replacement;
+            f.message     = msg;
+            child->fixits.push_back(f);
+        }
+        return self;
+    }
+
+    // --- Emission ------------------------------------------------------------
+
+    /// Emits the diagnostic to \c DiagEngine. Idempotent subsequent calls
+    /// are no-ops. Ownership of \c _diag transfers to the engine.
+    fn emit(self); // defined out-of-line after DiagEngine
+
+    // --- Destructor ----------------------------------------------------------
+
+    /// Emits the diagnostic if \c emit() was never called explicitly.
+    /// If the builder was never emitted and emit fails, \c _diag is freed
+    /// to avoid a leak.
+    fn op delete (self) {
+        if !self._emitted {
+            // built but never emitted: a bug. We do NOT implicitly emit
+            // implicit emit-at-scope-exit collides with suppression scopes
+            // (TentativeGuard) and hides the mistake. Debug aborts; release
+            // frees the orphan to avoid a leak, dropping the diagnostic.
+            assert(false && r"DiagBuilder dropped without emit()");
+            if self._diag != &null {
+                std::destroy(self._diag);
+            }
+        }
+    }
+}
+
+/// Central diagnostic hub for a single compilation unit.
+///
+/// \c DiagEngine receives diagnostics from all compiler components, applies
+/// suppression rules (poison scopes, error limits, \c -Werror), updates
+/// per-severity counters, and forwards each live diagnostic to all registered
+/// \c DiagConsumer instances.
+///
+/// Components hold a \c *DiagEngine directly. The engine owns all emitted
+/// \c Diagnostic objects and frees them on destruction.
+///
+/// \par Poison scopes
+/// A poison scope suppresses all errors and warnings of a given category that
+/// fall inside a \c SourceRange. Used to silence cascading diagnostics after
+/// a recovery point. Scopes are cleared explicitly via \c clear_poison() or
+/// \c clear_all_poison().
+///
+/// \par Error limit
+/// Once \c _error_count reaches \c _error_limit (default 50), further errors
+/// and fatals are silently suppressed and counted in \c _suppressed_count.
+///
+/// \par Consumer registration
+/// Consumers are registered with \c add_consumer() and unregistered with
+/// \c remove_consumer(). The engine does not own consumers.
+class DiagEngine {
+
+    /// A suppression entry binding a diagnostic category to a source scope.
+    struct PoisonEntry {
+        var category: DiagCategory;
+        var scope:    SourceRange;
+    }
+
+    priv var _poisoned:           vec::<PoisonEntry>;
+    priv var _consumers:          vec::<obs::<DiagConsumer>>;
+    priv var _all_diags:          vec::<own::<Diagnostic>>; ///< Owns all emitted diagnostics.
+    priv var _error_count:        u32  = 0;
+    priv var _warn_count:         u32  = 0;
+    priv var _note_count:         u32  = 0;
+    priv var _remark_count:       u32  = 0;
+    priv var _ignored_count:      u32  = 0;
+    priv var _verbose_count:      u32  = 0;
+    priv var _debug_count:        u32  = 0;
+    priv var _fatal_count:        u32  = 0;
+    priv var _suppressed_count:   u32  = 0;
+    priv var _error_limit:        u32  = 50; ///< Max errors before suppression kicks in.
+    priv var _suppress_depth:     u32  = 0;
+    priv var _warnings_as_errors: bool = false;
+
+    // --- Constructors --------------------------------------------------------
+
+    fn DiagEngine(self) {
+        self._consumers.reserve(2);
+        self._all_diags.reserve(64);
+        self._poisoned.reserve(16);
+    }
+
+    // --- Destructor ----------------------------------------------------------
+
+    /// Destroys all owned \c Diagnostic objects.
+    fn op delete (self) {
+        for var i: usize = 0; i < self._all_diags.size(); ++i {
+            std::destroy(self._all_diags[i]);
+        }
+    }
+
+    // --- Consumer registration -----------------------------------------------
+
+    /// Registers \p consumer to receive future diagnostics. Not owned.
+    fn add_consumer(self, consumer: *DiagConsumer) {
+        self._consumers.push_back(consumer);
+    }
+
+    /// Unregisters \p consumer. Linear scan; expects a small consumer count.
+    fn remove_consumer(self, consumer: *DiagConsumer) {
+        var j: usize = 0;
+        for var i: usize = 0; i < self._consumers.size(); ++i {
+            if self._consumers[i] != consumer {
+                if i != j {
+                    self._consumers[j] = self._consumers[i];
+                }
+
+                j += 1;
+            }
+        }
+
+        while self._consumers.size() > j {
+            self._consumers.pop_back();
+        }
+    }
+
+    // --- Report --------------------------------------------------------------
+
+    /// Creates a \c DiagBuilder for a diagnostic at \p loc.
+    fn report(self, code: DiagCode, loc: SourceLocation, msg: string) -> DiagBuilder {
+        if loc == SourceLocation::invalid() {
+            return self.report(code, msg);
+        }
+
+        return DiagBuilder(&self, code, loc, msg);
+    }
+
+    /// Creates a \c DiagBuilder for a location-less diagnostic.
+    fn report(self, code: DiagCode, msg: string) -> DiagBuilder {
+        return DiagBuilder(&self, code, msg);
+    }
+
+    /// Convenience overloads accepting a raw \c DiagID.
+    fn report(self, id: DiagID, loc: SourceLocation, msg: string) -> DiagBuilder {
+        if loc == SourceLocation::invalid() {
+            return self.report(DiagCode(id), msg);
+        }
+
+        return DiagBuilder(&self, DiagCode(id), loc, msg);
+    }
+
+    fn report(self, id: DiagID, msg: string) -> DiagBuilder {
+        return DiagBuilder(&self, DiagCode(id), msg);
+    }
+
+    // --- Poison scopes -------------------------------------------------------
+
+    /// Suppresses all errors and warnings of \p category inside \p scope.
+    fn poison(self, category: DiagCategory, scope: SourceRange) {
+        var entry = PoisonEntry{};
+        entry.category = category;
+        entry.scope    = scope;
+        self._poisoned.push_back(entry);
+    }
+
+    /// Returns true if \p loc falls inside an active poison scope for \p category.
+    fn is_poisoned(self, category: DiagCategory, loc: SourceLocation) -> bool {
+        for var i: usize = 0; i < self._poisoned.size(); ++i {
+            if self._poisoned[i].category == category {
+                if self._poisoned[i].scope.contains(loc) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// Removes all poison scopes for \p category.
+    fn clear_poison(self, category: DiagCategory) {
+        var j: usize = 0;
+        for var i: usize = 0; i < self._poisoned.size(); ++i {
+            if self._poisoned[i].category != category {
+                if i != j {
+                    self._poisoned[j] = self._poisoned[i];
+                }
+
+                j += 1;
+            }
+        }
+
+        while self._poisoned.size() > j {
+            self._poisoned.pop_back();
+        }
+    }
+
+    /// Removes all active poison scopes.
+    fn clear_all_poison(self) {
+        self._poisoned.clear();
+    }
+
+    // --- Emission ------------------------------------------------------------
+
+    /// Applies suppression rules, updates counters, and forwards \p diag to
+    /// all registered consumers. Takes ownership of \p diag.
+    ///
+    /// Suppression order:
+    ///   1. Poison scope errors and warnings inside a poisoned range are dropped.
+    ///   2. \c -Werror  warnings are promoted to errors before limit checking.
+    ///   3. Error limit errors and fatals beyond \c _error_limit are dropped.
+    fn emit(self, diag: *Diagnostic) {
+        if self._suppress_depth > 0 {
+            std::destroy(diag);
+            return;
+        }
+
+        var sev = diag->code.severity();
+        var cat = diag->code.category();
+
+        if diag->has_loc {
+            if sev == DiagSeverity::Error || sev == DiagSeverity::Warning {
+                if self.is_poisoned(cat, diag->loc) {
+                    self._suppressed_count += 1;
+                    self._all_diags.push_back(diag);
+                    return;
+                }
+            }
+        }
+
+        if sev == DiagSeverity::Warning && self._warnings_as_errors {
+            sev = DiagSeverity::Error;
+        }
+
+        if sev == DiagSeverity::Error || sev == DiagSeverity::Fatal {
+            if self._error_count >= self._error_limit {
+                if self._suppressed_count == 0 {
+                    var limit_diag = std::create::<Diagnostic>(
+                        DiagCode(DiagID::I957E),
+                        f"too many errors emitted, further errors will be suppressed");
+                    self._all_diags.push_back(limit_diag);
+                    for var i: usize = 0; i < self._consumers.size(); ++i {
+                        self._consumers[i]->handle(limit_diag);
+                    }
+                }
+
+                self._suppressed_count += 1;
+                self._all_diags.push_back(diag);
+                return;
+            }
+        }
+
+        switch sev {
+            case DiagSeverity::Ignored  { self._ignored_count += 1; }
+            case DiagSeverity::Remark   { self._remark_count  += 1; }
+            case DiagSeverity::Verbose  { self._verbose_count += 1; }
+            case DiagSeverity::Note     { self._note_count    += 1; }
+            case DiagSeverity::Debug    { self._debug_count   += 1; }
+            case DiagSeverity::Warning  { self._warn_count    += 1; }
+            case DiagSeverity::Error    { self._error_count   += 1; }
+            case DiagSeverity::Fatal    { self._fatal_count   += 1;
+                                          self._error_count   += 1; }
+            default {}
+        }
+
+        self._all_diags.push_back(diag);
+
+        for var i: usize = 0; i < self._consumers.size(); ++i {
+            self._consumers[i]->handle(diag);
+        }
+    }
+
+    // --- Configuration -------------------------------------------------------
+
+    /// Sets the maximum number of errors before suppression. Default: 50.
+    fn set_error_limit(self, limit: u32) { self._error_limit = limit; }
+    fn push_suppress(self) {
+        self._suppress_depth += 1;
+    }
+    fn pop_suppress(self)  {
+        if self._suppress_depth > 0 {
+            self._suppress_depth -= 1;
+        }
+    }
+
+    /// Promotes all warnings to errors when \p val is true.
+    fn set_warnings_as_errors(self, val: bool)  { self._warnings_as_errors = val; }
+
+    // --- Counters ------------------------------------------------------------
+
+    fn has_errors(self) -> bool      { return self._error_count > 0;  }
+    fn has_fatal(self) -> bool       { return self._fatal_count > 0;  }
+    fn error_count(self) -> u32      { return self._error_count;      }
+    fn warn_count(self) -> u32       { return self._warn_count;       }
+    fn note_count(self) -> u32       { return self._note_count;       }
+    fn remark_count(self) -> u32     { return self._remark_count;     }
+    fn ignored_count(self) -> u32    { return self._ignored_count;    }
+    fn verbose_count(self) -> u32    { return self._verbose_count;    }
+    fn debug_count(self) -> u32      { return self._debug_count;      }
+    fn suppressed_count(self) -> u32 { return self._suppressed_count; }
+
+    // --- Summary -------------------------------------------------------------
+
+    /// Returns a human-readable summary of emitted diagnostic counts,
+    /// e.g. \c "3 error(s), 1 warning(s), 2 suppressed".
+    fn summary(self) -> string {
+        var out: string;
+        if self._error_count > 0 {
+            out += f"{self._error_count} error(s)";
+        }
+        if self._warn_count > 0 {
+            if out.length() > 0 { out += ", "; }
+            out += f"{self._warn_count} warning(s)";
+        }
+        if self._note_count > 0 {
+            if out.length() > 0 { out += ", "; }
+            out += f"{self._note_count} note(s)";
+        }
+        if self._suppressed_count > 0 {
+            if out.length() > 0 { out += ", "; }
+            out += f"{self._suppressed_count} suppressed";
+        }
+        if out.length() == 0 {
+            out = "no diagnostics";
+        }
+        return out;
+    }
+}
+
+// --- Out-of-line definitions -------------------------------------------------
+
+/// Emits the diagnostic to the engine. Idempotent.
+/// Ownership of \c _diag transfers to \c DiagEngine on first call.
+fn DiagBuilder::emit() {
+    if self._emitted {
+        return;
+    }
+    self._emitted = true;
+    self._engine->emit(self._diag);
+}

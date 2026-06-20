@@ -1,0 +1,974 @@
+/// --- The Kairo Project ------------------- Compiler/ASTNode/Types.k ----- ///
+///
+///   Defines AST nodes for type representations.
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+//  TypeKind::RecoveryType                                                   ///
+//  TypeKind::ChainType                                                      ///
+//  TypeKind::GenericParamType                                               ///
+//  TypeKind::SubstGenericParamType                                          ///
+//  TypeKind::TypeOfType                                                     ///
+//  TypeKind::VariadicPackType                                               ///
+//  TypeKind::PackExpansionType                                              ///
+//  TypeKind::PointerType                                                    ///
+//  TypeKind::NullableType                                                   ///
+//  TypeKind::TupleType                                                      ///
+//  TypeKind::FixedArrayType                                                 ///
+//  TypeKind::VectorType                                                     ///
+//  TypeKind::MapType                                                        ///
+//  TypeKind::SetType                                                        ///
+//  TypeKind::SelfType                                                       ///
+//  TypeKind::FunctionPointerType                                            ///
+//  TypeKind::InferredType                                                   ///
+//  TypeKind::CXXLValueRefType                                               ///
+//  TypeKind::CXXRValueRefType                                               ///
+//  TypeKind::OpaqueFFIType                                                  ///
+//  TypeKind::TypeExpr                                                       ///
+
+import AST::Node::Base::*;
+import AST::Context::ASTContext::*;
+import AST::ASTSupport::*;
+import AST::Node::PrimaryExpressions::*;
+
+///
+///  Helper propagate type_flags from children into a parent node.
+///  Call this after setting all child type pointers on a newly created node.
+///
+fn propagate_flags(parent: *Type, child: *Type) {
+    parent->type_flags = static_cast::<Type::TypeFlags>(
+        static_cast::<u8>(parent->type_flags)
+        | static_cast::<u8>(child->type_flags)
+    );
+}
+
+///
+///  GenericParamType
+///  T inside fn foo<T>(x: T) unresolved generic parameter.
+///  Always dependent. Sema substitutes at instantiation.
+///
+class GenericParamType derives Type {
+    pub var param_name: *NamedIdentExpr; ///< The declared param name, e.g. T.
+    pub var param_index: u32;           ///< Index in the generic param list.
+    pub var is_pack:     bool;          ///< True if this is a variadic pack param ...T.
+
+    static fn create(
+        ctx:         *ASTContext,
+        range:       SourceRange,
+        param_name:  *NamedIdentExpr,
+        param_index: u32,
+        is_pack:     bool
+    ) -> *GenericParamType {
+        var node          = ctx->alloc::<GenericParamType>();
+        node->kind        = TypeKind::GenericParamType;
+        node->range       = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->param_name  = param_name;
+        node->param_index = param_index;
+        node->is_pack     = is_pack;
+        /// always dependent
+        node->type_flags  = static_cast::<Type::TypeFlags>(
+            static_cast::<u8>(Type::TypeFlags::IsDependent)
+            | static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent)
+        );
+        if is_pack {
+            node->type_flags = static_cast::<Type::TypeFlags>(
+                static_cast::<u8>(node->type_flags)
+                | static_cast::<u8>(Type::TypeFlags::ContainsUnexpandedPack)
+            );
+        }
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *GenericParamType {
+        var node            = ctx->alloc::<GenericParamType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::GenericParamType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::GenericParamType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::GenericParamType;
+    }
+}
+
+///
+///  SubstGenericParamType
+///  Post-substitution wrapper: records that this type resulted from
+///  substituting a concrete type for a generic param. Sema wraps the
+///  replacement so diagnostics can report which param was substituted.
+///  Canonical points to the replacement type directly.
+///
+class SubstGenericParamType derives Type {
+    pub var original:    *GenericParamType; ///< The param that was substituted.
+    pub var replacement: *Type;             ///< The concrete type substituted in.
+
+    static fn create(
+        ctx:         *ASTContext,
+        range:       SourceRange,
+        original:    *GenericParamType,
+        replacement: *Type
+    ) -> *SubstGenericParamType {
+        var node          = ctx->alloc::<SubstGenericParamType>();
+        node->kind        = TypeKind::SubstGenericParamType;
+        node->range       = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->original    = original;
+        node->replacement = replacement;
+        node->canonical   =   (replacement->canonical)
+                         if   (replacement->canonical != &null)
+                         else (replacement);
+        propagate_flags(node, replacement);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *SubstGenericParamType {
+        var node            = ctx->alloc::<SubstGenericParamType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::SubstGenericParamType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::SubstGenericParamType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::SubstGenericParamType;
+    }
+}
+
+///
+///  TypeOfType
+///  typeof(foo()) in type position.
+///  Sema evaluates expr and sets canonical to the resolved type.
+///
+class TypeOfType derives Type {
+    pub var expr:     *Expr;  ///< The expression whose type is queried.
+    pub var resolved: *Type = &null; ///< Set by sema after expr type is known.
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        expr:  *Expr
+    ) -> *TypeOfType {
+        var node      = ctx->alloc::<TypeOfType>();
+        node->kind    = TypeKind::TypeOfType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->expr    = expr;
+        node->resolved = &null;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *TypeOfType {
+        var node            = ctx->alloc::<TypeOfType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::TypeOfType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::TypeOfType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::TypeOfType;
+    }
+}
+
+///
+///  VariadicPackType
+///  ...T at declaration site the bare pack parameter in a generic signature.
+///  Always sets IsDependent and ContainsUnexpandedPack.
+///  This is the declaration-site node; PackExpansionType is the use-site node.
+///
+class VariadicPackType derives Type {
+    pub var param: *GenericParamType; ///< The pack param this refers to.
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        param: *GenericParamType
+    ) -> *VariadicPackType {
+        var node      = ctx->alloc::<VariadicPackType>();
+        node->kind    = TypeKind::VariadicPackType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->param   = param;
+        node->type_flags = static_cast::<Type::TypeFlags>(
+            static_cast::<u8>(Type::TypeFlags::IsDependent)
+            | static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent)
+            | static_cast::<u8>(Type::TypeFlags::ContainsUnexpandedPack)
+        );
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *VariadicPackType {
+        var node            = ctx->alloc::<VariadicPackType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::VariadicPackType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::VariadicPackType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::VariadicPackType;
+    }
+}
+
+///
+///  PackExpansionType
+///  pattern... use-site expansion of a pack in type position.
+///  e.g. std::vector<Ts>... where pattern is std::vector<Ts>.
+///  Clears ContainsUnexpandedPack on itself (expansion consumed it)
+///  but remains IsDependent since result still varies per instantiation.
+///
+class PackExpansionType derives Type {
+    pub var pattern: *Type; ///< The type pattern being expanded.
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:   SourceRange,
+        pattern: *Type
+    ) -> *PackExpansionType {
+        var node      = ctx->alloc::<PackExpansionType>();
+        node->kind    = TypeKind::PackExpansionType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->pattern = pattern;
+        /// propagate flags from pattern then clear unexpanded pack
+        /// this node IS the expansion, pack is no longer unexpanded here
+        propagate_flags(node, pattern);
+        node->type_flags = static_cast::<Type::TypeFlags>(
+            static_cast::<u8>(node->type_flags)
+            & ~static_cast::<u8>(Type::TypeFlags::ContainsUnexpandedPack)
+        );
+        /// still dependent
+        node->type_flags = static_cast::<Type::TypeFlags>(
+            static_cast::<u8>(node->type_flags)
+            | static_cast::<u8>(Type::TypeFlags::IsDependent)
+            | static_cast::<u8>(Type::TypeFlags::IsInstantiationDependent)
+        );
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *PackExpansionType {
+        var node            = ctx->alloc::<PackExpansionType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::PackExpansionType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::PackExpansionType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::PackExpansionType;
+    }
+}
+
+///
+///  PointerType
+///  *T fat pointer. length set by sema if size is statically known.
+///
+class PointerType derives Type {
+    pub var pointee: *Type;
+    pub var length:  usize = 0; ///< Statically known length. 0 = unknown.
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:   SourceRange,
+        pointee: *Type
+    ) -> *PointerType {
+        var node      = ctx->alloc::<PointerType>();
+        node->kind    = TypeKind::PointerType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->pointee = pointee;
+        node->length  = 0;
+        propagate_flags(node, pointee);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *PointerType {
+        var node            = ctx->alloc::<PointerType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::PointerType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::PointerType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::PointerType;
+    }
+}
+
+///
+///  NullableType
+///  T? lowered to std::Optional<T> by sema.
+///
+class NullableType derives Type {
+    pub var inner: *Type;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        inner: *Type
+    ) -> *NullableType {
+        var node      = ctx->alloc::<NullableType>();
+        node->kind    = TypeKind::NullableType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->inner   = inner;
+        propagate_flags(node, inner);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *NullableType {
+        var node            = ctx->alloc::<NullableType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::NullableType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::NullableType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::NullableType;
+    }
+}
+
+///
+///  TupleType
+///  (i32, str, f64)
+///
+class TupleType derives Type {
+    pub var elements: FrozenList::<*Type>;
+
+    static fn create(
+        ctx:      *ASTContext,
+        range:    SourceRange
+    ) -> *TupleType {
+        var node       = ctx->alloc::<TupleType>();
+        node->kind     = TypeKind::TupleType;
+        node->range    = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *TupleType {
+        var node            = ctx->alloc::<TupleType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::TupleType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::TupleType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::TupleType;
+    }
+}
+
+///
+///  FixedArrayType
+///  [i32; 6] fixed size. [i32;] incomplete (FFI/C interop only),
+///  indicated by is_incomplete = true and size_expr = null.
+///
+class FixedArrayType derives Type {
+    pub var element:      *Type;
+    pub var size_expr:    *Expr;  ///< Null if is_incomplete.
+    pub var is_incomplete: bool;  ///< True for C-style int buf[].
+
+    static fn create(
+        ctx:       *ASTContext,
+        range:      SourceRange,
+        element:   *Type,
+        size_expr: *Expr
+    ) -> *FixedArrayType {
+        var node            = ctx->alloc::<FixedArrayType>();
+        node->kind          = TypeKind::FixedArrayType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->element       = element;
+        node->size_expr     = size_expr;
+        node->is_incomplete = false;
+        propagate_flags(node, element);
+        return node;
+    }
+
+    static fn create_incomplete(
+        ctx:     *ASTContext,
+        range:   SourceRange,
+        element: *Type
+    ) -> *FixedArrayType {
+        var node            = ctx->alloc::<FixedArrayType>();
+        node->kind          = TypeKind::FixedArrayType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->element       = element;
+        node->size_expr     = &null;
+        node->is_incomplete = true;
+        propagate_flags(node, element);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *FixedArrayType {
+        var node            = ctx->alloc::<FixedArrayType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::FixedArrayType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::FixedArrayType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::FixedArrayType;
+    }
+}
+
+///
+///  VectorType
+///  [i32] growable. Lowered to std::vector<T> or equivalent.
+///
+class VectorType derives Type {
+    pub var element: *Type;
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:   SourceRange,
+        element: *Type
+    ) -> *VectorType {
+        var node      = ctx->alloc::<VectorType>();
+        node->kind    = TypeKind::VectorType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->element = element;
+        propagate_flags(node, element);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *VectorType {
+        var node            = ctx->alloc::<VectorType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::VectorType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::VectorType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::VectorType;
+    }
+}
+
+///
+///  MapType
+///  {str: i32}
+///
+class MapType derives Type {
+    pub var key:   *Type;
+    pub var value: *Type;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        key:   *Type,
+        value: *Type
+    ) -> *MapType {
+        var node      = ctx->alloc::<MapType>();
+        node->kind    = TypeKind::MapType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->key     = key;
+        node->value   = value;
+        propagate_flags(node, key);
+        propagate_flags(node, value);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *MapType {
+        var node            = ctx->alloc::<MapType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::MapType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::MapType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::MapType;
+    }
+}
+
+///
+///  SetType
+///  {i32}
+///
+class SetType derives Type {
+    pub var element: *Type;
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:   SourceRange,
+        element: *Type
+    ) -> *SetType {
+        var node      = ctx->alloc::<SetType>();
+        node->kind    = TypeKind::SetType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->element = element;
+        propagate_flags(node, element);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *SetType {
+        var node            = ctx->alloc::<SetType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::SetType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::SetType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::SetType;
+    }
+}
+
+///
+///  SelfType
+///  Self inside class/interface bodies. Sema resolves to the implementing type.
+///  Canonical set by sema to the enclosing type.
+///
+class SelfType derives Type {
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *SelfType {
+        var node   = ctx->alloc::<SelfType>();
+        node->kind  = TypeKind::SelfType;
+        node->range = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        /// SelfType is instantiation-dependent inside generic types
+        node->type_flags = Type::TypeFlags::IsInstantiationDependent;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *SelfType {
+        var node            = ctx->alloc::<SelfType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::SelfType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::SelfType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::SelfType;
+    }
+}
+
+///
+///  FunctionPointerType
+///  fn(i32, str) -> bool
+///  is_unprototyped = true for C headers with no param info: int foo()
+///
+class FunctionPointerType derives Type {
+    pub var params:         FrozenList::<*Type>;
+    pub var return_type:    *Type;
+    pub var is_unprototyped: bool; ///< True for C-style no-proto fn imports.
+
+    static fn create(
+        ctx:         *ASTContext,
+        range:       SourceRange,
+        return_type: *Type
+    ) -> *FunctionPointerType {
+        var node              = ctx->alloc::<FunctionPointerType>();
+        node->kind            = TypeKind::FunctionPointerType;
+        node->range           = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->return_type     = return_type;
+        node->is_unprototyped = false;
+        if return_type != &null {
+            propagate_flags(node, return_type);
+        }
+        return node;
+    }
+
+    static fn create_unprototyped(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *FunctionPointerType {
+        var node              = ctx->alloc::<FunctionPointerType>();
+        node->kind            = TypeKind::FunctionPointerType;
+        node->range           = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->is_unprototyped = true;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *FunctionPointerType {
+        var node            = ctx->alloc::<FunctionPointerType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::FunctionPointerType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::FunctionPointerType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::FunctionPointerType;
+    }
+}
+
+///
+///  InferredType
+///  _ or omitted annotation. Sema assigns concrete type by solving constraints.
+///  Each node carries a unique infer_id for the constraint solver.
+///
+class InferredType derives Type {
+    pub var infer_id: u32; ///< Unique ID assigned by parser/sema for solver tracking.
+
+    static fn create(
+        ctx:      *ASTContext,
+        range:    SourceRange,
+        infer_id: u32
+    ) -> *InferredType {
+        var node       = ctx->alloc::<InferredType>();
+        node->kind     = TypeKind::InferredType;
+        node->range    = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->infer_id = infer_id;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *InferredType {
+        var node            = ctx->alloc::<InferredType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::InferredType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::InferredType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::InferredType;
+    }
+}
+
+///
+///  CXXLValueRefType
+///  T& imported from C++ headers. Sema treats as a reference, not a pointer.
+///
+class CXXLValueRefType derives Type {
+    pub var referee: *Type;
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:   SourceRange,
+        referee: *Type
+    ) -> *CXXLValueRefType {
+        var node      = ctx->alloc::<CXXLValueRefType>();
+        node->kind    = TypeKind::CXXLValueRefType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->referee = referee;
+        propagate_flags(node, referee);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *CXXLValueRefType {
+        var node            = ctx->alloc::<CXXLValueRefType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::CXXLValueRefType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::CXXLValueRefType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::CXXLValueRefType;
+    }
+}
+
+///
+///  CXXRValueRefType
+///  T&& imported from C++ headers.
+///
+class CXXRValueRefType derives Type {
+    pub var referee: *Type;
+
+    static fn create(
+        ctx:     *ASTContext,
+        range:   SourceRange,
+        referee: *Type
+    ) -> *CXXRValueRefType {
+        var node      = ctx->alloc::<CXXRValueRefType>();
+        node->kind    = TypeKind::CXXRValueRefType;
+        node->range   = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->referee = referee;
+        propagate_flags(node, referee);
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *CXXRValueRefType {
+        var node            = ctx->alloc::<CXXRValueRefType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::CXXRValueRefType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::CXXRValueRefType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::CXXRValueRefType;
+    }
+}
+
+///
+///  OpaqueFFIType
+///  Opaque type from ffi "c++" sema treats as a black box.
+///  name is the original C++ type spelling for diagnostics and codegen.
+///
+class OpaqueFFIType derives Type {
+    pub var name: InternedStr; ///< Original C++ spelling, e.g. "std::FILE".
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        name:  InternedStr
+    ) -> *OpaqueFFIType {
+        var node   = ctx->alloc::<OpaqueFFIType>();
+        node->kind  = TypeKind::OpaqueFFIType;
+        node->range = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->name  = name;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *OpaqueFFIType {
+        var node           = ctx->alloc::<OpaqueFFIType>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::OpaqueFFIType;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::OpaqueFFIType;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::OpaqueFFIType;
+    }
+}
+
+class TypeExpr derives Type {
+    pub var expr: *Expr;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range:  SourceRange,
+        expr:  *Expr
+    ) -> *TypeExpr {
+        var node    = ctx->alloc::<TypeExpr>();
+        node->kind  = TypeKind::TypeExpr;
+        node->range = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        node->expr  = expr;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:           *ASTContext,
+        range:         SourceRange
+    ) -> *TypeExpr {
+        var node            = ctx->alloc::<TypeExpr>();
+        node->kind          = TypeKind::RecoveryType;
+        node->recovery_kind = TypeKind::TypeExpr;
+        node->range         = range;
+        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_spans(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Type) -> bool {
+        return ptr->kind == TypeKind::TypeExpr;
+    }
+
+    /* OVERRIDE */ static fn type_kind() -> TypeKind {
+        return TypeKind::TypeExpr;
+    }
+}

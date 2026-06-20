@@ -52,7 +52,7 @@
 
 import Support::Timer::*;
 import Support::Assert::*;
-import Diag::DiagEngine::*;
+import Diagnostics::DiagEngine::*;
 import Command::ParsedArgs::*;
 
 // =============================================================================

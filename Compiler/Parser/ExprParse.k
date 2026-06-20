@@ -21,20 +21,20 @@
 ///
 /// ------------------------------------------------------------------------- ///
 
-import ASTNode::Base::*;
-import ASTNode::PrimaryExpressions::*;
-import ASTNode::Expressions::*;
-import ASTNode::Declarations::*;
-import ASTNode::Types::*;
-import ASTNode::Casting::*;
+import AST::Node::Base::*;
+import AST::Node::PrimaryExpressions::*;
+import AST::Node::Expressions::*;
+import AST::Node::Declarations::*;
+import AST::Node::Types::*;
+import AST::Node::Casting::*;
 import AST::CodeCompleteConsumer::*;
-import AST::ASTContext::*;
-import Diag::DiagEngine::*;
-import Diag::DiagRegistry::*;
+import AST::Context::ASTContext::*;
+import Diagnostics::DiagEngine::*;
+import Diagnostics::DiagRegistry::*;
 import Source::SourceRange::*;
 import Lexer::Token::*;
 import Lexer::TokenKind::*;
-import ASTNode::Statements::*;
+import AST::Node::Statements::*;
 import Parser::LexicalScope::*;
 
 class <T> ExprParse {

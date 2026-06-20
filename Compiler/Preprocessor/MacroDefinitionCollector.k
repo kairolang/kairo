@@ -13,8 +13,8 @@ import Preprocessor::ScopeTracker::*;
 import Preprocessor::FileImportState::*;
 import Preprocessor::ParsedImport::*;
 import Preprocessor::SkipList::*;
-import Diag::DiagEngine::*;
-import Diag::DiagRegistry::*;
+import Diagnostics::DiagEngine::*;
+import Diagnostics::DiagRegistry::*;
 
 /// Macro Definition Collector
 /// ==========================

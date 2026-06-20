@@ -13,9 +13,9 @@
 /// ----------------------------------------------------------------------------- ///
 
 import Source::SourceRange::*;
-import ASTNode::Base::*;
-import AST::DeclContext::*;
-import AST::ASTContext::*;
+import AST::Node::Base::*;
+import AST::Context::DeclContext::*;
+import AST::Context::ASTContext::*;
 
 enum CompletionContextKind derives u8 {
     TopLevel,         // start of a top-level decl

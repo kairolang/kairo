@@ -1,0 +1,251 @@
+/// --- The Kairo Project ----------------------------------- <filename> --- ///
+///
+///   <short description>
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
+///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
+///   Copyright (c) 2026 Dhruvan Kartik
+///
+/// ------------------------------------------------------------------------ ///
+
+import Source::SourceRange::*;
+import AST::Mixin::TypeQual::*;
+import AST::Mixin::Annotation::*;
+import AST::Kind::DeclKind::*;
+import AST::Kind::ExprKind::*;
+import AST::Kind::TypeKind::*;
+import AST::Kind::StmtKind::*;
+import AST::Kind::PatternKind::*;
+import AST::Context::ASTContext::*;
+
+class Expr derives Annotation::<Expr> {
+    pub var kind:          ExprKind    = ExprKind::RecoveryExpr;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of expr we were trying to parse (for better error messages)
+    pub var recovery_kind: ExprKind    = ExprKind::RecoveryExpr;
+
+    enum ValueCategory derives u8 {
+        Unknown,  // not yet resolved by sema
+        LValue,   // has address, assignable
+        RValue,   // temporary, not assignable
+        XValue,   // expiring value (move semantics)needed for C++ interop
+    }
+
+    pub var value_category: ValueCategory = ValueCategory::Unknown;
+
+    fn is_valid(self) -> bool {
+        return self.kind != ExprKind::RecoveryExpr;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == ExprKind::RecoveryExpr;
+    }
+
+    fn get_excepted(self) -> ExprKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+
+        return self.kind;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return true; // all Expr* are valid for classof(Expr)
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::RecoveryExpr; // default, overridden by concrete nodes
+    }
+
+    fn is_lvalue(self) -> bool {
+        return self.value_category == ValueCategory::LValue;
+    }
+
+    fn is_rvalue(self) -> bool {
+        return self.value_category == ValueCategory::RValue;
+    }
+
+    fn is_xvalue(self) -> bool {
+        return self.value_category == ValueCategory::XValue;
+    }
+}
+
+class Stmt derives Annotation::<Stmt> {
+    pub var kind:          StmtKind    = StmtKind::RecoveryStmt;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var recovery_kind: StmtKind    = StmtKind::RecoveryStmt;
+
+    fn is_valid(self) -> bool {
+        return self.kind != StmtKind::RecoveryStmt;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == StmtKind::RecoveryStmt;
+    }
+
+    fn get_excepted(self) -> StmtKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+    
+    static fn classof(ptr: *Stmt) -> bool {
+        return true; // all Stmt* are valid for classof(Stmt)
+    }
+
+    static fn stmt_kind() -> StmtKind {
+        return StmtKind::RecoveryStmt; // default, overridden by concrete nodes
+    }
+}
+
+class Decl derives VisibilityAnnotation::<Decl>, Annotation::<Decl> {
+    pub var kind:          DeclKind    = DeclKind::RecoveryDecl;
+    pub var range:         SourceRange = SourceRange::invalid();
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var recovery_kind: DeclKind    = DeclKind::RecoveryDecl;
+
+    fn is_valid(self) -> bool {
+        return self.kind != DeclKind::RecoveryDecl;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == DeclKind::RecoveryDecl;
+    }
+
+    fn get_excepted(self) -> DeclKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+
+    static fn classof(ptr: *Decl) -> bool {
+        return true; // all Decl* are valid for classof(Decl)
+    }
+
+    static fn decl_kind() -> DeclKind {
+        return DeclKind::RecoveryDecl; // default, overridden by concrete nodes
+    }
+}
+
+class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qualifiers
+    enum TypeFlags derives u8 {
+        None                      = 0,
+        /// Type contains a template type parameter meaning changes per instantiation.
+        /// Set on GenericParamType itself and propagates up through any type that
+        /// contains one. Sema defers checking of dependent types until instantiation.
+        IsDependent               = 1 << 0,
+        /// Dependent on a template parameter in a way that affects instantiation
+        /// but not necessarily the type's meaning. Superset of IsDependent.
+        /// Example: sizeof(T) is instantiation-dependent even if T is known size.
+        IsInstantiationDependent  = 1 << 1,
+        /// Contains a pack parameter (...Ts) that has not yet been expanded.
+        /// Sema uses this to validate where pack expansion is legal.
+        /// Must be cleared after a PackExpansionType consumes the pack.
+        ContainsUnexpandedPack    = 1 << 2,
+        /// Type involves a runtime-variable size (VLA or similar).
+        /// You said no VLAs so this is future-proofing / FFI import only.
+        IsVariablyModified        = 1 << 3,
+    }
+    
+    // for error nodes, the kind of stmt we were trying to parse (for better error messages)
+    pub var size_bits:       usize       = 0;
+    pub var align_bits:      usize       = 0;
+    pub var canonical:      *Type        = &null; // for types that are qualified by another type, e.g. associated types like T::Item or pointer types like *T
+    pub var kind:            TypeKind    = TypeKind::RecoveryType;
+    pub var range:           SourceRange = SourceRange::invalid();
+    pub var recovery_kind:   TypeKind    = TypeKind::RecoveryType;
+    pub var type_flags:      TypeFlags   = TypeFlags::None;
+
+    fn is_valid(self) -> bool {
+        return self.kind != TypeKind::RecoveryType;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == TypeKind::RecoveryType;
+    }
+
+    fn get_excepted(self) -> TypeKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        
+        return self.kind;
+    }
+
+    fn get_canonical_type(self) -> *Type {
+        return self.canonical;
+    }
+
+    fn is_dependent(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::IsDependent))
+         != TypeFlags::None;
+    }
+    
+    fn is_instantiation_dependent(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::IsInstantiationDependent))
+         != TypeFlags::None;
+    }
+    
+    fn contains_unexpanded_pack(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::ContainsUnexpandedPack))
+         != TypeFlags::None;
+    }
+    
+    fn is_variably_modified(self) -> bool {
+        return static_cast::<TypeFlags>(
+              static_cast::<u8>(self.type_flags)
+            & static_cast::<u8>(TypeFlags::IsVariablyModified))
+         != TypeFlags::None;
+    }
+
+    static fn classof(ptr: *Type) -> bool {
+        return true; // all Type* are valid for classof(Type)
+    }
+
+    static fn type_kind() -> TypeKind {
+        return TypeKind::RecoveryType; // default, overridden by concrete nodes
+    }
+}
+
+class Pattern derives Annotation::<Pattern> {
+    pub var kind:          PatternKind = PatternKind::RecoveryPattern;
+    pub var range:         SourceRange = SourceRange::invalid();
+    pub var recovery_kind: PatternKind = PatternKind::RecoveryPattern;
+
+    static fn classof(ptr: *Pattern) -> bool {
+        return true; // all Pattern* are valid for classof(Pattern)
+    }
+
+    static fn pattern_kind() -> PatternKind {
+        return PatternKind::RecoveryPattern; // default, overridden by concrete nodes
+    }
+
+    fn is_valid(self) -> bool {
+        return self.kind != PatternKind::RecoveryPattern;
+    }
+
+    fn is_error(self) -> bool {
+        return self.kind == PatternKind::RecoveryPattern;
+    }
+
+    fn get_excepted(self) -> PatternKind {
+        if self.is_error() {
+            return self.recovery_kind;
+        }
+        return self.kind;
+    }
+}
