@@ -74,6 +74,9 @@ class Lexer {
     var _last_was_bang :  bool          = false;
     var _initialized   :  bool          = false;
 
+    const PFX_FORMAT: u8 = 1 << 0;
+    const PFX_RAW:    u8 = 1 << 1;
+    
     /// \brief lightweight handle over string/char immediates
     /// \details abstracts over StringData vs CharData
     class TextImm {
@@ -185,7 +188,7 @@ class Lexer {
         var delim           : u8;
         var imm_idx         : u32;
         var is_format       : bool;
-        var is_bytes        : bool;
+        var is_raw          : bool;
         var imm             : TextImm;
         var prefix          : Token;
 
@@ -197,6 +200,7 @@ class Lexer {
         var fstring_specs   : libcxx::deque::<FormatSpec>;
 
         var has_error       : bool;
+        var is_triple       : bool;
         var error_token     : Token;
     }
 
@@ -469,6 +473,7 @@ class Lexer {
         var last_text   = self._last_text;
         var last_kind   = self._last_kind;
         var cursor      = self._cursor;
+        var end_pos     = self._end_pos;
 
         self._cursor  = start;
         self._end_pos = end;
@@ -516,7 +521,7 @@ class Lexer {
         }
 
         // now we restore state
-        self._end_pos    = 0;
+        self._end_pos    = end_pos;
         self._cursor     = cursor;
         self._last_token = last_token;
         self._last_text  = last_text;
@@ -1081,18 +1086,18 @@ class Lexer {
 
             switch h {
                 case compute_hash::<r"f">(): case compute_hash::<r"F">() {
-                    ptype = 1;
+                    ptype = PFX_FORMAT;
                 }
                 
-                case compute_hash::<r"b">(): case compute_hash::<r"B">() {
-                    ptype = 2;
+                case compute_hash::<r"r">(): case compute_hash::<r"R">() {
+                    ptype = PFX_RAW;
                 }
 
-                case compute_hash::<r"fB">(): case compute_hash::<r"FB">():
-                case compute_hash::<r"Fb">(): case compute_hash::<r"fb">():
-                case compute_hash::<r"Bf">(): case compute_hash::<r"BF">():
-                case compute_hash::<r"bF">(): case compute_hash::<r"bf">() {
-                    ptype = 3;
+                case compute_hash::<r"fR">(): case compute_hash::<r"FR">():
+                case compute_hash::<r"Fr">(): case compute_hash::<r"fr">():
+                case compute_hash::<r"Rf">(): case compute_hash::<r"RF">():
+                case compute_hash::<r"rF">(): case compute_hash::<r"rf">() {
+                    ptype = (PFX_FORMAT | PFX_RAW);
                 }
             }
 
@@ -1547,14 +1552,27 @@ class Lexer {
             Logger::error(Logger::Stage::Lexer, f"Lexer::scan_text_body: unterminated string at fid={self._fid} cursor={self._cursor}");
             var _r015 = SourceRange::from_bounds(start, self.get_source_location());
             self._diag->report(DiagCode(DiagID::S015E), _r015.start,
-                f"expected string or character literal delimiter ('{0x22 as char}' or '{0x27 as char}')")
+                f"expected string or character literal delimiter ('\x22' or '\x27')")
                 .first(_r015).emit();
             ctx.error_token = self.create_error_token(start, TokenKind::LitString);
             return ctx;
         }
 
-        ctx.delim = d.chr;
-        self.advance_cursor(d.len);
+        ctx.delim     = d.chr;
+        ctx.is_triple = false;
+
+        self.advance_cursor(d.len); // consume opening delim #1
+
+        // triple-quote: only for " (a char literal is a single codepoint, never triple)
+        if ctx.delim == 0x22 {
+            var q2 = self.peek_char32();
+            var q3 = self.peek_char32(1);
+            if (q2.chr == 0x22) && (q3.chr == 0x22) {
+                ctx.is_triple = true;
+                self.advance_cursor(q2.len + q3.len); // consume delims #2 and #3
+            }
+        }
+
         ctx.body_start = self.get_source_location();
 
         if ctx.delim == 0x22 {
@@ -1566,19 +1584,12 @@ class Lexer {
         }
 
         ctx.is_format = false;
-        ctx.is_bytes  = false;
+        ctx.is_raw  = false;
 
         if prefix == TokenKind::LitIdentifier {
-            switch prefix.imm {
-                case 1 { ctx.is_format = true; }
-                case 2 { ctx.is_bytes  = true; }
-                case 3 {
-                    ctx.is_format = true;
-                    ctx.is_bytes  = true;
-                }
-            }
-
-            ctx.prefix = prefix;
+            ctx.is_format = ((prefix.imm & PFX_FORMAT) != 0);
+            ctx.is_raw    = ((prefix.imm & PFX_RAW)    != 0);
+            ctx.prefix    = prefix;
         }
 
         ctx.in_format_depth = 0;
@@ -1598,14 +1609,27 @@ class Lexer {
             }
 
             switch d.chr {
-                case 0x22: case 0x27 { // " or '
+                case 0x22: case 0x27 {
                     if d.chr == ctx.delim {
-                        ctx.body_end = self.get_source_location();
-                        self.advance_cursor(d.len);
-                        return;
+                        if ctx.is_triple {
+                            // need three in a row to close
+                            var q2 = self.peek_char32(1);
+                            var q3 = self.peek_char32(2);
+                            if (q2.chr == ctx.delim) && (q3.chr == ctx.delim) {
+                                ctx.body_end = self.get_source_location();
+                                self.advance_cursor(d.len + q2.len + q3.len); // consume all three
+                                return;
+                            }
+                            // fewer than three: this quote is content
+                            self.advance_cursor(d.len);
+                        } else {
+                            ctx.body_end = self.get_source_location();
+                            self.advance_cursor(d.len);
+                            return;
+                        }
+                    } else {
+                        self.advance_cursor(d.len); // a different quote char, content
                     }
-
-                    self.advance_cursor(d.len); /// just normal char
                 }
 
                 case 0x7b { // {
@@ -1639,12 +1663,27 @@ class Lexer {
                     self.advance_cursor(d.len);
                 }
 
-                case 0x5c { // escape
-                    var esc_start = self.get_source_location();
-                    self.advance_cursor(d.len);
-                    if !self.is_valid_escape(esc_start, ctx.is_bytes, ctx.is_format) {
-                        ctx.has_error = true;
-                        // is_valid_escape already emitted the specific diagnostic
+                case 0x5c { // backslash (raw-aware branch the only 0x5c case)
+                    if ctx.is_raw {
+                        var nxt = self.peek_char32(1);
+                        // in a triple-quoted raw string a lone " is content, not a terminator,
+                        // so \" does not end the string and must not warn.
+                        if (!ctx.is_triple) && (nxt.chr == ctx.delim) {
+                            var _r = SourceRange::from_bounds(
+                                self.get_source_location(),
+                                self.get_source_location(self._cursor + d.len + nxt.len)
+                            );
+                            self._diag->report(DiagCode(DiagID::S017W), _r.start,
+                                "backslash doesn't escape in raw string literal; the quote ends the string here")
+                                .first(_r).emit(); // TODO: add a clean fix message too
+                        }
+                        self.advance_cursor(d.len); // backslash only, always literal in raw
+                    } else {
+                        var esc_start = self.get_source_location();
+                        self.advance_cursor(d.len);
+                        if !self.is_valid_escape(esc_start, ctx.is_raw, ctx.is_format) {
+                            ctx.has_error = true;
+                        }
                     }
                 }
 
@@ -1657,7 +1696,9 @@ class Lexer {
         ctx.has_error = true;
         var _r012 = SourceRange::from_bounds(ctx.start, self.get_source_location());
         self._diag->report(DiagCode(DiagID::S012E), _r012.start,
-            f"unterminated string literal; add a closing '{0x22 as char}' to end the string")
+            ("unterminated string literal; add a closing '\x27\x27\x27' to end the string")
+                if (ctx.is_triple)
+            else ("unterminated string literal; add a closing '\x27' to end the string"))
             .first(_r012).emit();
     }
 
@@ -1773,11 +1814,9 @@ class Lexer {
         );
 
         (ctx.imm.get_prefix()) = ctx.prefix;
-        ctx.imm.get_prefix_kind() = (
-            Immediate::TextPrefixKind::BytesFormat if ctx.is_format && ctx.is_bytes
-            else Immediate::TextPrefixKind::Format if ctx.is_format
-            else Immediate::TextPrefixKind::Bytes  if ctx.is_bytes
-            else Immediate::TextPrefixKind::None
+        ctx.imm.get_prefix_kind() = static_cast::<Immediate::TextPrefixKind>(
+            (static_cast::<u8>(Immediate::TextPrefixKind::Raw)    if (ctx.is_raw)    else 0)
+          | (static_cast::<u8>(Immediate::TextPrefixKind::Format) if (ctx.is_format) else 0)
         );
 
         return tok;
@@ -3950,8 +3989,8 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("lex byte string", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("b\"hello\"", sm, pool, &test_diag);
+    suite.equal::<string>("lex raw string", "pass", fn () -> string {
+        var res = create_lexer_from_string_with_diag("r\"hello\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -3968,8 +4007,8 @@ fn Test() -> i32 {
         }
         
         var imm = lexer->get_imm::<Immediate::StringData>(tokens->get(0)->imm);
-        if imm->prefix_kind != Immediate::TextPrefixKind::Bytes {
-            return f"expected prefix_kind Bytes, got different prefix kind";
+        if imm->prefix_kind != Immediate::TextPrefixKind::Raw {
+            return f"expected prefix_kind Raw, got different prefix kind";
         }
         
         if lexer->has_errors() {
@@ -3979,8 +4018,8 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("lex byte string with octal", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("b\"\\101\\102\\103\"", sm, pool, &test_diag);
+    suite.equal::<string>("lex raw string with octal", "pass", fn () -> string {
+        var res = create_lexer_from_string_with_diag("r\"\\101\\102\\103\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4003,8 +4042,8 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    suite.equal::<string>("lex fb-string (format + bytes)", "pass", fn () -> string {
-        var res = create_lexer_from_string_with_diag("fb\"value: {x}\"", sm, pool, &test_diag);
+    suite.equal::<string>("lex fr-string (format + raw)", "pass", fn () -> string {
+        var res = create_lexer_from_string_with_diag("fr\"value: {x}\"", sm, pool, &test_diag);
         var lexer = libcxx::get::<0>(res);
         var fid = libcxx::get::<1>(res);
         
@@ -4021,8 +4060,12 @@ fn Test() -> i32 {
         }
         
         var imm = lexer->get_imm::<Immediate::StringData>(tokens->get(0)->imm);
-        if imm->prefix_kind != Immediate::TextPrefixKind::BytesFormat {
-            return f"expected prefix_kind BytesFormat, got different prefix kind";
+        var want = static_cast::<Immediate::TextPrefixKind>(
+            static_cast::<u8>(Immediate::TextPrefixKind::Raw)
+          | static_cast::<u8>(Immediate::TextPrefixKind::Format)
+        );
+        if imm->prefix_kind != want {
+            return f"expected prefix_kind raw|format (rf), got '{imm->prefix_kind}\x27";
         }
         
         if lexer->has_errors() {

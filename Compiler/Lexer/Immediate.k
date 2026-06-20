@@ -1115,10 +1115,12 @@ module Immediate {
     }
 
     enum TextPrefixKind derives u8 {
-        None,
-        Format,
-        Bytes,
-        BytesFormat,
+        None   = 0,
+        Format = 1 << 0,
+        Raw    = 1 << 1,
+        // Format
+        // Bytes
+        // BytesFormat
     }
 
     class StringData {

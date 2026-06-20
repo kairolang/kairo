@@ -471,12 +471,12 @@ class TokenPrinter {
     }
 
     priv fn _text_prefix_kind_str(self, k: Immediate::TextPrefixKind) -> string {
-        switch (k) {
-            case Immediate::TextPrefixKind::None        { return "none";  }
-            case Immediate::TextPrefixKind::Format      { return "f";     }
-            case Immediate::TextPrefixKind::Bytes       { return "r";     }
-            case Immediate::TextPrefixKind::BytesFormat { return "rf";    }
-        }
-        return "?";
+        var bits = static_cast::<u8>(k);
+        if bits == 0 { return "none"; }
+
+        var s: string = "";
+        if (bits & static_cast::<u8>(Immediate::TextPrefixKind::Raw))    != 0 { s = s + "r"; }
+        if (bits & static_cast::<u8>(Immediate::TextPrefixKind::Format)) != 0 { s = s + "f"; }
+        return s;
     }
 }

@@ -664,9 +664,9 @@ class FloatingLiteralExpr derives Expr {
 ///
 class StringLiteralExpr derives Expr {
     enum StringKind derives u8 {
-        Plain,    ///< "hello"
-        Raw,      ///< r"raw \n"
-        Format,   ///< f"hi {name}!"
+        Plain  = 0,      ///< "hello"
+        Raw    = 1 << 0, ///< r"raw \n"
+        Format = 1 << 1, ///< f"hi {name}!"
     }
 
     pub var token:       Token;
@@ -767,21 +767,15 @@ class StringLiteralExpr derives Expr {
     }
 
     fn is_format(self) -> bool {
-        return self.string_kind == StringKind::Format;
+        return (static_cast::<u8>(self.string_kind)
+            & static_cast::<u8>(StringKind::Format)) != 0;
     }
-
     fn is_raw(self) -> bool {
-        return self.string_kind == StringKind::Raw;
+        return (static_cast::<u8>(self.string_kind)
+            & static_cast::<u8>(StringKind::Raw)) != 0;
     }
-
     fn is_plain(self) -> bool {
-        return self.string_kind == StringKind::Plain;
-    }
-
-    fn is_byte_string(self) -> bool {
-        assert((self.imm != &null) && r"StringLiteralExpr::is_byte_string: imm pointer is null");
-        return (self.imm->prefix_kind == Immediate::TextPrefixKind::Bytes)
-            || (self.imm->prefix_kind == Immediate::TextPrefixKind::BytesFormat);
+        return self.string_kind == StringKind::Plain;  // Plain==0, == is correct here
     }
 }
 
@@ -881,12 +875,6 @@ class CharacterLiteralExpr derives Expr {
     fn interpolation_count(self) -> usize {
         assert((self.imm != &null) && r"CharacterLiteralExpr::interpolation_count: imm pointer is null");
         return self.imm->exprs.size();
-    }
-
-    fn is_byte_char(self) -> bool {
-        assert((self.imm != &null) && r"CharacterLiteralExpr::is_byte_char: imm pointer is null");
-        return (self.imm->prefix_kind == Immediate::TextPrefixKind::Bytes)
-            || (self.imm->prefix_kind == Immediate::TextPrefixKind::BytesFormat);
     }
 }
 
