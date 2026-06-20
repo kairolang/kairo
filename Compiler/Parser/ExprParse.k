@@ -1259,14 +1259,12 @@ class <T> ExprParse {
     ///        that should never appear inside a call argument list.
     ///        used to bail out of arg parsing when sync has overshot.
     priv fn _is_decl_keyword(self, k: TokenKind) -> bool {
-        return k == TokenKind::KwFn
-            || k == TokenKind::KwClass
+        return k == TokenKind::KwClass
             || k == TokenKind::KwStruct
             || k == TokenKind::KwEnum
             || k == TokenKind::KwInterface
+            || k == TokenKind::KwUnion
             || k == TokenKind::KwModule
-            || k == TokenKind::KwVar
-            || k == TokenKind::KwConst
             || k == TokenKind::KwImport
             || k == TokenKind::KwFfi
             || k == TokenKind::KwExtend
