@@ -9,10 +9,10 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Preproces::ScopeTracker::*;
+import Preprocessor::ScopeTracker::*;
 import Resolution::FileImportState::*;
 import Resolution::ParsedImport::*;
-import Preproces::SkipList::*;
+import Preprocessor::SkipList::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 

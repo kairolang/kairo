@@ -14,7 +14,7 @@
 
 import AST::Context::ASTContext::*;
 import Resolution::ModulePath::*;
-import Preproces::Preprocessor::*;
+import Preprocessor::Preprocessor::*;
 import AST::Context::ASTIndex::*;
 
 /// Aggregates all file-level HoistedScope instances for cross-file lookup.

@@ -13,9 +13,9 @@
 
 import Token::TokenCacheManager::*;
 import Resolution::ImportProbe::*;
-import Preproces::SkipList::*;
+import Preprocessor::SkipList::*;
 import Location::SourceManager::*;
-import Preproces::ScopeTracker::*;
+import Preprocessor::ScopeTracker::*;
 import Resolution::ModulePath::*;
 
 // FIXME: on a big project root with many files, DepScanner makes a lot of

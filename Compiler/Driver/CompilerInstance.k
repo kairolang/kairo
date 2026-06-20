@@ -112,7 +112,7 @@ import Config::Invocation::*;
 import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;
-import Preproces::Preprocessor::*;
+import Preprocessor::Preprocessor::*;
 import AST::Context::ASTIndex::*;
 import Parser::ASTParse::*;
 import AST::Context::GlobalHoistedScope::*;

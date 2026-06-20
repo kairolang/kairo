@@ -210,14 +210,14 @@ import Token::TokenCacheManager::*;
 import Token::TokenSpan::*;
 import Resolution::ImportProbe::*;
 import Macro::DefinitionCollector::*;
-import Preproces::ExpansionContext::*;
+import Preprocessor::ExpansionContext::*;
 import Diagnostic::BasicConsumer::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Config::Preprocessor::*;
 import Macro::Sentinel::*;
-import Preproces::DepScanner::*;
-import Preproces::WaveExecutor::*;
+import Preprocessor::DepScanner::*;
+import Preprocessor::WaveExecutor::*;
 
 class PreProcessor;
 

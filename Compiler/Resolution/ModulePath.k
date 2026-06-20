@@ -9,7 +9,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Preproces::PreprocessorSymbolTable::*;
+import Preprocessor::PreprocessorSymbolTable::*;
 import Token::IdentifierToken::*;
 
 class ModulePath { // 256-bit class (32 bytes - max)

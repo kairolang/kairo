@@ -10,7 +10,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Token::Token::*;
-import Preproces::PreprocessorSymbolTable::*;
+import Preprocessor::PreprocessorSymbolTable::*;
 
 type SymbolID = u32;;
 

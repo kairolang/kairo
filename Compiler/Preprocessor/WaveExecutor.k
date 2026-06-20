@@ -11,7 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Preproces::DepScanner::*;
+import Preprocessor::DepScanner::*;
 import Resolution::ModulePath::*;
 import Threading::ThreadPool::*;
 

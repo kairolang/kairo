@@ -10,7 +10,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Macro::Parameter::*;
-import Preproces::PreprocessorSymbolTable::*;
+import Preprocessor::PreprocessorSymbolTable::*;
 
 class MacroParameterList {
     pub var params: vec::<MacroParameter>;

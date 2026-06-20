@@ -10,7 +10,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Token::IdentifierToken::*;
-import Preproces::PreprocessorSymbolTable::*;
+import Preprocessor::PreprocessorSymbolTable::*;
 import Token::TokenSpan::*;
 
 class MacroParameter {
