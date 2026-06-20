@@ -353,6 +353,7 @@ class ClosureExpr derives Expr {
     struct Capture {
         var name:  *NamedIdentExpr; ///< the captured variable's name token.
         var by_ref: bool;             ///< true if `|&captured|`, false if `|captured|`.
+        var is_const: bool = false;             ///< true if `|&captured| const`, false otherwise.
     }
     pub var body_kind:   FnBodyKind = FnBodyKind::None;
     pub var body_block: *CompoundStmt = &null;

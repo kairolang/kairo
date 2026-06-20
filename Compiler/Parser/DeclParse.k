@@ -992,45 +992,92 @@ class <T> DeclParse {
             return;
         }
 
-        
-        
-        if dyn()->check(TokenKind::OpAmp) {
-            var amp_range = dyn()->current_ptr()->range;
-            dyn()->advance(); // consume `&`
+        // first capture — handled separately to avoid comma-before-first logic
+        {
+            var p_start   = dyn()->current_ptr()->range;
+            var is_const: bool = false;
+            var by_ref:   bool = false;
 
-            // `|&|` — all captures by reference, no named entries
-            if dyn()->check(TokenKind::OpPipe) {
-                dyn()->advance(); // consume `|`
-                var capture = ClosureExpr::Capture();
-                capture.name = &null;
-                capture.by_ref = true;
-                out->push_back(capture);
-                return;
+            if dyn()->check(TokenKind::KwConst) {
+
+                //TODO recovery incase of anything other than const here
+                is_const = true;
+                dyn()->advance(); // consume `const`
             }
-            // `&name` — first capture is by-ref, fall into shared emit below
-            if !dyn()->check(TokenKind::LitIdentifier) {
-                dyn()->diag->report(DiagID::S047E, amp_range.start,
-                    "expected capture name after '&\x27"
-                ).first(amp_range).emit();
-                self._sync_decl(DeclSyncCtx::Params);
-            } else {
+
+            if dyn()->check(TokenKind::OpAmp) {
+                var amp_range = dyn()->current_ptr()->range;
+                dyn()->advance(); // consume `&`
+
+                // `|&|` or `|const &|` — all-by-ref sentinel, no named capture
+                if dyn()->check(TokenKind::OpPipe) {
+                    dyn()->advance(); // consume `|`
+                    var capture = ClosureExpr::Capture();
+                    capture.name     = &null;
+                    capture.by_ref   = true;
+                    capture.is_const = is_const;
+                    out->push_back(capture);
+                    return;
+                }
+
+                by_ref = true;
+
+                if !dyn()->check(TokenKind::LitIdentifier) {
+                    dyn()->diag->report(DiagID::S047E, amp_range.start,
+                        "expected capture name after '&' "
+                    ).first(amp_range).emit();
+                    self._sync_decl(DeclSyncCtx::Params);
+                    // fall through to closing `|` check
+                } else {
+                    var cname = dyn()->current();
+                    dyn()->advance();
+                    var capture = ClosureExpr::Capture();
+                    capture.name     = NamedIdentExpr::create(dyn()->ctx, p_start | cname.range, cname);
+                    capture.by_ref   = true;
+                    capture.is_const = is_const;
+                    out->push_back(capture);
+                }
+
+            } else if dyn()->check(TokenKind::LitIdentifier) {
                 var cname = dyn()->current();
                 dyn()->advance();
                 var capture = ClosureExpr::Capture();
-                capture.name = NamedIdentExpr::create(dyn()->ctx, amp_range | cname.range, cname);
-                capture.by_ref = true;
+                capture.name     = NamedIdentExpr::create(dyn()->ctx, p_start | cname.range, cname);
+                capture.by_ref   = false;
+                capture.is_const = is_const;
                 out->push_back(capture);
+
+            } else {
+                dyn()->diag->report(DiagID::S047E, p_start.start,
+                    "expected capture name or '&' in capture list"
+                ).first(p_start).emit();
+                self._sync_decl(DeclSyncCtx::Params);
             }
-            if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); }
-            else {
+
+            // after first capture: comma continues, pipe or nothing closes
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After);
+                if dyn()->check(TokenKind::OpPipe) {
+                    dyn()->advance(); // trailing comma before `|`
+                    return;
+                }
+            } else {
                 if dyn()->check(TokenKind::OpPipe) { dyn()->advance(); }
                 return;
             }
         }
 
+        // remaining captures
         while !dyn()->is_eof() {
-            var p_start = dyn()->current_ptr()->range;
-            var by_ref: bool = false;
+            var p_start   = dyn()->current_ptr()->range;
+            var is_const: bool = false;
+            var by_ref:   bool = false;
+
+            if dyn()->check(TokenKind::KwConst) {
+                 //TODO recovery incase of anything other than const here
+                is_const = true;
+                dyn()->advance(); // consume `const`
+            }
 
             if dyn()->check(TokenKind::OpAmp) {
                 by_ref = true;
@@ -1050,8 +1097,9 @@ class <T> DeclParse {
             dyn()->advance();
 
             var capture = ClosureExpr::Capture();
-            capture.name = NamedIdentExpr::create(dyn()->ctx, p_start | cname.range, cname);
-            capture.by_ref = by_ref;
+            capture.name     = NamedIdentExpr::create(dyn()->ctx, p_start | cname.range, cname);
+            capture.by_ref   = by_ref;
+            capture.is_const = is_const;
             out->push_back(capture);
 
             if dyn()->check(TokenKind::OpComma) {
@@ -2439,6 +2487,8 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpLParen) {
             self._parse_param_list(&params);
         }
+
+        //TODO recovery in case of [paramlist] [modifiers] [capture], however dont recover if capture list isnt there
         
         // capture list: `|a, &b|` / `|&|` / `||`
         if dyn()->check(TokenKind::OpPipe) {

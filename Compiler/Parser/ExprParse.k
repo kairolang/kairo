@@ -35,6 +35,9 @@ import Source::SourceRange::*;
 import Lexer::Token::*;
 import TokenKind::*;
 import ASTNode::Statements::*;
+import Parser::LexicalScope::*;
+
+
 
 class <T> ExprParse {
     /// \brief token set for primary expression dispatch. identifiers, builtins,
@@ -1397,6 +1400,57 @@ class <T> ExprParse {
         var cur_ptr = dyn()->current_ptr();
         if cur_ptr == &null { return &null; }
         var cur_range = cur_ptr->range;
+        
+        while true {
+            
+            if dyn()->check(TokenKind::KwFinal) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'final' is not a valid is not valid in this position of an expression"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+            
+            else if dyn()->check(TokenKind::KwInline) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'inline' is not a valid is not valid in this position of an expression"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+
+            else if dyn()->check(TokenKind::KwPanic) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'panic' is not a valid is not valid in this position of an expression"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+
+            else if dyn()->check(TokenKind::KwVolatile) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'volatile' is not a valid is not valid in this position of an expression"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+
+            else if dyn()->check(TokenKind::KwAsync) {
+                var r = dyn()->current_ptr()->range;
+                dyn()->diag->report(DiagID::S045E, r.start,
+                    "'async' is not a valid is not valid in this position of an expression"
+                ).first(r).emit();
+                dyn()->advance();
+            }
+            
+            
+            else {
+                cur_ptr = dyn()->current_ptr();
+                if cur_ptr == &null { break; }
+                cur_range = cur_ptr->range;
+                break;
+            }
+        }
 
         // -- integer literal -----------------------------------------
         if dyn()->check(TokenKind::LitInt) {
@@ -2714,6 +2768,7 @@ class <T> ExprParse {
 
         dyn()->advance(T::SkipNL::After); // consume `fn`
 
+        dyn()->enter_scope(ScopeKind::Function, static_cast::<*DeclContext>(&null));
         var sig_result = dyn()->_parse_closure_sig();
         // signature: generics, captures, params, modifiers, return type
         // var (params, gparams, captures, modifiers, ret_type) = dyn()->_parse_closure_sig();
