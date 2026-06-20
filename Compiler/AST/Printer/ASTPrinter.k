@@ -2067,7 +2067,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if(e->body_kind == FnBodyKind::Expr) {
             self._child_expr(e->body_expr, true);
         } else if(e->body_kind == FnBodyKind::Block) {
-            self._child_expr(e->body_block, true);
+            self._child_stmt(e->body_block, true);
         } 
         // self._child_expr(e->body, true);
          
