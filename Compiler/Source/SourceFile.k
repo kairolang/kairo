@@ -11,9 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Path::*;
-import Memory::MappedFileBuffer::*;
-import Memory::MemoryBuffer::*;
+import Support::FileIO::Path::*;
+import Support::Memory::MappedFileBuffer::*;
+import Support::Memory::MemoryBuffer::*;
 
 ///
 /// \file SourceFile.k

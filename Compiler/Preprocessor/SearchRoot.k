@@ -11,13 +11,13 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Path::*;
-import FileSystem::*;
-import Memory::MappedFileBuffer::*;
+import Support::FileIO::Path::*;
+import Support::FileIO::FileSystem::*;
+import Support::Memory::MappedFileBuffer::*;
 
 import Preprocessor::FileExtensions::*;
 import Preprocessor::DirEntry::*;
-import ThreadPool::*;
+import Support::Threading::ThreadPool::*;
 
 class SearchRoot {
     pub var base_path: Path;

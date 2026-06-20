@@ -13,7 +13,7 @@
 
 import Preprocessor::DepScanner::*;
 import Preprocessor::ModulePath::*;
-import ThreadPool::*;
+import Support::Threading::ThreadPool::*;
 
 class WaveExecutor {
     priv var _pool: obs::<ThreadPool>;

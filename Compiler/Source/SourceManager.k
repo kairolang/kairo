@@ -11,17 +11,17 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
 import Source::SourceFile::*;
 import Source::SourceLocation::*;
 import Source::FullSourceLocation::*;
-import Path::*;
-import Memory::MemoryBuffer::*;
+import Support::FileIO::Path::*;
+import Support::Memory::MemoryBuffer::*;
 import Source::SourceLineTable::*;
-import ThreadPool::*;
-import VirtualFileManager::*;
-import Assert::*;
+import Support::Threading::ThreadPool::*;
+import Support::FileIO::VirtualFileManager::*;
+import Support::Assert::*;
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
 

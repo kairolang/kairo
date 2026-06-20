@@ -12,7 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Source::SourceRange::*;
-import TokenKind::*;
+import Lexer::TokenKind::*;
 
 /// size = 16 bytes on 64-bit
 ///      sizeof(kind)   = 32 bits

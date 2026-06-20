@@ -50,7 +50,8 @@
 ///   Takes vec::<string> (libcxx::vector<wstring>) - the shell already
 ///   split the command line; the driver builds this from argc/argv once.
 
-import Include::Testing::*;
+import Support::Timer::*;
+import Support::Assert::*;
 import Diag::DiagEngine::*;
 import Command::ParsedArgs::*;
 

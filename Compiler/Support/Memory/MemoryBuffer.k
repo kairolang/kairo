@@ -11,9 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
-import UTF8View::*;
+import Support::Unicode::UTF8View::*;
 
 ///
 /// \file MemoryBuffer.k

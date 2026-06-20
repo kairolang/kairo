@@ -11,9 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Memory/ArenaBlock.hh";
+ffi "c++" import "Include/ArenaBlock.hh";
 
-import Timer::*;
+import Support::Timer::*;
 
 /// ArenaAllocator bump-pointer allocator backed by a linked chain of ArenaBlocks.
 ///

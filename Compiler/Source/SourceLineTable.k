@@ -11,12 +11,12 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
-import Path::*;
-import Memory::MappedFileBuffer::*;
-import Memory::MemoryBuffer::*;
-import VirtualFileManager::*;
+import Support::FileIO::Path::*;
+import Support::Memory::MappedFileBuffer::*;
+import Support::Memory::MemoryBuffer::*;
+import Support::FileIO::VirtualFileManager::*;
 import Source::FullSourceLocation::*;
 import Source::SourceLocation::*;
 import Source::SourceRange::*;

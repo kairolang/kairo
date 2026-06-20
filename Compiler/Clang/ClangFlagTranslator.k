@@ -12,7 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Command::ParsedArgs::*;
-import Path::*;
+import Support::FileIO::Path::*;
 
 ///
 /// \file Driver/ClangFlagTranslator.k

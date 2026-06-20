@@ -30,7 +30,7 @@ import AST::Mixin::TypeQual::*;
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
 import Source::SourceRange::*;
-import TokenKind::*;
+import Lexer::TokenKind::*;
 
 /// \class TypeParse
 /// \brief CRTP mixin providing type expression parsing for the Kairo parser.

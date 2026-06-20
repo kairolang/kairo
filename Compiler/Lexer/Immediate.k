@@ -14,7 +14,7 @@
 import Source::SourceRange::*;
 import Source::SourceManager::*;
 import Lexer::TokenBuffer::*;
-import Memory::ArenaList::*;
+import Support::Memory::ArenaList::*;
 
 /// TODO: change suffixes to Tokens itself rather then SourceRange since we
 ///       don't want to reparse and a Token is smaller (32 bytes vs 64 bytes)

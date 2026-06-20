@@ -11,11 +11,11 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
-import Path::*;
-import FileSystem::*;
-import Memory::MappedFileBuffer::*;
+import Support::FileIO::Path::*;
+import Support::FileIO::FileSystem::*;
+import Support::Memory::MappedFileBuffer::*;
 
 import Preprocessor::FileExtensions::*;
 

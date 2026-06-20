@@ -14,7 +14,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Memory::ArenaList::*;
+import Support::Memory::ArenaList::*;
 import Source::SourceManager::*;
 import Lexer::TokenCacheManager::*;
 import Lexer::Immediate::*;
@@ -24,7 +24,7 @@ import Lexer::TokenSpan::*;
 import Options::CompilerInvocation::*;
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
-import AST::InternedStr::*;
+import Support::InternedStr::*;
 
 /// \brief Forward declaration required by ASTContext.
 ///

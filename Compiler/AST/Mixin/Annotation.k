@@ -11,9 +11,9 @@
 ///
 /// ------------------------------------------------------------------- ///
 
-import Memory::ArenaList::*;
+import Support::Memory::ArenaList::*;
 import Source::SourceRange::*;
-import AST::InternedStr::*;
+import Support::InternedStr::*;
 import AST::Support::*;
 
 /// CRTP mixin: Decl nodes derive VisibilityAnnotation::<SelfType> to get

@@ -45,7 +45,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
 import Source::SourceRange::*;
 import Diag::DiagRegistry::*;

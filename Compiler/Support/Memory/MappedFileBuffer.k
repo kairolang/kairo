@@ -11,10 +11,10 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Memory::MMapRegion::*;
-import Memory::MemoryBuffer::*;
-import UTF8View::*;
-import Timer::*;
+import Support::Memory::MMapRegion::*;
+import Support::Memory::MemoryBuffer::*;
+import Support::Unicode::UTF8View::*;
+import Support::Timer::*;
 
 ///
 /// \file MappedFileBuffer.k

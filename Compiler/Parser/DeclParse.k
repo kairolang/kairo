@@ -43,7 +43,7 @@ import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
 import Source::SourceRange::*;
 import Lexer::Token::*;
-import TokenKind::*;
+import Lexer::TokenKind::*;
 import Parser::LexicalScope::*;
 
 class <T> DeclParse {

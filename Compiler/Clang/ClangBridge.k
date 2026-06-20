@@ -13,7 +13,7 @@
 
 ffi "c++" import "Clang/ClangBridgeImpl.hh";
 
-import Path::*;
+import Support::FileIO::Path::*;
 import Source::SourceLocation::*;
 import Source::SourceRange::*;
 import Source::SourceManager::*;

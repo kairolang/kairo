@@ -11,7 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Include::Base::*;
+import Lexer::TokenKind::*;
+import Source::SourceRange::*;
 import Lexer::Token::*;
 import Lexer::TokenBuffer::*;
 

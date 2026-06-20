@@ -25,7 +25,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
 import Diag::Diagnostic::*;
 import Diag::DiagConsumer::*;

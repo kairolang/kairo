@@ -20,8 +20,9 @@ import Lexer::BalanceTracker::*;
 import Lexer::HexParser::*;
 import Lexer::OctalParser::*;
 
-import Include::SourceManager::*;
-import Include::Testing::*;
+import Source::SourceManager::*;
+import Support::Timer::*;
+import Support::Assert::*;
 import Diag::DiagEngine::*;
 import Diag::DiagRegistry::*;
 

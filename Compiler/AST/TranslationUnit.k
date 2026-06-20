@@ -13,7 +13,7 @@
 ///
 /// -------------------------------------------------------------------------- ///
 
-import Memory::ArenaList::*;
+import Support::Memory::ArenaList::*;
 import AST::ASTContext::*;
 import AST::GlobalHoistedScope::*;
 import AST::DeclContext::*;

@@ -1,4 +1,4 @@
-import Memory::ArenaAllocator::*;
+import Support::Memory::ArenaAllocator::*;
 
 /// ArenaList<T> arena-backed, slab-indexed dynamic array.
 ///

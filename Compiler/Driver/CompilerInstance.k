@@ -104,7 +104,7 @@ import Diag::DiagRegistry::*;
 import DiagConsumer::PrettyDiagConsumer::*;
 import DiagConsumer::BasicDiagConsumer::*;
 import Source::SourceManager::*;
-import TermRenderer::*;
+import Support::TermRenderer::*;
 import Lexer::TokenCacheManager::*;
 import Command::Command::*;
 import Command::FlagRegistry::*;

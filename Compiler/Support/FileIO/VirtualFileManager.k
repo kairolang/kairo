@@ -11,14 +11,14 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
-import Path::*;
-import Memory::MappedFileBuffer::*;
-import Memory::MemoryBuffer::*;
+import Support::FileIO::Path::*;
+import Support::Memory::MappedFileBuffer::*;
+import Support::Memory::MemoryBuffer::*;
 import Source::SourceLocation::*;
 import Source::SourceRange::*;
-import ThreadPool::*;
+import Support::Threading::ThreadPool::*;
 
 ///
 /// \file VirtualFileManager.k

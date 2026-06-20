@@ -39,7 +39,7 @@ import AST::Printer::PrintCore::*;
 import AST::ASTContext::*;
 import AST::DeclContext::*;
 import AST::Support::*;
-import AST::InternedStr::*;
+import Support::InternedStr::*;
 import AST::TranslationUnit::*;
 import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;
@@ -58,7 +58,7 @@ import ASTKind::ExprKind::*;
 import ASTKind::TypeKind::*;
 import ASTKind::StmtKind::*;
 import ASTKind::PatternKind::*;
-import TokenKind::*;
+import Lexer::TokenKind::*;
 
 /// AstDumper derives RecursiveASTVisitor::<AstDumper> so its dispatch_*
 /// overrides are reached through the CRTP dyn() routing. The source-faithful

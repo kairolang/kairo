@@ -11,7 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
 ///
 /// \file MMapRegion.k

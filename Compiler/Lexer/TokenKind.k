@@ -13,7 +13,7 @@
 
 // DO NOT FORGET OPS CAN START WITH A PREFIX OF l or r
 
-import EvalHash::*;
+import Support::EvalHash::*;
 
 ///
 // TODO: change both this and compute_hash to lower the size of the enum from

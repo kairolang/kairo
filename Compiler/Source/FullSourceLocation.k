@@ -12,8 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 import Source::SourceLocation::*;
-import Path::*;
-import VirtualFileManager::*;
+import Support::FileIO::Path::*;
+import Support::FileIO::VirtualFileManager::*;
 
 ///
 /// \file FullSourceLocation.k

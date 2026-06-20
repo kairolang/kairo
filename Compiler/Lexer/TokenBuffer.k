@@ -11,8 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Memory::ArenaAllocator::*;
-import TokenKind::*;
+import Support::Memory::ArenaAllocator::*;
+import Lexer::TokenKind::*;
 import Lexer::Token::*;
 
 class <const CHUNK_SIZE: usize> TokenBuffer {

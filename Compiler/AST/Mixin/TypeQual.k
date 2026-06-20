@@ -13,9 +13,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Memory::ArenaList::*;
+import Support::Memory::ArenaList::*;
 import Source::SourceRange::*;
-import AST::InternedStr::*;
+import Support::InternedStr::*;
 
 /// Represents the address space of a type when HasAddressSpace is set.
 /// Stored in ExtQuals, not directly in TypeQual.

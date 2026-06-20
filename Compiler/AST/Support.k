@@ -20,8 +20,8 @@
 ///   - Also our custom RTTI system.
 
 import AST::ASTContext::*;
-import TokenKind::*;
-import Memory::ArenaList::*;
+import Lexer::TokenKind::*;
+import Support::Memory::ArenaList::*;
 import Source::SourceManager::*;
 import Preprocessor::MacroSentinel::*;
 import Lexer::Immediate::*;

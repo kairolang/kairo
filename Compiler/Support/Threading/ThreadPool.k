@@ -11,10 +11,10 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "SmallFunction.hh";
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/SmallFunction.hh";
+ffi "c++" import "Include/Types.hh";
 
-import Timer::*;
+import Support::Timer::*;
 
 ///
 /// \class ThreadPool

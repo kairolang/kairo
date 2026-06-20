@@ -13,7 +13,7 @@
 
 import Source::SourceManager::*;
 import Diag::DiagEngine::*;
-import Path::*;
+import Support::FileIO::Path::*;
 import Clang::ClangSymbol::*;
 import Clang::ClangSymbolTable::*;
 

@@ -11,9 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-ffi "c++" import "UTF8Decode.hh";
+ffi "c++" import "Include/UTF8Decode.hh";
 
-import Memory::MMapRegion::*;
+import Support::Memory::MMapRegion::*;
 
 ///
 /// \file UTF8View.k

@@ -11,7 +11,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import FileSystem::*;
+import Support::FileIO::FileSystem::*;
 
 ///
 /// \file Path.k

@@ -54,14 +54,14 @@
 //      walk phase alone takes up seconds of time, since kairo/ has all of llvm
 //      and all of libc source in its search paths its awfully slow to index.
 
-ffi "c++" import "Types.hh";
+ffi "c++" import "Include/Types.hh";
 
-import Path::*;
-import FileSystem::*;
-import Memory::MappedFileBuffer::*;
-import Include::Concurrency::*;
-import Include::Testing::*;
-
+import Support::FileIO::Path::*;
+import Support::FileIO::FileSystem::*;
+import Support::Memory::MappedFileBuffer::*;
+import Support::Threading::ThreadPool::*;
+import Support::Timer::*;
+import Support::Assert::*;
 import Preprocessor::FileExtensions::*;
 import Preprocessor::DirEntry::*;
 import Preprocessor::SearchRoot::*;
