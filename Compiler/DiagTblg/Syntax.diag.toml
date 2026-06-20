@@ -397,6 +397,52 @@ group = "syntax"
     consult the list of valid escape sequences for your string type and correct or remove the invalid escape.
     """
 
+    [S017.W]
+    explain = """
+    # `\\"` does not escape the quote in a raw string
+
+    In a raw string literal (prefixed with `r`), the backslash `\\` is a literal
+    character, it does not start an escape sequence. That is the point of raw
+    strings: a pattern like `r"\\d+\\.\\d+"` keeps every backslash verbatim,
+    which is what regular expressions and Windows paths need.
+
+    The consequence is that `\\"` does **not** escape the quote. The backslash is
+    literal, and the `"` immediately after it still ends the string. So a raw
+    string cannot contain its own closing quote.
+
+    ## what went wrong
+
+    ```kairo
+    var s = r"he said \\"hi\\""
+    //                 ^ the string ends here; everything after is stray
+    ```
+
+    The lexer read `r"he said \\"` as a complete raw string with the contents
+    `he said \\`, then tried to parse `hi\\"` as code.
+
+    ## how to fix
+
+    If you need a literal backslash and no embedded quotes, a plain raw string is
+    already correct:
+
+    ```kairo
+    var pattern = r"\\d+\\.\\d+"
+    ```
+
+    If you need to embed a quote, raw single-quote strings can't do it. Use a
+    normal string and escape the quote:
+
+    ```kairo
+    var s = "he said \\"hi\\""
+    ```
+
+    or a triple-quoted string, where a lone `"` needs no escaping at all:
+
+    ```kairo
+    var s = \"\"\"he said "hi"\"\"\"
+    ```
+    """
+
 [S018]
 brief = "newline in format string interpolation expression"
 group = "syntax"

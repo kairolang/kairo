@@ -1,4 +1,4 @@
 fn main() {
-    var x = 1; var y = 2
-    foo(); bar()
+    if true { var x = 1; return }
+    if true { foo(); return }
 }

@@ -1749,7 +1749,6 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if e->is_error() { self._head("RecoveryExpr", is_last); self._dim(self._recovery_name(self._expr_kind_name_of(e->recovery_kind))); self.p.newline(); return; }
 
         if isa::<IntegerLiteralExpr>(e) || isa::<FloatingLiteralExpr>(e)
-        || isa::<StringLiteralExpr>(e)  || isa::<CharacterLiteralExpr>(e)
         || isa::<BooleanLiteralExpr>(e) || isa::<NullLiteralExpr>(e) {
             self._head(self._expr_kind_name(e), is_last);
             self._inline_expr(e);
@@ -1772,12 +1771,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             return;
         }
 
-        if isa::<ChainExpr>(e)            { self._dx_chain(cast::<ChainExpr>(e), is_last);             return; }
-        if isa::<CallExpr>(e)             { self._dx_call(cast::<CallExpr>(e), is_last);               return; }
-        if isa::<SubscriptExpr>(e)        { self._dx_subscript(cast::<SubscriptExpr>(e), is_last);     return; }
-        if isa::<UnaryOperatorExpr>(e)    { self._dx_unary(cast::<UnaryOperatorExpr>(e), is_last);     return; }
-        if isa::<BinaryOperatorExpr>(e)   { self._dx_binop(cast::<BinaryOperatorExpr>(e), is_last);    return; }
-        if isa::<AssignOperatorExpr>(e)   { self._dx_assign(cast::<AssignOperatorExpr>(e), is_last);   return; }
+        if isa::<ChainExpr>(e)            { self._dx_chain(cast::<ChainExpr>(e), is_last);                  return; }
+        if isa::<CallExpr>(e)             { self._dx_call(cast::<CallExpr>(e), is_last);                    return; }
+        if isa::<SubscriptExpr>(e)        { self._dx_subscript(cast::<SubscriptExpr>(e), is_last);          return; }
+        if isa::<UnaryOperatorExpr>(e)    { self._dx_unary(cast::<UnaryOperatorExpr>(e), is_last);          return; }
+        if isa::<BinaryOperatorExpr>(e)   { self._dx_binop(cast::<BinaryOperatorExpr>(e), is_last);         return; }
+        if isa::<AssignOperatorExpr>(e)   { self._dx_assign(cast::<AssignOperatorExpr>(e), is_last);        return; }
+        if isa::<StringLiteralExpr>(e)    { self._dx_string_literal(cast::<StringLiteralExpr>(e), is_last); return; }
         if isa::<ListLiteralExpr>(e)      { self._dx_expr_seq("ListLiteralExpr",  cast::<ListLiteralExpr>(e)->elements,  is_last); return; }
         if isa::<TupleLiteralExpr>(e)     { self._dx_expr_seq("TupleLiteralExpr", cast::<TupleLiteralExpr>(e)->elements, is_last); return; }
         if isa::<SetLiteralExpr>(e)       { self._dx_expr_seq("SetLiteralExpr",   cast::<SetLiteralExpr>(e)->elements,   is_last); return; }
@@ -1890,6 +1890,25 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         self._child_expr(e->lhs, false);
         self._child_expr(e->rhs, true);
+        self.p.leave();
+    }
+
+    fn _dx_string_literal(self, e: *StringLiteralExpr, is_last: bool) {
+        self._head("StringLiteralExpr", is_last);
+        self._inline_expr(static_cast::<*Expr>(e));
+        self.p.newline();
+
+        // If there are no interpolated holes, we are done
+        if e->parts.is_empty() {
+            return;
+        }
+
+        // Otherwise, walk the holes (the 'parts' expressions)
+        self.p.enter(is_last);
+        for var i: usize = 0; i < e->parts.size(); ++i {
+            var is_final_part = (i == e->parts.size() - 1);
+            self._child_expr(e->parts[i], is_final_part);
+        }
         self.p.leave();
     }
 

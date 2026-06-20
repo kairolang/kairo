@@ -101,6 +101,7 @@ enum DiagID derives u32 {
   S015E = compute_hash::<r"S015E">(),
   S016E = compute_hash::<r"S016E">(),
   S017E = compute_hash::<r"S017E">(),
+  S017W = compute_hash::<r"S017W">(),
   S018E = compute_hash::<r"S018E">(),
   S022W = compute_hash::<r"S022W">(),
   S023E = compute_hash::<r"S023E">(),
@@ -1000,6 +1001,16 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         hash: static_cast::<u32>(compute_hash::<r"S017E">()),
         category: DiagCategory::Syntax,
         severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::S017W {
+      return DiagMeta{
+        brief: "invalid escape sequence in string literal",
+        group: "syntax",
+        number: 17,
+        hash: static_cast::<u32>(compute_hash::<r"S017W">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Warning
       };
     }
     case DiagID::S018E {
@@ -1949,6 +1960,7 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::S015E { return "# missing string or character literal delimiter\n\nthis error occurs when the lexer expected a string delimiter (`\"`) or character delimiter (`\'`) to begin a literal,\nbut encountered a different character. this usually means a prefix character (such as `f`, `b`, or `r`) was used\nwithout being followed by a valid opening quote.\n\n## example\n\n- correct usage:\n```kairo\nvar s = \"hello\"\nvar c = \'x\'\nvar f = f\"result: {x}\"\n```\n\n- incorrect usage:\n```kairo\nvar s = f 42  // \'f\' prefix not followed by a quote\n```\n\n## how to fix\nensure that every string or character prefix is immediately followed by a matching opening delimiter (`\"` or `\'`)."; }
     case DiagID::S016E { return "# unmatched `}` in format string literal\n\nthis error occurs when a standalone `}` is found inside an f-string literal but there is no matching opening `{`.\nin a format string, `{` opens an interpolation expression and `}` closes it. a lone `}` with no corresponding `{`\nis invalid.\n\n## example\n\n- correct usage:\n```kairo\nvar msg = f\"value: {x}\"\n```\n\n- incorrect usage:\n```kairo\nvar msg = f\"value: }x{\"  // unmatched `}`\n```\n\n## how to fix\nremove the stray `}`, or if you intended a literal brace, escape it as `\\}` (only valid when `\\{`/`\\}` escape is\nsupported) or restructure the interpolation expression."; }
     case DiagID::S017E { return "# invalid escape sequence in string literal\n\nthis error occurs when the lexer encounters a backslash (`\\`) followed by a character that does not form a valid\nescape sequence in the current string context. the specific problem (unknown character, wrong string type, etc.)\nis described in the accompanying message.\n\n## example\n\n- correct usage:\n```kairo\nvar s = \"line one\\nline two\"  // \\n is a valid escape\n```\n\n- incorrect usage:\n```kairo\nvar s = \"bad \\q here\"  // \\q is not a recognized escape sequence\n```\n\n## how to fix\nconsult the list of valid escape sequences for your string type and correct or remove the invalid escape."; }
+    case DiagID::S017W { return "# `\\\"` does not escape the quote in a raw string\n\nIn a raw string literal (prefixed with `r`), the backslash `\\` is a literal\ncharacter, it does not start an escape sequence. That is the point of raw\nstrings: a pattern like `r\"\\d+\\.\\d+\"` keeps every backslash verbatim,\nwhich is what regular expressions and Windows paths need.\n\nThe consequence is that `\\\"` does **not** escape the quote. The backslash is\nliteral, and the `\"` immediately after it still ends the string. So a raw\nstring cannot contain its own closing quote.\n\n## what went wrong\n\n```kairo\nvar s = r\"he said \\\"hi\\\"\"\n//                 ^ the string ends here; everything after is stray\n```\n\nThe lexer read `r\"he said \\\"` as a complete raw string with the contents\n`he said \\`, then tried to parse `hi\\\"` as code.\n\n## how to fix\n\nIf you need a literal backslash and no embedded quotes, a plain raw string is\nalready correct:\n\n```kairo\nvar pattern = r\"\\d+\\.\\d+\"\n```\n\nIf you need to embed a quote, raw single-quote strings can\'t do it. Use a\nnormal string and escape the quote:\n\n```kairo\nvar s = \"he said \\\"hi\\\"\"\n```\n\nor a triple-quoted string, where a lone `\"` needs no escaping at all:\n\n```kairo\nvar s = \"\"\"he said \"hi\"\"\"\"\n```"; }
     case DiagID::S018E { return "# newline inside format string expression\n\nthis error occurs when a raw newline character appears inside the interpolation expression `{...}` of a format\nstring. format string expressions must be on a single line.\n\n## example\n\n- correct usage:\n```kairo\nvar msg = f\"result: {compute()}\"\n```\n\n- incorrect usage:\n```kairo\nvar msg = f\"result: {\n    compute()\n}\"  // newline inside { } is not allowed\n```\n\n## how to fix\nmove the expression to a single line, or assign the value to a temporary variable before the format string."; }
     case DiagID::S022W { return "# `\\{` or `\\}` escape invalid in non-format string\n\nthis error occurs when the escape sequences `\\{` or `\\}` are used inside a regular (non-format) string literal.\nthese escapes are only meaningful in format strings (`f\"...\"`) where `{` and `}` have special interpolation meaning.\nin a plain string they are unrecognized.\n\n## example\n\n- correct usage:\n```kairo\nvar escaped = f\"literal brace: \\{\"  // valid in f-string\n```\n\n- incorrect usage:\n```kairo\nvar s = \"literal brace: \\{\"  // invalid \\{ only works in f-strings\n```\n\n## how to fix\nuse a format string prefix (`f\"...\"`) if you need to write a literal brace character via `\\{`/`\\}`, or simply\ninclude the brace as a plain character in a regular string."; }
     case DiagID::S023E { return "# malformed `\\x` hex escape sequence\n\nthis error occurs when a `\\x` escape sequence is not followed by exactly two valid hexadecimal digits.\nthe `\\x` escape requires exactly two hex digits in the range `0`-`9`, `a`-`f`, or `A`-`F`.\n\n## example\n\n- correct usage:\n```kairo\nvar tab = \"\\x09\"  // horizontal tab (U+0009)\n```\n\n- incorrect usage:\n```kairo\nvar bad = \"\\xGG\"  // G is not a hex digit\nvar bad2 = \"\\x9\"  // only one digit two are required\n```\n\n## how to fix\nsupply exactly two hexadecimal digits after `\\x`, e.g. `\\x0A` for a newline."; }
@@ -2085,6 +2097,7 @@ module Diag {
         switch num {
           case 1 { return DiagID::S001W; }
           case 41 { return DiagID::S041W; }
+          case 17 { return DiagID::S017W; }
           case 22 { return DiagID::S022W; }
           case 25 { return DiagID::S025W; }
           case 55 { return DiagID::S055W; }
