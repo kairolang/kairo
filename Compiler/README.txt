@@ -225,10 +225,10 @@ Per-Action pipeline (parallelism shown explicitly):
         *=================================================*
                                 v
         *=================================================*
-        |  CODEGEN -- always fully parallel over TUs     |   Token/TokenSpan, Token/Token.k
-        |  construct a clang::Token stream into a custom |   Interop/Clang/SourceLocTranslator.k
-        |  inline buffer; SourceLocs point into .k.      |   AST/Printer
-        |  Invoke Clang cleanly as a guest -> object.    |
+        |  CODEGEN -- always fully parallel over TUs      |   Token/TokenSpan, Token/Token.k
+        |  construct a clang::Token stream into a custom  |   Interop/Clang/SourceLocTranslator.k
+        |  inline buffer; SourceLocs point into .k.       |   AST/Printer
+        |  Invoke Clang cleanly as a guest -> object.     |
         *=================================================*
                                 v
                   *----------------------------*
