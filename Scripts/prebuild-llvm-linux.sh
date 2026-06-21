@@ -24,6 +24,16 @@ echo "[llvm] out_lib:    $OUT_LIB"
 echo "[llvm] jobs:       $JOBS"
 echo "[llvm] link_jobs:  $LINK_JOBS"
 
+for tool in cmake ninja; do
+    if ! command -v "$tool" &>/dev/null; then
+        echo "[llvm] error: '$tool' not found."
+        echo "[llvm]   macOS:  brew install cmake ninja"
+        echo "[llvm]   Arch:   sudo pacman -S cmake ninja"
+        echo "[llvm]   Debian: apt install cmake ninja-build"
+        exit 1
+    fi
+done
+
 # verify submodule is actually checked out
 # Not just "dir exists", a non-recursive or half-failed init leaves an empty
 # or partial tree. Check the real source is present.

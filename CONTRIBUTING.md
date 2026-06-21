@@ -182,5 +182,5 @@ By submitting a contribution, you confirm that you have read and agreed to the t
 ## Final Note
 
 Kairo is being built as a serious compiler infrastructure.
-Contributions should improve the system—not increase complexity without clear benefit.
+Contributions should improve the system-not increase complexity without clear benefit.
 If unsure, ask before building.

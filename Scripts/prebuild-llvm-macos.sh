@@ -24,6 +24,16 @@ echo "[llvm] out_lib:    $OUT_LIB"
 echo "[llvm] jobs:       $JOBS"
 echo "[llvm] link_jobs:  $LINK_JOBS"
 
+for tool in cmake ninja; do
+    if ! command -v "$tool" &>/dev/null; then
+        echo "[llvm] error: '$tool' not found."
+        echo "[llvm]   macOS:  brew install cmake ninja"
+        echo "[llvm]   Arch:   sudo pacman -S cmake ninja"
+        echo "[llvm]   Debian: apt install cmake ninja-build"
+        exit 1
+    fi
+done
+
 # verify submodule is actually checked out
 if [[ ! -f "$LLVM_SRC/llvm/CMakeLists.txt" ]]; then
     echo "[llvm] error: Lib/llvm-runtimes is not checked out."
@@ -86,6 +96,7 @@ cmake \
     -DLLVM_ENABLE_LIBCXX=ON \
     -DLLVM_ENABLE_PROJECTS="clang;lld" \
     -DLLVM_TARGETS_TO_BUILD="$TARGETS" \
+    -DCMAKE_OSX_ARCHITECTURES="arm64" \
     -DLLVM_BUILD_LLVM_DYLIB=ON \
     -DLLVM_LINK_LLVM_DYLIB=ON \
     -DLLVM_ENABLE_RTTI=ON \
@@ -101,7 +112,7 @@ cmake \
     -DLLVM_ENABLE_ZLIB=FORCE_ON \
     -DLLVM_ENABLE_ZSTD=FORCE_ON \
     -DLLVM_ENABLE_LIBXML2=OFF \
-    -DLLVM_ENABLE_LTO=Thin \
+    -DLLVM_ENABLE_LTO=OFF \
     -DLLVM_PARALLEL_LINK_JOBS="$LINK_JOBS"
 
 # build (streams live)

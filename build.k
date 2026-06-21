@@ -179,14 +179,12 @@ fn llvm_includes(t: ref!(Target), llvm_src: string, llvm_build: string) {
 fn lld_libs(t: ref!(Target)) {
     // LLD isn't in llvm-config. Fixed bundle, group-wrapped for the
     // lldCommon<->flavor cycle. Emitted after inputs by the builder.
-    t.passthrough("-Wl,--start-group")
-     .passthrough("-llldCommon")
+    t.passthrough("-llldCommon")
      .passthrough("-llldELF")
      .passthrough("-llldCOFF")
      .passthrough("-llldMinGW")
      .passthrough("-llldMachO")
-     .passthrough("-llldWasm")
-     .passthrough("-Wl,--end-group");
+     .passthrough("-llldWasm");
 }
 
 fn llvm_libs(t: ref!(Target), llvm_build: string, out_lib: string) {
@@ -225,7 +223,7 @@ fn platform_glue(t: ref!(Target)) {
 }
 
 fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: string) {
-    require_vendored_llvm(llvm_build);
+    // require_vendored_llvm(llvm_build);
     common_flags(t);
     llvm_includes(t, llvm_src, llvm_build);
     llvm_libs(t, llvm_build, out_lib);
