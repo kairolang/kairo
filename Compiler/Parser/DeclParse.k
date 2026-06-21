@@ -1163,7 +1163,46 @@ class <T> DeclParse {
                 dyn()->advance(); fd->body_kind = FnBodyKind::Delete; return;
             }
             if dyn()->check(TokenKind::KwVirtual) {
-                dyn()->advance(); fd->body_kind = FnBodyKind::Virtual; return;
+                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    "virtual functions must be declared with the 'virtual' modifier"
+                ).first(dyn()->current_ptr()->range).emit();
+                dyn()->advance();
+                return;
+            }
+            if dyn()->check(TokenKind::KwStatic) {
+                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    "static functions must be declared with the 'static' modifier"
+                ).first(dyn()->current_ptr()->range).emit();
+                dyn()->advance();
+                return;
+            }
+            if dyn()->check(TokenKind::KwAsync) {
+                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    "async functions must be declared with the 'async' modifier"
+                ).first(dyn()->current_ptr()->range).emit();
+                dyn()->advance();
+                return;
+            }
+            if dyn()->check(TokenKind::KwInline) {
+                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    "inline functions must be declared with the 'inline' modifier"
+                ).first(dyn()->current_ptr()->range).emit();
+                dyn()->advance();
+                return;
+            }
+            if dyn()->check(TokenKind::KwFinal) {
+                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    "final functions must be declared with the 'final' modifier"
+                ).first(dyn()->current_ptr()->range).emit();
+                dyn()->advance();
+                return;
+            }
+            if dyn()->check(TokenKind::KwPanic) {
+                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    "panic functions must be declared with the 'panic' modifier"
+                ).first(dyn()->current_ptr()->range).emit();
+                dyn()->advance();
+                return;
             }
             // expression-bodied
             var e = dyn()->parse_expr();

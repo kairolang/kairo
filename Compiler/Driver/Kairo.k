@@ -58,6 +58,9 @@ fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
     // start. Wide-string machinery on Linux resolves lazily and will segfault
     // if first called from a worker thread with a shallow stack.
     inline "c++" {
+        // only reason this is in inline c++
+        // stage0 doesnt like accessing global namespaces
+        // ::foo simply doesnt parse in stage0
         ::setlocale(LC_ALL, "");
         (void)::wcslen(WIDE_STR(""));
     }
