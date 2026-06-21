@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# TOOLCHAIN LINKAGE INVARIANT - do not violate:
+#   Linux/macOS : shared (libLLVM.so/.dylib), one copy in lib/, thin bins
+#   Windows     : static (.lib), forced - libLLVM.dll is unsupported on Windows
+#   No system-LLVM fallback on any platform (patched fork required).
 set -euo pipefail
 
 ROOT="${KBLD_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -20,14 +24,18 @@ echo "[llvm] out_lib:    $OUT_LIB"
 echo "[llvm] jobs:       $JOBS"
 echo "[llvm] link_jobs:  $LINK_JOBS"
 
-# ── check submodule ────────────────────────────────────────────────────────────
+# verify submodule is actually checked out
+# Not just "dir exists", a non-recursive or half-failed init leaves an empty
+# or partial tree. Check the real source is present.
 if [[ ! -f "$LLVM_SRC/llvm/CMakeLists.txt" ]]; then
-    echo "[llvm] error: Lib/llvm-runtimes submodule not initialised"
+    echo "[llvm] error: Lib/llvm-runtimes is not checked out."
+    echo "[llvm] this is our PATCHED llvm-project fork (custom Clang PP-token"
+    echo "[llvm] injection). it is REQUIRED, there is no system-LLVM fallback."
     echo "[llvm] run: git submodule update --init --recursive Lib/llvm-runtimes"
     exit 1
 fi
 
-# ── copy helper ────────────────────────────────────────────────────────────────
+# copy helper
 copy_libs() {
     local src="$1"
     mkdir -p "$OUT_LIB"
@@ -37,61 +45,33 @@ copy_libs() {
     echo "[llvm] libs copied to $OUT_LIB"
 }
 
-# ── skip if already built ──────────────────────────────────────────────────────
+# skip if already built
 if [[ -f "$LLVM_MARKER" ]]; then
-    echo "[llvm] submodule build exists, skipping rebuild."
+    echo "[llvm] patched llvm already built, skipping rebuild."
     copy_libs "$LLVM_BUILD/lib"
     exit 0
 fi
 
-# ── check system llvm ABI ──────────────────────────────────────────────────────
-use_system=0
-if command -v llvm-config &>/dev/null; then
-    sys_libdir="$(llvm-config --libdir 2>/dev/null | tr -d '\n\r ')"
-    sys_lib="$(ls "$sys_libdir"/libLLVM*.so 2>/dev/null | head -1 || true)"
+# why we always build from source
+echo ""
+echo "[llvm] ============================================================"
+echo "[llvm]  BUILDING PATCHED LLVM FROM SOURCE"
+echo "[llvm] ------------------------------------------------------------"
+echo "[llvm]  Kairo links our llvm-project fork, which carries a custom"
+echo "[llvm]  Clang patch (preprocessor token injection) that the Kairo"
+echo "[llvm]  frontend depends on. System LLVM does NOT have this patch"
+echo "[llvm]  and would produce a silently broken compiler, so there is"
+echo "[llvm]  no system fallback path. This is a one-time build."
+echo "[llvm]  Expect 20-60 min depending on cores. Output streams below."
+echo "[llvm] ============================================================"
+echo ""
 
-    if [[ -n "$sys_lib" ]]; then
-        if ldd "$sys_lib" 2>/dev/null | grep -q "libc++.so"; then
-            echo "[llvm] system LLVM uses libc++ - using system."
-            use_system=1
-        elif ldd "$sys_lib" 2>/dev/null | grep -q "libstdc++.so"; then
-            echo "[llvm] system LLVM uses libstdc++ - ABI mismatch, building from source."
-        else
-            # ldd inconclusive - check nm
-            if ! nm -D "$sys_lib" 2>/dev/null | grep -q "GLIBCXX"; then
-                echo "[llvm] system LLVM uses libc++ (nm check) - using system."
-                use_system=1
-            else
-                echo "[llvm] system LLVM uses libstdc++ (nm check) - building from source."
-            fi
-        fi
-    else
-        echo "[llvm] llvm-config found but no libLLVM.so - building from source."
-    fi
-else
-    echo "[llvm] llvm-config not found - building from source."
-fi
-
-if [[ "$use_system" -eq 1 ]]; then
-    copy_libs "$sys_libdir"
-    exit 0
-fi
-
-# ── detect targets ─────────────────────────────────────────────────────────────
-ARCH="${KBLD_ARCH:-$(uname -m)}"
-# case "$ARCH" in
-#     x86_64)  HOST_TARGET="X86;AArch64;ARM;RISCV;WebAssembly" ;;
-#     aarch64) HOST_TARGET="AArch64" ;;
-#     armv7*)  HOST_TARGET="ARM" ;;
-#     riscv64) HOST_TARGET="RISCV" ;;
-#     *)       HOST_TARGET="X86" ;;
-# esac
+# detect targets
 HOST_TARGET="X86;AArch64;ARM;RISCV;WebAssembly"
-
 TARGETS="${LLVM_TARGETS:-$HOST_TARGET}"
 echo "[llvm] targets: $TARGETS"
 
-# ── configure ─────────────────────────────────────────────────────────────────
+# configure
 echo "[llvm] configuring..."
 cmake \
     -S "$LLVM_SRC/llvm" \
@@ -115,14 +95,14 @@ cmake \
     -DCLANG_BUILD_TOOLS=OFF \
     -DCLANG_TOOL_C_INDEX_TEST_BUILD=OFF \
     -DLLVM_ENABLE_BINDINGS=OFF \
-    -DLLVM_ENABLE_ZLIB=ON \
-    -DLLVM_ENABLE_ZSTD=OFF \
+    -DLLVM_ENABLE_ZLIB=FORCE_ON \
+    -DLLVM_ENABLE_ZSTD=FORCE_ON \
     -DLLVM_ENABLE_LIBXML2=OFF \
     -DLLVM_USE_SPLIT_DWARF=ON \
     -DLLVM_ENABLE_LTO=Thin \
     -DLLVM_PARALLEL_LINK_JOBS="$LINK_JOBS"
 
-# ── build ──────────────────────────────────────────────────────────────────────
+# build (streams live)
 echo "[llvm] building with $JOBS jobs..."
 ninja -C "$LLVM_BUILD" -j"$JOBS"
 
