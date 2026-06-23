@@ -130,6 +130,10 @@ class <T> Annotation {
     /// O(1) instead of scanning the list.
     pub var presence: u8 = 0;
 
+    fn init_annotations(self, arena: *ArenaAllocator) {
+        self.annotations.set_allocator(arena, 2);
+    }
+
     // --- O(1) presence queries -----------------------------------------
 
     const fn has_any_annotation(self) -> bool {

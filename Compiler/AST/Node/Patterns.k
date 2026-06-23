@@ -28,7 +28,7 @@ class WildcardPattern derives Pattern {
         var node   = ctx->alloc::<WildcardPattern>();
         node->kind  = PatternKind::WildcardPattern;
         node->range = range;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *WildcardPattern {
@@ -36,7 +36,7 @@ class WildcardPattern derives Pattern {
         node->kind          = PatternKind::RecoveryPattern;
         node->recovery_kind = PatternKind::WildcardPattern;
         node->range         = range;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
@@ -57,7 +57,7 @@ class LiteralPattern derives Pattern {
         node->kind  = PatternKind::LiteralPattern;
         node->range = range;
         node->value = value;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *LiteralPattern {
@@ -66,7 +66,7 @@ class LiteralPattern derives Pattern {
         node->recovery_kind = PatternKind::LiteralPattern;
         node->range         = range;
         node->value         = &null;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
@@ -98,7 +98,7 @@ class BindingPattern derives Pattern {
         node->name     = name;
         node->is_const = is_const;
         node->type_    = type_;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *BindingPattern {
@@ -107,7 +107,7 @@ class BindingPattern derives Pattern {
         node->recovery_kind = PatternKind::BindingPattern;
         node->range         = range;
         node->type_         = &null;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
@@ -126,7 +126,7 @@ class TupleDestructurePattern derives Pattern {
         var node   = ctx->alloc::<TupleDestructurePattern>();
         node->kind  = PatternKind::TupleDestructurePattern;
         node->range = range;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *TupleDestructurePattern {
@@ -134,7 +134,7 @@ class TupleDestructurePattern derives Pattern {
         node->kind          = PatternKind::RecoveryPattern;
         node->recovery_kind = PatternKind::TupleDestructurePattern;
         node->range         = range;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
@@ -176,7 +176,7 @@ class ConstructorPattern derives Pattern {
         node->dotted_name = dotted;
         node->is_dotted  = is_dotted;
         node->has_parens = has_parens;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
 
@@ -188,7 +188,7 @@ class ConstructorPattern derives Pattern {
         node->head          = &null;
         node->is_dotted     = false;
         node->has_parens    = false;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
 
@@ -221,7 +221,7 @@ class UnresolvedConstructorPattern derives Pattern {
         node->range      = range;
         node->head       = head;
         node->has_parens = has_parens;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
 
@@ -232,7 +232,7 @@ class UnresolvedConstructorPattern derives Pattern {
         node->range         = range;
         node->head          = &null;
         node->has_parens    = false;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
 
@@ -255,7 +255,7 @@ class AlternationPattern derives Pattern {
         var node   = ctx->alloc::<AlternationPattern>();
         node->kind  = PatternKind::AlternationPattern;
         node->range = range;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *AlternationPattern {
@@ -263,7 +263,7 @@ class AlternationPattern derives Pattern {
         node->kind          = PatternKind::RecoveryPattern;
         node->recovery_kind = PatternKind::AlternationPattern;
         node->range         = range;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
@@ -295,7 +295,7 @@ class RangePattern derives Pattern {
         node->lo           = lo;
         node->hi           = hi;
         node->is_inclusive = is_inclusive;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *RangePattern {
@@ -305,7 +305,7 @@ class RangePattern derives Pattern {
         node->range         = range;
         node->lo            = &null;
         node->hi            = &null;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {
@@ -338,7 +338,7 @@ class SlicePattern derives Pattern {
         node->range        = range;
         node->has_rest     = has_rest;
         node->rest_binding = rest_binding;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *SlicePattern {
@@ -348,7 +348,7 @@ class SlicePattern derives Pattern {
         node->range         = range;
         node->has_rest      = false;
         node->rest_binding  = &null;
-        node->annotations.set_allocator(&(ctx->nodes));
+        node->init_annotations(&(ctx->nodes));;
         return node;
     }
     /* OVERRIDE */ static fn classof(ptr: *Pattern) -> bool {

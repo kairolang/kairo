@@ -126,6 +126,15 @@ class ASTContext {
         return static_cast::<*T>(mem);
     }
 
+    fn mem_profile(self) -> (usize, usize, usize) {
+        var n = self.nodes.profile();
+        var s = self.strings.profile();
+        // (total bytes, total slabs, total alloc calls)
+        return (n.bytes_allocated + s.bytes_allocated,
+                n.slab_count + s.slab_count,
+                n.alloc_calls + s.alloc_calls);
+    }
+
     /// Arena-allocates a copy of \p s. Used by StringInterner do not call
     /// directly unless you know what you're doing.
     fn alloc_string(self, s: string) -> *string {

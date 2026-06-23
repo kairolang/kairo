@@ -171,7 +171,7 @@ class <T> TypeQual {
     /// context's node arena. Required before any add_* call that records a
     /// source range. Skip if this TypeQual will never track ranges (rare).
     fn init_spans(self, allocator: *ArenaAllocator) {
-        self.spans.set_allocator(allocator);
+        self.spans.set_allocator(allocator, 2);
     }
 
     // -----------------------------------------------------------------------
