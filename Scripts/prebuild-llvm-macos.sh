@@ -55,8 +55,11 @@ copy_libs() {
         [[ -f "$dylib" ]] || continue
         base="$(basename "$dylib")"
         install_name_tool -id "@rpath/$base" "$dylib" 2>/dev/null || true
+        # install_name_tool invalidates the code signature -> must re-sign,
+        # or macOS SIGKILLs on plain exec (only the debugger tolerates it).
+        codesign --force --sign - "$dylib"
     done
-    echo "[llvm] libs copied and install names fixed in $OUT_LIB"
+    echo "[llvm] libs copied, install names fixed, re-signed in $OUT_LIB"
 }
 
 # skip if already built
