@@ -205,6 +205,7 @@ class FrontendAction {
     priv fn _dump_tokens(self);
     priv fn _dump_macros(self);
     priv fn _dump_imports(self);
+    priv fn _dump_mem_stats(self);
 }
 
 /// Shared resource hub for a single compilation.
@@ -955,6 +956,7 @@ fn FrontendAction::_parse() -> bool {
         ASTPrinter::print(tu, opts);
     }
     
+    self._dump_mem_stats();
     return true;
 }
 
@@ -1017,4 +1019,38 @@ fn FrontendAction::_dump_imports() {
     if imp == &null { return; }
     std::print(f"-- imports: {self.path.full_path()} --");
     std::print(imp->dump_state());
+}
+
+priv fn FrontendAction::_dump_mem_stats() {
+    inline "c++" { if (::getenv("KAIRO_MEM_STATS") == nullptr) return; }
+
+    var total_bytes:  usize = 0;
+    var total_slabs:  usize = 0;
+    var total_allocs: usize = 0;
+    var tu_count:     usize = 0;
+
+    var imp  = self._pp->get_import_processor();
+    var fids = imp->get_processed_fids();
+    for fid: u32 in fids {
+        var ctx = self._global_scope->get_context(fid);
+        if ctx == &null { continue; }
+        var p = ctx->mem_profile();
+        total_bytes  += libcxx::get::<0>(p);
+        total_slabs  += libcxx::get::<1>(p);
+        total_allocs += libcxx::get::<2>(p);
+        tu_count     += 1;
+    }
+
+    var retained_blocks: usize = 0;
+    var retained_bytes:  usize = 0;
+    inline "c++" {
+        kairo::GlobalRecycler::instance().stats(retained_blocks, retained_bytes);
+    }
+
+    std::eprintln(f"[mem] TU contexts:        {tu_count}");
+    std::eprintln(f"[mem] arena live bytes:   {total_bytes / (1024*1024)} MB ({total_bytes} B)");
+    std::eprintln(f"[mem] arena slabs:        {total_slabs}");
+    std::eprintln(f"[mem] alloc calls:        {total_allocs}");
+    std::eprintln(f"[mem] bytes / alloc:      {(total_bytes / total_allocs) if (total_allocs > 0) else 0}");
+    std::eprintln(f"[mem] recycler retained:  {retained_bytes / (1024*1024)} MB ({retained_blocks} blocks)");
 }

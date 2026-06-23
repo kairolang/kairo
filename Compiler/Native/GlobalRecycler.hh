@@ -87,6 +87,17 @@ class GlobalRecycler {
     GlobalRecycler(GlobalRecycler &&)                 = delete;
     GlobalRecycler &operator=(GlobalRecycler &&)      = delete;
 
+    void stats(usize &out_blocks, usize &out_bytes) noexcept {
+        std::LockGuard<std::Mutex> lock(_mu);
+        out_blocks = 0; out_bytes = 0;
+        for (auto &bin : bins_) {
+            for (Node *n = bin; n != nullptr; n = n->next) {
+                ++out_blocks;
+                out_bytes += n->capacity;
+            }
+        }
+    }
+
     void push(std::Byte *block, size_t capacity) noexcept {
         if (block == nullptr || capacity < MIN_RECYCLABLE) {
             if (block != nullptr) {
