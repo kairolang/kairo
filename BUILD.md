@@ -22,7 +22,7 @@ Stage 0 requires:
 - **xmake** (build system)
 - **git**
 
-Stage 1 additionally requires the LLVM submodule (pulled separately, see §5).
+Stage 1 additionally requires the patched LLVM submodule (pulled separately, see #5).
 
 The VSCode extension additionally requires **Node.js** and **npm**.
 
@@ -44,7 +44,10 @@ sudo pacman -S git clang libc++ libc++abi lld cmake ninja xmake
 
 **Ubuntu / Debian**
 
-Clang 18 is the minimum; newer is fine, `clang++ --version` should report 18 or higher, if so you can skip the next step, just make sure you have `libc++` and `libc++abi` installed. If you need to install Clang 18.
+Clang 18 is the minimum; newer is fine. Run `clang++ --version`, if it reports 18
+or higher, skip the apt.llvm.org step below and just ensure `libc++` and `libc++abi`
+are installed. Otherwise, install Clang 18 from LLVM's apt repo (the distro Clang is
+often older than 18 or defaults to libstdc++):
 
 The distro Clang is often older than 18 or defaults to libstdc++, so install from LLVM's apt repo:
 
@@ -95,7 +98,7 @@ Install xmake (PowerShell):
 irm https://xmake.io/psget.text | iex
 ```
 
-Clang/MSVC toolchain: install **Visual Studio** with the "Desktop development with C++" workload, or **LLVM for Windows** from [releases.llvm.org](https://releases.llvm.org/). xmake will detect the toolchain automatically.
+Clang/MSVC toolchain: install **Visual Studio** with the "Desktop development with C++" workload, and "Clang for Windows", or **LLVM for Windows** from [releases.llvm.org](https://releases.llvm.org/). xmake will detect the toolchain automatically.
 
 ---
 
@@ -114,7 +117,7 @@ git submodule update --init --recursive
 ```
 
 > If you later build Stage 1, you must re-run `git submodule update --init --recursive`
-> after `git checkout canary` the canary branch pulls in the LLVM submodule, which is large.
+> after `git checkout canary` the canary branch pulls in the patched LLVM submodule, which is large.
 
 ---
 
@@ -136,8 +139,6 @@ export PATH="$PATH:$(ls -d $(pwd)/build/release/*/bin)"
 ```
 
 Add that line to your `~/.bashrc` or `~/.zshrc` to make it permanent.
-
-**Windows (PowerShell):**
 
 **Windows (PowerShell):**
 
@@ -175,15 +176,24 @@ kairo test.k
 
 ---
 
-## 5. Build the Stage 1 compiler (optional, in development)
+## 5. Build the Stage 1 compiler (self-hosted, in development)
 
-Stage 1 is self-hosted and requires Stage 0 (from §4) plus the LLVM submodule.
+Stage 1 is the self-hosted compiler, written in Kairo. Building it is optional,
+only do this if you're developing Kairo itself. It requires a working Stage 0 build
+(from #4) plus the patched LLVM submodule. LLVM is a hard requirement for Stage 1;
+there is no LLVM-free path.
+
+Kairo carries a **minor fork of LLVM** vendored as a submodule. Use it as-is, do not
+substitute a system or upstream LLVM, the patches are required.
 
 ```bash
 git checkout canary
-git submodule update --init --recursive   # pulls LLVM this time large download
+git submodule update --init --recursive   # pulls the patched LLVM, large download
 kbld                                      # must be on PATH, or use ./build/release/<platform>/bin/kbld
 ```
+
+The first `kbld` builds the patched LLVM before building Stage 1. This is a long,
+one-time compile, it has not hung. Subsequent builds reuse it.
 
 You can run test files whose entry point is `fn Test() -> i32 { ... }`:
 

@@ -176,7 +176,7 @@ software.
 
 -------------------------------------------------------------------------------
 
-Copyright (c) 2026-2026 Dhruvan Kartik.
+Copyright (c) 2026 Dhruvan Kartik.
 
 Licensed under the Apache License, Version 2.0 with Runtime Library
 Exception (the "License"); you may not use this file except in
