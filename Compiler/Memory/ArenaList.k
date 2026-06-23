@@ -88,14 +88,11 @@ class <T> ArenaList {
 
         var padding  = 2 * (alignof(libcxx::max_align_t) - 1);
         var arena_sz = (self._slab_size * sizeof(T))
-                     + (DESCRIPTOR_INIT * sizeof(Chunk))
-                     + padding;
+                    + (DESCRIPTOR_INIT * sizeof(Chunk))
+                    + padding;
 
         self._owned_arena.init(arena_sz);
-        self._arena = &self._owned_arena;   ///< point at internal arena
-
-        self.alloc_descriptor_table(DESCRIPTOR_INIT);
-        self.alloc_slab();
+        self._arena = &self._owned_arena;
 
         Logger::debug(Logger::Stage::Driver,
             f"ArenaList::ctor (owned): slab_size={self._slab_size} arena_sz={arena_sz}B");
@@ -112,9 +109,6 @@ class <T> ArenaList {
     fn ArenaList(self, arena: *ArenaAllocator, slab_size: usize = 256) {
         self._slab_size = slab_size if slab_size > 0 else 256;
         self._arena     = arena;   ///< external not owned
-
-        self.alloc_descriptor_table(DESCRIPTOR_INIT);
-        self.alloc_slab();
     }
 
     fn set_allocator(self, arena: *ArenaAllocator, slab_size: usize = 256) {
@@ -134,9 +128,7 @@ class <T> ArenaList {
         self._total       = 0;
         self._slab_size   = slab_size if slab_size > 0 else 256;
         self._arena       = arena;
-
-        self.alloc_descriptor_table(DESCRIPTOR_INIT);
-        self.alloc_slab();
+        // no allocation of descriptor table or slab here
     }
 
     fn has_allocator(self) -> bool {
