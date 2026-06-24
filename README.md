@@ -6,34 +6,34 @@
 
 ---
 
-Kairo is a **statically typed compiled language**, built for systems programming and high-performance applications. Designed with native bi-directional C++ interoperability in mind. Kairo aims to combine the power and control of low-level languages with the safety and clarity of high-level design.
+Kairo is a **statically typed compiled general purpose language**, built for systems programming and high-performance applications. Designed with native bi-directional C++ interoperability in mind. Kairo aims to combine the power and control of low-level languages with the safety and clarity of high-level design.
 
-### The goals of Kairo:
+### The goals of Kairo
 
 - Safe, and productive programming language.
 - Allow for low-level programming with fine-grained control.
-- Native bidirectional C and C++ interoperability interoperability with C and C++ along with other native languages.
+- Native bidirectional C and C++ interoperability.
 - Include a portable, well-structured standard library.
 - Encourage clear, maintainable, and reviewable code through strong, expressive semantics.
 - An alternative to C, C++ or work alongside them.
-- No runtime, no garbage collector, no hidden costs - every cost is documented and compiler stated, no surprises.
+- No runtime, no garbage collector, no hidden costs - safety through visibility, not restriction.
 
-### Current Status:
+### Current Status
 
-The **Stage 0 compiler** (written in C++) is functional and can compile Kairo, you can download it from the [release page](https://github.com/kairolang/kairo/releases), currently very unstable, and riddled with bugs. Development of the **Stage 1 compiler**, written in Kairo itself, is in progress.
+The **Stage 0 compiler** (written in C++) is functional and can compile Kairo albeit not all the features that stage1 has, you can download it from the [release page](https://github.com/kairolang/kairo/releases), works, but has quite a few bugs, **stage0 issues will not be fixed unless critical**. Development of the **Stage1 compiler**, written in Kairo itself, is in progress.
 > [!WARNING]
 > [Documentation](https://www.kairolang.org/docs) is technically complete now matching, stage1 and what it can do once built, but the compiler is still in development and not ready for production use.
-> Also, yes the docs are missing the language's core points, AMT, ownership model, and a few other key features, but they will be added soon, We are still finalizing them internally, before documenting them publicly. If you want to help, please reach out to us on [Discord](https://discord.gg/VHCnPccDc)
+> If you want to help with documentation, please reach out to us on [Discord](https://discord.gg/VHCnPccDc)
 
 ### Why Kairo?
 
-##### Think of programming languages like making coffee.
+##### Think of programming languages like making coffee
 
 - **C and C++** hands you all the ingredients and equipment, every knob and button live. No recipe, no instructions. You'll have to learn and make something, what you make is on you.
 - **Rust** provides you with all the ingredients, fancy equipment, and a precise recipe with every step measured. The coffee comes out reliably good, and the recipe catches mistakes before you brew.
 - **Kairo** gives you ingredients, equipment, and recipes, and the kitchen is wired into the C and C++ kitchens next door. Borrow their beans and machines, and send finished coffee back through the same door.
 
-### Design Rationale:
+### Design Rationale
 
 - We liked the simplicity of **Python's** syntax but wanted more.
 - We wanted the performance and control of **C and C++**.
@@ -48,7 +48,7 @@ The **Stage 0 compiler** (written in C++) is functional and can compile Kairo, y
 
 Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh syntax and features, without abandoning decades of code.
 
-### Getting Started:
+### Getting Started
 
 **Download a release:** grab a prebuilt binary from the [releases page](https://github.com/kairolang/kairo/releases).
 
@@ -56,11 +56,11 @@ Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh 
 
 **Code reference:** since the docs are still catching up, the [Compiler directory](https://github.com/kairolang/kairo/tree/canary/kairo-0.1.1%2Bbc.251007/Compiler) has working Stage 0 examples.
 
-### License:
+### License
 
 Kairo is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/kairolang/kairo/blob/main/license) for more details.
 
-### Acknowledgements:
+### Acknowledgements
 
 We want to thank all our contributors pushing Kairo forward.
 

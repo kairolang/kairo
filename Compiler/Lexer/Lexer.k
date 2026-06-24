@@ -1472,6 +1472,13 @@ class Lexer {
     }
 
     inline priv fn lex_line_comment(self, start: SourceLocation) -> Token {
+        var is_doc = false;
+        {   
+            // we have alr consumed the first two chars, so we see if the char we are on is a third '/' or '<'
+            var c3 = self.peek_char32();
+            is_doc = (c3.len == 1) && ((c3.chr == '/') || (c3.chr == '<'));
+        }
+
         while !self.is_eof() {
             var d = self.peek_char32();
             if d.len == 0 || d.chr == 0x0A || d.chr == 0x0D {
@@ -1483,12 +1490,18 @@ class Lexer {
         var token = Token();
         token = TokenKind::AtComment;
         token = self.create_source_range(start);
-        token = 0;
+        token = (1) if (is_doc) else (2); // 1=DocComment, 2=LineComment
         return token;
     }
 
     inline priv fn lex_block_comment(self, start: SourceLocation) -> Token {
         var nest_depth: i32 = 1;
+        var is_doc: bool = false;
+        {   
+            // we have alr consumed the first two chars, so we see if the char we are on is a third '*' or '<'
+            var c3 = self.peek_char32();
+            is_doc = (c3.len == 1) && (c3.chr == '*');
+        }
         
         while (!self.is_eof()) && (nest_depth > 0) {
             var chars = self.peek_char32::<2>();
@@ -1515,7 +1528,7 @@ class Lexer {
         var token = Token();
         token = TokenKind::AtComment;
         token = self.create_source_range(start);
-        token = 0;
+        token = (3) if (is_doc) else (0); // 3=DocBlockComment, 0=None
         return token;
     }
 
@@ -1836,12 +1849,14 @@ class Lexer {
         /// at the end of lines in Kairo.
 
         var token: Token = Token();
+        var nl_count: usize = 0;
 
         switch first_class {
             case CharClass::Whitespace {
                 token = TokenKind::TkWhitespace;
             } case CharClass::NewLine {
                 token = TokenKind::TkNewLine;
+                ++nl_count;
             } default {
                 self.advance_cursor(); // consume first char
                 return create_unrecognized_token(start);
@@ -1861,8 +1876,10 @@ class Lexer {
                     }
                 } case CharClass::NewLine {
                     token = TokenKind::TkNewLine;
+                    ++nl_count;
                 } default {
-                    token = self.create_source_range(start);
+                    token     = self.create_source_range(start);
+                    token.imm = nl_count;
                     return token;
                 }
             }
@@ -1870,7 +1887,8 @@ class Lexer {
             self.advance_cursor(current_char.len);
         }
 
-        token = self.create_source_range(start);
+        token     = self.create_source_range(start);
+        token.imm = nl_count;
         return token;
     }
 
