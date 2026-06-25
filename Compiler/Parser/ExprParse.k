@@ -2878,11 +2878,12 @@ class <T> ExprParse {
         var sig_result = dyn()->_parse_closure_sig();
         // signature: generics, captures, params, modifiers, return type
         // var (params, gparams, captures, modifiers, ret_type) = dyn()->_parse_closure_sig();
-        var params = libcxx::get::<0>(sig_result);
-        var gparams = libcxx::get::<1>(sig_result);
-        var captures = libcxx::get::<2>(sig_result);
-        var modifiers = libcxx::get::<3>(sig_result);
-        var ret_type = libcxx::get::<4>(sig_result);
+        var params               = libcxx::get::<0>(sig_result);
+        var gparams              = libcxx::get::<1>(sig_result);
+        var captures             = libcxx::get::<2>(sig_result);
+        var modifiers            = libcxx::get::<3>(sig_result);
+        var ret_type             = libcxx::get::<4>(sig_result);
+        var explicit_no_capture = libcxx::get::<5>(sig_result);
 
         // open a function scope so param names resolve inside the body
         var ce = ClosureExpr::create(dyn()->ctx, start);
@@ -2891,7 +2892,7 @@ class <T> ExprParse {
         ce->params         = params;
         ce->modifiers      = modifiers;
         ce->return_type    = ret_type;
-
+        ce->explicit_no_capture = explicit_no_capture;
 
         // bind captured names into the closure scope so the body can see them
         // for var i: usize = 0; i < ce->captures.size(); ++i {
@@ -2900,7 +2901,7 @@ class <T> ExprParse {
         //         var cap_name = cast::<NamedIdentExpr>(cap.name);
         //         dyn()->scope.bind(
         //             TokenText::from_token(cap_name->token, dyn()->ctx).text,
-        //             static_cast::<*Decl>(CaptureDecl::create(dyn()->ctx, cap.name->range, cap_name->token, cap.by_ref)),
+        //             static_cast::<*Decl>(CaptureDecl::create(dyn()->ctx, cap.name->range, cap_name->token, cap.by_ptr)),
         //             cap.name->range
         //         );
         //     }
@@ -2913,25 +2914,46 @@ class <T> ExprParse {
             ce->body_block = block;
         } else if dyn()->check(TokenKind::OpEqual) {
             dyn()->advance(T::SkipNL::After); // consume `=`
+            
+            // Recovery if the token immediately following '=' cannot start an expression
+            // remeber a nested closure is fully valid
+            if dyn()->_starts_decl_kw(dyn()->current().kind) && (!dyn()->current().kind == TokenKind::KwFn) {
+                dyn()->diag->report(DiagID::S045E, start.start,
+                    "expected expression after '=' in closure body"
+                ).first(start).emit();
+                dyn()->exit_scope();
+                dyn()->exit_depth();
+                return static_cast::<*Expr>(
+                    ClosureExpr::create_error(dyn()->ctx,
+                    (start | dyn()->prev().range)
+                ));
+            }
+            
             var expr = dyn()->parse_expr();
             if (expr != &null) && (!is_recovery(expr)) {
                 ce->body_kind = FnBodyKind::Expr;
                 ce->body_expr = expr;
             } else {
-                dyn()->diag->report(DiagID::S052E, start.start,
+                dyn()->diag->report(DiagID::S045E, start.start,
                     "expected expression after '=' in closure body"
                 ).first(start).emit();
                 dyn()->exit_scope();
                 dyn()->exit_depth();
-                return static_cast::<*Expr>(ClosureExpr::create_error(dyn()->ctx, start | dyn()->prev().range));
+                return static_cast::<*Expr>(
+                    ClosureExpr::create_error(dyn()->ctx,
+                    (start | dyn()->prev().range)
+                ));
             }
         } else {
-            dyn()->diag->report(DiagID::S052E, start.start,
+            dyn()->diag->report(DiagID::S045E, start.start,
                 "expected '{' or '=' to begin closure body"
             ).first(start).emit();
             dyn()->exit_scope();
             dyn()->exit_depth();
-            return static_cast::<*Expr>(ClosureExpr::create_error(dyn()->ctx, start | dyn()->prev().range));
+            return static_cast::<*Expr>(
+                ClosureExpr::create_error(dyn()->ctx,
+                (start | dyn()->prev().range)
+            ));
         }
 
         ce->range = start | dyn()->prev().range;
