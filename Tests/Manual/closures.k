@@ -1,109 +1,144 @@
-var add = fn (a: i32, b: i32) -> i32 {
-    return a + b
+// ==========================================================================
+//  Isolated cases for known parser bugs. Each section tests one bug.
+//  After fixes, this file should produce 0 errors and correct AST shapes.
+// ==========================================================================
+
+
+// =========================================================================
+//  Bug 1: Empty capture list || not recognized
+//  Expected: ClosureExpr with no captures and a block body.
+//  Actual:   || parsed as expression-body trigger or logical-OR, cascading.
+// =========================================================================
+
+var empty_cap_block = fn ()|| {
+    return 42
 }
 
-var double = fn (x: i32) -> i32 {
-    return x * 2
-}
+var empty_cap_expr = fn ()|| -> i32 = 42
 
-add(3, 4)     // 7
-double(10)    // 20
+// Verify the next declaration is NOT swallowed into the closure above.
+var after_empty_cap = 100
 
-var opr: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 
-var x = 10
-var add_x = fn (y: i32) -> i32 {
-    return y + x   // x is captured by copy
-}
-
-x = 999
-add_x(5)   // 15 uses the copied value of x (10), not 999
-
-var count = 0
-var increment = fn ()|&| {
-    count += 1   // modifies the original count
-}
-
-increment()
-increment()
-count   // 2
-
-var a = 10
-var b = 20
-
-var closure = fn (x: i32)|a, &b| -> i32 {
-    b += 1       // modifies the original b
-    return x + a + b   // a is a copy, b is a reference
-}
-
-closure(5)   // 5 + 10 + 21 = 36
-a            // still 10
-b            // 21
+// =========================================================================
+//  Bug 2: Closure with default param + block body swallows next declaration
+//  Expected: greet is a standalone closure, identity is a separate VarDecl.
+//  Actual:   identity becomes a child ClosureExpr inside greet.
+// =========================================================================
 
 var greet = fn (name: string = "world") {
     std::println(f"Hello, {name}!")
 }
 
-greet()          // "Hello, world!"
-greet("Alice")   // "Hello, Alice!"
-
 var identity = fn <T>(x: T) -> T {
     return x
 }
 
-identity(42)        // i32
-identity("hello")   // string
+// Verify identity is its own node, not nested inside greet.
+var after_greet_identity = 200
 
-var risky = fn () panic -> i32 {
-    if bad_condition {
-        panic std::Error::Runtime("failed")
-    }
-    return 42
+
+// =========================================================================
+//  Bug 3: Same swallowing with default param — different body content
+//  Expected: default_fn is standalone, next_fn is a separate VarDecl.
+//  Actual:   next_fn consumed as child of default_fn.
+// =========================================================================
+
+var default_fn = fn (x: i32 = 0, y: i32 = 1) -> i32 {
+    return x + y
 }
 
-try {
-    risky()
-} catch e {
-    std::println(f"Caught: {e}")
+var next_fn = fn (a: i32) -> i32 {
+    return a * 2
 }
 
-fn make_closure() -> fn() -> i32 {
-    var x = 42
-    return fn ()|&x| -> i32 { return x }
-    // AMT error: x is a stack local, closure would outlive it,
-    //   and there is no safe promotion path for a stack variable
+var after_default = 300
+
+
+// =========================================================================
+//  Bug 4: Closure with no return type + block body swallows next decl
+//  Isolates whether the bug is default-param-specific or general to
+//  closures whose return type is inferred and body is a block.
+// =========================================================================
+
+var no_ret = fn (x: i32) {
+    std::println(f"{x}")
 }
 
-fn make_closure() -> fn() -> i32 {
-    var x = 42
-    return fn () -> i32 { return x }   // ok x is copied into the closure
+var after_no_ret = fn (a: i32) -> i32 {
+    return a + 1
 }
 
-fn outer() -> i32 {
-    var x = 10
+var after_no_ret_sentinel = 400
 
-    fn inner(y: i32) -> i32 = y + 1     // cannot access x inner is a plain function
-    // fn inner(y: i32) -> i32 = y + x  // compile error: x is not in scope
 
-    return inner(x)   // pass x explicitly
+// =========================================================================
+//  Bug 5: Broken parameter list recovery — sync failure
+//  Expected: parser reports error on bad param, recovers, then parses
+//            the next three declarations as independent VarDecls.
+//  Actual:   recovery runs forward and swallows multiple declarations.
+// =========================================================================
+
+var broken_param = fn (x: i32, y: ) {
+    return 0
 }
 
-fn apply(f: fn(i32) -> i32, x: i32) -> i32 {
-    return f(x)
+var recovery_a = 10
+var recovery_b = 20
+var recovery_c = fn (z: i32) -> i32 { return z }
+
+
+// =========================================================================
+//  Bug 6: Broken param with capture list — recovery should sync to |
+//  Expected: error on bad param, then capture list and body still parse.
+//  Actual:   capture list and body swallowed or misattributed.
+// =========================================================================
+
+var broken_param_with_cap = fn (x: i32, y: ) |*recovery_a| {
+    return *recovery_a
 }
 
-apply(fn (x: i32) -> i32 { return x * 2 }, 21)   // 42
+var after_broken_cap = 500
 
-var triple = fn (x: i32) -> i32 { return x * 3 }
-apply(triple, 10)   // 30
 
-fn map(data: [i32], transform: fn(i32) -> i32) -> [i32] {
-    var result: [i32]
-    for item in data {
-        result.push(transform(item))
-    }
-    return result
+// =========================================================================
+//  Bug 7: Unclosed paren syncing to capture list
+//  Expected: error on missing ), then |*val| and body still parse.
+//  Actual:   everything through the next parseable decl gets consumed.
+// =========================================================================
+
+var sync_val = 10
+var unclosed_paren = fn (x: i32 |*sync_val| {
+    return *sync_val
 }
 
-var doubled = map([1, 2, 3], fn (x: i32) -> i32 { return x * 2 })
-// doubled == [2, 4, 6]
+var after_unclosed = 600
+
+
+// =========================================================================
+//  Bug 8: f-string in closure body — verify body termination
+//  The greet bug may be f-string-specific. Test f-strings in closures
+//  with and without default params to isolate.
+// =========================================================================
+
+// With default param
+var fstr_default = fn (name: string = "test") {
+    std::println(f"value: {name}")
+}
+
+var after_fstr_default = 700
+
+// Without default param
+var fstr_no_default = fn (name: string) {
+    std::println(f"value: {name}")
+}
+
+var after_fstr_no_default = 800
+
+// Multiple f-string calls
+var fstr_multi = fn (a: i32, b: i32) {
+    std::println(f"a = {a}")
+    std::println(f"b = {b}")
+}
+
+var after_fstr_multi = 900
