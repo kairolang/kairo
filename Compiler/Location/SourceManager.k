@@ -283,6 +283,22 @@ class SourceManager {
         return self.get_text(range);
     }
 
+    fn get_line_text(self, fid: FileID, line: u32) -> string {
+        var line_start = self._line_table.get_line_offset(fid, line);
+        var line_end   = self._line_table.get_line_end_offset(fid, line);
+        if line_start == line_end {
+            return "";
+        }
+
+        var line_range = self.get_range(
+            fid,
+            static_cast::<usize>(line_start),
+            static_cast::<usize>(line_end - line_start)
+        );
+
+        return self.get_text(line_range);
+    }
+
     __inline_cpp("
         private:
         struct LineUtil {
