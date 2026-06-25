@@ -231,14 +231,18 @@ Per-Action pipeline (parallelism shown explicitly):
         |  Invoke Clang cleanly as a guest -> object.     |
         *=================================================*
                                 v
-                  *----------------------------*
-                  |  LLVM IR safety pass       |   (post-Clang IR walk)
-                  |  Clang hands back ABI-     |
-                  |  correct LLVM IR. Walk it  |
-                  |  and inject safety instrs: |
-                  |  null checks, overflow /   |
-                  |  underflow guards.         |
-                  *-------------*--------------*
+                  *------------------------------*
+                  |  LLVM IR safety pass         |   (post-Clang IR walk)
+                  |  Clang hands back ABI-       |
+                  |  correct LLVM IR. Walk it    |
+                  |  and inject safety instrs:   |
+                  |  - integer overflow checks   |
+                  |  - UB sanitization           |
+                  |  - stack probes              |
+                  |  - target-specific hardening |
+                  |  - optional CFI              |
+                  |  - backend-only transforms   |
+                  *-------------*----------------*
                                 v
                   *---------------------------*
                   |  KLD (linked as a lib)    |   Driver/
