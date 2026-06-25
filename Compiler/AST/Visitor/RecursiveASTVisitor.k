@@ -680,10 +680,35 @@ class <D> RecursiveASTVisitor {
 
     fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
         if self.dyn()->walkup_closure_expr(n) == false { return n; }
-        // params + generics not yet stored on the node (see ClosureExpr).
+
+        for var i: usize = 0; i < (n->generic_params.size()); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_decl(n->generic_params.get(i)); // discard
+        }
+
+        if self.stop { return n; }
+
+        for var i: usize = 0; i < (n->params.size()); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_decl(n->params.get(i)); // discard
+        }
+
+        if self.stop { return n; }
+
+        for var i: usize = 0; i < n->captures.size(); i++ {
+            if self.stop { break; }
+            var cap = n->captures.get(i);
+            if cap->name != &null {
+                self.dyn()->dispatch_expr(cap->name); // discard
+            }
+        }
+
+        if self.stop { return n; }
+
         if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
-        if n->body_block != &null { n->body_block = self.dyn()->dispatch_stmt(n->body_block); }
-        if n->body_expr  != &null { n->body_expr  = self.dyn()->dispatch_expr(n->body_expr); }
+        if n->body_block  != &null { n->body_block = self.dyn()->dispatch_stmt(n->body_block); }
+        if n->body_expr   != &null { n->body_expr  = self.dyn()->dispatch_expr(n->body_expr); }
+        
         return n;
     }
 

@@ -505,23 +505,66 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if e->end != &null { self.src_expr(e->end); }
     }
 
+    /// \brief Source-faithful formatting facade for ClosureExpr nodes.
     fn _e_closure(self, e: *ClosureExpr) {
         self.p.paint(Color::Keyword, "fn");
-        self.p.paint(Color::Punct, "(...)");
+
+        if !e->generic_params.is_empty() {
+            self.p.paint(Color::Punct, "<");
+            for var i: usize = 0; i < e->generic_params.size(); ++i {
+                if i > 0 { self.p.paint(Color::Punct, ", "); }
+                self._d_generic_param(e->generic_params[i]);
+            }
+            self.p.paint(Color::Punct, ">");
+        }
+
+        self.p.paint(Color::Punct, "(");
+        for var i: usize = 0; i < e->params.size(); ++i {
+            if i > 0 { self.p.paint(Color::Punct, ", "); }
+            self._d_param(e->params[i]);
+        }
+        self.p.paint(Color::Punct, ")");
+
+        if !e->captures.is_empty() {
+            self.p.paint(Color::Punct, "|");
+            for var i: usize = 0; i < e->captures.size(); ++i {
+                if i > 0 { self.p.paint(Color::Punct, ", "); }
+                var cap = e->captures.get(i);
+                if cap->is_const {
+                    self.p.paint(Color::Keyword, "const ");
+                }
+                if cap->by_ptr {
+                    self.p.paint(Color::Punct, "*");
+                }
+                if cap->name != &null {
+                    self.p.paint(Color::Ident, self.tok(cap->name->name));
+                }
+            }
+            self.p.paint(Color::Punct, "|");
+        }
+
+        if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsPanic)) != 0 {
+            self.p.paint(Color::Keyword, " panic");
+        }
+        if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsVolatile)) != 0 {
+            self.p.paint(Color::Keyword, " volatile");
+        }
+        if (static_cast::<u16>(e->modifiers) & static_cast::<u16>(FnModifier::IsAsync)) != 0 {
+            self.p.paint(Color::Keyword, " async");
+        }
+
         if e->return_type != &null {
             self.p.paint(Color::Punct, " -> ");
             self.src_type(e->return_type);
         }
-        self.p.paint(Color::Punct, " { ");
-        
-        //Different body type used depending on BodyKind
-        if(e->body_kind == FnBodyKind::Expr) {
-            self.src_expr(e->body_expr);
-        } else if(e->body_kind == FnBodyKind::Block) {
-            self.src_stmt(e->body_block);
-        } 
 
-        self.p.paint(Color::Punct, " }");
+        if e->body_kind == FnBodyKind::Expr {
+            self.p.paint(Color::Punct, " = ");
+            self.src_expr(e->body_expr);
+        } else if e->body_kind == FnBodyKind::Block {
+            self.p.put(" ");
+            self.src_stmt(static_cast::<*Stmt>(e->body_block));
+        }
     }
 
     fn _kw_operand(self, kw: string, operand: *Expr) {
@@ -2077,19 +2120,67 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.leave();
     }
 
+    /// \brief Renders the structure hierarchy of ClosureExpr nodes for tree dumps.
     fn _dx_closure(self, e: *ClosureExpr, is_last: bool) {
         self._head("ClosureExpr", is_last);
-        if e->return_type != &null { self.p.put(" ->"); self._inline_type(e->return_type); }
+        if e->return_type != &null {
+            self.p.put(" -> ");
+            self._inline_type(e->return_type);
+        }
         self.p.newline();
+
         self.p.enter(is_last);
-        //Different body type used depending on BodyKind
-        if(e->body_kind == FnBodyKind::Expr) {
+
+        var has_generics = !e->generic_params.is_empty();
+        var has_params   = !e->params.is_empty();
+        var has_captures = !e->captures.is_empty();
+        var has_body     = (e->body_kind == FnBodyKind::Block && (e->body_block != &null))
+                        || (e->body_kind == FnBodyKind::Expr  && (e->body_expr  != &null));
+        var explicit_no_capture = e->explicit_no_capture;
+
+        if has_generics {
+            for var i: usize = 0; i < e->generic_params.size(); ++i {
+                var last_gen = (i == e->generic_params.size() - 1) && !has_params && !has_captures && !has_body;
+                self._child_decl(static_cast::<*Decl>(e->generic_params[i]), last_gen);
+            }
+        }
+
+        if has_params {
+            for var i: usize = 0; i < e->params.size(); ++i {
+                var last_param = (i == e->params.size() - 1) && !has_captures && !has_body;
+                self._child_decl(static_cast::<*Decl>(e->params[i]), last_param);
+            }
+        }
+
+        if explicit_no_capture {
+            self._head("CaptureList (explicit no capture)", is_last);
+            self.p.newline();
+        }
+
+        if has_captures {
+            for var i: usize = 0; i < e->captures.size(); ++i {
+                var cap = e->captures.get(i);
+                var last_cap = (i == e->captures.size() - 1) && !has_body;
+                self._head("Capture", last_cap);
+                self.p.put(" ");
+                if cap->is_const {
+                    self.p.paint(Color::Keyword, "const ");
+                }
+                if cap->by_ptr {
+                    self.p.paint(Color::Punct, "*");
+                }
+                if cap->name != &null {
+                    self.p.paint(Color::Ident, self.tok(cap->name->name));
+                }
+                self.p.newline();
+            }
+        }
+
+        if e->body_kind == FnBodyKind::Block && (e->body_block != &null) {
+            self._child_stmt(static_cast::<*Stmt>(e->body_block), true);
+        } else if e->body_kind == FnBodyKind::Expr && (e->body_expr != &null) {
             self._child_expr(e->body_expr, true);
-        } else if(e->body_kind == FnBodyKind::Block) {
-            self._child_stmt(e->body_block, true);
-        } 
-        // self._child_expr(e->body, true);
-         
+        }
 
         self.p.leave();
     }
@@ -2468,25 +2559,56 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         } else {
             self.p.paint(Color::Ident, self.tok(fd->name));
         }
-        // signature (params + return) inline; body explodes as the child.
+        // signature (params + return) inline; full declarations explode as children.
         self._param_list(fd->params, fd->is_variadic);
-        if fd->is_noreturn { self.p.paint(Color::Punct, " -> "); self.p.paint(Color::Operator, "!"); }
-        else if fd->return_type != &null { self.p.paint(Color::Punct, " -> "); self.src_type(fd->return_type); }
+        if fd->is_noreturn {
+            self.p.paint(Color::Punct, " -> ");
+            self.p.paint(Color::Operator, "!");
+        } else if fd->return_type != &null {
+            self.p.paint(Color::Punct, " -> ");
+            self.src_type(fd->return_type);
+        }
         self.p.newline();
 
-        var has_attrs = self._has_annotations(static_cast::<*Decl>(fd));
-        var has_body  = (fd->body_kind == FnBodyKind::Block && (fd->body_block != &null))
-                     || (fd->body_kind == FnBodyKind::Expr  && (fd->body_expr  != &null));
+        var has_attrs    = self._has_annotations(static_cast::<*Decl>(fd));
+        var has_generics = !fd->generic_params.is_empty();
+        var has_params   = !fd->params.is_empty();
+        var has_requires = (fd->requires_clause != &null);
+        var has_body     = (fd->body_kind == FnBodyKind::Block && (fd->body_block != &null))
+                        || (fd->body_kind == FnBodyKind::Expr  && (fd->body_expr  != &null));
 
-        if (!has_attrs) && !has_body { return; }
+        if (!has_attrs) && (!has_generics) && (!has_params) && (!has_requires) && (!has_body) { return; }
 
         self.p.enter(is_last);
-        if has_attrs { self._dump_annotations(static_cast::<*Decl>(fd), !has_body); }
+
+        if has_attrs {
+            self._dump_annotations(static_cast::<*Decl>(fd), !(has_generics || has_params || has_requires || has_body));
+        }
+
+        if has_generics {
+            for var i: usize = 0; i < fd->generic_params.size(); ++i {
+                var last_gen = (i == fd->generic_params.size() - 1) && (!has_params) && (!has_requires) && (!has_body);
+                self._child_decl(static_cast::<*Decl>(fd->generic_params[i]), last_gen);
+            }
+        }
+
+        if has_params {
+            for var i: usize = 0; i < fd->params.size(); ++i {
+                var last_param = (i == fd->params.size() - 1) && (!has_requires) && (!has_body);
+                self._child_decl(static_cast::<*Decl>(fd->params[i]), last_param);
+            }
+        }
+
+        if has_requires {
+            self._child_expr(fd->requires_clause, !has_body);
+        }
+
         if fd->body_kind == FnBodyKind::Block && (fd->body_block != &null) {
             self._child_stmt(static_cast::<*Stmt>(fd->body_block), true);
         } else if fd->body_kind == FnBodyKind::Expr && (fd->body_expr != &null) {
             self._child_expr(fd->body_expr, true);
         }
+
         self.p.leave();
     }
 
