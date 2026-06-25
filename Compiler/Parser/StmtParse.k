@@ -75,8 +75,8 @@ class <T> StmtParse {
     ///          accepted. Multiple blank lines collapse. Never errors absence
     ///          of a terminator before `}` or EOF is legal.
     inline fn _consume_terminator(self) {
-        while dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-            dyn()->advance();
+        while dyn()->_is_terminator_tok(dyn()->current_ptr()) {
+            dyn()->advance_raw();
         }
     }
 
@@ -137,8 +137,8 @@ class <T> StmtParse {
 
         while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
             // collapse blank lines / stray semicolons between statements
-            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
-                dyn()->advance();
+            if dyn()->_is_terminator_tok(dyn()->current_ptr()) {
+                dyn()->advance_raw();
                 continue;
             }
 
@@ -152,7 +152,7 @@ class <T> StmtParse {
             }
 
             stmts.push_back(s);
-
+            dyn()->_attach_trailing(s);
             self._consume_terminator();
         }
 

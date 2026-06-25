@@ -825,11 +825,20 @@ class <T> ExprParse {
         var chain_start = base->range;
 
         while !dyn()->is_eof() {
+            // brush a trailing comment so the newline-continuation guard below
+            // sees the real next token, not an AtComment sitting between the
+            // primary and its terminator (`b // c\n`).
+            // if (dyn()->current().kind) == TokenKind::AtComment {
+            //     dyn()->_stash_comment(dyn()->current_ptr());
+            //     dyn()->advance_raw();
+            //     continue;
+            // }
+
             // -- newline continuation: only the member-access family may
             //    continue an expression across a raw newline. `::` is
             //    excluded (ambiguous with a new statement); binary ops
             //    require enclosing parens (nl_depth handles those).
-            if (dyn()->nl_depth == 0) && (dyn()->current().kind == TokenKind::TkNewLine) {
+            if (dyn()->nl_depth == 0) && ((dyn()->current().kind) == TokenKind::TkNewLine) {
                 var nk = dyn()->peek_past_nl_kind();
                 if (nk == TokenKind::OpDot)
                 || (nk == TokenKind::OpArrow)

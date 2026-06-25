@@ -34,6 +34,11 @@ import Parser::DeclParse::*;
 import Parser::TypeParse::*;
 import Parser::PatternParse::*;
 
+struct PendingComment {
+    var kind:  AnnotationKind = AnnotationKind::DocComment;
+    var range: SourceRange    = SourceRange::invalid();
+}
+
 /// \class ASTParse
 /// \brief the primary recursive-descent parser for the Kairo language.
 ///
@@ -85,7 +90,9 @@ class ASTParse
     pub var max_depth:         u32  = 256;   ///< limit to prevent stack overflow on malicious input.
     pub var error_count_base:  u32  = 0;     ///< error count recorded at parse start.
     pub var nl_depth:          u32  = 0;     ///< if non-zero, the parser ignores newlines.
+    pub var _no_comment_skip: bool = false;
     pub var in_recovery:       bool = false; ///< true if parser is currently skipping to a SyncSet.
+    pub var _pending_trailing: vec::<PendingComment>;
     
 
     class TentativeGuard {
@@ -93,10 +100,12 @@ class ASTParse
         priv var _cursor:    usize;
         priv var _nl_depth:  u32;
         priv var _committed: bool;
+        priv var _saved_comments: usize;
 
         fn TentativeGuard(self, p: *ASTParse) {
             self._parser    = p;
             self._cursor    = p->c_idx;
+            self._saved_comments = p->_pending_trailing.size();
             self._nl_depth  = p->nl_depth;
             self._committed = false;
             p->diag->push_suppress();
@@ -111,6 +120,9 @@ class ASTParse
             if !self._committed {
                 self._parser->_restore_cursor(self._cursor);
                 self._parser->nl_depth = self._nl_depth;
+                while (self._parser->_pending_trailing.size()) > self._saved_comments {
+                    self._parser->_pending_trailing.pop_back();
+                }
             }
         }
     }
@@ -131,6 +143,7 @@ class ASTParse
         priv var _current:  obs::<Token>;
         priv var _peek:     obs::<Token>;
         priv var _nl_depth: u32;
+        priv var _saved_comments: usize;
 
         fn StreamGuard(self, p: *ASTParse, span: TokenSpan) {
             self._p        = p;
@@ -140,6 +153,7 @@ class ASTParse
             self._current  = p->_current;
             self._peek     = p->_peek;
             self._nl_depth = p->nl_depth;
+            self._saved_comments = p->_pending_trailing.size();
 
             p->span     = span;
             p->c_idx    = 0;
@@ -156,6 +170,9 @@ class ASTParse
             self._p->_current = self._current;
             self._p->_peek    = self._peek;
             self._p->nl_depth = self._nl_depth;
+            while self._p->_pending_trailing.size() > self._saved_comments {
+                self._p->_pending_trailing.pop_back();
+            }
         }
     }
 
@@ -172,6 +189,7 @@ class ASTParse
         self.span  = ctx->get_tokens();
         self.tu    = ctx->alloc_init::<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, g_scope);
         self.scope.set_ctx(ctx);
+        self._pending_trailing.reserve(4);
 
         self._prev    = &null;
         self._current = (self.span.get(0)) if (self.span.size() > 0) else (&null);
@@ -205,8 +223,8 @@ class ASTParse
             ++iterations;
             if iterations > max_iter { break; }
 
-            if self.check(TokenKind::TkNewLine) || self.check(TokenKind::OpSemicolon) {
-                self.advance();
+            if self._is_terminator_tok(self._current) {
+                self.advance_raw();
                 continue;
             }
 
@@ -260,6 +278,7 @@ class ASTParse
 
                 self.tu->add_decl(d);
                 program->add_item(TopLevelItem::from_decl(d));
+                self._attach_trailing(d);
             } else {
                 var s = self.parse_stmt();
                 if s == &null { break; }
@@ -274,10 +293,11 @@ class ASTParse
                     self.apply_annotations_to_node(s, &annot);
                 }
                 program->add_item(TopLevelItem::from_stmt(s));
+                self._attach_trailing(s);
             }
 
-            while self.check(TokenKind::TkNewLine) || self.check(TokenKind::OpSemicolon) {
-                self.advance();
+            while self._is_terminator_tok(self._current) {
+                self.advance_raw();
             }
         }
 
@@ -439,6 +459,24 @@ class ASTParse
         }
 
         self._sync_cursor();
+
+        if self._no_comment_skip { return; }
+
+        // Comments never rest under the cursor. Stash and step over any we land
+        // on so check()/current() always see a real token. _prev stays the
+        // pre-comment token so `start | prev().range` joins don't absorb it.
+        while (self._current != &null)
+           && (self._current->kind == TokenKind::AtComment) {
+            self._stash_comment(self._current);
+            if (self.c_idx + 1) < self.span.size() {
+                self.c_idx += 1;
+            } else {
+                self._current = &null;
+                self._peek    = &null;
+                return;
+            }
+            self._sync_cursor();
+        }
     }
 
     inline fn _retreat(self) {
@@ -530,8 +568,6 @@ class ASTParse
         var resolved = self.resolve_deep(tok);
 
         if resolved.kind == TokenKind::AtComment {
-            // we should be accumulating these into attributes, but for now
-            // just brush them off so they don't interfere with parsing
             self.advance();
             return self.resolve_fully(self._current);
         }
@@ -553,10 +589,7 @@ class ASTParse
         var resolved_kind = resolved.kind;
 
         if resolved_kind == TokenKind::AtComment {
-            // we should be accumulating these into attributes, but for now
-            // just brush them off so they don't interfere with parsing
-            if advance_on_at { self.advance(); }
-            return self.check(kind);
+            return false;
         }
 
         if resolved_kind == TokenKind::TkError {
@@ -581,11 +614,8 @@ class ASTParse
         var resolved = self.resolve_deep(self._current);
         var resolved_kind = resolved.kind;
 
-        while resolved_kind == TokenKind::AtComment {
-            // we should be accumulating these into attributes, but for now
-            // just brush them off so they don't interfere with parsing
-            self.advance();
-            return self.check(pre);
+        if resolved_kind == TokenKind::AtComment {
+            return false;
         }
 
         if resolved_kind == TokenKind::TkError {
@@ -645,8 +675,7 @@ class ASTParse
         var resolved_kind = resolved.kind;
 
         if resolved_kind == TokenKind::AtComment {
-            // brush off
-            self.advance();
+            self.advance(); // advance skips+stashes; re-expect on the real token
             return self.expect(kind);
         }
 
@@ -749,6 +778,9 @@ class ASTParse
     pub fn consume_leading_annotations(self, out: *PendingAnnotations) {
         out->clear();
 
+        var prev_flag = self._no_comment_skip;
+        self._no_comment_skip = true;
+
         while !self.is_eof() {
             var tok = self._current;
             if tok == &null { break; }
@@ -756,8 +788,11 @@ class ASTParse
             var resolved = self.resolve_deep(tok);
 
             if resolved.kind == TokenKind::AtComment {
-                out->add(AnnotationKind::DocComment, InternedStr::invalid(), tok->range);
+                out->add(self._comment_kind_from_imm(tok->imm), InternedStr::invalid(), tok->range);
                 self.advance();
+                if (self._current != &null) && (self.resolve_kind_shallow(self._current) == TokenKind::TkNewLine) {
+                    self.advance_raw(); // stay bound regardless of blank-line gap
+                }
                 continue;
             }
 
@@ -835,6 +870,56 @@ class ASTParse
 
             break;
         }
+
+        self._no_comment_skip = prev_flag;
+    }
+
+    priv fn _comment_kind_from_imm(self, imm: u32) -> AnnotationKind {
+        switch imm {
+            case 1  { return AnnotationKind::DocComment;   }
+            case 2  { return AnnotationKind::LineComment;  }
+            case 3  { return AnnotationKind::BlockComment; }
+            default { return AnnotationKind::DocComment;   }
+        }
+    }
+
+    pub fn _stash_comment(self, tok: *Token) {
+        if tok == &null { return; }
+        var pc = PendingComment{};
+        pc.kind  = self._comment_kind_from_imm(tok->imm);
+        pc.range = tok->range;
+        self._pending_trailing.push_back(pc);
+    }
+
+    priv fn _absorb_trailing_comments(self) {
+        while (self._current != &null)
+           && (self.resolve_kind_shallow(self._current) == TokenKind::AtComment) {
+            self._stash_comment(self._current);
+            self._advance();
+        }
+    }
+
+    inline pub fn _is_terminator_tok(self, t: *Token) -> bool {
+        var k = self.resolve_kind_shallow(t);
+        return (k == TokenKind::TkNewLine) || (k == TokenKind::OpSemicolon);
+    }
+
+    pub fn _attach_trailing(self, n: *Decl) {
+        self._absorb_trailing_comments();
+        for var i: usize = 0; i < self._pending_trailing.size(); ++i {
+            var c = &self._pending_trailing[i];
+            n->add_annotation(c->kind, InternedStr::invalid(), c->range);
+        }
+        self._pending_trailing.clear();
+    }
+
+    pub fn _attach_trailing(self, n: *Stmt) {
+        self._absorb_trailing_comments();
+        for var i: usize = 0; i < self._pending_trailing.size(); ++i {
+            var c = &self._pending_trailing[i];
+            n->add_annotation(c->kind, InternedStr::invalid(), c->range);
+        }
+        self._pending_trailing.clear();
     }
 
     /// \brief transfers annotations and visibility to a declaration.
