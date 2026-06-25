@@ -350,23 +350,23 @@ class FunctionDecl
 ///  The body is a *Stmt (block statement) or *Expr (single expression).
 ///
 class ClosureExpr derives Expr {
-
     struct Capture {
         var name:  *NamedIdentExpr; ///< the captured variable's name token.
-        var by_ref: bool;             ///< true if `|&captured|`, false if `|captured|`.
-        var is_const: bool = false;             ///< true if `|&captured| const`, false otherwise.
+        var by_ptr: bool;             ///< true if `|&captured|`, false if `|captured|`.
+        var is_const: bool = false;             ///< true if `|const &captured|`, false otherwise.
     }
-    pub var body_kind:   FnBodyKind = FnBodyKind::None;
-    pub var body_block: *CompoundStmt = &null;
-    pub var body_expr:  *Expr         = &null;
-    pub var params:      FrozenList::<*ParamDecl>;
+
+    pub var captures:       FrozenList::<Capture>; ///< captured variables, in source order.
+    pub var params:         FrozenList::<*ParamDecl>;
     pub var generic_params: FrozenList::<*GenericParamDecl>;
+    pub var body_block:  *CompoundStmt = &null;
+    pub var body_expr:   *Expr         = &null;
+    pub var return_type: *Type;      ///< null if inferred.
+    pub var body_kind:   FnBodyKind = FnBodyKind::None;
     pub var modifiers:   FnModifier = FnModifier::None;
-    pub var return_type: *Type;  ///< null if inferred.
-    pub var is_variadic: bool = false;          ///< trailing `...name: T` pack param.
-    pub var is_noreturn: bool = false;
-    pub var captures:    FrozenList::<Capture>; ///< captured variables, in source order.
-    // params and generics stored as FrozenLists once DeclParse defines ParamDecl.
+    pub var is_variadic:         bool = false; ///< trailing `...name: T` pack param.
+    pub var is_noreturn:         bool = false;
+    pub var explicit_no_capture: bool = false;
 
     static fn create(
         ctx:   *ASTContext,
