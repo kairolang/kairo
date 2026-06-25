@@ -16,6 +16,7 @@ ffi "c++" import "Native/Types.hh";
 import Diagnostic::Diagnostic::*;
 import Diagnostic::Consumer::*;
 import Location::SourceManager::*;
+import Support::TermRenderer::*;
 
 /// ANSI-colored diagnostic consumer.
 ///
@@ -165,7 +166,7 @@ class PrettyDiagConsumer derives DiagConsumer {
     priv fn render_all_uncoalesced(self, color: bool) -> string {
         var out: string;
         for var i: usize = 0; i < self._diags.size(); ++i {
-            out += self.render_single(self._diags[i], color);
+            out += self.render_single(self._diags[i], color, "");
         }
         return out;
     }
@@ -188,12 +189,12 @@ class PrettyDiagConsumer derives DiagConsumer {
     /// Returns the fixed-width severity label (padded to 7 chars for alignment).
     priv fn severity_label_padded(self, sev: DiagSeverity) -> string {
         switch sev {
-        case DiagSeverity::Fatal   { return "fatal  "; }
-        case DiagSeverity::Error   { return "error  "; }
+        case DiagSeverity::Fatal   { return "fatal"; }
+        case DiagSeverity::Error   { return "error"; }
         case DiagSeverity::Warning { return "warning"; }
-        case DiagSeverity::Note    { return "note   "; }
-        case DiagSeverity::Remark  { return "remark "; }
-        case DiagSeverity::Debug   { return "debug  "; }
+        case DiagSeverity::Note    { return "note"; }
+        case DiagSeverity::Remark  { return "remark"; }
+        case DiagSeverity::Debug   { return "debug"; }
         case DiagSeverity::Verbose { return "verbose"; }
         case DiagSeverity::Ignored { return "ignored"; }
         default                    { return "unknown"; }
@@ -258,10 +259,11 @@ class PrettyDiagConsumer derives DiagConsumer {
     priv fn render_group(self, group: ref!(DiagGroup), sm: *SourceManager, color: bool) -> string {
         const var NL = "\n";
         var out: string;
+        var renderer = TermRenderer(color, 80);
 
         if group.key.file_id == 0xFFFFFFFF {
             for var i: usize = 0; i < group.diags.size(); ++i {
-                out += self.render_single(group.diags[i], color);
+                out += self.render_single(group.diags[i], color, "");
             }
             return out;
         }
@@ -276,7 +278,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             key.code = diag->code;
             key.msg  = diag->message;
             key.sev  = diag->code.severity();
-            
+
             var idx: isize = -1;
             for var j: usize = 0; j < keys_seen.size(); ++j {
                 if keys_seen[j] == key {
@@ -326,7 +328,6 @@ class PrettyDiagConsumer derives DiagConsumer {
 
             var prefix: string;
             if (!has_last_sev) || (last_sev != sev) {
-                // New severity emit the label
                 var sev_label = self.severity_label_padded(sev);
                 if color {
                     prefix = f"{sev_col}{BOLD}{sev_label}{RESET}";
@@ -336,7 +337,6 @@ class PrettyDiagConsumer derives DiagConsumer {
                 last_sev = sev;
                 has_last_sev = true;
             } else {
-                // Same severity just pad
                 prefix = SEV_PAD;
             }
 
@@ -346,37 +346,29 @@ class PrettyDiagConsumer derives DiagConsumer {
         // Emit location line once
         out += f"  {arrow} {group.filename}:{group.line_num}" + NL;
 
-        // Get source line text
-        var first_diag   = group.diags[0];
-        var line_text    = sm->get_full_line(first_diag->loc);
-        var line_num_str = f"{group.line_num}";
-        var line_col     = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "" );
-        var reset_col    = ( RESET            ) if ( color ) else ( "" );
-        var prefix_vis   = f"  {line_col}{line_num_str} {pipe} {reset_col}";
-        var prefix_raw   = f"  {line_num_str} | ";
+        // --- Build caret spans -------------------------------------------------
 
-        // Collect unique codes for underline rows
+        var first_diag = group.diags[0];
+        var line_text  = sm->get_full_line(first_diag->loc);
+
+        // Collect unique codes (used for multi-code labels)
         var codes_seen: vec::<DiagCode>;
         for var c: usize = 0; c < keys_seen.size(); ++c {
             var kcode = keys_seen[c].code;
             var found = false;
             for var j: usize = 0; j < codes_seen.size(); ++j {
-                if codes_seen[j] == kcode {
-                    found = true;
-                    break;
-                }
+                if codes_seen[j] == kcode { found = true; break; }
             }
-            if !found {
-                codes_seen.push_back(kcode);
-            }
+            if !found { codes_seen.push_back(kcode); }
         }
 
-        // Build caret spans
         var spans: vec::<CaretSpan>;
+        // Parallel array: each span's label text
+        var span_text: vec::<string>;
 
         for var i: usize = 0; i < group.diags.size(); ++i {
             var diag = group.diags[i];
-            
+
             var loc_info = sm->get_line_col(diag->loc);
             var span: CaretSpan;
             span.start_col = loc_info.column;
@@ -384,6 +376,9 @@ class PrettyDiagConsumer derives DiagConsumer {
             span.code      = diag->code;
             span.sev       = diag->code.severity();
             span.style     = DiagLabel::Style::Primary;
+
+            var ltext: string;
+            var has_custom_text = false;
 
             if diag->labels.size() > 0 {
                 var label    = diag->labels[0];
@@ -394,6 +389,19 @@ class PrettyDiagConsumer derives DiagConsumer {
                     span.start_col = start_lc.column;
                     span.end_col   = end_lc.column;
                     span.style     = label.style;
+                    if label.text.length() > 0 {
+                        ltext = label.text;
+                        has_custom_text = true;
+                    }
+                }
+            }
+
+            // Omit redundant label messages under carets if we are not coalescing
+            if !has_custom_text {
+                if group.diags.size() > 1 {
+                    ltext = diag->message;
+                } else {
+                    ltext = "";
                 }
             }
 
@@ -404,30 +412,32 @@ class PrettyDiagConsumer derives DiagConsumer {
             if span.end_col   > line_text.length() { span.end_col   = line_text.length(); }
 
             spans.push_back(span);
+            span_text.push_back(ltext);
         }
 
-        // Sort spans by start column
+        // Sort spans (and their labels) by start column, left to right
         for var i: usize = 1; i < spans.size(); ++i {
-            var key     = spans[i];
+            var key_span = spans[i];
+            var key_text = span_text[i];
             var j: isize = static_cast::<isize>(i) - 1;
-            while (j >= 0) && (spans[static_cast::<usize>(j)].start_col > key.start_col) {
-                spans[static_cast::<usize>(j + 1)] = spans[static_cast::<usize>(j)];
+            while (j >= 0) && (spans[static_cast::<usize>(j)].start_col > key_span.start_col) {
+                spans[static_cast::<usize>(j + 1)]     = spans[static_cast::<usize>(j)];
+                span_text[static_cast::<usize>(j + 1)] = span_text[static_cast::<usize>(j)];
                 j -= 1;
             }
-            spans[static_cast::<usize>(j + 1)] = key;
+            spans[static_cast::<usize>(j + 1)]     = key_span;
+            span_text[static_cast::<usize>(j + 1)] = key_text;
         }
 
-        // Build per-column severity map for overlap handling
+        // Per-column severity map (for overlap coloring on the caret row)
         var max_col: usize = 0;
         for var s: usize = 0; s < spans.size(); ++s {
             if spans[s].end_col > max_col { max_col = spans[s].end_col; }
         }
 
-        var col_sev: vec::<DiagSeverity>;
-        var col_code: vec::<DiagCode>;
+        var col_sev:   vec::<DiagSeverity>;
         var col_style: vec::<DiagLabel::Style>;
         col_sev.resize(max_col + 1, DiagSeverity::Ignored);
-        col_code.resize(max_col + 1, DiagCode());
         col_style.resize(max_col + 1, DiagLabel::Style::Primary);
 
         for var s: usize = 0; s < spans.size(); ++s {
@@ -435,70 +445,134 @@ class PrettyDiagConsumer derives DiagConsumer {
             for var col: usize = span.start_col; col < span.end_col; ++col {
                 if self.severity_priority(span.sev) < self.severity_priority(col_sev[col]) {
                     col_sev[col]   = span.sev;
-                    col_code[col]  = span.code;
                     col_style[col] = span.style;
                 }
             }
         }
 
-        // Render source line with colored spans
-        out += prefix_vis;
-        if color && (max_col > 0) {
-            for var col: usize = 0; col < line_text.length(); ++col {
-                if (col < col_sev.size()) && (col_sev[col] != DiagSeverity::Ignored) {
-                    out += self.severity_color(col_sev[col]);
-                    out += string(line_text[col], 1);
-                    out += RESET;
-                } else {
-                    out += string(line_text[col], 1);
-                }
+        // --- Context window: 2 lines before, error line, 0 after ---------------
+
+        var ctx_before: u32 = 2;
+        var ctx_after:  u32 = 0;
+        var first_line = (group.line_num - ctx_before) if (group.line_num > ctx_before) else 1;
+
+        // Skip leading blank lines in context window
+        while first_line < group.line_num {
+            var text = sm->get_line_text(group.key.file_id, first_line);
+            if self.is_line_blank(text) {
+                first_line += 1;
+            } else {
+                break;
             }
-        } else {
-            out += line_text;
         }
-        out += NL;
 
-        // Render underline rows, one per unique code
-        var pad = string(' ', prefix_raw.length());
+        var last_line  = group.line_num + ctx_after;
+        var num_width: usize = f"{last_line}".length();
 
-        for var c: usize = 0; c < codes_seen.size(); ++c {
-            var the_code = codes_seen[c];
+        var line_col_esc = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "" );
+        var reset_esc    = ( RESET            ) if ( color ) else ( "" );
 
-            var underline: string;
-            var last_end: usize = 0;
+        // Gutter used by all caret/connector/label rows: "  " + blanks + " | "
+        var conn_gutter = f"  {string(' ', num_width)} {pipe} ";
 
+        for var ln: u32 = first_line; ln <= last_line; ++ln {
+            var text    = sm->get_line_text(group.key.file_id, ln);
+            var num_str = f"{ln}";
+            var npad    = string(' ', num_width - num_str.length());
+            var prefix  = f"  {npad}{line_col_esc}{num_str} {pipe} {reset_esc}";
+
+            out += prefix + renderer.highlight_snippet(text) + NL;
+
+            if ln != group.line_num { continue; }
+
+            // === Caret row: ^^^  for each span, severity-colored ==============
+            var caret_row: string;
+            var cursor: usize = 0;
             for var s: usize = 0; s < spans.size(); ++s {
                 var span = spans[s];
-                if !(span.code == the_code) { continue; }
-
-                if span.start_col > last_end {
-                    underline += string(' ', span.start_col - last_end);
+                if span.start_col >= cursor {
+                    caret_row += string(' ', span.start_col - cursor);
+                    var glyph = self.label_char(span.style);
+                    for var c: usize = span.start_col; c < span.end_col; ++c {
+                        if color {
+                            caret_row += f"{self.severity_color(col_sev[c])}{string(glyph, 1)}{RESET}";
+                        } else {
+                            caret_row += string(glyph, 1);
+                        }
+                    }
+                    cursor = span.end_col;
                 }
+            }
+            out += conn_gutter + caret_row + NL;
 
-                for var col: usize = span.start_col; col < span.end_col; ++col {
-                    var glyph = self.label_char(col_style[col]);
-                    if color {
-                        var col_color = self.severity_color(col_sev[col]);
-                        underline += f"{col_color}{string(glyph, 1)}{RESET}";
+            // === Stacked label rows (rust style) =============================
+            // Keep track of only spans that are active and need a text label printed.
+            var active_spans: vec::<CaretSpan>;
+            var active_texts: vec::<string>;
+            for var s: usize = 0; s < spans.size(); ++s {
+                if span_text[s].length() > 0 {
+                    active_spans.push_back(spans[s]);
+                    active_texts.push_back(span_text[s]);
+                }
+            }
+
+            var n_active = active_spans.size();
+
+            // Print one label per row, from rightmost span to leftmost.
+            for var r: isize = static_cast::<isize>(n_active) - 1; r >= 0; r -= 1 {
+                var ri = static_cast::<usize>(r);
+
+                // Build the connector line: '|' at every active span anchor with index <= r
+                var row: string;
+                var col: usize = 0;
+                for var s: usize = 0; s <= ri; ++s {
+                    var anchor = active_spans[s].start_col;
+                    if anchor < col { continue; }  // overlap guard
+                    row += string(' ', anchor - col);
+                    if s == ri {
+                        // This span's label prints here, inline after the text as white.
+                        var msg = active_texts[ri];
+                        if color {
+                            row += f"{RESET}{msg}";
+                        } else {
+                            row += msg;
+                        }
+                        col = anchor + 1;  // not used further; this is the last write
                     } else {
-                        underline += string(glyph, 1);
+                        if color {
+                            var ce = self.severity_color(active_spans[s].sev);
+                            row += f"{ce}|{RESET}";
+                        } else {
+                            row += "|";
+                        }
+                        col = anchor + 1;
                     }
                 }
+                out += conn_gutter + row + NL;
 
-                last_end = span.end_col;
+                // After printing this label, emit a pure-connector row for the
+                // remaining (leftward) spans, so the vertical bars stay continuous
+                // down to the next label. Skip after the last (leftmost) label.
+                if r > 1 {
+                    var conn: string;
+                    var cc: usize = 0;
+                    for var s: usize = 0; s < ri; ++s {
+                        var anchor = active_spans[s].start_col;
+                        if anchor < cc { continue; }
+                        conn += string(' ', anchor - cc);
+                        if color {
+                            conn += f"{self.severity_color(active_spans[s].sev)}|{RESET}";
+                        } else {
+                            conn += "|";
+                        }
+                        cc = anchor + 1;
+                    }
+                    out += conn_gutter + conn + NL;
+                }
             }
-
-            if underline.length() == 0 { continue; }
-
-            var code_label = "";
-            if codes_seen.size() > 1 {
-                code_label = f" [{(the_code) as string}]";
-            }
-
-            out += pad + underline + code_label + NL;
         }
 
-        // Fix-its
+        // --- Fix-its -----------------------------------------------------------
         for var i: usize = 0; i < group.diags.size(); ++i {
             var diag = group.diags[i];
             for var j: usize = 0; j < diag->fixits.size(); ++j {
@@ -508,51 +582,52 @@ class PrettyDiagConsumer derives DiagConsumer {
             }
         }
 
-        // Children
+        // --- Children ----------------------------------------------------------
         for var i: usize = 0; i < group.diags.size(); ++i {
             var diag = group.diags[i];
             for var j: usize = 0; j < diag->children.size(); ++j {
-                out += self.render_single(diag->children[j], color);
+                out += self.render_single(diag->children[j], color, "    ");
             }
         }
 
-        return out;
+        return out + NL;
     }
 
-    priv fn render_single(self, diag: *Diagnostic, color: bool) -> string {
+    priv fn render_single(self, diag: *Diagnostic, color: bool, indent: string) -> string {
         const var NL = "\n";
         var out: string;
 
-        var sev      = diag->code.severity();
-        var sev_str  = self.severity_string(sev, color);
-        var sev_col  = self.severity_color(sev);
-        var the_code = diag->code;
-        var code_str = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
-        var arrow    = ( f"{BOLD}{WHITE}-->{RESET}" ) if ( color ) else ( "-->" );
-        var pipe     = ( f"{BOLD}{WHITE}|{RESET}"   ) if ( color ) else ( "|"   );
+        var sev       = diag->code.severity();
+        var sev_label = self.severity_label_padded(sev);
+        var sev_str   = (f"{self.severity_color(sev)}{BOLD}{sev_label}{RESET}") if (color) else sev_label;
+        var sev_col   = self.severity_color(sev);
+        var the_code  = diag->code;
+        var code_str  = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
+        var arrow     = ( f"{BOLD}{WHITE}-->{RESET}" ) if ( color ) else ( "-->" );
+        var pipe      = ( f"{BOLD}{WHITE}|{RESET}"   ) if ( color ) else ( "|"   );
 
-        out += f"{sev_str} [{code_str}]: {diag->message}" + NL;
+        out += indent + f"{sev_str} [{code_str}]: {diag->message}" + NL;
 
         if (diag->has_loc) && (self._sm != &null) {
             var sm       = self._sm;
             var loc_info = sm->get_line_col(diag->loc);
             var filename = sm->get_filename(diag->loc);
-            out += f"  {arrow} {filename}:{loc_info.line}:{loc_info.column}" + NL;
+            out += indent + f"  {arrow} {filename}:{loc_info.line}:{loc_info.column}" + NL;
         }
 
         if (self._sm != &null) && (diag->labels.size() > 0) {
             var sm = self._sm;
-            out += self.render_labels(diag->labels, sm, "  ", sev_col, color);
+            out += self.render_labels(diag->labels, sm, indent + "  ", sev_col, color);
         }
 
         for var i: usize = 0; i < diag->fixits.size(); ++i {
             var fi      = diag->fixits[i];
             var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
-            out += f"  > {fix_pfx}: {fi.message}" + NL;
+            out += indent + f"  > {fix_pfx}: {fi.message}" + NL;
         }
 
         for var i: usize = 0; i < diag->children.size(); ++i {
-            out += self.render_single(diag->children[i], color);
+            out += self.render_single(diag->children[i], color, indent + "    ");
         }
 
         return out;
@@ -570,6 +645,7 @@ class PrettyDiagConsumer derives DiagConsumer {
         var out: string;
 
         var pipe = ( f"{BOLD}{WHITE}|{RESET}" ) if ( color ) else ( "|" );
+        var renderer = TermRenderer(color, 80);
 
         var order: vec::<usize>;
         order.reserve(labels.size());
@@ -616,7 +692,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             var prefix_raw = f"{indent}{num_pad}{line_num_str} | ";
             var prefix_vis = f"{indent}{num_pad}{line_col}{line_num_str} {pipe} {reset_col}";
 
-            out += prefix_vis + line_text + NL;
+            out += prefix_vis + renderer.highlight_snippet(line_text) + NL;
 
             var pad       = string(' ', prefix_raw.length());
             var start_col = start_lc.column;
@@ -686,6 +762,16 @@ class PrettyDiagConsumer derives DiagConsumer {
         case DiagLabel::Style::StrikeThrough { return '~'; }
         default                              { return '?'; }
         }
+    }
+
+    priv fn is_line_blank(self, s: string) -> bool {
+        for var i: usize = 0; i < s.length(); ++i {
+            var c = s[i];
+            if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
+                return false;
+            }
+        }
+        return true;
     }
 
     priv fn detect_color_stdout(self) -> bool {
