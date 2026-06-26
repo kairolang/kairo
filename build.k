@@ -40,26 +40,40 @@ fn version_macro(target: string, suffix: string) -> string {
     return f"VERSION=L\\\\\\\"{version(target, suffix)}\\\\\\\"";
 }
 
-// llvm-config queries (Windows-only: used to GENERATE the static component
-// list instead of hand-maintaining 90 archive names). Never used as a
-// system-LLVM fallback, see the invariant above.
+// llvm-config queries (Windows-only)
 
-fn llvm_static_components() -> string {
-    // Windows links static. llvm-config --link-static --libs emits the LLVM
-    // archive set in dependency order with correct current names, so an LLVM
-    // bump can't silently drift a hand-typed list. Clang libs aren't reported
-    // by llvm-config, so those stay explicit in llvm_libs().
-    return run(["sh", "-c",
-        "llvm-config --link-static --libs " +
-        "core support target targetparser option " +
-        "x86codegen x86asmparser x86desc x86info " +
-        "aarch64codegen aarch64asmparser aarch64desc aarch64info aarch64utils " +
-        "webassemblycodegen webassemblyasmparser webassemblydesc webassemblyinfo webassemblyutils " +
-        "codegen asmprinter selectiondag globalisel " +
-        "ipo instrumentation vectorize passes linker irreader " +
-        "bitreader bitwriter mc mcparser object " +
-        "| tr -d '\\n\x27"
-    ]).stdout_str.r_strip();
+fn llvm_static_components(t: ref!(Target)) {
+    // Windows links static.
+    t.passthrough("-lLLVMCore").passthrough("-lLLVMSupport").passthrough("-lLLVMTarget").passthrough("-lLLVMTargetParser")
+     .passthrough("-lLLVMX86CodeGen").passthrough("-lLLVMX86AsmParser").passthrough("-lLLVMX86Desc")
+     .passthrough("-lLLVMX86Info").passthrough("-lLLVMAArch64CodeGen").passthrough("-lLLVMAArch64AsmParser")
+     .passthrough("-lLLVMAArch64Desc").passthrough("-lLLVMAArch64Info").passthrough("-lLLVMAArch64Utils")
+     .passthrough("-lLLVMWebAssemblyCodeGen").passthrough("-lLLVMWebAssemblyAsmParser")
+     .passthrough("-lLLVMWebAssemblyDesc").passthrough("-lLLVMWebAssemblyInfo").passthrough("-lLLVMWebAssemblyUtils")
+     .passthrough("-lLLVMARMCodeGen").passthrough("-lLLVMARMAsmParser").passthrough("-lLLVMARMDesc").passthrough("-lLLVMARMInfo").passthrough("-lLLVMARMUtils")
+     .passthrough("-lLLVMRISCVCodeGen").passthrough("-lLLVMRISCVAsmParser").passthrough("-lLLVMRISCVDesc").passthrough("-lLLVMRISCVInfo")
+     .passthrough("-lLLVMCodeGen").passthrough("-lLLVMCodeGenTypes").passthrough("-lLLVMAsmPrinter")
+     .passthrough("-lLLVMSelectionDAG").passthrough("-lLLVMGlobalISel").passthrough("-lLLVMScalarOpts")
+     .passthrough("-lLLVMInstCombine").passthrough("-lLLVMAggressiveInstCombine").passthrough("-lLLVMTransformUtils")
+     .passthrough("-lLLVMAnalysis").passthrough("-lLLVMProfileData").passthrough("-lLLVMipo")
+     .passthrough("-lLLVMVectorize").passthrough("-lLLVMPasses").passthrough("-lLLVMLinker")
+     .passthrough("-lLLVMIRReader").passthrough("-lLLVMAsmParser").passthrough("-lLLVMBitReader")
+     .passthrough("-lLLVMBitWriter").passthrough("-lLLVMMC").passthrough("-lLLVMMCParser")
+     .passthrough("-lLLVMMCDisassembler").passthrough("-lLLVMObject").passthrough("-lLLVMBinaryFormat")
+     .passthrough("-lLLVMRemarks").passthrough("-lLLVMBitstreamReader").passthrough("-lLLVMDemangle")
+     .passthrough("-lLLVMTextAPI").passthrough("-lLLVMOption").passthrough("-lLLVMCoroutines")
+     .passthrough("-lLLVMInstrumentation").passthrough("-lLLVMIRPrinter").passthrough("-lLLVMWindowsDriver")
+     .passthrough("-lLLVMFrontendOpenMP").passthrough("-lLLVMFrontendOffloading").passthrough("-lLLVMFrontendHLSL")
+     .passthrough("-lLLVMFrontendAtomic").passthrough("-lLLVMFrontendDirective").passthrough("-lLLVMFrontendDriver")
+     .passthrough("-lLLVMLTO").passthrough("-lLLVMCFGuard").passthrough("-lLLVMObjCARCOpts")
+     .passthrough("-lLLVMHipStdPar").passthrough("-lLLVMCGData").passthrough("-lLLVMSandboxIR")
+     .passthrough("-lLLVMExtensions").passthrough("-lLLVMDebugInfoDWARF").passthrough("-lLLVMDebugInfoDWARFLowLevel")
+     .passthrough("-lLLVMDebugInfoCodeView").passthrough("-lLLVMDebugInfoMSF").passthrough("-lLLVMDebugInfoPDB")
+     .passthrough("-lLLVMDebugInfoBTF").passthrough("-lLLVMSymbolize").passthrough("-lLLVMCoverage")
+     .passthrough("-lLLVMTelemetry").passthrough("-lLLVMMIRParser")
+     .passthrough("-lversion").passthrough("-ladvapi32").passthrough("-lshell32")
+     .passthrough("-lole32").passthrough("-luuid").passthrough("-lntdll")
+     .passthrough("-lws2_32").passthrough("-lpsapi").passthrough("-lzstd").passthrough("-lzlib");
 }
 
 // Clang archives, explicit because llvm-config doesn't report them.
@@ -148,12 +162,27 @@ fn windows_sdk_paths(t: ref!(Target)) {
     }
 }
 
+fn really_is_debug() -> bool {
+    // KBLD_MODE is hardcoded to "release" by kbld's driver right now.
+    // Fall back to a separate env var the user sets explicitly.
+    var m = env("KAIRO_BUILD_MODE");
+    if (m.has_value()) && (m.value() == "debug") { return true; }
+    return false;
+}
+
 fn common_flags(t: ref!(Target)) {
     // Every target gets these. One place, no per-target drift.
     t.passthrough("-flto=thin")
      .passthrough("-fuse-ld=lld")
      .passthrough("-w")
      .passthrough("-g");
+
+    // Stage 0 unconditionally adds -fsanitize=undefined,bounds,function in debug.
+    // On Windows that pulls MSVC's compiler-rt which is incompatible with our
+    // LLVM 19 toolchain. Cancel it here; clang takes the last -fsanitize wins.
+    if (really_is_debug()) && (platform() == "windows") {
+        t.passthrough("-fno-sanitize=all");
+    }
 }
 
 fn require_vendored_llvm(llvm_build: string) {
@@ -199,11 +228,7 @@ fn llvm_libs(t: ref!(Target), llvm_build: string, out_lib: string) {
         // STATIC, libLLVM.dll is unsupported on Windows (invariant).
         t.passthrough("-DNOMINMAX");
         clang_static_components(t);
-        t.passthrough(llvm_static_components())
-         // Win32 system deps the static set pulls in.
-         .passthrough("-lversion").passthrough("-ladvapi32").passthrough("-lshell32")
-         .passthrough("-lole32").passthrough("-luuid").passthrough("-lntdll")
-         .passthrough("-lws2_32").passthrough("-lpsapi");
+        llvm_static_components(t);
     } else {
         // SHARED, one libLLVM, thin bins (invariant).
         t.passthrough("-lclang-cpp").passthrough("-lLLVM");

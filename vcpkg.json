@@ -1,0 +1,9 @@
+{
+  "name": "kairo-llvm",
+  "version-string": "0",
+  "dependencies": [
+    "zstd",
+    "zlib"
+  ],
+  "builtin-baseline": "db0dbbfa0a0fb6c82f286cb0c51d0ce188a04bbe"
+}

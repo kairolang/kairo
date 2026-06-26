@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $ROOT      = if ($env:KBLD_ROOT)      { $env:KBLD_ROOT }      else { Split-Path $PSScriptRoot -Parent }
 $BUILD_DIR = if ($env:KBLD_BUILD_DIR) { $env:KBLD_BUILD_DIR } else { Join-Path $ROOT "build" }
-$TRIPLE    = "x86_64-pc-windows-msvc"
+$TRIPLE    = "x86_64-windows-msvc"
 $MODE      = if ($env:KBLD_MODE)      { $env:KBLD_MODE }      else { "release" }
 $JOBS      = $env:NUMBER_OF_PROCESSORS
 $LINK_JOBS = $env:NUMBER_OF_PROCESSORS
@@ -17,6 +17,7 @@ $LLVM_SRC    = Join-Path $ROOT "Lib\llvm-runtimes"
 $LLVM_BUILD  = Join-Path $BUILD_DIR "llvm"
 $LLVM_MARKER = Join-Path $LLVM_BUILD "lib\LLVMCore.lib"
 $OUT_LIB     = Join-Path $BUILD_DIR "$TRIPLE\$MODE\lib"
+$VCPKG_LIB   = Join-Path $LLVM_BUILD "vcpkg_installed\x64-windows-static-md\lib"
 $TARGETS     = "X86;AArch64;ARM;RISCV;WebAssembly"
 
 Write-Host "[llvm] root:      $ROOT"
@@ -47,6 +48,22 @@ function Copy-Libs {
     foreach ($pattern in @("LLVM*.lib","clang*.lib","lld*.lib")) {
         Get-ChildItem -Path $Src -Filter $pattern -ErrorAction SilentlyContinue |
             Copy-Item -Destination $OUT_LIB -Force
+    }
+    # zstd/zlib: vcpkg-built static deps that LLVMSupport references.
+    # Co-locate with LLVM libs so kairo's -L release\lib covers them and we
+    # don't carry a brittle -L into vcpkg's internal tree.
+    if (Test-Path $VCPKG_LIB) {
+        # zstd: name matches, copy as-is
+        $zstdSrc = Join-Path $VCPKG_LIB "zstd.lib"
+        if (Test-Path $zstdSrc) { Copy-Item $zstdSrc (Join-Path $OUT_LIB "zstd.lib") -Force }
+
+        # zlib: vcpkg names it zs.lib on this triple; normalize to zlib.lib
+        $zlibSrc = Join-Path $VCPKG_LIB "zs.lib"
+        if (Test-Path $zlibSrc) { Copy-Item $zlibSrc (Join-Path $OUT_LIB "zlib.lib") -Force }
+
+        Write-Host "[llvm] zstd/zlib copied from vcpkg tree"
+    } else {
+        Write-Host "[llvm] warning: vcpkg lib dir not found at $VCPKG_LIB"
     }
     Write-Host "[llvm] libs copied to $OUT_LIB"
 }
@@ -113,6 +130,28 @@ if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
+# --- vcpkg toolchain resolution ---
+$VCPKG_ROOT =
+    if     ($env:VCPKG_ROOT)              { $env:VCPKG_ROOT }
+    elseif ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT }
+    elseif (Get-Command vcpkg -EA SilentlyContinue) {
+        Split-Path (Get-Command vcpkg).Source -Parent
+    }
+    else { $null }
+
+if (-not $VCPKG_ROOT) {
+    Write-Error ("[llvm] error: vcpkg not found. launch the VS dev prompt " +
+                 "(sets VCPKG_ROOT) or set VCPKG_ROOT manually.")
+    exit 1
+}
+
+$VCPKG_TOOLCHAIN = Join-Path $VCPKG_ROOT "scripts\buildsystems\vcpkg.cmake"
+if (-not (Test-Path $VCPKG_TOOLCHAIN)) {
+    Write-Error "[llvm] error: vcpkg toolchain missing at $VCPKG_TOOLCHAIN"
+    exit 1
+}
+Write-Host "[llvm] vcpkg root:    $VCPKG_ROOT"
+
 # build cmake args string
 $cmakeArgs = @(
     "-S `"$LLVM_SRC\llvm`""
@@ -139,8 +178,12 @@ $cmakeArgs = @(
     "-DLLVM_ENABLE_ZLIB=FORCE_ON"
     "-DLLVM_ENABLE_ZSTD=FORCE_ON"
     "-DLLVM_ENABLE_LIBXML2=OFF"
-    "-DLLVM_ENABLE_LTO=Thin"
+    "-DLLVM_ENABLE_LTO=OFF"
     "-DLLVM_PARALLEL_LINK_JOBS=$JOBS"
+    "-DVCPKG_MANIFEST_DIR=`"$ROOT`""
+    "-DVCPKG_MANIFEST_MODE=ON"
+    "-DCMAKE_TOOLCHAIN_FILE=`"$VCPKG_TOOLCHAIN`""
+    "-DVCPKG_TARGET_TRIPLET=x64-windows-static-md"
 ) -join " "
 
 $ninjaCmd = "ninja -C `"$LLVM_BUILD`" -j$JOBS"
