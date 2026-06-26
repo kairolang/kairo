@@ -67,7 +67,7 @@ class ASTParse
 
     // --- Context handles ----------------------------------------------------
     pub var ctx:   obs::<ASTContext>;           ///< owning context for allocations.
-    pub var diag:  obs::<DiagEngine>;           ///< sink for parse errors and warnings.
+    pub var diag:  obs::<BufferedDiagSink>;     ///< sink for parse errors and warnings.
     pub var scope: ScopeStack;                  ///< active lexical scope hierarchy.
     pub var cc:    obs::<CodeCompleteConsumer>; ///< null during standard batch compilation.
 
@@ -183,7 +183,7 @@ class ASTParse
     /// \param g_scope  the global scope used for hoisting top-level declarations.
     fn ASTParse(self, ctx: *ASTContext, cc: *CodeCompleteConsumer, g_scope: *GlobalHoistedScope) {
         self.ctx   = ctx;
-        self.diag  = ctx->diags;
+        self.diag = &(ctx->diag_sink);
         self.imm   = ctx->get_imm_table();
         self.cc    = cc;
         self.span  = ctx->get_tokens();
