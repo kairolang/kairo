@@ -975,7 +975,7 @@ class <T> DeclParse {
             dyn()->diag->report(DiagID::S047E, lparen.start,
                 "expected ')' to close the parameter list"
             ).first(lparen).emit();
-            
+
             // Only synchronize to TopLevel if we are not at a capture list or body block
             if !dyn()->check(TokenKind::OpPipe) && !dyn()->check(TokenKind::OpPipePipe) && !dyn()->check(TokenKind::OpLBrace) {
                 self._sync_decl(DeclSyncCtx::TopLevel);
@@ -2423,48 +2423,393 @@ class <T> DeclParse {
     }
 
     // ========================================================================
-    //  Import  (STUBBED  owner to fill in)
+    //  Import
     // ========================================================================
 
     /// \brief parses an import declaration.
-    ///  Grammar (to be fully implemented by owner):
-    ///    visibility? 'import' ( 'module' )? path
-    ///      ( '::' '{' import_item (',' import_item)* '}' )?    (selective list)
-    ///      ( '::' '*' )?                                       (wildcard)
-    ///      ( 'as' name )?                                      (alias)
+    ///  Grammar:
+    ///    'import' 'module'? path
+    ///      ('::' '{' import_item (',' import_item)* '}')?
+    ///      ('::' '*')?
+    ///      ('as' name)?
+    ///    path        := identifier ('::' identifier)*
     ///    import_item := sub_path ('as' name)? | '*'
+    ///    sub_path    := identifier ('::' identifier)*
     ///
-    /// \details precondition: current token is `import`. STUB: the 8 import
-    ///          forms (native / source-only / wildcard / aliased / selective
-    ///          list with per-item aliases, plus pub/priv/prot prefixes) are
-    ///          owner-defined. A real ImportDecl is allocated so callers get a
-    ///          well-typed node, but the body asserts pending implementation.
+    /// \details resolution semantics (enforced by the import resolution pass,
+    ///          not the parser):
+    ///    `import Foo`        → file-first: Foo.k, fallback Foo/module.k
+    ///    `import module Foo` → library-only: Foo/module.k, no fallback
+    ///    `import Foo::bar`   → resolve Foo (file-first), then find symbol bar
     fn _parse_import(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
-        // NOTE: do not consume tokens here owner owns the full production.
-        assert(false && r"DeclParse::_parse_import: import parsing not yet defined (7+ forms incl selective lists)");
-        return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start));
+        dyn()->advance(T::SkipNL::After); // consume `import`
+
+        var id = ImportDecl::create(dyn()->ctx, start, ImportKind::Native);
+
+        // `import module Foo`, source-file-only, skip file lookup,
+        // resolve only against Foo/module.k (library entry).
+        if dyn()->check(TokenKind::KwModule) {
+            id->import_kind = ImportKind::ModuleOnly;
+            dyn()->advance(T::SkipNL::After); // consume `module`
+        }
+
+        // --- base path: Foo, Foo::Bar, Foo::Bar::baz, etc. -----------------
+        var segments: std::StackBuf::<Token, 8>;
+
+        if !dyn()->check(TokenKind::LitIdentifier) {
+            dyn()->diag->report(DiagID::S045E, start.start,
+                "expected a module or symbol path after 'import\x27"
+            ).first(start).emit();
+            self._sync_decl(DeclSyncCtx::TopLevel);
+            return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        }
+
+        segments.push_back(dyn()->current());
+        dyn()->advance();
+
+        // Consume `::` separated path segments. Stop before `{` (selective),
+        // `*` (wildcard), or a non-identifier (path end).
+        while dyn()->check(TokenKind::OpColonColon) {
+            // peek past `::` to decide what follows
+            if dyn()->check_peek(TokenKind::OpLBrace) {
+                // selective import list: `Foo::{a, b}`
+                dyn()->advance(T::SkipNL::After); // consume `::`
+                break;
+            }
+            if dyn()->check_peek(TokenKind::OpStar) {
+                // wildcard: `Foo::*`
+                dyn()->advance(T::SkipNL::After); // consume `::`
+                id->is_wildcard = true;
+                dyn()->advance(); // consume `*`
+                break;
+            }
+            if !dyn()->check_peek(TokenKind::LitIdentifier) {
+                // `::` followed by something unexpected, path ends here
+                break;
+            }
+            dyn()->advance(T::SkipNL::After); // consume `::`
+            segments.push_back(dyn()->current());
+            dyn()->advance();
+        }
+
+        id->path_segments.from_buf(segments.data(), segments.size(), dyn()->ctx);
+
+        // --- selective import list: { item, item, ... } ---------------------
+        if dyn()->check(TokenKind::OpLBrace) {
+            dyn()->advance(T::SkipNL::After); // consume `{`
+            var items: std::StackBuf::<ImportItem, 8>;
+
+            while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+                if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpComma) {
+                    dyn()->advance();
+                    continue;
+                }
+
+                // wildcard item inside list: `{*, other}` or `{*}`
+                if dyn()->check(TokenKind::OpStar) {
+                    var item = ImportItem{};
+                    item.is_wildcard = true;
+                    item.has_alias   = false;
+                    item.range       = dyn()->current_ptr()->range;
+                    dyn()->advance();
+                    items.push_back(item);
+                    if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
+                    break;
+                }
+
+                // named item: `bar` or `bar::Baz` or `bar as alias`
+                if !dyn()->check(TokenKind::LitIdentifier) {
+                    dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                        "expected an import item name or '*' in selective import list"
+                    ).first(dyn()->current_ptr()->range).emit();
+                    self._sync_decl(DeclSyncCtx::Params);
+                    if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
+                    break;
+                }
+
+                var item_start = dyn()->current_ptr()->range;
+                var sub: std::StackBuf::<Token, 4>;
+                sub.push_back(dyn()->current());
+                dyn()->advance();
+
+                // sub-path segments: `bar::Baz::Quux`
+                while dyn()->check(TokenKind::OpColonColon)
+                   && dyn()->check_peek(TokenKind::LitIdentifier) {
+                    dyn()->advance(T::SkipNL::After); // consume `::`
+                    sub.push_back(dyn()->current());
+                    dyn()->advance();
+                }
+
+                var item = ImportItem{};
+                item.sub_path.from_buf(sub.data(), sub.size(), dyn()->ctx);
+                item.is_wildcard = false;
+                item.has_alias   = false;
+
+                // optional alias: `as name`
+                if dyn()->check(TokenKind::KwAs) {
+                    dyn()->advance(T::SkipNL::After); // consume `as`
+                    if dyn()->check(TokenKind::LitIdentifier) {
+                        item.alias     = dyn()->current();
+                        item.has_alias = true;
+                        dyn()->advance();
+                    } else {
+                        dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                            "expected a name after 'as' in import item"
+                        ).first(dyn()->current_ptr()->range).emit();
+                    }
+                }
+
+                item.range = item_start | dyn()->prev().range;
+                items.push_back(item);
+
+                if dyn()->check(TokenKind::OpComma) {
+                    dyn()->advance(T::SkipNL::After);
+                    if dyn()->check(TokenKind::OpRBrace) { break; } // trailing comma
+                    continue;
+                }
+                break;
+            }
+
+            if dyn()->check(TokenKind::OpRBrace) {
+                dyn()->advance(T::SkipNL::Before); // consume `}`
+            } else {
+                dyn()->diag->report(DiagID::S051E, start.start,
+                    "expected '}' to close the selective import list"
+                ).first(start).emit();
+            }
+
+            id->items.from_buf(items.data(), items.size(), dyn()->ctx);
+            id->has_items = true;
+        }
+
+        // --- top-level alias: `import Foo as Bar` --------------------------
+        if dyn()->check(TokenKind::KwAs) {
+            dyn()->advance(T::SkipNL::After); // consume `as`
+            if dyn()->check(TokenKind::LitIdentifier) {
+                id->alias     = dyn()->current();
+                id->has_alias = true;
+                dyn()->advance();
+            } else {
+                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    "expected a name after 'as' in import declaration"
+                ).first(dyn()->current_ptr()->range).emit();
+            }
+        }
+
+        id->range = start | dyn()->prev().range;
+        return static_cast::<*Decl>(id);
     }
 
     // ========================================================================
-    //  FFI  (STUBBED  separate path per design)
+    //  FFI
     // ========================================================================
 
     /// \brief parses an ffi construct.
-    ///  Grammar (to be fully implemented by owner):
-    ///    'ffi' string_literal '{' decl* '}'                  (ffi block)
-    ///  | 'ffi' string_literal 'import' string_literal ('as' name)?  (header import)
-    ///  | 'ffi' string_literal fn_decl                        (single-decl linkage)
+    ///  Grammar:
+    ///    'ffi' string_literal 'import' string_literal ('as' name)?
+    ///    'ffi' string_literal '{' decl* '}'
+    ///    'ffi' string_literal decl
     ///
-    /// \details precondition: current token is `ffi`. The ffi path consumes
-    ///          its own leading `ffi "lang"` and decides between block / import
-    ///          / single-decl. STUB: owner-defined; allocates a typed recovery
-    ///          ImportDecl so callers stay well-typed.
+    /// \details
+    ///   - ffi import → ImportDecl with FFILinkage stamped
+    ///   - ffi { } block → FFIBlockDecl grouping N child decls, each stamped
+    ///   - ffi single decl → the decl itself, stamped with FFILinkage
+    ///
+    ///   The parser rejects decl kinds that don't carry the FFILinkage mixin
+    ///   (test, macro, enum, etc.). Sema validates deeper constraints (e.g.
+    ///   ffi "c" on a ClassDecl).
     fn _parse_ffi(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
-        assert(false && r"DeclParse::_parse_ffi: ffi path not yet defined (block / import / single-decl)");
-        return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start));
+        dyn()->advance(T::SkipNL::After); // consume `ffi`
+
+        // language string: "c", "c++", etc.
+        if !dyn()->check(TokenKind::LitString) {
+            dyn()->diag->report(DiagID::S045E, start.start,
+                "expected a language string after 'ffi' (e.g. \"c++\")"
+            ).first(start).emit();
+            self._sync_decl(DeclSyncCtx::TopLevel);
+            return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        }
+        var lang_tok  = dyn()->current();
+        inline "c++" {
+            auto imm = dyn()->ctx->get_imm_table()->template get<Immediate::StringData>(lang_tok.imm);
+        }
+
+        var lang_text = TokenText::from_range(imm->body, dyn()->ctx).text;
+        dyn()->advance(T::SkipNL::After); // consume the string literal
+
+        var linkage_kind: LinkageKind;
+        // few variants:
+        // C, c, C++, CPP, CXX, c++
+        if lang_text == "c" || lang_text == "C" {
+            linkage_kind = LinkageKind::C;
+        } else if lang_text == "c++" || lang_text == "C++" || lang_text == "CPP" || lang_text == "CXX" || lang_text == "c++" {
+            linkage_kind = LinkageKind::Cpp;
+        } else {
+            dyn()->diag->report(DiagID::S045E, start.start,
+                "unsupported FFI language: " + lang_text
+            ).first(start).emit();
+            self._sync_decl(DeclSyncCtx::TopLevel);
+            return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        }
+        var ffi_range = (start | lang_tok.range);
+
+        // ---- ffi "c++" import "header.h" (as alias)? ----------------------
+        if dyn()->check(TokenKind::KwImport) {
+            dyn()->advance(T::SkipNL::After); // consume `import`
+
+            if !dyn()->check(TokenKind::LitString) {
+                dyn()->diag->report(DiagID::S045E, start.start,
+                    "expected a header path string after 'ffi \"...\" import\x27"
+                ).first(start).emit();
+                self._sync_decl(DeclSyncCtx::TopLevel);
+                return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
+
+            var header_tok = dyn()->current();
+            dyn()->advance();
+
+            var id = ImportDecl::create(dyn()->ctx, start, ImportKind::Native);
+            id->set_ffi_linkage(linkage_kind, lang_tok, ffi_range);
+            id->header = header_tok;
+
+            // optional alias: `as gfx`
+            if dyn()->check(TokenKind::KwAs) {
+                dyn()->advance(T::SkipNL::After); // consume `as`
+                if dyn()->check(TokenKind::LitIdentifier) {
+                    id->alias     = dyn()->current();
+                    id->has_alias = true;
+                    dyn()->advance();
+                } else {
+                    dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                        "expected a name after 'as' in ffi import"
+                    ).first(dyn()->current_ptr()->range).emit();
+                }
+            }
+
+            id->range = start | dyn()->prev().range;
+            return static_cast::<*Decl>(id);
+        }
+
+        // ---- ffi "c++" { decl* } ------------------------------------------
+        if dyn()->check(TokenKind::OpLBrace) {
+            dyn()->advance(T::SkipNL::After); // consume `{`
+
+            var fb = FFIBlockDecl::create(dyn()->ctx, start, lang_tok);
+            var decls: std::StackBuf::<*Decl, 8>;
+
+            while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+                if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
+                    dyn()->advance();
+                    continue;
+                }
+                var d = self.parse_decl();
+                if d == &null { break; }
+                if is_fatal_decl(d) { break; }
+
+                if !self._stamp_ffi_linkage(d, linkage_kind, lang_tok, ffi_range) {
+                    dyn()->diag->report(DiagID::S045E, d->range.start,
+                        "this declaration cannot appear in an ffi block"
+                    ).first(d->range).emit();
+                }
+
+                decls.push_back(d);
+            }
+
+            if dyn()->check(TokenKind::OpRBrace) {
+                dyn()->advance(T::SkipNL::Before); // consume `}`
+            } else {
+                dyn()->diag->report(DiagID::S051E, start.start,
+                    "expected '}' to close ffi block"
+                ).first(start).emit();
+            }
+
+            fb->body.from_buf(decls.data(), decls.size(), dyn()->ctx);
+            fb->range = start | dyn()->prev().range;
+            return static_cast::<*Decl>(fb);
+        }
+
+        // ---- ffi "c++" fn foo(...) ----------------------------------------
+        var d = self._dispatch_decl();
+        if (d == &null) || is_fatal_decl(d) {
+            dyn()->diag->report(DiagID::S045E, start.start,
+                "expected a declaration, 'import', or '{' after 'ffi \"...\"\x27"
+            ).first(start).emit();
+            self._sync_decl(DeclSyncCtx::TopLevel);
+            return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        }
+
+        if !self._stamp_ffi_linkage(d, linkage_kind, lang_tok, ffi_range) {
+            dyn()->diag->report(DiagID::S045E, d->range.start,
+                "this declaration cannot have foreign linkage"
+            ).first(d->range).emit();
+        }
+
+        return d;
     }
+
+    /// \brief stamps FFILinkage on a decl if it carries the mixin.
+    /// \returns true if the stamp succeeded, false if the decl kind doesn't
+    ///          support foreign linkage.
+    priv fn _stamp_ffi_linkage(
+        self,
+        d:            *Decl,
+        kind:         LinkageKind,
+        lang_tok:     Token,
+        ffi_range:    SourceRange
+    ) -> bool {
+        if isa::<FunctionDecl>(d) {
+            cast::<FunctionDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
+            return true;
+        }
+        if isa::<ClassDecl>(d) {
+            cast::<ClassDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
+            return true;
+        }
+        if isa::<StructDecl>(d) {
+            cast::<StructDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
+            return true;
+        }
+        if isa::<UnionDecl>(d) {
+            cast::<UnionDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
+            return true;
+        }
+        if isa::<TypeAliasDecl>(d) {
+            cast::<TypeAliasDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
+            return true;
+        }
+        if isa::<VariableDecl>(d) {
+            cast::<VariableDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
+            return true;
+        }
+        if isa::<ImportDecl>(d) {
+            cast::<ImportDecl>(d)->set_ffi_linkage(kind, lang_tok, ffi_range);
+            return true;
+        }
+        return false;
+    }
+
+    // ========================================================================
+    //
+    //
+    // error @ /mnt/linux-dev/projects/kairo-lang/Tests/Parser/Intergrate/closures_negative.k:22
+    //    20 | // --- Multiple prohibited modifiers on one closure ------------------------
+    //    21 |
+    //    22 | var bad_multi = fn () const unsafe final { return 8 }
+    //       |                       ^^^^^ ^^^^^^ ^^^^^
+    //       |                       |     |      [S045E] 'final' is not a valid closure modifier
+    //       |                       |     [S045E] 'unsafe' is not a valid closure modifier
+    //       |                       [S045E] 'const' is not a valid closure modifier
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    //
+    // ========================================================================
 
     // ========================================================================
     //  eval { decl* }  decl block
