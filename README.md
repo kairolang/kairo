@@ -54,7 +54,7 @@ Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh 
 
 **Build from source:** see [BUILD.md](BUILD.md) - covers the quick install script, manual setup, PATH configuration, the VSCode extension, and debugging.
 
-**Code reference:** since the docs are still catching up, the [Compiler directory](https://github.com/kairolang/kairo/tree/canary/kairo-0.1.1%2Bbc.251007/Compiler) has working Stage 0 examples.
+**Code reference:** since the docs are still catching up, the [Compiler directory](https://github.com/kairolang/kairo/tree/main/Compiler) is compiling Stage 0 code.
 
 ### License
 
