@@ -1426,6 +1426,7 @@ class <D> RecursiveASTVisitor {
             case DeclKind::TestDecl            { return self.dyn()->traverse_test_decl(            cast::<TestDecl>(d)            ); }
             case DeclKind::MacroDecl           { return self.dyn()->traverse_macro_decl(           cast::<MacroDecl>(d)           ); }
             case DeclKind::ProcedureMacroDecl  { return self.dyn()->traverse_procedure_macro_decl( cast::<ProcedureMacroDecl>(d)  ); }
+            case DeclKind::FFIBlockDecl        { return self.dyn()->traverse_ffi_block_decl(       cast::<FFIBlockDecl>(d)        ); }
             case DeclKind::RecoveryDecl        { self.dyn()->visit_decl(d); return d; }
             case DeclKind::DeclKindCount       { assert(false && r"DeclKindCount reached RAV in Stage 1 - this is a bug"); return &null; }
         }
@@ -1673,6 +1674,17 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    fn traverse_ffi_block_decl(self, n: *FFIBlockDecl) -> *FFIBlockDecl {
+        if self.dyn()->walkup_ffi_block_decl(n) == false { return n; }
+        // lang_token is a leaf token; skip.
+        // Traverse each child declaration in the FFI block's body.
+        for var i: usize = 0; i < n->body.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_decl(n->body.get(i));  // discard return
+        }
+        return n;
+    }
+
     fn traverse_visibility_group_decl(self, n: *VisibilityGroupDecl) -> *VisibilityGroupDecl {
         if self.dyn()->walkup_visibility_group_decl(n) == false { return n; }
         for var i: usize = 0; i < n->members.size(); i++ {
@@ -1791,6 +1803,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_import_decl(n);
     }
 
+    fn walkup_ffi_block_decl(self, n: *FFIBlockDecl) -> bool {
+        if self.dyn()->visit_decl(n) == false { return false; }
+        return self.dyn()->visit_ffi_block_decl(n);
+    }
+
     fn walkup_visibility_group_decl(self, n: *VisibilityGroupDecl) -> bool {
         if self.dyn()->visit_decl(n) == false { return false; }
         return self.dyn()->visit_visibility_group_decl(n);
@@ -1832,6 +1849,7 @@ class <D> RecursiveASTVisitor {
     fn visit_type_alias_decl(      self, n: *TypeAliasDecl       ) -> bool { return true; }
     fn visit_module_decl(          self, n: *ModuleDecl          ) -> bool { return true; }
     fn visit_import_decl(          self, n: *ImportDecl          ) -> bool { return true; }
+    fn visit_ffi_block_decl(       self, n: *FFIBlockDecl        ) -> bool { return true; }
     fn visit_visibility_group_decl(self, n: *VisibilityGroupDecl ) -> bool { return true; }
     fn visit_eval_block_decl(      self, n: *EvalBlockDecl       ) -> bool { return true; }
     fn visit_test_decl(            self, n: *TestDecl            ) -> bool { return true; }
