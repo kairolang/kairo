@@ -200,6 +200,20 @@ class PrettyDiagConsumer derives DiagConsumer {
         default                    { return "unknown"; }
         }
     }
+
+    priv fn severity_label_raw(self, sev: DiagSeverity) -> string {
+        switch sev {
+        case DiagSeverity::Fatal   { return "fatal"; }
+        case DiagSeverity::Error   { return "error"; }
+        case DiagSeverity::Warning { return "warning"; }
+        case DiagSeverity::Note    { return "note"; }
+        case DiagSeverity::Remark  { return "remark"; }
+        case DiagSeverity::Debug   { return "debug"; }
+        case DiagSeverity::Verbose { return "verbose"; }
+        case DiagSeverity::Ignored { return "ignored"; }
+        default                    { return "unknown"; }
+        }
+    }
     
     priv fn render_all(self, color: bool) -> string {
         if self._sm == &null {
@@ -268,102 +282,55 @@ class PrettyDiagConsumer derives DiagConsumer {
             return out;
         }
 
-        // Partition by (DiagCode, message)
-        var keys_seen: vec::<DiagCodeMsgKey>;
-        var diags_by_key: vec::<vec::<obs::<Diagnostic>>>;
-
+        // Determine the highest severity present in the group
+        var highest_sev = DiagSeverity::Ignored;
         for var i: usize = 0; i < group.diags.size(); ++i {
-            var diag = group.diags[i];
-            var key: DiagCodeMsgKey;
-            key.code = diag->code;
-            key.msg  = diag->message;
-            key.sev  = diag->code.severity();
-
-            var idx: isize = -1;
-            for var j: usize = 0; j < keys_seen.size(); ++j {
-                if keys_seen[j] == key {
-                    idx = static_cast::<isize>(j);
-                    break;
-                }
+            var sev = group.diags[i]->code.severity();
+            if self.severity_priority(sev) < self.severity_priority(highest_sev) {
+                highest_sev = sev;
             }
+        }
 
-            if idx >= 0 {
-                diags_by_key[static_cast::<usize>(idx)].push_back(diag);
+        var sev_name = self.severity_label_raw(highest_sev);
+        var sev_col  = self.severity_color(highest_sev);
+        var sev_str  = (f"{sev_col}{BOLD}{sev_name}{RESET}") if color else sev_name;
+
+        // Context window properties
+        var ctx_before: u32 = 2;
+        var ctx_after:  u32 = 0;
+        var first_line = (group.line_num - ctx_before) if (group.line_num > ctx_before) else 1;
+
+        // Skip leading blank lines in context window
+        while first_line < group.line_num {
+            var text = sm->get_line_text(group.key.file_id, first_line);
+            if self.is_line_blank(text) {
+                first_line += 1;
             } else {
-                keys_seen.push_back(key);
-                var new_vec: vec::<obs::<Diagnostic>>;
-                new_vec.push_back(diag);
-                diags_by_key.push_back(new_vec);
+                break;
             }
         }
 
-        // Sort keys by severity (highest first)
-        for var i: usize = 1; i < keys_seen.size(); ++i {
-            var key     = keys_seen[i];
-            var key_pri = self.severity_priority(key.sev);
-            var j: isize = static_cast::<isize>(i) - 1;
-            while j >= 0 {
-                var cmp_pri = self.severity_priority(keys_seen[static_cast::<usize>(j)].sev);
-                if cmp_pri <= key_pri { break; }
-                keys_seen[static_cast::<usize>(j + 1)] = keys_seen[static_cast::<usize>(j)];
-                j -= 1;
-            }
-            keys_seen[static_cast::<usize>(j + 1)] = key;
+        var last_line = group.line_num + ctx_after;
+        var max_num_len: usize = f"{last_line}".length();
+
+        // Calculate unified indentation padding so gutter pipe aligns below '@'
+        var left_pad = sev_name.length();
+        if max_num_len > left_pad {
+            left_pad = max_num_len;
         }
 
-        var arrow = ( f"{BOLD}{WHITE}-->{RESET}" ) if ( color ) else ( "-->" );
-        var pipe  = ( f"{BOLD}{WHITE}|{RESET}"   ) if ( color ) else ( "|"   );
+        var pad_len = left_pad - sev_name.length();
+        var header_pad = string(' ', pad_len);
 
-        // Emit headers only show severity label when it changes
-        var last_sev: DiagSeverity = DiagSeverity::Ignored;
-        var has_last_sev: bool = false;
-        const var SEV_PAD = "       ";  // 7 spaces to match "warning"
-
-        for var c: usize = 0; c < keys_seen.size(); ++c {
-            var key      = keys_seen[c];
-            var sev      = key.sev;
-            var sev_col  = self.severity_color(sev);
-            var the_code = key.code;
-            var code_str = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
-
-            var prefix: string;
-            if (!has_last_sev) || (last_sev != sev) {
-                var sev_label = self.severity_label_padded(sev);
-                if color {
-                    prefix = f"{sev_col}{BOLD}{sev_label}{RESET}";
-                } else {
-                    prefix = sev_label;
-                }
-                last_sev = sev;
-                has_last_sev = true;
-            } else {
-                prefix = SEV_PAD;
-            }
-
-            out += f"{prefix} [{code_str}]: {key.msg}" + NL;
-        }
-
-        // Emit location line once
-        out += f"  {arrow} {group.filename}:{group.line_num}" + NL;
+        // Header format: "severity @ filename:line"
+        out += f"{sev_str}{header_pad} @ {group.filename}:{group.line_num}" + NL;
 
         // --- Build caret spans -------------------------------------------------
 
         var first_diag = group.diags[0];
         var line_text  = sm->get_full_line(first_diag->loc);
 
-        // Collect unique codes (used for multi-code labels)
-        var codes_seen: vec::<DiagCode>;
-        for var c: usize = 0; c < keys_seen.size(); ++c {
-            var kcode = keys_seen[c].code;
-            var found = false;
-            for var j: usize = 0; j < codes_seen.size(); ++j {
-                if codes_seen[j] == kcode { found = true; break; }
-            }
-            if !found { codes_seen.push_back(kcode); }
-        }
-
         var spans: vec::<CaretSpan>;
-        // Parallel array: each span's label text
         var span_text: vec::<string>;
 
         for var i: usize = 0; i < group.diags.size(); ++i {
@@ -396,13 +363,9 @@ class PrettyDiagConsumer derives DiagConsumer {
                 }
             }
 
-            // Omit redundant label messages under carets if we are not coalescing
             if !has_custom_text {
-                if group.diags.size() > 1 {
-                    ltext = diag->message;
-                } else {
-                    ltext = "";
-                }
+                var code_prefix = (f"{self.severity_color(span.sev)}[{(diag->code) as string}]{RESET} ") if color else f"[{(diag->code) as string}] ";
+                ltext = code_prefix + diag->message;
             }
 
             if span.start_col > 0 { span.start_col -= 1; }
@@ -450,36 +413,18 @@ class PrettyDiagConsumer derives DiagConsumer {
             }
         }
 
-        // --- Context window: 2 lines before, error line, 0 after ---------------
+        var pipe         = ( f"{BOLD}{WHITE}|{RESET}" ) if ( color ) else ( "|" );
+        var line_col_esc = ( f"{BOLD}{WHITE}"        ) if ( color ) else ( ""  );
+        var reset_esc    = ( RESET                   ) if ( color ) else ( ""  );
 
-        var ctx_before: u32 = 2;
-        var ctx_after:  u32 = 0;
-        var first_line = (group.line_num - ctx_before) if (group.line_num > ctx_before) else 1;
-
-        // Skip leading blank lines in context window
-        while first_line < group.line_num {
-            var text = sm->get_line_text(group.key.file_id, first_line);
-            if self.is_line_blank(text) {
-                first_line += 1;
-            } else {
-                break;
-            }
-        }
-
-        var last_line  = group.line_num + ctx_after;
-        var num_width: usize = f"{last_line}".length();
-
-        var line_col_esc = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "" );
-        var reset_esc    = ( RESET            ) if ( color ) else ( "" );
-
-        // Gutter used by all caret/connector/label rows: "  " + blanks + " | "
-        var conn_gutter = f"  {string(' ', num_width)} {pipe} ";
+        // Gutter aligned precisely to left_pad
+        var conn_gutter = f"{string(' ', left_pad)} {pipe} ";
 
         for var ln: u32 = first_line; ln <= last_line; ++ln {
             var text    = sm->get_line_text(group.key.file_id, ln);
             var num_str = f"{ln}";
-            var npad    = string(' ', num_width - num_str.length());
-            var prefix  = f"  {npad}{line_col_esc}{num_str} {pipe} {reset_esc}";
+            var npad    = string(' ', left_pad - num_str.length());
+            var prefix  = f"{npad}{line_col_esc}{num_str} {pipe} {reset_esc}";
 
             out += prefix + renderer.highlight_snippet(text) + NL;
 
@@ -505,8 +450,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             }
             out += conn_gutter + caret_row + NL;
 
-            // === Stacked label rows (rust style) =============================
-            // Keep track of only spans that are active and need a text label printed.
+            // === Stacked label rows ===========================================
             var active_spans: vec::<CaretSpan>;
             var active_texts: vec::<string>;
             for var s: usize = 0; s < spans.size(); ++s {
@@ -522,7 +466,6 @@ class PrettyDiagConsumer derives DiagConsumer {
             for var r: isize = static_cast::<isize>(n_active) - 1; r >= 0; r -= 1 {
                 var ri = static_cast::<usize>(r);
 
-                // Build the connector line: '|' at every active span anchor with index <= r
                 var row: string;
                 var col: usize = 0;
                 for var s: usize = 0; s <= ri; ++s {
@@ -530,14 +473,13 @@ class PrettyDiagConsumer derives DiagConsumer {
                     if anchor < col { continue; }  // overlap guard
                     row += string(' ', anchor - col);
                     if s == ri {
-                        // This span's label prints here, inline after the text as white.
                         var msg = active_texts[ri];
                         if color {
                             row += f"{RESET}{msg}";
                         } else {
                             row += msg;
                         }
-                        col = anchor + 1;  // not used further; this is the last write
+                        col = anchor + 1;
                     } else {
                         if color {
                             var ce = self.severity_color(active_spans[s].sev);
@@ -549,26 +491,6 @@ class PrettyDiagConsumer derives DiagConsumer {
                     }
                 }
                 out += conn_gutter + row + NL;
-
-                // After printing this label, emit a pure-connector row for the
-                // remaining (leftward) spans, so the vertical bars stay continuous
-                // down to the next label. Skip after the last (leftmost) label.
-                if r > 1 {
-                    var conn: string;
-                    var cc: usize = 0;
-                    for var s: usize = 0; s < ri; ++s {
-                        var anchor = active_spans[s].start_col;
-                        if anchor < cc { continue; }
-                        conn += string(' ', anchor - cc);
-                        if color {
-                            conn += f"{self.severity_color(active_spans[s].sev)}|{RESET}";
-                        } else {
-                            conn += "|";
-                        }
-                        cc = anchor + 1;
-                    }
-                    out += conn_gutter + conn + NL;
-                }
             }
         }
 
@@ -597,28 +519,69 @@ class PrettyDiagConsumer derives DiagConsumer {
         const var NL = "\n";
         var out: string;
 
-        var sev       = diag->code.severity();
-        var sev_label = self.severity_label_padded(sev);
-        var sev_str   = (f"{self.severity_color(sev)}{BOLD}{sev_label}{RESET}") if (color) else sev_label;
-        var sev_col   = self.severity_color(sev);
-        var the_code  = diag->code;
-        var code_str  = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
-        var arrow     = ( f"{BOLD}{WHITE}-->{RESET}" ) if ( color ) else ( "-->" );
-        var pipe      = ( f"{BOLD}{WHITE}|{RESET}"   ) if ( color ) else ( "|"   );
+        var sev      = diag->code.severity();
+        var sev_name = self.severity_label_raw(sev);
+        var sev_col  = self.severity_color(sev);
+        var sev_str  = (f"{sev_col}{BOLD}{sev_name}{RESET}") if (color) else sev_name;
 
-        out += indent + f"{sev_str} [{code_str}]: {diag->message}" + NL;
+        if (!diag->has_loc) || (self._sm == &null) {
+            var the_code = diag->code;
+            var code_str = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
+            out += indent + f"{sev_str} [{code_str}]: {diag->message}" + NL;
 
-        if (diag->has_loc) && (self._sm != &null) {
-            var sm       = self._sm;
-            var loc_info = sm->get_line_col(diag->loc);
-            var filename = sm->get_filename(diag->loc);
-            out += indent + f"  {arrow} {filename}:{loc_info.line}:{loc_info.column}" + NL;
+            for var i: usize = 0; i < diag->fixits.size(); ++i {
+                var fi      = diag->fixits[i];
+                var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
+                out += indent + f"  > {fix_pfx}: {fi.message}" + NL;
+            }
+
+            for var i: usize = 0; i < diag->children.size(); ++i {
+                out += self.render_single(diag->children[i], color, indent + "    ");
+            }
+
+            return out;
         }
 
-        if (self._sm != &null) && (diag->labels.size() > 0) {
-            var sm = self._sm;
-            out += self.render_labels(diag->labels, sm, indent + "  ", sev_col, color);
+        var sm       = self._sm;
+        var loc_info = sm->get_line_col(diag->loc);
+        var filename = sm->get_filename(diag->loc);
+
+        // Find the maximum line width in the target labels to calculate padding
+        var max_num_len = f"{loc_info.line}".length();
+        var temp_labels: vec::<DiagLabel>;
+
+        if diag->labels.size() > 0 {
+            for var i: usize = 0; i < diag->labels.size(); ++i {
+                temp_labels.push_back(diag->labels[i]);
+                var l_line = sm->get_line_col(diag->labels[i].range.start).line;
+                var l_len = f"{l_line}".length();
+                if l_len > max_num_len {
+                    max_num_len = l_len;
+                }
+            }
+        } else {
+            var label: DiagLabel;
+            label.range.start = diag->loc;
+            label.range.end   = diag->loc;
+            label.style       = DiagLabel::Style::Primary;
+            var code_prefix   = (f"{sev_col}[{(diag->code) as string}]{RESET} ") if color else f"[{(diag->code) as string}] ";
+            label.text        = code_prefix + diag->message;
+            temp_labels.push_back(label);
         }
+
+        var sev_len = sev_name.length();
+        var left_pad = sev_len;
+        if max_num_len > left_pad {
+            left_pad = max_num_len;
+        }
+
+        var pad_len = left_pad - sev_len;
+        var header_pad = string(' ', pad_len);
+
+        out += indent + f"{sev_str}{header_pad} @ {filename}:{loc_info.line}" + NL;
+
+        // Render the source context snippet and label lines
+        out += self.render_labels(temp_labels, sm, indent, sev_col, color, left_pad);
 
         for var i: usize = 0; i < diag->fixits.size(); ++i {
             var fi      = diag->fixits[i];
@@ -639,7 +602,8 @@ class PrettyDiagConsumer derives DiagConsumer {
         sm:       *SourceManager,
         indent:   string,
         sev_col:  string,
-        color:    bool
+        color:    bool,
+        left_pad: usize
     ) -> string {
         const var NL = "\n";
         var out: string;
@@ -666,12 +630,6 @@ class PrettyDiagConsumer derives DiagConsumer {
             order[static_cast::<usize>(j + 1)] = key;
         }
 
-        var max_line_width: usize = 1;
-        for var k: usize = 0; k < labels.size(); ++k {
-            var w = f"{sm->get_line_col(labels[k].range.start).line}".length();
-            if w > max_line_width { max_line_width = w; }
-        }
-
         for var i: usize = 0; i < order.size(); ++i {
             var label     = labels[order[i]];
             if label.range.is_invalid() { continue; }
@@ -684,7 +642,7 @@ class PrettyDiagConsumer derives DiagConsumer {
                 if color else "";
 
             var line_num_str = f"{start_lc.line}";
-            var pad_count    = max_line_width - line_num_str.length();
+            var pad_count    = left_pad - line_num_str.length();
             var num_pad      = string(' ', pad_count);
             var line_col     = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "" );
             var reset_col    = ( RESET            ) if ( color ) else ( "" );
@@ -738,18 +696,7 @@ class PrettyDiagConsumer derives DiagConsumer {
     }
 
     priv fn severity_string(self, sev: DiagSeverity, color: bool) -> string {
-        var label: string;
-        switch sev {
-        case DiagSeverity::Fatal   { label = "fatal";   }
-        case DiagSeverity::Error   { label = "error";   }
-        case DiagSeverity::Warning { label = "warning"; }
-        case DiagSeverity::Note    { label = "note";    }
-        case DiagSeverity::Remark  { label = "remark";  }
-        case DiagSeverity::Debug   { label = "debug";   }
-        case DiagSeverity::Verbose { label = "verbose"; }
-        case DiagSeverity::Ignored { label = "ignored"; }
-        default                    { label = "unknown"; }
-        }
+        var label: string = self.severity_label_raw(sev);
         if !color { return label; }
         return f"{self.severity_color(sev)}{BOLD}{label}{RESET}";
     }
