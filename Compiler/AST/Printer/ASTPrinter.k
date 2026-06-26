@@ -967,26 +967,27 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if decl == &null    { self.p.paint(Color::Error, "<error>"); return; }
         if decl->is_error() { self.p.paint(Color::Error, "<error>"); return; }
 
-        if isa::<FunctionDecl>(decl)        { self._d_function(cast::<FunctionDecl>(decl));         return; }
-        if isa::<VariableDecl>(decl)        { self._d_variable(cast::<VariableDecl>(decl));         return; }
-        if isa::<FieldDecl>(decl)           { self._d_field(cast::<FieldDecl>(decl));               return; }
-        if isa::<ParamDecl>(decl)           { self._d_param(cast::<ParamDecl>(decl));               return; }
+        if isa::<FunctionDecl>(decl)        { self._d_function(cast::<FunctionDecl>(decl));          return; }
+        if isa::<VariableDecl>(decl)        { self._d_variable(cast::<VariableDecl>(decl));          return; }
+        if isa::<FieldDecl>(decl)           { self._d_field(cast::<FieldDecl>(decl));                return; }
+        if isa::<ParamDecl>(decl)           { self._d_param(cast::<ParamDecl>(decl));                return; }
         if isa::<GenericParamDecl>(decl)    { self._d_generic_param(cast::<GenericParamDecl>(decl)); return; }
-        if isa::<StructDecl>(decl)          { self._d_struct(cast::<StructDecl>(decl));             return; }
-        if isa::<ClassDecl>(decl)           { self._d_class(cast::<ClassDecl>(decl));               return; }
-        if isa::<InterfaceDecl>(decl)       { self._d_interface(cast::<InterfaceDecl>(decl));       return; }
-        if isa::<ExtensionDecl>(decl)       { self._d_extension(cast::<ExtensionDecl>(decl));       return; }
-        if isa::<EnumDecl>(decl)            { self._d_enum(cast::<EnumDecl>(decl));                 return; }
-        if isa::<EnumVariantDecl>(decl)     { self._d_enum_variant(cast::<EnumVariantDecl>(decl));  return; }
-        if isa::<UnionDecl>(decl)           { self._d_union(cast::<UnionDecl>(decl));               return; }
-        if isa::<TypeAliasDecl>(decl)       { self._d_type_alias(cast::<TypeAliasDecl>(decl));      return; }
-        if isa::<ModuleDecl>(decl)          { self._d_module(cast::<ModuleDecl>(decl));             return; }
-        if isa::<ImportDecl>(decl)          { self._d_import(cast::<ImportDecl>(decl));             return; }
-        if isa::<VisibilityGroupDecl>(decl) { self._d_vis_group(cast::<VisibilityGroupDecl>(decl)); return; }
-        if isa::<EvalBlockDecl>(decl)       { self._d_eval_block(cast::<EvalBlockDecl>(decl));      return; }
-        if isa::<TestDecl>(decl)            { self._d_test(cast::<TestDecl>(decl));                 return; }
-        if isa::<MacroDecl>(decl)           { self._d_macro(cast::<MacroDecl>(decl));               return; }
-        if isa::<ProcedureMacroDecl>(decl)  { self._d_proc_macro(cast::<ProcedureMacroDecl>(decl)); return; }
+        if isa::<StructDecl>(decl)          { self._d_struct(cast::<StructDecl>(decl));              return; }
+        if isa::<ClassDecl>(decl)           { self._d_class(cast::<ClassDecl>(decl));                return; }
+        if isa::<InterfaceDecl>(decl)       { self._d_interface(cast::<InterfaceDecl>(decl));        return; }
+        if isa::<ExtensionDecl>(decl)       { self._d_extension(cast::<ExtensionDecl>(decl));        return; }
+        if isa::<EnumDecl>(decl)            { self._d_enum(cast::<EnumDecl>(decl));                  return; }
+        if isa::<EnumVariantDecl>(decl)     { self._d_enum_variant(cast::<EnumVariantDecl>(decl));   return; }
+        if isa::<UnionDecl>(decl)           { self._d_union(cast::<UnionDecl>(decl));                return; }
+        if isa::<TypeAliasDecl>(decl)       { self._d_type_alias(cast::<TypeAliasDecl>(decl));       return; }
+        if isa::<ModuleDecl>(decl)          { self._d_module(cast::<ModuleDecl>(decl));              return; }
+        if isa::<ImportDecl>(decl)          { self._d_import(cast::<ImportDecl>(decl));              return; }
+        if isa::<VisibilityGroupDecl>(decl) { self._d_vis_group(cast::<VisibilityGroupDecl>(decl));  return; }
+        if isa::<EvalBlockDecl>(decl)       { self._d_eval_block(cast::<EvalBlockDecl>(decl));       return; }
+        if isa::<TestDecl>(decl)            { self._d_test(cast::<TestDecl>(decl));                  return; }
+        if isa::<MacroDecl>(decl)           { self._d_macro(cast::<MacroDecl>(decl));                return; }
+        if isa::<ProcedureMacroDecl>(decl)  { self._d_proc_macro(cast::<ProcedureMacroDecl>(decl));  return; }
+        if isa::<FFIBlockDecl>(decl)        { self._d_ffi_block(cast::<FFIBlockDecl>(decl));         return; }
 
         self.p.paint(Color::Error, "<error>");
     }
@@ -1089,8 +1090,6 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if      fd->abi == AbiKind::Static   { self.p.paint(Color::Keyword, "static ");   }
         else if fd->abi == AbiKind::Virtual  { self.p.paint(Color::Keyword, "virtual ");  }
         else if fd->abi == AbiKind::Override { self.p.paint(Color::Keyword, "override "); }
-        else if fd->abi == AbiKind::FfiC     { self.p.paint(Color::Keyword, "ffi "); self.p.paint(Color::Literal, "\"c\""); self.p.put(" "); }
-        else if fd->abi == AbiKind::FfiCpp   { self.p.paint(Color::Keyword, "ffi "); self.p.paint(Color::Literal, "\"c++\""); self.p.put(" "); }
 
         if fd->transfer == TransferKind::Copy { self.p.paint(Color::Attr, "@copy "); }
         if fd->transfer == TransferKind::Move { self.p.paint(Color::Attr, "@move "); }
@@ -1338,14 +1337,17 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     }
 
     fn _d_import(self, im: *ImportDecl) {
-        if im->import_kind == ImportKind::FfiC   { self.p.paint(Color::Keyword, "ffi "); self.p.paint(Color::Literal, "\"c\""); self.p.put(" "); }
-        if im->import_kind == ImportKind::FfiCpp { self.p.paint(Color::Keyword, "ffi "); self.p.paint(Color::Literal, "\"c++\""); self.p.put(" "); }
+        if im->has_ffi_linkage() {
+            self.p.paint(Color::Keyword, "ffi ");
+            self.p.paint(Color::Literal, self.tok(im->ffi_lang_token()));
+            self.p.put(" ");
+        }
         self.p.paint(Color::Keyword, "import ");
 
-        if im->is_ffi() {
+        if im->has_ffi_linkage() {
             self.p.paint(Color::Literal, self.tok(im->header));
         } else {
-            if im->import_kind == ImportKind::SourceOnly { self.p.paint(Color::Keyword, "module "); }
+            if im->import_kind == ImportKind::ModuleOnly { self.p.paint(Color::Keyword, "module "); }
             for var i: usize = 0; i < im->path_segments.size(); ++i {
                 if i > 0 { self.p.paint(Color::Punct, "::"); }
                 self.p.paint(Color::Ident, self.tok(*(im->path_segments.get(i))));
@@ -1387,6 +1389,21 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         for var i: usize = 0; i < vg->members.size(); ++i {
             if i > 0 { self.p.paint(Color::Punct, "; "); }
             self.src_decl(vg->members[i]);
+        }
+        self.p.paint(Color::Punct, " }");
+    }
+
+    fn _d_ffi_block(self, fb: *FFIBlockDecl) {
+        self.p.paint(Color::Keyword, "ffi ");
+        self.p.paint(Color::Literal, self.tok(fb->lang_token));
+        if fb->body.is_empty() {
+            self.p.paint(Color::Punct, " {}");
+            return;
+        }
+        self.p.paint(Color::Punct, " { ");
+        for var i: usize = 0; i < fb->body.size(); ++i {
+            if i > 0 { self.p.paint(Color::Punct, "; "); }
+            self.src_decl(fb->body[i]);
         }
         self.p.paint(Color::Punct, " }");
     }
@@ -1477,6 +1494,48 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if decl->has_visibility() {
             self.p.put(" ");
             self._vis(static_cast::<u8>(decl->visibility));
+        }
+    }
+
+    /// Helper to print ffi linkage modifier next to visibility on debug rows.
+    fn _dump_ffi_linkage(self, d: *Decl) {
+        var has_ffi = false;
+        var lang_tok = Token();
+
+        if isa::<FunctionDecl>(d) {
+            var fd = cast::<FunctionDecl>(d);
+            has_ffi  = fd->has_ffi_linkage();
+            lang_tok = fd->ffi_lang_token();
+        } else if isa::<ClassDecl>(d) {
+            var cd = cast::<ClassDecl>(d);
+            has_ffi  = cd->has_ffi_linkage();
+            lang_tok = cd->ffi_lang_token();
+        } else if isa::<StructDecl>(d) {
+            var sd = cast::<StructDecl>(d);
+            has_ffi  = sd->has_ffi_linkage();
+            lang_tok = sd->ffi_lang_token();
+        } else if isa::<UnionDecl>(d) {
+            var ud = cast::<UnionDecl>(d);
+            has_ffi  = ud->has_ffi_linkage();
+            lang_tok = ud->ffi_lang_token();
+        } else if isa::<TypeAliasDecl>(d) {
+            var ta = cast::<TypeAliasDecl>(d);
+            has_ffi  = ta->has_ffi_linkage();
+            lang_tok = ta->ffi_lang_token();
+        } else if isa::<VariableDecl>(d) {
+            var vd = cast::<VariableDecl>(d);
+            has_ffi  = vd->has_ffi_linkage();
+            lang_tok = vd->ffi_lang_token();
+        } else if isa::<ImportDecl>(d) {
+            var id = cast::<ImportDecl>(d);
+            has_ffi  = id->has_ffi_linkage();
+            lang_tok = id->ffi_lang_token();
+        }
+
+        if has_ffi {
+            self.p.put(" ");
+            self.p.paint(Color::Keyword, "ffi ");
+            self.p.paint(Color::Literal, self.tok(lang_tok));
         }
     }
 
@@ -2496,26 +2555,27 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if decl == &null    { self._head("<null-decl>", is_last); self.p.newline(); return; }
         if decl->is_error() { self._head("RecoveryDecl", is_last); self._dim(self._recovery_name(self._decl_kind_name_of(decl->recovery_kind))); self.p.newline(); return; }
 
-        if isa::<FunctionDecl>(decl)        { self._dd_function(cast::<FunctionDecl>(decl), is_last);        return; }
-        if isa::<VariableDecl>(decl)        { self._dd_variable(cast::<VariableDecl>(decl), is_last);        return; }
-        if isa::<FieldDecl>(decl)           { self._dd_field(cast::<FieldDecl>(decl), is_last);             return; }
-        if isa::<ParamDecl>(decl)           { self._dd_param(cast::<ParamDecl>(decl), is_last);             return; }
-        if isa::<GenericParamDecl>(decl)    { self._dd_leaf_src("GenericParamDecl", decl, is_last);          return; }
-        if isa::<StructDecl>(decl)          { self._dd_struct(cast::<StructDecl>(decl), is_last);           return; }
-        if isa::<ClassDecl>(decl)           { self._dd_class(cast::<ClassDecl>(decl), is_last);             return; }
-        if isa::<InterfaceDecl>(decl)       { self._dd_interface(cast::<InterfaceDecl>(decl), is_last);     return; }
-        if isa::<ExtensionDecl>(decl)       { self._dd_extension(cast::<ExtensionDecl>(decl), is_last);     return; }
-        if isa::<EnumDecl>(decl)            { self._dd_enum(cast::<EnumDecl>(decl), is_last);               return; }
-        if isa::<EnumVariantDecl>(decl)     { self._dd_enum_variant(cast::<EnumVariantDecl>(decl), is_last); return; }
-        if isa::<UnionDecl>(decl)           { self._dd_union(cast::<UnionDecl>(decl), is_last);             return; }
-        if isa::<TypeAliasDecl>(decl)       { self._dd_type_alias(cast::<TypeAliasDecl>(decl), is_last);    return; }
-        if isa::<ModuleDecl>(decl)          { self._dd_module(cast::<ModuleDecl>(decl), is_last);           return; }
-        if isa::<ImportDecl>(decl)          { self._dd_leaf_src("ImportDecl", decl, is_last);                return; }
+        if isa::<FunctionDecl>(decl)        { self._dd_function(cast::<FunctionDecl>(decl), is_last);         return; }
+        if isa::<VariableDecl>(decl)        { self._dd_variable(cast::<VariableDecl>(decl), is_last);         return; }
+        if isa::<FieldDecl>(decl)           { self._dd_field(cast::<FieldDecl>(decl), is_last);               return; }
+        if isa::<ParamDecl>(decl)           { self._dd_param(cast::<ParamDecl>(decl), is_last);               return; }
+        if isa::<GenericParamDecl>(decl)    { self._dd_leaf_src("GenericParamDecl", decl, is_last);           return; }
+        if isa::<StructDecl>(decl)          { self._dd_struct(cast::<StructDecl>(decl), is_last);             return; }
+        if isa::<ClassDecl>(decl)           { self._dd_class(cast::<ClassDecl>(decl), is_last);               return; }
+        if isa::<InterfaceDecl>(decl)       { self._dd_interface(cast::<InterfaceDecl>(decl), is_last);       return; }
+        if isa::<ExtensionDecl>(decl)       { self._dd_extension(cast::<ExtensionDecl>(decl), is_last);       return; }
+        if isa::<EnumDecl>(decl)            { self._dd_enum(cast::<EnumDecl>(decl), is_last);                 return; }
+        if isa::<EnumVariantDecl>(decl)     { self._dd_enum_variant(cast::<EnumVariantDecl>(decl), is_last);  return; }
+        if isa::<UnionDecl>(decl)           { self._dd_union(cast::<UnionDecl>(decl), is_last);               return; }
+        if isa::<TypeAliasDecl>(decl)       { self._dd_type_alias(cast::<TypeAliasDecl>(decl), is_last);      return; }
+        if isa::<ModuleDecl>(decl)          { self._dd_module(cast::<ModuleDecl>(decl), is_last);             return; }
+        if isa::<ImportDecl>(decl)          { self._dd_leaf_src("ImportDecl", decl, is_last);                 return; }
         if isa::<VisibilityGroupDecl>(decl) { self._dd_vis_group(cast::<VisibilityGroupDecl>(decl), is_last); return; }
-        if isa::<EvalBlockDecl>(decl)       { self._dd_eval_block(cast::<EvalBlockDecl>(decl), is_last);    return; }
-        if isa::<TestDecl>(decl)            { self._dd_test(cast::<TestDecl>(decl), is_last);               return; }
-        if isa::<MacroDecl>(decl)           { self._dd_leaf_src("MacroDecl", decl, is_last);                 return; }
+        if isa::<EvalBlockDecl>(decl)       { self._dd_eval_block(cast::<EvalBlockDecl>(decl), is_last);      return; }
+        if isa::<TestDecl>(decl)            { self._dd_test(cast::<TestDecl>(decl), is_last);                 return; }
+        if isa::<MacroDecl>(decl)           { self._dd_leaf_src("MacroDecl", decl, is_last);                  return; }
         if isa::<ProcedureMacroDecl>(decl)  { self._dd_proc_macro(cast::<ProcedureMacroDecl>(decl), is_last); return; }
+        if isa::<FFIBlockDecl>(decl)        { self._dd_ffi_block(cast::<FFIBlockDecl>(decl), is_last);        return; }
 
         self._head("<unknown-decl>", is_last); self.p.newline();
     }
@@ -2525,6 +2585,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_leaf_src(self, kind: string, decl: *Decl, is_last: bool) {
         self._head(kind, is_last);
         self._dump_vis(decl);
+        self._dump_ffi_linkage(decl);
         self.p.put(" \x27");
         self.src_decl(decl);
         self.p.put("\x27");
@@ -2549,6 +2610,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_function(self, fd: *FunctionDecl, is_last: bool) {
         self._head("FunctionDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(fd));
+        self._dump_ffi_linkage(static_cast::<*Decl>(fd));
         self.p.put(" ");
         self._generic_params(fd->generic_params);
         self.p.put(" ");
@@ -2615,6 +2677,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_variable(self, vd: *VariableDecl, is_last: bool) {
         self._head("VariableDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(vd));
+        self._dump_ffi_linkage(static_cast::<*Decl>(vd));
         self.p.put(" ");
         self.p.paint(Color::Keyword, self._storage_kw(vd->storage));
         self.p.put(" ");
@@ -2639,6 +2702,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_field(self, fd: *FieldDecl, is_last: bool) {
         self._head("FieldDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(fd));
+        self._dump_ffi_linkage(static_cast::<*Decl>(fd));
         self.p.put(" ");
         if fd->is_mutable { self.p.paint(Color::Keyword, "mutable "); }
         self.p.paint(Color::Keyword, self._storage_kw(fd->storage));
@@ -2764,6 +2828,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_struct(self, sd: *StructDecl, is_last: bool) {
         self._head("StructDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(sd));
+        self._dump_ffi_linkage(static_cast::<*Decl>(sd));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(sd->name));
         self._inherit_list("impl", sd->implements);
@@ -2778,6 +2843,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._head("ClassDecl", is_last);
         if cd->is_final { self._dim("final"); }
         self._dump_vis(static_cast::<*Decl>(cd));
+        self._dump_ffi_linkage(static_cast::<*Decl>(cd));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(cd->name));
         self._inherit_list("derives", cd->derives_list);
@@ -2791,6 +2857,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_interface(self, id: *InterfaceDecl, is_last: bool) {
         self._head("InterfaceDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(id));
+        self._dump_ffi_linkage(static_cast::<*Decl>(id));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(id->name));
         self._inherit_list("derives", id->derives_list);
@@ -2804,6 +2871,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_extension(self, ed: *ExtensionDecl, is_last: bool) {
         self._head("ExtensionDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(ed));
+        self._dump_ffi_linkage(static_cast::<*Decl>(ed));
         self.p.put(" ");
         self.src_type(ed->target);
         self._inherit_list("impl", ed->implements);
@@ -2817,6 +2885,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_union(self, ud: *UnionDecl, is_last: bool) {
         self._head("UnionDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(ud));
+        self._dump_ffi_linkage(static_cast::<*Decl>(ud));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ud->name));
         self.p.newline();
@@ -2833,6 +2902,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_enum(self, en: *EnumDecl, is_last: bool) {
         self._head("EnumDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(en));
+        self._dump_ffi_linkage(static_cast::<*Decl>(en));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(en->name));
         if en->underlying != &null { self.p.paint(Color::Keyword, " derives "); self.src_type(en->underlying); }
@@ -2857,6 +2927,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._head("ModuleDecl", is_last);
         if md->is_inline { self._dim("inline"); }
         self._dump_vis(static_cast::<*Decl>(md));
+        self._dump_ffi_linkage(static_cast::<*Decl>(md));
         if !md->is_anonymous {
             self.p.put(" ");
             self.p.paint(Color::Ident, self.tok(md->name));
@@ -2879,6 +2950,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_enum_variant(self, v: *EnumVariantDecl, is_last: bool) {
         self._head("EnumVariantDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(v));
+        self._dump_ffi_linkage(static_cast::<*Decl>(v));
         self.p.put(" ");
         self.p.paint(Color::Ident, self.tok(v->name));
         self.p.newline();
@@ -2909,6 +2981,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dd_type_alias(self, ta: *TypeAliasDecl, is_last: bool) {
         self._head("TypeAliasDecl", is_last);
         self._dump_vis(static_cast::<*Decl>(ta));
+        self._dump_ffi_linkage(static_cast::<*Decl>(ta));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ta->name));
         self.p.paint(Color::Punct, " = ");
@@ -2935,6 +3008,24 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if has_attrs { self._dump_annotations(static_cast::<*Decl>(vg), n == 0); }
         for var i: usize = 0; i < n; ++i {
             self._child_decl(vg->members[i], (i == n - 1));
+        }
+        self.p.leave();
+    }
+
+    fn _dd_ffi_block(self, fb: *FFIBlockDecl, is_last: bool) {
+        self._head("FFIBlockDecl", is_last);
+        self.p.put(" ");
+        self.p.paint(Color::Literal, self.tok(fb->lang_token));
+        self.p.newline();
+
+        var n = fb->body.size();
+        var has_attrs = self._has_annotations(static_cast::<*Decl>(fb));
+        if (!has_attrs) && (n == 0) { return; }
+
+        self.p.enter(is_last);
+        if has_attrs { self._dump_annotations(static_cast::<*Decl>(fb), n == 0); }
+        for var i: usize = 0; i < n; ++i {
+            self._child_decl(fb->body[i], i == n - 1);
         }
         self.p.leave();
     }
@@ -3167,6 +3258,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             case DeclKind::TestDecl            { return "TestDecl";            }
             case DeclKind::MacroDecl           { return "MacroDecl";           }
             case DeclKind::ProcedureMacroDecl  { return "ProcedureMacroDecl";  }
+            case DeclKind::FFIBlockDecl        { return "FFIBlockDecl";        }
             default                            { return "<decl>";              }
         }
     }
