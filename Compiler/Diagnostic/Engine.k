@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Diag/DiagEngine.k ----- ///
+/// --- The Kairo Project -------------------- Diagnostic/DiagEngine.k ----- ///
 ///
 ///   Diagnostic engine, builder, and poison-scope suppression.
 ///
@@ -52,6 +52,10 @@ import Diagnostic::Registry::*;
 import Diagnostic::Diagnostic::*;
 import Diagnostic::Consumer::*;
 
+class DiagEngineVBase {
+    virtual fn emit(self, diag: *Diagnostic) { 0; };
+}
+
 class DiagEngine;
 class DiagBuilder;
 
@@ -70,13 +74,13 @@ class DiagBuilder;
 /// \note All label and fix-it methods return \c ref!(DiagBuilder) to
 ///       support method chaining.
 class DiagBuilder {
-    priv var _engine:  obs::<DiagEngine>;
+    priv var _engine:  obs::<DiagEngineVBase>;
     priv var _diag:    own::<Diagnostic>;
     priv var _emitted: bool;
 
     // --- Constructors --------------------------------------------------------
 
-    fn DiagBuilder(self, engine: *DiagEngine, code: DiagCode, loc: SourceLocation, msg: string) {
+    fn DiagBuilder(self, engine: *DiagEngineVBase, code: DiagCode, loc: SourceLocation, msg: string) {
         if loc == SourceLocation::invalid() {
             self._engine  = engine;
             self._diag    = std::create::<Diagnostic>(code, msg);
@@ -89,7 +93,7 @@ class DiagBuilder {
         self._emitted = false;
     }
 
-    fn DiagBuilder(self, engine: *DiagEngine, code: DiagCode, msg: string) {
+    fn DiagBuilder(self, engine: *DiagEngineVBase, code: DiagCode, msg: string) {
         self._engine  = engine;
         self._diag    = std::create::<Diagnostic>(code, msg);
         self._emitted = false;
@@ -347,9 +351,9 @@ class DiagBuilder {
 
     // --- Emission ------------------------------------------------------------
 
-    /// Emits the diagnostic to \c DiagEngine. Idempotent subsequent calls
+    /// Emits the diagnostic to \c DiagEngineVBase. Idempotent subsequent calls
     /// are no-ops. Ownership of \c _diag transfers to the engine.
-    fn emit(self); // defined out-of-line after DiagEngine
+    fn emit(self); // defined out-of-line after DiagEngineVBase
 
     // --- Destructor ----------------------------------------------------------
 
@@ -393,7 +397,7 @@ class DiagBuilder {
 /// \par Consumer registration
 /// Consumers are registered with \c add_consumer() and unregistered with
 /// \c remove_consumer(). The engine does not own consumers.
-class DiagEngine {
+class DiagEngine derives DiagEngineVBase {
 
     /// A suppression entry binding a diagnostic category to a source scope.
     struct PoisonEntry {
