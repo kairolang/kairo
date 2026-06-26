@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------- Compiler/Diag/DiagConsumer.k ----- ///
+/// --- The Kairo Project ------------------ Diagnostic/DiagConsumer.k ----- ///
 ///
 ///   Diagnostic output sink interface.
 ///

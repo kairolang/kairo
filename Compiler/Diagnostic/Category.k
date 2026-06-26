@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------- Compiler/Diag/DiagCategory.k ----- ///
+/// --- The Kairo Project --------------- Diagnostic/DiagCategory.k ----- ///
 ///
 ///   Diagnostic category codes, used as the first component of a diagnostic ID.
 ///

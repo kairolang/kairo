@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------- Compiler/Diag/DiagSeverity.k ----- ///
+/// --- The Kairo Project ------------------ Diagnostic/DiagSeverity.k ----- ///
 ///
 ///   Diagnostic severity levels, used as the suffix component of a diagnostic ID.
 ///

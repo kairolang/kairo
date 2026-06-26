@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------- Compiler/Diag/DiagMeta.k ----- ///
+/// --- The Kairo Project ---------------------- Diagnostic/DiagMeta.k ----- ///
 ///
 ///   Diagnostic metadata and ID string formatting.
 ///
