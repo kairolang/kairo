@@ -24,6 +24,7 @@ import Token::TokenSpan::*;
 import Config::Invocation::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
+import Diagnostic::BufferedDiagSink::*;
 import Support::InternedStr::*;
 
 /// \brief Forward declaration required by ASTContext.
@@ -50,9 +51,12 @@ class ASTContext {
     pub var sm:          obs::<SourceManager>;
     pub var tcm:         obs::<TokenCacheManager>; // we can get the imm table from the tcm
     pub var diags:       obs::<DiagEngine>;
+    pub var diag_sink:   BufferedDiagSink;
     pub var resolver:    obs::<ImportResolver>;
     pub var hoisted:     obs::<HoistedScope>;
     pub var ci:          obs::<CompilerInvocation>;
+    pub var tu:          obs::<void /* TranslationUnit */> = &null; // stage0 limit with fwd decls, hence void,
+                                                                    // but replace with TranslationUnit once stage1 is self-hosting
     pub var fid:         u32; // needed to get the right lexer
 
     fn ASTContext(
