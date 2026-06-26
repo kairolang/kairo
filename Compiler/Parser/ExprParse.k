@@ -1137,6 +1137,7 @@ class <T> ExprParse {
         self._parse_call_args(&args, lparen_range);
 
         // expect closing `)`
+        dyn()->advance(T::SkipNL::Only);
         var end_range = dyn()->prev().range;
         if dyn()->check(TokenKind::OpRParen) {
             end_range = dyn()->current_ptr()->range;
@@ -1162,6 +1163,8 @@ class <T> ExprParse {
     /// if the arg is an AssignOperatorExpr with a bare NamedIdentExpr lhs.
     pub fn _parse_call_args(self, out: *std::StackBuf::<*Expr, 8>, start_range: SourceRange) {
         while !dyn()->is_eof() {
+            dyn()->advance(T::SkipNL::Only);
+
             if dyn()->check(TokenKind::OpRParen) { return; }
 
             if dyn()->check(TokenKind::TkCodeComplete) {
@@ -1249,6 +1252,8 @@ class <T> ExprParse {
 
                 continue;
             }
+
+            dyn()->advance(T::SkipNL::Only);
 
             // no comma and not `)` missing separator
             if !dyn()->check(TokenKind::OpRParen) {
