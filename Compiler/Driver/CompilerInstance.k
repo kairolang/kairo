@@ -896,47 +896,78 @@ fn FrontendAction::_preprocess() -> bool {
     return pp_res;
 }
 
-/// Parse stage not yet implemented.
 fn FrontendAction::_parse() -> bool {
     self._stage = TUStage::Parsing;
 
     var imp  = self._pp->get_import_processor();
-    var fids = imp->get_processed_fids();
+    var fids = imp->get_processed_fids();   // tree order, fids[0] == main
 
+    // index phase: unchanged
     for fid: u32 in fids {
         inline "c++" {
             auto captured_fid  = fid;
             auto captured_self = this;
-            
             _ci->pool()->enqueue([captured_fid, captured_self]() {
                 captured_self->_global_scope->index_file(
-                    captured_fid,
-                    captured_self->_ci->sm(),
-                    captured_self->_ci->tcm(),
-                    captured_self->_ci->diag(),
-                    captured_self->_resolver,
-                    &(captured_self->_ci->invocation())
-                );
+                    captured_fid, captured_self->_ci->sm(),
+                    captured_self->_ci->tcm(), captured_self->_ci->diag(),
+                    captured_self->_resolver, &(captured_self->_ci->invocation()));
             }, u8(5));
         }
     }
-
     self._ci->pool()->wait_group(u8(5));
 
-    var ctx = self._global_scope->get_context(self._file_id);
-    if ctx == &null {
-        return self._fatal(f"no ASTContext for fid {self._file_id}");
-    }
-    
-    /// We also need to call Resolver::DesugarPass(&tu) to convert:
-    /// MapType, SetType, FixedArrayType, VectorType
-    /// FinallyStmt, FinallyExpr, NullableType
-    /// TernaryOpExpr with null coalescing semantics
-    ///
-    /// and other high-level constructs that are easier to desugar
-    var parser = ASTParse(ctx, &null, self._global_scope);
-    var tu = parser.parse();
+    // parallel parse + low-water-mark flush
+    inline "c++" {
+        const size_t N = fids.size();
 
+        // done[i] published (release) by the parse task for fids[i];
+        // read (acquire) by the flusher. heap so the flusher thread can hold it.
+        auto* done = new libcxx::atomic<bool>[N];
+        for (size_t i = 0; i < N; ++i) done[i].store(false, libcxx::memory_order_relaxed);
+
+        auto* engine = _ci->diag();
+        auto* self_p = this;
+        auto* fids_p = &fids;
+        auto* gs     = _global_scope;
+
+        // flusher: drains contiguous done-prefix in fid order, single-threaded.
+        libcxx::thread flusher([=]() {
+            size_t cursor = 0;
+            while (cursor < N) {
+                if (done[cursor].load(libcxx::memory_order_acquire)) {
+                    u32 fid = (*fids_p)[cursor];
+                    auto* ctx = gs->get_context(fid);
+                    if (ctx) ctx->diag_sink.drain_into(engine);
+                    ++cursor;
+                } else {
+                    libcxx::this_thread::yield();
+                }
+            }
+        });
+
+        // enqueue parse tasks. each publishes done[i] LAST.
+        for (size_t i = 0; i < N; ++i) {
+            u32 fid = (*fids_p)[i];
+            _ci->pool()->enqueue([self_p, gs, fid, done, i]() {
+                auto* ctx = gs->get_context(fid);
+                if (ctx) {
+                    ASTParse parser(ctx, nullptr, gs);
+                    auto* tu = parser.parse();
+                    ctx->tu = reinterpret_cast<void*>(tu);
+                }
+                // publish AFTER sink fully written + tu set. release pairs
+                // with flusher acquire — guarantees sink contents visible.
+                done[i].store(true, libcxx::memory_order_release);
+            }, u8(6));
+        }
+
+        _ci->pool()->wait_group(u8(6));  // all parses done => all done[i] set
+        flusher.join();                  // flusher drains tail, exits
+        delete[] done;
+    }
+
+    // --- print-ast / mem stats: unchanged -----------------------------------
     var ast_mode = self._ci->invocation().frontend.print_ast;
     if !ast_mode.empty() {
         var use_color = !self._ci->invocation().diag.no_color;
@@ -953,9 +984,18 @@ fn FrontendAction::_parse() -> bool {
             );
         }
         opts.color = use_color;
+        var ctx = self._global_scope->get_context(self._file_id);
+        if ctx == &null {
+            return self._fatal(f"failed to get context for fid {self._file_id}");
+        }
+        
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if tu == &null {
+            return self._fatal(f"parse failed for fid {self._file_id}");
+        }
         ASTPrinter::print(tu, opts);
     }
-    
+
     self._dump_mem_stats();
     return true;
 }
