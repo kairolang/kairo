@@ -99,7 +99,6 @@ irm https://xmake.io/psget.text | iex
 ```
 
 Clang/MSVC toolchain: install **Visual Studio** with the "Desktop development with C++" workload, and "Clang for Windows", or **LLVM for Windows** from [releases.llvm.org](https://releases.llvm.org/). xmake will detect the toolchain automatically.
-
 ---
 
 ## 3. Clone the repository
@@ -178,18 +177,16 @@ kairo test.k
 
 ## 5. Build the Stage 1 compiler (self-hosted, in development)
 
-Stage 1 is the self-hosted compiler, written in Kairo. Building it is optional,
-only do this if you're developing Kairo itself. It requires a working Stage 0 build
-(from #4) plus the patched LLVM submodule. LLVM is a hard requirement for Stage 1;
-there is no LLVM-free path.
+Stage 1 is the self-hosted compiler, written in Kairo. Building it is optional, only do this if you're developing Kairo itself. It requires a working Stage 0 build (from #4) plus the patched LLVM submodule. LLVM is a hard requirement for Stage 1; there is no LLVM-free path.
 
-Kairo carries a **minor fork of LLVM** vendored as a submodule. Use it as-is, do not
-substitute a system or upstream LLVM, the patches are required.
+Kairo carries a **minor fork of LLVM** vendored as a submodule. Use it as-is, do not substitute a system or upstream LLVM, the patches are required.
+
+Windows builds require the **VCPKG** package manager to build LLVM. You may need to set the env var `VCPKG_ROOT` to the root of your vcpkg installation.
 
 ```bash
-git checkout canary
+git checkout main
 git submodule update --init --recursive   # pulls the patched LLVM, large download
-kbld                                      # must be on PATH, or use ./build/release/<platform>/bin/kbld
+kbld kairo                                # must be on PATH, or use ./build/release/<platform>/bin/kbld
 ```
 
 The first `kbld` builds the patched LLVM before building Stage 1. This is a long,
