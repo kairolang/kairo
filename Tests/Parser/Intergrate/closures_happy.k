@@ -168,7 +168,7 @@ fn map(data: [i32], transform: fn(i32) -> i32) -> [i32] {
 var doubled = map([1, 2, 3], fn (x: i32) -> i32 { return x * 2 })
 
 
-// --- Inner function (not a closure) — verifies no capture ----------------
+// --- Inner function (not a closure), verifies no capture ----------------
 
 fn outer() -> i32 {
     var x = 10

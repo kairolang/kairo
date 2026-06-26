@@ -17,7 +17,7 @@ var v1_expr = fn (x: i32) -> i32 = x * 2                           // ok
 var e1_const = fn () const { return 1 }     // expected-error: 'const' not allowed
 
 
-// ---- VALID: recovery check — must parse cleanly after e1 ----------------
+// ---- VALID: recovery check, must parse cleanly after e1 ----------------
 
 var v2_after_const = fn (x: i32) -> i32 { return x + 1 }           // ok
 var v2_count = 0
@@ -61,7 +61,7 @@ var e4_multi_bad = fn () const unsafe virtual { return 0 }
 // expected-error: 'virtual' not allowed
 
 
-// ---- VALID: valid modifiers right after bad ones — proves recovery ------
+// ---- VALID: valid modifiers right after bad ones, proves recovery ------
 
 var v5_panic = fn () panic -> i32 { return 42 }                    // ok
 var v5_volatile = fn () volatile {}                                 // ok
@@ -100,14 +100,14 @@ var v7_empty_cap = fn ()|| { return 42 }                            // ok
 // ---- ERROR: expression body with nothing after '=' ----------------------
 
 var e7_empty_expr = fn () =             // expected-error: expected expression
-var v8_recovery = 5                     // ok — must parse as VarDecl, not get swallowed
+var v8_recovery = 5                     // ok, must parse as VarDecl, not get swallowed
 
 
 // ---- ERROR: expression body recovery inside a function ------------------
 
 fn test_stmt_recovery() {
     var e8_broken = fn () =             // expected-error: expected expression
-    return                              // ok — return must not be swallowed
+    return                              // ok, return must not be swallowed
 }
 
 
@@ -120,7 +120,7 @@ var v9_nested_block = fn () -> fn(i32) -> i32 {                     // ok
 }
 
 
-// ---- ERROR: AMT — escaping pointer capture of stack local ---------------
+// ---- ERROR: AMT, escaping pointer capture of stack local ---------------
 
 fn e9_escape() -> fn() -> i32 {
     var local = 42
@@ -129,7 +129,7 @@ fn e9_escape() -> fn() -> i32 {
 }
 
 
-// ---- VALID: escaping copy capture — safe --------------------------------
+// ---- VALID: escaping copy capture, safe --------------------------------
 
 fn v10_safe_escape() -> fn() -> i32 {                               // ok
     var local = 42
@@ -145,7 +145,7 @@ fn e10_inner_capture() {
 }
 
 
-// ---- VALID: inner function without capture — final recovery check -------
+// ---- VALID: inner function without capture, final recovery check -------
 
 fn v11_inner_clean() -> i32 {                                       // ok
     var x = 10
@@ -170,7 +170,7 @@ var e12_dup_mixed = fn ()|dup_b, *dup_b| {  // expected-error: duplicate capture
 }
 
 
-// ---- VALID: higher-order — closures as arguments ------------------------
+// ---- VALID: higher-order, closures as arguments ------------------------
 
 fn apply(f: fn(i32) -> i32, x: i32) -> i32 { return f(x) }        // ok
 
@@ -184,7 +184,7 @@ var e13_unclosed_cap = fn ()|*dup_a {   // expected-error: expected '|'
 }
 
 
-// ---- VALID: default parameters — final declaration in file --------------
+// ---- VALID: default parameters, final declaration in file --------------
 
 var v13_default = fn (name: string = "world") {                     // ok
     std::println(f"Hello, {name}!")
@@ -197,9 +197,9 @@ var p1 = fn () eval {}                  // expected-error: 'eval' not allowed
 var p2 = fn () final {}                 // expected-error: 'final' not allowed
 var p3 = fn () override {}              // expected-error: 'override' not allowed
 var p4 = fn () inline {}                // expected-error: 'inline' not allowed
-var p5_ok = fn (a: i32, b: i32) -> i32 { return a + b }            // ok — must survive
+var p5_ok = fn (a: i32, b: i32) -> i32 { return a + b }            // ok, must survive
 
-fn make_adder(n: i32) -> fn(i32) -> i32 {                          // ok — final function
+fn make_adder(n: i32) -> fn(i32) -> i32 {                          // ok, final function
     return fn (x: i32) -> i32 { return x + n }
 }
 

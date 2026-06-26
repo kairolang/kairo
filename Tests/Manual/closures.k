@@ -39,7 +39,7 @@ var after_greet_identity = 200
 
 
 // =========================================================================
-//  Bug 3: Same swallowing with default param — different body content
+//  Bug 3: Same swallowing with default param, different body content
 //  Expected: default_fn is standalone, next_fn is a separate VarDecl.
 //  Actual:   next_fn consumed as child of default_fn.
 // =========================================================================
@@ -73,7 +73,7 @@ var after_no_ret_sentinel = 400
 
 
 // =========================================================================
-//  Bug 5: Broken parameter list recovery — sync failure
+//  Bug 5: Broken parameter list recovery, sync failure
 //  Expected: parser reports error on bad param, recovers, then parses
 //            the next three declarations as independent VarDecls.
 //  Actual:   recovery runs forward and swallows multiple declarations.
@@ -89,7 +89,7 @@ var recovery_c = fn (z: i32) -> i32 { return z }
 
 
 // =========================================================================
-//  Bug 6: Broken param with capture list — recovery should sync to |
+//  Bug 6: Broken param with capture list, recovery should sync to |
 //  Expected: error on bad param, then capture list and body still parse.
 //  Actual:   capture list and body swallowed or misattributed.
 // =========================================================================
@@ -116,7 +116,7 @@ var after_unclosed = 600
 
 
 // =========================================================================
-//  Bug 8: f-string in closure body — verify body termination
+//  Bug 8: f-string in closure body, verify body termination
 //  The greet bug may be f-string-specific. Test f-strings in closures
 //  with and without default params to isolate.
 // =========================================================================

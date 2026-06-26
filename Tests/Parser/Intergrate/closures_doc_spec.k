@@ -23,7 +23,7 @@ var opr: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 
 // --- Doc §Capture Modes --------------------------------------------------
 
-// Default capture: by copy — mutations inside do not affect original
+// Default capture: by copy, mutations inside do not affect original
 var x = 10
 var add_x = fn (y: i32) -> i32 {
     return y + x    // x captured by copy
@@ -43,7 +43,7 @@ var const_capture = fn (a: i32)|const *cx, const *cy, const *cz| -> i32 {
     return a + *cx + *cy + *cz  // can read, not modify
 }
 
-// Mixed capture — copy and pointer in the same list
+// Mixed capture, copy and pointer in the same list
 var ma = 10
 var mb = 20
 var mixed_capture = fn (x: i32)|ma, *mb| -> i32 {
@@ -160,13 +160,13 @@ var nested_mixed = fn () -> fn(i32) -> i32 {
 
 // --- Doc §AMT and Lifetime Safety ----------------------------------------
 
-// Capture by copy: closure outlives enclosing scope — safe
+// Capture by copy: closure outlives enclosing scope, safe
 fn make_safe_closure() -> fn() -> i32 {
     var x = 42
     return fn () -> i32 { return x }    // x copied, no lifetime issue
 }
 
-// Capture by pointer of stack local in escaping closure — AMT error expected
+// Capture by pointer of stack local in escaping closure, AMT error expected
 fn make_bad_closure() -> fn() -> i32 {
     var x = 42
     return fn ()|*x| -> i32 { return *x }
