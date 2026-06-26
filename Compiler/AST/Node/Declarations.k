@@ -33,6 +33,7 @@ import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
 import AST::Mixin::Redeclarable::*;
 import AST::Mixin::TemplateParams::*;
+import AST::Mixin::FFILinkage::*;
 import Location::SourceRange::*;
 import Token::Token::*;
 
@@ -69,8 +70,6 @@ class <T> TemplateParams {
 /// production (ffi "c"/"c++", static, virtual, override) plus the plain case.
 enum AbiKind derives u8 {
     None = 0,    ///< no abi modifier; default Kairo linkage.
-    FfiC,        ///< ffi "c"   no mangling.
-    FfiCpp,      ///< ffi "c++" Itanium/MSVC mangling.
     Static,      ///< internal linkage, no vtable slot.
     Virtual,     ///< vtable dispatch.
     Override,    ///< overrides a base virtual; implies virtual.
@@ -273,7 +272,8 @@ class FunctionDecl
   derives Decl,
           DeclContext,
           Redeclarable::<FunctionDecl>,
-          TemplateParams::<FunctionDecl> {
+          TemplateParams::<FunctionDecl>,
+          FFILinkage::<FunctionDecl> {
     pub var name:        Token;                 ///< function name (or ctor = type name).
     pub var params:      FrozenList::<*ParamDecl>;
     pub var return_type: *Type = &null;         ///< null => void (or inferred for expr body).
@@ -404,7 +404,7 @@ class ClosureExpr derives Expr {
 ///  `type_` is null when inferred. `is_eval` is derived from storage == Eval
 ///  but kept explicit for the `eval var` stmt path.
 ///
-class VariableDecl derives Decl {
+class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     pub var name:    Token;
     pub var storage: StorageClass = StorageClass::Var;
     pub var type_:   *Type = &null;   ///< null => inferred from init.
@@ -516,7 +516,8 @@ class StructDecl
   derives Decl,
           DeclContext,
           Redeclarable::<StructDecl>,
-          TemplateParams::<StructDecl> {
+          TemplateParams::<StructDecl>,
+          FFILinkage::<StructDecl> {
     pub var name:       Token;
     pub var fields:     FrozenList::<*FieldDecl>;
     pub var implements: FrozenList::<InheritEdge>;   ///< `impl` interface list.
@@ -570,7 +571,8 @@ class ClassDecl
   derives Decl,
           DeclContext,
           Redeclarable::<ClassDecl>,
-          TemplateParams::<ClassDecl> {
+          TemplateParams::<ClassDecl>,
+          FFILinkage::<ClassDecl> {
     pub var name:         Token;
     pub var fields:       FrozenList::<*FieldDecl>;
     pub var methods:      FrozenList::<*FunctionDecl>;
@@ -836,7 +838,8 @@ class UnionDecl
   derives Decl,
           DeclContext,
           Redeclarable::<UnionDecl>,
-          TemplateParams::<UnionDecl> {
+          TemplateParams::<UnionDecl>,
+          FFILinkage::<UnionDecl> {
     pub var name:   Token;
     pub var fields: FrozenList::<*FieldDecl>;
 
@@ -882,7 +885,7 @@ class UnionDecl
 ///  Transparent alias by default (opaque under -fno-type-aliasing, a sema
 ///  concern). TemplateParams for generic aliases; not a scope owner.
 ///
-class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl> {
+class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl>, FFILinkage::<TypeAliasDecl> {
     pub var name:    Token;
     pub var aliased: *Type;   ///< the right-hand-side type.
 
@@ -916,6 +919,45 @@ class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl> {
     }
     /* OVERRIDE */ static fn decl_kind() -> DeclKind {
         return DeclKind::TypeAliasDecl;
+    }
+}
+
+/// \brief Groups declarations inside an `ffi "lang" { ... }` block.
+///
+/// Exists for ASTPrinter round-tripping and so sema can walk FFI blocks
+/// as a unit. The children carry their own FfiLinkage mixin stamps; this
+/// node holds the language token for the block as a whole.
+///
+/// Not a DeclContext, the children are top-level decls scoped to the
+/// enclosing module/file, not to the ffi block itself.
+class FFIBlockDecl derives Decl {
+    pub var lang_token: Token;               ///< the string literal ("c" / "c++")
+    pub var body:       FrozenList::<*Decl>; ///< child declarations
+
+    static fn create(ctx: *ASTContext, range: SourceRange, lang: Token) -> *FFIBlockDecl {
+        var node         = ctx->alloc::<FFIBlockDecl>();
+        node->kind       = DeclKind::FFIBlockDecl;
+        node->range      = range;
+        node->lang_token = lang;
+        node->init_annotations(&(ctx->nodes));
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *FFIBlockDecl {
+        var node            = ctx->alloc::<FFIBlockDecl>();
+        node->kind          = DeclKind::RecoveryDecl;
+        node->recovery_kind = DeclKind::FFIBlockDecl;
+        node->range         = range;
+        node->init_annotations(&(ctx->nodes));
+        return node;
+    }
+
+    /* OVERRIDE */ static fn classof(ptr: *Decl) -> bool {
+        return ptr->kind == DeclKind::FFIBlockDecl;
+    }
+
+    /* OVERRIDE */ static fn decl_kind() -> DeclKind {
+        return DeclKind::FFIBlockDecl;
     }
 }
 
@@ -979,9 +1021,7 @@ class ModuleDecl
 ///
 enum ImportKind derives u8 {
     Native = 0,   ///< import a::b::c
-    SourceOnly,   ///< import module foo (disallow library resolution)
-    FfiC,         ///< ffi "c"   import "h.h"   (produced by the ffi path)
-    FfiCpp,       ///< ffi "c++" import "h.hh"  (produced by the ffi path)
+    ModuleOnly,   ///< import module foo
 }
 
 /// A single brought-in item in a selective import list:
@@ -998,7 +1038,7 @@ struct ImportItem {
     var range:       SourceRange;
 }
 
-class ImportDecl derives Decl {
+class ImportDecl derives Decl, FFILinkage::<ImportDecl> {
     pub var import_kind:   ImportKind = ImportKind::Native;
 
     /// Base path. For `import a::b::c` it is the whole path; for a selective
@@ -1038,10 +1078,6 @@ class ImportDecl derives Decl {
     }
     /* OVERRIDE */ static fn decl_kind() -> DeclKind {
         return DeclKind::ImportDecl;
-    }
-
-    fn is_ffi(self) -> bool {
-        return self.import_kind == ImportKind::FfiC || self.import_kind == ImportKind::FfiCpp;
     }
 }
 

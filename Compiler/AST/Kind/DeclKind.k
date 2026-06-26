@@ -100,6 +100,9 @@ enum DeclKind derives u8 {
     /// pub { fn foo() {} fn bar() {} } visibility group at decl scope.
     VisibilityGroupDecl,
 
+    /// ffi "lang" { decl* } FFI block.
+    FFIBlockDecl,
+
     /// eval { decl* } decl-only compile-time block at namespace/type scope.
     /// (The stmt-position eval block is StmtKind::EvalBlockStmt.)
     EvalBlockDecl,
