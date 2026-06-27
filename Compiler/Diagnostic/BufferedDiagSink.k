@@ -26,8 +26,7 @@ class BufferedDiagSink derives DiagEngineVBase {
         self._diags.reserve(16);
     }
 
-    // sink does NOT own-free on dtor: ownership moves to the engine at drain.
-    // if a sink is dropped WITHOUT draining (a bug), we'd leak — assert it.
+    // sink does NOT own-free on dtor assert on bug
     fn op delete (self) {
         assert((self._diags.size() == 0) && r"BufferedDiagSink dropped without drain");
     }

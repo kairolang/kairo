@@ -927,7 +927,6 @@ fn FrontendAction::_parse() -> bool {
         for (size_t i = 0; i < N; ++i) done[i].store(false, libcxx::memory_order_relaxed);
 
         auto* engine = _ci->diag();
-        auto* self_p = this;
         auto* fids_p = &fids;
         auto* gs     = _global_scope;
 
@@ -949,15 +948,14 @@ fn FrontendAction::_parse() -> bool {
         // enqueue parse tasks. each publishes done[i] LAST.
         for (size_t i = 0; i < N; ++i) {
             u32 fid = (*fids_p)[i];
-            _ci->pool()->enqueue([self_p, gs, fid, done, i]() {
+            _ci->pool()->enqueue([gs, fid, done, i]() {
                 auto* ctx = gs->get_context(fid);
                 if (ctx) {
                     ASTParse parser(ctx, nullptr, gs);
                     auto* tu = parser.parse();
                     ctx->tu = reinterpret_cast<void*>(tu);
                 }
-                // publish AFTER sink fully written + tu set. release pairs
-                // with flusher acquire — guarantees sink contents visible.
+                // publish AFTER sink fully written + tu set. release pairs with acquire
                 done[i].store(true, libcxx::memory_order_release);
             }, u8(6));
         }
