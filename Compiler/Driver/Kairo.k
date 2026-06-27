@@ -29,6 +29,7 @@
 ///
 
 import Driver::CompilerInstance::*;
+import AST::Visitor::ASTWriter::*;
 
 ffi "c++" import "llvm/Support/InitLLVM.h";
 ffi "c++" import "llvm/Support/Locale.h";
