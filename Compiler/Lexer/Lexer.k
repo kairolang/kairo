@@ -996,93 +996,74 @@ class Lexer {
         var hash: HashState = HashState();
         var length: usize = 0;
         var first = self.peek_char32(); // read first char
+        var keyword_candidate: bool = true;
 
-        var c0 = self.is_valid_name(first);
-
-        if c0 == 0 {
+        if self.is_valid_name(first) == 0 {
             self.advance_cursor(first.len);
             return create_unrecognized_token(start);
         }
 
-        if (first.len > 1) && (c0 == 2) {
-            self.advance_cursor(first.len);
-            
-            while !self.is_eof() {
-                var dec = self.peek_char32();
-                if self.is_valid_name(dec) == 0 {
-                    break;
-                }
-                self.advance_cursor(dec.len);
+        hash.mix(first.chr);
+        length += first.len;
+        self.advance_cursor(first.len);
+
+        if first.len > 1 {
+            keyword_candidate = false;
+        }
+
+        while !self.is_eof() {
+            var d = self.peek_char32();
+            if self.is_valid_name(d) == 0 {
+                break; // finished
             }
-            
-            token = TokenKind::LitIdentifier;
-            token = self.create_source_range(start);
+
+            if keyword_candidate && (d.len == 1) {
+                var c: u8 = static_cast::<u8>(d.chr);
+
+                // A-Z a-z _ 0-9 without branches
+                var lo = c | 0x20;
+                var is_alpha = (lo >= 'a') && (lo <= 'z');
+                var is_digit = (c >= '0') && (c <= '9');
+                var is_us    = (c == '_');
+
+                if !(is_alpha || is_digit || is_us) {
+                    keyword_candidate = false;
+                }
+            }
+
+            hash.mix(d.chr);
+            self.advance_cursor(d.len);
+            length += d.len;
+        }
+
+        if length > 32 {
+            keyword_candidate = false;
+        }
+
+        var h = hash.finalize();
+        if keyword_candidate && is_valid_token_kind(h) {
+            var kind = static_cast::<TokenKind>(h);
+            var sub  = substitute(kind);
+            token    = sub if (sub != TokenKind::TkUnknown) else kind;
+            token    = self.create_source_range(start);
+
+            /// we do also need to do a quick sub check since we support c++
+            /// style word operators (yes its a bad feature, but its only
+            /// sake of c++ devs migrating to kairo)
             self._last_kind = LastTokenKind::Name;
             return token;
         }
 
-        hash.mix(first.chr);
-        length += 1;
-        self.advance_cursor(1);
-
-        while length < MAX_KEYWORD_LENGTH && !self.is_eof() {
-            var d = self.peek_char32();
-            if d.len != 1 {
-                break;
-            }
-
-            var c: u8 = static_cast::<u8>(d.chr);
-
-            // A-Z a-z _ 0-9 without branches
-            var lo = c | 0x20;
-            var is_alpha = (lo >= 'a') && (lo <= 'z');
-            var is_digit = (c >= '0') && (c <= '9');
-            var is_us    = (c == '_') || (c == '#');
-
-            if !(is_alpha || is_digit || is_us) {
-                break; // not keyword-allowed ASCII
-            }
-
-            hash.mix(d.chr);
-            self.advance_cursor(1);
-            length += 1;
-        }
-
-        if length <= MAX_KEYWORD_LENGTH {
-            var h = hash.finalize();
-            if is_valid_token_kind(h) {
-                var kind = static_cast::<TokenKind>(h);
-                var sub  = substitute(kind);
-                token  = sub if (sub != TokenKind::TkUnknown) else kind;
-                token = self.create_source_range(start);
-
-                /// we do also need to do a quick sub check since we support c++
-                /// style word operators (yes its a bad feature, but its only
-                /// sake of c++ devs migrating to kairo)
-                self._last_kind = LastTokenKind::Name;
-                return token;
-            }
-        }
-
-        while !self.is_eof() {
-            var dec = self.peek_char32();
-            if self.is_valid_name(dec) == 0 {
-                break;
-            }
-            self.advance_cursor(dec.len);
-        }
-
         /// we also need a quick second check to see if a string
         token  = TokenKind::LitIdentifier;
-        token = self.create_source_range(start);
+        token  = self.create_source_range(start);
 
+        // length is byte count; all valid prefixes are ASCII so this is fine
         var dec = self.peek_char32();
-        if (dec.chr == 0x22) || (dec.chr == 0x27) && (length < 3) {
+        if (dec.chr == 0x22) || ((dec.chr == 0x27) && (length < 3)) {
             // WE HAVE A STRING HERE
             // we also now need to see if our prefix is f, b, fb, or bf
             // and set the imm to 0, for invalid, 1 for format, 2 for bytes, 3 for bytes and format
-            
-            var h = hash.finalize();
             var ptype: u8 = 0;
 
             switch h {

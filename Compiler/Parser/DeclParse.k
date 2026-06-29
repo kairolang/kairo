@@ -2438,9 +2438,9 @@ class <T> DeclParse {
     ///
     /// \details resolution semantics (enforced by the import resolution pass,
     ///          not the parser):
-    ///    `import Foo`        → file-first: Foo.k, fallback Foo/module.k
-    ///    `import module Foo` → library-only: Foo/module.k, no fallback
-    ///    `import Foo::bar`   → resolve Foo (file-first), then find symbol bar
+    ///    `import Foo`        file-first: Foo.k, fallback Foo/module.k
+    ///    `import module Foo` library-only: Foo/module.k, no fallback
+    ///    `import Foo::bar`   resolve Foo (file-first), then find symbol bar
     fn _parse_import(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `import`
@@ -2612,9 +2612,9 @@ class <T> DeclParse {
     ///    'ffi' string_literal decl
     ///
     /// \details
-    ///   - ffi import → ImportDecl with FFILinkage stamped
-    ///   - ffi { } block → FFIBlockDecl grouping N child decls, each stamped
-    ///   - ffi single decl → the decl itself, stamped with FFILinkage
+    ///   - ffi import      ImportDecl with FFILinkage stamped
+    ///   - ffi { } block   FFIBlockDecl grouping N child decls, each stamped
+    ///   - ffi single decl the decl itself, stamped with FFILinkage
     ///
     ///   The parser rejects decl kinds that don't carry the FFILinkage mixin
     ///   (test, macro, enum, etc.). Sema validates deeper constraints (e.g.
