@@ -47,8 +47,6 @@ The **Stage 0 compiler** (written in C++) is functional and can compile Kairo al
 
 Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh syntax and features, without abandoning decades of code.
 
-build\llvm\bin\llvm-config.exe --link-static --libs core support target targetparser option x86codegen x86asmparser x86desc x86info aarch64codegen aarch64asmparser aarch64desc aarch64info aarch64utils webassemblycodegen webassemblyasmparser webassemblydesc webassemblyinfo webassemblyutils codegen asmprinter selectiondag globalisel ipo instrumentation vectorize passes linker irreader bitreader bitwriter mc mcparser object
-
 ### Getting Started
 
 **Download a release:** grab a prebuilt binary from the [releases page](https://github.com/kairolang/kairo/releases).
