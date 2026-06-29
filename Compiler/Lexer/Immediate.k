@@ -1193,6 +1193,42 @@ module Immediate {
         pub var parent_idx:    u32;        ///< index of parent MacroExpansionInfo (-1 = root)
         pub var macro_name:    u32;        ///< which macro produced this token
     }
+
+    /// \brief descriptor for one interned identifier within a file (fid).
+    ///
+    /// \details Unlike the literal sheets (IntData/StringData/CharData/...)
+    ///          which are append-only pools holding one slot per occurrence,
+    ///          the identifier sheet is an *interner*: identical spellings
+    ///          collapse to a single index via ImmediateTable::intern_ident.
+    ///          A Token of identifier kind stores that index in its `imm` slot,
+    ///          so identifier equality becomes an O(1) u32 compare within a
+    ///          file.
+    ///
+    ///          The text itself is not stored here; it lives as raw UTF-8 in
+    ///          ImmediateTable::ident_blob. This descriptor is just the
+    ///          `(offset, len)` slice into that blob, which keeps lookups a pure
+    ///          byte compare with no per-identifier allocation or decoding.
+    class IdentData {
+        pub var ptr: std::ConstPtr::<u8> = &null; ///< raw UTF-8 bytes (into source buffer or sema scratch)
+        pub var len: u32 = 0;                     ///< byte length of the identifier
+
+        fn IdentData(self) = default;
+        fn IdentData(self, ptr: std::ConstPtr::<u8>, len: usize) {
+            self.ptr = ptr;
+            self.len = static_cast::<u32>(len);
+        }
+    }
+
+    /// \brief one slot of the identifier interner's open-addressed hash table.
+    ///
+    /// \details 8 bytes (~8 per cache line). `idx == u32(-1)` marks an empty
+    ///          slot. Collisions are resolved by linear probing; the stored
+    ///          `hash` lets a probe reject non-matching entries with a single
+    ///          u32 compare before ever touching the byte blob.
+    class InternBucket {
+        pub var hash: u32 = 0;
+        pub var idx:  u32 = static_cast::<u32>(-1); ///< u32(-1) == empty slot
+    }
 }
 
 class ImmediateTable {
@@ -1203,6 +1239,10 @@ class ImmediateTable {
     var char_literals:     own::<ArenaList::<Immediate::CharData>>;
     var string_literals:   own::<ArenaList::<Immediate::StringData>>;
     var macro_expansions:  own::<ArenaList::<Immediate::MacroExpansionInfo>>;
+    var ident_descs:       own::<ArenaList::<Immediate::IdentData>>;   ///< idx -> (offset,len) into ident_blob
+    var ident_buckets:     vec::<Immediate::InternBucket>;             ///< open-addressed (hash -> idx) table
+    var ident_mask:        u32 = 0;                                    ///< bucket capacity - 1 (power of two); 0 = uninitialized
+    var ident_live:        u32 = 0;                                    ///< number of occupied buckets (load factor)
     var source_manager:    obs::<SourceManager> = &null;
     var is_evaluating:     std::Atomic::<bool>  = false;
 
@@ -1213,6 +1253,7 @@ class ImmediateTable {
         self.char_literals    = std::create::<ArenaList::<Immediate::CharData>>(64);
         self.string_literals  = std::create::<ArenaList::<Immediate::StringData>>(64);
         self.macro_expansions = std::create::<ArenaList::<Immediate::MacroExpansionInfo>>(64);
+        self.ident_descs      = std::create::<ArenaList::<Immediate::IdentData>>(256);
         Logger::debug(Logger::Stage::Lexer, "ImmediateTable::initialize: initialized with source manager at {sm}");
     }
 
@@ -1222,6 +1263,10 @@ class ImmediateTable {
         self.char_literals->clear();
         self.string_literals->clear();
         self.macro_expansions->clear();
+        self.ident_descs->clear();
+        self.ident_buckets.clear();
+        self.ident_mask = 0;
+        self.ident_live = 0;
         Logger::debug(Logger::Stage::Lexer, "ImmediateTable::reset: cleared all immediate literals and macro expansions");
     }
 
@@ -1299,6 +1344,8 @@ class ImmediateTable {
             return self.string_literals->get(static_cast::<usize>(idx));
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::MacroExpansionInfo>") {
             return self.macro_expansions->get(static_cast::<usize>(idx));
+        } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::IdentData>") {
+            return self.ident_descs->get(static_cast::<usize>(idx));
         } else {
             std::crash(std::Error::RuntimeError("ImmediateTable::get: unsupported type"));
         }
@@ -1318,6 +1365,146 @@ class ImmediateTable {
         } else {
             std::crash(std::Error::RuntimeError("ImmediateTable::pop: unsupported type"));
         }
+    }
+
+    /// \brief interns an identifier from its raw UTF-8 bytes and precomputed hash.
+    ///
+    /// \details This is the hot path. The lexer already folds a 32-bit hash
+    ///          while scanning the identifier, so it is passed in rather than
+    ///          recomputed here. Lookups are allocation-free: the open-addressed
+    ///          table is probed by `hash`, a single u32 compare rejects
+    ///          mismatches, and only a true hash match triggers a byte compare
+    ///          against the stored bytes. The identifier text is copied into the
+    ///          blob exactly once, on first sight (a miss); every repeat
+    ///          occurrence costs only a probe and a memcmp, never an allocation.
+    ///
+    ///          The returned index is stable for the table's lifetime and is
+    ///          what a Token of identifier kind stores in its `imm` slot, making
+    ///          identifier equality within a file an O(1) u32 compare. The unique
+    ///          identifier count is bounded by the file size, so it can never
+    ///          reach MAX_IMMEDIATES; that guard is defensive only.
+    ///
+    /// \param data raw UTF-8 bytes of the identifier (need not be NUL-terminated).
+    /// \param len  byte length of the identifier.
+    /// \param hash folded 32-bit hash of those bytes (caller-supplied, e.g. the
+    ///             lexer's running HashState). Must be produced consistently for
+    ///             a given spelling so identical identifiers collide and dedup.
+    /// \return the interned index into the identifier sheet.
+    fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32 {
+        if self.ident_mask == 0 {
+            self._ident_grow();
+        }
+
+        var mask = self.ident_mask;
+        var slot = hash & mask;
+
+        while true {
+            var b = &(self.ident_buckets[static_cast::<usize>(slot)]);
+            if b->idx == ((-1) as u32) {
+                break;
+            }
+            if (b->hash == hash) && self._ident_eq(b->idx, data, len) {
+                return b->idx;
+            }
+            slot = (slot + 1) & mask;
+        }
+
+        if ((static_cast::<u64>(self.ident_live) + 1) * 4) >= ((static_cast::<u64>(mask) + 1) * 3) {
+            self._ident_grow();
+            mask = self.ident_mask;
+            slot = hash & mask;
+            while self.ident_buckets[static_cast::<usize>(slot)].idx != ((-1) as u32) {
+                slot = (slot + 1) & mask;
+            }
+        }
+
+        var idx = static_cast::<u32>(self.ident_descs->size());
+        if idx >= MAX_IMMEDIATES {
+            std::crash(std::Error::RuntimeError(
+                f"ImmediateTable::intern_ident: overflow at {MAX_IMMEDIATES}"));
+        }
+
+        // store pointer directly no copy
+        self.ident_descs->push(Immediate::IdentData(data, len));
+
+        var nb = &(self.ident_buckets[static_cast::<usize>(slot)]);
+        nb->hash = hash;
+        nb->idx  = idx;
+        ++self.ident_live;
+
+        return idx;
+    }
+
+    fn get_ident(self, idx: u32) -> string {
+        var d = self.ident_descs->get(static_cast::<usize>(idx));
+        return string(
+            reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->ptr),
+            static_cast::<usize>(d->len)
+        );
+    }
+
+    fn ident_bytes(self, idx: u32) -> std::ConstPtr::<u8> {
+        return self.ident_descs->get(static_cast::<usize>(idx))->ptr;
+    }
+
+    priv fn _ident_eq(self, idx: u32, const data: *u8, len: usize) -> bool {
+        var d = self.ident_descs->get(static_cast::<usize>(idx));
+        if static_cast::<usize>(d->len) != len {
+            return false;
+        }
+        for var i: usize = 0; i < len; ++i {
+            if d->ptr[i] != data[i] {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// \brief byte length of an interned identifier.
+    fn ident_len(self, idx: u32) -> usize {
+        return static_cast::<usize>(self.ident_descs->get(static_cast::<usize>(idx))->len);
+    }
+
+    /// \brief number of unique identifiers interned for this file.
+    fn ident_count(self) -> usize {
+        return self.ident_descs->size();
+    }
+
+    /// \brief seeds or doubles the bucket table and rehashes the live entries.
+    ///
+    /// \details Buckets carry their own hash, so rehashing never re-reads
+    ///          identifier bytes -- it just re-probes each occupied slot into the
+    ///          larger table. Descriptor indices (the values stored in `imm`) are
+    ///          unaffected; only the hash->index acceleration structure moves.
+    priv fn _ident_grow(self) {
+        var old_cap: u32 = 0;
+        if self.ident_mask != 0 {
+            old_cap = self.ident_mask + 1;
+        }
+
+        var new_cap: u32 = 256;
+        if old_cap != 0 {
+            new_cap = old_cap << 1;
+        }
+        var new_mask: u32 = new_cap - 1;
+
+        var fresh = vec::<Immediate::InternBucket>();
+        fresh.resize(static_cast::<usize>(new_cap)); // default-constructed => empty
+
+        for var i: usize = 0; i < self.ident_buckets.size(); ++i {
+            var ob = self.ident_buckets[i];
+            if ob.idx == ((-1) as u32) {
+                continue;
+            }
+            var slot = ob.hash & new_mask;
+            while fresh[static_cast::<usize>(slot)].idx != ((-1) as u32) {
+                slot = (slot + 1) & new_mask;
+            }
+            fresh[static_cast::<usize>(slot)] = ob;
+        }
+
+        self.ident_buckets = fresh;
+        self.ident_mask    = new_mask;
     }
 
     fn destroy(self) {
@@ -1341,6 +1528,10 @@ class ImmediateTable {
         if self.char_literals != &null {
             std::destroy(self.char_literals);
             self.char_literals = &null;
+        }
+        if self.ident_descs != &null {
+            std::destroy(self.ident_descs);
+            self.ident_descs = &null;
         }
 
         Logger::debug(Logger::Stage::Lexer, "ImmediateTable::destroy(): destroyed all immediate literals and macro expansions");

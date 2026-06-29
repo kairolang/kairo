@@ -16,7 +16,7 @@
 ///
 /// Transport: JSON-RPC 2.0 over stdio (Content-Length framed)
 ///
-///   stdin  ← editor sends requests/notifications
+///   stdin  <- editor sends requests/notifications
 ///   stdout -> klsp sends responses/notifications
 ///   stderr -> internal diagnostics/logging only (never touches LSP stream)
 ///
