@@ -150,6 +150,7 @@ enum DiagID derives u32 {
   S062E = compute_hash::<r"S062E">(),
   S063E = compute_hash::<r"S063E">(),
   S063N = compute_hash::<r"S063N">(),
+  S064E = compute_hash::<r"S064E">(),
   R001W = compute_hash::<r"R001W">(),
   R001I = compute_hash::<r"R001I">(),
   R001R = compute_hash::<r"R001R">(),
@@ -1493,6 +1494,16 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Note
       };
     }
+    case DiagID::S064E {
+      return DiagMeta{
+        brief: "invalid foreign interface (ffi) declaration",
+        group: "ast",
+        number: 64,
+        hash: static_cast::<u32>(compute_hash::<r"S064E">()),
+        category: DiagCategory::Syntax,
+        severity: DiagSeverity::Error
+      };
+    }
     case DiagID::R001W {
       return DiagMeta{
         brief: "place holder diagnostics",
@@ -2009,6 +2020,7 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::S062E { return "# malformed pattern construct\n\na structural problem was found inside a pattern. common causes:\n- empty tuple pattern `()`, at least one element is required\n- missing binding name after `var`/`const` in a binding pattern\n- missing `)` to close a tuple pattern or constructor payload\n- missing `]` to close a slice pattern\n- missing variant name after `.` in a dotted constructor pattern\n- more than one `..` rest element in a slice pattern"; }
     case DiagID::S063E { return "# unexpected token or parser state\n\nthe parser encountered an unexpected token or reached an internal limit\nthat prevents it from continuing. common causes:\n- a token that does not match what the grammar requires at this point\n  (reported by `expect` when the actual token differs from the expected\n  one, or when an unexpected end-of-file is reached)\n- a `TkError` recovery token produced by an earlier parse failure being\n  seen again during a second-pass check\n- the parser\'s recursion depth ceiling was exceeded, which can happen\n  with very deeply nested expressions or with accidentally recursive\n  macro expansions; consider reducing nesting depth or raising\n  `--cmax-scope-depth`"; }
     case DiagID::S063N { return "# parser state context note\n\nthis note provides additional context for a parser-state diagnostic.\ncommon uses:\n- showing the macro expansion chain when a token was produced by a\n  macro (`TkMacroExpand`) and expanded unexpectedly, including the\n  definition site and each intermediate expansion level\n- explaining why the parser\'s nesting-depth limit was hit (e.g.,\n  excessively deep or infinite recursion in the source)\n- identifying the token whose resolution chain was truncated due to\n  hitting `--cmax-scope-depth`"; }
+    case DiagID::S064E { return "# invalid ffi declaration\n\na structural or content problem was found while parsing an `ffi` foreign\ninterface declaration or block. common causes:\n- missing the language string after `ffi` (e.g. `ffi \"c++\"`)\n- an unsupported or unrecognised ffi language string\n- missing the header path string after `ffi \"...\" import`\n- missing a name after `as` in an ffi import\n- missing a declaration, `import`, or `{` after `ffi \"...\"`\n- a declaration that is not permitted inside an `ffi` block\n- a declaration that cannot be given foreign linkage"; }
     case DiagID::R001W { return "This is placeholder diagnostics. (Warning)"; }
     case DiagID::R001I { return "This is placeholder diagnostics. (Info)"; }
     case DiagID::R001R { return "This is placeholder diagnostics. (Remark)"; }
@@ -2159,6 +2171,7 @@ module Diag {
           case 61 { return DiagID::S061E; }
           case 62 { return DiagID::S062E; }
           case 63 { return DiagID::S063E; }
+          case 64 { return DiagID::S064E; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for S and severity Error")); }
         }
       }

@@ -1426,3 +1426,23 @@ group = "ast"
     - identifying the token whose resolution chain was truncated due to
       hitting `--cmax-scope-depth`
     """
+
+# -- Foreign interface (ffi) diagnostic codes (S064) -------------------------
+
+[S064]
+brief = "invalid foreign interface (ffi) declaration"
+group = "ast"
+    [S064.E]
+    explain = """
+    # invalid ffi declaration
+
+    a structural or content problem was found while parsing an `ffi` foreign
+    interface declaration or block. common causes:
+    - missing the language string after `ffi` (e.g. `ffi "c++"`)
+    - an unsupported or unrecognised ffi language string
+    - missing the header path string after `ffi "..." import`
+    - missing a name after `as` in an ffi import
+    - missing a declaration, `import`, or `{` after `ffi "..."`
+    - a declaration that is not permitted inside an `ffi` block
+    - a declaration that cannot be given foreign linkage
+    """
