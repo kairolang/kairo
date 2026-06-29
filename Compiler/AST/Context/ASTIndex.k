@@ -177,7 +177,7 @@ class ASTIndex {
                     DiagID::I002F, (self._current->range).start,
                     "excessive iterations during AST indexing, aborting to prevent infinite loop"
                 ).first(self._current->range)
-                 .note(DiagID::S045N, f"AST indexing truncated after {iterations} iterations")
+                 .note(DiagID::S063N, f"AST indexing truncated after {iterations} iterations")
                  .emit();
                 
                 break;
@@ -373,7 +373,7 @@ class ASTIndex {
 
         var loc = cur->range;
         // self._diag->report(
-        //     DiagID::S045E,
+        //     DiagID::S049E,
         //     ((loc) | (start)).start,
         //     "expected '>' to close generic parameters; if '<' was a comparison operator, wrap the expression in parentheses"
         // ).first((loc) | (start))
@@ -932,7 +932,7 @@ class ASTIndex {
                 // self._diag->report(DiagID::I002F, tok->range.start,
                 //     "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
                 // ).first(tok->range)
-                //  .note(DiagID::S045N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
+                //  .note(DiagID::S063N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
                 //  .emit();
                 return Token(tok->range, TokenKind::TkUnknown, 0);
             }
@@ -990,14 +990,14 @@ class ASTIndex {
 
         while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
             if depth >= static_cast::<u32>(self._ctx->ci->pp.max_backtrace) {
-                builder->note(DiagID::S045N, tok->range.start,
+                builder->note(DiagID::S063N, tok->range.start,
                     f"macro expansion chain truncated after {depth} levels"
                 );
                 return;
             }
 
             if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
-                builder->note(DiagID::S045N, tok->range.start,
+                builder->note(DiagID::S063N, tok->range.start,
                     f"expanded from compiler-internal macro sentinel"
                 );
                 return;
@@ -1009,7 +1009,7 @@ class ASTIndex {
 
             var info = self._imm->get::<Immediate::MacroExpansionInfo>(imm);
 
-            builder->note(DiagID::S045N, info->def_range.start,
+            builder->note(DiagID::S063N, info->def_range.start,
                 f"expanded from macro defined here (depth {depth})"
             );
 

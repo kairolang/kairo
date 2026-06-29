@@ -192,7 +192,7 @@ class <T> DeclParse {
         // decl head report and recover; otherwise let the caller decide.
         if lead.any {
             var r = dyn()->current_ptr()->range;
-            dyn()->diag->report(DiagID::S050E, r.start,
+            dyn()->diag->report(DiagID::S063E, r.start,
                 "expected a declaration after modifiers"
             ).first(r).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -757,7 +757,7 @@ class <T> DeclParse {
         // out-of-line method definition (`fn Class::m(self)`), never in a free
         // function.
         if has_self_param && (!in_type_scope) && (!fd->is_out_of_line()) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S047E, start.start,
                 "the `self` receiver is only allowed on a method; a free "
                 "function cannot take `self`"
             ).first(start).emit();
@@ -794,7 +794,7 @@ class <T> DeclParse {
 
         // type-only signatures are forward declarations: reject any body.
         if is_type_only_sig && (fd->body_kind != FnBodyKind::None) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S047E, start.start,
                 "a function signature with type-only (unnamed) parameters is a "
                 "forward declaration and cannot have a body; name the parameters "
                 "to give it one"
@@ -985,7 +985,7 @@ class <T> DeclParse {
         // a list may be all-named or all type-only, never a mix: type-only
         // params name no binding for a body to refer to.
         if saw_named && saw_unnamed {
-            dyn()->diag->report(DiagID::S045E, lparen.start,
+            dyn()->diag->report(DiagID::S047E, lparen.start,
                 "cannot mix named parameters (`name: T`) and type-only "
                 "parameters (`T`) in one signature; a type-only signature is a "
                 "bodyless forward declaration"
@@ -1102,7 +1102,7 @@ class <T> DeclParse {
 
                 // Recovery: ensure valid structural capture token follows
                 if !dyn()->check(TokenKind::OpStar) && !dyn()->check(TokenKind::LitIdentifier) {
-                    dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
                         "expected '*' or identifier after 'const' in capture list"
                     ).first(dyn()->current_ptr()->range).emit();
                     self._sync_decl(DeclSyncCtx::Params);
@@ -1117,7 +1117,7 @@ class <T> DeclParse {
             }
 
             if !dyn()->check(TokenKind::LitIdentifier) {
-                dyn()->diag->report(DiagID::S045E, p_start.start,
+                dyn()->diag->report(DiagID::S047E, p_start.start,
                     "expected capture name"
                 ).first(p_start).emit();
                 self._sync_decl(DeclSyncCtx::Params);
@@ -1145,7 +1145,7 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpPipe) {
             dyn()->advance(); // consume closing `|`
         } else {
-            dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+            dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
                 "expected '|' to close the capture list"
             ).first(dyn()->current_ptr()->range).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -1228,42 +1228,42 @@ class <T> DeclParse {
                 dyn()->advance(); fd->body_kind = FnBodyKind::Delete; return;
             }
             if dyn()->check(TokenKind::KwVirtual) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
                     "virtual functions must be declared with the 'virtual' modifier"
                 ).first(dyn()->current_ptr()->range).emit();
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwStatic) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
                     "static functions must be declared with the 'static' modifier"
                 ).first(dyn()->current_ptr()->range).emit();
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwAsync) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
                     "async functions must be declared with the 'async' modifier"
                 ).first(dyn()->current_ptr()->range).emit();
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwInline) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
                     "inline functions must be declared with the 'inline' modifier"
                 ).first(dyn()->current_ptr()->range).emit();
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwFinal) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
                     "final functions must be declared with the 'final' modifier"
                 ).first(dyn()->current_ptr()->range).emit();
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwPanic) {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
                     "panic functions must be declared with the 'panic' modifier"
                 ).first(dyn()->current_ptr()->range).emit();
                 dyn()->advance();
@@ -1586,7 +1586,7 @@ class <T> DeclParse {
                 var mr   = dyn()->current_ptr()->range;
                 var lead = self._consume_leading_modifiers();
                 self._parse_function(&lead);
-                dyn()->diag->report(DiagID::S045E, mr.start,
+                dyn()->diag->report(DiagID::S048E, mr.start,
                     "methods are not allowed in a struct or union body; only "
                     "fields and nested types are permitted"
                 ).first(mr).emit();
@@ -1925,7 +1925,7 @@ class <T> DeclParse {
 
         var target = dyn()->parse_type();
         if (target == &null) || is_recovery(target) {
-            dyn()->diag->report(DiagID::S046E, start.start,
+            dyn()->diag->report(DiagID::S053E, start.start,
                 "expected a type to extend after 'extend\x27"
             ).first(start).emit();
             dyn()->exit_depth();
@@ -2458,7 +2458,7 @@ class <T> DeclParse {
         var segments: std::StackBuf::<Token, 8>;
 
         if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S046E, start.start,
                 "expected a module or symbol path after 'import\x27"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -2520,7 +2520,7 @@ class <T> DeclParse {
 
                 // named item: `bar` or `bar::Baz` or `bar as alias`
                 if !dyn()->check(TokenKind::LitIdentifier) {
-                    dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    dyn()->diag->report(DiagID::S046E, dyn()->current_ptr()->range.start,
                         "expected an import item name or '*' in selective import list"
                     ).first(dyn()->current_ptr()->range).emit();
                     self._sync_decl(DeclSyncCtx::Params);
@@ -2554,7 +2554,7 @@ class <T> DeclParse {
                         item.has_alias = true;
                         dyn()->advance();
                     } else {
-                        dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                        dyn()->diag->report(DiagID::S046E, dyn()->current_ptr()->range.start,
                             "expected a name after 'as' in import item"
                         ).first(dyn()->current_ptr()->range).emit();
                     }
@@ -2591,7 +2591,7 @@ class <T> DeclParse {
                 id->has_alias = true;
                 dyn()->advance();
             } else {
-                dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                dyn()->diag->report(DiagID::S046E, dyn()->current_ptr()->range.start,
                     "expected a name after 'as' in import declaration"
                 ).first(dyn()->current_ptr()->range).emit();
             }
@@ -2625,7 +2625,7 @@ class <T> DeclParse {
 
         // language string: "c", "c++", etc.
         if !dyn()->check(TokenKind::LitString) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S064E, start.start,
                 "expected a language string after 'ffi' (e.g. \"c++\")"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -2647,7 +2647,7 @@ class <T> DeclParse {
         } else if lang_text == "c++" || lang_text == "C++" || lang_text == "CPP" || lang_text == "CXX" || lang_text == "c++" {
             linkage_kind = LinkageKind::Cpp;
         } else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S064E, start.start,
                 "unsupported FFI language: " + lang_text
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -2660,7 +2660,7 @@ class <T> DeclParse {
             dyn()->advance(T::SkipNL::After); // consume `import`
 
             if !dyn()->check(TokenKind::LitString) {
-                dyn()->diag->report(DiagID::S045E, start.start,
+                dyn()->diag->report(DiagID::S064E, start.start,
                     "expected a header path string after 'ffi \"...\" import\x27"
                 ).first(start).emit();
                 self._sync_decl(DeclSyncCtx::TopLevel);
@@ -2682,7 +2682,7 @@ class <T> DeclParse {
                     id->has_alias = true;
                     dyn()->advance();
                 } else {
-                    dyn()->diag->report(DiagID::S045E, dyn()->current_ptr()->range.start,
+                    dyn()->diag->report(DiagID::S064E, dyn()->current_ptr()->range.start,
                         "expected a name after 'as' in ffi import"
                     ).first(dyn()->current_ptr()->range).emit();
                 }
@@ -2709,7 +2709,7 @@ class <T> DeclParse {
                 if is_fatal_decl(d) { break; }
 
                 if !self._stamp_ffi_linkage(d, linkage_kind, lang_tok, ffi_range) {
-                    dyn()->diag->report(DiagID::S045E, d->range.start,
+                    dyn()->diag->report(DiagID::S064E, d->range.start,
                         "this declaration cannot appear in an ffi block"
                     ).first(d->range).emit();
                 }
@@ -2720,7 +2720,7 @@ class <T> DeclParse {
             if dyn()->check(TokenKind::OpRBrace) {
                 dyn()->advance(T::SkipNL::Before); // consume `}`
             } else {
-                dyn()->diag->report(DiagID::S051E, start.start,
+                dyn()->diag->report(DiagID::S064E, start.start,
                     "expected '}' to close ffi block"
                 ).first(start).emit();
             }
@@ -2733,7 +2733,7 @@ class <T> DeclParse {
         // ---- ffi "c++" fn foo(...) ----------------------------------------
         var d = self._dispatch_decl();
         if (d == &null) || is_fatal_decl(d) {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S064E, start.start,
                 "expected a declaration, 'import', or '{' after 'ffi \"...\"\x27"
             ).first(start).emit();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -2741,7 +2741,7 @@ class <T> DeclParse {
         }
 
         if !self._stamp_ffi_linkage(d, linkage_kind, lang_tok, ffi_range) {
-            dyn()->diag->report(DiagID::S045E, d->range.start,
+            dyn()->diag->report(DiagID::S064E, d->range.start,
                 "this declaration cannot have foreign linkage"
             ).first(d->range).emit();
         }
@@ -2798,9 +2798,9 @@ class <T> DeclParse {
     //    21 |
     //    22 | var bad_multi = fn () const unsafe final { return 8 }
     //       |                       ^^^^^ ^^^^^^ ^^^^^
-    //       |                       |     |      [S045E] 'final' is not a valid closure modifier
-    //       |                       |     [S045E] 'unsafe' is not a valid closure modifier
-    //       |                       [S045E] 'const' is not a valid closure modifier
+    //       |                       |     |      [S047E] 'final' is not a valid closure modifier
+    //       |                       |     [S047E] 'unsafe' is not a valid closure modifier
+    //       |                       [S047E] 'const' is not a valid closure modifier
     //
     //
     //
@@ -2969,43 +2969,43 @@ class <T> DeclParse {
         while true {
             if dyn()->check(TokenKind::KwConst) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start, "'const' is not a valid closure modifier").first(r).emit();
+                dyn()->diag->report(DiagID::S047E, r.start, "'const' is not a valid closure modifier").first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwUnsafe) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start, "'unsafe' is not a valid closure modifier").first(r).emit();
+                dyn()->diag->report(DiagID::S047E, r.start, "'unsafe' is not a valid closure modifier").first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwEval) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start, "'eval' is not a valid closure modifier").first(r).emit();
+                dyn()->diag->report(DiagID::S047E, r.start, "'eval' is not a valid closure modifier").first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwFinal) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start, "'final' is not a valid closure modifier").first(r).emit();
+                dyn()->diag->report(DiagID::S047E, r.start, "'final' is not a valid closure modifier").first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwInline) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start, "'inline' is not a valid closure modifier").first(r).emit();
+                dyn()->diag->report(DiagID::S047E, r.start, "'inline' is not a valid closure modifier").first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwVirtual) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start, "'virtual' is not a valid closure modifier").first(r).emit();
+                dyn()->diag->report(DiagID::S047E, r.start, "'virtual' is not a valid closure modifier").first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwOverride) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start, "'override' is not a valid closure modifier").first(r).emit();
+                dyn()->diag->report(DiagID::S047E, r.start, "'override' is not a valid closure modifier").first(r).emit();
                 dyn()->advance();
             }
 

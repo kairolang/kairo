@@ -1005,7 +1005,7 @@ class <T> ExprParse {
         if !dyn()->check(fn(k: TokenKind) -> bool {
             return EXPR_IDENT_TBL.contains(k);
         }) {
-            dyn()->diag->report(DiagID::S052E, sep_range.start,
+            dyn()->diag->report(DiagID::S054E, sep_range.start,
                 f"expected identifier after '{token_kind_to_readable_string(dyn()->resolve_kind_deep(dyn()->current_ptr()))}' in access expression"
             ).first(sep_range).emit();
             return result; // name stays null
@@ -1414,40 +1414,40 @@ class <T> ExprParse {
             
             if dyn()->check(TokenKind::KwFinal) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start,
-                    "'final' is not a valid is not valid in this position of an expression"
+                dyn()->diag->report(DiagID::S052E, r.start,
+                    "'final' is not valid in this position of an expression"
                 ).first(r).emit();
                 dyn()->advance();
             }
             
             else if dyn()->check(TokenKind::KwInline) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start,
-                    "'inline' is not a valid is not valid in this position of an expression"
+                dyn()->diag->report(DiagID::S052E, r.start,
+                    "'inline' is not valid in this position of an expression"
                 ).first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwPanic) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start,
-                    "'panic' is not a valid is not valid in this position of an expression"
+                dyn()->diag->report(DiagID::S052E, r.start,
+                    "'panic' is not valid in this position of an expression"
                 ).first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwVolatile) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start,
-                    "'volatile' is not a valid is not valid in this position of an expression"
+                dyn()->diag->report(DiagID::S052E, r.start,
+                    "'volatile' is not valid in this position of an expression"
                 ).first(r).emit();
                 dyn()->advance();
             }
 
             else if dyn()->check(TokenKind::KwAsync) {
                 var r = dyn()->current_ptr()->range;
-                dyn()->diag->report(DiagID::S045E, r.start,
-                    "'async' is not a valid is not valid in this position of an expression"
+                dyn()->diag->report(DiagID::S052E, r.start,
+                    "'async' is not valid in this position of an expression"
                 ).first(r).emit();
                 dyn()->advance();
             }
@@ -1686,7 +1686,7 @@ class <T> ExprParse {
         if !dyn()->check(fn(k: TokenKind) -> bool {
             return EXPR_IDENT_TBL.contains(k);
         }) {
-            dyn()->diag->report(DiagID::S052E, start_range.start,
+            dyn()->diag->report(DiagID::S054E, start_range.start,
                 "expected identifier after '::' in global scope path"
             ).first(start_range).emit();
             return self._error_expr(start_range);
@@ -2710,7 +2710,7 @@ class <T> ExprParse {
 
         var cb = src->body;
         if cb == &null {
-            dyn()->diag->report(DiagID::S052E, src->range.start,
+            dyn()->diag->report(DiagID::S054E, src->range.start,
                 "match expression branch must yield a value"
             ).first(src->range).emit();
             return out;
@@ -2718,7 +2718,7 @@ class <T> ExprParse {
 
         // exactly one statement
         if cb->body.size() == 0 {
-            dyn()->diag->report(DiagID::S052E, cb->range.start,
+            dyn()->diag->report(DiagID::S054E, cb->range.start,
                 "match expression branch must contain a value expression"
             ).first(cb->range).emit();
             return out;
@@ -2923,7 +2923,7 @@ class <T> ExprParse {
             // Recovery if the token immediately following '=' cannot start an expression
             // remeber a nested closure is fully valid
             if dyn()->_starts_decl_kw(dyn()->current().kind) && (!dyn()->current().kind == TokenKind::KwFn) {
-                dyn()->diag->report(DiagID::S045E, start.start,
+                dyn()->diag->report(DiagID::S052E, start.start,
                     "expected expression after '=' in closure body"
                 ).first(start).emit();
                 dyn()->exit_scope();
@@ -2939,7 +2939,7 @@ class <T> ExprParse {
                 ce->body_kind = FnBodyKind::Expr;
                 ce->body_expr = expr;
             } else {
-                dyn()->diag->report(DiagID::S045E, start.start,
+                dyn()->diag->report(DiagID::S052E, start.start,
                     "expected expression after '=' in closure body"
                 ).first(start).emit();
                 dyn()->exit_scope();
@@ -2950,7 +2950,7 @@ class <T> ExprParse {
                 ));
             }
         } else {
-            dyn()->diag->report(DiagID::S045E, start.start,
+            dyn()->diag->report(DiagID::S054E, start.start,
                 "expected '{' or '=' to begin closure body"
             ).first(start).emit();
             dyn()->exit_scope();

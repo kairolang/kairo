@@ -293,7 +293,7 @@ class <T> TypeParse {
                 var cur_ptr = dyn()->current_ptr();
                 var loc     = (cur_ptr->range.start) if (cur_ptr != &null) else SourceLocation();
 
-                dyn()->diag->report(DiagID::S053E, loc, "unexpected start of input, expected expression").emit();
+                dyn()->diag->report(DiagID::S053E, loc, "unexpected start of input, expected type").emit();
                 dyn()->exit_depth();
                 return &null;
             }
@@ -552,7 +552,7 @@ class <T> TypeParse {
     ///         arity constraints are violated.
     inline fn _finish_tuple_type(self, start_range: SourceRange, first: *Type) -> *TupleType {
         if !dyn()->enter_depth() {
-            dyn()->diag->report(DiagID::S055E, start_range.start,
+            dyn()->diag->report(DiagID::S063E, start_range.start,
                 "exceeded maximum nesting depth in tuple type"
             ).first(start_range).emit();
 
@@ -1358,7 +1358,7 @@ class <T> TypeParse {
     inline fn _parse_pack_expansion_type(self, ty: *Type) -> *PackExpansionType {
         // current token is `...`
         if (ty == &null) {
-            dyn()->diag->report(DiagID::S055E, dyn()->current_ptr()->range.start,
+            dyn()->diag->report(DiagID::I002F, dyn()->current_ptr()->range.start,
                 "Fatal compiler bug, please raise an issue on our github at "
                 "https://github.com/kairolang/kairo/issues "
                 "along with the code to reproduce it"
@@ -1786,7 +1786,7 @@ class <T> TypeParse {
         dyn()->advance(); // consume '?'
 
         if ty == &null {
-            dyn()->diag->report(DiagID::S055E, end_range.start,
+            dyn()->diag->report(DiagID::I002F, end_range.start,
                 "Fatal compiler bug, please raise an issue on our github at "
                 "https://github.com/kairolang/kairo/issues "
                 "along with the code to reproduce it"
