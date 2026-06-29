@@ -73,7 +73,7 @@ fn <T> op alignof () -> usize {
 
 module core {
     // core layer is the lowest layer of the standard library, it contains the most basic building blocks of the language, such as types, functions, and macros. It is the foundation upon which the other layers are built.
-    interface Allocator {
+    virtual interface Allocator {
         @kairo::Crashes
         fn alloc(self, size: usize, align: usize) -> *void
         fn try_alloc(self, size: usize, align: usize) -> *void?
@@ -83,7 +83,7 @@ module core {
         fn free(self, ptr: *void, size: usize)
     }
 
-    interface ScopedAllocator derives Allocator {
+    virtual interface ScopedAllocator derives Allocator {
         fn op delete (self) // should free all the memory allocated by this allocator
     }
 
@@ -230,6 +230,108 @@ module std {
 }
 
 
+static thread_local __ALLOC_PTR: fn (usize, usize) -> *void
+static thread_local __FREE_PTR: fn (*void, usize)
+static thread_local __REALLOC_PTR: fn (*void, usize, usize) -> *void
+static thread_local __ALIGNED_ALLOC_PTR: fn (usize, usize) -> *void
+static thread_local __ALIGNED_FREE_PTR: fn (*void, usize)
+static thread_local __IN_SCOPED_CONTEXT: bool = false;
+
+/* scoped allcators in sepficic do something intresting whith this contxt tkae:
+
+@set_scoped_allocator(ArenaAllocator)
+fn work_with_arena() {
+    var my_vec: [Foo];
+    my_vec.reserve(100); // This will use the ArenaAllocator
+}
+
+now after the macro has been processed
+fn work_with_arena() {
+    var __ORIGINAL_ALLOC_PTR         = __ALLOC_PTR
+    var __ORIGINAL_FREE_PTR          = __FREE_PTR
+    var __ORIGINAL_REALLOC_PTR       = __REALLOC_PTR
+    var __ORIGINAL_ALIGNED_ALLOC_PTR = __ALIGNED_ALLOC_PTR
+    var __ORIGINAL_ALIGNED_FREE_PTR  = __ALIGNED_FREE_PTR
+    var __ORIGINAL_IN_SCOPED_CONTEXT = __IN_SCOPED_CONTEXT
+    var SCOPED_ALLOCATOR = ArenaAllocator(); // this can safely sit on the stack of this function since all callers are in the same scope
+    __ALLOC_PTR         = SCOPED_ALLOCATOR.alloc
+    __FREE_PTR          = SCOPED_ALLOCATOR.free
+    __REALLOC_PTR       = SCOPED_ALLOCATOR.realloc;
+    __ALIGNED_ALLOC_PTR = SCOPED_ALLOCATOR.aligned_alloc
+    __ALIGNED_FREE_PTR  = SCOPED_ALLOCATOR.aligned_free
+    __IN_SCOPED_CONTEXT = true
+
+    var my_vec: [Foo];
+    my_vec.reserve(100); // std::create will use the pointer anyways so this is fine
+
+    // end of scope we release and resotre the original allocators
+    __ALLOC_PTR         = __ORIGINAL_ALLOC_PTR
+    __FREE_PTR          = __ORIGINAL_FREE_PTR
+    __REALLOC_PTR       = __ORIGINAL_REALLOC_PTR
+    __ALIGNED_ALLOC_PTR = __ORIGINAL_ALIGNED_ALLOC_PTR
+    __ALIGNED_FREE_PTR  = __ORIGINAL_ALIGNED_FREE_PTR
+    __IN_SCOPED_CONTEXT = __ORIGINAL_IN_SCOPED_CONTEXT
+    delete SCOPED_ALLOCATOR // calls cleanup
+}
+*/
+
+
+@kairo::InlineSource
+fn <T, ...U> create(...args: U) -> *T {
+    eval if __builtin_has_scoped_alloc() {
+        var mem = __builtin_scoped_allocator().alloc(
+            __builtin_size_of<T>(),
+            __builtin_align_of<T>()
+        )
+        __builtin_construct_at<T>(mem, ...args)
+        return mem as *T
+    } else {
+        var mem = __builtin_global_allocator().alloc(
+            __builtin_size_of<T>(),
+            __builtin_align_of<T>()
+        )
+        __builtin_construct_at<T>(mem, ...args)
+        return mem as *T
+    }
+}
+
+// using it like:
+var x = std::create<Foo>(10);
+
+// would anyways expand in first pass - source inlining
+
+var x = fn <T, ...U> (...args: U) -> *T {
+    eval if __builtin_has_scoped_alloc() {
+        var mem = __builtin_scoped_allocator().alloc(
+            __builtin_size_of<T>(),
+            __builtin_align_of<T>()
+        )
+        __builtin_construct_at<T>(mem, ...args)
+        return mem as *T
+    } else {
+        var mem = __builtin_global_allocator().alloc(
+            __builtin_size_of<T>(),
+            __builtin_align_of<T>()
+        )
+        __builtin_construct_at<T>(mem, ...args)
+        return mem as *T
+    }
+}<Foo>(10) // IIFE
+
+// then further boil down to:
+var x = __builtin_construct_at(
+    LibcAllocator::alloc(__builtin_size_of<Foo>(), __builtin_align_of<Foo>()),
+    10
+) as *Foo
+// finally resoliving the remaining builtins after type resolve and name resolve is done
+// leaving somehting like:
+var x = __builtin_construct_at( // this stays cuz then it becomes a clean placement allocation
+    LibcAllocator::alloc(64, 8),
+    10
+) as *Foo
+
+
+
 module std {
     ///
     ///   Storage strategy for `Nullable<T>` (the desugaring of `T?`). Three
@@ -371,12 +473,20 @@ class Foo {
     fn make_data(self) {
         self.data = 42
     }
+
+    fn get_data(const self) -> i32 {
+        if self.data? {
+            return self.data;
+        } else {
+            return 0;
+        }
+    }
 }
 
 var foo = Foo()
 foo.make_data()
 if foo.data? {
     std::println(f"Data is: {foo.data}")
-    foo.change_data()
-    std::println(f"Data is now: {foo.data}")
+    foo.change_data() // we do a fast pass if change_data is not const, we error on auto deref agian
+    std::println(f"Data is now: {foo.data}") // error: cannot use a nullable value without checking
 }
