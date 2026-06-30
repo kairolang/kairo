@@ -62,18 +62,18 @@ class Lexer {
     var _imm_tbl       :  ImmediateTable;
     var _tokens        :  TokenBuffer::<512> = TokenBuffer::<512>();
     var _file_buffer   :  MemoryBuffer;
+    var _sm            :  obs::<SourceManager>;
     var cached_data    :  std::ConstPtr::<u8> = &null; // used for lex_slice to avoid repeated file_data() calls
     var _pool          :  opt::<ThreadPool>   = &null;
-    var _sm            :  obs::<SourceManager>;
-    var _last_text     :  obs::<Token>      = &null;
-    var _diag          :  obs::<DiagEngine> = &null;
+    var _last_text     :  obs::<Token>        = &null;
+    var _diag          :  obs::<DiagEngine>   = &null;
     var _cursor        :  usize = 0; // last pos is always file_size - 1
     var _last_token    :  usize = 0;
     var _end_pos       :  usize = 0;
     var _fid           :  u32   = 0;
     var _last_kind     :  LastTokenKind = LastTokenKind::None;
-    var _last_was_bang :  bool          = false;
-    var _initialized   :  bool          = false;
+    var _last_was_bang :  bool  = false;
+    var _initialized   :  bool  = false;
 
     const PFX_FORMAT: u8 = 1 << 0;
     const PFX_RAW:    u8 = 1 << 1;
@@ -992,11 +992,13 @@ class Lexer {
 
         const MAX_KEYWORD_LENGTH: usize = 32;
 
-        var token: Token = Token();
-        var hash: HashState = HashState();
-        var length: usize = 0;
+        var token:   Token     = Token();
+        var hash:    HashState = HashState();
+        var length:  usize     = 0;
+        var keyword: bool      = true;
+
         var first = self.peek_char32(); // read first char
-        var keyword_candidate: bool = true;
+        var s_p   = self.current_data();
 
         if self.is_valid_name(first) == 0 {
             self.advance_cursor(first.len);
@@ -1008,7 +1010,7 @@ class Lexer {
         self.advance_cursor(first.len);
 
         if first.len > 1 {
-            keyword_candidate = false;
+            keyword = false;
         }
 
         while !self.is_eof() {
@@ -1017,17 +1019,17 @@ class Lexer {
                 break; // finished
             }
 
-            if keyword_candidate && (d.len == 1) {
+            if keyword && (d.len == 1) {
                 var c: u8 = static_cast::<u8>(d.chr);
 
                 // A-Z a-z _ 0-9 without branches
-                var lo = c | 0x20;
+                var lo       = c | 0x20;
                 var is_alpha = (lo >= 'a') && (lo <= 'z');
                 var is_digit = (c >= '0') && (c <= '9');
                 var is_us    = (c == '_');
 
                 if !(is_alpha || is_digit || is_us) {
-                    keyword_candidate = false;
+                    keyword = false;
                 }
             }
 
@@ -1036,12 +1038,12 @@ class Lexer {
             length += d.len;
         }
 
-        if length > 32 {
-            keyword_candidate = false;
+        if length > MAX_KEYWORD_LENGTH {
+            keyword = false;
         }
 
         var h = hash.finalize();
-        if keyword_candidate && is_valid_token_kind(h) {
+        if keyword && is_valid_token_kind(h) {
             var kind = static_cast::<TokenKind>(h);
             var sub  = substitute(kind);
             token    = sub if (sub != TokenKind::TkUnknown) else kind;
@@ -1055,8 +1057,9 @@ class Lexer {
         }
 
         /// we also need a quick second check to see if a string
-        token  = TokenKind::LitIdentifier;
-        token  = self.create_source_range(start);
+        token = TokenKind::LitIdentifier;
+        token = self.create_source_range(start);
+        token = self.intern_ident(s_p, length, h);
 
         // length is byte count; all valid prefixes are ASCII so this is fine
         var dec = self.peek_char32();
@@ -1263,8 +1266,8 @@ class Lexer {
         tok = TokenKind::LitFloat if is_float else TokenKind::LitInt;
         tok = self.create_source_range(ctx.start);
 
-        var   imm_idx: u32 = (self._imm_tbl.create::<Immediate::FloatData>())
-           if is_float else  (self._imm_tbl.create::<Immediate::IntData>());
+        var   imm_idx: u32 = (self.create_imm::<Immediate::FloatData>())
+           if is_float else  (self.create_imm::<Immediate::IntData>());
 
         tok.imm = imm_idx;
 
@@ -1571,10 +1574,10 @@ class Lexer {
         ctx.body_start = self.get_source_location();
 
         if ctx.delim == 0x22 {
-            ctx.imm_idx = self._imm_tbl.create::<Immediate::StringData>();
+            ctx.imm_idx = self.create_imm::<Immediate::StringData>();
             ctx.imm = TextImm(&self, ctx.delim, ctx.imm_idx);
         } else {
-            ctx.imm_idx = self._imm_tbl.create::<Immediate::CharData>();
+            ctx.imm_idx = self.create_imm::<Immediate::CharData>();
             ctx.imm = TextImm(&self, ctx.delim, ctx.imm_idx);
         }
 
@@ -2229,8 +2232,16 @@ class Lexer {
         return self._imm_tbl.get::<T>(imm_idx);
     }
 
+    fn <T> create_imm(self) -> u32 {
+        return self._imm_tbl.create::<T>();
+    }
+
     fn get_imm_tbl(self) -> *ImmediateTable {
         return &self._imm_tbl;
+    }
+
+    fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32 {
+        return self._imm_tbl.intern_ident(data, len, hash);
     }
 
     fn wait_for_imm_evaluation(self) {
