@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project -------------------------- AST/Kind/DeclKind.k --- ///
 ///
 ///   <short description>
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------- Compiler/Parser/TypeParse.k ----- ///
+/// --- The Kairo Project --------------------------- Parser/TypeParse.k --- ///
 ///
 ///   \brief Type expression parsing mixin.
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------- Compiler/AST/Mixin/FFILinkage.k --- ///
+/// --- The Kairo Project ----------------------- AST/Mixin/FFILinkage.k --- ///
 ///
 ///   CRTP mixin for declarations that may carry foreign-language linkage.
 ///   Mirrors VisibilityAnnotation in shape: a small enum + source range,

@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------------- Diagnostic/DiagEngine.k ----- ///
+/// --- The Kairo Project -------------------------- Diagnostic/Engine.k --- ///
 ///
 ///   Diagnostic engine, builder, and poison-scope suppression.
 ///

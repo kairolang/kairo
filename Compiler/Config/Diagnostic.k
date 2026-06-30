@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------- Compiler/Options/DiagnosticOptions.k ----- ///
+/// --- The Kairo Project -------------------------- Config/Diagnostic.k --- ///
 ///
 ///   <short description>
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ---------------------------- Token/TokenSpan.k --- ///
 ///
 ///   <short description>
 ///

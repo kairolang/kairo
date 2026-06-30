@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/DependentResolution.k --- ///
+/// --- The Kairo Project ------------------- Sema/DependentResolution.k --- ///
 ///
 ///   \brief Resolve DependentType nodes (unresolved generic exprs).
 ///

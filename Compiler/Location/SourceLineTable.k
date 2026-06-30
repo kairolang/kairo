@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ------------------- Location/SourceLineTable.k --- ///
 ///
 ///   <short description>
 ///

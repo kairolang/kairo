@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------- Compiler/AST/Printer/PrintCore.k ----- ///
+/// --- The Kairo Project ---------------------- AST/Printer/PrintCore.k --- ///
 ///
 ///   Shared printing infrastructure for the AST printers.
 ///

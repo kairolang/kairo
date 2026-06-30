@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/NameResolution.k --- ///
+/// --- The Kairo Project ------------------------ Sema/NameResolution.k --- ///
 ///
 ///   \brief Bind every identifier use to its declaration.
 ///

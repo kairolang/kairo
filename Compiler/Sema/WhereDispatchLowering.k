@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/WhereDispatchLowering.k --- ///
+/// --- The Kairo Project ----------------- Sema/WhereDispatchLowering.k --- ///
 ///
 ///   \brief Lower `where` guards to a dispatch function.
 ///

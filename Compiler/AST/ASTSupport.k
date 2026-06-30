@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------------- Compiler/AST/Support.k ----- ///
+/// --- The Kairo Project ----------------------------- AST/ASTSupport.k --- ///
 ///
 ///   Provides shared utilities, types, and helper functions for the AST module.
 ///

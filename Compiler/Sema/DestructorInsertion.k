@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/DestructorInsertion.k --- ///
+/// --- The Kairo Project ------------------- Sema/DestructorInsertion.k --- ///
 ///
 ///   \brief Insert op delete calls at scope exit for non-trivial types.
 ///

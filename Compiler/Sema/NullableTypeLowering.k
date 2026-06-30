@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/NullableTypeLowering.k --- ///
+/// --- The Kairo Project ------------------ Sema/NullableTypeLowering.k --- ///
 ///
 ///   \brief Lower T? -> std::Nullable<T> at type positions.
 ///

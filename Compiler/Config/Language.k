@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------- Compiler/Options/LangOptions.k ----- ///
+/// --- The Kairo Project ---------------------------- Config/Language.k --- ///
 ///
 ///   Language semantics and standard configuration.
 ///

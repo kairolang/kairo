@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/LayoutPass.k --- ///
+/// --- The Kairo Project ---------------------------- Sema/LayoutPass.k --- ///
 ///
 ///   \brief Compute size / align / field offsets for all types.
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/CoalesceLowering.k --- ///
+/// --- The Kairo Project ---------------------- Sema/CoalesceLowering.k --- ///
 ///
 ///   \brief Lower `a ?? b` to a guarded select.
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------ Compiler/Options/TargetOptions.k ----- ///
+/// --- The Kairo Project ------------------------------ Config/Target.k --- ///
 ///
 ///   <short description>
 ///

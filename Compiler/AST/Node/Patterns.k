@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------- Compiler/ASTNode/Patterns.k ----- ///
+/// --- The Kairo Project -------------------------- AST/Node/Patterns.k --- ///
 ///
 ///   Pattern-position AST nodes for `match` cases and destructuring.
 ///

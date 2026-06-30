@@ -1,4 +1,4 @@
-/// --- The Kairo Project -- Compiler/DiagConsumer/BasicDiagConsumer.k ----- ///
+/// --- The Kairo Project ------------------- Diagnostic/BasicConsumer.k --- ///
 ///
 ///   Machine-readable single-line-per-diagnostic consumer.
 ///

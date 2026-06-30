@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Parser/DeclParse.k ----- ///
+/// --- The Kairo Project --------------------------- Parser/DeclParse.k --- ///
 ///
 ///   \brief Declaration parsing mixin. Recursive-descent over declaration-
 ///          position productions.

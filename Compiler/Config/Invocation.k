@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------- Compiler/Options/CompilerInvocation.k ----- ///
+/// --- The Kairo Project -------------------------- Config/Invocation.k --- ///
 ///
 ///   The canonical, strongly-typed representation of one compiler run.
 ///

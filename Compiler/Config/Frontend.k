@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------- Compiler/Options/FrontendOptions.k ----- ///
+/// --- The Kairo Project ---------------------------- Config/Frontend.k --- ///
 ///
 ///   Frontend action selection, pipeline control, and testing options.
 ///

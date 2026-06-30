@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------- Compiler/Options/CodeGenOptions.k ----- ///
+/// --- The Kairo Project ----------------------------- Config/CodeGen.k --- ///
 ///
 ///   Code generation, optimization, and instrumentation options.
 ///

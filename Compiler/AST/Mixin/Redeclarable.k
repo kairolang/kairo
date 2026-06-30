@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------- Compiler/AST/Mixin/Redeclarable.k --- ///
+/// --- The Kairo Project --------------------- AST/Mixin/Redeclarable.k --- ///
 ///
 ///   CRTP mixin for declarations that can be redeclared: forward decl +
 ///   definition, out-of-line method defs (fn Class::method), reopened

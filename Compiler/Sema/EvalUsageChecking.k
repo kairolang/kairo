@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/EvalUsageChecking.k --- ///
+/// --- The Kairo Project --------------------- Sema/EvalUsageChecking.k --- ///
 ///
 ///   \brief Validate eval usage (const-like, compile-time).
 ///

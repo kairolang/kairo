@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------------- Diagnostic/Diagnostic.k ----- ///
+/// --- The Kairo Project ---------------------- Diagnostic/Diagnostic.k --- ///
 ///
 ///   Diagnostic instance and associated label and fix-it types.
 ///

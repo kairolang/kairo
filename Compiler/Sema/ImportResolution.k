@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/ImportResolution.k --- ///
+/// --- The Kairo Project ---------------------- Sema/ImportResolution.k --- ///
 ///
 ///   \brief Resolve imports; rewrite unqualified refs to qualified targets.
 ///

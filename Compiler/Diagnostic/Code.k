@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------- Diagnostic/DiagCode.k ----- ///
+/// --- The Kairo Project ---------------------------- Diagnostic/Code.k --- ///
 ///
 ///   Resolved diagnostic code handle.
 ///

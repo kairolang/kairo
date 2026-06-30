@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------ Compiler/AST/DeclContext.k ----- ///
+/// --- The Kairo Project -------------------- AST/Context/DeclContext.k --- ///
 ///
 ///   Mixin base for AST nodes that own a lexical scope of declarations.
 ///   TranslationUnit, ModuleDecl, ClassDecl, StructDecl, EnumDecl,

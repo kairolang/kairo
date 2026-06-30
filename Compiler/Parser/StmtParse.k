@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Parser/StmtParse.k ----- ///
+/// --- The Kairo Project --------------------------- Parser/StmtParse.k --- ///
 ///
 ///   \brief Statement parsing mixin. Recursive-descent over statement-position
 ///          productions.

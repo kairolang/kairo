@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------- Compiler/Lexer/TokenPrinter.k --- ///
+/// --- The Kairo Project ------------------------- Token/TokenPrinter.k --- ///
 ///
 ///   ANSI-colored, column-aligned token stream printer for debugging the lexer.
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------- Compiler/AST/TranslationUnit.k ----- ///
+/// --- The Kairo Project ---------------- AST/Context/TranslationUnit.k --- ///
 ///
 ///   Root AST node for a single file. Wraps a Program (the item list) with
 ///   file-level metadata: attributes, imports, diagnostic stats, lazy body

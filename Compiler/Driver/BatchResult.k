@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------- Compiler/Driver/BatchResult.k ----- ///
+/// --- The Kairo Project ------------------------- Driver/BatchResult.k --- ///
 ///
 ///   Aggregate result for a multi-file compilation batch.
 ///

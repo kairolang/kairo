@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/ControlFlowAnalysis.k --- ///
+/// --- The Kairo Project ------------------- Sema/ControlFlowAnalysis.k --- ///
 ///
 ///   \brief Build per-fn CFG; reachability + divergence facts.
 ///

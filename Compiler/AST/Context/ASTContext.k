@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------ Compiler/AST/ASTContext.k ----- ///
+/// --- The Kairo Project --------------------- AST/Context/ASTContext.k --- ///
 ///
 ///   ----------------------------------------------------------------------
 ///   ASTContext is a long-lived object that owns all AST nodes and provides

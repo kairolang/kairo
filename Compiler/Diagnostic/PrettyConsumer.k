@@ -1,4 +1,4 @@
-/// --- The Kairo Project - Compiler/DiagConsumer/PrettyDiagConsumer.k ----- ///
+/// --- The Kairo Project ------------------ Diagnostic/PrettyConsumer.k --- ///
 ///
 ///   ANSI-colored diagnostic consumer.
 ///

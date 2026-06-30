@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/EnumLayoutLowering.k --- ///
+/// --- The Kairo Project -------------------- Sema/EnumLayoutLowering.k --- ///
 ///
 ///   \brief Lower ADT enums to struct + union + tag.
 ///

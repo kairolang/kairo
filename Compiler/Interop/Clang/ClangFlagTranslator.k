@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ---------- Interop/Clang/ClangFlagTranslator.k --- ///
 ///
 ///   <short description>
 ///

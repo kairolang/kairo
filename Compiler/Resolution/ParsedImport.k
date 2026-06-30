@@ -1,6 +1,7 @@
-
-/// --- The Kairo Project -------------------------------------------------- ///
+/// --- The Kairo Project -------------------- Resolution/ParsedImport.k --- ///
 ///
+///   <short description>
+/// 
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///

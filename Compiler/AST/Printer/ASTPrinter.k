@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------- Compiler/AST/Printer/ASTPrinter.k ----- ///
+/// --- The Kairo Project --------------------- AST/Printer/ASTPrinter.k --- ///
 ///
 ///   AstDumper: the single AST renderer for the whole compiler.
 ///

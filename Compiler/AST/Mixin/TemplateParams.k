@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------- Compiler/AST/Mixin/TemplateParams.k - ///
+/// --- The Kairo Project ------------------- AST/Mixin/TemplateParams.k --- ///
 ///
 ///   CRTP mixin for declarations that introduce generic parameters:
 ///   functions, classes, structs, enums, interfaces, extensions, unions,

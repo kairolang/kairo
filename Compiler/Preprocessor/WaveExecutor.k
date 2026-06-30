@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------- Compiler/Preprocessor/WaveExecutor.k ----- ///
+/// --- The Kairo Project ------------------ Preprocessor/WaveExecutor.k --- ///
 ///
 ///   Wave-parallel executor for DepGraph traversal.
 ///

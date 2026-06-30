@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------- Compiler/AST/CodeCompleteConsumer.k ----- ///
+/// --- The Kairo Project ------------------- AST/CodeCompleteConsumer.k --- ///
 ///
 ///   Abstract callback invoked by the parser at cursor-relevant positions
 ///   during completion or signature-help requests. Null for batch compile.

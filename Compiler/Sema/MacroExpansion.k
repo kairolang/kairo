@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/MacroExpansion.k --- ///
+/// --- The Kairo Project ------------------------ Sema/MacroExpansion.k --- ///
 ///
 ///   \brief Expand macros and macro-like intrinsics.
 ///

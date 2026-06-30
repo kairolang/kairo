@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project --------------------------- Support/EvalHash.k --- ///
 ///
 ///   <short description>
 ///

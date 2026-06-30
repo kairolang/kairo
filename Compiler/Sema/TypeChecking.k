@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/TypeChecking.k --- ///
+/// --- The Kairo Project -------------------------- Sema/TypeChecking.k --- ///
 ///
 ///   \brief Verify type compatibility at every use.
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ---------------- Location/FullSourceLocation.k --- ///
 ///
 ///   <short description>
 ///

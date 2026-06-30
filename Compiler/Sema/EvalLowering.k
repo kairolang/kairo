@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/EvalLowering.k --- ///
+/// --- The Kairo Project -------------------------- Sema/EvalLowering.k --- ///
 ///
 ///   \brief Evaluate eval contexts and replace nodes with results.
 ///

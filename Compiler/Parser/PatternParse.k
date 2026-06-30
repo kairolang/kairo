@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------- Compiler/Parser/PatternParse.k --- ///
+/// --- The Kairo Project ------------------------ Parser/PatternParse.k --- ///
 ///
 ///   \brief Pattern parsing mixin for `match` cases and destructuring binds.
 ///

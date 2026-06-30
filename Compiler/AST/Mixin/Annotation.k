@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------------- Compiler/AST/Annotation.k ----- ///
+/// --- The Kairo Project ----------------------- AST/Mixin/Annotation.k --- ///
 ///
 ///   Visibility and annotation mixins used by Decl/Stmt/Expr/Type nodes.
 ///

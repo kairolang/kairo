@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------- Compiler/ASTNode/PrimaryExpressions.k ----- ///
+/// --- The Kairo Project ---------------- AST/Node/PrimaryExpressions.k --- ///
 ///
 ///   Primary expression AST nodes. These depend only on Base and ASTContext,
 ///   never on Type nodes or other expression nodes. Safe to import from

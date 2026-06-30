@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------- Compiler/ASTNode/Declarations.k ----- ///
+/// --- The Kairo Project ---------------------- AST/Node/Declarations.k --- ///
 ///
 ///   Declaration-position AST nodes.
 ///

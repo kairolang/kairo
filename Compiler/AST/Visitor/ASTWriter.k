@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------- Compiler/AST/Visitor/ASTWriter.k ------ ///
+/// --- The Kairo Project ---------------------- AST/Visitor/ASTWriter.k --- ///
 ///
 ///   \brief A node-rewriting AST transformer for the Kairo AST.
 ///
@@ -1049,4 +1049,329 @@ class <D> ASTWriter {
 
     fn transform_context_binding_stmt(self, n: *ContextBindingStmt) -> vec::<*Stmt> {
         if n->value != &null { n->value = self.dyn()->transform_expr(n->value); }
-        n->body = cast::... (18 KB left)
+        n->body = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body));
+        return self._one_stmt(n);
+    }
+
+    fn transform_destructuring_decl_stmt(self, n: *DestructuringDeclStmt) -> vec::<*Stmt> {
+        if n->value != &null { n->value = self.dyn()->transform_expr(n->value); }
+        return self._one_stmt(n);
+    }
+
+    fn transform_inline_block_stmt(self, n: *InlineBlockStmt) -> vec::<*Stmt> {
+        return self._one_stmt(n); // opaque foreign body.
+    }
+
+    fn transform_eval_block_stmt(self, n: *EvalBlockStmt) -> vec::<*Stmt> {
+        self.dyn()->rebuild_decl_list(&(n->body));
+        return self._one_stmt(n);
+    }
+
+    fn transform_decl(self, d: *Decl) -> vec::<*Decl> {
+        if d == &null { return vec::<*Decl>(); }
+        if self.stop  { return self._one_decl(d); }
+
+        switch d->kind {
+            case DeclKind::FunctionDecl        { return self.dyn()->transform_function_decl(        cast::<FunctionDecl>(d)        ); }
+            case DeclKind::VariableDecl        { return self.dyn()->transform_variable_decl(        cast::<VariableDecl>(d)        ); }
+            case DeclKind::FieldDecl           { return self.dyn()->transform_field_decl(           cast::<FieldDecl>(d)           ); }
+            case DeclKind::ParamDecl           { return self.dyn()->transform_param_decl(           cast::<ParamDecl>(d)           ); }
+            case DeclKind::GenericParamDecl    { return self.dyn()->transform_generic_param_decl(   cast::<GenericParamDecl>(d)    ); }
+            case DeclKind::StructDecl          { return self.dyn()->transform_struct_decl(          cast::<StructDecl>(d)          ); }
+            case DeclKind::ClassDecl           { return self.dyn()->transform_class_decl(           cast::<ClassDecl>(d)           ); }
+            case DeclKind::InterfaceDecl       { return self.dyn()->transform_interface_decl(       cast::<InterfaceDecl>(d)       ); }
+            case DeclKind::ExtensionDecl       { return self.dyn()->transform_extension_decl(       cast::<ExtensionDecl>(d)       ); }
+            case DeclKind::EnumDecl            { return self.dyn()->transform_enum_decl(            cast::<EnumDecl>(d)            ); }
+            case DeclKind::EnumVariantDecl     { return self.dyn()->transform_enum_variant_decl(    cast::<EnumVariantDecl>(d)     ); }
+            case DeclKind::UnionDecl           { return self.dyn()->transform_union_decl(           cast::<UnionDecl>(d)           ); }
+            case DeclKind::TypeAliasDecl       { return self.dyn()->transform_type_alias_decl(      cast::<TypeAliasDecl>(d)       ); }
+            case DeclKind::ModuleDecl          { return self.dyn()->transform_module_decl(          cast::<ModuleDecl>(d)          ); }
+            case DeclKind::ImportDecl          { return self.dyn()->transform_import_decl(          cast::<ImportDecl>(d)          ); }
+            case DeclKind::VisibilityGroupDecl { return self.dyn()->transform_visibility_group_decl(cast::<VisibilityGroupDecl>(d) ); }
+            case DeclKind::EvalBlockDecl       { return self.dyn()->transform_eval_block_decl(      cast::<EvalBlockDecl>(d)       ); }
+            case DeclKind::TestDecl            { return self.dyn()->transform_test_decl(            cast::<TestDecl>(d)            ); }
+            case DeclKind::MacroDecl           { return self.dyn()->transform_macro_decl(           cast::<MacroDecl>(d)           ); }
+            case DeclKind::ProcedureMacroDecl  { return self.dyn()->transform_procedure_macro_decl( cast::<ProcedureMacroDecl>(d)  ); }
+            case DeclKind::FFIBlockDecl        { return self.dyn()->transform_ffi_block_decl(       cast::<FFIBlockDecl>(d)        ); }
+            case DeclKind::RecoveryDecl        { return self._one_decl(d); }
+            case DeclKind::DeclKindCount       { assert(false && r"DeclKindCount reached ASTWriter - bug"); return vec::<*Decl>(); }
+        }
+        return self._one_decl(d);
+    }
+
+    fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        self.dyn()->rebuild_decl_list(&(n->params));
+        if n->return_type != &null { n->return_type = self.dyn()->transform_type(n->return_type); }
+        if n->qualifier   != &null { n->qualifier   = self.dyn()->transform_expr(n->qualifier); }
+        if n->body_block  != &null { n->body_block  = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body_block)); }
+        if n->body_expr   != &null { n->body_expr   = self.dyn()->transform_expr(n->body_expr); }
+        return self._one_decl(n);
+    }
+
+    fn transform_variable_decl(self, n: *VariableDecl) -> vec::<*Decl> {
+        if n->type_ != &null { n->type_ = self.dyn()->transform_type(n->type_); }
+        if n->init  != &null { n->init  = self.dyn()->transform_expr(n->init); }
+        return self._one_decl(n);
+    }
+
+    fn transform_field_decl(self, n: *FieldDecl) -> vec::<*Decl> {
+        if n->type_ != &null { n->type_ = self.dyn()->transform_type(n->type_); }
+        if n->init  != &null { n->init  = self.dyn()->transform_expr(n->init); }
+        return self._one_decl(n);
+    }
+
+    fn transform_param_decl(self, n: *ParamDecl) -> vec::<*Decl> {
+        if n->type_       != &null { n->type_       = self.dyn()->transform_type(n->type_); }
+        if n->default_val != &null { n->default_val = self.dyn()->transform_expr(n->default_val); }
+        return self._one_decl(n);
+    }
+
+    fn transform_generic_param_decl(self, n: *GenericParamDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_type_list(&(n->bounds));
+        if n->value_type   != &null { n->value_type   = self.dyn()->transform_type(n->value_type); }
+        if n->default_type != &null { n->default_type = self.dyn()->transform_type(n->default_type); }
+        return self._one_decl(n);
+    }
+
+    fn transform_struct_decl(self, n: *StructDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        for var i: usize = 0; i < n->implements.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->transform_inherit_edge(n->implements.get(i));
+        }
+        self.dyn()->rebuild_decl_list(&(n->fields));
+        self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
+        return self._one_decl(n);
+    }
+
+    fn transform_class_decl(self, n: *ClassDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        for var i: usize = 0; i < n->derives_list.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->transform_inherit_edge(n->derives_list.get(i));
+        }
+        for var i: usize = 0; i < n->implements.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->transform_inherit_edge(n->implements.get(i));
+        }
+        self.dyn()->rebuild_decl_list(&(n->fields));
+        self.dyn()->rebuild_decl_list(&(n->methods));
+        self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
+        return self._one_decl(n);
+    }
+
+    fn transform_interface_decl(self, n: *InterfaceDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        for var i: usize = 0; i < n->derives_list.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->transform_inherit_edge(n->derives_list.get(i));
+        }
+        self.dyn()->rebuild_decl_list(&(n->methods));
+        self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
+        return self._one_decl(n);
+    }
+
+    fn transform_extension_decl(self, n: *ExtensionDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        if n->target != &null { n->target = self.dyn()->transform_type(n->target); }
+        for var i: usize = 0; i < n->implements.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->transform_inherit_edge(n->implements.get(i));
+        }
+        self.dyn()->rebuild_decl_list(&(n->methods));
+        self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
+        return self._one_decl(n);
+    }
+
+    fn transform_enum_decl(self, n: *EnumDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        if n->underlying != &null { n->underlying = self.dyn()->transform_type(n->underlying); }
+        self.dyn()->rebuild_decl_list(&(n->variants));
+        return self._one_decl(n);
+    }
+
+    fn transform_enum_variant_decl(self, n: *EnumVariantDecl) -> vec::<*Decl> {
+        if n->discriminant != &null { n->discriminant = self.dyn()->transform_expr(n->discriminant); }
+        self.dyn()->rebuild_decl_list(&(n->payload));
+        return self._one_decl(n);
+    }
+
+    fn transform_union_decl(self, n: *UnionDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        self.dyn()->rebuild_decl_list(&(n->fields));
+        self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
+        return self._one_decl(n);
+    }
+
+    fn transform_type_alias_decl(self, n: *TypeAliasDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        if n->aliased != &null { n->aliased = self.dyn()->transform_type(n->aliased); }
+        return self._one_decl(n);
+    }
+
+    fn transform_module_decl(self, n: *ModuleDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
+        return self._one_decl(n);
+    }
+
+    fn transform_import_decl(self, n: *ImportDecl) -> vec::<*Decl> {
+        return self._one_decl(n); // token lists, no AST children.
+    }
+
+    fn transform_ffi_block_decl(self, n: *FFIBlockDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->body));
+        return self._one_decl(n);
+    }
+
+    fn transform_visibility_group_decl(self, n: *VisibilityGroupDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->members));
+        return self._one_decl(n);
+    }
+
+    fn transform_eval_block_decl(self, n: *EvalBlockDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->body));
+        return self._one_decl(n);
+    }
+
+    fn transform_test_decl(self, n: *TestDecl) -> vec::<*Decl> {
+        if n->label != &null { n->label = self.dyn()->transform_expr(n->label); }
+        if n->body  != &null { n->body  = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body)); }
+        return self._one_decl(n);
+    }
+
+    fn transform_macro_decl(self, n: *MacroDecl) -> vec::<*Decl> {
+        return self._one_decl(n); // raw token body, no AST children.
+    }
+
+    fn transform_procedure_macro_decl(self, n: *ProcedureMacroDecl) -> vec::<*Decl> {
+        self.dyn()->rebuild_decl_list(&(n->params));
+        if n->body != &null { n->body = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body)); }
+        return self._one_decl(n);
+    }
+
+    fn transform_pattern(self, p: *Pattern) -> *Pattern {
+        if p == &null { return &null; }
+        if self.stop  { return p; }
+
+        switch p->kind {
+            case PatternKind::WildcardPattern              { return self.dyn()->transform_wildcard_pattern(              cast::<WildcardPattern>(p)              ); }
+            case PatternKind::LiteralPattern               { return self.dyn()->transform_literal_pattern(               cast::<LiteralPattern>(p)               ); }
+            case PatternKind::BindingPattern               { return self.dyn()->transform_binding_pattern(               cast::<BindingPattern>(p)               ); }
+            case PatternKind::TupleDestructurePattern      { return self.dyn()->transform_tuple_destructure_pattern(     cast::<TupleDestructurePattern>(p)      ); }
+            case PatternKind::ConstructorPattern           { return self.dyn()->transform_constructor_pattern(           cast::<ConstructorPattern>(p)           ); }
+            case PatternKind::UnresolvedConstructorPattern { return self.dyn()->transform_unresolved_constructor_pattern(cast::<UnresolvedConstructorPattern>(p) ); }
+            case PatternKind::AlternationPattern           { return self.dyn()->transform_alternation_pattern(           cast::<AlternationPattern>(p)           ); }
+            case PatternKind::RangePattern                 { return self.dyn()->transform_range_pattern(                 cast::<RangePattern>(p)                 ); }
+            case PatternKind::SlicePattern                 { return self.dyn()->transform_slice_pattern(                 cast::<SlicePattern>(p)                 ); }
+            case PatternKind::RecoveryPattern              { return p; }
+            case PatternKind::PatternKindCount             { assert(false && r"PatternKindCount reached ASTWriter - bug"); return &null; }
+        }
+        return p;
+    }
+
+    fn transform_wildcard_pattern(self, n: *WildcardPattern) -> *Pattern {
+        return n;
+    }
+
+    fn transform_literal_pattern(self, n: *LiteralPattern) -> *Pattern {
+        if n->value != &null { n->value = self.dyn()->transform_expr(n->value); }
+        return n;
+    }
+
+    fn transform_binding_pattern(self, n: *BindingPattern) -> *Pattern {
+        if n->type_ != &null { n->type_ = self.dyn()->transform_type(n->type_); }
+        return n;
+    }
+
+    fn transform_tuple_destructure_pattern(self, n: *TupleDestructurePattern) -> *Pattern {
+        self.dyn()->rebuild_pattern_list(&(n->elements));
+        return n;
+    }
+
+    fn transform_constructor_pattern(self, n: *ConstructorPattern) -> *Pattern {
+        if n->head != &null { n->head = self.dyn()->transform_expr(n->head); }
+        self.dyn()->rebuild_pattern_list(&(n->subpatterns));
+        return n;
+    }
+
+    fn transform_unresolved_constructor_pattern(self, n: *UnresolvedConstructorPattern) -> *Pattern {
+        if n->head != &null { n->head = self.dyn()->transform_expr(n->head); }
+        self.dyn()->rebuild_pattern_list(&(n->subpatterns));
+        return n;
+    }
+
+    fn transform_alternation_pattern(self, n: *AlternationPattern) -> *Pattern {
+        self.dyn()->rebuild_pattern_list(&(n->alternatives));
+        return n;
+    }
+
+    fn transform_range_pattern(self, n: *RangePattern) -> *Pattern {
+        if n->lo != &null { n->lo = self.dyn()->transform_expr(n->lo); }
+        if n->hi != &null { n->hi = self.dyn()->transform_expr(n->hi); }
+        return n;
+    }
+
+    fn transform_slice_pattern(self, n: *SlicePattern) -> *Pattern {
+        self.dyn()->rebuild_pattern_list(&(n->prefix));
+        self.dyn()->rebuild_pattern_list(&(n->suffix));
+        if n->rest_binding != &null { n->rest_binding = self.dyn()->transform_pattern(n->rest_binding); }
+        return n;
+    }
+
+    // == ENTRY POINTS ======================================================
+
+    /// Drive the transform over a whole file. The top-level item list lives on
+    /// the Program; rebuild it (splice-aware) and the imports/attrs lists.
+    fn run(self, tu: *TranslationUnit) {
+        if tu->program != &null {
+            self.dyn()->rebuild_decl_list(&(tu->program->items));
+        }
+        // imports / tu_attrs are ArenaList<*Decl>; rebuild via dc-style walk
+        // only if a pass needs to touch them. Most don't, so left as-is here.
+    }
+
+    /// Transform a single subtree of any family. Useful for targeted rewrites
+    /// (e.g. one function body) without walking the whole TU.
+    fn run_on_decl(self, d: *Decl) -> vec::<*Decl> {
+        return self.dyn()->transform_decl(d);
+    }
+
+    fn run_on_stmt(self, s: *Stmt) -> vec::<*Stmt> {
+        return self.dyn()->transform_stmt(s);
+    }
+
+    fn run_on_expr(self, e: *Expr) -> *Expr {
+        return self.dyn()->transform_expr(e);
+    }
+
+    fn run_on_type(self, t: *Type) -> *Type {
+        return self.dyn()->transform_type(t);
+    }
+}
+
+///
+/// \class ASTWriterProbe
+/// \brief Compile-time tripwire forcing instantiation of ASTWriter<D>.
+///
+/// Same rationale as RAVProbe (see RecursiveASTVisitor.k): ASTWriter is a
+/// CRTP base whose internal calls route through dyn() -> *D, a dependent type.
+/// Dependent-name lookups are deferred until a concrete D instantiates the
+/// path, so a misspelled transform_/rebuild_ call survives compilation of the
+/// base alone. This zero-override derived class instantiates every method body
+/// against a real D, turning the dependent-name surface from deferred to
+/// verified on every build.
+///
+/// Do not delete. `_: bool` is filler for the Stage 0 empty-body limitation.
+///
+class ASTWriterProbe derives ASTWriter::<ASTWriterProbe> {
+    pub var _: bool;
+}

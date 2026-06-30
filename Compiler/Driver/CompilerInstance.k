@@ -1,4 +1,4 @@
-/// --- The Kairo Project --------- Compiler/Driver/CompilerInstance.k ----- ///
+/// --- The Kairo Project -------------------- Driver/CompilerInstance.k --- ///
 ///
 ///   Driver Layer 2 shared resource owner and pipeline dispatcher.
 ///
@@ -133,7 +133,7 @@ ffi "c++" import "llvm/Target/TargetMachine.h";
 ffi "c++" import "llvm/Target/TargetOptions.h";
 ffi "c++" import "llvm/Support/CodeGen.h";
 
-class CompilerInstance; // forward breaks the CI ↔ FrontendAction cycle
+class CompilerInstance; // forward breaks the CI <-> FrontendAction cycle
 
 /// Per-file pipeline executor.
 ///
@@ -1060,7 +1060,7 @@ fn FrontendAction::_dump_imports() {
 }
 
 priv fn FrontendAction::_dump_mem_stats() {
-    inline "c++" { if (::getenv("KAIRO_MEM_STATS") == nullptr) return; }
+    inline "c++" { if (::getenv("MEM_STATS") == nullptr) return; }
 
     var total_bytes:  usize = 0;
     var total_slabs:  usize = 0;

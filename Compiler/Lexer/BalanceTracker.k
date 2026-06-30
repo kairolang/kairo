@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ----------------------- Lexer/BalanceTracker.k --- ///
 ///
 ///   <short description>
 ///

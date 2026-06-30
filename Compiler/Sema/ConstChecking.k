@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/ConstChecking.k --- ///
+/// --- The Kairo Project ------------------------- Sema/ConstChecking.k --- ///
 ///
 ///   \brief Enforce const correctness.
 ///

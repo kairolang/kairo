@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ------------------ Interop/Clang/ClangBridge.k --- ///
 ///
 ///   <short description>
 ///

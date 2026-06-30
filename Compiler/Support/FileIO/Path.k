@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ------------------------ Support/FileIO/Path.k --- ///
 ///
 ///   <short description>
 ///

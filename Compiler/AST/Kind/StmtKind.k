@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------- Compiler/ASTKind/StmtKind.kro --- ///
+/// --- The Kairo Project -------------------------- AST/Kind/StmtKind.k --- ///
 ///
 ///   \brief Discriminator enum for all statement-position AST nodes.
 ///

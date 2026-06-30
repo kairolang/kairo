@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/NullTestLowering.k --- ///
+/// --- The Kairo Project ---------------------- Sema/NullTestLowering.k --- ///
 ///
 ///   \brief Lower `x?` (condition position) to __has_value().
 ///

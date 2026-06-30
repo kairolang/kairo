@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project --------------------- AST/Matcher/ASTMatcher.k --- ///
 ///
 ///   <short description>
 ///

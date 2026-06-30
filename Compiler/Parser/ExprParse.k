@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------ Compiler/Parser/ExprParse.k ----- ///
+/// --- The Kairo Project --------------------------- Parser/ExprParse.k --- ///
 ///
 ///   \brief Expression parsing mixin. Pratt parser with postfix chain building.
 ///

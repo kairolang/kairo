@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ----------------------- Threading/ThreadPool.k --- ///
 ///
 ///   <short description>
 ///

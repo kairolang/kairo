@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------------- Compiler/AST/ASTIndex.k ----- ///
+/// --- The Kairo Project ----------------------- AST/Context/ASTIndex.k --- ///
 ///
 ///   ----------------------------------------------------------------------
 ///   ASTIndex is a compact, read-only data structure. It's used in parse

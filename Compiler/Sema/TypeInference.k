@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/TypeInference.k --- ///
+/// --- The Kairo Project ------------------------- Sema/TypeInference.k --- ///
 ///
 ///   \brief Derive types for un-annotated bindings/exprs.
 ///

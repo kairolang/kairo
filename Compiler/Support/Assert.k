@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ----------------------------- Support/Assert.k --- ///
 ///
 ///   <short description>
 ///

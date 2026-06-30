@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----- Compiler/Preprocessor/ImportResolver.k ----- ///
+/// --- The Kairo Project --------------------- Resolution/ImportProbe.k --- ///
 ///
 ///   <short description>
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/ExtensionLowering.k --- ///
+/// --- The Kairo Project --------------------- Sema/ExtensionLowering.k --- ///
 ///
 ///   \brief Lower `extend` blocks to UFCS free functions.
 ///

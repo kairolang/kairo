@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------- Compiler/Parser/ASTParse.k ----- ///
+/// --- The Kairo Project ---------------------------- Parser/ASTParse.k --- ///
 ///
 ///   Main parser class. Derives the five sub-parser mixins and owns all
 ///   parser state: token cursor, scope stack, recovery state, completion

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/FinallyLowering.k --- ///
+/// --- The Kairo Project ----------------------- Sema/FinallyLowering.k --- ///
 ///
 ///   \brief Lower `finally` to a NON_TRANSFER RAII guard holding a lambda.
 ///

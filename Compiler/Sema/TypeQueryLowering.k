@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/TypeQueryLowering.k --- ///
+/// --- The Kairo Project --------------------- Sema/TypeQueryLowering.k --- ///
 ///
 ///   \brief Lower sizeof / alignof / typeof.
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/ASTNode/Casting.k ----- ///
+/// --- The Kairo Project --------------------------- AST/Node/Casting.k --- ///
 ///
 ///   Provides utilities for safe downcasting of ASTNode.
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------ Compiler/Options/LinkerOptions.k ----- ///
+/// --- The Kairo Project ------------------------------ Config/Linker.k --- ///
 ///
 ///   Linker, platform-specific, and embedded target options.
 ///

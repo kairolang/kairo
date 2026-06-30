@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/FStringLowering.k --- ///
+/// --- The Kairo Project ----------------------- Sema/FStringLowering.k --- ///
 ///
 ///   \brief Lower f"..." interpolation to concat/format calls.
 ///

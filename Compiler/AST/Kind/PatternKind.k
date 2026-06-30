@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------- Compiler/ASTKind/PatternKind.k --- ///
+/// --- The Kairo Project ----------------------- AST/Kind/PatternKind.k --- ///
 ///
 ///   Discriminator enum for all pattern-position AST nodes.
 ///

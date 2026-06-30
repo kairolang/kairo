@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/MatchLowering.k --- ///
+/// --- The Kairo Project ------------------------- Sema/MatchLowering.k --- ///
 ///
 ///   \brief Lower match into an immediately-invoked lambda.
 ///

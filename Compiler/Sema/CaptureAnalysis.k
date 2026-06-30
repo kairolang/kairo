@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/CaptureAnalysis.k --- ///
+/// --- The Kairo Project ----------------------- Sema/CaptureAnalysis.k --- ///
 ///
 ///   \brief Compute closure capture lists (free-variable analysis).
 ///

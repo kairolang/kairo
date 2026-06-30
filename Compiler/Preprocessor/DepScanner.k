@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------ Preprocessor/DepScanner.k ----- ///
+/// --- The Kairo Project -------------------- Preprocessor/DepScanner.k --- ///
 ///
 ///   Single-threaded single file DAG builder.
 ///

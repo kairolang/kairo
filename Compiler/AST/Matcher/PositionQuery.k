@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------ Compiler/AST/PositionQuery.k ----- ///
+/// --- The Kairo Project ------------------ AST/Matcher/PositionQuery.k --- ///
 ///
 ///   Given a byte offset in a source file, find the innermost AST node
 ///   whose range contains it. Foundation for hover, definition, references,

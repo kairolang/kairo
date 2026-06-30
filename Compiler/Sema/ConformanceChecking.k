@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/ConformanceChecking.k --- ///
+/// --- The Kairo Project ------------------- Sema/ConformanceChecking.k --- ///
 ///
 ///   \brief Structural interface conformance.
 ///

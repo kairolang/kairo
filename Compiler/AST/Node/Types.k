@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------- Compiler/ASTNode/Types.k ----- ///
+/// --- The Kairo Project ----------------------------- AST/Node/Types.k --- ///
 ///
 ///   Defines AST nodes for type representations.
 ///

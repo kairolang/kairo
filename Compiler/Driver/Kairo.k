@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------------- Compiler/Driver/kairo.k ----- ///
+/// --- The Kairo Project ------------------------------- Driver/Kairo.k --- ///
 ///
 ///   Compiler driver entry point.
 ///

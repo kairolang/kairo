@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/AST/InternedStr.k ----- ///
+/// --- The Kairo Project ------------------------ Support/InternedStr.k --- ///
 ///
 ///   Lightweight interned string handle. Equality and hashing are O(1) integer
 ///   operations. Zero is the sentinel for the empty string.

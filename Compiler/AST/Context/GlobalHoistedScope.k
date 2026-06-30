@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------ Compiler/AST/GlobalHoistedScope.k ----- ///
+/// --- The Kairo Project ------------- AST/Context/GlobalHoistedScope.k --- ///
 ///
 ///   Global symbol table aggregating HoistedScope instances from all indexed
 ///   files. Used for cross-file symbol resolution before parsing.

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---- Compiler/ASTVisitor/RecursiveASTVisitor.k --- ///
+/// --- The Kairo Project ------------ AST/Visitor/RecursiveASTVisitor.k --- ///
 ///
 ///   \brief A recursive AST visitor for traversing the Kairo AST.
 ///

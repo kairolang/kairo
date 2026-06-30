@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Driver/TUResult.k ----- ///
+/// --- The Kairo Project ---------------------------- Driver/TUResult.k --- ///
 ///
 ///   Per-translation-unit pipeline result record.
 ///

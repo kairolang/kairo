@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------- Compiler/Lexer/Lexer.k --- ///
+/// --- The Kairo Project -------------------------------- Lexer/Lexer.k --- ///
 ///
 ///   A utf-8 aware lexer for kairo source files.
 ///

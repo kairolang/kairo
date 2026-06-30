@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/MatchExhaustiveness.k --- ///
+/// --- The Kairo Project ------------------- Sema/MatchExhaustiveness.k --- ///
 ///
 ///   \brief Verify match covers all cases.
 ///

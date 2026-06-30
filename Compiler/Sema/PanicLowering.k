@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/PanicLowering.k --- ///
+/// --- The Kairo Project ------------------------- Sema/PanicLowering.k --- ///
 ///
 ///   \brief Lower panic into tagged return values.
 ///

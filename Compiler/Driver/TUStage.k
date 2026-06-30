@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------ Compiler/Driver/TUStage.k ----- ///
+/// --- The Kairo Project ----------------------------- Driver/TUStage.k --- ///
 ///
 ///   Translation-unit pipeline stage enumeration.
 ///

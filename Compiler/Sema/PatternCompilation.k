@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/PatternCompilation.k --- ///
+/// --- The Kairo Project -------------------- Sema/PatternCompilation.k --- ///
 ///
 ///   \brief Compile pattern trees into decision sequences.
 ///

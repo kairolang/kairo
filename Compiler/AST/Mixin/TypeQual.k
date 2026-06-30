@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------- Compiler/AST/Mixin/TypeQual.k ----- ///
+/// --- The Kairo Project ------------------------- AST/Mixin/TypeQual.k --- ///
 ///
 ///   Type qualifier storage used by Type. Carries a small bitfield of
 ///   qualifier flags, optional extended qualifiers (address space), and

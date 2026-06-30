@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/OperatorLowering.k --- ///
+/// --- The Kairo Project ---------------------- Sema/OperatorLowering.k --- ///
 ///
 ///   \brief Lower custom operators to their call forms.
 ///

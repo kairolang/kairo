@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/Monomorphization.k --- ///
+/// --- The Kairo Project ---------------------- Sema/Monomorphization.k --- ///
 ///
 ///   \brief Instantiate concrete versions of generic decls.
 ///

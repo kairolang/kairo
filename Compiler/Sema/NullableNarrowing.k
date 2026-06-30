@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/NullableNarrowing.k --- ///
+/// --- The Kairo Project --------------------- Sema/NullableNarrowing.k --- ///
 ///
 ///   \brief Flow-sensitive non-null narrowing for T?.
 ///

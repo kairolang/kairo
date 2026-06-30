@@ -1,4 +1,4 @@
-/// --- The Kairo Project -------------- Diagnostic/BufferedDiagSink.k ----- ///
+/// --- The Kairo Project ---------------- Diagnostic/BufferedDiagSink.k --- ///
 ///
 ///   A diagnostic sink that buffers diagnostics in memory until explicitly drained.
 ///

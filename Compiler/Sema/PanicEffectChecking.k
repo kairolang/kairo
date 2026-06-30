@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/PanicEffectChecking.k --- ///
+/// --- The Kairo Project ------------------- Sema/PanicEffectChecking.k --- ///
 ///
 ///   \brief Panic propagation / catch exhaustiveness (effect system).
 ///

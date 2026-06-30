@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/NarrowedAccessLowering.k --- ///
+/// --- The Kairo Project ---------------- Sema/NarrowedAccessLowering.k --- ///
 ///
 ///   \brief Rewrite narrowed nullable uses to __value().
 ///

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------- Compiler/Sema/ValueCategoryPass.k --- ///
+/// --- The Kairo Project --------------------- Sema/ValueCategoryPass.k --- ///
 ///
 ///   \brief Classify every expr as lvalue / rvalue.
 ///

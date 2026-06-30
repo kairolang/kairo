@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------- Compiler/Options/PreprocessorOptions.k--- ///
+/// --- The Kairo Project ------------------------ Config/Preprocessor.k --- ///
 ///
 ///   <short description>
 ///
