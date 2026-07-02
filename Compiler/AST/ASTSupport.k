@@ -239,6 +239,7 @@ class TokenText {
         var kind      = tok.kind;
         var imm       = tok.imm;
         var tok_range = tok.range;
+        var is_expand = false;
 
         // if this token is a macro expansion AND it has a valid imm table entry
         // (i.e. below the sentinel threshold), resolve back to the original token
@@ -249,6 +250,7 @@ class TokenText {
                 kind      = info->original_kind;
                 imm       = info->original_imm;
                 tok_range = info->def_range;
+                is_expand = true;
             }
         }
 
@@ -270,50 +272,405 @@ class TokenText {
             }
         }
 
-        // these have no meaningful text return canonical representation
-        if kind == TokenKind::TkNewLine    { return TokenText("\n",    tok_range, true, false); }
-        if kind == TokenKind::TkWhitespace { return TokenText(" ",     tok_range, true, false); }
-        if kind == TokenKind::TkEof        { return TokenText("<eof>", tok_range, true, false); }
-        // -- punctuation canonical spacing -----------------------------------------------------
-        if kind == TokenKind::OpComma      { return TokenText(",",     tok_range, true, false); }
-        if kind == TokenKind::OpSemicolon  { return TokenText(";",     tok_range, true, false); }
-        if kind == TokenKind::OpLParen     { return TokenText("(",     tok_range, true, false); }
-        if kind == TokenKind::OpRParen     { return TokenText(")",     tok_range, true, false); }
-        if kind == TokenKind::OpLBrace     { return TokenText("{",     tok_range, true, false); }
-        if kind == TokenKind::OpRBrace     { return TokenText("}",     tok_range, true, false); }
-        if kind == TokenKind::OpLSquare    { return TokenText("[",     tok_range, true, false); }
-        if kind == TokenKind::OpRSquare    { return TokenText("]",     tok_range, true, false); }
-        if kind == TokenKind::OpExclaim    { return TokenText("!",     tok_range, true, false); }
-        if kind == TokenKind::OpColonColon { return TokenText("::",    tok_range, true, false); }
-        if kind == TokenKind::OpEllipsis   { return TokenText("...",   tok_range, true, false); }
-        if kind == TokenKind::OpPlus       { return TokenText("+",     tok_range, true, false); }
-        if kind == TokenKind::OpMinus      { return TokenText("-",     tok_range, true, false); }
-        if kind == TokenKind::OpStar       { return TokenText("*",     tok_range, true, false); }
-        if kind == TokenKind::OpSlash      { return TokenText("/",     tok_range, true, false); }
-        if kind == TokenKind::OpEqual      { return TokenText("=",     tok_range, true, false); }
-        if kind == TokenKind::OpEqualEqual { return TokenText("==",    tok_range, true, false); }
-        if kind == TokenKind::OpLess       { return TokenText("<",     tok_range, true, false); }
-        if kind == TokenKind::OpGreater    { return TokenText(">",     tok_range, true, false); }
-        if kind == TokenKind::OpArrow      { return TokenText("->",    tok_range, true, false); }
+        var create = fn (s: string) -> TokenText {
+            return TokenText(s, tok_range, is_expand, false);
+        };
 
-        // pull the actual value out of the immediate table if available
-        // otherwise fall back to raw source text
-        if kind == TokenKind::LitInt {
-            if imm_tbl != &null {
-                var int_data = imm_tbl->get::<Immediate::IntData>(imm);
-                return TokenText(f"{int_data->value_lo}", tok_range, true, false);
+        // these have no meaningful text return canonical representation
+        switch kind {
+            case TokenKind::TkUnknown {
+                return create("$unknown$");
+            } case TokenKind::TkEof {
+                return create("$eof$");
+            } case TokenKind::TkError {
+                return create("$error$");
+            } case TokenKind::TkNewLine {
+                return create("\\n");
+            } case TokenKind::TkWhitespace {
+                return create(" ");
+            } case TokenKind::TkFileStart {
+                return create("$start$");
+            } case TokenKind::TkFileEnd {
+                return create("$end$");
+            } case TokenKind::TkGenerated {
+                return create("$generated$");
+            } case TokenKind::TkMacroExpand {
+                return create("$macro_expand$");
+            } case TokenKind::TkCodeComplete {
+                return create("$IDE_COMPL$");
+            } case TokenKind::LitNull {
+                return create("null");
+            } case TokenKind::OpLBrace {
+                return create("\x123");
+            } case TokenKind::OpRBrace {
+                return create("\x125");
+            } case TokenKind::OpLParen {
+                return create("(");
+            } case TokenKind::OpRParen {
+                return create(")");
+            } case TokenKind::OpLSquare {
+                return create("[");
+            } case TokenKind::OpRSquare {
+                return create("]");
+            } case TokenKind::OpBackslash {
+                return create("\\");
+            } case TokenKind::OpLess {
+                return create("<");
+            } case TokenKind::OpGreater {
+                return create(">");
+            } case TokenKind::OpPlus {
+                return create("+");
+            } case TokenKind::OpMinus {
+                return create("-");
+            } case TokenKind::OpStar {
+                return create("*");
+            } case TokenKind::OpSlash {
+                return create("/");
+            } case TokenKind::OpPercent {
+                return create("%");
+            } case TokenKind::OpCaret {
+                return create("^");
+            } case TokenKind::OpPipe {
+                return create("|");
+            } case TokenKind::OpAmp {
+                return create("&");
+            } case TokenKind::OpCaretCaret {
+                return create("^^");
+            } case TokenKind::OpRange {
+                return create("..");
+            } case TokenKind::OpRangeEqual {
+                return create("..=");
+            } case TokenKind::OpTilde {
+                return create("~");
+            } case TokenKind::OpQuestion {
+                return create("?");
+            } case TokenKind::OpQuestionQuestion {
+                return create("??");
+            } case TokenKind::OpExclaim {
+                return create("!");
+            } case TokenKind::OpAt {
+                return create("@");
+            } case TokenKind::OpEqual {
+                return create("=");
+            } case TokenKind::OpPlusPlus {
+                return create("++");
+            } case TokenKind::OpMinusMinus {
+                return create("--");
+            } case TokenKind::OpSemicolon {
+                return create(";");
+            } case TokenKind::OpColon {
+                return create(":");
+            } case TokenKind::OpArrow {
+                return create("->");
+            } case TokenKind::OpArrowStar {
+                return create("->*");
+            } case TokenKind::OpQuestionArrow {
+                return create("?->");
+            } case TokenKind::OpQuestionArrowStar {
+                return create("?->*");
+            } case TokenKind::OpComma {
+                return create(",");
+            } case TokenKind::OpDot {
+                return create(".");
+            } case TokenKind::OpDotStar {
+                return create(".*");
+            } case TokenKind::OpColonColon {
+                return create("::");
+            } case TokenKind::OpQuestionDot {
+                return create("?.");
+            } case TokenKind::OpQuestionDotStar {
+                return create("?.*");
+            } case TokenKind::OpEllipsis {
+                return create("...");
+            } case TokenKind::OpPlusEqual {
+                return create("+=");
+            } case TokenKind::OpMinusEqual {
+                return create("-=");
+            } case TokenKind::OpStarEqual {
+                return create("*=");
+            } case TokenKind::OpSlashEqual {
+                return create("/=");
+            } case TokenKind::OpPercentEqual {
+                return create("%=");
+            } case TokenKind::OpAmpEqual {
+                return create("&=");
+            } case TokenKind::OpPipeEqual {
+                return create("|=");
+            } case TokenKind::OpCaretEqual {
+                return create("^=");
+            } case TokenKind::OpLessLessEqual {
+                return create("<<=");
+            } case TokenKind::OpGreaterGreaterEqual {
+                return create(">>=");
+            } case TokenKind::OpAtEqual {
+                return create("@=");
+            } case TokenKind::OpLessEqualGreater {
+                return create("<=>");
+            } case TokenKind::OpEqualEqualEqual {
+                return create("===");
+            } case TokenKind::OpEqualEqual {
+                return create("==");
+            } case TokenKind::OpExclaimEqual {
+                return create("!=");
+            } case TokenKind::OpLessLess {
+                return create("<<");
+            } case TokenKind::OpGreaterGreater {
+                return create(">>");
+            } case TokenKind::OpLessEqual {
+                return create("<=");
+            } case TokenKind::OpGreaterEqual {
+                return create(">=");
+            } case TokenKind::OpAmpAmp {
+                return create("&&");
+            } case TokenKind::OpPipePipe {
+                return create("||");
+            } case TokenKind::KwReturn {
+                return create("return");
+            } case TokenKind::KwBreak {
+                return create("break");
+            } case TokenKind::KwContinue {
+                return create("continue");
+            } case TokenKind::KwPanic {
+                return create("panic");
+            } case TokenKind::KwMatch {
+                return create("match");
+            } case TokenKind::KwCase {
+                return create("case");
+            } case TokenKind::KwDefault {
+                return create("default");
+            } case TokenKind::KwCatch {
+                return create("catch");
+            } case TokenKind::KwTry {
+                return create("try");
+            } case TokenKind::KwFinally {
+                return create("finally");
+            } case TokenKind::KwIf {
+                return create("if");
+            } case TokenKind::KwElse {
+                return create("else");
+            } case TokenKind::KwWhile {
+                return create("while");
+            } case TokenKind::KwFor {
+                return create("for");
+            } case TokenKind::KwAssert {
+                return create("assert");
+            } case TokenKind::KwLoop {
+                return create("loop");
+            } case TokenKind::KwVar {
+                return create("var");
+            } case TokenKind::KwConst {
+                return create("const");
+            } case TokenKind::KwFn {
+                return create("fn");
+            } case TokenKind::KwOp {
+                return create("op");
+            } case TokenKind::KwClass {
+                return create("class");
+            } case TokenKind::KwUnion {
+                return create("union");
+            } case TokenKind::KwEnum {
+                return create("enum");
+            } case TokenKind::KwType {
+                return create("type");
+            } case TokenKind::KwStruct {
+                return create("struct");
+            } case TokenKind::KwInterface {
+                return create("interface");
+            } case TokenKind::KwExtend {
+                return create("extend");
+            } case TokenKind::KwModule {
+                return create("module");
+            } case TokenKind::KwTest {
+                return create("test");
+            } case TokenKind::KwMacro {
+                return create("macro");
+            } case TokenKind::KwImport {
+                return create("import");
+            } case TokenKind::KwOverride {
+                return create("override");
+            } case TokenKind::KwFinal {
+                return create("final");
+            } case TokenKind::KwFfi {
+                return create("ffi");
+            } case TokenKind::KwImpl {
+                return create("impl");
+            } case TokenKind::KwDerives {
+                return create("derives");
+            } case TokenKind::KwWhere {
+                return create("where");
+            } case TokenKind::KwRequires {
+                return create("requires");
+            } case TokenKind::KwPub {
+                return create("pub");
+            } case TokenKind::KwPriv {
+                return create("priv");
+            } case TokenKind::KwProt {
+                return create("prot");
+            } case TokenKind::KwEval {
+                return create("eval");
+            } case TokenKind::KwUnsafe {
+                return create("unsafe");
+            } case TokenKind::KwStatic {
+                return create("static");
+            } case TokenKind::KwAsync {
+                return create("async");
+            } case TokenKind::KwInline {
+                return create("inline");
+            } case TokenKind::KwAtomic {
+                return create("atomic");
+            } case TokenKind::KwVolatile {
+                return create("volatile");
+            } case TokenKind::KwVirtual {
+                return create("virtual");
+            } case TokenKind::KwSelf {
+                return create("self");
+            } case TokenKind::KwTrue {
+                return create("true");
+            } case TokenKind::KwFalse {
+                return create("false");
+            } case TokenKind::KwIn {
+                return create("in");
+            } case TokenKind::KwAs {
+                return create("as");
+            } case TokenKind::KwAnd {
+                return create("and");
+            } case TokenKind::KwAndEq {
+                return create("and_eq");
+            } case TokenKind::KwBitand {
+                return create("bitand");
+            } case TokenKind::KwBitor {
+                return create("bitor");
+            } case TokenKind::KwCompl {
+                return create("compl");
+            } case TokenKind::KwNot {
+                return create("not");
+            } case TokenKind::KwNotEq {
+                return create("not_eq");
+            } case TokenKind::KwOr {
+                return create("or");
+            } case TokenKind::KwOrEq {
+                return create("or_eq");
+            } case TokenKind::KwXor {
+                return create("xor");
+            } case TokenKind::KwXorEq {
+                return create("xor_eq");
+            } case TokenKind::AtVoid {
+                return create("void");
+            } case TokenKind::AtBool {
+                return create("bool");
+            } case TokenKind::AtUsize {
+                return create("usize");
+            } case TokenKind::AtIsize {
+                return create("isize");
+            } case TokenKind::AtF16 {
+                return create("f16");
+            } case TokenKind::AtF32 {
+                return create("f32");
+            } case TokenKind::AtF64 {
+                return create("f64");
+            } case TokenKind::AtF80 {
+                return create("f80");
+            } case TokenKind::AtF128 {
+                return create("f128");
+            } case TokenKind::AtF256 {
+                return create("f256");
+            } case TokenKind::AtU8 {
+                return create("u8");
+            } case TokenKind::AtU16 {
+                return create("u16");
+            } case TokenKind::AtU32 {
+                return create("u32");
+            } case TokenKind::AtU64 {
+                return create("u64");
+            } case TokenKind::AtU128 {
+                return create("u128");
+            } case TokenKind::AtU256 {
+                return create("u256");
+            } case TokenKind::AtU512 {
+                return create("u512");
+            } case TokenKind::AtI8 {
+                return create("i8");
+            } case TokenKind::AtI16 {
+                return create("i16");
+            } case TokenKind::AtI32 {
+                return create("i32");
+            } case TokenKind::AtI64 {
+                return create("i64");
+            } case TokenKind::AtI128 {
+                return create("i128");
+            } case TokenKind::AtI256 {
+                return create("i256");
+            } case TokenKind::AtI512 {
+                return create("i512");
+            } case TokenKind::KwAwait {
+                return create("await");
+            } case TokenKind::KwThread {
+                return create("thread");
+            } case TokenKind::KwSpawn {
+                return create("spawn");
+            } case TokenKind::KwDelete {
+                return create("delete");
+            } case TokenKind::KwYield {
+                return create("yield");
+            } case TokenKind::KwSizeOf {
+                return create("sizeof");
+            } case TokenKind::KwAlignOf {
+                return create("alignof");
+            } case TokenKind::KwTypeOf {
+                return create("typeof");
+            } case TokenKind::BiFile {
+                return create("__file__");
+            } case TokenKind::BiLine {
+                return create("__line__");
+            } case TokenKind::BiColumn {
+                return create("__column__");
+            } case TokenKind::BiFunction {
+                return create("__function__");
+            } case TokenKind::BiModule {
+                return create("__module__");
+            } case TokenKind::BiSelf {
+                return create("Self");
+            } case TokenKind::LitInt {
+                if imm_tbl != &null {
+                    var int_data = imm_tbl->get::<Immediate::IntData>(imm);
+                    return create(f"{int_data->value_lo}");
+                }
+
+                return create(sm->get_text(tok_range));
+            } case TokenKind::LitFloat {
+                if imm_tbl != &null {
+                    var float_data = imm_tbl->get::<Immediate::FloatData>(imm);
+                    return create(f"{float_data->value_ieee}");
+                }
+
+                return create(sm->get_text(tok_range));
+            } case TokenKind::LitIdentifier {
+                /// this tis the bit now
+                if imm_tbl != &null {
+                    return create(imm_tbl->get_ident(tok.imm));
+                }
+                
+                return create(f"$FALLBACK-MISSING-INTERN$ {sm->get_text(tok_range)}");
             }
-            return TokenText(sm->get_text(tok_range), tok_range, true, false);
+
+            // maybe???? case TokenKind::LitString
+            // maybe???? case TokenKind::LitChar
+            // maybe???? case TokenKind::AtComment
         }
 
         // identifiers with imm > 0 and below threshold were renamed by the
         // macro hygiene system surface them with their internal unique id
         // so sema sees a stable non-garbled name
-        if (static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::LitIdentifier))
-        && (imm > 0)
-        && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
-            return TokenText(f"__kairo_hyg_{imm}__", tok_range, true, true);
-        }
+        
+        /// **TODO - FIXME**
+        /// \FUCK what to do FIXME....
+        
+        // if (static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::LitIdentifier))
+        // && (imm > 0)
+        // && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
+        //     return TokenText(f"__kairo_hyg_{imm}__", tok_range, true, true);
+        // }
+
 
         // keywords, identifiers, string literals, float literals
         // all have their text directly in the source manager
@@ -344,6 +701,34 @@ class TokenText {
         return self.is_marker;
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /// ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ///
 /// ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢟⣛⣛⣛⣛⡻⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿ ///
