@@ -252,8 +252,8 @@ class <T> ListRewriter {
 // ===========================================================================
 
 class <D> ASTWriter {
-    var ctx:  *ASTContext;
-    var stop: bool = false;
+    pub var ctx:  *ASTContext;
+    pub var stop: bool = false;
 
     fn dyn(self) -> *D {
         return static_cast::<*D>(&self);
@@ -395,7 +395,7 @@ class <D> ASTWriter {
             mc->guard = self.dyn()->transform_expr(mc->guard);
         }
         if mc->body != &null {
-            mc->body = self.dyn()->transform_stmt_scalar(mc->body);
+            mc->body = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(static_cast::<*Stmt>(mc->body)));
         }
         if mc->expression != &null {
             mc->expression = self.dyn()->transform_expr(mc->expression);
@@ -788,15 +788,15 @@ class <D> ASTWriter {
     }
 
     fn transform_closure_expr(self, n: *ClosureExpr) -> *Expr {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
-        self.dyn()->rebuild_decl_list(&(n->params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->params)));
         for var i: usize = 0; i < n->captures.size(); i++ {
             if self.stop { break; }
             var cap = n->captures.get(i);
-            if cap->name != &null { cap->name = self.dyn()->transform_expr(cap->name); }
+            if cap->name != &null { cap->name = cast::<NamedIdentExpr>(self.dyn()->transform_expr(cap->name)); }
         }
         if n->return_type != &null { n->return_type = self.dyn()->transform_type(n->return_type); }
-        if n->body_block  != &null { n->body_block  = self.dyn()->transform_stmt_scalar(n->body_block); }
+        if n->body_block  != &null { n->body_block  = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body_block)); }
         if n->body_expr   != &null { n->body_expr   = self.dyn()->transform_expr(n->body_expr); }
         return n;
     }
@@ -1100,9 +1100,9 @@ class <D> ASTWriter {
     }
 
     fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
-        self.dyn()->rebuild_decl_list(&(n->params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->params)));
         if n->return_type != &null { n->return_type = self.dyn()->transform_type(n->return_type); }
         if n->qualifier   != &null { n->qualifier   = self.dyn()->transform_expr(n->qualifier); }
         if n->body_block  != &null { n->body_block  = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body_block)); }
@@ -1136,19 +1136,19 @@ class <D> ASTWriter {
     }
 
     fn transform_struct_decl(self, n: *StructDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         for var i: usize = 0; i < n->implements.size(); i++ {
             if self.stop { break; }
             self.dyn()->transform_inherit_edge(n->implements.get(i));
         }
-        self.dyn()->rebuild_decl_list(&(n->fields));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->fields)));
         self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
         return self._one_decl(n);
     }
 
     fn transform_class_decl(self, n: *ClassDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         for var i: usize = 0; i < n->derives_list.size(); i++ {
             if self.stop { break; }
@@ -1158,61 +1158,61 @@ class <D> ASTWriter {
             if self.stop { break; }
             self.dyn()->transform_inherit_edge(n->implements.get(i));
         }
-        self.dyn()->rebuild_decl_list(&(n->fields));
-        self.dyn()->rebuild_decl_list(&(n->methods));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->fields)));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->methods)));
         self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
         return self._one_decl(n);
     }
 
     fn transform_interface_decl(self, n: *InterfaceDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         for var i: usize = 0; i < n->derives_list.size(); i++ {
             if self.stop { break; }
             self.dyn()->transform_inherit_edge(n->derives_list.get(i));
         }
-        self.dyn()->rebuild_decl_list(&(n->methods));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->methods)));
         self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
         return self._one_decl(n);
     }
 
     fn transform_extension_decl(self, n: *ExtensionDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         if n->target != &null { n->target = self.dyn()->transform_type(n->target); }
         for var i: usize = 0; i < n->implements.size(); i++ {
             if self.stop { break; }
             self.dyn()->transform_inherit_edge(n->implements.get(i));
         }
-        self.dyn()->rebuild_decl_list(&(n->methods));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->methods)));
         self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
         return self._one_decl(n);
     }
 
     fn transform_enum_decl(self, n: *EnumDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         if n->underlying != &null { n->underlying = self.dyn()->transform_type(n->underlying); }
-        self.dyn()->rebuild_decl_list(&(n->variants));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->variants)));
         return self._one_decl(n);
     }
 
     fn transform_enum_variant_decl(self, n: *EnumVariantDecl) -> vec::<*Decl> {
         if n->discriminant != &null { n->discriminant = self.dyn()->transform_expr(n->discriminant); }
-        self.dyn()->rebuild_decl_list(&(n->payload));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->payload)));
         return self._one_decl(n);
     }
 
     fn transform_union_decl(self, n: *UnionDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
-        self.dyn()->rebuild_decl_list(&(n->fields));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->fields)));
         self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
         return self._one_decl(n);
     }
 
     fn transform_type_alias_decl(self, n: *TypeAliasDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->generic_params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         if n->aliased != &null { n->aliased = self.dyn()->transform_type(n->aliased); }
         return self._one_decl(n);
@@ -1253,7 +1253,7 @@ class <D> ASTWriter {
     }
 
     fn transform_procedure_macro_decl(self, n: *ProcedureMacroDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_decl_list(&(n->params));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->params)));
         if n->body != &null { n->body = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(n->body)); }
         return self._one_decl(n);
     }
