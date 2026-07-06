@@ -1767,7 +1767,7 @@ class PreProcessor {
                     auto* tokens = captured_self->_tcm->get_tokens(captured_fid);
                     if (!tokens) return;
 
-                    auto* lexer_ptr = captured_self->_tcm->get_lexer(captured_fid);
+                    auto* lexer_ptr = captured_self->_tcm->get_lexer_for_fid(captured_fid);
                     auto* imm_ptr   = lexer_ptr->get_imm_tbl();
 
                     MacroExpander expander(

@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------------- Parser/ASTParse.k --- ///
+/// --- The Kairo Project ------------------- Compiler/Parser/ASTParse.k ----- ///
 ///
 ///   Main parser class. Derives the five sub-parser mixins and owns all
 ///   parser state: token cursor, scope stack, recovery state, completion
@@ -814,9 +814,7 @@ class ASTParse
                 self.advance(); // consume identifier
 
                 var end_range = name_tok.range;
-                inline "c++" {
-                    FrozenList<Expr*> frozen = FrozenList<Expr*>::empty();
-                }
+                var frozen = create_empty_frozen_list::<*Expr>();
 
                 if self.check(TokenKind::OpLParen) {
                     var lparen = self.current_ptr()->range;

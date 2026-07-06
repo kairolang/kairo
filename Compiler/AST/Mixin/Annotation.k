@@ -112,9 +112,7 @@ class AnnotationEntry {
         self.kind  = k;
         self.name  = n;
         self.range = r;
-        inline "c++" {
-            this->args  = FrozenList<void*>::empty();
-        }
+        self.args = create_empty_frozen_list::<*void>();
     }
 }
 

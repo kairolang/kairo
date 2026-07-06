@@ -199,6 +199,12 @@ class <T> FrozenList {
     }
 }
 
+fn <T> create_empty_frozen_list() -> FrozenList::<T> {
+    inline "c++" {
+        return FrozenList<T>::empty();
+    }
+}
+
 class TokenText {
     pub var text:      string;
     pub var range:     SourceRange;
