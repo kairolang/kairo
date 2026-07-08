@@ -4995,12 +4995,12 @@ fn Test() -> i32 {
         return "pass";
     }, 10);
 
-    // PINNING TEST — byte strings are NOT implemented in this lexer version.
+    // PINNING TEST byte strings are NOT implemented in this lexer version.
     // The prefix switch has no 'b'/'B' cases and no PFX_BYTES const, so
     // b"..." lexes as identifier 'b' followed by an ordinary string, and the
     // is_byte machinery in is_valid_escape (S029E etc.) is unreachable dead
     // wiring. This test pins that behavior: when byte strings land, it will
-    // fail here — at that point restore the real assertion (S029E on \u in a
+    // fail here at that point restore the real assertion (S029E on \u in a
     // byte string) and wire TextCtx.is_bytes -> is_valid_escape properly
     // (note: the call site currently passes ctx.is_raw as is_byte).
     suite.equal::<string>("byte string prefix not yet implemented (pin)", "pass", fn () -> string {
@@ -5170,7 +5170,7 @@ fn Test() -> i32 {
     //
     // The suite above measures COLD lexes: tiny inputs, fresh lexer each time,
     // dominated by setup. This measures steady-state throughput on a big
-    // buffer — run 1 pays for page faults and allocator growth, run 2 is the
+    // buffer run 1 pays for page faults and allocator growth, run 2 is the
     // hot number (warm pages, warmed interner buckets, trained branch
     // predictors). The gap between the two is the warmup cost.
     //

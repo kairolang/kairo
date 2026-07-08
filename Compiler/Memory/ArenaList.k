@@ -262,7 +262,7 @@ class <T> ArenaList {
     fn empty(self) -> bool  { return self._total == 0; }
 
     fn clear(self) {
-        // chunk storage is allocated lazily on first push — clear() on a
+        // chunk storage is allocated lazily on first push clear() on a
         // never-pushed list must be a no-op, not a null write to _chunks[0].
         if (self._chunks == &null) || (self._chunk_count == 0) {
             self._total = 0;

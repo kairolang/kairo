@@ -114,7 +114,7 @@ class ThreadPool {
             for (size_t i = 0; i < _count; ++i) {
                 pthread_attr_t attr;
                 pthread_attr_init(&attr);
-                pthread_attr_setstacksize(&attr, 64UL * 1024 * 1024);
+                pthread_attr_setstacksize(&attr, 1024 * 1024);
                 pthread_t tid;
                 auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
                 pthread_create(&tid, &attr, [](void* raw) -> void* {
@@ -131,7 +131,7 @@ class ThreadPool {
             inline "c++" {
             for (size_t i = 0; i < _count; ++i) {
                 auto* arg = new libcxx::pair<ThreadPool*, size_t>(this, i);
-                    HANDLE h = CreateThread(nullptr, 64UL * 1024 * 1024,
+                    HANDLE h = CreateThread(nullptr, 1024 * 1024,
                         [](LPVOID raw) -> DWORD {
                             auto* p = static_cast<libcxx::pair<ThreadPool*, size_t>*>(raw);
                             p->first->worker_loop(p->second);
