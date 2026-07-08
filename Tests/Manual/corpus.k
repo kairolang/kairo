@@ -153,6 +153,7 @@ eval { const LIMIT: i32 = 64 }
 eval for var i in 0..4 { unroll(i) }
 
 macro twice!(x) { x x }
+macro square!(x) { x * x }
 
 macro @route(node: *ast::FnDecl, path: string) {
     node->annotations->push(make_route(path))
@@ -173,3 +174,5 @@ pub return 1                           // err: visibility on a statement
 class Bad { pub { priv var z: i32 } }  // err: explicit vis inside group
 macro @noret(n: *ast::Decl) -> i32 { } // err: attr macro return type
 fn f(<i32>) {}                         // err: junk, recovery shouldn't cascade
+
+var unique_id!(this) = (square!(20)) // should be valid
