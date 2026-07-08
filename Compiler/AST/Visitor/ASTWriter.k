@@ -57,6 +57,7 @@ import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
 import Memory::ArenaList::*;
 import AST::Context::TranslationUnit::*;
+import AST::Node::Program::*;
 
 // ===========================================================================
 //  List infrastructure
@@ -1333,10 +1334,41 @@ class <D> ASTWriter {
     /// the Program; rebuild it (splice-aware) and the imports/attrs lists.
     fn run(self, tu: *TranslationUnit) {
         if tu->program != &null {
-            self.dyn()->rebuild_decl_list(&(tu->program->items));
+            self.dyn()->rebuild_toplevel_items(&(tu->program->items));
         }
         // imports / tu_attrs are ArenaList<*Decl>; rebuild via dc-style walk
         // only if a pass needs to touch them. Most don't, so left as-is here.
+    }
+
+    /// Program::items is a live ArenaList of heterogeneous TopLevelItems
+    /// (decl/stmt/expr). Rebuild it in place, dispatching each item to the
+    /// matching family transform and re-wrapping the (splice-aware) results.
+    fn rebuild_toplevel_items(self, items: *ArenaList::<TopLevelItem>) {
+        var buf = ArenaList::<TopLevelItem>();
+        buf.set_allocator(&(self.ctx->nodes));
+        for var i: usize = 0; i < items->size(); i++ {
+            var item = *(items->get(i));
+            if self.stop { buf.push(item); continue; }
+            switch item.kind {
+                case TopLevelKind::Decl {
+                    var results = self.dyn()->transform_decl(item.as_decl());
+                    for var j: usize = 0; j < results.size(); j++ {
+                        buf.push(TopLevelItem::from_decl(results[j]));
+                    }
+                }
+                case TopLevelKind::Stmt {
+                    var results = self.dyn()->transform_stmt(item.as_stmt());
+                    for var j: usize = 0; j < results.size(); j++ {
+                        buf.push(TopLevelItem::from_stmt(results[j]));
+                    }
+                }
+                case TopLevelKind::Expr {
+                    var r = self.dyn()->transform_expr(item.as_expr());
+                    if r != &null { buf.push(TopLevelItem::from_expr(r)); }
+                }
+            }
+        }
+        (*items) = buf;
     }
 
     /// Transform a single subtree of any family. Useful for targeted rewrites

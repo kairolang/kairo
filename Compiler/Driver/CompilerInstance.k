@@ -118,6 +118,7 @@ import Parser::ASTParse::*;
 import AST::Context::GlobalHoistedScope::*;
 import AST::Printer::ASTPrinter::*;
 import Token::TokenPrinter::*;
+import Sema::NullableTypeLowering::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -965,6 +966,17 @@ fn FrontendAction::_parse() -> bool {
         delete[] done;
     }
 
+    // NullableTypeLowering: lower T? -> std::Nullable<T> per fid
+    for fid in fids {
+        var lower_ctx = self._global_scope->get_context(fid);
+        if lower_ctx == &null { continue; }
+        var lower_tu = reinterpret_cast::<*TranslationUnit>(lower_ctx->tu);
+        if lower_tu == &null { continue; }
+        var pass = NullableTypeLowering{};
+        pass.ctx = lower_ctx;
+        pass.run(lower_tu);
+    }
+
     // --- print-ast / mem stats: unchanged -----------------------------------
     var ast_mode = self._ci->invocation().frontend.print_ast;
     if !ast_mode.empty() {
@@ -992,6 +1004,12 @@ fn FrontendAction::_parse() -> bool {
             return self._fatal(f"parse failed for fid {self._file_id}");
         }
         ASTPrinter::print(tu, opts);
+    }
+
+    // dump the hoisted scope as well
+    if !ast_mode.empty() {
+        std::print(f"-- hoisted scope: {self.path.full_path()} --");
+        self._global_scope->dump();
     }
 
     self._dump_mem_stats();
@@ -1030,7 +1048,7 @@ fn FrontendAction::_dump_tokens() {
         return;
     }
 
-    var lexer_ptr = self._ci->tcm()->get_lexer(self._file_id);
+    var lexer_ptr = self._ci->tcm()->get_lexer_for_fid(self._file_id);
     var imm_tbl   = (lexer_ptr->get_imm_tbl()) if (lexer_ptr != &null) else (&null);
 
     var printer = TokenPrinter(
