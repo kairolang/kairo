@@ -15,6 +15,7 @@ import Location::SourceRange::*;
 import Location::SourceManager::*;
 import Token::TokenBuffer::*;
 import Memory::ArenaList::*;
+import Support::EvalHash::*;
 
 /// TODO: change suffixes to Tokens itself rather then SourceRange since we
 ///       don't want to reparse and a Token is smaller (32 bytes vs 64 bytes)
@@ -1240,6 +1241,9 @@ class ImmediateTable {
     var string_literals:   own::<ArenaList::<Immediate::StringData>>;
     var macro_expansions:  own::<ArenaList::<Immediate::MacroExpansionInfo>>;
     var ident_descs:       own::<ArenaList::<Immediate::IdentData>>;   ///< idx -> (offset,len) into ident_blob
+    var synth_names:       own::<ArenaList::<nstring>>;                ///< owned bytes for synthesized identifiers
+                                                                       ///  (no backing source buffer); ArenaList
+                                                                       ///  never moves, so raw() ptrs stay stable.
     var ident_buckets:     vec::<Immediate::InternBucket>;             ///< open-addressed (hash -> idx) table
     var ident_mask:        u32 = 0;                                    ///< bucket capacity - 1 (power of two); 0 = uninitialized
     var ident_live:        u32 = 0;                                    ///< number of occupied buckets (load factor)
@@ -1254,6 +1258,7 @@ class ImmediateTable {
         self.string_literals  = std::create::<ArenaList::<Immediate::StringData>>(64);
         self.macro_expansions = std::create::<ArenaList::<Immediate::MacroExpansionInfo>>(64);
         self.ident_descs      = std::create::<ArenaList::<Immediate::IdentData>>(256);
+        self.synth_names      = std::create::<ArenaList::<nstring>>(64);
         Logger::debug(Logger::Stage::Lexer, "ImmediateTable::initialize: initialized with source manager at {sm}");
     }
 
@@ -1264,6 +1269,7 @@ class ImmediateTable {
         self.string_literals->clear();
         self.macro_expansions->clear();
         self.ident_descs->clear();
+        if self.synth_names != &null { self.synth_names->clear(); }
         self.ident_buckets.clear();
         self.ident_mask = 0;
         self.ident_live = 0;
@@ -1441,6 +1447,27 @@ class ImmediateTable {
             reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->ptr),
             static_cast::<usize>(d->len)
         );
+    }
+
+    /// \brief interns an identifier spelling that has no backing source buffer.
+    ///
+    /// \details copies the bytes into table-owned storage (\c synth_names),
+    ///          then interns through the normal path so synthesized and lexed
+    ///          spellings of the same identifier collapse to one index.
+    ///          Use for compiler-synthesized identifiers: PP builtins
+    ///          (unique_id!), gensym, sema-generated names.
+    ///
+    /// \note hashing matches the lexer's incremental hash (compute_hash), so
+    ///       a synthesized `foo` and a lexed `foo` intern to the same slot.
+    fn intern_ident_copy(self, s: string) -> u32 {
+        if self.synth_names == &null {
+            self.synth_names = std::create::<ArenaList::<nstring>>(64);
+        }
+        var stored = self.synth_names->push(std::string_to_nstring(s));
+        var r = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
+        var l = stored->size();
+        var h = compute_hash(r, l);
+        return self.intern_ident(r, l, h);
     }
 
     fn ident_bytes(self, idx: u32) -> std::ConstPtr::<u8> {
