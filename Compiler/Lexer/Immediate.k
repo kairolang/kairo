@@ -1263,13 +1263,15 @@ class ImmediateTable {
     }
 
     fn reset(self) {
-        self.int_literals->clear();
-        self.float_literals->clear();
-        self.char_literals->clear();
-        self.string_literals->clear();
-        self.macro_expansions->clear();
-        self.ident_descs->clear();
-        if self.synth_names != &null { self.synth_names->clear(); }
+        // reset() may run before initialize() (e.g. a lexer reset before its
+        // first lex)   every list is null until then. guard all of them.
+        if self.int_literals     != &null { self.int_literals->clear();     }
+        if self.float_literals   != &null { self.float_literals->clear();   }
+        if self.char_literals    != &null { self.char_literals->clear();    }
+        if self.string_literals  != &null { self.string_literals->clear();  }
+        if self.macro_expansions != &null { self.macro_expansions->clear(); }
+        if self.ident_descs      != &null { self.ident_descs->clear();      }
+        if self.synth_names      != &null { self.synth_names->clear();      }
         self.ident_buckets.clear();
         self.ident_mask = 0;
         self.ident_live = 0;
