@@ -85,7 +85,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     /// Resolve a token to its real source spelling. THE fix for the
     /// "identifier" corruption  always source text, never a kind word.
     fn tok(self, t: Token) -> string {
-        return TokenText::from_token(t, self.ctx).get_text();
+        return self.ctx->get_spelling(t);
     }
 
     /// Resolve an interned string. Falls back when the hoisted scope is not
@@ -279,10 +279,10 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if e == &null    { self.p.paint(Color::Error, "<error>"); return; }
         if e->is_error() { self.p.paint(Color::Error, "<error>"); return; }
 
-        if isa::<IntegerLiteralExpr>(e)   { self.p.paint(Color::Literal, cast::<IntegerLiteralExpr>(e)->get_text());   return; }
-        if isa::<FloatingLiteralExpr>(e)  { self.p.paint(Color::Literal, cast::<FloatingLiteralExpr>(e)->get_text());  return; }
-        if isa::<StringLiteralExpr>(e)    { self.p.paint(Color::Literal, cast::<StringLiteralExpr>(e)->get_text());    return; }
-        if isa::<CharacterLiteralExpr>(e) { self.p.paint(Color::Literal, cast::<CharacterLiteralExpr>(e)->get_text()); return; }
+        if isa::<IntegerLiteralExpr>(e)   { self.p.paint(Color::Literal, cast::<IntegerLiteralExpr>(e)->get_spelling());   return; }
+        if isa::<FloatingLiteralExpr>(e)  { self.p.paint(Color::Literal, cast::<FloatingLiteralExpr>(e)->get_spelling());  return; }
+        if isa::<StringLiteralExpr>(e)    { self.p.paint(Color::Literal, cast::<StringLiteralExpr>(e)->get_spelling());    return; }
+        if isa::<CharacterLiteralExpr>(e) { self.p.paint(Color::Literal, cast::<CharacterLiteralExpr>(e)->get_spelling()); return; }
         if isa::<BooleanLiteralExpr>(e)   { self.p.paint(Color::Literal, (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false"))); return; }
         if isa::<NullLiteralExpr>(e)      { self.p.paint(Color::Literal, (("&null") if (cast::<NullLiteralExpr>(e)->is_ref) else ("null"))); return; }
         if isa::<NamedIdentExpr>(e)       { self._e_ident(cast::<NamedIdentExpr>(e));      return; }
@@ -943,19 +943,19 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Punct, " { ... }");
     }
 
-    fn _inline_lang(self, lang: InlineLang) -> string {
-        if lang == InlineLang::Asm    { return "asm";  }
-        if lang == InlineLang::C      { return "c";    }
-        if lang == InlineLang::Cpp    { return "c++";  }
-        if lang == InlineLang::Cuda   { return "cuda"; }
-        if lang == InlineLang::Hip    { return "hip";  }
-        if lang == InlineLang::OpenCL { return "opencl"; }
-        if lang == InlineLang::Hlsl   { return "hlsl"; }
-        if lang == InlineLang::Metal  { return "metal"; }
-        if lang == InlineLang::SpirV  { return "spirv"; }
-        if lang == InlineLang::Wgsl   { return "wgsl"; }
-        if lang == InlineLang::Glsl   { return "glsl"; }
-        if lang == InlineLang::Kairo  { return "kairo"; }
+    fn _inline_lang(self, lang: FFILang) -> string {
+        if lang == FFILang::Asm    { return "asm";  }
+        if lang == FFILang::C      { return "c";    }
+        if lang == FFILang::Cpp    { return "c++";  }
+        if lang == FFILang::Cuda   { return "cuda"; }
+        if lang == FFILang::Hip    { return "hip";  }
+        if lang == FFILang::OpenCL { return "opencl"; }
+        if lang == FFILang::Hlsl   { return "hlsl"; }
+        if lang == FFILang::Metal  { return "metal"; }
+        if lang == FFILang::SpirV  { return "spirv"; }
+        if lang == FFILang::Wgsl   { return "wgsl"; }
+        if lang == FFILang::Glsl   { return "glsl"; }
+        if lang == FFILang::Kairo  { return "kairo"; }
         return "c++";
     }
 

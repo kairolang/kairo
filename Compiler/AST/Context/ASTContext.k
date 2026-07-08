@@ -26,6 +26,7 @@ import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Diagnostic::BufferedDiagSink::*;
 import Support::InternedStr::*;
+import Token::TokenText::*;
 
 /// \brief Forward declaration required by ASTContext.
 ///
@@ -148,6 +149,43 @@ class ASTContext {
     fn reset_for_reparse(self) {
         self.nodes.reset_fast();
         self.hoisted = &null;
+    }
+
+    fn make_token(self, range: SourceRange, kind: TokenKind, s: string) -> Token {
+        var lexer = self.tcm->get_lexer_for_fid(self.fid);
+        var tok = Token();
+        tok = kind;
+        tok = range;
+        // token = lexer->intern_ident(s_p, length, h);
+        // fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32
+        var str = self.strings.alloc_init::<nstring>(std::string_to_nstring(s));
+        if str == &null {
+            self.diags->report(DiagID::I002F, range.start,
+                f"internal error: ASTContext::make_token failed to allocate string for token \x27{s}\x27"
+            ).first(range).emit();
+            return Token();
+        }
+        var r   = reinterpret_cast::<std::ConstPtr::<u8>>(str->raw());
+        var l   = str->size();
+        var h   = compute_hash(r, l);
+        tok.imm = lexer->intern_ident(r, l, h);
+        return tok;
+    }
+
+    fn get_token_text(self, tok: Token) -> TokenText {
+        return TokenText::resolve(tok, self.sm, self.get_imm_table());
+    }
+
+    fn get_token_text(self, rng: SourceRange) -> TokenText {
+        return TokenText::from_range(rng, self.sm);
+    }
+
+    fn get_spelling(self, tok: Token) -> string {
+        return self.get_token_text(tok).get_text();
+    }
+
+    fn get_spelling(self, rng: SourceRange) -> string {
+        return self.get_token_text(rng).get_text();
     }
 }
 

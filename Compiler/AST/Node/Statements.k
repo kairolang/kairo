@@ -97,7 +97,8 @@ enum DestructureKind derives u8 {
 ///
 ///  Foreign-block language for InlineBlockStmt.
 ///
-enum InlineLang derives u8 {
+enum FFILang derives u8 {
+    None,   ///< wrong language; parser error.
     Asm,    ///< inline "asm" { }
     C,      ///< inline "c"   { }
     Cpp,    ///< inline "c++" { }
@@ -1014,10 +1015,10 @@ class DestructuringDeclStmt derives Stmt {
 ///  foreign backend unmodified; `body_span` covers the raw inner text.
 ///
 class InlineBlockStmt derives Stmt {
-    pub var lang:      InlineLang;
+    pub var lang:      FFILang;
     pub var body_span: SourceRange; ///< raw inner body, excluding braces.
 
-    static fn create(ctx: *ASTContext, range: SourceRange, lang: InlineLang, body_span: SourceRange) -> *InlineBlockStmt {
+    static fn create(ctx: *ASTContext, range: SourceRange, lang: FFILang, body_span: SourceRange) -> *InlineBlockStmt {
         var node       = ctx->alloc::<InlineBlockStmt>();
         node->kind      = StmtKind::InlineBlockStmt;
         node->range     = range;

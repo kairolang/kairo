@@ -88,7 +88,7 @@ class <T> PatternParse {
 
         // -- wildcard `_` (identifier whose text is exactly "_") -------------
         if (k == TokenKind::LitIdentifier)
-        && (TokenText::from_token(*cur_ptr, dyn()->ctx).text == "_") {
+        && (dyn()->ctx->get_spelling(*cur_ptr) == "_") {
             dyn()->advance();
             return static_cast::<*Pattern>(WildcardPattern::create(dyn()->ctx, start));
         }
@@ -458,8 +458,8 @@ class <T> PatternParse {
 
         if lead == &null { return false; }
 
-        var name_text = TokenText::from_token(lead->name, dyn()->ctx);
-        return dyn()->ctx->hoisted->lookup(name_text.text).found();
+        var spelling = dyn()->ctx->get_spelling(lead->name);
+        return dyn()->ctx->hoisted->lookup(spelling).found();
     }
 
     // ========================================================================

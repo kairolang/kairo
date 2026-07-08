@@ -74,10 +74,6 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
         return self._kv_s[fid]->tokens();
     }
 
-    fn get_text(self, tok: Token) -> string {
-        return self._sm->get_text(tok.range);
-    }
-
     fn get_lexer_for_fid(self, fid: u32) -> *Lexer {
         var rlock = std::SharedLock(self._lex_mu);
 

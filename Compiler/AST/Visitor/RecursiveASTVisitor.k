@@ -16,12 +16,12 @@
 ///   traverse returns the (possibly rewritten) node; parent rebinds the slot.
 ///   Read-only pass: returns same ptr (free). 1:1 desugar: returns new node.
 ///
-///   Node-count-changing rewrites do NOT belong here -> use TreeTransform.
+///   Node-count-changing rewrites do NOT belong here -> use ASTWriter.
 ///   Child-rewrite rules:
 ///     scalar child   : n->f = dispatch_F(n->f)          -- read or rewrite, OK
 ///     nullable scalar : if n->f != &null { n->f = ... } -- same
 ///     list child     : walk read-only, DISCARD return   -- never write a slot
-///                       any list rewrite -> TreeTransform, not RAV
+///                       any list rewrite -> ASTWriter, not RAV
 ///
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
@@ -356,7 +356,7 @@ class <D> RecursiveASTVisitor {
     // == SHARED CHILD-WALK HELPERS =========================================
     // CompoundStmt-typed scalar child: rebind through the block. dispatch
     // routes to traverse_compound_stmt; a RAV pass preserves block-ness
-    // (node-count rewrites belong in TreeTransform), so the downcast is sound.
+    // (node-count rewrites belong in ASTWriter), so the downcast is sound.
     // null-safe for optional bodies (expr-bodied fn, bare default, etc.).
     fn traverse_block(self, b: *CompoundStmt) -> *CompoundStmt {
         if b == &null { return b; }
@@ -647,7 +647,7 @@ class <D> RecursiveASTVisitor {
     fn traverse_try_catch_expr(self, n: *TryCatchExpr) -> *TryCatchExpr {
         // NOTE: arm->filter / arm->body are frozen-list element fields, walked
         // read-only, returns discarded. Catch-filter type rewrites are NOT
-        // possible via RAV (Option B); use TreeTransform if a pass needs that.
+        // possible via RAV (Option B); use ASTWriter if a pass needs that.
         if self.dyn()->walkup_try_catch_expr(n) == false { return n; }
         if n->try_expr != &null { n->try_expr = self.dyn()->dispatch_expr(n->try_expr); }
         for var i: usize = 0; i < n->catch_arms.size(); i++ {

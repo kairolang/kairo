@@ -210,6 +210,7 @@ enum TokenKind derives u32 {
     KwAtomic     = compute_hash::<r"atomic">(),    // "atomic"
     KwVolatile   = compute_hash::<r"volatile">(),  // "volatile"
     KwVirtual    = compute_hash::<r"virtual">(),   // "virtual"
+    KwMutable    = compute_hash::<r"mutable">(),   // "mutable"
 
     /// Special identifiers
     KwSelf       = compute_hash::<r"self">(),      // "self"
@@ -315,7 +316,7 @@ fn is_valid_token_kind(kind: u32) -> bool {
         case TokenKind::OpArrowStar:        case TokenKind::OpQuestionArrow:
         case TokenKind::OpSemicolon:        case TokenKind::OpComma:
         case TokenKind::OpDotStar:          case TokenKind::OpColonColon:
-        case TokenKind::OpQuestionDotStar:
+        case TokenKind::OpQuestionDotStar:  case TokenKind::KwMutable:
         case TokenKind::OpEllipsis:         case TokenKind::OpPlusEqual:
         case TokenKind::OpStarEqual:        case TokenKind::OpSlashEqual:
         case TokenKind::OpAmpEqual:         case TokenKind::OpPipeEqual:
@@ -581,6 +582,7 @@ fn token_kind_to_string(kind: TokenKind) -> string {
         case TokenKind::BiModule {              return "bi-module"; }
         case TokenKind::KwVolatile {            return "kw-volatile"; }
         case TokenKind::KwVirtual {             return "kw-virtual"; }
+        case TokenKind::KwMutable {             return "kw-mutable"; }
     }
 
     return "tk-unknown";
@@ -937,7 +939,7 @@ fn is_builtin(kind: TokenKind) -> bool {
         case TokenKind::BiFunction:
         case TokenKind::BiModule:
         case TokenKind::BiSelf:       case TokenKind::KwVirtual:
-        case TokenKind::KwVolatile:
+        case TokenKind::KwVolatile:   case TokenKind::KwMutable:
             return true;
         default:
             return false;

@@ -15,6 +15,7 @@ import Location::SourceManager::*;
 import Token::TokenBuffer::*;
 import Lexer::Immediate::*;
 import Macro::Sentinel::*;
+import Token::TokenText::*;
 
 /// \brief ANSI SGR escape sequences. all empty-stringed when color is disabled.
 class Sgr {
@@ -214,7 +215,7 @@ class TokenPrinter {
 
         line += " ";
         line += kind_color;
-        line += f"'{self._spelling(kind, imm, tok_range)}\x27";
+        line += f"'{TokenText::resolve(tok, self._sm, self._imm_tbl)}'";
         line += s.reset;
         line += " ";
         line += self._fmt_range(tok->range);
@@ -264,22 +265,6 @@ class TokenPrinter {
         if is_punctuator(kind)               { return s.opr;     }
 
         return s.kind; // fallback
-    }
-
-    /// \brief computes the spelled text for a token, mirroring _dump_tokens
-    ///        but without inlining imm fields (those go to the detail line).
-    priv fn _spelling(self, kind: TokenKind, imm: u32, range: SourceRange) -> string {
-        if kind == TokenKind::TkNewLine { return "\\n";    }
-        if kind == TokenKind::TkEof     { return "<eof>";  }
-
-        // unique-renamed identifier (hygiene)
-        if (kind == TokenKind::LitIdentifier)
-        && (imm > 0)
-        && (imm < static_cast::<u32>(MacroSentinel::Threshold)) {
-            return f"__unique_{imm}";
-        }
-
-        return self._sm->get_text(range);
     }
 
     priv fn _sentinel_text(self, imm: u32) -> string {

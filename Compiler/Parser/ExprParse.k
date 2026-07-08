@@ -1024,8 +1024,8 @@ class <T> ExprParse {
         // also check hoisted scope for disambiguation of foo::Bar<T>
         if dyn()->check(TokenKind::OpLess) {
             if result.access_kind == ChainExpr::AccessKind::ColonColon {
-                var name_text = TokenText::from_token(*id_ptr, dyn()->ctx);
-                if self._is_generic_name(name_text.text) {
+                var spelling = dyn()->ctx->get_spelling(*id_ptr);
+                if self._is_generic_name(spelling) {
                     var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                     dyn()->_parse_generic_args(&generic_args);
                     if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
@@ -1623,10 +1623,10 @@ class <T> ExprParse {
         // check for generic args: Foo<T>
         // only if `<` follows AND hoisted scope says this name is generic
         if dyn()->check(TokenKind::OpLess) {
-            var name_text = TokenText::from_token(id_tok, dyn()->ctx);
+            var spelling = dyn()->ctx->get_spelling(*id_ptr);
 
             
-            if self._is_generic_name(name_text.text) {
+            if self._is_generic_name(spelling) {
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 dyn()->_parse_generic_args(&generic_args);
                 if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
@@ -1709,8 +1709,8 @@ class <T> ExprParse {
 
         // check for generic args on first segment
         if dyn()->check(TokenKind::OpLess) {
-            var name_text = TokenText::from_token(*id_ptr, dyn()->ctx);
-            if self._is_generic_name(name_text.text) {
+            var spelling = dyn()->ctx->get_spelling(*id_ptr);
+            if self._is_generic_name(spelling) {
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 dyn()->_parse_generic_args(&generic_args);
                 if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }

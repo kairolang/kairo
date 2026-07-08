@@ -25,6 +25,7 @@ import AST::Node::Base::*;
 import AST::Node::Program::*;
 import Token::TokenSpan::*;
 import Token::Token::*;
+import Token::TokenText::*;
 import Diagnostic::Engine::*;
 
 import Parser::LexicalScope::*;
@@ -360,8 +361,8 @@ class ASTParse
                 continue; // fns/vars: no trie children; ScopeStack covers bodies
             }
 
-            var text  = TokenText::from_token(name_tok, self.ctx);
-            var child = node->get_child(self.ctx->hoisted->intern(text.text));
+            var spelling = self.ctx->get_spelling(name_tok);
+            var child    = node->get_child(self.ctx->hoisted->intern(spelling));
             if child == &null { continue; }
 
             child_dc->set_scope(child);
@@ -503,32 +504,27 @@ class ASTParse
     ///          chain to find the original source token kind.
     ///
     /// \return a token copy with the resolved kind and imm, but the original range.
+    ///
+    /// \details mechanism lives in Token::TokenText::unwrap_expansion; this
+    ///          wrapper owns the parser policy: emit I002F on a truncated
+    ///          chain and degrade to TkUnknown.
     inline pub fn resolve_deep(self, tok: *Token) -> Token {
-        var kind = tok->kind;
-        var imm  = tok->imm;
-        var iter: u32 = 0;
+        var u = unwrap_expansion(*tok, self.imm, self.ctx->ci->pp.max_depth);
 
-        while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
-            if (iter) >= (self.ctx->ci->pp.max_depth) {
-                self.diag->report(DiagID::I002F, tok->range.start,
-                    "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
-                ).first(tok->range)
-                 .note(DiagID::S063N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
-                 .emit();
-                return Token(tok->range, TokenKind::TkUnknown, 0);
-            }
-
-            if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
-                return Token(tok->range, TokenKind::TkMacroExpand, imm);
-            }
-
-            var info = self.imm->get::<Immediate::MacroExpansionInfo>(imm);
-            kind     = info->original_kind;
-            imm      = info->original_imm;
-            iter    += 1;
+        if u.hit_limit {
+            self.diag->report(DiagID::I002F, tok->range.start,
+                "excessive iterations during token kind resolution, aborting to prevent infinite loop"
+            ).first(tok->range)
+             .note(DiagID::S063N, tok->range.start, f"token kind resolution chain truncated after {u.depth} levels")
+             .emit();
+            return Token(tok->range, TokenKind::TkUnknown, 0);
         }
 
-        return Token(tok->range, kind, imm);
+        if u.is_sentinel {
+            return Token(tok->range, TokenKind::TkMacroExpand, u.imm);
+        }
+
+        return Token(tok->range, u.kind, u.imm);
     }
 
     /// \brief shorthand for `resolve_deep(tok).kind`.
@@ -542,20 +538,14 @@ class ASTParse
             return TokenKind::TkUnknown;
         }
 
-        if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) {
-            return tok->kind;
-        }
-
-        if tok->imm >= static_cast::<u32>(MacroSentinel::Threshold) {
-            return TokenKind::TkMacroExpand;
-        }
-
-        if self.imm == &null {
+        // wrapped non-sentinel token with no table: nothing to resolve with
+        if (static_cast::<u32>(tok->kind) == static_cast::<u32>(TokenKind::TkMacroExpand))
+        && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
+        && (self.imm == &null) {
             return TokenKind::TkUnknown;
         }
 
-        var info = self.imm->get::<Immediate::MacroExpansionInfo>(tok->imm);
-        return info->original_kind;
+        return unwrap_expansion(*tok, self.imm, 1).kind;
     }
 
     /// \brief fully resolves a token and automatically skips `AtComment` tokens.
@@ -808,9 +798,9 @@ class ASTParse
                     continue; // `@` consumed; forward progress made
                 }
 
-                var name_tok  = self.current();
-                var name_text = TokenText::from_token(name_tok, self.ctx);
-                var name      = self.ctx->hoisted->intern(name_text.text);
+                var name_tok = self.current();
+                var spelling = self.ctx->get_spelling(name_tok);
+                var name     = self.ctx->hoisted->intern(spelling);
                 self.advance(); // consume identifier
 
                 var end_range = name_tok.range;

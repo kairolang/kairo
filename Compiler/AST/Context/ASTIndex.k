@@ -45,6 +45,7 @@ import AST::Node::Base::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Context::ASTContext::*;
 import AST::Node::Program::*;
+import Token::TokenText::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 
@@ -912,42 +913,34 @@ class ASTIndex {
 
     inline priv fn get_text(self, tok: *Token) -> TokenText {
         if tok == &null {
-            return TokenText("", tok->range, false, false);
+            // note: was `tok->range` — null deref waiting to fire
+            return TokenText("", SourceRange::invalid(), false, false);
         }
 
-        return TokenText::resolve_basic((*tok), self._ctx->sm);
+        return TokenText::resolve((*tok), self._ctx->sm, self._imm);
     }
 
     inline priv fn get_text(self, tok: Token) -> TokenText {
-        return TokenText::resolve_basic(tok, self._ctx->sm);
+        return TokenText::resolve(tok, self._ctx->sm, self._imm);
     }
 
+    /// \details mechanism lives in Token::TokenText::unwrap_expansion.
+    ///          Index policy on a truncated chain: degrade to TkUnknown
+    ///          SILENTLY — the parser resolves the same token later and owns
+    ///          the I002F diagnostic (ASTParse::resolve_deep); reporting here
+    ///          too would double-emit for every over-deep token.
     inline priv fn resolve_deep(self, tok: *Token) -> Token {
-        var kind = tok->kind;
-        var imm  = tok->imm;
-        var iter: u32 = 0;
+        var u = unwrap_expansion(*tok, self._imm, self._ctx->ci->pp.max_depth);
 
-        while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
-            if (iter) >= (self._ctx->ci->pp.max_depth) {
-                // self._diag->report(DiagID::I002F, tok->range.start,
-                //     "excessive iterations during AST indexing token kind resolution, aborting to prevent infinite loop"
-                // ).first(tok->range)
-                //  .note(DiagID::S063N, tok->range.start, f"token kind resolution chain truncated after {iter} levels")
-                //  .emit();
-                return Token(tok->range, TokenKind::TkUnknown, 0);
-            }
-
-            if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
-                return Token(tok->range, TokenKind::TkMacroExpand, imm);
-            }
-
-            var info = self._imm->get::<Immediate::MacroExpansionInfo>(imm);
-            kind     = info->original_kind;
-            imm      = info->original_imm;
-            iter    += 1;
+        if u.hit_limit {
+            return Token(tok->range, TokenKind::TkUnknown, 0);
         }
 
-        return Token(tok->range, kind, imm);
+        if u.is_sentinel {
+            return Token(tok->range, TokenKind::TkMacroExpand, u.imm);
+        }
+
+        return Token(tok->range, u.kind, u.imm);
     }
 
     inline priv fn resolve_kind_deep(self, tok: *Token) -> TokenKind {
@@ -959,20 +952,14 @@ class ASTIndex {
             return TokenKind::TkUnknown;
         }
 
-        if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) {
-            return tok->kind;
-        }
-
-        if tok->imm >= static_cast::<u32>(MacroSentinel::Threshold) {
-            return TokenKind::TkMacroExpand;
-        }
-
-        if self._imm == &null {
+        // wrapped non-sentinel token with no table: nothing to resolve with
+        if (static_cast::<u32>(tok->kind) == static_cast::<u32>(TokenKind::TkMacroExpand))
+        && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
+        && (self._imm == &null) {
             return TokenKind::TkUnknown;
         }
 
-        var info = self._imm->get::<Immediate::MacroExpansionInfo>(tok->imm);
-        return info->original_kind;
+        return unwrap_expansion(*tok, self._imm, 1).kind;
     }
 
     inline priv fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {

@@ -89,6 +89,7 @@ class <T> DeclParse {
             || k == TokenKind::KwTest
             || k == TokenKind::KwStatic
             || k == TokenKind::KwVar
+            || k == TokenKind::KwMutable
             || k == TokenKind::KwConst
             || k == TokenKind::KwEval
             || k == TokenKind::KwPub
@@ -163,22 +164,23 @@ class <T> DeclParse {
 
         switch k {
             case TokenKind::KwFn        { return self._parse_function(&lead); }
-            case TokenKind::KwClass     { return self._parse_class(&lead); }
-            case TokenKind::KwStruct    { return self._parse_struct(); }
-            case TokenKind::KwEnum      { return self._parse_enum(); }
-            case TokenKind::KwInterface { return self._parse_interface(); }
-            case TokenKind::KwUnion     { return self._parse_union(); }
-            case TokenKind::KwExtend    { return self._parse_extension(); }
-            case TokenKind::KwType      { return self._parse_type_alias(); }
-            case TokenKind::KwModule    { return self._parse_module(); }
-            case TokenKind::KwTest      { return self._parse_test(); }
-            case TokenKind::KwMacro     { return self._parse_macro(); }
-            case TokenKind::KwImport    { return self._parse_import(); }
-            case TokenKind::KwFfi       { return self._parse_ffi(); }
+            case TokenKind::KwClass     { return self._parse_class(&lead);    }
+            case TokenKind::KwStruct    { return self._parse_struct();        }
+            case TokenKind::KwEnum      { return self._parse_enum();          }
+            case TokenKind::KwInterface { return self._parse_interface();     }
+            case TokenKind::KwUnion     { return self._parse_union();         }
+            case TokenKind::KwExtend    { return self._parse_extension();     }
+            case TokenKind::KwType      { return self._parse_type_alias();    }
+            case TokenKind::KwModule    { return self._parse_module();        }
+            case TokenKind::KwTest      { return self._parse_test();          }
+            case TokenKind::KwMacro     { return self._parse_macro();         }
+            case TokenKind::KwImport    { return self._parse_import();        }
+            case TokenKind::KwFfi       { return self._parse_ffi();           }
 
-            case TokenKind::KwVar    { return self._parse_var_decl(); }
-            case TokenKind::KwConst  { return self._parse_var_decl(); }
-            case TokenKind::KwStatic { return self._parse_var_decl(); }
+            case TokenKind::KwVar     { return self._parse_var_decl(); }
+            case TokenKind::KwConst   { return self._parse_var_decl(); }
+            case TokenKind::KwStatic  { return self._parse_var_decl(); }
+            case TokenKind::KwMutable { return self._parse_var_decl(); }
             case TokenKind::KwEval {
                 // `eval {` decl block vs `eval var/const/fn ...`
                 if dyn()->check_peek(TokenKind::OpLBrace) {
@@ -382,8 +384,7 @@ class <T> DeclParse {
 
             var is_field_lead = (k == TokenKind::KwVar) || (k == TokenKind::KwConst)
                              || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
-                             || ((k == TokenKind::LitIdentifier)
-                                  && (TokenText::from_token(*(dyn()->current_ptr()), dyn()->ctx).text == "mutable"));
+                             || (k == TokenKind::KwMutable);
 
             if is_field_lead {
                 var f = self._parse_field(*field_idx);
@@ -952,7 +953,7 @@ class <T> DeclParse {
             // type-only params have no name to bind.
             if is_named {
                 dyn()->scope.bind(
-                    TokenText::from_token(pname, dyn()->ctx).text,
+                    dyn()->ctx->get_spelling(pname),
                     static_cast::<*Decl>(pd),
                     pname.range
                 );
@@ -1342,7 +1343,7 @@ class <T> DeclParse {
 
         // bind into the current scope for subsequent lookups.
         dyn()->scope.bind(
-            TokenText::from_token(name, dyn()->ctx).text,
+            dyn()->ctx->get_spelling(name),
             static_cast::<*Decl>(vd),
             name.range
         );
@@ -1361,8 +1362,7 @@ class <T> DeclParse {
         var start = dyn()->current_ptr()->range;
 
         var is_mutable = false;
-        if dyn()->check(TokenKind::LitIdentifier)
-        && (TokenText::from_token(*(dyn()->current_ptr()), dyn()->ctx).text == "mutable") {
+        if dyn()->check(TokenKind::KwMutable) {
             is_mutable = true;
             dyn()->advance();
         }
@@ -1606,10 +1606,9 @@ class <T> DeclParse {
             }
 
             // field: mutable? var/const/static/eval ...
-            var is_field_lead = (k == TokenKind::KwVar)  || (k == TokenKind::KwConst)
+            var is_field_lead = (k == TokenKind::KwVar)    || (k == TokenKind::KwConst)
                              || (k == TokenKind::KwStatic) || (k == TokenKind::KwEval)
-                             || ((k == TokenKind::LitIdentifier)
-                                  && (TokenText::from_token(*(dyn()->current_ptr()), dyn()->ctx).text == "mutable"));
+                             || (k == TokenKind::KwMutable);
 
             if is_field_lead {
                 var f = self._parse_field(field_idx);
@@ -2632,27 +2631,20 @@ class <T> DeclParse {
             return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
         var lang_tok  = dyn()->current();
-        inline "c++" {
-            auto imm = dyn()->ctx->get_imm_table()->template get<Immediate::StringData>(lang_tok.imm);
-        }
-
-        var lang_text = TokenText::from_range(imm->body, dyn()->ctx).text;
-        dyn()->advance(T::SkipNL::After); // consume the string literal
-
+        var lang = dyn()->parse_ffi_lang(lang_tok, start);
         var linkage_kind: LinkageKind;
-        // few variants:
-        // C, c, C++, CPP, CXX, c++
-        if lang_text == "c" || lang_text == "C" {
-            linkage_kind = LinkageKind::C;
-        } else if lang_text == "c++" || lang_text == "C++" || lang_text == "CPP" || lang_text == "CXX" || lang_text == "c++" {
-            linkage_kind = LinkageKind::Cpp;
-        } else {
-            dyn()->diag->report(DiagID::S064E, start.start,
-                "unsupported FFI language: " + lang_text
-            ).first(start).emit();
-            self._sync_decl(DeclSyncCtx::TopLevel);
-            return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+        switch lang {
+            case FFILang::C { linkage_kind = LinkageKind::C; }
+            case FFILang::Cpp { linkage_kind = LinkageKind::Cpp; }
+            default {
+                dyn()->diag->report(DiagID::S064E, start.start,
+                    f"unsupported FFI language, expected 'c' or 'c++\x27"
+                ).first(start).emit();
+                self._sync_decl(DeclSyncCtx::TopLevel);
+                return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
+            }
         }
+        
         var ffi_range = (start | lang_tok.range);
 
         // ---- ffi "c++" import "header.h" (as alias)? ----------------------
@@ -2905,13 +2897,14 @@ class <T> DeclParse {
                 }
                 if ctx == DeclSyncCtx::TypeBody {
                     // member lead-ins inside a type body.
-                    if k == TokenKind::KwFn  || k == TokenKind::KwVar
-                    || k == TokenKind::KwConst || k == TokenKind::KwStatic
-                    || k == TokenKind::KwEval || k == TokenKind::KwClass
-                    || k == TokenKind::KwStruct || k == TokenKind::KwEnum
-                    || k == TokenKind::KwUnion || k == TokenKind::KwInterface
-                    || k == TokenKind::KwType  || k == TokenKind::KwOverride
-                    || k == TokenKind::KwVirtual || k == TokenKind::KwFinal {
+                    if k == TokenKind::KwFn      || k == TokenKind::KwVar
+                    || k == TokenKind::KwConst   || k == TokenKind::KwStatic
+                    || k == TokenKind::KwEval    || k == TokenKind::KwClass
+                    || k == TokenKind::KwStruct  || k == TokenKind::KwEnum
+                    || k == TokenKind::KwUnion   || k == TokenKind::KwInterface
+                    || k == TokenKind::KwType    || k == TokenKind::KwOverride
+                    || k == TokenKind::KwVirtual || k == TokenKind::KwFinal
+                    || k == TokenKind::KwMutable {
                         return;
                     }
                 }

@@ -240,7 +240,7 @@ class NamedIdentExpr derives Expr {
     }
 
     fn get_name(self) -> TokenText {
-        return TokenText::from_token(self.name, self.ctx);
+        return self.ctx->get_token_text(self.name);
     }
 }
 
@@ -449,8 +449,8 @@ class IntegerLiteralExpr derives Expr {
         return ExprKind::IntegerLiteralExpr;
     }
 
-    fn get_text(self) -> string {
-        return TokenText::from_token(self.token, self.ctx).get_text();
+    fn get_spelling(self) -> string {
+        return self.ctx->get_spelling(self.token);
     }
 
     fn get_body_range(self) -> SourceRange {
@@ -470,17 +470,17 @@ class IntegerLiteralExpr derives Expr {
     
     fn get_body_text(self) -> string {
         assert((self.imm != &null) && r"IntegerLiteralExpr::get_body_text: imm pointer is null");
-        return TokenText::from_range(self.get_body_range(), self.ctx).get_text();
+        return self.ctx->get_spelling(self.get_body_range());
     }
     
     fn get_prefix_text(self) -> string {
         assert((self.imm != &null) && r"IntegerLiteralExpr::get_prefix_text: imm pointer is null");
-        return TokenText::from_range(self.get_prefix_range(), self.ctx).get_text();
+        return self.ctx->get_spelling(self.get_prefix_range());
     }
     
     fn get_suffix_text(self) -> string {
         assert((self.imm != &null) && r"IntegerLiteralExpr::get_suffix_text: imm pointer is null");
-        return TokenText::from_range(self.get_suffix_range(), self.ctx).get_text();
+        return self.ctx->get_spelling(self.get_suffix_range());
     }
     
     fn get_value_lo(self) -> u64 {
@@ -578,8 +578,8 @@ class FloatingLiteralExpr derives Expr {
         return ExprKind::FloatingLiteralExpr;
     }
 
-    fn get_text(self) -> string {
-        return TokenText::from_token(self.token, self.ctx).get_text();
+    fn get_spelling(self) -> string {
+        return self.ctx->get_spelling(self.token);
     }
 
     fn get_body_range(self) -> SourceRange {
@@ -599,17 +599,17 @@ class FloatingLiteralExpr derives Expr {
     
     fn get_body_text(self) -> string {
         assert((self.imm != &null) && r"FloatingLiteralExpr::get_body_text: imm pointer is null");
-        return TokenText::from_range(self.get_body_range(), self.ctx).get_text();
+        return self.ctx->get_spelling(self.get_body_range());
     }
     
     fn get_prefix_text(self) -> string {
         assert((self.imm != &null) && r"FloatingLiteralExpr::get_prefix_text: imm pointer is null");
-        return TokenText::from_range(self.get_prefix_range(), self.ctx).get_text();
+        return self.ctx->get_spelling(self.get_prefix_range());
     }
     
     fn get_suffix_text(self) -> string {
         assert((self.imm != &null) && r"FloatingLiteralExpr::get_suffix_text: imm pointer is null");
-        return TokenText::from_range(self.get_suffix_range(), self.ctx).get_text();
+        return self.ctx->get_spelling(self.get_suffix_range());
     }
     
     fn get_bits(self) -> u32 {
@@ -712,8 +712,8 @@ class StringLiteralExpr derives Expr {
         return ExprKind::StringLiteralExpr;
     }
 
-    fn get_text(self) -> string {
-        return TokenText::from_token(self.token, self.ctx).get_text();
+    fn get_spelling(self) -> string {
+        return self.ctx->get_spelling(self.token);
     }
 
     fn get_body_range(self) -> SourceRange {
@@ -723,7 +723,7 @@ class StringLiteralExpr derives Expr {
 
     fn get_body_text(self) -> string {
         assert((self.imm != &null) && r"StringLiteralExpr::get_body_text: imm pointer is null");
-        return TokenText::from_range(self.get_body_range(), self.ctx).get_text();
+        return self.ctx->get_spelling(self.get_body_range());
     }
 
     fn get_prefix(self) -> Token {
@@ -823,8 +823,8 @@ class CharacterLiteralExpr derives Expr {
         return ExprKind::CharacterLiteralExpr;
     }
 
-    fn get_text(self) -> string {
-        return TokenText::from_token(self.token, self.ctx).get_text();
+    fn get_spelling(self) -> string {
+        return self.ctx->get_spelling(self.token);
     }
 
     fn get_body_range(self) -> SourceRange {
@@ -834,7 +834,7 @@ class CharacterLiteralExpr derives Expr {
 
     fn get_body_text(self) -> string {
         assert((self.imm != &null) && r"CharacterLiteralExpr::get_body_text: imm pointer is null");
-        return TokenText::from_range(self.get_body_range(), self.ctx).get_text();
+        return self.ctx->get_spelling(self.get_body_range());
     }
 
     fn get_prefix(self) -> Token {

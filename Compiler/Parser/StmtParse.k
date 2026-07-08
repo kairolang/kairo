@@ -608,7 +608,7 @@ class <T> StmtParse {
 
         // discard `_`
         if (dyn()->check(TokenKind::LitIdentifier))
-        && (TokenText::from_token(*(dyn()->current_ptr()), dyn()->ctx).text == "_") {
+        && (dyn()->ctx->get_spelling(*(dyn()->current_ptr())) == "_") {
             var und = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `_`
             result.is_discard = true;
@@ -1659,7 +1659,7 @@ class <T> StmtParse {
         // resolve the language. The token text drives the discriminant; sema
         // validates against the known set. Default to Cpp on an unknown string
         // (and warn) so codegen has something to route to.
-        var lang = self._inline_lang_from_token(lang_tok, start_range);
+        var lang = self.parse_ffi_lang(lang_tok, start_range);
 
         if !dyn()->check(TokenKind::OpLBrace) {
             dyn()->diag->report(DiagID::S056E, start_range.start,
@@ -1702,72 +1702,69 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    /// \brief maps an inline-block language string token to InlineLang.
-    /// \details recognizes "asm", "c", "c++". Unknown languages default to Cpp
+    /// \brief maps an inline-block language string token to FFILang.
+    /// \details recognizes "asm", "c", "c++". Unrecognized strings are reported
     ///          with a diagnostic; sema makes the final call.
-    priv fn _inline_lang_from_token(self, tok: Token, ctx_range: SourceRange) -> InlineLang {
+    pub fn parse_ffi_lang(self, tok: Token, rng: SourceRange) -> FFILang {
         if tok.kind != TokenKind::LitString {
-            dyn()->diag->report(DiagID::S060E, ctx_range.start,
+            dyn()->diag->report(DiagID::S060E, rng.start,
                 "expected a string literal for the inline foreign language"
-            ).first(ctx_range).emit();
-            return InlineLang::Cpp;
+            ).first(rng).emit();
+            return FFILang::Cpp;
         }
 
         inline "c++" {
             auto imm = dyn()->ctx->get_imm_table()->template get<Immediate::StringData>(tok.imm);
         }
 
-        var txt = TokenText::from_range(imm->body, dyn()->ctx);
-        if txt.text == "asm"    { return InlineLang::Asm;    }
-        if txt.text == "c"      { return InlineLang::C;      }
-        if txt.text == "cpp"    { return InlineLang::Cpp;    }
-        if txt.text == "cuda"   { return InlineLang::Cuda;   }
-        if txt.text == "hip"    { return InlineLang::Hip;    }
-        if txt.text == "opencl" { return InlineLang::OpenCL; }
-        if txt.text == "hlsl"   { return InlineLang::Hlsl;   }
-        if txt.text == "metal"  { return InlineLang::Metal;  }
-        if txt.text == "spirv"  { return InlineLang::SpirV;  }
-        if txt.text == "wgsl"   { return InlineLang::Wgsl;   }
-        if txt.text == "glsl"   { return InlineLang::Glsl;   }
-        if txt.text == "kairo"  { return InlineLang::Kairo;  }
+        var spelling = dyn()->ctx->get_spelling(imm->body);
+        var as_lower: string;
+        as_lower.reserve(spelling->size());
+    
+        // make all the chars lowercase for comparison
+        for (var i: u32 = 0; i < spelling->size(); ++i) {
+            var c = (*spelling)[i];
+            as_lower.push_back(c | ((c >= 'A' && c <= 'Z') << 5));
+        }
 
-        if txt.text == "Asm"    { return InlineLang::Asm;    }
-        if txt.text == "C"      { return InlineLang::C;      }
-        if txt.text == "Cpp"    { return InlineLang::Cpp;    }
-        if txt.text == "Cuda"   { return InlineLang::Cuda;   }
-        if txt.text == "Hip"    { return InlineLang::Hip;    }
-        if txt.text == "Opencl" { return InlineLang::OpenCL; }
-        if txt.text == "Hlsl"   { return InlineLang::Hlsl;   }
-        if txt.text == "Metal"  { return InlineLang::Metal;  }
-        if txt.text == "Spirv"  { return InlineLang::SpirV;  }
-        if txt.text == "Wgsl"   { return InlineLang::Wgsl;   }
-        if txt.text == "Glsl"   { return InlineLang::Glsl;   }
-        if txt.text == "Kairo"  { return InlineLang::Kairo;  }
+        if as_lower == "asm"    { return FFILang::Asm;    }
+        if as_lower == "cuda"   { return FFILang::Cuda;   }
+        if as_lower == "hip"    { return FFILang::Hip;    }
+        if as_lower == "opencl" { return FFILang::OpenCL; }
+        if as_lower == "hlsl"   { return FFILang::Hlsl;   }
+        if as_lower == "metal"  { return FFILang::Metal;  }
+        if as_lower == "spirv"  { return FFILang::SpirV;  }
+        if as_lower == "wgsl"   { return FFILang::Wgsl;   }
+        if as_lower == "glsl"   { return FFILang::Glsl;   }
+        if as_lower == "kairo"  { return FFILang::Kairo;  }
 
-        if txt.text == "ASM"    { return InlineLang::Asm;    }
-        if txt.text == "C"      { return InlineLang::C;      }
-        if txt.text == "CPP"    { return InlineLang::Cpp;    }
-        if txt.text == "CUDA"   { return InlineLang::Cuda;   }
-        if txt.text == "HIP"    { return InlineLang::Hip;    }
-        if txt.text == "OPENCL" { return InlineLang::OpenCL; }
-        if txt.text == "HLSL"   { return InlineLang::Hlsl;   }
-        if txt.text == "METAL"  { return InlineLang::Metal;  }
-        if txt.text == "SPIRV"  { return InlineLang::SpirV;  }
-        if txt.text == "WGSL"   { return InlineLang::Wgsl;   }
-        if txt.text == "GLSL"   { return InlineLang::Glsl;   }
-        if txt.text == "KAIRO"  { return InlineLang::Kairo;  }
+        if as_lower == "c"      { return FFILang::C;      }
+        if as_lower == "cpp"    { return FFILang::Cpp;    }
+        if as_lower == "cxx"    { return FFILang::Cpp;    }
+        if as_lower == "c++"    { return FFILang::Cpp;    }
+        if as_lower == "cc"     { return FFILang::Cpp;    }
+        if as_lower == "cp"     { return FFILang::Cpp;    }
 
-        if txt.text == "cxx"    { return InlineLang::Cpp;    }
-        if txt.text == "Cxx"    { return InlineLang::Cpp;    }
-        if txt.text == "CXX"    { return InlineLang::Cpp;    }
+        if as_lower == "h"      { return FFILang::Cpp;    }
+        if as_lower == "hpp"    { return FFILang::Cpp;    }
+        if as_lower == "hxx"    { return FFILang::Cpp;    }
+        if as_lower == "h++"    { return FFILang::Cpp;    }
+        if as_lower == "hh"     { return FFILang::Cpp;    }
 
-        if txt.text == "c++"    { return InlineLang::Cpp;    }
-        if txt.text == "C++"    { return InlineLang::Cpp;    }
+        if as_lower == "inl"    { return FFILang::Cpp;    }
+        if as_lower == "tcc"    { return FFILang::Cpp;    }
+        if as_lower == "ipp"    { return FFILang::Cpp;    }
 
-        dyn()->diag->report(DiagID::S060W, ctx_range.start,
-            f"unknown inline foreign language '{txt.text}'; falling back to 'c++\x27"
-        ).first(ctx_range).emit();
-        return InlineLang::Cpp;
+        if as_lower == "ixx"    { return FFILang::Cpp;    }
+        if as_lower == "cppm"   { return FFILang::Cpp;    }
+        if as_lower == "cxxm"   { return FFILang::Cpp;    }
+        if as_lower == "ccm"    { return FFILang::Cpp;    }
+
+        dyn()->diag->report(DiagID::S060W, rng.start,
+            f"unknown inline foreign language '{spelling}'; fix the string literal like using 'c++' instead"
+        ).first(rng).emit();
+
+        return FFILang::None;
     }
 
     // ========================================================================
