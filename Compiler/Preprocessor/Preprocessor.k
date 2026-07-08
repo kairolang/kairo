@@ -208,6 +208,7 @@
 
 import Token::TokenCacheManager::*;
 import Token::TokenSpan::*;
+import Token::TokenText::*;
 import Resolution::ImportProbe::*;
 import Macro::DefinitionCollector::*;
 import Preprocessor::ExpansionContext::*;
@@ -370,6 +371,11 @@ class MacroExpander {
     priv var _parent_ex_idx:   u32 = static_cast::<u32>(MacroSentinel::NoParent); ///< index of the parent expansion in the imm table, or -1 if top-level
     priv var _fid:             u32;
     priv var _unique_counter:  u32 = 0;
+    priv var _cur_ex_serial:   i32 = 0;     ///< serial of the expansion whose body is being
+                                            ///  rescanned; 0 = top level (no expansion).
+    priv var _unique_tag_cache: libcxx::unordered_map::<string, u32>; ///< "(serial):(tag)" -> interned ident idx;
+                                                                      ///  makes unique_id!(tag) stable within one
+                                                                      ///  expansion instance.
     priv var _max_depth:       i32 = 128;   ///< from PreprocessorOptions::max_depth
     priv var _max_expansions:  i32 = 65536; ///< from PreprocessorOptions::max_expansions; 0 = unlimited
     priv var _expansion_count: i32 = 0;     ///< total expansions performed so far
@@ -443,6 +449,25 @@ class MacroExpander {
             data->flags    = 0;
             data->body     = range;
             tok.imm = idx;
+        }
+
+        return tok;
+    }
+
+    /// \brief creates a synthesized identifier token spelling \p name.
+    ///
+    /// \details the spelling has no backing source buffer, so it is copied
+    ///          into the imm table's synth storage and interned; the token's
+    ///          text MUST be read via the imm index (get_ident), never via
+    ///          sm->get_text(range) — the range points at the invocation
+    ///          site and spells something else.
+    priv fn make_ident_token(self, name: string, range: SourceRange) -> Token {
+        var tok = Token();
+        tok.kind  = TokenKind::LitIdentifier;
+        tok.range = range;
+
+        if self._imm_table != &null {
+            tok.imm = self._imm_table->intern_ident_copy(name);
         }
 
         return tok;
@@ -648,7 +673,7 @@ class MacroExpander {
             if args.size() == 1 && args[0].size() == 1 {
                 var name_tok = args[0].get(0);
                 if self.get_effective_kind(name_tok) == TokenKind::LitIdentifier {
-                    var name_id = self._sym_table->intern(self._sm->get_text(name_tok->range));
+                    var name_id = self._sym_table->intern(self.token_text(name_tok));
                     var ident = IdentifierToken();
                     ident.name  = name_id;
                     ident.token = name_tok;
@@ -671,7 +696,7 @@ class MacroExpander {
         if args.size() == 1 && args[0].size() == 1 {
             var name_tok = args[0].get(0);
             if self.get_effective_kind(name_tok) == TokenKind::LitIdentifier {
-                var name_id = self._sym_table->intern(self._sm->get_text(name_tok->range));
+                var name_id = self._sym_table->intern(self.token_text(name_tok));
                 var ident   = IdentifierToken();
                 ident.name  = name_id;
                 ident.token = name_tok;
@@ -704,14 +729,71 @@ class MacroExpander {
         return out;
     }
 
-    priv fn builtin_unique_id(self, invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
+    /// \brief `unique_id!` / `unique_id!(tag)` — synthesized collision-free identifier.
+    ///
+    /// \details deterministic gensym: `__synth[_tag]_{fid}_{counter}`. No time,
+    ///          no hashing — same input compiles to the same names (reproducible
+    ///          builds, cacheable, diffable dumps).
+    ///
+    ///          Untagged: fresh identifier per invocation. Only useful for
+    ///          anonymous bindings (scope guards, defer!) that are declared and
+    ///          never referenced again.
+    ///
+    ///          Tagged, inside a macro expansion: stable per (expansion
+    ///          instance, tag) — two `unique_id!(g)` in one macro body yield the
+    ///          SAME identifier for one expansion and different identifiers
+    ///          across expansions. This is what lets a macro declare a name and
+    ///          reference it later. Keyed on _cur_ex_serial (the serial of the
+    ///          expansion whose body is being rescanned), so nesting scopes
+    ///          correctly: inner!'s tags never collide with outer!'s.
+    ///
+    ///          Tagged at top level (serial 0): fresh per invocation — there is
+    ///          no expansion instance to be stable within.
+    priv fn builtin_unique_id(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
+        var out   = std::create::<TokenBuffer::<512>>();
+        var range = invoke.name.token->range;
+
+        // -- optional tag: unique_id!(tag) --------------------------------
+        var tag: string = "";
+        if invoke.has_args {
+            var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
+            var valid = (args.size() == 1) && (args[0].size() == 1)
+                && (self.get_effective_kind(args[0].get(0)) == TokenKind::LitIdentifier);
+            if !valid {
+                self.error(tokens->get(invoke.start_index),
+                    "builtin 'unique_id!()' takes at most one identifier tag, e.g. unique_id!(guard)",
+                    DiagID::R009E);
+                return out;
+            }
+            tag = self.token_text(args[0].get(0));
+        }
+
+        // -- tagged inside an expansion: memoize per (instance, tag) ------
+        if (!tag.empty()) && (self._cur_ex_serial != 0) {
+            var key = f"{self._cur_ex_serial}:{tag}";
+            var it  = self._unique_tag_cache.find(key);
+            if it != self._unique_tag_cache.end() {
+                var tok = Token();
+                tok.kind  = TokenKind::LitIdentifier;
+                tok.range = range;
+                tok.imm   = it->second;
+                out->append(tok);
+                return out;
+            }
+
+            self._unique_counter += 1;
+            var tok = self.make_ident_token(
+                f"__synth_{tag}_{self._fid}_{self._unique_counter}", range);
+            self._unique_tag_cache[key] = tok.imm;
+            out->append(tok);
+            return out;
+        }
+
+        // -- untagged (or top-level tag): fresh per invocation -------------
         self._unique_counter += 1;
-        var out = std::create::<TokenBuffer::<512>>();
-        var tok = Token();
-        tok.kind  = TokenKind::LitIdentifier;
-        tok.range = invoke.name.token->range;
-        tok.imm   = self._unique_counter;
-        out->append(tok);
+        var name = (f"__synth_{self._fid}_{self._unique_counter}") if (tag.empty())
+              else (f"__synth_{tag}_{self._fid}_{self._unique_counter}");
+        out->append(self.make_ident_token(name, range));
         return out;
     }
 
@@ -755,7 +837,7 @@ class MacroExpander {
         if args.size() > 0 {
             var msg = string();
             for i in usize(0) .. usize(args[0].size()) {
-                msg += self._sm->get_text(args[0].get(i)->range);
+                msg += self.token_text(args[0].get(i));
             }
             var range  = invoke.name.token->range;
             var code   = DiagCode(DiagID::R010E)
@@ -940,7 +1022,7 @@ class MacroExpander {
 
         // build name IdentifierToken
         result.name.token = name_tok;
-        result.name.name  = self._sym_table->intern(self._sm->get_text(name_tok->range));
+        result.name.name  = self._sym_table->intern(self.token_text(name_tok));
 
         // build qualified path (all idents except last)
         if path_idents.size() > 1 {
@@ -951,7 +1033,7 @@ class MacroExpander {
                 var seg_tok = tokens->get(path_idents[k]);
                 var seg = IdentifierToken();
                 seg.token = seg_tok;
-                seg.name  = self._sym_table->intern(self._sm->get_text(seg_tok->range));
+                seg.name  = self._sym_table->intern(self.token_text(seg_tok));
                 result.qualified_path.segments.push_back(seg);
             }
         }
@@ -1066,7 +1148,7 @@ class MacroExpander {
         // these emit placeholder tokens; real work happens in later passes
         if name == "todo"        { return self.builtin_todo(tokens, invoke); }
         if name == "unreachable" { return self.builtin_unreachable(tokens, invoke); }
-        if name == "unique_id"   { return self.builtin_unique_id(invoke); }
+        if name == "unique_id"   { return self.builtin_unique_id(tokens, invoke); }
         if name == "include"     { return self.builtin_include(tokens, invoke); }
         if name == "include_str" { return self.builtin_include_str(tokens, invoke); }
         if name == "embed"       { return self.builtin_embed(tokens, invoke); }
@@ -1147,6 +1229,13 @@ class MacroExpander {
         // the actual chaining happens inside wrap_token via tok.imm on already-wrapped tokens
         self._parent_ex_idx = static_cast::<u32>(MacroSentinel::NoParent);
 
+        // this expansion instance's serial: keys unique_id!(tag) memoization.
+        // _expansion_count was already bumped for this expansion above, so it
+        // is unique per instance; saved/restored so nested expansions scope
+        // their own tags.
+        var saved_ex_serial = self._cur_ex_serial;
+        self._cur_ex_serial = self._expansion_count;
+
         var result: *(TokenBuffer::<512>);
 
         if !def->accepts_params {
@@ -1156,6 +1245,8 @@ class MacroExpander {
         }
 
         if result == &null {
+            self._cur_ex_serial = saved_ex_serial;
+            self._parent_ex_idx = saved_parent;
             ctx->pop();
             self._active_macros.pop_back();
             return &null;
@@ -1242,6 +1333,7 @@ class MacroExpander {
         }
 
         self._fid = saved_fid;
+        self._cur_ex_serial = saved_ex_serial;
         self._parent_ex_idx = saved_parent;
         self._active_macros.pop_back();
         ctx->pop();
@@ -1442,7 +1534,7 @@ class MacroExpander {
                 var next      = body.get(i + 1);
                 var next_kind = self.get_effective_kind(next);
                 if next_kind == TokenKind::LitIdentifier {
-                    var next_name = self._sym_table->intern(self._sm->get_text(next->range));
+                    var next_name = self._sym_table->intern(self.token_text(next));
 
                     if (next_name == ctx->variadic_name) && (ctx->variadic_bindings.size() > 0) {
                         for k in usize(0) .. usize(ctx->variadic_bindings.size()) {
@@ -1474,7 +1566,7 @@ class MacroExpander {
 
             // -- identifier -> param binding ------------------------------
             if kind == TokenKind::LitIdentifier {
-                var tok_name = self._sym_table->intern(self._sm->get_text(tok->range));
+                var tok_name = self._sym_table->intern(self.token_text(tok));
 
                 if ctx->param_bindings.contains(tok_name) {
                     var bound = &(ctx->param_bindings[tok_name]);
@@ -1563,18 +1655,28 @@ class MacroExpander {
         return ("<unknown>") if (ptr == &null) else (*ptr);
     }
 
+    /// \brief canonical token-text accessor for the expander.
+    ///
+    /// \details unwraps macro-expansion chains and reads identifier spellings
+    ///          from the imm interner. NEVER read token text via
+    ///          _sm->get_text(tok->range) directly: synthesized identifiers
+    ///          (unique_id!, gensym) have no backing source text — their
+    ///          spelling exists only in the interner, and the range points at
+    ///          whatever source happened to be at the invocation site.
+    priv fn token_text(self, tok: *Token) -> string {
+        return TokenText::resolve(*tok, self._sm, self._imm_table).text;
+    }
+
     priv fn get_effective_kind(self, tok: *Token) -> TokenKind {
-        if tok->kind != TokenKind::TkMacroExpand {
-            return tok->kind;
-        }
-        if tok->imm >= static_cast::<u32>(MacroSentinel::Threshold) {
-            return tok->kind;
-        }
-        if self._imm_table == &null {
+        // historical fallback: wrapped non-sentinel token with no table is
+        // assumed to be an identifier (most wrapped tokens are).
+        if (tok->kind == TokenKind::TkMacroExpand)
+        && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
+        && (self._imm_table == &null) {
             return TokenKind::LitIdentifier;
         }
-        var info = self._imm_table->get::<Immediate::MacroExpansionInfo>(tok->imm);
-        return info->original_kind;
+
+        return unwrap_expansion(*tok, self._imm_table, 1).kind;
     }
 }
 
