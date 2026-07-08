@@ -157,6 +157,24 @@ class TokenCacheManager {
         // still reference them. destroyed at shutdown/reset. do not free here.
     }
 
+    /// \brief destroys token buffers displaced by replace_tokens.
+    ///
+    /// \details call ONLY once preprocessing has fully completed for the
+    ///          current pipeline: macro definitions are self-contained
+    ///          (interned at insert_macro), and nothing PP-internal may
+    ///          touch pre-expansion tokens afterwards. Before this existed,
+    ///          displaced buffers leaked until shutdown — a full duplicate
+    ///          of every macro-bearing file's token stream held across
+    ///          parse, sema, and codegen.
+    fn release_old_buffers(self) {
+        Logger::debug(Logger::Stage::Lexer,
+            f"TokenCacheManager: releasing {self._old_buffers.size()} displaced token buffer(s)");
+        for buf in self._old_buffers {
+            std::destroy(buf);
+        }
+        self._old_buffers.clear();
+    }
+
     /// \brief returns the ImmediateTable for the file that owns this token
     /// \details resolves via the token's range -> fid lookup in the SourceManager.
     /// cold path — inside a per-TU loop, resolve once via get_imm_table_for_fid

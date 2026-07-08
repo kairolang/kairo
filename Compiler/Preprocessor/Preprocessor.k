@@ -1931,6 +1931,14 @@ class PreProcessor {
         t1 = libcxx::chrono::high_resolution_clock::now();
         dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
 
+        // all expansion done: displaced pre-expansion buffers are dead weight
+        // now. Macro definitions were deep-copied at insert_macro, so nothing
+        // outside the PP aliases them, and the PP itself is finished reading
+        // pre-expansion tokens. Without this they leak until shutdown — a
+        // full duplicate token stream per macro-bearing file, held across
+        // parse/sema/codegen.
+        self._tcm->release_old_buffers();
+
         return !self._diag->has_fatal();
     }
 

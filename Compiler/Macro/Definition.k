@@ -15,8 +15,11 @@ import Resolution::ModulePath::*;
 class MacroDefinition {
     pub var scope:          ModulePath; ///< module path where this macro is defined (excl the name)
     pub var params:         MacroParameterList; ///< list of parameters
-    /// TODO: change this to be a owned TokenBuffer instead of a span, since rn we need to leak the original tokens until the macro is expanded but if we own the tokens we can free them after expansion
-    pub var body:           TokenSpan; ///< raw token span for the macro body
+    /// body/default-value spans and name tokens are deep-copied into
+    /// MacroSymbolTable-owned storage at insert_macro() time (flat-mode
+    /// TokenSpans). A registered definition never aliases the lexed token
+    /// buffers, so displaced buffers can be freed at end of preprocess.
+    pub var body:           TokenSpan; ///< macro body tokens (table-owned after registration)
     pub var name:           IdentifierToken; ///< macro name we cant use a token here since a token doesnt store the text only kind range and imm data which is not sufficient
     pub var definition_loc: SourceRange; ///< source location of the macro definition (for error reporting)
     pub var source_fid:     u32;
