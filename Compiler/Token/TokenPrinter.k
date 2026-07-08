@@ -215,7 +215,7 @@ class TokenPrinter {
 
         line += " ";
         line += kind_color;
-        line += f"'{TokenText::resolve(tok, self._sm, self._imm_tbl)}'";
+        line += f"'{TokenText::resolve(*tok, self._sm, self._imm_tbl).get_text()}\x27";
         line += s.reset;
         line += " ";
         line += self._fmt_range(tok->range);

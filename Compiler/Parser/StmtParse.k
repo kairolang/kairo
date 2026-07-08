@@ -1719,11 +1719,11 @@ class <T> StmtParse {
 
         var spelling = dyn()->ctx->get_spelling(imm->body);
         var as_lower: string;
-        as_lower.reserve(spelling->size());
-    
+        as_lower.reserve(spelling.size());
+
         // make all the chars lowercase for comparison
-        for (var i: u32 = 0; i < spelling->size(); ++i) {
-            var c = (*spelling)[i];
+        for (var i: u32 = 0; i < spelling.size(); ++i) {
+            var c = spelling[i];
             as_lower.push_back(c | ((c >= 'A' && c <= 'Z') << 5));
         }
 
