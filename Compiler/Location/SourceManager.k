@@ -483,20 +483,35 @@ class SourceManager {
     /// \brief retrieves a MemoryBuffer view for a SourceRange.
     ///
     fn get_view(self, range: SourceRange) -> MemoryBuffer {
-        var res     = self.resolve(range.start);
-        // std::print(f"get_view: range.start.raw()={range.start.raw()}, resolved fid={res.fid}, offset={res.offset}, _files.size()={self._files.size()}");
-        
-        // if res.fid >= self._files.size() {
-        //     std::print(f"get_view: INVALID fid {res.fid} >= {self._files.size()}");
-        //     return MemoryBuffer();
-        // }
+        // degenerate/invalid ranges (EOF tokens, synthesized nodes, failed
+        // resolution) must degrade to an empty view, never UB. every guard
+        // below has been hit in practice   do not remove them.
+        if !range.is_valid() {
+            return MemoryBuffer();
+        }
 
+        var res     = self.resolve(range.start);
         var file_id = res.fid;
         var offset  = res.offset;
         var length  = static_cast::<usize>(range.end.raw() - range.start.raw());
-        var file    = self._files[file_id];
-        var buf     = file->buffer->bytes();
 
+        if file_id >= self._files.size() {
+            Logger::warn(Logger::Stage::Driver,
+                f"SourceManager::get_view: unresolvable fid {file_id} (files={self._files.size()})");
+            return MemoryBuffer();
+        }
+
+        var file = self._files[file_id];
+        if (file == &null) || (file->buffer == &null) {
+            Logger::warn(Logger::Stage::Driver,
+                f"SourceManager::get_view: null file/buffer for fid {file_id}");
+            return MemoryBuffer();
+        }
+
+        var buf = file->buffer->bytes();
+        if offset >= buf.size() {
+            return MemoryBuffer();
+        }
         if (offset + length) >= buf.size() {
             length = buf.size() - offset;
         }
