@@ -435,11 +435,9 @@ class <T> TypeParse {
 
         // no production matched; report error and attempt recovery.
         var resolved_kind = dyn()->resolve_kind_deep(cur_ptr);
-        dyn()->diag->report(
-            DiagID::S053E,
-            cur_range.start,
+        dyn()->report_tok(DiagID::S053E, cur_ptr,
             f"expected type, found '{token_kind_to_readable_string(resolved_kind)}\x27"
-        ).first(cur_range).emit();
+        );
 
         dyn()->advance(); // skip offending token to prevent infinite loops during recovery.
         return _error_type(cur_range);
@@ -928,23 +926,19 @@ class <T> TypeParse {
 
         // common error: `{K; V}` semicolon instead of colon
         if dyn()->check(TokenKind::OpSemicolon) {
-            dyn()->diag->report(
-                DiagID::S055E,
-                dyn()->current_ptr()->range.start,
+            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
                 "unexpected ';' in braced type, did you mean ':' for a map type '{K: V}'?"
-            ).first(dyn()->current_ptr()->range).emit();
+            );
 
             return self._finish_map_type(start_range, key_type, true);
         }
 
         // common error: `{K, V}` comma instead of colon, probably confused with tuple
         if dyn()->check(TokenKind::OpComma) {
-            dyn()->diag->report(
-                DiagID::S055E,
-                dyn()->current_ptr()->range.start,
+            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
                 "unexpected ',' in braced type, did you mean ':' for a map type '{K: V}\x27"
                 "or '(' for a tuple type?"
-            ).first(dyn()->current_ptr()->range).emit();
+            );
 
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
             return SetType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
@@ -1040,9 +1034,9 @@ class <T> TypeParse {
 
         // common error: `{K: V, ...}`
         if dyn()->check(TokenKind::OpComma) {
-            dyn()->diag->report(DiagID::S055E, dyn()->current_ptr()->range.start,
+            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
                 "unexpected ',' in map type, map types take exactly one key and one value type '{K: V}\x27"
-            ).first(dyn()->current_ptr()->range).emit();
+            );
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
             var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
             propagate_flags(err, key_type);
@@ -1052,9 +1046,9 @@ class <T> TypeParse {
 
         // common error: `{K: V: W}` double colon
         if dyn()->check(TokenKind::OpColon) {
-            dyn()->diag->report(DiagID::S055E, dyn()->current_ptr()->range.start,
+            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
                 "unexpected ':' in map type, expected '}' after value type"
-            ).first(dyn()->current_ptr()->range).emit();
+            );
             self._sync_type(TypeSyncCtx::Brace, 0, 0, 1);
             var err = MapType::create_error(dyn()->ctx, start_range | dyn()->prev().range);
             propagate_flags(err, key_type);
@@ -1260,11 +1254,9 @@ class <T> TypeParse {
 
             // function pointer types cannot have default values (e.g., `fn(u32 = 0)` is invalid).
             if dyn()->check(TokenKind::OpEqual) {
-                dyn()->diag->report(
-                    DiagID::S055E,
-                    dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
                     "unexpected '=' in function pointer type parameter list, default values are not allowed here"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
 
                 self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
                 continue;
@@ -1283,11 +1275,9 @@ class <T> TypeParse {
             }
 
             if !dyn()->check(TokenKind::OpRParen) {
-                dyn()->diag->report(
-                    DiagID::S055E,
-                    dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
                     "expected ',' or ')' after parameter type in function pointer type"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
 
                 self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
             }
@@ -1358,11 +1348,11 @@ class <T> TypeParse {
     inline fn _parse_pack_expansion_type(self, ty: *Type) -> *PackExpansionType {
         // current token is `...`
         if (ty == &null) {
-            dyn()->diag->report(DiagID::I002F, dyn()->current_ptr()->range.start,
+            dyn()->report_tok(DiagID::I002F, dyn()->current_ptr(),
                 "Fatal compiler bug, please raise an issue on our github at "
                 "https://github.com/kairolang/kairo/issues "
                 "along with the code to reproduce it"
-            ).emit();
+            );
             return &null;
         }
         
@@ -1738,11 +1728,9 @@ class <T> TypeParse {
         ));
 
         if expr == &null {
-            dyn()->diag->report(
-                DiagID::S055E,
-                dyn()->current_ptr()->range.start,
+            dyn()->report_tok(DiagID::S055E, dyn()->current_ptr(),
                 "expected constant expression for array size"
-            ).first(dyn()->current_ptr()->range).emit();
+            );
 
             return &null;
         }
@@ -1753,11 +1741,9 @@ class <T> TypeParse {
     inline fn _parse_type_expr(self, stop_bits: u8 = 0) -> *TypeExpr {
         var expr = dyn()->parse_expr(static_cast::<T::ExprStopKind>(stop_bits));
         if expr == &null {
-            dyn()->diag->report(
-                DiagID::S053E,
-                dyn()->current_ptr()->range.start,
+            dyn()->report_tok(DiagID::S053E, dyn()->current_ptr(),
                 "expected a type or value expression"
-            ).first(dyn()->current_ptr()->range).emit();
+            );
             return &null;
         }
 

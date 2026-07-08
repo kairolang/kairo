@@ -263,9 +263,9 @@ class <T> PatternParse {
             // rest element: `..` or `..name`
             if dyn()->check(TokenKind::OpRange) {
                 if seen_rest {
-                    dyn()->diag->report(DiagID::S062E, dyn()->current_ptr()->range.start,
+                    dyn()->report_tok(DiagID::S062E, dyn()->current_ptr(),
                         "a slice pattern may contain at most one '..' rest element"
-                    ).first(dyn()->current_ptr()->range).emit();
+                    );
                     self._sync_pattern_in_square();
                     break;
                 }

@@ -719,9 +719,9 @@ class <T> DeclParse {
                 fd->name = name_tok;
             }
         } else {
-            dyn()->diag->report(DiagID::S047E, start.start,
+            dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                 "expected function name, 'op', or a qualified name after 'fn\x27"
-            ).first(start).emit();
+            );
             dyn()->exit_depth();
             self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(FunctionDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
@@ -731,9 +731,9 @@ class <T> DeclParse {
         dyn()->enter_scope(ScopeKind::Function, static_cast::<*DeclContext>(fd));
 
         if !dyn()->check(TokenKind::OpLParen) {
-            dyn()->diag->report(DiagID::S047E, start.start,
+            dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                 "expected '(' to begin the parameter list"
-            ).first(start).emit();
+            );
             dyn()->exit_scope();
             dyn()->exit_depth();
             self._sync_decl(DeclSyncCtx::TopLevel);
@@ -858,7 +858,8 @@ class <T> DeclParse {
     ///  Grammar:  param := 'self' | '...'? name ':' type ('=' expr)?
     /// \returns true if a trailing variadic pack `...name: T` was seen.
     priv fn _parse_param_list(self, out: *std::StackBuf::<*ParamDecl, 4>) -> bool {
-        var lparen = dyn()->current_ptr()->range;
+        var lparen_tok = dyn()->current(); // kept whole: expansion-aware diags below need the token, not just the range
+        var lparen     = lparen_tok.range;
         dyn()->advance(T::SkipNL::After); // consume `(`
 
         var variadic = false;
@@ -921,9 +922,9 @@ class <T> DeclParse {
 
             // Prevent parse_type from consuming delimiters on error
             if dyn()->check(TokenKind::OpComma) || dyn()->check(TokenKind::OpRParen) {
-                dyn()->diag->report(DiagID::S053E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S053E, dyn()->current_ptr(),
                     "expected type"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 if dyn()->check(TokenKind::OpComma) {
                     dyn()->advance(T::SkipNL::After);
                     continue;
@@ -973,9 +974,9 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpRParen) {
             dyn()->advance();
         } else {
-            dyn()->diag->report(DiagID::S047E, lparen.start,
+            dyn()->report_tok(DiagID::S047E, &lparen_tok,
                 "expected ')' to close the parameter list"
-            ).first(lparen).emit();
+            );
 
             // Only synchronize to TopLevel if we are not at a capture list or body block
             if !dyn()->check(TokenKind::OpPipe) && !dyn()->check(TokenKind::OpPipePipe) && !dyn()->check(TokenKind::OpLBrace) {
@@ -986,11 +987,11 @@ class <T> DeclParse {
         // a list may be all-named or all type-only, never a mix: type-only
         // params name no binding for a body to refer to.
         if saw_named && saw_unnamed {
-            dyn()->diag->report(DiagID::S047E, lparen.start,
+            dyn()->report_tok(DiagID::S047E, &lparen_tok,
                 "cannot mix named parameters (`name: T`) and type-only "
                 "parameters (`T`) in one signature; a type-only signature is a "
                 "bodyless forward declaration"
-            ).first(lparen).emit();
+            );
         }
 
         return variadic;
@@ -1021,9 +1022,9 @@ class <T> DeclParse {
 
                 // Recovery: ensure 'const' is followed by a valid next token
                 if !dyn()->check(TokenKind::OpStar) && !dyn()->check(TokenKind::LitIdentifier) {
-                    dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                    dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                         "expected '*' or identifier after 'const' in capture list"
-                    ).first(dyn()->current_ptr()->range).emit();
+                    );
                     self._sync_decl(DeclSyncCtx::Params);
                 }
             }
@@ -1103,9 +1104,9 @@ class <T> DeclParse {
 
                 // Recovery: ensure valid structural capture token follows
                 if !dyn()->check(TokenKind::OpStar) && !dyn()->check(TokenKind::LitIdentifier) {
-                    dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                    dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                         "expected '*' or identifier after 'const' in capture list"
-                    ).first(dyn()->current_ptr()->range).emit();
+                    );
                     self._sync_decl(DeclSyncCtx::Params);
                     if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
                     break;
@@ -1146,9 +1147,9 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::OpPipe) {
             dyn()->advance(); // consume closing `|`
         } else {
-            dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+            dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                 "expected '|' to close the capture list"
-            ).first(dyn()->current_ptr()->range).emit();
+            );
             self._sync_decl(DeclSyncCtx::TopLevel);
         }
     }
@@ -1229,44 +1230,44 @@ class <T> DeclParse {
                 dyn()->advance(); fd->body_kind = FnBodyKind::Delete; return;
             }
             if dyn()->check(TokenKind::KwVirtual) {
-                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                     "virtual functions must be declared with the 'virtual' modifier"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwStatic) {
-                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                     "static functions must be declared with the 'static' modifier"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwAsync) {
-                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                     "async functions must be declared with the 'async' modifier"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwInline) {
-                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                     "inline functions must be declared with the 'inline' modifier"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwFinal) {
-                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                     "final functions must be declared with the 'final' modifier"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 dyn()->advance();
                 return;
             }
             if dyn()->check(TokenKind::KwPanic) {
-                dyn()->diag->report(DiagID::S047E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                     "panic functions must be declared with the 'panic' modifier"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 dyn()->advance();
                 return;
             }
@@ -1539,10 +1540,10 @@ class <T> DeclParse {
             && dyn()->check_peek(TokenKind::OpLBrace) {
                 var grp_annot = !m_annot.empty();
                 if grp_annot {
-                    dyn()->diag->report(DiagID::S048E, dyn()->current_ptr()->range.start,
+                    dyn()->report_tok(DiagID::S048E, dyn()->current_ptr(),
                         "annotations and attributes cannot be applied to a visibility group; "
                         "apply them to individual members instead"
-                    ).first(dyn()->current_ptr()->range).emit();
+                    );
                 }
                 self._parse_member_vis_group(owner, fields_out, methods_out,
                                              allow_methods, &field_idx);
@@ -2519,9 +2520,9 @@ class <T> DeclParse {
 
                 // named item: `bar` or `bar::Baz` or `bar as alias`
                 if !dyn()->check(TokenKind::LitIdentifier) {
-                    dyn()->diag->report(DiagID::S046E, dyn()->current_ptr()->range.start,
+                    dyn()->report_tok(DiagID::S046E, dyn()->current_ptr(),
                         "expected an import item name or '*' in selective import list"
-                    ).first(dyn()->current_ptr()->range).emit();
+                    );
                     self._sync_decl(DeclSyncCtx::Params);
                     if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
                     break;
@@ -2553,9 +2554,9 @@ class <T> DeclParse {
                         item.has_alias = true;
                         dyn()->advance();
                     } else {
-                        dyn()->diag->report(DiagID::S046E, dyn()->current_ptr()->range.start,
+                        dyn()->report_tok(DiagID::S046E, dyn()->current_ptr(),
                             "expected a name after 'as' in import item"
-                        ).first(dyn()->current_ptr()->range).emit();
+                        );
                     }
                 }
 
@@ -2590,9 +2591,9 @@ class <T> DeclParse {
                 id->has_alias = true;
                 dyn()->advance();
             } else {
-                dyn()->diag->report(DiagID::S046E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S046E, dyn()->current_ptr(),
                     "expected a name after 'as' in import declaration"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
             }
         }
 
@@ -2674,9 +2675,9 @@ class <T> DeclParse {
                     id->has_alias = true;
                     dyn()->advance();
                 } else {
-                    dyn()->diag->report(DiagID::S064E, dyn()->current_ptr()->range.start,
+                    dyn()->report_tok(DiagID::S064E, dyn()->current_ptr(),
                         "expected a name after 'as' in ffi import"
-                    ).first(dyn()->current_ptr()->range).emit();
+                    );
                 }
             }
 

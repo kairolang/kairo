@@ -1259,9 +1259,9 @@ class <T> ExprParse {
                 // check bail before reporting
                 if self._is_decl_keyword(dyn()->current().kind) { return; }
 
-                dyn()->diag->report(DiagID::S054E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S054E, dyn()->current_ptr(),
                     "expected ',' or ')' after argument in function call"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
 
                 self._sync_expr(ExprSyncCtx::Paren, 1, 0, 0, true);
             }
@@ -2204,9 +2204,9 @@ class <T> ExprParse {
             if dyn()->check(TokenKind::OpRBrace) { break; }
 
             if !dyn()->check(TokenKind::OpDot) {
-                dyn()->diag->report(DiagID::S054E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S054E, dyn()->current_ptr(),
                     "expected '.field: value' in anonymous initializer"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
                 if dyn()->check(TokenKind::OpComma) {
                     dyn()->advance(T::SkipNL::After);
@@ -2217,9 +2217,9 @@ class <T> ExprParse {
             dyn()->advance(); // consume `.`
 
             if !dyn()->check(TokenKind::LitIdentifier) {
-                dyn()->diag->report(DiagID::S054E, dyn()->current_ptr()->range.start,
+                dyn()->report_tok(DiagID::S054E, dyn()->current_ptr(),
                     "expected field name after '.' in anonymous initializer"
-                ).first(dyn()->current_ptr()->range).emit();
+                );
                 self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
                 if dyn()->check(TokenKind::OpComma) {
                     dyn()->advance(T::SkipNL::After);
