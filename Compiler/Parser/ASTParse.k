@@ -94,6 +94,8 @@ class ASTParse
     pub var _no_comment_skip: bool = false;
     pub var in_recovery:       bool = false; ///< true if parser is currently skipping to a SyncSet.
     pub var _pending_trailing: vec::<PendingComment>;
+    pub var _last_exp_diag_loc: u32 = 0;     ///< raw loc of the last expansion-site diagnostic;
+                                             ///  collapses repeated backtraces for one invocation.
     
 
     class TentativeGuard {
@@ -678,18 +680,9 @@ class ASTParse
             return resolved;
         }
 
-        self.diag->report(DiagID::S063E, tok->range.start,
+        self.report_tok(DiagID::S063E, tok,
             f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}\x27"
-        ).first(tok->range).emit();
-
-        if tok->kind == TokenKind::TkMacroExpand {
-            var builder = self.diag->report(DiagID::S063N, tok->range.start,
-                f"expected '{token_kind_to_readable_string(kind)}', found '{token_kind_to_readable_string(resolved_kind)}\x27"
-            );
-            builder.first(tok->range);
-            self.attach_macro_expansion_chain(&builder, tok);
-            builder.emit();
-        }
+        );
 
         var err     = Token();
         err.kind    = TokenKind::TkError;
@@ -699,6 +692,68 @@ class ASTParse
     }
 
     //  Macro expansion chain diagnostics
+
+    /// \brief expansion-aware diagnostic emitter for parse errors on a token.
+    ///
+    /// \details if `tok` was produced by a macro expansion, the primary caret
+    ///          is placed on the invocation site (the code the user actually
+    ///          wrote) with the message tagged "(in expansion of macro 'name!')",
+    ///          and the failing position inside the macro body is attached via
+    ///          the expansion-chain notes. otherwise this is exactly
+    ///          `report(id, tok->range.start, msg).first(tok->range).emit()`.
+    ///
+    ///          the macro name needs no PP symbol table: `invoke_range` covers
+    ///          the macro-name identifier at the call site, so its source text
+    ///          is the name.
+    ///
+    /// \note repeated errors from the same invocation instance keep the tagged
+    ///       primary but drop the note backtrace (see `_last_exp_diag_loc`),
+    ///       so one broken expansion doesn't flood the output.
+    ///
+    /// \note nested case: a token from an inner macro invoked inside another
+    ///       macro's body carries an `invoke_range` pointing into the outer
+    ///       macro's body rather than the user's file; the chain notes cover
+    ///       the remaining hops.
+    inline pub fn report_tok(self, id: DiagID, tok: *Token, msg: string) {
+        if tok == &null {
+            self.diag->report(id, msg).emit();
+            return;
+        }
+
+        var wrapped = (static_cast::<u32>(tok->kind) == static_cast::<u32>(TokenKind::TkMacroExpand))
+            && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
+            && (self.imm != &null);
+
+        if !wrapped {
+            self.diag->report(id, tok->range.start, msg).first(tok->range).emit();
+            return;
+        }
+
+        var info   = self.imm->get::<Immediate::MacroExpansionInfo>(tok->imm);
+        var invoke = info->invoke_range;
+
+        if !invoke.is_valid() {
+            // degenerate record; fall back to the def-site range
+            self.diag->report(id, tok->range.start, msg).first(tok->range).emit();
+            return;
+        }
+
+        var name = self.ctx->sm->get_text(invoke);
+        var tail: string = " (in a macro expansion)";
+        if (name.length() > 0) && (name.length() <= 64) {
+            tail = f" (in expansion of macro '{name}!')";
+        }
+
+        var builder = self.diag->report(id, invoke.start, f"{msg}{tail}");
+        builder.first(invoke);
+
+        if invoke.start.raw() != self._last_exp_diag_loc {
+            self._last_exp_diag_loc = invoke.start.raw();
+            self.attach_macro_expansion_chain(&builder, tok);
+        }
+
+        builder.emit();
+    }
 
     /// \brief appends notes to a diagnostic builder showing the macro expansion history.
     inline pub fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
@@ -728,9 +783,16 @@ class ASTParse
 
             var info = self.imm->get::<Immediate::MacroExpansionInfo>(imm);
 
-            builder->note(DiagID::S063N, info->def_range.start,
-                f"expanded from macro defined here (depth {depth})"
-            );
+            var mname = self.ctx->sm->get_text(info->invoke_range);
+            if (mname.length() > 0) && (mname.length() <= 64) {
+                builder->note(DiagID::S063N, info->def_range.start,
+                    f"expanded from the body of macro '{mname}!', which failed here (depth {depth})"
+                );
+            } else {
+                builder->note(DiagID::S063N, info->def_range.start,
+                    f"expanded from macro defined here (depth {depth})"
+                );
+            }
 
             kind  = info->original_kind;
             imm   = info->original_imm;
