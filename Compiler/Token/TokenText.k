@@ -5,14 +5,14 @@
 ///   \detail
 ///     Two layers, both here so they cannot drift:
 ///
-///     1. unwrap_expansion() — the MECHANISM. Walks a TkMacroExpand chain
+///     1. unwrap_expansion()   the MECHANISM. Walks a TkMacroExpand chain
 ///        back to the original (kind, imm, def_range). No diagnostics, no
 ///        cursor movement, no policy. Every consumer that needs to look
 ///        through macro wrapping calls this; policy (emitting a diag on
 ///        depth overflow, skipping AtComment by advancing a cursor, etc.)
 ///        stays in the consumer.
 ///
-///     2. TokenText::resolve() — the TEXT ACCESSOR. The only sanctioned way
+///     2. TokenText::resolve()   the TEXT ACCESSOR. The only sanctioned way
 ///        to turn a token into its spelled text. Identifier spellings come
 ///        from the imm interner (synthesized identifiers have NO backing
 ///        source text); literals come from their imm payloads; operators
@@ -21,7 +21,7 @@
 ///
 ///     RULE: no consumer outside this file may call sm->get_text on a token
 ///     range to obtain token text. Raw source access is legitimate only for
-///     source EXCERPTS (diagnostic carets, lexer escape errors) — never for
+///     source EXCERPTS (diagnostic carets, lexer escape errors)   never for
 ///     token spellings.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -517,7 +517,7 @@ class TokenText {
                 // source range: synthesized identifiers (unique_id!, gensym)
                 // have no backing source text, and `imm` here is the UNWRAPPED
                 // ident index (tok.imm on a wrapped token is the expansion
-                // record, not the ident — see unwrap_expansion).
+                // record, not the ident   see unwrap_expansion).
                 if tbl != &null {
                     return create(tbl->get_ident(imm));
                 }

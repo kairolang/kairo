@@ -2905,7 +2905,7 @@ class <T> ExprParse {
         //     if cap.name != &null {
         //         var cap_name = cast::<NamedIdentExpr>(cap.name);
         //         dyn()->scope.bind(
-        //             TokenText::from_token(cap_name->token, dyn()->ctx).text,
+        //             dyn()->ctx->get_spelling(cap_name->token),
         //             static_cast::<*Decl>(CaptureDecl::create(dyn()->ctx, cap.name->range, cap_name->token, cap.by_ptr)),
         //             cap.name->range
         //         );

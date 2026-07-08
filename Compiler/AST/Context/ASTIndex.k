@@ -913,7 +913,7 @@ class ASTIndex {
 
     inline priv fn get_text(self, tok: *Token) -> TokenText {
         if tok == &null {
-            // note: was `tok->range` — null deref waiting to fire
+            // note: was `tok->range`   null deref waiting to fire
             return TokenText("", SourceRange::invalid(), false, false);
         }
 
@@ -926,7 +926,7 @@ class ASTIndex {
 
     /// \details mechanism lives in Token::TokenText::unwrap_expansion.
     ///          Index policy on a truncated chain: degrade to TkUnknown
-    ///          SILENTLY — the parser resolves the same token later and owns
+    ///          SILENTLY   the parser resolves the same token later and owns
     ///          the I002F diagnostic (ASTParse::resolve_deep); reporting here
     ///          too would double-emit for every over-deep token.
     inline priv fn resolve_deep(self, tok: *Token) -> Token {

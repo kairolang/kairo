@@ -770,6 +770,7 @@ fn token_kind_to_readable_string(kind: TokenKind) -> string {
         case TokenKind::KwVolatile            { return "volatile"; }
         case TokenKind::KwVirtual             { return "virtual"; }
         case TokenKind::KwAtomic              { return "atomic"; }
+        case TokenKind::KwMutable             { return "mutable"; }
     }
 
     return "UNKNOWN";

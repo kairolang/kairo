@@ -6,7 +6,7 @@
 ///     Self-contained frontend harness: owns every subsystem needed to turn a
 ///     string into a TranslationUnit (thread pool, VFM, diagnostics, source
 ///     manager, token cache, hoisted-scope index). No filesystem access, no
-///     preprocessing — imports and macro expansions in the snippet are NOT
+///     preprocessing   imports and macro expansions in the snippet are NOT
 ///     resolved. Intended for tests, tooling, and REPL-style consumers.
 ///
 ///     Usage:
@@ -18,8 +18,8 @@
 ///       }
 ///
 ///     This is the *standalone* string-parse entry point (cf. Clang's
-///     buildASTFromCode). The in-context variant used by quasi-quoting —
-///     parsing a snippet into an EXISTING ASTContext — is a separate,
+///     buildASTFromCode). The in-context variant used by quasi-quoting  
+///     parsing a snippet into an EXISTING ASTContext   is a separate,
 ///     lighter path and does not live here.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -54,7 +54,7 @@ import Parser::ASTParse::*;
 /// \details construction runs the pipeline eagerly:
 ///            load_virtual -> lex -> index -> parse -> drain diagnostics.
 ///          check ok() before touching tu(). The object must outlive every
-///          node pointer taken from it — the ASTContext arena lives here.
+///          node pointer taken from it   the ASTContext arena lives here.
 ///
 /// \note heap-create via parse_source() and release with std::destroy.
 ///       Copying is not meaningful; treat as move-only/owner.
@@ -109,7 +109,7 @@ class ParsedSource {
         if !self._tcm->lex_file(self._fid) { return; }
 
         // index phase: builds the HoistedScope + owns the ASTContext.
-        // resolver is null — snippets cannot resolve imports (no preprocess).
+        // resolver is null   snippets cannot resolve imports (no preprocess).
         self._gs->index_file(
             self._fid, self._sm, self._tcm, self._diag, &null, &(self._inv)
         );
@@ -128,7 +128,7 @@ class ParsedSource {
     }
 
     fn op delete (self) {
-        // _gs owns the ASTContext (and with it the TU arena) — destroy first.
+        // _gs owns the ASTContext (and with it the TU arena)   destroy first.
         if self._gs     != &null { std::destroy(self._gs);     }
         if self._tcm    != &null { std::destroy(self._tcm);    }
         if self._sm     != &null { std::destroy(self._sm);     }
@@ -144,7 +144,7 @@ class ParsedSource {
     // --- Results -------------------------------------------------------------
 
     /// \brief true if the pipeline produced a TU and no fatal diagnostic fired.
-    ///        parse errors do NOT clear ok() — the TU is error-resilient;
+    ///        parse errors do NOT clear ok()   the TU is error-resilient;
     ///        check error_count() if you need a clean parse.
     fn ok(self) -> bool { return self._ok; }
 
@@ -180,7 +180,7 @@ class ParsedSource {
 /// \param echo_diags  render diagnostics to the terminal (default true).
 ///
 /// \return heap-allocated ParsedSource; caller releases with std::destroy.
-///         Never null — check ->ok() / ->clean() for outcome.
+///         Never null   check ->ok() / ->clean() for outcome.
 fn parse_source(
     code:       string,
     vname:      string = "<snippet>",

@@ -185,7 +185,7 @@ class TokenPrinter {
         // -- macro sentinel: imm >= Threshold means a builtin marker, no table --
         if (tok->kind == TokenKind::TkMacroExpand)
         && (tok->imm >= static_cast::<u32>(MacroSentinel::Threshold)) {
-            var sentinel = self._sentinel_text(tok->imm);
+            var sentinel = sentinel_text(tok->imm);
             line += s.macro_;
             line += "macro-sentinel";
             line += s.reset;
@@ -267,14 +267,8 @@ class TokenPrinter {
         return s.kind; // fallback
     }
 
-    priv fn _sentinel_text(self, imm: u32) -> string {
-        if imm == static_cast::<u32>(MacroSentinel::Todo)        { return "<todo>";        }
-        if imm == static_cast::<u32>(MacroSentinel::Unreachable) { return "<unreachable>"; }
-        if imm == static_cast::<u32>(MacroSentinel::Include)     { return "<include>";     }
-        if imm == static_cast::<u32>(MacroSentinel::IncludeStr)  { return "<include_str>"; }
-        if imm == static_cast::<u32>(MacroSentinel::Embed)       { return "<embed>";       }
-        return "<sentinel>";
-    }
+    // sentinel display text comes from Token::TokenText::sentinel_text  
+    // one vocabulary for dumps, diagnostics, and resolve().
 
     /// \brief emits an indented detail line for tokens that own an
     ///        immediate-table entry. no-op for everything else.

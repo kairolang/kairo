@@ -459,7 +459,7 @@ class MacroExpander {
     /// \details the spelling has no backing source buffer, so it is copied
     ///          into the imm table's synth storage and interned; the token's
     ///          text MUST be read via the imm index (get_ident), never via
-    ///          sm->get_text(range) — the range points at the invocation
+    ///          sm->get_text(range)   the range points at the invocation
     ///          site and spells something else.
     priv fn make_ident_token(self, name: string, range: SourceRange) -> Token {
         var tok = Token();
@@ -593,6 +593,19 @@ class MacroExpander {
         return out;
     }
 
+    /// \brief `stringify!(tokens...)`   source text of the arguments as a
+    ///        string literal.
+    ///
+    /// \bug KNOWN LIMITATION: the result is a RANGE over the argument span,
+    ///      so it reproduces exactly what is spelled in some source buffer.
+    ///      Synthesized identifiers (unique_id!, gensym) have no source
+    ///      spelling   stringify!(unique_id!()) yields the invocation-site
+    ///      text, not the __synth name. Fixing this requires StringData to
+    ///      support an owned-text payload (interner-backed, like IdentData)
+    ///      instead of only a SourceRange body, plus per-token reconstruction
+    ///      via TokenText::resolve. Tracked with the macro-defines-macro
+    ///      overlay work; do not paper over it here with token concatenation,
+    ///      which would destroy whitespace fidelity for the common case.
     priv fn builtin_stringify(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
         // reconstruct source text from arg tokens into a StringData
         var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
@@ -729,10 +742,10 @@ class MacroExpander {
         return out;
     }
 
-    /// \brief `unique_id!` / `unique_id!(tag)` — synthesized collision-free identifier.
+    /// \brief `unique_id!` / `unique_id!(tag)`   synthesized collision-free identifier.
     ///
     /// \details deterministic gensym: `__synth[_tag]_{fid}_{counter}`. No time,
-    ///          no hashing — same input compiles to the same names (reproducible
+    ///          no hashing   same input compiles to the same names (reproducible
     ///          builds, cacheable, diffable dumps).
     ///
     ///          Untagged: fresh identifier per invocation. Only useful for
@@ -740,14 +753,14 @@ class MacroExpander {
     ///          never referenced again.
     ///
     ///          Tagged, inside a macro expansion: stable per (expansion
-    ///          instance, tag) — two `unique_id!(g)` in one macro body yield the
+    ///          instance, tag)   two `unique_id!(g)` in one macro body yield the
     ///          SAME identifier for one expansion and different identifiers
     ///          across expansions. This is what lets a macro declare a name and
     ///          reference it later. Keyed on _cur_ex_serial (the serial of the
     ///          expansion whose body is being rescanned), so nesting scopes
     ///          correctly: inner!'s tags never collide with outer!'s.
     ///
-    ///          Tagged at top level (serial 0): fresh per invocation — there is
+    ///          Tagged at top level (serial 0): fresh per invocation   there is
     ///          no expansion instance to be stable within.
     priv fn builtin_unique_id(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
         var out   = std::create::<TokenBuffer::<512>>();
@@ -836,6 +849,12 @@ class MacroExpander {
         var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
         if args.size() > 0 {
             var msg = string();
+            // DECISION: message text renders CANONICAL spellings (0x10 -> 16,
+            // synthesized idents -> __synth names) because it routes through
+            // TokenText::resolve. This is deliberate: correct for synthesized
+            // tokens, one vocabulary with dumps. If source-exact spelling is
+            // ever wanted here, use a raw range slice for unwrapped lexed
+            // tokens only   do not bypass token_text for wrapped/synth ones.
             for i in usize(0) .. usize(args[0].size()) {
                 msg += self.token_text(args[0].get(i));
             }
@@ -1660,7 +1679,7 @@ class MacroExpander {
     /// \details unwraps macro-expansion chains and reads identifier spellings
     ///          from the imm interner. NEVER read token text via
     ///          _sm->get_text(tok->range) directly: synthesized identifiers
-    ///          (unique_id!, gensym) have no backing source text — their
+    ///          (unique_id!, gensym) have no backing source text   their
     ///          spelling exists only in the interner, and the range points at
     ///          whatever source happened to be at the invocation site.
     priv fn token_text(self, tok: *Token) -> string {
