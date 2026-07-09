@@ -100,7 +100,7 @@ class TokenCacheManager { /// stores an internal cache table of fid <-> tokens
     }
 
     fn replace_tokens(self, fid: u32, new_tokens: *(TokenBuffer::<512>)) {
-        if !self._kv_s.contains(fid) || self._kv_s[fid] == &null {
+        if (!self._kv_s.contains(fid)) || self._kv_s[fid] == &null {
             std::destroy(new_tokens);
             return;
         }

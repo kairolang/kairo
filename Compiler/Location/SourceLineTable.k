@@ -206,12 +206,12 @@ class SourceLineTable {
     ///
     fn build_index(self, fid: u32, vfm: *VirtualFileManager) {
         var tbl = _file_table.load(std::MemoryOrder::acquire);
-        if (!tbl || fid >= tbl->size()) {
+        if ((!tbl) || fid >= tbl->size()) {
             return;
         }
 
         var entry = (*tbl)[fid];
-        if (!entry || entry->is_ready()) {
+        if ((!entry) || entry->is_ready()) {
             Logger::debug(Logger::Stage::Driver, f"SourceLineTable::build_index: fid={fid} already ready, skipping");
             return;
         }

@@ -1550,7 +1550,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         var n = decl->annotations.size();
         for var i: usize = 0; i < n; ++i {
             var entry = decl->annotations.get(i);
-            var last  = attrs_are_last && (i == n - 1);
+            var last  = attrs_are_last && (i == (n - 1));
             self._head("Attribute", last);
             self.p.put(" ");
             self._dump_one_annotation(entry);
@@ -2198,14 +2198,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
         if has_generics {
             for var i: usize = 0; i < e->generic_params.size(); ++i {
-                var last_gen = (i == e->generic_params.size() - 1) && !has_params && !has_captures && !has_body;
+                var last_gen = (i == (e->generic_params.size() - 1)) && (!has_params) && (!has_captures) && (!has_body);
                 self._child_decl(static_cast::<*Decl>(e->generic_params[i]), last_gen);
             }
         }
 
         if has_params {
             for var i: usize = 0; i < e->params.size(); ++i {
-                var last_param = (i == e->params.size() - 1) && !has_captures && !has_body;
+                var last_param = (i == (e->params.size() - 1)) && (!has_captures) && (!has_body);
                 self._child_decl(static_cast::<*Decl>(e->params[i]), last_param);
             }
         }
@@ -2819,7 +2819,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         if has_attrs { self._dump_annotations(decl, n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self._child_decl((*members)[i], (i == n - 1));
+            self._child_decl((*members)[i], (i == (n - 1)));
         }
         self.p.leave();
     }
@@ -2914,7 +2914,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         if has_attrs { self._dump_annotations(static_cast::<*Decl>(en), n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self._child_decl(static_cast::<*Decl>(en->variants[i]), (i == n - 1));
+            self._child_decl(static_cast::<*Decl>(en->variants[i]), (i == (n - 1)));
         }
         self.p.leave();
     }
@@ -2936,12 +2936,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         var dc = static_cast::<*DeclContext>(md);
         var has_attrs = self._has_annotations(static_cast::<*Decl>(md));
         var n = dc->dc_decls.size();
-        if !has_attrs && (n == 0) { return; }
+        if (!has_attrs) && (n == 0) { return; }
 
         self.p.enter(is_last);
         if has_attrs { self._dump_annotations(static_cast::<*Decl>(md), n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self._child_decl(*(dc->dc_decls.get(i)), (i == n - 1));
+            self._child_decl(*(dc->dc_decls.get(i)), (i == (n - 1)));
         }
         self.p.leave();
     }
@@ -3006,7 +3006,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         if has_attrs { self._dump_annotations(static_cast::<*Decl>(vg), n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self._child_decl(vg->members[i], (i == n - 1));
+            self._child_decl(vg->members[i], (i == (n - 1)));
         }
         self.p.leave();
     }
@@ -3024,7 +3024,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         if has_attrs { self._dump_annotations(static_cast::<*Decl>(fb), n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self._child_decl(fb->body[i], i == n - 1);
+            self._child_decl(fb->body[i], i == (n - 1));
         }
         self.p.leave();
     }
@@ -3038,7 +3038,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         if has_attrs { self._dump_annotations(static_cast::<*Decl>(eb), n == 0); }
         for var i: usize = 0; i < n; ++i {
-            self._child_decl(eb->body[i], (i == n - 1));
+            self._child_decl(eb->body[i], (i == (n - 1)));
         }
         self.p.leave();
     }
@@ -3360,7 +3360,7 @@ class ASTPrinter {
         for var i: usize = 0; i < n; ++i {
             var item = prog->items.get(i);
             if item == &null { continue; }
-            var last = (i == n - 1);
+            var last = (i == (n - 1));
             switch item->get_kind() {
                 case TopLevelKind::Decl { d.dump_decl(item->as_decl(), last); }
                 case TopLevelKind::Stmt { d.dump_stmt(item->as_stmt(), last); }

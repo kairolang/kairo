@@ -994,16 +994,20 @@ fn FrontendAction::_parse() -> bool {
             );
         }
         opts.color = use_color;
-        var ctx = self._global_scope->get_context(self._file_id);
-        if ctx == &null {
-            return self._fatal(f"failed to get context for fid {self._file_id}");
+        for fid: u32 in fids {
+            std::print(f"============== AST ({ast_mode}) for fid {fid} ==============");
+            var ctx = self._global_scope->get_context(fid);
+            if ctx == &null {
+                return self._fatal(f"failed to get context for fid {fid}");
+            }
+            
+            var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+            if tu == &null {
+                return self._fatal(f"parse failed for fid {fid}");
+            }
+            
+            ASTPrinter::print(tu, opts);
         }
-        
-        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
-        if tu == &null {
-            return self._fatal(f"parse failed for fid {self._file_id}");
-        }
-        ASTPrinter::print(tu, opts);
     }
 
     // dump the hoisted scope as well

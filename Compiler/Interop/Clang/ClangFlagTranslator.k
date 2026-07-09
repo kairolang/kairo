@@ -205,14 +205,14 @@ class ClangFlagTranslator {
 
         // thread model
         var thread_model = args->get_string("thread-model");
-        if !thread_model.empty() && thread_model != "posix" {
+        if (!thread_model.empty()) && thread_model != "posix" {
             argv->push_back(f"-mthread-model");
             argv->push_back(thread_model);
         }
 
         // rtlib / unwindlib
         var rtlib = args->get_string("rtlib");
-        if !rtlib.empty() && rtlib != "compiler-rt" {
+        if (!rtlib.empty()) && rtlib != "compiler-rt" {
             argv->push_back(f"-rtlib={rtlib}");
         }
 
@@ -612,7 +612,7 @@ class ClangFlagTranslator {
 
         // entry point override
         var entry = args->get_string("entry");
-        if !entry.empty() && entry != "main" {
+        if (!entry.empty()) && entry != "main" {
             argv->push_back(f"-Wl,-e,{entry}");
         }
 
@@ -690,7 +690,7 @@ class ClangFlagTranslator {
 
         // --prelude -> -include (custom prelude forwarded as a forced include)
         var prelude = args->get_string("prelude");
-        if !prelude.empty() && !args->get_bool("no-prelude") {
+        if (!prelude.empty()) && !args->get_bool("no-prelude") {
             argv->push_back("-include");
             argv->push_back(prelude);
         }
@@ -763,7 +763,7 @@ class ClangFlagTranslator {
         }
 
         var build_id = args->get_string("build-id");
-        if !build_id.empty() && build_id != "fast" {
+        if (!build_id.empty()) && build_id != "fast" {
             argv->push_back(f"-Wl,--build-id={build_id}");
         } else if build_id == "fast" {
             argv->push_back("-Wl,--build-id");
@@ -782,7 +782,7 @@ class ClangFlagTranslator {
         }
 
         var hash_style = args->get_string("hash-style");
-        if !hash_style.empty() && hash_style != "gnu" {
+        if (!hash_style.empty()) && hash_style != "gnu" {
             argv->push_back(f"-Wl,--hash-style={hash_style}");
         }
 
@@ -797,7 +797,7 @@ class ClangFlagTranslator {
         }
 
         var compress_dbg = args->get_string("compress-debug");
-        if !compress_dbg.empty() && compress_dbg != "none" {
+        if (!compress_dbg.empty()) && compress_dbg != "none" {
             argv->push_back(f"-Wl,--compress-debug-sections={compress_dbg}");
         }
 
@@ -1164,7 +1164,7 @@ class ClangFlagTranslator {
 
         // -- Windows / PE-COFF ---------------------------------------------
         var subsystem = args->get_string("subsystem");
-        if !subsystem.empty() && subsystem != "console" {
+        if (!subsystem.empty()) && subsystem != "console" {
             argv->push_back(f"-Wl,/subsystem:{subsystem}");
         }
 
@@ -1302,7 +1302,7 @@ class ClangFlagTranslator {
         }
 
         var wasm_exec = args->get_string("wasm-exec-model");
-        if !wasm_exec.empty() && wasm_exec != "command" {
+        if (!wasm_exec.empty()) && wasm_exec != "command" {
             argv->push_back(f"-mexec-model={wasm_exec}");
         }
     }

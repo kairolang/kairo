@@ -2065,7 +2065,7 @@ fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
             var start_i = i;
             var parsed  = self.parse_import(tokens, i, &tracker);
 
-            if !parsed.is_ffi && (parsed.items.size() > 0 || parsed.is_wildcard) {
+            if (!parsed.is_ffi) && (parsed.items.size() > 0 || parsed.is_wildcard) {
                 // NO recursion - deps already processed
                 self.resolve_import(&parsed, &state, fid);
 
@@ -2984,7 +2984,7 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // should expand to: 10 + 20
-        if !result.contains("10") || !result.contains("20") || !result.contains("+") {
+        if (!result.contains("10")) || (!result.contains("20")) || !result.contains("+") {
             return f"expected '10 + 20' in expansion, got: '{result}\x27";
         }
         return "pass";
@@ -3285,7 +3285,7 @@ fn Test() -> i32 {
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
         // should produce: ( x + y ) * ( x - y )
-        if !result.contains("x") || !result.contains("y") || !result.contains("*") {
+        if (!result.contains("x")) || (!result.contains("y")) || !result.contains("*") {
             return f"expected complex expression, got: '{result}\x27";
         }
         return "pass";
@@ -3387,7 +3387,7 @@ fn Test() -> i32 {
 
         var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
-        if !result.contains("var") || !result.contains("1") || !result.contains("2") {
+        if (!result.contains("var")) || (!result.contains("1")) || !result.contains("2") {
             return f"expected multi-statement expansion, got: '{result}\x27";
         }
         return "pass";

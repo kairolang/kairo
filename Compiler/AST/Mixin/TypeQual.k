@@ -381,13 +381,13 @@ class <T> TypeQual {
 
     /// Merge flags only. Does not merge address space or spans.
     fn op |= (self, const other: TypeQual::<T>) {
-        assert(!self.has_ext_quals() && !other.has_ext_quals()
+        assert((!self.has_ext_quals()) && !other.has_ext_quals()
                && r"use merge_with() when address spaces may be involved");
         self.flags |= other.flags;
     }
 
     const fn op | (self, const other: TypeQual::<T>) -> TypeQual::<T> {
-        assert(!self.has_ext_quals() && !other.has_ext_quals()
+        assert((!self.has_ext_quals()) && !other.has_ext_quals()
                && r"use merge_with() when address spaces may be involved");
         var result = TypeQual::<T>(self.flags | other.flags);
         return result;

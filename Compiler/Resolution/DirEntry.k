@@ -147,7 +147,7 @@ class DirEntry {
             ::std::error_code ec;
             if (!::std::filesystem::is_directory((*fs_path).path_data, ec)) return;
             ::std::filesystem::directory_iterator it((*fs_path).path_data, ec), end;
-            for (; !ec && it != end; it.increment(ec)) {
+            for (; (!ec) && it != end; it.increment(ec)) {
                 auto& entry = *it;
                 auto name_raw = entry.path().filename().generic_wstring();
                 if (name_raw.starts_with(WIDE_STR('.'))) continue;
