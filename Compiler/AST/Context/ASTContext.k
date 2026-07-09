@@ -25,7 +25,6 @@ import Config::Invocation::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Diagnostic::BufferedDiagSink::*;
-import Support::InternedStr::*;
 import Token::TokenText::*;
 
 /// \brief Forward declaration required by ASTContext.
@@ -140,12 +139,6 @@ class ASTContext {
                 n.alloc_calls + s.alloc_calls);
     }
 
-    /// Arena-allocates a copy of \p s. Used by StringInterner do not call
-    /// directly unless you know what you're doing.
-    fn alloc_string(self, s: string) -> *string {
-        return self.alloc_init::<string>(s);
-    }
-
     fn reset_for_reparse(self) {
         self.nodes.reset_fast();
         self.hoisted = &null;
@@ -212,66 +205,6 @@ class ASTContext {
     }
 }
 
-/// Arena-backed string intern table.
-///
-/// Every unique string is stored exactly once. Repeated \c intern() calls
-/// for identical content return the same \c InternedStr handle in O(1).
-/// All string storage lives in \c ASTContext::strings no individual heap
-/// allocations occur after construction.
-///
-/// Thread safety: not thread-safe. The indexer must serialize intern()
-/// calls or give each thread its own interner and merge after.
-class StringInterner {
-    priv var _table:   libcxx::unordered_map::<string, u32>; ///< content -> id
-    priv var _strings: vec::<*string>;                       ///< id -> arena ptr
-    priv var _ctx:     obs::<ASTContext>;
-
-    fn StringInterner(self) {
-        self._table.reserve(512);
-        self._strings.reserve(512);
-    }
-
-    fn StringInterner(self, ctx: *ASTContext) {
-        self._ctx = ctx;
-        self._table.reserve(512);
-        self._strings.reserve(512);
-        self._intern_raw(""); // id 0 = empty string sentinel
-    }
-
-    fn set_ctx(self, ctx: *ASTContext) {
-        self._ctx = ctx;
-    }
-
-    /// Returns the handle for \p s, inserting if not already present.
-    fn intern(self, s: string) -> InternedStr {
-        var it = self._table.find(s);
-        if it != self._table.end() {
-            var r = InternedStr{};
-            r.id  = it->second;
-            return r;
-        }
-        return self._intern_raw(s);
-    }
-
-    /// Retrieves the string content for \p h. O(1). Undefined for invalid handles.
-    fn get(self, h: InternedStr) -> string {
-        return *(self._strings[h.id]);
-    }
-
-    fn size(self) -> usize { return self._strings.size(); }
-
-    priv fn _intern_raw(self, s: string) -> InternedStr {
-        var id  = static_cast::<u32>(self._strings.size());
-        // alloc_init copies s into arena storage no heap alloc
-        var ptr = self._ctx->alloc_init::<string>(s);
-        self._strings.push_back(ptr);
-        self._table.insert(libcxx::make_pair(s, id));
-        var r = InternedStr{};
-        r.id  = id;
-        return r;
-    }
-}
-
 /// Coarse declaration kind enough for parser disambiguation.
 /// Sema refines these into concrete DeclKind values.
 enum HoistedKind derives u8 {
@@ -303,8 +236,8 @@ class HoistedEntry {
 
     pub const static var NO_GENERICS: u32;
 
-    pub var extend_of_name: InternedStr;
-    pub var name:           InternedStr;
+    pub var extend_of_name: u32 = u32(-1); ///< imm ident index of the extended type's name.
+    pub var name:           u32 = u32(-1); ///< imm ident index of this entry's name.
     pub var kind:           HoistedKind;
     pub var decl:           DeclEntry;
     pub var extend_of:      DeclEntry;
@@ -349,12 +282,12 @@ u32 HoistedEntry::NO_GENERICS = u32(-1);
 /// \c entries holds names declared at this scope level.
 /// \c children holds nested scopes (modules, classes, enums with variants).
 ///
-/// Keyed on \c InternedStr so all comparisons and hashes are O(1) integer ops.
-/// Memory is arena-owned the destructor intentionally leaks child pointers
-/// since the arena reclaims everything at once.
+/// Keyed on the u32 imm ident index so all comparisons and hashes are O(1)
+/// integer ops. Memory is arena-owned the destructor intentionally leaks child
+/// pointers since the arena reclaims everything at once.
 class ScopeNode {
-    pub var entries:  libcxx::unordered_map::<InternedStr, vec::<HoistedEntry>, InternedStrHash>;
-    pub var children: libcxx::unordered_map::<InternedStr, *ScopeNode, InternedStrHash>;
+    pub var entries:  libcxx::unordered_map::<u32, vec::<HoistedEntry>>;
+    pub var children: libcxx::unordered_map::<u32, *ScopeNode>;
 
     fn ScopeNode(self) {
         self.entries.reserve(16);
@@ -367,12 +300,12 @@ class ScopeNode {
 
     /// Inserts \p entry under \p name. First declaration wins; duplicates ignored.
     /// Sema will catch redefinition errors with full source context.
-    fn insert(self, name: InternedStr, entry: HoistedEntry) {
+    fn insert(self, name: u32, entry: HoistedEntry) {
         self.entries[name].push_back(entry);
     }
 
     /// Returns the child scope for \p name, creating it if absent.
-    fn get_or_create_child(self, name: InternedStr, ctx: *ASTContext) -> *ScopeNode {
+    fn get_or_create_child(self, name: u32, ctx: *ASTContext) -> *ScopeNode {
         var it = self.children.find(name);
         if it != self.children.end() {
             return it->second;
@@ -383,24 +316,24 @@ class ScopeNode {
     }
 
     /// Returns the child scope for \p name, or null if absent.
-    fn get_child(self, name: InternedStr) -> *ScopeNode {
+    fn get_child(self, name: u32) -> *ScopeNode {
         var it = self.children.find(name);
         if it == self.children.end() { return &null; }
         return it->second;
     }
 
     /// Looks up \p name at this scope level only. Does not search children.
-    fn lookup(self, name: InternedStr) -> *vec::<HoistedEntry> {
+    fn lookup(self, name: u32) -> *vec::<HoistedEntry> {
         var it = self.entries.find(name);
         if it == self.entries.end() { return &null; }
         return &it->second;
     }
 
-    fn has_child(self, name: InternedStr) -> bool {
+    fn has_child(self, name: u32) -> bool {
         return self.children.count(name) > 0;
     }
 
-    fn has_entry(self, name: InternedStr) -> bool {
+    fn has_entry(self, name: u32) -> bool {
         return self.entries.count(name) > 0;
     }
 }
@@ -467,7 +400,7 @@ class LookupResult {
 /// Hierarchical symbol table built by the index pass over a single file
 /// and its transitive imports.
 ///
-/// Structured as a trie of \c ScopeNode instances keyed on \c InternedStr.
+/// Structured as a trie of \c ScopeNode instances keyed on the u32 imm ident index.
 /// Lookup for a qualified name like \c foo::bar::Baz costs one hashmap
 /// lookup per segment O(1) per segment, O(depth) total.
 ///
@@ -500,20 +433,20 @@ class HoistedScope {
         return self._ctx->get_imm_table();
     }
 
-    /// Interns \p s and returns its handle. String path only prefer
+    /// Interns \p s and returns its imm ident index. String path only prefer
     /// \c intern_tok when a token is in hand to avoid the byte copy.
-    fn intern(self, s: string) -> InternedStr {
-        return InternedStr::from_id(self._tbl()->intern_ident_copy(s));
+    fn intern(self, s: string) -> u32 {
+        return self._tbl()->intern_ident_copy(s);
     }
 
-    /// Handle for an identifier token, using its resolved imm directly. Returns
-    /// an invalid handle for non-identifier tokens (never matches an entry).
-    fn intern_tok(self, tok: Token) -> InternedStr {
-        return InternedStr::from_id(self._ctx->get_ident_imm(tok));
+    /// Imm ident index for an identifier token, using its resolved imm directly.
+    /// Returns u32(-1) for non-identifier tokens (never matches an entry).
+    fn intern_tok(self, tok: Token) -> u32 {
+        return self._ctx->get_ident_imm(tok);
     }
 
-    fn str(self, h: InternedStr) -> string {
-        return self._tbl()->get_ident(h.id);
+    fn str(self, h: u32) -> string {
+        return self._tbl()->get_ident(h);
     }
 
     // --- Population ----------------------------------------------------------
@@ -547,8 +480,8 @@ class HoistedScope {
         return self._lookup_in(&self._root, key);
     }
 
-    /// Looks up an already-interned handle at root scope. O(1).
-    fn lookup(self, name: InternedStr) -> LookupResult {
+    /// Looks up an already-interned imm ident index at root scope. O(1).
+    fn lookup(self, name: u32) -> LookupResult {
         return self._lookup_in(&self._root, name);
     }
 
@@ -556,7 +489,7 @@ class HoistedScope {
     /// no byte copy the sanctioned hot-path lookup for the parser.
     fn lookup_tok(self, tok: Token) -> LookupResult {
         var key = self.intern_tok(tok);
-        if !key.is_valid() { return LookupResult::not_found(); }
+        if key == u32(-1) { return LookupResult::not_found(); }
         return self._lookup_in(&self._root, key);
     }
 
@@ -585,7 +518,7 @@ class HoistedScope {
     }
 
     // HoistedScope::lookup_extensions - new
-    fn lookup_extensions(self, type_name: InternedStr) -> vec::<*HoistedEntry> {
+    fn lookup_extensions(self, type_name: u32) -> vec::<*HoistedEntry> {
         var result = vec::<*HoistedEntry>();
         self._collect_extensions(&self._root, type_name, &result);
         return result;
@@ -598,7 +531,7 @@ class HoistedScope {
         return self._root.get_child(k);
     }
 
-    fn enter(self, name: InternedStr) -> *ScopeNode {
+    fn enter(self, name: u32) -> *ScopeNode {
         return self._root.get_child(name);
     }
 
@@ -628,7 +561,7 @@ class HoistedScope {
 
     // --- Private -------------------------------------------------------------
 
-    priv fn _lookup_in(self, node: *ScopeNode, key: InternedStr) -> LookupResult {
+    priv fn _lookup_in(self, node: *ScopeNode, key: u32) -> LookupResult {
         var entries = node->lookup(key);
         if entries == &null {
             return LookupResult::not_found();
@@ -639,7 +572,7 @@ class HoistedScope {
         return r;
     }
 
-    priv fn _collect_extensions(self, node: *ScopeNode, type_name: InternedStr, result: *vec::<*HoistedEntry>) {
+    priv fn _collect_extensions(self, node: *ScopeNode, type_name: u32, result: *vec::<*HoistedEntry>) {
         for var it = node->entries.begin(); it != node->entries.end(); ++it {
             for var i: usize = 0; i < it->second.size(); ++i {
                 var entry = &it->second[i];

@@ -13,7 +13,6 @@
 
 import Memory::ArenaList::*;
 import Location::SourceRange::*;
-import Support::InternedStr::*;
 import AST::ASTSupport::*;
 
 /// CRTP mixin: Decl nodes derive VisibilityAnnotation::<SelfType> to get
@@ -94,21 +93,21 @@ enum AnnotationPresence derives u8 {
 
 /// A single annotation entry.
 ///
-/// For Attribute entries, `name` is the interned attribute name
-/// (e.g. the atom for "inline" in `@inline`). For comment entries,
-/// `name` is InternedStr::invalid() do NOT use the zero sentinel,
-/// which collides with the empty-string atom.
+/// For Attribute entries, `name` is the imm ident index of the attribute name
+/// (e.g. the index for "inline" in `@inline`). For comment entries,
+/// `name` is u32(-1) (the invalid sentinel); do NOT use 0, which is a valid
+/// imm ident index.
 /// STAGE0: bug, stage0 doesnt like fwd decls so we use *void here MUST
 ///         change to *Expr once stage1 is complete.
 class AnnotationEntry {
     pub var kind:  AnnotationKind = AnnotationKind::Attribute;
-    pub var name:  InternedStr    = InternedStr::invalid();
+    pub var name:  u32            = u32(-1);
     pub var range: SourceRange    = SourceRange::invalid();
     pub var args:  FrozenList::<*void>; // Expr always, we need to check
 
     fn AnnotationEntry(self) { }
 
-    fn AnnotationEntry(self, k: AnnotationKind, n: InternedStr, r: SourceRange) {
+    fn AnnotationEntry(self, k: AnnotationKind, n: u32, r: SourceRange) {
         self.kind  = k;
         self.name  = n;
         self.range = r;
@@ -174,7 +173,7 @@ class <T> Annotation {
     }
 
     /// True if an attribute with the given interned name is present.
-    fn has_attribute_named(self, name: InternedStr) -> bool {
+    fn has_attribute_named(self, name: u32) -> bool {
         if !self.has_attribute() { return false; }
         for var i: usize = 0; i < self.annotations.size(); ++i {
             var entry = self.annotations.get(i);
@@ -185,7 +184,7 @@ class <T> Annotation {
         return false;
     }
 
-    fn attribute_range(self, name: InternedStr) -> SourceRange {
+    fn attribute_range(self, name: u32) -> SourceRange {
         if !self.has_attribute() { return SourceRange::invalid(); }
         for var i: usize = 0; i < self.annotations.size(); ++i {
             var entry = self.annotations.get(i);
@@ -212,14 +211,14 @@ class <T> Annotation {
     // uniqueness, check with has_*() first and decide how to handle duplicates
     // (e.g. ignore, merge spans, emit a diag, etc).
 
-    fn add_annotation(self, kind: AnnotationKind, name: InternedStr, range: SourceRange) {
+    fn add_annotation(self, kind: AnnotationKind, name: u32, range: SourceRange) {
         assert(self.annotations.has_allocator()
                && r"Annotation::add_* called before init_annotations()");
         self.annotations.push(AnnotationEntry(kind, name, range));
         self.presence |= __inline_cpp("Annotation<T>::_bit_for(kind)");
     }
 
-    fn add_annotation(self, kind: AnnotationKind, name: InternedStr,
+    fn add_annotation(self, kind: AnnotationKind, name: u32,
                       range: SourceRange, args: FrozenList::<*void>) {
         assert(self.annotations.has_allocator()
                && r"Annotation::add_* called before allocator wiring");
@@ -229,20 +228,20 @@ class <T> Annotation {
         self.presence |= __inline_cpp("Annotation<T>::_bit_for(kind)");
     }
 
-    fn add_attribute(self, name: InternedStr, range: SourceRange) {
+    fn add_attribute(self, name: u32, range: SourceRange) {
         self.add_annotation(AnnotationKind::Attribute, name, range);
     }
 
     fn add_doc_comment(self, range: SourceRange) {
-        self.add_annotation(AnnotationKind::DocComment, InternedStr::invalid(), range);
+        self.add_annotation(AnnotationKind::DocComment, u32(-1), range);
     }
 
     fn add_line_comment(self, range: SourceRange) {
-        self.add_annotation(AnnotationKind::LineComment, InternedStr::invalid(), range);
+        self.add_annotation(AnnotationKind::LineComment, u32(-1), range);
     }
 
     fn add_block_comment(self, range: SourceRange) {
-        self.add_annotation(AnnotationKind::BlockComment, InternedStr::invalid(), range);
+        self.add_annotation(AnnotationKind::BlockComment, u32(-1), range);
     }
 
     // --- Private -------------------------------------------------------

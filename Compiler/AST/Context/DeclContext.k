@@ -118,7 +118,7 @@ class DeclContext {
     /// Looks up a name in THIS scope only (no parent walk). Delegates to
     /// the hoisted scope node. Returns not_found if the scope isn't wired
     /// or the name isn't present.
-    fn lookup_local(self, name: InternedStr) -> LookupResult {
+    fn lookup_local(self, name: u32) -> LookupResult {
         if self.dc_scope == &null { return LookupResult::not_found(); }
         var entries = self.dc_scope->lookup(name);
         if entries == &null { return LookupResult::not_found(); }

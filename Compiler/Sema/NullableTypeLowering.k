@@ -16,7 +16,6 @@ import AST::Printer::PrintCore::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
-import Support::InternedStr::*;
 import AST::Context::TranslationUnit::*;
 import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;

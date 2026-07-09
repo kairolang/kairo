@@ -277,12 +277,12 @@ class PendingAnnotations {
     /// \param kind   the category of annotation (e.g. built-in vs user-defined).
     /// \param name   the identifier associated with the annotation.
     /// \param range  source range covering the `@` through the closing delimiter.
-    fn add(self, kind: AnnotationKind, name: InternedStr, range: SourceRange) {
+    fn add(self, kind: AnnotationKind, name: u32, range: SourceRange) {
         self.entries.push_back(AnnotationEntry(kind, name, range));
     }
 
     /// \brief appends an `@attr(...)` with already-frozen args.
-    fn add_attr(self, name: InternedStr, range: SourceRange, args: FrozenList::<*Expr>) {
+    fn add_attr(self, name: u32, range: SourceRange, args: FrozenList::<*Expr>) {
         var e  = AnnotationEntry(AnnotationKind::Attribute, name, range);
 
         var erased: FrozenList::<*void>;

@@ -777,7 +777,7 @@ class ASTParse
             var resolved = self.resolve_deep(tok);
 
             if resolved.kind == TokenKind::AtComment {
-                out->add(self._comment_kind_from_imm(tok->imm), InternedStr::invalid(), tok->range);
+                out->add(self._comment_kind_from_imm(tok->imm), u32(-1), tok->range);
                 self.advance();
                 if (self._current != &null) && (self.resolve_kind_shallow(self._current) == TokenKind::TkNewLine) {
                     self.advance_raw(); // stay bound regardless of blank-line gap
@@ -894,7 +894,7 @@ class ASTParse
         self._absorb_trailing_comments();
         for var i: usize = 0; i < self._pending_trailing.size(); ++i {
             var c = &self._pending_trailing[i];
-            n->add_annotation(c->kind, InternedStr::invalid(), c->range);
+            n->add_annotation(c->kind, u32(-1), c->range);
         }
         self._pending_trailing.clear();
     }
@@ -903,7 +903,7 @@ class ASTParse
         self._absorb_trailing_comments();
         for var i: usize = 0; i < self._pending_trailing.size(); ++i {
             var c = &self._pending_trailing[i];
-            n->add_annotation(c->kind, InternedStr::invalid(), c->range);
+            n->add_annotation(c->kind, u32(-1), c->range);
         }
         self._pending_trailing.clear();
     }

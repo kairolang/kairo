@@ -39,7 +39,6 @@ import AST::Printer::PrintCore::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
-import Support::InternedStr::*;
 import AST::Context::TranslationUnit::*;
 import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;
@@ -90,7 +89,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
     /// Resolve an interned string. Falls back when the hoisted scope is not
     /// wired (FFI-origin symbols have no interner entry in this TU).
-    fn istr(self, s: InternedStr) -> string {
+    fn istr(self, s: u32) -> string {
         if self.ctx->hoisted != &null { return self.ctx->hoisted->str(s); }
         return "<ffi>";
     }

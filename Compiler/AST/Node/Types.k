@@ -896,12 +896,12 @@ class CXXRValueRefType derives Type {
 ///  name is the original C++ type spelling for diagnostics and codegen.
 ///
 class OpaqueFFIType derives Type {
-    pub var name: InternedStr; ///< Original C++ spelling, e.g. "std::FILE".
+    pub var name: u32; ///< imm ident index of the original C++ spelling, e.g. "std::FILE". ///< Original C++ spelling, e.g. "std::FILE".
 
     static fn create(
         ctx:   *ASTContext,
         range: SourceRange,
-        name:  InternedStr
+        name:  u32
     ) -> *OpaqueFFIType {
         var node   = ctx->alloc::<OpaqueFFIType>();
         node->kind  = TypeKind::OpaqueFFIType;
