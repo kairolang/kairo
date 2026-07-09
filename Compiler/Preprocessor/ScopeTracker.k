@@ -11,6 +11,8 @@
 
 import Macro::SymbolTable::*;
 import Location::SourceManager::*;
+import Lexer::Immediate::*;
+import Token::TokenText::*;
 
 enum ModuleVisibility derives u8 {
     Public,     ///< pub module or no modifier - exported
@@ -32,17 +34,19 @@ class ScopeTracker {
     priv var _stack:       vec::<Frame>;             ///< scope stack
     priv var _sym_table:   obs::<PreprocessorSymbolTable>; ///< for interning identifiers
     priv var _sm:          obs::<SourceManager>;            ///< source manager for error reporting
+    priv var _imm_table:   obs::<ImmediateTable>;    ///< imm table of the file being scanned, for spelling
     priv var _brace_depth: i32;                      ///< current brace nesting level
 
     /// \brief constructs tracker with file's base module path
     /// \param sym_table symbol table for interning identifiers
     /// \param file_base module path derived from filename
-    fn ScopeTracker(self, sym_table: *PreprocessorSymbolTable, sm: *SourceManager, file_base: ModulePath) {
+    fn ScopeTracker(self, sym_table: *PreprocessorSymbolTable, sm: *SourceManager, imm_table: *ImmediateTable, file_base: ModulePath) {
         self._stack       = vec::<Frame>();
         self._sym_table   = sym_table;
         self._file_base   = file_base;
         self._current     = file_base;
         self._sm          = sm;
+        self._imm_table   = imm_table;
         self._brace_depth = 0;
 
         // push initial frame for file-level scope
@@ -220,7 +224,8 @@ class ScopeTracker {
             // create IdentifierToken from the token
             var ident = IdentifierToken();
             ident.token = tokens.get(j);
-            ident.name  = self._sym_table->intern(self._sm->get_text(ident.token->range));
+            ident.name  = self._sym_table->intern(
+                TokenText::spelling(*ident.token, self._sm, self._imm_table));
 
             result.path.segments.push_back(ident);
             result.tokens_consumed += 1;

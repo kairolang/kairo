@@ -886,7 +886,7 @@ class MacroExpander {
 
         Logger::info(Logger::Stage::Preprocessor, f"MacroExpander::expand: fid={fid} tokens={tokens->size()}");
 
-        var tracker = ScopeTracker(self._sym_table, self._sm, scope);
+        var tracker = ScopeTracker(self._sym_table, self._sm, self._imm_table, scope);
         var ctx     = ExpansionContext();
         var output  = std::create::<TokenBuffer::<512>>();
         var changed = false;
@@ -1837,11 +1837,13 @@ class PreProcessor {
             // macro collection
             var tokens = self._tcm->get_tokens(fid);
             if tokens != &null {
-                var def_tracker = ScopeTracker(self._pp_sym_table, self._sm, mod_path);
+                var fid_imm_tbl = self._tcm->get_imm_table_for_fid(fid);
+                var def_tracker = ScopeTracker(self._pp_sym_table, self._sm, fid_imm_tbl, mod_path);
                 var collector   = MacroDefinitionCollector(
                     self._pp_sym_table,
                     self._macro_table,
                     self._sm,
+                    fid_imm_tbl,
                     self._diag
                 );
                 collector.collect(tokens, fid, &def_tracker, skip_list_ptr);
@@ -2047,7 +2049,7 @@ fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
     state.fid         = fid;
     state.module_base = module_base;
 
-    var tracker = ScopeTracker(self._sym_table, self._sm, module_base);
+    var tracker = ScopeTracker(self._sym_table, self._sm, self._tcm->get_imm_table_for_fid(fid), module_base);
     var i: usize = 0;
 
     while i < tokens->size() {
@@ -2188,7 +2190,8 @@ priv fn ImportProcessor::parse_import(
         if t->kind == TokenKind::LitIdentifier {
             var ident = IdentifierToken();
             ident.token = t;
-            ident.name  = self._sym_table->intern(self._sm->get_text(t->range));
+            ident.name  = self._sym_table->intern(
+                TokenText::spelling(*t, self._sm, self._tcm->get_imm_table_for_token(*t, self._sm)));
             segments.push_back(ident);
             j += 1;
 
@@ -2249,7 +2252,8 @@ priv fn ImportProcessor::parse_import(
             if j < tokens->size() && tokens->get(j)->kind == TokenKind::LitIdentifier {
                 var alias_tok = tokens->get(j);
                 item.alias.token = alias_tok;
-                item.alias.name  = self._sym_table->intern(self._sm->get_text(alias_tok->range));
+                item.alias.name  = self._sym_table->intern(
+                    TokenText::spelling(*alias_tok, self._sm, self._tcm->get_imm_table_for_token(*alias_tok, self._sm)));
                 item.has_alias = true;
                 j += 1;
 
@@ -2296,7 +2300,8 @@ priv fn ImportProcessor::parse_grouped_imports(
 
         var item = ParsedImport::Item();
         item.name.token = t;
-        item.name.name  = self._sym_table->intern(self._sm->get_text(t->range));
+        item.name.name  = self._sym_table->intern(
+            TokenText::spelling(*t, self._sm, self._tcm->get_imm_table_for_token(*t, self._sm)));
         item.alias = item.name;
         (*j) += 1;
 
@@ -2310,7 +2315,8 @@ priv fn ImportProcessor::parse_grouped_imports(
             if (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::LitIdentifier {
                 var alias_tok = tokens->get(*j);
                 item.alias.token = alias_tok;
-                item.alias.name  = self._sym_table->intern(self._sm->get_text(alias_tok->range));
+                item.alias.name  = self._sym_table->intern(
+                    TokenText::spelling(*alias_tok, self._sm, self._tcm->get_imm_table_for_token(*alias_tok, self._sm)));
                 item.has_alias = true;
                 (*j) += 1;
 

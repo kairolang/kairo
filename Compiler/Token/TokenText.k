@@ -542,6 +542,21 @@ class TokenText {
         return TokenText(sm->get_text(tok_range), tok_range, is_expand, false);
     }
 
+    /// \brief null-tolerant spelling accessor for scanners that resolve the imm
+    ///        table per token (PP scanners hold only a tcm, not a fixed table).
+    ///
+    /// \details identical to \c resolve().get_text() when \p tbl is non-null;
+    ///          falls back to raw source when the table can't be reached (e.g.
+    ///          a token whose range doesn't map to a live fid). For raw lexed
+    ///          identifiers the two agree, so this is behavior-neutral today and
+    ///          becomes the correct path once expansion can synthesize tokens.
+    static fn spelling(tok: Token, sm: *SourceManager, tbl: *ImmediateTable) -> string {
+        if tbl == &null {
+            return sm->get_text(tok.range);
+        }
+        return TokenText::resolve(tok, sm, tbl).get_text();
+    }
+
     /// \brief raw source slice for a RANGE (not a token).
     static fn from_range(range: SourceRange, sm: *SourceManager) -> TokenText {
         assert((sm != &null) && r"SourceManager is null in TokenText::from_range");

@@ -10,6 +10,8 @@
 /// ------------------------------------------------------------------------ ///
 
 import Preprocessor::ScopeTracker::*;
+import Lexer::Immediate::*;
+import Token::TokenText::*;
 import Resolution::FileImportState::*;
 import Resolution::ParsedImport::*;
 import Preprocessor::SkipList::*;
@@ -54,6 +56,7 @@ class MacroDefinitionCollector {
     priv var _sym_table:   obs::<PreprocessorSymbolTable>;
     priv var _macro_table: obs::<MacroSymbolTable>;
     priv var _sm:          obs::<SourceManager>;
+    priv var _imm_table:   obs::<ImmediateTable>; ///< imm table of the file being collected, for spelling
     priv var _skip_list:   obs::<SkipList>;
     priv var _diag:        obs::<DiagEngine>;
     priv var _current_fid: u32;
@@ -63,11 +66,13 @@ class MacroDefinitionCollector {
         sym_table:   *PreprocessorSymbolTable,
         macro_table: *MacroSymbolTable,
         sm:          *SourceManager,
+        imm_table:   *ImmediateTable,
         diag:        *DiagEngine
     ) {
         self._sym_table   = sym_table;
         self._macro_table = macro_table;
         self._sm          = sm;
+        self._imm_table   = imm_table;
         self._diag        = diag;
     }
 
@@ -152,7 +157,8 @@ class MacroDefinitionCollector {
 
         var name_ident = IdentifierToken();
         name_ident.token = name_tok;
-        name_ident.name  = self._sym_table->intern(self._sm->get_text(name_tok->range));
+        name_ident.name  = self._sym_table->intern(
+            TokenText::spelling(*name_tok, self._sm, self._imm_table));
         j += 1;
 
         // -- expect: `!` ----------------------------------------------------
@@ -321,7 +327,8 @@ class MacroDefinitionCollector {
 
             var param = MacroParameter();
             param.name.token = t;
-            param.name.name  = self._sym_table->intern(self._sm->get_text(t->range));
+            param.name.name  = self._sym_table->intern(
+                TokenText::spelling(*t, self._sm, self._imm_table));
             (*j) += 1;
 
             // -- check what follows the identifier ---------------------------

@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Token::TokenCacheManager::*;
+import Token::TokenText::*;
 import Resolution::ImportProbe::*;
 import Preprocessor::SkipList::*;
 import Location::SourceManager::*;
@@ -115,7 +116,7 @@ class DepScanner {
             return;
         }
 
-        var tracker = ScopeTracker(self._sym_table, self._sm, mod_path);
+        var tracker = ScopeTracker(self._sym_table, self._sm, self._tcm->get_imm_table_for_fid(fid), mod_path);
         var i: usize = 0;
 
         while i < tokens->size() {
@@ -173,7 +174,8 @@ class DepScanner {
         while j < tokens->size() {
             var t = tokens->get(j);
             if t->kind == TokenKind::LitIdentifier {
-                segments.push_back(self._sm->get_text(t->range));
+                segments.push_back(
+                    TokenText::spelling(*t, self._sm, self._tcm->get_imm_table_for_token(*t, self._sm)));
                 j += 1;
                 // peek for ::
                 if j < tokens->size() && tokens->get(j)->kind == TokenKind::OpColonColon {
