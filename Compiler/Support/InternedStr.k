@@ -26,6 +26,15 @@ class InternedStr {
         return s;
     }
 
+    /// \brief wraps a raw id (e.g. an ImmediateTable ident index) as a handle.
+    ///        Post interner-consolidation the id space IS the per-fid imm ident
+    ///        index, so a Token.imm can be lifted straight into a key.
+    static fn from_id(id: u32) -> InternedStr {
+        var s = InternedStr{};
+        s.id  = id;
+        return s;
+    }
+
     fn is_valid(self) -> bool { return self.id != u32(-1); }
 }
 

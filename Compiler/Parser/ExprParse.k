@@ -1024,8 +1024,7 @@ class <T> ExprParse {
         // also check hoisted scope for disambiguation of foo::Bar<T>
         if dyn()->check(TokenKind::OpLess) {
             if result.access_kind == ChainExpr::AccessKind::ColonColon {
-                var spelling = dyn()->ctx->get_spelling(*id_ptr);
-                if self._is_generic_name(spelling) {
+                if self._is_generic_name(*id_ptr) {
                     var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                     dyn()->_parse_generic_args(&generic_args);
                     if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
@@ -1623,10 +1622,7 @@ class <T> ExprParse {
         // check for generic args: Foo<T>
         // only if `<` follows AND hoisted scope says this name is generic
         if dyn()->check(TokenKind::OpLess) {
-            var spelling = dyn()->ctx->get_spelling(*id_ptr);
-
-            
-            if self._is_generic_name(spelling) {
+            if self._is_generic_name(*id_ptr) {
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 dyn()->_parse_generic_args(&generic_args);
                 if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
@@ -1709,8 +1705,7 @@ class <T> ExprParse {
 
         // check for generic args on first segment
         if dyn()->check(TokenKind::OpLess) {
-            var spelling = dyn()->ctx->get_spelling(*id_ptr);
-            if self._is_generic_name(spelling) {
+            if self._is_generic_name(*id_ptr) {
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 dyn()->_parse_generic_args(&generic_args);
                 if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
@@ -2854,8 +2849,8 @@ class <T> ExprParse {
 
     /// \brief checks if a name refers to a generic type/function in hoisted scope.
     ///        used to disambiguate `<` as generic args vs comparison operator.
-    inline fn _is_generic_name(self, name: string) -> bool {
-        var hr = dyn()->ctx->hoisted->lookup(name);
+    inline fn _is_generic_name(self, tok: Token) -> bool {
+        var hr = dyn()->ctx->hoisted->lookup_tok(tok);
         if hr.found() {
             return hr.first()->is_generic();
         }

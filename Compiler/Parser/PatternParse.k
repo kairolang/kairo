@@ -458,8 +458,7 @@ class <T> PatternParse {
 
         if lead == &null { return false; }
 
-        var spelling = dyn()->ctx->get_spelling(lead->name);
-        return dyn()->ctx->hoisted->lookup(spelling).found();
+        return dyn()->ctx->hoisted->lookup_tok(lead->name).found();
     }
 
     // ========================================================================

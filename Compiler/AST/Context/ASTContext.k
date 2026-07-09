@@ -172,6 +172,29 @@ class ASTContext {
         return tok;
     }
 
+    /// \brief resolved imm ident index for a token, or u32(-1) if it is not an
+    ///        identifier (keyword, operator, sentinel, or no interner reachable).
+    ///
+    /// \details unwraps any TkMacroExpand chain first so the index matches the
+    ///          spelling the user wrote, then returns the UNWRAPPED imm (tok.imm
+    ///          on a wrapped token is the expansion record, not the ident). This
+    ///          is the identity half of TokenText::resolve without materializing
+    ///          the string   the sanctioned key for HoistedScope lookups off a
+    ///          token. Same spelling collapses to the same index as a string
+    ///          interned via intern_ident_copy, so token-keyed and text-keyed
+    ///          lookups agree within a file.
+    fn get_ident_imm(self, tok: Token) -> u32 {
+        var tbl = self.get_imm_table();
+        if tbl == &null { return u32(-1); }
+
+        var u = unwrap_expansion(tok, tbl);
+        if u.is_sentinel { return u32(-1); }
+        if static_cast::<u32>(u.kind) == static_cast::<u32>(TokenKind::LitIdentifier) {
+            return u.imm;
+        }
+        return u32(-1);
+    }
+
     fn get_token_text(self, tok: Token) -> TokenText {
         return TokenText::resolve(tok, self.sm, self.get_imm_table());
     }
@@ -459,32 +482,45 @@ class LookupResult {
 /// The \c Indexer calls \c insert() and \c insert_into() during the index
 /// pass. After the pass completes the scope is read-only.
 class HoistedScope {
-    priv var _root:     ScopeNode;
-    priv var _interner: StringInterner;
-    priv var _ctx:      obs::<ASTContext>;
+    priv var _root: ScopeNode;
+    priv var _ctx:  obs::<ASTContext>;
 
     fn HoistedScope(self, ctx: *ASTContext) {
-        self._ctx      = ctx;
-        self._interner = StringInterner(ctx);
+        self._ctx = ctx;
     }
 
     // --- Interning -----------------------------------------------------------
+    //
+    // Post interner-consolidation the key space IS the per-fid ImmediateTable
+    // ident index, unified with Token.imm. String inputs (synth names, path
+    // segments spanning multiple tokens) are copied in via intern_ident_copy;
+    // token inputs use their resolved imm directly (see lookup_tok / intern_tok).
 
-    /// Interns \p s and returns its handle. Always use this never construct
-    /// InternedStr directly outside of HoistedScope.
+    priv fn _tbl(self) -> *ImmediateTable {
+        return self._ctx->get_imm_table();
+    }
+
+    /// Interns \p s and returns its handle. String path only prefer
+    /// \c intern_tok when a token is in hand to avoid the byte copy.
     fn intern(self, s: string) -> InternedStr {
-        return self._interner.intern(s);
+        return InternedStr::from_id(self._tbl()->intern_ident_copy(s));
+    }
+
+    /// Handle for an identifier token, using its resolved imm directly. Returns
+    /// an invalid handle for non-identifier tokens (never matches an entry).
+    fn intern_tok(self, tok: Token) -> InternedStr {
+        return InternedStr::from_id(self._ctx->get_ident_imm(tok));
     }
 
     fn str(self, h: InternedStr) -> string {
-        return self._interner.get(h);
+        return self._tbl()->get_ident(h.id);
     }
 
     // --- Population ----------------------------------------------------------
 
     /// Inserts \p entry at root scope under \p name.
     fn insert(self, name: string, entry: HoistedEntry) {
-        var key        = self._interner.intern(name);
+        var key        = self.intern(name);
         entry.name     = key;
         self._root.insert(key, entry);
     }
@@ -495,10 +531,10 @@ class HoistedScope {
     fn insert_into(self, scope_path: *vec::<string>, name: string, entry: HoistedEntry) {
         var node = &self._root;
         for s: string in *scope_path {
-            var k = self._interner.intern(s);
+            var k = self.intern(s);
             node  = node->get_or_create_child(k, self._ctx);
         }
-        var key    = self._interner.intern(name);
+        var key    = self.intern(name);
         entry.name = key;
         node->insert(key, entry);
     }
@@ -507,13 +543,21 @@ class HoistedScope {
 
     /// Looks up an unqualified name at root scope.
     fn lookup(self, name: string) -> LookupResult {
-        var key = self._interner.intern(name);
+        var key = self.intern(name);
         return self._lookup_in(&self._root, key);
     }
 
     /// Looks up an already-interned handle at root scope. O(1).
     fn lookup(self, name: InternedStr) -> LookupResult {
         return self._lookup_in(&self._root, name);
+    }
+
+    /// Looks up an identifier token at root scope by its resolved imm. O(1),
+    /// no byte copy the sanctioned hot-path lookup for the parser.
+    fn lookup_tok(self, tok: Token) -> LookupResult {
+        var key = self.intern_tok(tok);
+        if !key.is_valid() { return LookupResult::not_found(); }
+        return self._lookup_in(&self._root, key);
     }
 
     /// Walks a qualified name chain and returns the final entry.
@@ -525,13 +569,13 @@ class HoistedScope {
 
         var node = &self._root;
         for var i: usize = 0; i < segments->size() - 1; ++i {
-            var k    = self._interner.intern((*segments)[i]);
+            var k    = self.intern((*segments)[i]);
             var next = node->get_child(k);
             if next == &null { return LookupResult::not_found(); }
             node = next;
         }
 
-        var last = self._interner.intern(segments->back());
+        var last = self.intern(segments->back());
         return self._lookup_in(node, last);
     }
 
@@ -550,7 +594,7 @@ class HoistedScope {
     /// Returns the child scope node for \p name at root, or null.
     /// Used by the parser to manually walk a scope chain one segment at a time.
     fn enter(self, name: string) -> *ScopeNode {
-        var k = self._interner.intern(name);
+        var k = self.intern(name);
         return self._root.get_child(k);
     }
 
@@ -561,7 +605,7 @@ class HoistedScope {
     fn enter(self, segments: *vec::<string>) -> *ScopeNode {
         var node = &self._root;
         for s in *segments {
-            var k = self._interner.intern(s);
+            var k = self.intern(s);
             node  = node->get_child(k);
             if node == &null { return &null; }
         }
@@ -600,9 +644,6 @@ class HoistedScope {
             for var i: usize = 0; i < it->second.size(); ++i {
                 var entry = &it->second[i];
                 if entry->extended {
-                    var extended_name = self._interner.intern(
-                        self._interner.get(entry->name)
-                    );
                     if entry->extend_of_name == type_name {
                         result->push_back(entry);
                     }
@@ -634,7 +675,7 @@ class HoistedScope {
             var connector  = (("└── ") if (is_last) else ("├── "));
             var child_pfx  = (("    ") if (is_last) else ("│   "));
 
-            var name = self._interner.get(it->first);
+            var name = self.str(it->first);
             var vec  = it->second;
 
             if vec.size() == 1 {
@@ -656,7 +697,7 @@ class HoistedScope {
             var connector = (("└── ") if (is_last) else ("├── "));
             var child_pfx = (("    ") if (is_last) else ("│   "));
 
-            var name = self._interner.get(it->first);
+            var name = self.str(it->first);
             std::print(f"{prefix}{connector}{name}/");
             self._dump_node(it->second, prefix + child_pfx, false);
         }

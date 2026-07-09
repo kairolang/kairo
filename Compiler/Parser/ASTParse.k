@@ -361,8 +361,7 @@ class ASTParse
                 continue; // fns/vars: no trie children; ScopeStack covers bodies
             }
 
-            var spelling = self.ctx->get_spelling(name_tok);
-            var child    = node->get_child(self.ctx->hoisted->intern(spelling));
+            var child = node->get_child(self.ctx->hoisted->intern_tok(name_tok));
             if child == &null { continue; }
 
             child_dc->set_scope(child);
@@ -799,8 +798,7 @@ class ASTParse
                 }
 
                 var name_tok = self.current();
-                var spelling = self.ctx->get_spelling(name_tok);
-                var name     = self.ctx->hoisted->intern(spelling);
+                var name     = self.ctx->hoisted->intern_tok(name_tok);
                 self.advance(); // consume identifier
 
                 var end_range = name_tok.range;
