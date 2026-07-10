@@ -60,6 +60,7 @@ class VirtualFileManager {
     
     priv var _parents:       vec::<own::<MappedFileBuffer>> = vec::<own::<MappedFileBuffer>>();
     priv var _segments:      vec::<own::<Segment>>          = vec::<own::<Segment>>();
+    priv var _page_table:    vec::<u32> = vec::<u32>(); ///< page index -> segment index, 0xFFFFFFFF = gap/invalid.
     priv var _next_fid:      u32   = 0;
     priv var _global_offset: usize = 0;
 
@@ -230,11 +231,13 @@ class VirtualFileManager {
             self._next_fid += 1;
             var seg     = std::create::<Segment>(seg_fid, abs, start, seg_len);
 
+            self._align_global_offset();
             seg->global_base = self._global_offset;
-            self._global_offset += seg_len;
+            self._global_offset += (seg_len + 1);
 
             seg->attach(parent, start, seg_len);
             _segments.push_back(seg);
+            self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, seg_len);
         }
 
         Logger::info(Logger::Stage::Driver, f"VirtualFileManager::register_file: fid={base_fid} path={abs_full} total={total}B nseg={nseg}");
@@ -258,13 +261,15 @@ class VirtualFileManager {
         self._next_fid += 1;
         var seg = std::create::<Segment>(seg_fid, Path(fake_path.full_path()), 0, size);
 
+        self._align_global_offset();
         seg->global_base = self._global_offset;
-        self._global_offset += size;
+        self._global_offset += (size + 1);
 
         seg->buffer.attach_raw(const_cast::<*u8>(data), size);
         self._segments.push_back(seg);
+        self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, size);
 
-        return self._next_fid - 1;
+        return seg_fid;
     }
 
     ///
@@ -364,18 +369,26 @@ class VirtualFileManager {
     /// `SourceLocation` value.
     ///
     fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
-        var seg_idx = fid + static_cast::<u32>(off / 0x100000000);
-        var local_off = off % 0x100000000;
-
-        if seg_idx >= (_segments.size()) {
+        if fid >= self._segments.size() {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: invalid fid={fid} off={off} seg_count={self._segments.size()}");
             std::crash(std::Error::RuntimeError(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})"));
         }
 
-        // encode as global_base + local_offset + 1 (SourceLocation 0 = invalid)
-        return SourceLocation::from_raw(
-            static_cast::<u32>(self._segments[seg_idx]->global_base + local_off + 1)
-        );
+        var seg = self._segments[fid];
+
+        if off > seg->size {
+            Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: off={off} exceeds segment size={seg->size} for fid={fid}");
+            std::crash(std::Error::RuntimeError(f"VirtualFileManager: Offset out of segment bounds (fid: {fid}, off: {off})"));
+        }
+
+        var raw = seg->global_base + off + 1;
+
+        if raw > 0xFFFFFFFF {
+            Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: global source space exceeded 4GB (raw={raw})");
+            std::crash(std::Error::RuntimeError("VirtualFileManager: SourceLocation address space exhausted (4GB u32 cap)"));
+        }
+
+        return SourceLocation::from_raw(static_cast::<u32>(raw));
     }
 
     /// just a pointer should also return a srouce location
@@ -395,6 +408,15 @@ class VirtualFileManager {
     }
 
 
+    ///
+    /// \brief resolves a SourceLocation -> file/offset pair.
+    ///
+    /// \details
+    /// o(1) page-table lookup. segments are 4 kb-aligned in the global
+    /// source space, so every page maps to exactly one segment or to a
+    /// gap (0xFFFFFFFF). gap hits mean a corrupted/stale location and
+    /// resolve as invalid.
+    ///
     fn resolve_loc(self, loc: SourceLocation) -> SegmentResolve {
         var id = static_cast::<usize>(loc.raw());
         if id == 0 {
@@ -402,16 +424,26 @@ class VirtualFileManager {
         }
         id -= 1; // SourceLocation is 1-based
 
-        for seg: *Segment in _segments {
-            if id >= seg->global_base && id < (seg->global_base + seg->size) {
-                return {
-                    .fid:    seg->fid,
-                    .offset: id - seg->global_base
-                };
-            }
+        var page = id >> 12;
+        if page >= self._page_table.size() {
+            return { .fid: static_cast::<usize>(-1), .offset: 0 };
         }
 
-        return { .fid: static_cast::<usize>(-1), .offset: 0 };
+        var seg_index = self._page_table[page];
+        if seg_index == u32(-1) {
+            return { .fid: static_cast::<usize>(-1), .offset: 0 };
+        }
+
+        var seg = self._segments[seg_index];
+        if id > (seg->global_base + seg->size) {   // was >=
+            // location points into the alignment gap past this segment's end
+            return { .fid: static_cast::<usize>(-1), .offset: 0 };
+        }
+
+        return {
+            .fid:    seg->fid,
+            .offset: id - seg->global_base
+        };
     }
 
     ///
@@ -454,5 +486,39 @@ class VirtualFileManager {
         _parents.clear();
 
         self._next_fid = 0;
+        self._page_table.clear();
+        self._global_offset = 0;
+    }
+
+    ///
+    /// \brief rounds _global_offset up to the next 4 KB page boundary.
+    ///
+    priv fn _align_global_offset(self) {
+        self._global_offset = (self._global_offset + 0xFFF) & (~usize(0xFFF));
+    }
+
+    ///
+    /// \brief maps the pages spanned by [base, base + len) to a segment index.
+    ///
+    /// \details
+    /// grows the page table as needed. pages created by growth but not
+    /// covered by any segment (alignment gaps) hold 0xFFFFFFFF and resolve
+    /// as invalid.
+    ///
+    priv fn _map_pages(self, seg_index: u32, base: usize, len: usize) {
+        if len == 0 {
+            return;
+        }
+
+        var first_page = base >> 12;
+        var last_page = (base + len) >> 12;
+
+        while self._page_table.size() <= last_page {
+            self._page_table.push_back(u32(-1));
+        }
+
+        for p in range::<usize>(first_page, last_page + 1) {
+            self._page_table[p] = seg_index;
+        }
     }
 }
