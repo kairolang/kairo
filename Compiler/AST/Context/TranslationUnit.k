@@ -15,7 +15,7 @@
 
 import Memory::ArenaList::*;
 import AST::Context::ASTContext::*;
-import AST::Context::GlobalHoistedScope::*;
+import AST::Context::GlobalDisambigTable::*;
 import AST::Context::DeclContext::*;
 import AST::Node::Program::*;
 import AST::Node::Base::*;
@@ -85,7 +85,7 @@ class ParentRef {
         return r;
     }
 
-    static fn from_hoisted(e: *HoistedEntry) -> ParentRef {
+    static fn from_hoisted(e: *DisambigEntry) -> ParentRef {
         var r = ParentRef{};
         r.kind = ParentKind::Hoisted;
         r.ptr  = reinterpret_cast::<*void>(e);
@@ -94,9 +94,9 @@ class ParentRef {
 
     fn is_none(self) -> bool { return self.kind == ParentKind::None; }
 
-    fn as_hoisted(self) -> *HoistedEntry {
+    fn as_hoisted(self) -> *DisambigEntry {
         assert(self.kind == ParentKind::Hoisted);
-        return reinterpret_cast::<*HoistedEntry>(self.ptr);
+        return reinterpret_cast::<*DisambigEntry>(self.ptr);
     }
 
     fn as_expr(self) -> *Expr {
@@ -158,10 +158,10 @@ class TranslationUnit derives DeclContext {
     pub var warn_count:   u32 = 0;
     pub var body_ranges:  ArenaList::<BodyRange>;
 
-    pub var scope:        obs::<HoistedScope>;
-    pub var global_scope: obs::<GlobalHoistedScope>;
+    pub var scope:        obs::<DisambigTable>;
+    pub var global_scope: obs::<GlobalDisambigTable>;
 
-    fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *HoistedScope, g_scope: *GlobalHoistedScope) {
+    fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
         self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
         self.ctx          = ctx;
         self.fid          = fid;

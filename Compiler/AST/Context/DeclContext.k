@@ -85,7 +85,7 @@ class DeclContext {
     pub var dc_parent: obs::<DeclContext>;      // lexical parent scope
     pub var dc_owner:  obs::<Decl>;             // the Decl that owns this context (null for TU)
     pub var dc_decls:  ArenaList::<*Decl>;      // owned decls, in source order (parser ordering)
-    pub var dc_scope:  obs::<ScopeNode>;        // hoisted scope node for lookup; populated by indexer
+    pub var dc_scope:  obs::<DisambigNode>;        // hoisted scope node for lookup; populated by indexer
 
     fn init_dc(self, kind: DeclContextKind, ctx: *ASTContext, parent: *DeclContext, owner: *Decl) {
         self.dc_kind   = kind;
@@ -96,9 +96,9 @@ class DeclContext {
     }
 
     /// Wire the hoisted scope node in after the index pass. The indexer
-    /// owns population of the ScopeNode; the parser links it here so
+    /// owns population of the DisambigNode; the parser links it here so
     /// lookup_local() can delegate.
-    fn set_scope(self, scope: *ScopeNode) {
+    fn set_scope(self, scope: *DisambigNode) {
         self.dc_scope = scope;
     }
 

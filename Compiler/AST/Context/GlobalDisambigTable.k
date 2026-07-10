@@ -1,6 +1,6 @@
-/// --- The Kairo Project ------------- AST/Context/GlobalHoistedScope.k --- ///
+/// --- The Kairo Project ------------- AST/Context/GlobalDisambigTable.k --- ///
 ///
-///   Global symbol table aggregating HoistedScope instances from all indexed
+///   Global symbol table aggregating DisambigTable instances from all indexed
 ///   files. Used for cross-file symbol resolution before parsing.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
@@ -17,23 +17,23 @@ import Resolution::ModulePath::*;
 import Preprocessor::Preprocessor::*;
 import AST::Context::ASTIndex::*;
 
-/// Aggregates all file-level HoistedScope instances for cross-file lookup.
+/// Aggregates all file-level DisambigTable instances for cross-file lookup.
 /// Owns all ASTContext instances created during the index phase.
 /// Read-only after all files are registered.
-class GlobalHoistedScope {
+class GlobalDisambigTable {
     /// Entry in the global scope table, one per indexed file.
     
     struct GlobalScopeEntry {
         pub var fid:      u32;
         pub var ctx:      own::<ASTContext>;
-        pub var hoisted:  obs::<HoistedScope>;  // points into ctx
+        pub var hoisted:  obs::<DisambigTable>;  // points into ctx
         pub var mod_path: ModulePath;
     }
 
     priv var _by_fid: libcxx::unordered_map::<u32, GlobalScopeEntry>;
     priv var _mu:     std::SharedMutex;
 
-    fn GlobalHoistedScope(self) {
+    fn GlobalDisambigTable(self) {
         self._by_fid.reserve(128);
     }
 
@@ -84,7 +84,7 @@ class GlobalHoistedScope {
 
     // --- Lookup (parse phase, read-only) -------------------------------------
 
-    fn get_scope(self, fid: u32) -> *HoistedScope {
+    fn get_scope(self, fid: u32) -> *DisambigTable {
         var it = self._by_fid.find(fid);
         if it == self._by_fid.end() { return &null; }
         return it->second.hoisted;
@@ -104,7 +104,7 @@ class GlobalHoistedScope {
     }
 
     /// Cross-file qualified lookup. Caller resolves the fid from ImportProcessor,
-    /// then walks remaining segments in that file's HoistedScope.
+    /// then walks remaining segments in that file's DisambigTable.
     ///
     /// Example: parser sees `Foo::Bar::Baz`
     ///   1. Ask ImportProcessor: what fid does `Foo::Bar` resolve to?
@@ -136,7 +136,7 @@ class GlobalHoistedScope {
     // --- Debug ---------------------------------------------------------------
 
     fn dump(self) {
-        std::print("=== GlobalHoistedScope Dump ===");
+        std::print("=== GlobalDisambigTable Dump ===");
         std::print(f"Registered files: {self._by_fid.size()}");
         std::print("");
 
@@ -152,6 +152,6 @@ class GlobalHoistedScope {
             std::print("");
         }
 
-        std::print("=== End GlobalHoistedScope ===");
+        std::print("=== End GlobalDisambigTable ===");
     }
 }

@@ -21,7 +21,7 @@
 // keywords without understanding statement structure. This makes it
 // misclassify `var`/`const` that appear mid-statement context bindings
 // (`foo as var f`), destructure RHS, for-loop headers as top-level
-// variable declarations, hoisting phantom globals into HoistedScope.
+// variable declarations, hoisting phantom globals into DisambigTable.
 //
 // Diagnostics are commented out as a stopgap so these false positives don't
 // surface as spurious errors. This does NOT fix the underlying pollution:
@@ -52,7 +52,7 @@ import Diagnostic::Registry::*;
 class ASTIndex {
     priv var _scope_path:   vec::<string>;
     priv var _ctx:          obs::<ASTContext>;
-    priv var _hoisted:      own::<HoistedScope>;    // built by ASTIndex, read by parser
+    priv var _hoisted:      own::<DisambigTable>;    // built by ASTIndex, read by parser
     priv var _diag:         obs::<DiagEngine>;
     priv var _imm:          obs::<ImmediateTable>;
 
@@ -72,7 +72,7 @@ class ASTIndex {
 
     fn ASTIndex(self, ctx: *ASTContext) {
         self._ctx      = ctx;
-        self._hoisted  = ctx->alloc_init::<HoistedScope>(ctx);
+        self._hoisted  = ctx->alloc_init::<DisambigTable>(ctx);
         self._span     = ctx->get_tokens();
         self._diag     = ctx->diags;
         self._imm      = ctx->get_imm_table();
@@ -159,12 +159,12 @@ class ASTIndex {
     }
 
     fn index(self) {
-        // build the HoistedScope index from the ASTContext's hoisted declarations
+        // build the DisambigTable index from the ASTContext's hoisted declarations
         // by walking the AST and recording all Decl nodes in the TopLevel, ignoring
         // Stmts and Exprs. this is a separate step from parsing to allow
         // the parser to disambiguate.
         
-        // this function is the acctual parsing logic that walks the AST and fills in the HoistedScope with Decl nodes
+        // this function is the acctual parsing logic that walks the AST and fills in the DisambigTable with Decl nodes
         self._current = (self._span.get(0)) if (self._span.size() > 0) else (&null);
         self._peek    = (self._span.get(1)) if (self._span.size() > 1) else (&null);
 
@@ -390,8 +390,8 @@ class ASTIndex {
     }
 
     inline priv fn parse_fn(self) {
-        var entry     = HoistedEntry{};
-        entry.kind    = HoistedKind::Function;
+        var entry     = DisambigEntry{};
+        entry.kind    = DisambigKind::Function;
         var tok       = self.expect(TokenKind::KwFn);
         if tok.kind == TokenKind::TkError { return; }
 
@@ -423,7 +423,7 @@ class ASTIndex {
 
             var op_name = self.get_text(self.advance()).text;
 
-            entry.kind        = HoistedKind::Operator;
+            entry.kind        = DisambigKind::Operator;
             entry.is_foreign  = false;
             entry.extended    = false;
             entry.decl.origin = tok.range;
@@ -456,15 +456,15 @@ class ASTIndex {
         self.hoist(name_str, entry);
     }
 
-    inline priv fn parse_type_decl(self, kind: HoistedKind) {
+    inline priv fn parse_type_decl(self, kind: DisambigKind) {
         var tok = self.advance(); // consume KwClass / KwStruct / KwInterface
         if tok == &null { return; }
 
-        var entry         = HoistedEntry{};
+        var entry         = DisambigEntry{};
         entry.kind        = kind;
         entry.is_foreign  = false;
         entry.extended    = false;
-        entry.num_params  = HoistedEntry::NO_GENERICS;
+        entry.num_params  = DisambigEntry::NO_GENERICS;
         entry.decl.origin = tok->range;
 
         // optional generic params: class <T> Foo
@@ -530,9 +530,9 @@ class ASTIndex {
         }
     }
 
-    inline priv fn parse_class(self)     { self.parse_type_decl(HoistedKind::ClassType);     }
-    inline priv fn parse_struct(self)    { self.parse_type_decl(HoistedKind::StructType);    }
-    inline priv fn parse_interface(self) { self.parse_type_decl(HoistedKind::InterfaceType); }
+    inline priv fn parse_class(self)     { self.parse_type_decl(DisambigKind::ClassType);     }
+    inline priv fn parse_struct(self)    { self.parse_type_decl(DisambigKind::StructType);    }
+    inline priv fn parse_interface(self) { self.parse_type_decl(DisambigKind::InterfaceType); }
 
     inline priv fn parse_module(self) {
         var tok = self.expect(TokenKind::KwModule);
@@ -661,8 +661,8 @@ class ASTIndex {
     }
     
     inline priv fn parse_type_alias(self) {
-        var entry         = HoistedEntry{};
-        entry.kind        = HoistedKind::TypeAlias;
+        var entry         = DisambigEntry{};
+        entry.kind        = DisambigKind::TypeAlias;
         var tok = self.expect(TokenKind::KwType);
         
         if self.match_tok(TokenKind::OpLess) {
@@ -686,8 +686,8 @@ class ASTIndex {
     }
 
     inline priv fn parse_enum(self) {
-        var entry  = HoistedEntry{};
-        entry.kind = HoistedKind::EnumType;
+        var entry  = DisambigEntry{};
+        entry.kind = DisambigKind::EnumType;
         var tok    = self.expect(TokenKind::KwEnum);
 
         // enums should not be able to have generics at all
@@ -714,8 +714,8 @@ class ASTIndex {
     }
 
     inline priv fn parse_var(self) {
-        var entry  = HoistedEntry{};
-        entry.kind = HoistedKind::Variable;
+        var entry  = DisambigEntry{};
+        entry.kind = DisambigKind::Variable;
         var tok    = self.current();
 
         // consume leading modifiers (static, eval, const) they may stack
@@ -764,10 +764,10 @@ class ASTIndex {
         var tok = self.expect(TokenKind::KwMacro);
         if tok.kind == TokenKind::TkError { return; }
 
-        var entry         = HoistedEntry{};
+        var entry         = DisambigEntry{};
         entry.is_foreign  = false;
         entry.extended    = false;
-        entry.num_params  = HoistedEntry::NO_GENERICS;
+        entry.num_params  = DisambigEntry::NO_GENERICS;
         entry.decl.origin = tok.range;
 
         if self.match_tok(TokenKind::OpLess) {
@@ -788,7 +788,7 @@ class ASTIndex {
                 self.skip_until_balanced(SkipUntil::EndLine);
                 return;
             }
-            entry.kind = HoistedKind::ProcMacro;
+            entry.kind = DisambigKind::ProcMacro;
 
             // skip parameter list: @foo(...)
             if self.check(TokenKind::OpLParen) {
@@ -809,7 +809,7 @@ class ASTIndex {
             self.hoist(self.get_text(name).text, entry);
 
         } else if kind == TokenKind::LitIdentifier {
-            entry.num_params = HoistedEntry::NO_GENERICS;
+            entry.num_params = DisambigEntry::NO_GENERICS;
             var name = self.expect(TokenKind::LitIdentifier);
             if name.kind == TokenKind::TkError {
                 self.skip_until_balanced(SkipUntil::EndLine);
@@ -822,7 +822,7 @@ class ASTIndex {
                 self.skip_until_balanced(SkipUntil::EndLine);
                 return;
             }
-            entry.kind = HoistedKind::BasicMacro;
+            entry.kind = DisambigKind::BasicMacro;
 
             // skip parameter list: foo!(name, char)
             if self.check(TokenKind::OpLParen) {
@@ -1232,7 +1232,7 @@ class ASTIndex {
         }
     }
 
-    inline priv fn hoist(self, name: string, entry: HoistedEntry) {
+    inline priv fn hoist(self, name: string, entry: DisambigEntry) {
         if self._in_ffi_block {
             entry.is_foreign = true;
         }

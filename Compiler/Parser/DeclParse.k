@@ -2783,27 +2783,6 @@ class <T> DeclParse {
     }
 
     // ========================================================================
-    //
-    //
-    // error @ /mnt/linux-dev/projects/kairo-lang/Tests/Parser/Intergrate/closures_negative.k:22
-    //    20 | // --- Multiple prohibited modifiers on one closure ------------------------
-    //    21 |
-    //    22 | var bad_multi = fn () const unsafe final { return 8 }
-    //       |                       ^^^^^ ^^^^^^ ^^^^^
-    //       |                       |     |      [S047E] 'final' is not a valid closure modifier
-    //       |                       |     [S047E] 'unsafe' is not a valid closure modifier
-    //       |                       [S047E] 'const' is not a valid closure modifier
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    //
-    // ========================================================================
-
-    // ========================================================================
     //  eval { decl* }  decl block
     // ========================================================================
 

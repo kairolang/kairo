@@ -43,7 +43,7 @@ class CodeCompleteConsumer {
     virtual fn on_member_access(self, base: *Expr, is_arrow: bool) { }
 
     /// Qualified-name variant: parser has parsed `scope` and seen `::` at cursor.
-    virtual fn on_qualified_name(self, scope: *ScopeNode) { }
+    virtual fn on_qualified_name(self, scope: *DisambigNode) { }
 
     /// Signature-help variant: parser is inside a call, knows callee and arg index.
     virtual fn on_signature_help(self, callee: *Expr, arg_index: u32) { }

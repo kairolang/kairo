@@ -42,7 +42,7 @@ import Token::TokenCacheManager::*;
 import Config::Invocation::*;
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
-import AST::Context::GlobalHoistedScope::*;
+import AST::Context::GlobalDisambigTable::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Node::Program::*;
 import Parser::ASTParse::*;
@@ -66,7 +66,7 @@ class ParsedSource {
     priv var _pretty: *PrettyDiagConsumer   = &null;
     priv var _sm:     *SourceManager        = &null;
     priv var _tcm:    *TokenCacheManager    = &null;
-    priv var _gs:     *GlobalHoistedScope   = &null;
+    priv var _gs:     *GlobalDisambigTable   = &null;
 
     // --- Snippet state -------------------------------------------------------
     priv var _code: libcxx::string;      ///< owns the bytes; SM holds a raw view.
@@ -88,7 +88,7 @@ class ParsedSource {
         self._diag = std::create::<DiagEngine>();
         self._sm   = std::create::<SourceManager>(self._pool, self._vfm, self._diag);
         self._tcm  = std::create::<TokenCacheManager>(self._sm, self._pool, self._diag);
-        self._gs   = std::create::<GlobalHoistedScope>();
+        self._gs   = std::create::<GlobalDisambigTable>();
 
         if echo_diags {
             self._pretty = std::create::<PrettyDiagConsumer>(self._sm);
@@ -108,7 +108,7 @@ class ParsedSource {
 
         if !self._tcm->lex_file(self._fid) { return; }
 
-        // index phase: builds the HoistedScope + owns the ASTContext.
+        // index phase: builds the DisambigTable + owns the ASTContext.
         // resolver is null   snippets cannot resolve imports (no preprocess).
         self._gs->index_file(
             self._fid, self._sm, self._tcm, self._diag, &null, &(self._inv)

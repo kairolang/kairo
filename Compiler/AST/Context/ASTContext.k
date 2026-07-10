@@ -29,8 +29,8 @@ import Token::TokenText::*;
 
 /// \brief Forward declaration required by ASTContext.
 ///
-/// HoistedScope and ASTContext are mutually dependent: ASTContext owns the
-/// arena that HoistedScope allocates from, and HoistedScope holds an obs<>
+/// DisambigTable and ASTContext are mutually dependent: ASTContext owns the
+/// arena that DisambigTable allocates from, and DisambigTable holds an obs<>
 /// back-pointer to ASTContext for that allocation. This forward declaration
 /// breaks the cycle.
 ///
@@ -39,9 +39,9 @@ import Token::TokenText::*;
 /// implementation across files when they would land in different generated
 /// namespaces. Stage 1 removes this constraint entirely.
 ///
-/// Do not move HoistedScope above ASTContext or extract it to a separate
+/// Do not move DisambigTable above ASTContext or extract it to a separate
 /// file until Stage 1 is self-hosting.
-class HoistedScope;
+class DisambigTable;
 
 class ASTContext {
     pub var source_path: Path;
@@ -53,7 +53,7 @@ class ASTContext {
     pub var diags:       obs::<DiagEngine>;
     pub var diag_sink:   BufferedDiagSink;
     pub var resolver:    obs::<ImportResolver>;
-    pub var hoisted:     obs::<HoistedScope>;
+    pub var hoisted:     obs::<DisambigTable>;
     pub var ci:          obs::<CompilerInvocation>;
     pub var tu:          obs::<void /* TranslationUnit */> = &null; // stage0 limit with fwd decls, hence void,
                                                                     // but replace with TranslationUnit once stage1 is self-hosting
@@ -172,7 +172,7 @@ class ASTContext {
     ///          spelling the user wrote, then returns the UNWRAPPED imm (tok.imm
     ///          on a wrapped token is the expansion record, not the ident). This
     ///          is the identity half of TokenText::resolve without materializing
-    ///          the string   the sanctioned key for HoistedScope lookups off a
+    ///          the string   the sanctioned key for DisambigTable lookups off a
     ///          token. Same spelling collapses to the same index as a string
     ///          interned via intern_ident_copy, so token-keyed and text-keyed
     ///          lookups agree within a file.
@@ -207,7 +207,7 @@ class ASTContext {
 
 /// Coarse declaration kind enough for parser disambiguation.
 /// Sema refines these into concrete DeclKind values.
-enum HoistedKind derives u8 {
+enum DisambigKind derives u8 {
     ClassType,      ///< class Foo
     EnumType,       ///< enum Foo
     UnionType,      ///< union Foo
@@ -229,7 +229,7 @@ enum HoistedKind derives u8 {
 /// \c origin for source location in that case.
 /// \c is_foreign is true for symbols introduced via import, not declared
 /// locally in the file being indexed.
-class HoistedEntry {
+class DisambigEntry {
     struct DeclEntry { // 128 bits
         pub var origin: SourceRange;
     }
@@ -238,7 +238,7 @@ class HoistedEntry {
 
     pub var extend_of_name: u32 = u32(-1); ///< imm ident index of the extended type's name.
     pub var name:           u32 = u32(-1); ///< imm ident index of this entry's name.
-    pub var kind:           HoistedKind;
+    pub var kind:           DisambigKind;
     pub var decl:           DeclEntry;
     pub var extend_of:      DeclEntry;
     pub var num_params:     u32 = u32(-1);  ///< Generic parameter count. 0 = not generic.
@@ -247,25 +247,25 @@ class HoistedEntry {
 
     fn is_type(self) -> bool {
         switch self.kind {
-            case HoistedKind::ClassType     { return true;  }
-            case HoistedKind::EnumType      { return true;  }
-            case HoistedKind::UnionType     { return true;  }
-            case HoistedKind::StructType    { return true;  }
-            case HoistedKind::InterfaceType { return true;  }
-            case HoistedKind::TypeAlias     { return true;  }
+            case DisambigKind::ClassType     { return true;  }
+            case DisambigKind::EnumType      { return true;  }
+            case DisambigKind::UnionType     { return true;  }
+            case DisambigKind::StructType    { return true;  }
+            case DisambigKind::InterfaceType { return true;  }
+            case DisambigKind::TypeAlias     { return true;  }
             default                         { return false; }
         }
     }
 
     fn is_value(self) -> bool {
-        return self.kind == HoistedKind::Function
-            || self.kind == HoistedKind::Operator
-            || self.kind == HoistedKind::Variable;
+        return self.kind == DisambigKind::Function
+            || self.kind == DisambigKind::Operator
+            || self.kind == DisambigKind::Variable;
     }
 
     fn is_macro(self) -> bool {
-        return self.kind == HoistedKind::ProcMacro
-            || self.kind == HoistedKind::BasicMacro;
+        return self.kind == DisambigKind::ProcMacro
+            || self.kind == DisambigKind::BasicMacro;
     }
 
     fn is_generic(self)   -> bool { return self.num_params != NO_GENERICS; }
@@ -274,7 +274,7 @@ class HoistedEntry {
 }
 
 __inline_cpp("
-u32 HoistedEntry::NO_GENERICS = u32(-1);
+u32 DisambigEntry::NO_GENERICS = u32(-1);
 ");
 
 /// One node in the hoisted scope trie.
@@ -285,45 +285,45 @@ u32 HoistedEntry::NO_GENERICS = u32(-1);
 /// Keyed on the u32 imm ident index so all comparisons and hashes are O(1)
 /// integer ops. Memory is arena-owned the destructor intentionally leaks child
 /// pointers since the arena reclaims everything at once.
-class ScopeNode {
-    pub var entries:  libcxx::unordered_map::<u32, vec::<HoistedEntry>>;
-    pub var children: libcxx::unordered_map::<u32, *ScopeNode>;
+class DisambigNode {
+    pub var entries:  libcxx::unordered_map::<u32, vec::<DisambigEntry>>;
+    pub var children: libcxx::unordered_map::<u32, *DisambigNode>;
 
-    fn ScopeNode(self) {
+    fn DisambigNode(self) {
         self.entries.reserve(16);
         self.children.reserve(8);
     }
 
     fn op delete (self) {
-        // intentional leak arena reclaims all ScopeNode allocations at once
+        // intentional leak arena reclaims all DisambigNode allocations at once
     }
 
     /// Inserts \p entry under \p name. First declaration wins; duplicates ignored.
     /// Sema will catch redefinition errors with full source context.
-    fn insert(self, name: u32, entry: HoistedEntry) {
+    fn insert(self, name: u32, entry: DisambigEntry) {
         self.entries[name].push_back(entry);
     }
 
     /// Returns the child scope for \p name, creating it if absent.
-    fn get_or_create_child(self, name: u32, ctx: *ASTContext) -> *ScopeNode {
+    fn get_or_create_child(self, name: u32, ctx: *ASTContext) -> *DisambigNode {
         var it = self.children.find(name);
         if it != self.children.end() {
             return it->second;
         }
-        var child = ctx->alloc_init::<ScopeNode>();
+        var child = ctx->alloc_init::<DisambigNode>();
         self.children.insert(libcxx::make_pair(name, child));
         return child;
     }
 
     /// Returns the child scope for \p name, or null if absent.
-    fn get_child(self, name: u32) -> *ScopeNode {
+    fn get_child(self, name: u32) -> *DisambigNode {
         var it = self.children.find(name);
         if it == self.children.end() { return &null; }
         return it->second;
     }
 
     /// Looks up \p name at this scope level only. Does not search children.
-    fn lookup(self, name: u32) -> *vec::<HoistedEntry> {
+    fn lookup(self, name: u32) -> *vec::<DisambigEntry> {
         var it = self.entries.find(name);
         if it == self.entries.end() { return &null; }
         return &it->second;
@@ -338,12 +338,12 @@ class ScopeNode {
     }
 }
 
-/// Result of a lookup into HoistedScope.
+/// Result of a lookup into DisambigTable.
 /// Carries both the entry and the scope node it was found in,
 /// so the parser can continue walking children if needed.
 class LookupResult {
-    pub var entries: *vec::<HoistedEntry>;  ///< Null if not found.
-    pub var node:    *ScopeNode;            ///< Scope where entry lives. Null if not found.
+    pub var entries: *vec::<DisambigEntry>;  ///< Null if not found.
+    pub var node:    *DisambigNode;            ///< Scope where entry lives. Null if not found.
 
     fn found(self) -> bool    { return (self.entries != &null) && (!self.entries->empty()); }
     fn is_type(self) -> bool  { return (self.found()) && ((*self.entries)[0].is_type());  }
@@ -357,7 +357,7 @@ class LookupResult {
         return r;
     }
 
-    fn first(self) -> *HoistedEntry {
+    fn first(self) -> *DisambigEntry {
         if (self.entries == &null) || (self.entries->empty()) { return &null; }
         return &(*self.entries)[0];
     }
@@ -374,8 +374,8 @@ class LookupResult {
         return false;
     }
 
-    fn extensions(self) -> vec::<*HoistedEntry> {
-        var result = vec::<*HoistedEntry>();
+    fn extensions(self) -> vec::<*DisambigEntry> {
+        var result = vec::<*DisambigEntry>();
         if self.entries == &null { return result; }
         for var i: usize = 0; i < self.entries->size(); ++i {
             if (*self.entries)[i].extended {
@@ -385,8 +385,8 @@ class LookupResult {
         return result;
     }
 
-    fn non_extensions(self) -> vec::<*HoistedEntry> {
-        var result = vec::<*HoistedEntry>();
+    fn non_extensions(self) -> vec::<*DisambigEntry> {
+        var result = vec::<*DisambigEntry>();
         if self.entries == &null { return result; }
         for var i: usize = 0; i < self.entries->size(); ++i {
             if !(*self.entries)[i].extended {
@@ -400,25 +400,25 @@ class LookupResult {
 /// Hierarchical symbol table built by the index pass over a single file
 /// and its transitive imports.
 ///
-/// Structured as a trie of \c ScopeNode instances keyed on the u32 imm ident index.
+/// Structured as a trie of \c DisambigNode instances keyed on the u32 imm ident index.
 /// Lookup for a qualified name like \c foo::bar::Baz costs one hashmap
 /// lookup per segment O(1) per segment, O(depth) total.
 ///
 /// \par Parser API
-/// The parser holds a \c *HoistedScope and calls:
+/// The parser holds a \c *DisambigTable and calls:
 ///   - \c lookup(ident)         for unqualified names
 ///   - \c lookup(chain)         for qualified names from a \c ChainExpr
 ///   - \c is_type / is_value    for quick boolean disambiguation
-///   - \c enter(name)           to get a child \c ScopeNode for manual walking
+///   - \c enter(name)           to get a child \c DisambigNode for manual walking
 ///
 /// \par Population
 /// The \c Indexer calls \c insert() and \c insert_into() during the index
 /// pass. After the pass completes the scope is read-only.
-class HoistedScope {
-    priv var _root: ScopeNode;
+class DisambigTable {
+    priv var _root: DisambigNode;
     priv var _ctx:  obs::<ASTContext>;
 
-    fn HoistedScope(self, ctx: *ASTContext) {
+    fn DisambigTable(self, ctx: *ASTContext) {
         self._ctx = ctx;
     }
 
@@ -452,7 +452,7 @@ class HoistedScope {
     // --- Population ----------------------------------------------------------
 
     /// Inserts \p entry at root scope under \p name.
-    fn insert(self, name: string, entry: HoistedEntry) {
+    fn insert(self, name: string, entry: DisambigEntry) {
         var key        = self.intern(name);
         entry.name     = key;
         self._root.insert(key, entry);
@@ -461,7 +461,7 @@ class HoistedScope {
     /// Inserts \p entry at the scope reached by walking \p scope_path from root.
     /// Creates intermediate scope nodes as needed.
     /// \p scope_path is the sequence of parent names, e.g. ["A", "B"] for A::B::Foo.
-    fn insert_into(self, scope_path: *vec::<string>, name: string, entry: HoistedEntry) {
+    fn insert_into(self, scope_path: *vec::<string>, name: string, entry: DisambigEntry) {
         var node = &self._root;
         for s: string in *scope_path {
             var k = self.intern(s);
@@ -512,30 +512,30 @@ class HoistedScope {
         return self._lookup_in(node, last);
     }
 
-    fn insert_extension(self, scope_path: *vec::<string>, name: string, entry: HoistedEntry) {
+    fn insert_extension(self, scope_path: *vec::<string>, name: string, entry: DisambigEntry) {
         assert(entry.extended && r"insert_extension: entry.extended must be true");
         self.insert_into(scope_path, name, entry);
     }
 
-    // HoistedScope::lookup_extensions - new
-    fn lookup_extensions(self, type_name: u32) -> vec::<*HoistedEntry> {
-        var result = vec::<*HoistedEntry>();
+    // DisambigTable::lookup_extensions - new
+    fn lookup_extensions(self, type_name: u32) -> vec::<*DisambigEntry> {
+        var result = vec::<*DisambigEntry>();
         self._collect_extensions(&self._root, type_name, &result);
         return result;
     }
 
     /// Returns the child scope node for \p name at root, or null.
     /// Used by the parser to manually walk a scope chain one segment at a time.
-    fn enter(self, name: string) -> *ScopeNode {
+    fn enter(self, name: string) -> *DisambigNode {
         var k = self.intern(name);
         return self._root.get_child(k);
     }
 
-    fn enter(self, name: u32) -> *ScopeNode {
+    fn enter(self, name: u32) -> *DisambigNode {
         return self._root.get_child(name);
     }
 
-    fn enter(self, segments: *vec::<string>) -> *ScopeNode {
+    fn enter(self, segments: *vec::<string>) -> *DisambigNode {
         var node = &self._root;
         for s in *segments {
             var k = self.intern(s);
@@ -550,10 +550,10 @@ class HoistedScope {
     fn is_value(self, name: string) -> bool { return self.lookup(name).is_value(); }
     fn is_macro(self, name: string) -> bool { return self.lookup(name).is_macro(); }
 
-    fn root(self) -> *ScopeNode { return &self._root; }
+    fn root(self) -> *DisambigNode { return &self._root; }
 
     fn dump(self) {
-        std::print("=== HoistedScope Dump ===");
+        std::print("=== DisambigTable Dump ===");
         self._dump_node(&self._root, "", true);
         std::print("=========================");
     }
@@ -561,7 +561,7 @@ class HoistedScope {
 
     // --- Private -------------------------------------------------------------
 
-    priv fn _lookup_in(self, node: *ScopeNode, key: u32) -> LookupResult {
+    priv fn _lookup_in(self, node: *DisambigNode, key: u32) -> LookupResult {
         var entries = node->lookup(key);
         if entries == &null {
             return LookupResult::not_found();
@@ -572,7 +572,7 @@ class HoistedScope {
         return r;
     }
 
-    priv fn _collect_extensions(self, node: *ScopeNode, type_name: u32, result: *vec::<*HoistedEntry>) {
+    priv fn _collect_extensions(self, node: *DisambigNode, type_name: u32, result: *vec::<*DisambigEntry>) {
         for var it = node->entries.begin(); it != node->entries.end(); ++it {
             for var i: usize = 0; i < it->second.size(); ++i {
                 var entry = &it->second[i];
@@ -588,7 +588,7 @@ class HoistedScope {
         }
     }
 
-    priv fn _dump_node(self, node: *ScopeNode, prefix: string, is_root: bool) {
+    priv fn _dump_node(self, node: *DisambigNode, prefix: string, is_root: bool) {
         var entries_it = node->entries.begin();
         var total_entries: usize = 0;
 
@@ -636,25 +636,25 @@ class HoistedScope {
         }
     }
 
-    priv static fn _kind_str(kind: HoistedKind) -> string {
+    priv static fn _kind_str(kind: DisambigKind) -> string {
         switch kind {
-            case HoistedKind::ClassType     { return "class";     }
-            case HoistedKind::EnumType      { return "enum";      }
-            case HoistedKind::UnionType     { return "union";     }
-            case HoistedKind::StructType    { return "struct";    }
-            case HoistedKind::InterfaceType { return "interface"; }
-            case HoistedKind::TypeAlias     { return "type";      }
-            case HoistedKind::Function      { return "fn";        }
-            case HoistedKind::Operator      { return "fn op";     }
-            case HoistedKind::Variable      { return "var";       }
-            case HoistedKind::ProcMacro     { return "@macro";    }
-            case HoistedKind::BasicMacro    { return "macro!";    }
-            case HoistedKind::Module        { return "module";    }
+            case DisambigKind::ClassType     { return "class";     }
+            case DisambigKind::EnumType      { return "enum";      }
+            case DisambigKind::UnionType     { return "union";     }
+            case DisambigKind::StructType    { return "struct";    }
+            case DisambigKind::InterfaceType { return "interface"; }
+            case DisambigKind::TypeAlias     { return "type";      }
+            case DisambigKind::Function      { return "fn";        }
+            case DisambigKind::Operator      { return "fn op";     }
+            case DisambigKind::Variable      { return "var";       }
+            case DisambigKind::ProcMacro     { return "@macro";    }
+            case DisambigKind::BasicMacro    { return "macro!";    }
+            case DisambigKind::Module        { return "module";    }
             default                         { return "?";         }
         }
     }
 
-    priv static fn _flags_str(entry: ref!(HoistedEntry)) -> string {
+    priv static fn _flags_str(entry: ref!(DisambigEntry)) -> string {
         var s: string = "";
         if entry.is_generic()  { s = (s + "  <generic:" + std::to_string(entry.num_params) + ">"); }
         if entry.is_from_foreign()  { s = (s + "  [foreign]");  }

@@ -182,7 +182,7 @@ class ASTParse
     /// \param ctx      the ASTContext which provides tokens and memory arenas.
     /// \param cc       optional completion consumer for IDE features.
     /// \param g_scope  the global scope used for hoisting top-level declarations.
-    fn ASTParse(self, ctx: *ASTContext, cc: *CodeCompleteConsumer, g_scope: *GlobalHoistedScope) {
+    fn ASTParse(self, ctx: *ASTContext, cc: *CodeCompleteConsumer, g_scope: *GlobalDisambigTable) {
         self.ctx   = ctx;
         self.diag = &(ctx->diag_sink);
         self.imm   = ctx->get_imm_table();
@@ -209,7 +209,7 @@ class ASTParse
     ///          is legal). var/const always route through the stmt path it
     ///          owns the plain-decl vs destructuring split. After the loop, a
     ///          wiring pass connects each named DeclContext to its hoisted
-    ///          ScopeNode so sema lookup_local works.
+    ///          DisambigNode so sema lookup_local works.
     fn parse(self) -> *TranslationUnit {
         var program = self.ctx->alloc_init::<Program>(self.ctx->fid, self.ctx);
         self.tu->program = program;
@@ -318,7 +318,7 @@ class ASTParse
 
     //  Hoisted-scope wiring (post-parse)
 
-    /// \brief connects each named DeclContext in the tree to its ScopeNode in
+    /// \brief connects each named DeclContext in the tree to its DisambigNode in
     ///        the hoisted trie, descending both in lockstep. Decls the indexer
     ///        didn't hoist (locals, anonymous modules) are skipped lexical
     ///        lookup covers them. A missing trie node for a hoisted-eligible
@@ -330,7 +330,7 @@ class ASTParse
         self._wire_dc_children(static_cast::<*DeclContext>(self.tu), root);
     }
 
-    priv fn _wire_dc_children(self, dc: *DeclContext, node: *ScopeNode) {
+    priv fn _wire_dc_children(self, dc: *DeclContext, node: *DisambigNode) {
         for var i: usize = 0; i < dc->dc_decls.size(); ++i { // FIXME
             var d = *(dc->dc_decls.get(i)); // FIXME
             if d == &null { continue; }
@@ -1101,7 +1101,7 @@ class ASTParse
     }
 
     /// \brief triggers completion for a qualified name (e.g. `namespace::...`).
-    fn maybe_complete_qualified(self, scope: *ScopeNode) {
+    fn maybe_complete_qualified(self, scope: *DisambigNode) {
         if self.cc == &null { return; }
         self.cc->on_qualified_name(scope);
     }

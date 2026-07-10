@@ -115,7 +115,7 @@ import Driver::TUStage::*;
 import Preprocessor::Preprocessor::*;
 import AST::Context::ASTIndex::*;
 import Parser::ASTParse::*;
-import AST::Context::GlobalHoistedScope::*;
+import AST::Context::GlobalDisambigTable::*;
 import AST::Printer::ASTPrinter::*;
 import Token::TokenPrinter::*;
 import Sema::NullableTypeLowering::*;
@@ -154,7 +154,7 @@ class FrontendAction {
     pub var module_base:    ModulePath;
     priv var _ci:           obs::<CompilerInstance>;   ///< non-owning borrow from execute()
     priv var _resolver:     obs::<ImportResolver>;     ///< non-owning borrow from execute()
-    priv var _global_scope: obs::<GlobalHoistedScope>; ///< non-owning borrow from CompilerInstance
+    priv var _global_scope: obs::<GlobalDisambigTable>; ///< non-owning borrow from CompilerInstance
     priv var _pp:           own::<PreProcessor>;       ///< owned; null until _preprocess()
     priv var _file_id:      u32;
     pub var result:         TUResult;
@@ -164,7 +164,7 @@ class FrontendAction {
         self,
         path:        Path,
         module_base: ModulePath,
-        g_scope:    *GlobalHoistedScope,
+        g_scope:    *GlobalDisambigTable,
         resolver:   *ImportResolver, // one single import resolver for the full
                                      // batch; shared among all actions and threads,
                                      // fully indexed before the first action runs
@@ -227,7 +227,7 @@ class CompilerInstance {
     priv var _basic:   *BasicDiagConsumer;
     priv var _cmd:     *Command;
     priv var _imp:     *ImportResolver;
-    priv var _g_scope: *GlobalHoistedScope;
+    priv var _g_scope: *GlobalDisambigTable;
 
     // --- CLI state -------------------------------------------------------
     priv var _parsed: ParsedArgs;
@@ -269,7 +269,7 @@ class CompilerInstance {
 
         self._sm      = std::create::<SourceManager>     (self._pool, self._vfm, self._diag);
         self._tcm     = std::create::<TokenCacheManager> (self._sm, self._pool, self._diag);
-        self._g_scope = std::create::<GlobalHoistedScope>();
+        self._g_scope = std::create::<GlobalDisambigTable>();
         self._basic->attach_source_manager(self._sm);
         self._pretty->attach_source_manager(self._sm);
     }
@@ -306,7 +306,7 @@ class CompilerInstance {
     fn sm(self)           -> *SourceManager           { return self._sm;      }
     fn tcm(self)          -> *TokenCacheManager       { return self._tcm;     }
     fn pool(self)         -> *ThreadPool              { return self._pool;    }
-    fn global_scope(self) -> *GlobalHoistedScope      { return self._g_scope; }
+    fn global_scope(self) -> *GlobalDisambigTable      { return self._g_scope; }
     fn invocation(self)   -> ref!(CompilerInvocation) { return self._inv;     }
 
     // --- CLI query helpers -----------------------------------------------
