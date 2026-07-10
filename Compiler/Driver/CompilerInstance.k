@@ -1056,8 +1056,7 @@ fn FrontendAction::_dump_tokens() {
     var imm_tbl   = (lexer_ptr->get_imm_tbl()) if (lexer_ptr != &null) else (&null);
 
     var printer = TokenPrinter(
-        self._ci->sm(),
-        imm_tbl,
+        self._ci->tcm(),
         self._ci->invocation().diag.no_color
     );
 

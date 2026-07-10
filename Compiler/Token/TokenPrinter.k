@@ -67,29 +67,29 @@ class Sgr {
 }
 
 class TokenPrinter {
-    priv var _sm:      obs::<SourceManager>   = &null;
-    priv var _imm_tbl: obs::<ImmediateTable>  = &null;
+    priv var _tcm:    *TokenCacheManager;
+    priv var _sm:     *SourceManager;
     priv var _sgr:     Sgr;
     priv var _color:   bool = false;
 
     /// \param sm      source manager for text resolution
     /// \param imm_tbl immediate table for the file being printed (may be null)
-    fn TokenPrinter(self, sm: *SourceManager, imm_tbl: *ImmediateTable) {
-        self._sm      = sm;
-        self._imm_tbl = imm_tbl;
-        self._color   = self._detect_tty();
-        self._sgr     = Sgr(self._color);
+    fn TokenPrinter(self, tcm: *TokenCacheManager) {
+        self._tcm   = tcm;
+        self._sm    = tcm->get_source_manager();
+        self._color = self._detect_tty();
+        self._sgr   = Sgr(self._color);
     }
 
     /// \param sm      source manager for text resolution
     /// \param imm_tbl immediate table for the file being printed (may be null)
     /// \param no_color honors DiagnosticOptions.no_color; when false, still
     ///        requires a TTY before emitting escapes.
-    fn TokenPrinter(self, sm: *SourceManager, imm_tbl: *ImmediateTable, no_color: bool) {
-        self._sm      = sm;
-        self._imm_tbl = imm_tbl;
-        self._color   = (!no_color) && self._detect_tty();
-        self._sgr     = Sgr(self._color);
+    fn TokenPrinter(self, tcm: *TokenCacheManager, no_color: bool) {
+        self._tcm   = tcm;
+        self._sm    = tcm->get_source_manager();
+        self._color = (!no_color) && self._detect_tty();
+        self._sgr   = Sgr(self._color);
     }
 
     priv fn _detect_tty(self) -> bool {
@@ -144,12 +144,13 @@ class TokenPrinter {
         var kind      = tok->kind;
         var imm       = tok->imm;
         var tok_range = tok->range;
+        var tbl       = self._tcm->get_imm_table_for_token(*tok);
         var is_macro  = false;
 
         if (tok->kind == TokenKind::TkMacroExpand)
         && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
-        && (self._imm_tbl != &null) {
-            var info  = self._imm_tbl->get::<Immediate::MacroExpansionInfo>(tok->imm);
+        && (tbl != &null) {
+            var info  = tbl->get::<Immediate::MacroExpansionInfo>(tok->imm);
             kind      = info->original_kind;
             imm       = info->original_imm;
             tok_range = info->def_range;
@@ -215,14 +216,14 @@ class TokenPrinter {
 
         line += " ";
         line += kind_color;
-        line += f"'{TokenText::resolve(*tok, self._sm, self._imm_tbl).get_text()}\x27";
+        line += f"'{TokenText::resolve(*tok, self._tcm).get_text()}\x27";
         line += s.reset;
         line += " ";
         line += self._fmt_range(tok->range);
         std::print(line);
 
         // -- imm detail sub-line(s) --
-        self._print_imm_detail(kind, imm, depth);
+        self._print_imm_detail(*tok, depth);
 
         // -- if macro, also show where it expanded from --
         if is_macro {
@@ -267,23 +268,26 @@ class TokenPrinter {
         return s.kind; // fallback
     }
 
-    // sentinel display text comes from Token::TokenText::sentinel_text  
+    // sentinel display text comes from Token::TokenText::sentinel_text
     // one vocabulary for dumps, diagnostics, and resolve().
 
     /// \brief emits an indented detail line for tokens that own an
     ///        immediate-table entry. no-op for everything else.
-    priv fn _print_imm_detail(self, kind: TokenKind, imm: u32, depth: usize) {
-        if self._imm_tbl == &null { return; }
+    priv fn _print_imm_detail(self, tok: Token, depth: usize) {
+        var kind = tok.kind;
+        var imm  = tok.imm;
+        var tbl  = self._tcm->get_imm_table_for_token(tok);
+        if tbl == &null { return; }
         if imm == u32(-1)         { return; }
 
         if kind == TokenKind::LitInt {
-            self._print_int_detail(imm, depth);
+            self._print_int_detail(imm, tbl, depth);
         } else if kind == TokenKind::LitFloat {
-            self._print_float_detail(imm, depth);
+            self._print_float_detail(imm, tbl, depth);
         } else if kind == TokenKind::LitString {
-            self._print_string_detail(imm, depth);
+            self._print_string_detail(imm, tbl, depth);
         } else if kind == TokenKind::LitChar {
-            self._print_char_detail(imm, depth);
+            self._print_char_detail(imm, tbl, depth);
         }
     }
 
@@ -301,8 +305,8 @@ class TokenPrinter {
         return out;
     }
 
-    priv fn _print_int_detail(self, imm: u32, depth: usize) {
-        var d = self._imm_tbl->get::<Immediate::IntData>(imm);
+    priv fn _print_int_detail(self, imm: u32, tbl: *ImmediateTable, depth: usize) {
+        var d = tbl->get::<Immediate::IntData>(imm);
         var s = self._sgr;
 
         var is_unsigned = (d->flags & 0b00000001) != 0;
@@ -344,8 +348,8 @@ class TokenPrinter {
         std::print(line);
     }
 
-    priv fn _print_float_detail(self, imm: u32, depth: usize) {
-        var d = self._imm_tbl->get::<Immediate::FloatData>(imm);
+    priv fn _print_float_detail(self, imm: u32, tbl: *ImmediateTable, depth: usize) {
+        var d = tbl->get::<Immediate::FloatData>(imm);
         var s = self._sgr;
 
         var has_exponent = (d->flags & 0b00000001) != 0;
@@ -372,8 +376,8 @@ class TokenPrinter {
         std::print(line);
     }
 
-    priv fn _print_string_detail(self, imm: u32, depth: usize) {
-        var d = self._imm_tbl->get::<Immediate::StringData>(imm);
+    priv fn _print_string_detail(self, imm: u32, tbl: *ImmediateTable, depth: usize) {
+        var d = tbl->get::<Immediate::StringData>(imm);
         var s = self._sgr;
 
         var body_text = self._sm->get_text(d->body);
@@ -395,8 +399,8 @@ class TokenPrinter {
         self._print_interp_exprs(d->exprs, depth);
     }
 
-    priv fn _print_char_detail(self, imm: u32, depth: usize) {
-        var d = self._imm_tbl->get::<Immediate::CharData>(imm);
+    priv fn _print_char_detail(self, imm: u32, tbl: *ImmediateTable, depth: usize) {
+        var d = tbl->get::<Immediate::CharData>(imm);
         var s = self._sgr;
 
         var body_text = self._sm->get_text(d->body);

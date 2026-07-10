@@ -180,7 +180,7 @@ class ASTContext {
         var tbl = self.get_imm_table();
         if tbl == &null { return u32(-1); }
 
-        var u = unwrap_expansion(tok, tbl);
+        var u = unwrap_expansion(tok, self.tcm);
         if u.is_sentinel { return u32(-1); }
         if static_cast::<u32>(u.kind) == static_cast::<u32>(TokenKind::LitIdentifier) {
             return u.imm;
@@ -189,7 +189,7 @@ class ASTContext {
     }
 
     fn get_token_text(self, tok: Token) -> TokenText {
-        return TokenText::resolve(tok, self.sm, self.get_imm_table());
+        return TokenText::resolve(tok, self.tcm);
     }
 
     fn get_token_text(self, rng: SourceRange) -> TokenText {

@@ -116,7 +116,7 @@ class DepScanner {
             return;
         }
 
-        var tracker = ScopeTracker(self._sym_table, self._sm, self._tcm->get_imm_table_for_fid(fid), mod_path);
+        var tracker = ScopeTracker(self._sym_table, self._sm, self._tcm->get_imm_table_for_fid(fid), self._tcm, mod_path);
         var i: usize = 0;
 
         while i < tokens->size() {
@@ -175,7 +175,7 @@ class DepScanner {
             var t = tokens->get(j);
             if t->kind == TokenKind::LitIdentifier {
                 segments.push_back(
-                    TokenText::spelling(*t, self._sm, self._tcm->get_imm_table_for_token(*t, self._sm)));
+                    TokenText::spelling(*t, self._tcm));
                 j += 1;
                 // peek for ::
                 if j < tokens->size() && tokens->get(j)->kind == TokenKind::OpColonColon {

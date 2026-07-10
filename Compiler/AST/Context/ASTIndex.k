@@ -92,7 +92,7 @@ class ASTIndex {
         // for var i: usize = 0; i < self._span.size(); ++i {
         //     var resolved_kind = self.resolve_kind_deep(self._span.get(i));
         //     var original_kind = self._span.get(i)->kind;
-        //     var text = self.get_text(self._span.get(i)).text;
+        //     var text = self.get_text(self._span.get(i)).get_text();
         //     // for newlines we only print \n to avoid cluttering the output and [idx](Newline)
         //     if resolved_kind == TokenKind::TkNewLine {
         //         out += f"[{i}](newLine){text}";
@@ -421,7 +421,7 @@ class ASTIndex {
                 return;
             }
 
-            var op_name = self.get_text(self.advance()).text;
+            var op_name = self.get_text(self.advance()).get_text();
 
             entry.kind        = DisambigKind::Operator;
             entry.is_foreign  = false;
@@ -484,7 +484,7 @@ class ASTIndex {
             return;
         }
 
-        var name_str = self.get_text(name).text;
+        var name_str = self.get_text(name).get_text();
 
         // hoist the type itself before walking the body
         self.hoist(name_str, entry);
@@ -562,7 +562,7 @@ class ASTIndex {
             return;
         }
 
-        segments.push_back(self.get_text(first).text);
+        segments.push_back(self.get_text(first).get_text());
 
         while self.match_tok(TokenKind::OpColonColon) {
             var seg = self.expect(TokenKind::LitIdentifier);
@@ -574,7 +574,7 @@ class ASTIndex {
                 }
                 return;
             }
-            segments.push_back(self.get_text(seg).text);
+            segments.push_back(self.get_text(seg).get_text());
         }
 
         // module Foo; or module Foo::Bar; no body, nothing to walk
@@ -641,7 +641,7 @@ class ASTIndex {
             return "";
         }
 
-        var name_str = self.get_text(name).text;
+        var name_str = self.get_text(name).get_text();
 
         // check for Foo:: (qualified impl, not a new decl)
         if self.check(TokenKind::OpColonColon) {
@@ -682,7 +682,7 @@ class ASTIndex {
         entry.extended    = false;
         entry.decl.origin = (tok.range);
 
-        self.hoist(name_str.text, entry);
+        self.hoist(name_str.get_text(), entry);
     }
 
     inline priv fn parse_enum(self) {
@@ -710,7 +710,7 @@ class ASTIndex {
         entry.extended    = false;
         entry.decl.origin = (tok.range);
 
-        self.hoist(name_str.text, entry);
+        self.hoist(name_str.get_text(), entry);
     }
 
     inline priv fn parse_var(self) {
@@ -757,7 +757,7 @@ class ASTIndex {
         entry.extended    = false;
         entry.decl.origin = tok->range;
 
-        self.hoist(name_str.text, entry);
+        self.hoist(name_str.get_text(), entry);
     }
 
     inline priv fn parse_macro(self) {
@@ -806,7 +806,7 @@ class ASTIndex {
                 self.skip_until_balanced(SkipUntil::EndLine);
             }
 
-            self.hoist(self.get_text(name).text, entry);
+            self.hoist(self.get_text(name).get_text(), entry);
 
         } else if kind == TokenKind::LitIdentifier {
             entry.num_params = DisambigEntry::NO_GENERICS;
@@ -840,7 +840,7 @@ class ASTIndex {
                 self.skip_until_balanced(SkipUntil::EndLine);
             }
 
-            self.hoist(self.get_text(name).text, entry);
+            self.hoist(self.get_text(name).get_text(), entry);
 
         } else {
             // self._diag->report(DiagID::S036E, tok.range.start,
@@ -917,11 +917,11 @@ class ASTIndex {
             return TokenText("", SourceRange::invalid(), false, false);
         }
 
-        return TokenText::resolve((*tok), self._ctx->sm, self._imm);
+        return TokenText::resolve((*tok), self._ctx->tcm);
     }
 
     inline priv fn get_text(self, tok: Token) -> TokenText {
-        return TokenText::resolve(tok, self._ctx->sm, self._imm);
+        return TokenText::resolve(tok, self._ctx->tcm);
     }
 
     /// \details mechanism lives in Token::TokenText::unwrap_expansion.
@@ -930,7 +930,7 @@ class ASTIndex {
     ///          the I002F diagnostic (ASTParse::resolve_deep); reporting here
     ///          too would double-emit for every over-deep token.
     inline priv fn resolve_deep(self, tok: *Token) -> Token {
-        var u = unwrap_expansion(*tok, self._imm, self._ctx->ci->pp.max_depth);
+        var u = unwrap_expansion(*tok, self._ctx->tcm, self._ctx->ci->pp.max_depth);
 
         if u.hit_limit {
             return Token(tok->range, TokenKind::TkUnknown, 0);
@@ -959,7 +959,7 @@ class ASTIndex {
             return TokenKind::TkUnknown;
         }
 
-        return unwrap_expansion(*tok, self._imm, 1).kind;
+        return unwrap_expansion(*tok, self._ctx->tcm, 1).kind;
     }
 
     inline priv fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {

@@ -508,7 +508,7 @@ class ASTParse
     ///          wrapper owns the parser policy: emit I002F on a truncated
     ///          chain and degrade to TkUnknown.
     inline pub fn resolve_deep(self, tok: *Token) -> Token {
-        var u = unwrap_expansion(*tok, self.imm, self.ctx->ci->pp.max_depth);
+        var u = unwrap_expansion(*tok, self.ctx->tcm, self.ctx->ci->pp.max_depth);
 
         if u.hit_limit {
             self.diag->report(DiagID::I002F, tok->range.start,
@@ -544,7 +544,7 @@ class ASTParse
             return TokenKind::TkUnknown;
         }
 
-        return unwrap_expansion(*tok, self.imm, 1).kind;
+        return unwrap_expansion(*tok, self.ctx->tcm, 1).kind;
     }
 
     /// \brief fully resolves a token and automatically skips `AtComment` tokens.
