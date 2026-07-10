@@ -39,6 +39,7 @@ import Location::SourceRange::*;
 import Location::SourceManager::*;
 import Lexer::Immediate::*;
 import Macro::Sentinel::*;
+import Token::TokenCacheManager::*;
 
 /// \struct UnwrappedToken
 /// \brief result of walking a macro-expansion chain to its origin.
@@ -48,6 +49,8 @@ struct UnwrappedToken {
     var def_range:   SourceRange;  ///< innermost definition-body site.
     var depth:       u32 = 0;      ///< chain hops walked (0 = not wrapped).
     var hit_limit:   bool = false; ///< chain exceeded max_depth; result truncated.
+    var tbl:         obs::<ImmediateTable>; ///< table used to unwrap the chain (may be null).
+    var sm:          obs::<SourceManager>;  ///< source manager used to unwrap the chain (may be null).
     var is_sentinel: bool = false; ///< compiler marker (todo!/include!/embed!...),
                                    ///  kind stays TkMacroExpand, imm is the sentinel.
 }
@@ -60,8 +63,8 @@ struct UnwrappedToken {
 ///          nothing, moves nothing. Callers decide what hit_limit and
 ///          is_sentinel mean for them.
 fn unwrap_expansion(
-    tok:       Token,
-    tbl:   *ImmediateTable,
+    tok:  Token,
+    tcm: *TokenCacheManager,
     max_depth: u32 = 32
 ) -> UnwrappedToken {
     var r = UnwrappedToken{};
@@ -69,22 +72,46 @@ fn unwrap_expansion(
     r.imm       = tok.imm;
     r.def_range = tok.range;
 
+    assert((tcm != &null) && r"TokenCacheManager is null in unwrap_expansion");
+
+    // record table: owned by the file whose expander wrote the chain.
+    // wrap_token stamps wrapped tokens with the invocation-site range,
+    // so this resolves to the expanding file. pinned for the whole walk:
+    // all records of a chain live in one table by construction.
+    var rec_tbl = tcm->get_imm_table_for_token(tok);
+    r.tbl = rec_tbl;
+    r.sm  = tcm->get_source_manager();
+
     while static_cast::<u32>(r.kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
         if r.imm >= static_cast::<u32>(MacroSentinel::Threshold) {
             r.is_sentinel = true;
             return r;
         }
 
-        if (tbl == &null) || (r.depth >= max_depth) {
+        if (rec_tbl == &null) || (r.depth >= max_depth) {
             r.hit_limit = (r.depth >= max_depth);
             return r;
         }
 
-        var info    = tbl->get::<Immediate::MacroExpansionInfo>(r.imm);
+        var info = rec_tbl->get::<Immediate::MacroExpansionInfo>(r.imm);
+        if info == &null {
+            // imm not present in the record table: malformed chain.
+            // degrade with the wrapped identity; never crash in mechanism.
+            r.hit_limit = true;
+            return r;
+        }
+
         r.kind      = info->original_kind;
         r.imm       = info->original_imm;
         r.def_range = info->def_range;
         r.depth    += 1;
+    }
+
+    // payload table: owned by the ORIGINAL token's file. def_range is the
+    // original token's own range (unwrapped tokens have consistent
+    // range/imm), so it resolves to the table that owns r.imm.
+    if r.depth > 0 {
+        r.tbl = tcm->get_imm_table_for_token(Token(r.def_range, r.kind, r.imm));
     }
 
     return r;
@@ -122,13 +149,16 @@ class TokenText {
     /// \brief resolves a token to its spelled text.
     static fn resolve(
         tok:  Token,
-        sm:  *SourceManager,
-        tbl: *ImmediateTable
+        tcm: *TokenCacheManager
     ) -> TokenText {
-        assert((sm  != &null) && r"SourceManager is null in TokenText::resolve");
-        assert((tbl != &null) && r"ImmediateTable is null in TokenText::resolve");
+        assert((tcm != &null) && r"TokenCacheManager is null in TokenText::resolve");
 
-        var u = unwrap_expansion(tok, tbl);
+        var u = unwrap_expansion(tok, tcm);
+        var tbl = u.tbl;
+        var sm  = u.sm;
+
+        assert((sm != &null) && r"SourceManager is null in TokenText::resolve");
+        assert((tbl != &null) && r"ImmediateTable is null in TokenText::resolve");
 
         // compiler-internal markers (todo!/include!/embed!...), not source tokens
         if u.is_sentinel {
@@ -550,11 +580,16 @@ class TokenText {
     ///          a token whose range doesn't map to a live fid). For raw lexed
     ///          identifiers the two agree, so this is behavior-neutral today and
     ///          becomes the correct path once expansion can synthesize tokens.
-    static fn spelling(tok: Token, sm: *SourceManager, tbl: *ImmediateTable) -> string {
+    static fn spelling(tok: Token, tcm: *TokenCacheManager) -> string {
+        assert((tcm != &null) && r"TokenCacheManager is null in TokenText::spelling");
+        var tbl = tcm->get_imm_table_for_token(tok);
+        var sm  = tcm->get_source_manager();
+    
         if tbl == &null {
             return sm->get_text(tok.range);
         }
-        return TokenText::resolve(tok, sm, tbl).get_text();
+    
+        return TokenText::resolve(tok, tcm).get_text();
     }
 
     /// \brief raw source slice for a RANGE (not a token).

@@ -368,6 +368,7 @@ class MacroExpander {
     priv var _skip_list:      *SkipList;
     priv var _imm_table:      *ImmediateTable;  ///< lexer's imm table for the file being expanded
     priv var _lexer:          *Lexer = &null;
+    priv var _tcm:            *TokenCacheManager;
     priv var _parent_ex_idx:   u32 = static_cast::<u32>(MacroSentinel::NoParent); ///< index of the parent expansion in the imm table, or -1 if top-level
     priv var _fid:             u32;
     priv var _unique_counter:  u32 = 0;
@@ -392,6 +393,7 @@ class MacroExpander {
         imm_table:    *ImmediateTable,
         lexer:        *Lexer,
         diag:         *DiagEngine,
+        tcm:          *TokenCacheManager,
         max_depth:    i32 = 128,
         max_expansions: i32 = 65536,
         macro_debug:  bool   = false,
@@ -405,6 +407,7 @@ class MacroExpander {
         self._imm_table      = imm_table;
         self._lexer          = lexer;
         self._diag           = diag;
+        self._tcm            = tcm;
         self._parent_ex_idx  = static_cast::<u32>(MacroSentinel::NoParent);
         self._max_depth      = max_depth;
         self._max_expansions = max_expansions;
@@ -886,7 +889,7 @@ class MacroExpander {
 
         Logger::info(Logger::Stage::Preprocessor, f"MacroExpander::expand: fid={fid} tokens={tokens->size()}");
 
-        var tracker = ScopeTracker(self._sym_table, self._sm, self._imm_table, scope);
+        var tracker = ScopeTracker(self._sym_table, self._sm, self._imm_table, self._tcm, scope);
         var ctx     = ExpansionContext();
         var output  = std::create::<TokenBuffer::<512>>();
         var changed = false;
@@ -1650,8 +1653,11 @@ class MacroExpander {
         var wrapped = tok;
         wrapped.kind  = TokenKind::TkMacroExpand;
         wrapped.imm   = idx;
-        // keep tok.range as-is it's the def body site, which is useful for
-        // "expanded from" notes; invoke_range in the record is the call site
+        wrapped.range = invoke_range;
+        // range = invocation site: the token's range must resolve to the fid
+        // whose imm table holds this expansion record (self._imm_table = the
+        // expanding file). the def-body site is preserved in info.def_range
+        // and is reachable through unwrap for "expanded from" notes.
         return wrapped;
     }
 
@@ -1683,7 +1689,7 @@ class MacroExpander {
     ///          spelling exists only in the interner, and the range points at
     ///          whatever source happened to be at the invocation site.
     priv fn token_text(self, tok: *Token) -> string {
-        return TokenText::resolve(*tok, self._sm, self._imm_table).text;
+        return TokenText::resolve(*tok, self._tcm).get_text();
     }
 
     priv fn get_effective_kind(self, tok: *Token) -> TokenKind {
@@ -1695,7 +1701,7 @@ class MacroExpander {
             return TokenKind::LitIdentifier;
         }
 
-        return unwrap_expansion(*tok, self._imm_table, 1).kind;
+        return unwrap_expansion(*tok, self._tcm, 1).kind;
     }
 }
 
@@ -1838,13 +1844,14 @@ class PreProcessor {
             var tokens = self._tcm->get_tokens(fid);
             if tokens != &null {
                 var fid_imm_tbl = self._tcm->get_imm_table_for_fid(fid);
-                var def_tracker = ScopeTracker(self._pp_sym_table, self._sm, fid_imm_tbl, mod_path);
+                var def_tracker = ScopeTracker(self._pp_sym_table, self._sm, fid_imm_tbl, self._tcm, mod_path);
                 var collector   = MacroDefinitionCollector(
                     self._pp_sym_table,
                     self._macro_table,
                     self._sm,
                     fid_imm_tbl,
-                    self._diag
+                    self._diag,
+                    self._tcm
                 );
                 collector.collect(tokens, fid, &def_tracker, skip_list_ptr);
             }
@@ -1902,6 +1909,7 @@ class PreProcessor {
                         imm_ptr,
                         lexer_ptr,
                         captured_self->_diag,
+                        captured_self->_tcm,
                         captured_self->_opts.max_depth,
                         captured_self->_opts.max_expansions,
                         captured_self->_opts.macro_debug,
@@ -2049,7 +2057,7 @@ fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
     state.fid         = fid;
     state.module_base = module_base;
 
-    var tracker = ScopeTracker(self._sym_table, self._sm, self._tcm->get_imm_table_for_fid(fid), module_base);
+    var tracker = ScopeTracker(self._sym_table, self._sm, self._tcm->get_imm_table_for_fid(fid), self._tcm, module_base);
     var i: usize = 0;
 
     while i < tokens->size() {
@@ -2191,7 +2199,7 @@ priv fn ImportProcessor::parse_import(
             var ident = IdentifierToken();
             ident.token = t;
             ident.name  = self._sym_table->intern(
-                TokenText::spelling(*t, self._sm, self._tcm->get_imm_table_for_token(*t, self._sm)));
+                TokenText::spelling(*t, self._tcm));
             segments.push_back(ident);
             j += 1;
 
@@ -2253,7 +2261,7 @@ priv fn ImportProcessor::parse_import(
                 var alias_tok = tokens->get(j);
                 item.alias.token = alias_tok;
                 item.alias.name  = self._sym_table->intern(
-                    TokenText::spelling(*alias_tok, self._sm, self._tcm->get_imm_table_for_token(*alias_tok, self._sm)));
+                    TokenText::spelling(*alias_tok, self._tcm));
                 item.has_alias = true;
                 j += 1;
 
@@ -2301,7 +2309,7 @@ priv fn ImportProcessor::parse_grouped_imports(
         var item = ParsedImport::Item();
         item.name.token = t;
         item.name.name  = self._sym_table->intern(
-            TokenText::spelling(*t, self._sm, self._tcm->get_imm_table_for_token(*t, self._sm)));
+            TokenText::spelling(*t, self._tcm));
         item.alias = item.name;
         (*j) += 1;
 
@@ -2316,7 +2324,7 @@ priv fn ImportProcessor::parse_grouped_imports(
                 var alias_tok = tokens->get(*j);
                 item.alias.token = alias_tok;
                 item.alias.name  = self._sym_table->intern(
-                    TokenText::spelling(*alias_tok, self._sm, self._tcm->get_imm_table_for_token(*alias_tok, self._sm)));
+                    TokenText::spelling(*alias_tok, self._tcm));
                 item.has_alias = true;
                 (*j) += 1;
 
