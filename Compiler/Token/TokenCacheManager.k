@@ -19,34 +19,36 @@ import Lexer::Lexer::*;
 ///
 /// \details
 /// fids are dense sequential u32s minted by the VirtualFileManager, so the
-/// cache is a flat slot vector indexed by fid — no hashing. lexing (discovery
+/// cache is a flat slot vector indexed by fid no hashing. lexing (discovery
 /// phase) is serial by design; the shared mutex exists for the parallel
-/// phases that follow: expansion (`replace_tokens`, writer) and parse
-/// (`get_tokens` / `get_lexer_for_fid`, readers).
-///
-/// \note phase contract: `replace_tokens` must only run at the expansion
-/// phase boundary, before parse consumes the fid's tokens. the lock protects
-/// the slot table, not the contents of a `TokenBuffer` a reader already
-/// holds a pointer to.
+/// phases that follow: expansion.
 ///
 class TokenCacheManager {
     enum SlotState derives u8 {
-        NotLexed = 0, ///< never attempted.
-        Ready    = 1, ///< lexed successfully, lexer valid.
-        Failed   = 2  ///< lex attempted and failed; cached negative.
+        NotLexed  = 0,
+        Streaming = 1,
+        Ready     = 2,
+        Failed    = 3
     }
+
+    struct ScanStream {
+        var lexer: own::<Lexer>          = &null;
+        var imm:   own::<ImmediateTable> = &null;
+    }
+
 
     struct Slot {
-        var state: SlotState    = SlotState::NotLexed;
-        var lexer: own::<Lexer> = &null;
+        var state:  SlotState                = SlotState::NotLexed;
+        var lexer:  own::<Lexer>             = &null;
+        var imm:    own::<ImmediateTable>    = &null;  // slot-owned, outlives the stream
+        var tokens: own::<TokenBuffer::<512>> = &null; // PP output; null until Ready
     }
 
-    var _lex_mu:      std::SharedMutex;
-    var _slots:       vec::<Slot>;
-    var _old_buffers: vec::<view::<TokenBuffer::<512>>>;
-    var _pool:        obs::<ThreadPool>;
-    var _sm:          obs::<SourceManager>;
-    var _diag:        obs::<DiagEngine>;
+    var _lex_mu : std::SharedMutex;
+    var _slots  : vec::<Slot>;
+    var _pool   : obs::<ThreadPool>;
+    var _sm     : obs::<SourceManager>;
+    var _diag   : obs::<DiagEngine>;
 
     fn TokenCacheManager(self, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) {
         self._sm   = sm;
@@ -56,168 +58,152 @@ class TokenCacheManager {
         /// 1. Hello world with full std
         /// 2. avg mid sized project with std + 3rd party deps
         /// 3. Stage1.5 self-hosting with std + macros + 3rd party deps - large project
-        self._slots.reserve(1024);       // 16KB
-        self._old_buffers.reserve(256);  // one entry per fid that gets macro-expanded
+        self._slots.reserve(1024); // 16KB
     }
 
-    ///
-    /// \brief ensures slot storage covers fids [0, count).
-    ///
-    /// \details optional; `lex_file` grows lazily. call after file
-    /// registration if the fid count is known up front to avoid
-    /// reallocation during discovery.
-    ///
-    fn reserve_fids(self, count: u32) {
-        var wlock = std::UniqueLock(self._lex_mu);
-        while self._slots.size() < (count as usize) {
-            self._slots.push_back(Slot());
+    /// \brief transient scan-only stream. NEVER touches _slots the PP later
+    ///        opens the real stream on this fid and asserts NotLexed.
+    fn open_scan_stream(self, fid: u32) -> ScanStream {
+        var s = ScanStream();
+        var imm = std::create::<ImmediateTable>();
+        imm->initialize(self._sm);
+        var lexer = std::create::<Lexer>(self._sm, self._pool, self._diag, imm);
+        if !lexer->open(fid) {
+            std::destroy(lexer);
+            std::destroy(imm);
+            return s; // lexer == &null signals failure
+        }
+        s.lexer = lexer;
+        s.imm   = imm;
+        return s;
+    }
+
+    fn close_scan_stream(self, s: *ScanStream) {
+        if s->lexer != &null {
+            s->lexer->close();
+            std::destroy(s->lexer);
+            s->lexer = &null;
+        }
+        if s->imm != &null {
+            std::destroy(s->imm);
+            s->imm = &null;
         }
     }
 
-    fn lex_file(self, fid: u32) -> bool {
-        {
-            // fast path: cached result under shared lock
-            var rlock = std::SharedLock(self._lex_mu);
-            if (fid as usize) < self._slots.size() {
-                var st = self._slots[fid].state;
-                if st == SlotState::Ready {
-                    Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: cache hit fid={fid}");
-                    return true;
-                }
-                if st == SlotState::Failed {
-                    Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: cached failure fid={fid}");
-                    return false;
-                }
-            }
-        }
-
+    /// \brief opens a forward-only token stream for fid.
+    /// \details slot transitions NotLexed -> Streaming. get_tokens(fid) returns
+    ///          null (and asserts) until close_stream() moves it to Ready.
+    ///          returns null on failure (slot -> Failed).
+    fn open_stream(self, fid: u32) -> *Lexer {
         var wlock = std::UniqueLock(self._lex_mu);
 
-        // grow to cover fid (discovery finds files incrementally)
         while self._slots.size() <= (fid as usize) {
             self._slots.push_back(Slot());
         }
 
-        // re-check under write lock
         var st = self._slots[fid].state;
-        if st == SlotState::Ready  { return true; }
-        if st == SlotState::Failed { return false; }
+        assert((st == SlotState::NotLexed) && r"open_stream: fid already open or closed");
 
-        var lexer = std::create::<Lexer>(self._sm, self._pool, self._diag);
-        var res: bool = false;
+        var imm = std::create::<ImmediateTable>();
+        imm->initialize(self._sm);
 
-        try {
-            res = lexer->lex(fid);
-        } catch { // fallback: lex() should report via diag, not throw
-            res = false;
+        var lexer = std::create::<Lexer>(self._sm, self._pool, self._diag, imm);
+        if !lexer->open(fid) {
+            std::destroy(lexer);
+            std::destroy(imm);
+            self._slots[fid].state = SlotState::Failed;
+            Logger::error(Logger::Stage::Lexer, f"TCM::open_stream: open failed fid={fid}");
+            return &null;
         }
 
-        if res {
-            self._slots[fid].lexer = lexer;
-            self._slots[fid].state = SlotState::Ready;
-            Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: lexed fid={fid}");
-            return true;
-        }
-
-        std::destroy(lexer);
-        self._slots[fid].state = SlotState::Failed;
-        Logger::error(Logger::Stage::Lexer, f"TokenCacheManager::lex_file: lex failed fid={fid}");
-        return false;
+        self._slots[fid].imm   = imm;
+        self._slots[fid].lexer = lexer;
+        self._slots[fid].state = SlotState::Streaming;
+        return lexer;
     }
 
-    fn get_lexer_for_fid(self, fid: u32) -> *Lexer {
-        var rlock = std::SharedLock(self._lex_mu);
+    /// \brief the stream consumer (PP) hands back the expanded buffer.
+    /// \details slot transitions Streaming -> Ready. lexer is destroyed;
+    ///          the ImmediateTable is NOT indices are stable forever.
+    fn close_stream(self, fid: u32, tokens: *TokenBuffer::<512>) {
+        var wlock = std::UniqueLock(self._lex_mu);
 
-        if (fid as usize) >= self._slots.size() { return &null; }
-        if self._slots[fid].state != SlotState::Ready { return &null; }
+        assert((self._slots[fid].state == SlotState::Streaming) && r"close_stream: fid not Streaming");
 
-        return self._slots[fid].lexer;
+        self._slots[fid].lexer->close();
+        std::destroy(self._slots[fid].lexer);
+        self._slots[fid].lexer  = &null;
+
+        self._slots[fid].tokens = tokens;
+        self._slots[fid].state  = SlotState::Ready;
+    }
+
+    fn abort_stream(self, fid: u32) {
+        var wlock = std::UniqueLock(self._lex_mu);
+        if self._slots[fid].lexer != &null {
+            std::destroy(self._slots[fid].lexer);
+            self._slots[fid].lexer = &null;
+        }
+        self._slots[fid].state = SlotState::Failed;
     }
 
     fn get_tokens(self, fid: u32) -> *(TokenBuffer::<512>) {
-        var lexer = self.get_lexer_for_fid(fid);
-        return (lexer->tokens()) if (lexer != &null) else (&null);
+        var rlock = std::SharedLock(self._lex_mu);
+
+        if (fid as usize) >= self._slots.size() { return &null; }
+
+        assert((self._slots[fid].state != SlotState::Streaming) && r"get_tokens: fid still Streaming");
+
+        if self._slots[fid].state != SlotState::Ready { return &null; }
+        return self._slots[fid].tokens;
     }
 
-    fn op [] (self, fid: u32) -> *(TokenBuffer::<512>) {
-        return self.get_tokens(fid);
-    }
-
-    fn replace_tokens(self, fid: u32, new_tokens: *(TokenBuffer::<512>)) {
-        var wlock = std::UniqueLock(self._lex_mu);
-
-        if (fid as usize) >= self._slots.size() || self._slots[fid].state != SlotState::Ready {
-            std::destroy(new_tokens);
-            return;
-        }
-
-        self._slots[fid].lexer->tokens()->swap(new_tokens);
-        self._old_buffers.push_back(new_tokens);
-        // old buffers intentionally retained: MacroDefinition body spans
-        // still reference them. destroyed at shutdown/reset. do not free here.
-    }
-
-    /// \brief destroys token buffers displaced by replace_tokens.
-    ///
-    /// \details call ONLY once preprocessing has fully completed for the
-    ///          current pipeline: macro definitions are self-contained
-    ///          (interned at insert_macro), and nothing PP-internal may
-    ///          touch pre-expansion tokens afterwards. Before this existed,
-    ///          displaced buffers leaked until shutdown — a full duplicate
-    ///          of every macro-bearing file's token stream held across
-    ///          parse, sema, and codegen.
-    fn release_old_buffers(self) {
-        Logger::debug(Logger::Stage::Lexer,
-            f"TokenCacheManager: releasing {self._old_buffers.size()} displaced token buffer(s)");
-        for buf in self._old_buffers {
-            std::destroy(buf);
-        }
-        self._old_buffers.clear();
-    }
-
-    /// \brief returns the ImmediateTable for the file that owns this token
-    /// \details resolves via the token's range -> fid lookup in the SourceManager.
-    /// cold path — inside a per-TU loop, resolve once via get_imm_table_for_fid
-    /// and carry the pointer instead.
-    fn get_imm_table_for_token(self, tok: Token, sm: *SourceManager = &null) -> *ImmediateTable {
-        if sm == &null { sm = self._sm; }
-        if sm == &null { return &null; }
-        return self.get_imm_table_for_fid(sm->get_fid(tok.range.start));
-    }
-
+    /// \brief imm table for fid. valid from open_stream() onward, for the
+    ///        lifetime of the TCM. append-safe while the stream is live.
     fn get_imm_table_for_fid(self, fid: u32) -> *ImmediateTable {
-        var lexer = self.get_lexer_for_fid(fid);
-        return (lexer->get_imm_tbl()) if (lexer != &null) else (&null);
+        var rlock = std::SharedLock(self._lex_mu);
+        if (fid as usize) >= self._slots.size() { return &null; }
+        return self._slots[fid].imm;   // valid even while Streaming
+    }
+
+    fn reset(self) {
+        var wlock = std::UniqueLock(self._lex_mu);
+        for slot: ref!(Slot) in _slots {
+            if slot.lexer  != &null { std::destroy(slot.lexer);  slot.lexer  = &null; }
+            if slot.tokens != &null { std::destroy(slot.tokens); slot.tokens = &null; }
+            if slot.imm    != &null { std::destroy(slot.imm);    slot.imm    = &null; }
+        }
+        self._slots.clear();
+    }
+
+    fn intern_ident(self, fid: u32, const data: *u8, len: usize, hash: u32) -> u32 {
+        var tbl = self.get_imm_table_for_fid(fid);
+        assert((tbl != &null) && r"intern_ident: no imm table for fid");
+        return tbl->intern_ident(data, len, hash);
+    }
+
+    fn <T> create_imm(self, fid: u32) -> u32 {
+        var tbl = self.get_imm_table_for_fid(fid);
+        assert((tbl != &null) && r"create_imm: no imm table for fid");
+        return tbl->create::<T>();
+    }
+
+    fn <T> get_imm(self, fid: u32, idx: u32) -> *T {
+        var tbl = self.get_imm_table_for_fid(fid);
+        assert((tbl != &null) && r"get_imm: no imm table for fid");
+        return tbl->get::<T>(idx);
+    }
+
+    fn get_fid_for_token(self, tok: Token) -> u32 {
+        return self._sm->get_fid(tok.range.start);
     }
 
     fn get_source_manager(self) -> *SourceManager {
         return self._sm;
     }
 
-    /// \brief convenience gets the fid for a token
-    fn get_fid_for_token(self, tok: Token, sm: *SourceManager) -> u32 {
-        return sm->get_fid(tok.range.start);
-    }
-
-    fn reset(self) {
-        var wlock = std::UniqueLock(self._lex_mu);
-        Logger::debug(Logger::Stage::Lexer, f"TokenCacheManager::reset: releasing {self._slots.size()} slots");
-
-        for slot: ref!(Slot) in _slots {
-            if slot.lexer != &null {
-                std::destroy(slot.lexer);
-                slot.lexer = &null;
-            }
-        }
-        self._slots.clear();
-
-        for buf in self._old_buffers {
-            std::destroy(buf);
-        }
-        self._old_buffers.clear();
-    }
-
-    fn op delete (self) {
-        self.reset();
+    fn get_imm_table_for_token(self, tok: Token) -> *ImmediateTable {
+        var fid = self.get_fid_for_token(tok);
+        return self.get_imm_table_for_fid(fid);
     }
 }
