@@ -34,6 +34,8 @@ import Parser::StmtParse::*;
 import Parser::DeclParse::*;
 import Parser::TypeParse::*;
 import Parser::PatternParse::*;
+import Parser::Shared::ImportGrammar::*;
+import Parser::Shared::MacroHeaderGrammar::*;
 
 struct PendingComment {
     var kind:  AnnotationKind = AnnotationKind::DocComment;
@@ -60,7 +62,9 @@ class ASTParse
           StmtParse::<ASTParse>,
           DeclParse::<ASTParse>,
           TypeParse::<ASTParse>,
-          PatternParse::<ASTParse> {
+          PatternParse::<ASTParse>,
+          ImportGrammar::<ASTParse>,
+          MacroHeaderGrammar::<ASTParse> {
     inline "c++" {
         using PendingAnnotations = PendingAnnotations;
         using PendingQuals = PendingQuals;
@@ -190,7 +194,14 @@ class ASTParse
         self.imm   = ctx->get_imm_table();
         self.cc    = cc;
         self.span  = ctx->get_tokens();
-        self.tu    = ctx->alloc_init::<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, g_scope);
+        var existing = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if existing != &null {
+            self.tu = existing;   // PP-built TU: imports/macros already in it
+        } else {
+            // ParseSource / test-harness path: no PP ran
+            self.tu = ctx->alloc_init::<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, g_scope);
+            ctx->tu = reinterpret_cast::<*void>(self.tu);
+        }
         self.scope.set_ctx(ctx);
         self._pending_trailing.reserve(4);
 
@@ -495,6 +506,28 @@ class ASTParse
     inline fn _sync_cursor(self) {
         self._current = (self.span.get(self.c_idx))     if (self.c_idx     < self.span.size()) else (&null);
         self._peek    = (self.span.get(self.c_idx + 1)) if (self.c_idx + 1 < self.span.size()) else (&null);
+    }
+
+    inline pub fn ig_kind(self) -> TokenKind {
+        if self._current == &null { return TokenKind::TkEof; }
+        return self.resolve_kind_deep(self._current);
+    }
+
+    inline pub fn ig_peek_kind(self) -> TokenKind {
+        if self._peek == &null { return TokenKind::TkEof; }
+        return self.resolve_kind_deep(self._peek);
+    }
+
+    inline pub fn ig_tok(self) -> Token {
+        return self.current(); // resolved copy semantics preserved by callers
+    }
+
+    inline pub fn ig_bump(self)    { self.advance(); }
+    inline pub fn ig_bump_nl(self) { self.advance(SkipNL::After); }
+    inline pub fn ig_eof(self) -> bool { return self.is_eof(); }
+
+    pub fn ig_err(self, r: SourceRange, msg: string, code: DiagID) {
+        self.diag->report(code, r.start, msg).first(r).emit();
     }
 
     //  Token resolution
@@ -905,11 +938,11 @@ class ASTParse
                 // `pub {` is a visibility group, not a modifier leave it.
                 if self.check_peek(TokenKind::OpLBrace) { break; }
 
-                var vk = PendingAnnotations::VisAnnotation::VisibilityKind::Public;
+                var vk = VisibilityKind::Public;
                 if resolved.kind == TokenKind::KwPriv {
-                    vk = PendingAnnotations::VisAnnotation::VisibilityKind::Private;
+                    vk = VisibilityKind::Private;
                 } else if resolved.kind == TokenKind::KwProt {
-                    vk = PendingAnnotations::VisAnnotation::VisibilityKind::Protected;
+                    vk = VisibilityKind::Protected;
                 }
                 out->set_visibility(vk, tok->range);
                 self.advance();
@@ -979,7 +1012,7 @@ class ASTParse
             decl->add_annotation(e->kind, e->name, e->range, e->args);
         }
 
-        if annot->visibility != PendingAnnotations::VisAnnotation::VisibilityKind::None {
+        if annot->visibility != VisibilityKind::None {
             decl->set_visibility(annot->visibility, annot->vis_range);
         }
     }
@@ -996,7 +1029,7 @@ class ASTParse
 
     /// \brief reports a diagnostic error if a visibility modifier is applied to a non-declaration.
     priv fn _diag_vis_on_non_decl(self, annot: *PendingAnnotations, what: string) {
-        if annot->visibility == PendingAnnotations::VisAnnotation::VisibilityKind::None {
+        if annot->visibility == VisibilityKind::None {
             return;
         }
         self.diag->report(DiagID::S048E, annot->vis_range.start,

@@ -14,7 +14,6 @@
 
 import AST::Context::ASTContext::*;
 import Resolution::ModulePath::*;
-import Preprocessor::Preprocessor::*;
 import AST::Context::ASTIndex::*;
 
 /// Aggregates all file-level DisambigTable instances for cross-file lookup.
@@ -46,40 +45,62 @@ class GlobalDisambigTable {
     }
 
     // --- Registration (index phase) ------------------------------------------
-
-    fn index_file(
+    
+    /// PP-time: creates the ctx if absent. Does NOT index tokens don't exist yet.
+    fn get_or_create_context(
         self,
         fid:       u32,
         sm:       *SourceManager,
         tcm:      *TokenCacheManager,
         diag:     *DiagEngine,
         resolver: *ImportResolver,
-        ci:       *CompilerInvocation
-    ) {
-        // skip if already indexed (multiple TUs may share deps)
+        ci:       *CompilerInvocation,
+        mod_path:  ModulePath
+    ) -> *ASTContext {
         {
             var rlock = std::SharedLock(self._mu);
-            if self._by_fid.count(fid) > 0 { return; }
+            var it = self._by_fid.find(fid);
+            if it != self._by_fid.end() { return it->second.ctx; }
         }
 
-        var ctx     = std::create::<ASTContext>(fid, sm, tcm, diag, resolver, ci);
+        var ctx = std::create::<ASTContext>(fid, sm, tcm, diag, resolver, ci);
+        ctx->module_base = mod_path;
+
+        var lock = std::LockGuard(self._mu);
+        var it2 = self._by_fid.find(fid);
+        if it2 != self._by_fid.end() {   // lost the race
+            std::destroy(ctx);
+            return it2->second.ctx;
+        }
+
+        var entry: GlobalScopeEntry;
+        entry.fid      = fid;
+        entry.ctx      = ctx;
+        entry.hoisted  = &null;          // set by index_file
+        entry.mod_path = mod_path;
+        self._by_fid.insert(libcxx::make_pair(fid, entry));
+        return ctx;
+    }
+
+    /// parse-time: ASTIndex over an EXISTING ctx. all args except fid are gone.
+    fn index_file(self, fid: u32) {
+        var ctx: *ASTContext = &null;
+        {
+            var rlock = std::SharedLock(self._mu);
+            var it = self._by_fid.find(fid);
+            if it == self._by_fid.end() { return; } // VERIFY: assert instead? PP must
+                                                    // have created it a miss here is
+                                                    // a phase-ordering bug, not a skip
+            if it->second.hoisted != &null { return; } // already indexed
+            ctx = it->second.ctx;
+        }
+
         var ast_idx = ASTIndex(ctx);
         ast_idx.index();
 
         var lock = std::LockGuard(self._mu);
-
-        // double-check after acquiring write lock
-        if self._by_fid.count(fid) > 0 {
-            std::destroy(ctx);
-            return;
-        }
-
-        var entry: GlobalScopeEntry;
-        entry.fid     = fid;
-        entry.ctx     = ctx;
-        entry.hoisted = ctx->hoisted;
-
-        self._by_fid.insert(libcxx::make_pair(fid, entry));
+        var it2 = self._by_fid.find(fid);
+        if it2 != self._by_fid.end() { it2->second.hoisted = ctx->hoisted; }
     }
 
     // --- Lookup (parse phase, read-only) -------------------------------------

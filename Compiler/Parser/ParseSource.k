@@ -82,7 +82,6 @@ class ParsedSource {
     /// \param echo_diags  when true, diagnostics render to the terminal via
     ///                    PrettyDiagConsumer; when false they are counted only.
     fn ParsedSource(self, code: string, vname: string, echo_diags: bool) {
-        // infra: mirrors CompilerInstance construction order, minimally.
         self._pool = std::create::<ThreadPool>(1);
         self._vfm  = std::create::<VirtualFileManager>();
         self._diag = std::create::<DiagEngine>();
@@ -90,40 +89,37 @@ class ParsedSource {
         self._tcm  = std::create::<TokenCacheManager>(self._sm, self._pool, self._diag);
         self._gs   = std::create::<GlobalDisambigTable>();
 
-        if echo_diags {
-            self._pretty = std::create::<PrettyDiagConsumer>(self._sm);
-            self._diag->add_consumer(self._pretty);
-        }
+        if echo_diags { ... }
 
-        // the snippet must outlive the virtual file: SM keeps a raw pointer.
         var nstr = std::string_to_nstring(code);
         self._code = libcxx::string(nstr);
-
-        self._fid = self._sm->load_virtual(
-            Path(vname, false),
-            reinterpret_cast::<std::ConstPtr::<u8>>(self._code.data()),
-            self._code.size()
-        );
+        self._fid  = self._sm->load_virtual(...);
         if self._fid == u32(-1) { return; }
 
-        if !self._tcm->lex_file(self._fid) { return; }
+        // NEW: a resolver is now REQUIRED (the PP resolves imports).
+        // A snippet has no cwd/include paths build an empty one. Imports in
+        // the snippet will fail to resolve and emit R011E, which is CORRECT
+        // and visible, rather than silently ignored as before.
+        self._res = ImportResolver::Builder().cwd(Path::temp_dir()).create_ptr(self._pool);
 
-        // index phase: builds the DisambigTable + owns the ASTContext.
-        // resolver is null   snippets cannot resolve imports (no preprocess).
-        self._gs->index_file(
-            self._fid, self._sm, self._tcm, self._diag, &null, &(self._inv)
+        self._pp = std::create::<PreProcessor>(
+            self._sm, self._tcm, self._res, self._pool,
+            self._diag, self._gs, PreprocessorOptions()
         );
 
-        var ctx = self._gs->get_context(self._fid);
+        var pp_res = self._pp->preprocess(self._fid, ModulePath());
+        if !pp_res.ok { return; }
+
+        var ctx = self._gs->get_context(self._fid);   // PP created it
         if ctx == &null { return; }
+        var tu = ctx->get_tu();                        // PP created + populated it
+        if tu == &null { return; }
 
-        var parser = ASTParse(ctx, &null, self._gs);
+        var parser = ASTParse(ctx, &null, self._gs, tu);
         self._tu = parser.parse();
-        ctx->tu = reinterpret_cast::<*void>(self._tu);
+        ctx->tu  = reinterpret_cast::<*void>(self._tu);
 
-        // publish buffered parse diagnostics to the engine (prints + counts).
         ctx->diag_sink.drain_into(self._diag);
-
         self._ok = (self._tu != &null) && (!self._diag->has_fatal());
     }
 

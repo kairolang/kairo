@@ -145,7 +145,6 @@ class ASTContext {
     }
 
     fn make_token(self, range: SourceRange, kind: TokenKind, s: string) -> Token {
-        var lexer = self.tcm->get_lexer_for_fid(self.fid);
         var tok = Token();
         tok = kind;
         tok = range;
@@ -161,7 +160,7 @@ class ASTContext {
         var r   = reinterpret_cast::<std::ConstPtr::<u8>>(str->raw());
         var l   = str->size();
         var h   = compute_hash(r, l);
-        tok.imm = lexer->intern_ident(r, l, h);
+        tok.imm = self.tcm->intern_ident(self.fid, r, l, h);
         return tok;
     }
 

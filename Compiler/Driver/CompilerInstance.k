@@ -155,8 +155,8 @@ class FrontendAction {
     priv var _ci:           obs::<CompilerInstance>;   ///< non-owning borrow from execute()
     priv var _resolver:     obs::<ImportResolver>;     ///< non-owning borrow from execute()
     priv var _global_scope: obs::<GlobalDisambigTable>; ///< non-owning borrow from CompilerInstance
-    priv var _pp:           own::<PreProcessor>;       ///< owned; null until _preprocess()
     priv var _file_id:      u32;
+    priv var _fids:         vec::<u32>;
     pub var result:         TUResult;
     priv var _stage:        TUStage;
 
@@ -175,18 +175,12 @@ class FrontendAction {
         self._ci           = ci;
         self._resolver     = resolver;
         self._global_scope = g_scope;
-        self._pp           = &null;
         self._stage        = TUStage::Pending;
         self._file_id      = u32(-1);
         self.result.path   = path.full_path();
     }
 
-    fn op delete (self) {
-        if self._pp != &null {
-            std::destroy(self._pp);
-            self._pp = &null;
-        }
-    }
+    default fn op delete (self);
 
     /// Executes the pipeline. See \c FrontendAction::run() below.
     fn run(self);
@@ -198,7 +192,6 @@ class FrontendAction {
 
     priv fn _fatal(self, msg: string) -> bool;
     priv fn _load(self)        -> bool;
-    priv fn _lex(self)         -> bool;
     priv fn _preprocess(self)  -> bool;
     priv fn _parse(self)       -> bool;
     priv fn _sema(self)        -> bool;
@@ -226,6 +219,7 @@ class CompilerInstance {
     priv var _pretty:  *PrettyDiagConsumer;
     priv var _basic:   *BasicDiagConsumer;
     priv var _cmd:     *Command;
+    priv var _pp:      *PreProcessor;
     priv var _imp:     *ImportResolver;
     priv var _g_scope: *GlobalDisambigTable;
 
@@ -279,8 +273,10 @@ class CompilerInstance {
     /// Destroys all resources in reverse-construction order.
     fn op delete (self) {
         if self._cmd     != &null { std::destroy(self._cmd);     self._cmd     = &null; }
+        if self._pp      != &null { std::destroy(self._pp);      self._pp      = &null; }
         if self._g_scope != &null { std::destroy(self._g_scope); self._g_scope = &null; }
         if self._tcm     != &null { std::destroy(self._tcm);     self._tcm     = &null; }
+        if self._imp     != &null { std::destroy(self._imp);      self._imp      = &null; }
         
         if self._pretty != &null {
             self._diag->remove_consumer(self._pretty);
@@ -306,9 +302,9 @@ class CompilerInstance {
     fn sm(self)           -> *SourceManager           { return self._sm;      }
     fn tcm(self)          -> *TokenCacheManager       { return self._tcm;     }
     fn pool(self)         -> *ThreadPool              { return self._pool;    }
-    fn global_scope(self) -> *GlobalDisambigTable      { return self._g_scope; }
+    fn global_scope(self) -> *GlobalDisambigTable     { return self._g_scope; }
     fn invocation(self)   -> ref!(CompilerInvocation) { return self._inv;     }
-
+    fn pp(self)           -> *PreProcessor            { return self._pp;      }
     // --- CLI query helpers -----------------------------------------------
 
     fn wants_help(self)    -> bool { return self._parsed.get_bool("help");               }
@@ -679,8 +675,11 @@ class CompilerInstance {
         var rb = ImportResolver::Builder().cwd(cwd);
         for dir: string in self._inv.include_dirs { rb.add_include(Path(dir)); }
         for dir: string in self._inv.macro_paths  { rb.add_include(Path(dir)); }
-
         self._imp = rb.create_ptr(self._pool);
+
+        self._pp = std::create::<PreProcessor>(
+            self._sm, self._tcm, self._imp, self._pool,
+            self._diag, self._g_scope, &self._inv, self._inv.pp);
     }
 
     /// Compiles all input files described by the invocation.
@@ -800,7 +799,6 @@ fn FrontendAction::run() {
 
     // Phase 1: shared-state stages driver thread only.
     if !self._load() { return; }
-    if !self._lex()  { return; }
 
     // Phase 2: per-file stages async-dispatchable in a future phase.
     if !self._preprocess() { return; }
@@ -842,43 +840,21 @@ fn FrontendAction::_load() -> bool {
     return true;
 }
 
-/// Produces the raw token stream via \c TokenCacheManager.
-fn FrontendAction::_lex() -> bool {
-    self._stage = TUStage::Lexing;
-    if !self._ci->tcm()->lex_file(self._file_id) {
-        return self._fatal(f"lexer failed on '{self.path.full_path()}\x27");
-    }
-    return true;
-}
-
-/// Expands macros and resolves imports, producing a clean token stream.
-/// Owns a \c PreProcessor instance for the lifetime of this stage.
+/// Runs the preprocessor walk for this file's dependency graph.
+/// The PreProcessor is batch-scoped (owned by CompilerInstance): it walks
+/// each fid exactly once across all input files, so a fid shared by two
+/// inputs is preprocessed once. Its DAG visited-set does the dedup.
 fn FrontendAction::_preprocess() -> bool {
     self._stage = TUStage::Preprocessing;
 
     var pp_opts = self._ci->invocation().pp;
-    self._pp = std::create::<PreProcessor>(
-        self._ci->sm(),
-        self._ci->tcm(),
-        self._resolver,
-        self._ci->pool(),
-        self._ci->diag(),
-        pp_opts
-    );
-
     if pp_opts.defines.size() > 0 {
         Logger::warn(Logger::Stage::Preprocessor,
             f"-D defines ({pp_opts.defines.size()}) not yet implemented; ignored");
     }
 
-    var pp_res = self._pp->preprocess(self._file_id, self.module_base);
-
-    if !pp_res {
-        self.result.error_count = self._ci->diag()->error_count();
-        self.result.warn_count  = self._ci->diag()->warn_count();
-        self.result.had_fatal   = self._ci->diag()->has_fatal();
-        self._stage = TUStage::Failed;
-    }
+    var pp_res = self._ci->pp()->preprocess(self._file_id, self.module_base);
+    self._fids = pp_res.fids;
 
     self.result.error_count = self._ci->diag()->error_count();
     self.result.warn_count  = self._ci->diag()->warn_count();
@@ -888,20 +864,22 @@ fn FrontendAction::_preprocess() -> bool {
         self._stage = TUStage::Failed;
         return false;
     }
+    if !pp_res.ok {
+        self._stage = TUStage::Failed;
+        return false;
+    }
 
     var fe = self._ci->invocation().frontend;
     if fe.print_tokens  { self._dump_tokens();  }
     if fe.print_macros  { self._dump_macros();  }
     if fe.print_imports { self._dump_imports(); }
-
-    return pp_res;
+    return true;
 }
 
 fn FrontendAction::_parse() -> bool {
     self._stage = TUStage::Parsing;
 
-    var imp  = self._pp->get_import_processor();
-    var fids = imp->get_processed_fids();   // tree order, fids[0] == main
+    var fids = self._fids;  // tree order, fids[0] == main
 
     // index phase: unchanged
     for fid: u32 in fids {
@@ -909,10 +887,7 @@ fn FrontendAction::_parse() -> bool {
             auto captured_fid  = fid;
             auto captured_self = this;
             _ci->pool()->enqueue([captured_fid, captured_self]() {
-                captured_self->_global_scope->index_file(
-                    captured_fid, captured_self->_ci->sm(),
-                    captured_self->_ci->tcm(), captured_self->_ci->diag(),
-                    captured_self->_resolver, &(captured_self->_ci->invocation()));
+                captured_self->_global_scope->index_file(captured_fid);
             }, u8(5));
         }
     }
@@ -1052,8 +1027,7 @@ fn FrontendAction::_dump_tokens() {
         return;
     }
 
-    var lexer_ptr = self._ci->tcm()->get_lexer_for_fid(self._file_id);
-    var imm_tbl   = (lexer_ptr->get_imm_tbl()) if (lexer_ptr != &null) else (&null);
+    var imm_tbl = self._ci->tcm()->get_imm_table_for_fid(self._file_id);
 
     var printer = TokenPrinter(
         self._ci->tcm(),
@@ -1064,20 +1038,27 @@ fn FrontendAction::_dump_tokens() {
 }
 
 fn FrontendAction::_dump_macros() {
-    if self._pp == &null { return; }
-    var mt = self._pp->get_macro_table();
-    var st = self._pp->get_symbol_table();
+    var pp = self._ci->pp();
+    if pp == &null { return; }
+    var mt = pp->get_macro_table();
+    var st = pp->get_symbol_table();
     if (mt == &null) || (st == &null) { return; }
     std::print(f"-- macro table: {self.path.full_path()} --");
-    std::print(mt->as_string(st));
+    // TODO: MacroTable::as_string not yet implemented
 }
 
 fn FrontendAction::_dump_imports() {
-    if self._pp == &null { return; }
-    var imp = self._pp->get_import_processor();
-    if imp == &null { return; }
     std::print(f"-- imports: {self.path.full_path()} --");
-    std::print(imp->dump_state());
+    for fid: u32 in self._fids {
+        var ctx = self._global_scope->get_context(fid);
+        if ctx == &null { continue; }
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if tu == &null { continue; }
+        for var i: usize = 0; i < tu->imports.size(); ++i {
+            // TODO: ASTPrinter::decl_summary not yet implemented
+            0;
+        }
+    }
 }
 
 priv fn FrontendAction::_dump_mem_stats() {
@@ -1088,9 +1069,7 @@ priv fn FrontendAction::_dump_mem_stats() {
     var total_allocs: usize = 0;
     var tu_count:     usize = 0;
 
-    var imp  = self._pp->get_import_processor();
-    var fids = imp->get_processed_fids();
-    for fid: u32 in fids {
+    for fid: u32 in self._fids {
         var ctx = self._global_scope->get_context(fid);
         if ctx == &null { continue; }
         var p = ctx->mem_profile();

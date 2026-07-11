@@ -258,7 +258,7 @@ class PendingAnnotations {
         using VisAnnotation = VisibilityAnnotation<Decl>;
     }
 
-    pub var visibility: VisAnnotation::VisibilityKind = VisAnnotation::VisibilityKind::None;
+    pub var visibility: VisibilityKind = VisibilityKind::None;
     pub var vis_range:  SourceRange                    = SourceRange::invalid();
     pub var entries:    vec::<AnnotationEntry>;
 
@@ -269,7 +269,7 @@ class PendingAnnotations {
     /// \brief returns true if no annotations or visibility modifiers are buffered.
     fn empty(self) -> bool {
         return self.entries.empty()
-            && self.visibility == VisAnnotation::VisibilityKind::None;
+            && self.visibility == VisibilityKind::None;
     }
 
     /// \brief appends a standard `@annotation` to the buffer.
@@ -299,7 +299,7 @@ class PendingAnnotations {
     ///
     /// \details visibility is tracked separately from `entries` because it maps
     ///          to a fixed bitfield on many `Decl` types rather than an annotation list.
-    fn set_visibility(self, kind: VisAnnotation::VisibilityKind, range: SourceRange) {
+    fn set_visibility(self, kind: VisibilityKind, range: SourceRange) {
         self.visibility = kind;
         self.vis_range  = range;
     }
@@ -310,7 +310,7 @@ class PendingAnnotations {
     ///       existing allocation to reduce pressure on the global allocator.
     fn clear(self) {
         self.entries.clear();
-        self.visibility = VisAnnotation::VisibilityKind::None;
+        self.visibility = VisibilityKind::None;
         self.vis_range  = SourceRange::invalid();
     }
 }

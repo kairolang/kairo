@@ -153,6 +153,7 @@ class TranslationUnit derives DeclContext {
     pub var module_path:  ModulePath;
     pub var program:      obs::<Program>;
     pub var imports:      ArenaList::<*Decl>;
+    pub var macros:       ArenaList::<*Decl>;
     pub var tu_attrs:     ArenaList::<*Decl>;
     pub var error_count:  u32 = 0;
     pub var warn_count:   u32 = 0;

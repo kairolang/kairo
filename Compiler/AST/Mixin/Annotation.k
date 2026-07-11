@@ -15,6 +15,15 @@ import Memory::ArenaList::*;
 import Location::SourceRange::*;
 import AST::ASTSupport::*;
 
+enum VisibilityKind derives u8 {
+    None = 0, ///< No keyword written. Sema resolves to a default.
+    Private,
+    Protected,
+    Public,
+    Internal, ///< Visible within the same module, including submodules.
+              ///< Not accessible across module boundaries even with import.
+}
+
 /// CRTP mixin: Decl nodes derive VisibilityAnnotation::<SelfType> to get
 /// inline visibility storage and the query/mutation API.
 ///
@@ -22,16 +31,6 @@ import AST::ASTSupport::*;
 /// visibility rule is applied by sema, not here do NOT treat `None` as
 /// a synonym for `Public` at the AST level.
 class <T> VisibilityAnnotation {
-    
-    enum VisibilityKind derives u8 {
-        None = 0,  ///< No keyword written. Sema resolves to a default.
-        Private,
-        Protected,
-        Public,
-        Internal, ///< Visible within the same module, including submodules.
-                  ///< Not accessible across module boundaries even with import.
-    }
-
     pub var visibility:        VisibilityKind = VisibilityKind::None;
     pub var _visibility_range: SourceRange    = SourceRange::invalid();
 
@@ -68,6 +67,15 @@ class <T> VisibilityAnnotation {
         self.visibility       = VisibilityKind::None;
         self._visibility_range = SourceRange::invalid();
     }
+
+    // switch v {
+    //     case 0  { return VisibilityKind::None;      }
+    //     case 1  { return VisibilityKind::Private;   }
+    //     case 2  { return VisibilityKind::Protected; }
+    //     case 3  { return VisibilityKind::Public;    }
+    //     case 4  { return VisibilityKind::Internal;  }
+    //     default { return VisibilityKind::None;      }
+    // }
 }
 
 /// Syntactic kind of a source-level annotation.

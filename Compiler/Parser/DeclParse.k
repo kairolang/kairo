@@ -265,7 +265,7 @@ class <T> DeclParse {
         var vis: u8 = 3; // Public
         if      dyn()->check(TokenKind::KwPriv) { vis = 1; }
         else if dyn()->check(TokenKind::KwProt) { vis = 2; }
-        var vis_kind = static_cast::<T::PendingAnnotations::VisAnnotation::VisibilityKind>(vis);
+        var vis_kind = static_cast::<VisibilityKind>(vis);
 
         dyn()->advance(T::SkipNL::After); // consume visibility keyword
         dyn()->advance(T::SkipNL::After); // consume `{`
@@ -327,7 +327,7 @@ class <T> DeclParse {
         var vis: u8 = 3;
         if      dyn()->check(TokenKind::KwPriv) { vis = 1; }
         else if dyn()->check(TokenKind::KwProt) { vis = 2; }
-        var vis_kind = static_cast::<T::PendingAnnotations::VisAnnotation::VisibilityKind>(vis);
+        var vis_kind = static_cast::<VisibilityKind>(vis);
 
         dyn()->advance(T::SkipNL::After); // visibility keyword
         dyn()->advance(T::SkipNL::After); // `{`
@@ -346,7 +346,7 @@ class <T> DeclParse {
             if dyn()->check(TokenKind::OpRBrace) { break; }
 
             // explicit visibility inside the group: error, then proceed.
-            var m_has_vis = m_annot.visibility != T::PendingAnnotations::VisAnnotation::VisibilityKind::None;
+            var m_has_vis = m_annot.visibility != VisibilityKind::None;
             if m_has_vis {
                 dyn()->diag->report(DiagID::S048E, m_annot.vis_range.start,
                     "explicit visibility is not allowed inside a visibility group"
@@ -2294,50 +2294,34 @@ class <T> DeclParse {
         var start = dyn()->current_ptr()->range;
         dyn()->advance(T::SkipNL::After); // consume `macro`
 
-        // proc/attribute macro: `macro @name(...) { }`
         if dyn()->check(TokenKind::OpAt) {
             return self._parse_proc_macro(start);
         }
 
-        // token macro: `macro name!(params) { raw }`
-        if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected macro name after 'macro\x27"
-            ).first(start).emit();
+        var hdr = dyn()->parse_macro_header();
+        if !hdr.ok {
             self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(MacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
-        var name = dyn()->current();
-        dyn()->advance();
 
-        var mac = MacroDecl::create(dyn()->ctx, start, name);
+        var mac = MacroDecl::create(dyn()->ctx, start, hdr.name);
 
-        // optional `!` (some macros are `name!` with no params: `macro greeting! { }`)
-        if dyn()->check(TokenKind::OpExclaim) {
-            dyn()->advance();
-        }
-
-        // optional param list `(a, b, ...args)`
-        if dyn()->check(TokenKind::OpLParen) {
-            dyn()->advance(T::SkipNL::After); // consume `(`
-            var params: std::StackBuf::<Token, 4>;
-            while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRParen)) {
-                if dyn()->check(TokenKind::OpEllipsis) {
-                    mac->is_variadic = true;
-                    dyn()->advance();
-                }
-                if dyn()->check(TokenKind::LitIdentifier) {
-                    params.push_back(dyn()->current());
-                    dyn()->advance();
-                }
-                if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                break;
+        // step 1: keep MacroDecl's existing lossy Token param list pure
+        // adapter, zero node changes. step 2 swaps this block for
+        // FrozenList<MacroParamSpec>.
+        var params: vec::<MacroParamSpec>;
+        for var i: usize = 0; i < hdr.params.size(); ++i {
+            if hdr.params[i].variadic != 0 { mac->is_variadic = true; }
+            if hdr.params[i].variadic != 2 {
+                var sp = MacroParamSpec{};
+                sp.name     = hdr.params[i].name;
+                sp.variadic = hdr.params[i].variadic;
+                params.push_back(sp);
             }
-            if dyn()->check(TokenKind::OpRParen) { dyn()->advance(); }
-            mac->params.from_buf(params.data(), params.size(), dyn()->ctx);
         }
+        mac->params_spec.from_buf(params.data(), params.size(), dyn()->ctx);
 
-        // raw body: balance braces, record the span.
+        // body: unchanged from current implementation (brace-balance, span)
         if !dyn()->check(TokenKind::OpLBrace) {
             dyn()->diag->report(DiagID::S050E, start.start,
                 "expected '{' to begin macro body"
@@ -2345,7 +2329,7 @@ class <T> DeclParse {
             self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(MacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
-        dyn()->advance(); // consume `{`
+        dyn()->advance();
         var body_start = dyn()->current_ptr()->range;
         var body_end   = body_start;
         var depth: u32 = 1;
@@ -2443,161 +2427,50 @@ class <T> DeclParse {
     ///    `import Foo::bar`   resolve Foo (file-first), then find symbol bar
     fn _parse_import(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
-        dyn()->advance(T::SkipNL::After); // consume `import`
 
-        var id = ImportDecl::create(dyn()->ctx, start, ImportKind::Native);
-
-        // `import module Foo`, source-file-only, skip file lookup,
-        // resolve only against Foo/module.k (library entry).
-        if dyn()->check(TokenKind::KwModule) {
-            id->import_kind = ImportKind::ModuleOnly;
-            dyn()->advance(T::SkipNL::After); // consume `module`
-        }
-
-        // --- base path: Foo, Foo::Bar, Foo::Bar::baz, etc. -----------------
-        var segments: std::StackBuf::<Token, 8>;
-
-        if !dyn()->check(TokenKind::LitIdentifier) {
-            dyn()->diag->report(DiagID::S046E, start.start,
-                "expected a module or symbol path after 'import\x27"
-            ).first(start).emit();
+        var spec = dyn()->parse_import_spec();
+        if !spec.ok {
             self._sync_decl(DeclSyncCtx::TopLevel);
             return static_cast::<*Decl>(ImportDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
 
-        segments.push_back(dyn()->current());
-        dyn()->advance();
+        var id = ImportDecl::create(dyn()->ctx, spec.range,
+            (ImportKind::ModuleOnly) if (spec.is_module) else (ImportKind::Native));
 
-        // Consume `::` separated path segments. Stop before `{` (selective),
-        // `*` (wildcard), or a non-identifier (path end).
-        while dyn()->check(TokenKind::OpColonColon) {
-            // peek past `::` to decide what follows
-            if dyn()->check_peek(TokenKind::OpLBrace) {
-                // selective import list: `Foo::{a, b}`
-                dyn()->advance(T::SkipNL::After); // consume `::`
-                break;
-            }
-            if dyn()->check_peek(TokenKind::OpStar) {
-                // wildcard: `Foo::*`
-                dyn()->advance(T::SkipNL::After); // consume `::`
-                id->is_wildcard = true;
-                dyn()->advance(); // consume `*`
-                break;
-            }
-            if !dyn()->check_peek(TokenKind::LitIdentifier) {
-                // `::` followed by something unexpected, path ends here
-                break;
-            }
-            dyn()->advance(T::SkipNL::After); // consume `::`
-            segments.push_back(dyn()->current());
-            dyn()->advance();
+        // base path
+        var segs: std::StackBuf::<Token, 8>;
+        for var i: usize = 0; i < spec.segments.size(); ++i {
+            segs.push_back(spec.segments[i]);
         }
+        id->path_segments.from_buf(segs.data(), segs.size(), dyn()->ctx);
+        id->last_seg_is_macro = spec.last_seg_is_macro;   // NEW field, see below
+        id->is_wildcard       = spec.is_wildcard;
 
-        id->path_segments.from_buf(segments.data(), segments.size(), dyn()->ctx);
-
-        // --- selective import list: { item, item, ... } ---------------------
-        if dyn()->check(TokenKind::OpLBrace) {
-            dyn()->advance(T::SkipNL::After); // consume `{`
+        // selective items
+        if spec.has_items {
             var items: std::StackBuf::<ImportItem, 8>;
-
-            while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-                if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpComma) {
-                    dyn()->advance();
-                    continue;
-                }
-
-                // wildcard item inside list: `{*, other}` or `{*}`
-                if dyn()->check(TokenKind::OpStar) {
-                    var item = ImportItem{};
-                    item.is_wildcard = true;
-                    item.has_alias   = false;
-                    item.range       = dyn()->current_ptr()->range;
-                    dyn()->advance();
-                    items.push_back(item);
-                    if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                    break;
-                }
-
-                // named item: `bar` or `bar::Baz` or `bar as alias`
-                if !dyn()->check(TokenKind::LitIdentifier) {
-                    dyn()->report_tok(DiagID::S046E, dyn()->current_ptr(),
-                        "expected an import item name or '*' in selective import list"
-                    );
-                    self._sync_decl(DeclSyncCtx::Params);
-                    if dyn()->check(TokenKind::OpComma) { dyn()->advance(T::SkipNL::After); continue; }
-                    break;
-                }
-
-                var item_start = dyn()->current_ptr()->range;
-                var sub: std::StackBuf::<Token, 4>;
-                sub.push_back(dyn()->current());
-                dyn()->advance();
-
-                // sub-path segments: `bar::Baz::Quux`
-                while dyn()->check(TokenKind::OpColonColon)
-                   && dyn()->check_peek(TokenKind::LitIdentifier) {
-                    dyn()->advance(T::SkipNL::After); // consume `::`
-                    sub.push_back(dyn()->current());
-                    dyn()->advance();
-                }
-
+            for var i: usize = 0; i < spec.items.size(); ++i {
+                var s = &spec.items[i];
                 var item = ImportItem{};
+                var sub: std::StackBuf::<Token, 4>;
+                for var j: usize = 0; j < s->sub_path.size(); ++j {
+                    sub.push_back(s->sub_path[j]);
+                }
                 item.sub_path.from_buf(sub.data(), sub.size(), dyn()->ctx);
-                item.is_wildcard = false;
-                item.has_alias   = false;
-
-                // optional alias: `as name`
-                if dyn()->check(TokenKind::KwAs) {
-                    dyn()->advance(T::SkipNL::After); // consume `as`
-                    if dyn()->check(TokenKind::LitIdentifier) {
-                        item.alias     = dyn()->current();
-                        item.has_alias = true;
-                        dyn()->advance();
-                    } else {
-                        dyn()->report_tok(DiagID::S046E, dyn()->current_ptr(),
-                            "expected a name after 'as' in import item"
-                        );
-                    }
-                }
-
-                item.range = item_start | dyn()->prev().range;
+                item.alias       = s->alias;
+                item.has_alias   = s->has_alias;
+                item.is_wildcard = s->is_wildcard;
+                item.is_macro    = s->is_macro;            // NEW field, see below
+                item.range       = s->range;
                 items.push_back(item);
-
-                if dyn()->check(TokenKind::OpComma) {
-                    dyn()->advance(T::SkipNL::After);
-                    if dyn()->check(TokenKind::OpRBrace) { break; } // trailing comma
-                    continue;
-                }
-                break;
             }
-
-            if dyn()->check(TokenKind::OpRBrace) {
-                dyn()->advance(T::SkipNL::Before); // consume `}`
-            } else {
-                dyn()->diag->report(DiagID::S051E, start.start,
-                    "expected '}' to close the selective import list"
-                ).first(start).emit();
-            }
-
             id->items.from_buf(items.data(), items.size(), dyn()->ctx);
             id->has_items = true;
         }
 
-        // --- top-level alias: `import Foo as Bar` --------------------------
-        if dyn()->check(TokenKind::KwAs) {
-            dyn()->advance(T::SkipNL::After); // consume `as`
-            if dyn()->check(TokenKind::LitIdentifier) {
-                id->alias     = dyn()->current();
-                id->has_alias = true;
-                dyn()->advance();
-            } else {
-                dyn()->report_tok(DiagID::S046E, dyn()->current_ptr(),
-                    "expected a name after 'as' in import declaration"
-                );
-            }
-        }
-
-        id->range = start | dyn()->prev().range;
+        id->alias     = spec.alias;
+        id->has_alias = spec.has_alias;
+        id->range     = spec.range;
         return static_cast::<*Decl>(id);
     }
 
