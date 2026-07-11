@@ -164,6 +164,19 @@ class <const CHUNK_SIZE: usize> TokenBuffer {
         return &(self._chunks[chunk_index].base[offset_index]);
     }
 
+    fn pop_back(self) {
+        if self._total_length == 0 { return; }
+        var chunk = &self._chunks[self._chunk_count - 1];
+        // last chunk can be empty if pops crossed a boundary; walk back
+        while (chunk->length == 0) && (self._chunk_count > 1) {
+            --self._chunk_count;
+            chunk = &self._chunks[self._chunk_count - 1];
+        }
+        if chunk->length == 0 { return; } // defensive
+        --chunk->length;
+        --self._total_length;
+    }
+
     fn destroy(self) {
         self._chunk_count  = 0;
         self._total_length = 0;

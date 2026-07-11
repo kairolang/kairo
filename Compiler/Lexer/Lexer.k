@@ -57,15 +57,17 @@ enum LastTokenKind derives u8 {
 ///  - produces immediate nodes for literals
 ///  - supports f-strings, byte strings, nested comments, and unicode
 class Lexer {
-    /// lowkey this formatting style looks a lot better tbh
-    pub var _balance   :  BalanceTracker;
-    var _imm_tbl       :  ImmediateTable;
-    var _tokens        :  TokenBuffer::<512> = TokenBuffer::<512>();
+    enum StreamState derives u8 {
+        Closed,
+        Streaming,
+        Exhausted,   ///< TkEof emitted, next() returns false forever
+    }
+
+    var _imm_tbl       :  obs::<ImmediateTable> = &null; //< a pointer to another lexers imm table for calling lex_slice() on a sub-lexer.
     var _file_buffer   :  MemoryBuffer;
     var _sm            :  obs::<SourceManager>;
     var cached_data    :  std::ConstPtr::<u8> = &null; // used for lex_slice to avoid repeated file_data() calls
     var _pool          :  opt::<ThreadPool>   = &null;
-    var _last_text     :  obs::<Token>        = &null;
     var _diag          :  obs::<DiagEngine>   = &null;
     var _cursor        :  usize = 0; // last pos is always file_size - 1
     var _last_token    :  usize = 0;
@@ -74,12 +76,12 @@ class Lexer {
     var _err_base      :  u32   = 0; ///< shared-DiagEngine error count at lex() entry;
                                      ///  error_count() reports the per-run delta.
     var _last_kind     :  LastTokenKind = LastTokenKind::None;
-    var _last_was_bang :  bool  = false;
-    var _initialized   :  bool  = false;
+    var _state         :  StreamState = StreamState::Closed;
+    var _eof_sent      :  bool = false;
 
     const PFX_FORMAT: u8 = 1 << 0;
     const PFX_RAW:    u8 = 1 << 1;
-    
+
     /// \brief lightweight handle over string/char immediates
     /// \details abstracts over StringData vs CharData
     class TextImm {
@@ -316,152 +318,77 @@ class Lexer {
         return self.create_unrecognized_token(start);
     }
 
-    /// \brief lexes the entire file associated with the given file ID
-    /// \param fid file ID to lex
-    /// \returns true on success
-    fn lex(self, fid: u32) -> bool {
-        if !self.load_file(fid) {
-            Logger::error(Logger::Stage::Lexer, f"Lexer::lex: failed to load fid={fid}");
+    /// \brief begin streaming a fid. imm table live immediately after this returns.
+    fn open(self, fid: u32) -> bool {
+        if self._state != StreamState::Closed {
+            Logger::error(Logger::Stage::Lexer, f"Lexer::open: already streaming fid={self._fid}");
             return false;
         }
 
-        self._sm->wait_for_line_index(fid); // ensure line index is ready
         self._fid         = fid;
-        self._initialized = true;
-        self._err_base    = self._diag->error_count(); // per-run error baseline
+        self._cursor      = 0;
+        self._end_pos     = 0;
+        self.cached_data  = &null;
+        self._eof_sent    = false;
+        self._last_kind   = LastTokenKind::None;
+
+        if !self.load_file(fid) {
+            Logger::error(Logger::Stage::Lexer, f"Lexer::open: failed to load fid={fid}");
+            return false;
+        }
+
+        self._sm->wait_for_line_index(fid);
 
         if self.file_data() == &null {
-            Logger::error(Logger::Stage::Lexer, f"Lexer::lex: null file_data for fid={fid}");
+            Logger::error(Logger::Stage::Lexer, f"Lexer::open: null file_data for fid={fid}");
             return false;
         }
 
-        /// we can now do some immediate math to figure out where does the char fall under
-        /// we have the following ranges to consider
-        /// identifiers/keywords:
-        /// 'a' - 'z' | 'A' - 'Z' |'0' - '9' | '_' | '#'
-        ///  operators/punctuation:
-        /// '{' '}' '(' ')' '[' ']' '+' '-' '*' '/' '%' '^' '|' '&' '~' '<' '>' '!' '=' '?' '@' ':' ';' ',' '.' '\'
-        /// string literals are a coumpund or single since they can have a prefix or postfix
-        /// 0x22 "\x27" '#"' '#"'
-
-        while !self.is_eof() {
-            /// this is where the main lexing loop will go
-            /// our first step is to do 1 operation to figure out which basic range the char falls under
-            var current_char = self.peek_char32();
-            var token: Token = get_token(
-                self.get_source_location(),
-                current_char
-            );
-
-            /// we only avoid appending whitespace tokens for now
-            if token != TokenKind::TkWhitespace {
-                // balance tracking
-                if token.kind == TokenKind::OpExclaim {
-                    self._last_was_bang = true;
-                } else {
-                    if self._last_was_bang && BalanceTracker::is_opener(token.kind) {
-                        self._balance.push(token.kind, token.range.start, true);
-                    } else if BalanceTracker::is_opener(token.kind) {
-                        self._balance.push(token.kind, token.range.start, false);
-                    } else if BalanceTracker::is_closer(token.kind) {
-                        self._balance.pop(token.kind, token.range.start, &(self._tokens));
-                    }
-                    self._last_was_bang = false;
-                }
-                
-                self._tokens.append(token);
-                
-                if (token == TokenKind::LitString)
-                || (token == TokenKind::LitChar) {
-                    self._last_text = (self._tokens[self._tokens.size() - 1]);
-                }
-            }
-
-            // if token.kind == TokenKind::TkError {
-            //     self._diag->report(DiagCode(DiagID::S011E), token.range.start,
-            //         f"invalid token '{self._sm->get_text(token.range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token.imm))}\x27")
-            //         .first(token.range).emit();
-            // }
-            // we do not emit errors here since some of them are expected to be handled later with better context
-        }
-
-        if self.is_eof() {
-            var eof_token = Token(self.get_source_range(), TokenKind::TkEof, 0);
-            self._tokens.append(eof_token);
-        }
-
-        // finalize balance checking we also need to pass the buff and lock right before eof
-        self._balance.finalize(&(self._tokens), self.get_source_location());
-
-        // we do need to push all the unclosed delimiters as errors to route them through the diagnostic engine later
-        for i: BalanceTracker::BalanceError in (self._balance.errors) {
-            if i.kind == BalanceTracker::BalanceErrorKind::Unclosed {
-                var code = DiagID::S021E; // default to brace
-                if i.expected == TokenKind::OpRParen  { code = DiagID::S019E; }
-                if i.expected == TokenKind::OpRSquare { code = DiagID::S020E; }
-
-                self._diag->report(DiagCode(code), i.open_loc,
-                    f"unclosed '{token_kind_to_readable_string(i.expected)}' opened here")
-                    .first(SourceRange::single(i.open_loc)).emit();
-
-            } else if i.kind == BalanceTracker::BalanceErrorKind::Unexpected {
-                self._diag->report(DiagCode(DiagID::S034E), i.loc,
-                    f"unexpected '{token_kind_to_readable_string(i.found)}' with no matching opener")
-                    .first(SourceRange::single(i.loc)).emit();
-
-            } else if i.kind == BalanceTracker::BalanceErrorKind::Mismatched {
-                self._diag->report(DiagCode(DiagID::S035E), i.loc,
-                    f"mismatched delimiter: expected '{token_kind_to_readable_string(i.expected)}', found '{token_kind_to_readable_string(i.found)}\x27")
-                    .first(SourceRange::single(i.loc))
-                    .second(SourceRange::single(i.open_loc)).emit();
-            }
-        }
-
-        Logger::info(Logger::Stage::Lexer, f"Lexer::lex: fid={fid} tokens={self._tokens.size()} errors={self._diag->error_count()}");
+        self._err_base = self._diag->error_count();
+        self._state    = StreamState::Streaming;
         return true;
     }
 
-    /// \brief routes balance-tracker errors through the diagnostic engine
-    /// \details call this after lex() to flush any unclosed/mismatched delimiter errors
-    fn emit_errors(self) {
-        Logger::debug(Logger::Stage::Lexer, f"Lexer::emit_errors: balance_errors={self._balance.errors.size()}");
+    /// \brief pull one token. false = stream exhausted.
+    /// \details never blocks. lex errors emit TkError inline + diagnostics; stream continues.
+    fn next(self, out: *Token) -> bool {
+        if self._state != StreamState::Streaming { return false; }
 
-        for var i: usize = 0; i < self._balance.errors.size(); ++i {
-            var err      = self._balance.errors[i];
-            var open_range = SourceRange::from_bounds(err.open_loc, err.open_loc);
-            var err_range  = SourceRange::from_bounds(err.loc, err.loc);
+        while !self.is_eof() {
+            var decode = self.peek_char32();
+            var token  = self.get_token(self.get_source_location(), decode);
 
-            switch err.kind {
-                case BalanceTracker::BalanceErrorKind::Unclosed {
-                    var msg = (f"unclosed macro invocation delimiter; expected '{token_kind_to_readable_string(err.expected)}\x27")
-                        if err.is_macro
-                        else (f"unclosed delimiter; expected '{token_kind_to_readable_string(err.expected)}\x27");
+            // whitespace is not surfaced; TkNewLine IS surfaced
+            if token == TokenKind::TkWhitespace { continue; }
 
-                    var code: DiagID;
-                    if      err.expected == TokenKind::OpRParen  { code = DiagID::S019E; }
-                    else if err.expected == TokenKind::OpRSquare { code = DiagID::S020E; }
-                    else                                          { code = DiagID::S021E; }
-
-                    self._diag->report(DiagCode(code), err.open_loc, msg)
-                        .first(open_range, "opened here").emit();
-
-                } case BalanceTracker::BalanceErrorKind::Unexpected {
-                    self._diag->report(DiagCode(DiagID::S034E), err.loc,
-                        f"unexpected '{token_kind_to_readable_string(err.found)}' with no matching opener")
-                        .first(err_range).emit();
-
-                } case BalanceTracker::BalanceErrorKind::Mismatched {
-                    var msg = (f"mismatched macro delimiter: expected '{token_kind_to_readable_string(err.expected)}' to close macro, found '{token_kind_to_readable_string(err.found)}\x27")
-                        if err.is_macro
-                        else (f"mismatched delimiter: expected '{token_kind_to_readable_string(err.expected)}', found '{token_kind_to_readable_string(err.found)}\x27");
-
-                    self._diag->report(DiagCode(DiagID::S035E), err.loc, msg)
-                        .first(err_range)
-                        .second(open_range, "opened here") // TODO: should this be a sub error or a second note?
-                        .emit();
-                }
-            }
+            (*out) = token;
+            return true;
         }
+
+        // EOF contract: exactly one TkEof, then dead forever.
+        if !self._eof_sent {
+            self._eof_sent = true;
+            (*out) = Token(self.get_source_range(), TokenKind::TkEof, 0);
+            self._state = StreamState::Exhausted;
+            return true;
+        }
+
+        return false;
+    }
+
+    fn drain(self) -> *TokenBuffer::<512> {
+        var buf = std::create::<TokenBuffer::<512>>();
+        var tok: Token;
+        while self.next(&tok) {
+            buf->append(tok);
+        }
+        return buf;
+    }
+
+    fn close(self) {
+        self._state = StreamState::Closed;
+        // NOTE: does NOT reset _imm_tbl. Indices handed out are stable forever.
+        // The imm table's lifetime is the TCM slot's, not the stream's.
     }
 
     /// \brief lexes a slice of the current file between start and end positions
@@ -469,67 +396,21 @@ class Lexer {
     /// \param end ending position (exclusive)
     /// \returns token buffer containing lexed tokens
     /// \template N TokenBuffer chunk size
-    fn <const N: usize> lex_slice(self, start: usize, end: usize) -> * TokenBuffer::<N> {
+    fn <const N: usize> lex_slice(self, start: u32, end: u32) -> *TokenBuffer::<N> {
+        var sub = Lexer(self._sm, self._pool, self._diag, self._imm_tbl);
+        sub._fid          = self._fid;
+        sub._file_buffer  = self._file_buffer;
+        sub.cached_data   = self.cached_data;
+        sub._cursor       = start;
+        sub._end_pos      = end;
+        sub._state        = StreamState::Streaming;
+
         var tokens = std::create::<TokenBuffer::<N>>();
+        var tok: Token;
 
-        /// we first store state info:
-        var last_token  = self._last_token;
-        var last_text   = self._last_text;
-        var last_kind   = self._last_kind;
-        var cursor      = self._cursor;
-        var end_pos     = self._end_pos;
-
-        self._cursor  = start;
-        self._end_pos = end;
-
-        if self.file_data() == &null {
-            return tokens;
+        while sub.next(&tok) {
+            tokens->append(tok);
         }
-
-        while !self.is_eof() {
-            /// this is where the main lexing loop will go
-            /// our first step is to do 1 operation to figure out which basic range the char falls under
-            var current_char = self.peek_char32();
-            var token: Token = get_token(
-                self.get_source_location(),
-                current_char
-            );
-
-            /// we only avoid appending whitespace tokens for NOW
-            if token != TokenKind::TkWhitespace {
-                tokens->append(token);
-
-                if (token == TokenKind::LitString)
-                || (token == TokenKind::LitChar) {
-                    self._last_text = (self._tokens[self._tokens.size() - 1]);
-                }
-            }
-        }
-
-        // if we hit eof append it
-        if self.is_eof() {
-            var eof_token = Token(self.get_source_range(), TokenKind::TkEof, 0);
-            tokens->append(eof_token);
-        }
-
-        // route invalid tokens from the slice through the diagnostic engine
-        for var i: usize = 0; i < tokens->size(); ++i {
-            var token = tokens->get(i);
-
-            // if (token->kind) == TokenKind::TkError {
-            //     self._diag->report(DiagCode(DiagID::S011E), token->range.start,
-            //         f"invalid token '{self._sm->get_text(token->range)}': expected '{token_kind_to_readable_string(static_cast::<TokenKind>(token->imm))}\x27")
-            //         .first(token->range).emit();
-            // }
-            // we handle the TkError tokens in the parser not here.
-        }
-
-        // now we restore state
-        self._end_pos    = end_pos;
-        self._cursor     = cursor;
-        self._last_token = last_token;
-        self._last_text  = last_text;
-        self._last_kind  = last_kind;
 
         return tokens;
     }
@@ -542,64 +423,35 @@ class Lexer {
     /// \param sm source manager pointer
     /// \param pool thread pool pointer
     /// \returns initialized lexer
-    fn Lexer(self, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) {
-        self._sm   = sm;
-        self._pool = pool;
-        self._diag = diag;
-        self._imm_tbl.initialize(sm);
-        self._initialized = false; // we only initialize on lex call
+    fn Lexer(self, sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine, imm_tbl: *ImmediateTable = &null) {
+        self._sm      = sm;
+        self._pool    = pool;
+        self._diag    = diag;
+        self._imm_tbl = imm_tbl;
         Logger::info(Logger::Stage::Lexer, "Lexer: initialized");
     }
 
-    /// \brief destroys the lexer and its resources
-    /// \details cleans up token buffer and other allocated resources
-    inline priv fn destroy(self) {
-        self._tokens.destroy();
-        self._imm_tbl.reset();
-        self._balance.clear();
-    }
-
-    inline priv fn shutdown(self) {
-        self._tokens.shutdown();
-        self._imm_tbl.destroy();
-        self._balance.clear();
-    }
-
     /// \brief destructor
-    fn op delete (self) {
-        self.shutdown();
-    }
+    default fn op delete (self);
 
     /// \brief loads the file buffer for the given file ID
     /// \param fid file ID to load
     /// \returns true on success
     inline priv fn load_file(self, fid: u32) -> bool {
-        if self._sm == &null {
-            return false;
-        }
-
-        // if we already have a buffer loaded, keep it
-        if self._file_buffer.is_valid() {
-            return true;
-        }
+        if self._sm == &null { return false; }
 
         var buffer = self._sm->get_buffer(fid);
-
-        if buffer == null || (!(*buffer).is_valid()) {
+        if (buffer == null) || (!(*buffer).is_valid()) {
             Logger::error(Logger::Stage::Lexer, f"Lexer::load_file: invalid buffer for fid={fid}");
             return false;
         }
 
         self._file_buffer = *buffer;
-        Logger::debug(Logger::Stage::Lexer, f"Lexer::load_file: fid={fid} size={self._file_buffer.size()}B");
+        self.cached_data  = &null;   // invalidate the memo
         return true;
     }
 
     ///========= GETTERS/SETTERS ==========///
-
-    fn tokens(self) -> *(TokenBuffer::<512>) {
-        return &(self._tokens);
-    }
 
     inline priv fn is_eof(self) -> bool {
         return self._cursor >= self.file_size();
@@ -1107,7 +959,7 @@ class Lexer {
     ///
     /// rewrite this once the self-hosted compiler is stable enough to bootstrap
     /// itself. the final version needs:
-    /// - a real suffix grammar (not “first non-digit = suffix”)
+    /// - a real suffix grammar (not "first non-digit = suffix")
     /// - stricter underscore rules across bases (consistent with clang/gcc)
     /// - consistent error paths for malformed floats
     /// - a saner state machine instead of this stitched logic
@@ -1697,9 +1549,9 @@ class Lexer {
         ctx.has_error = true;
         var _r012 = SourceRange::from_bounds(ctx.start, self.get_source_location());
         self._diag->report(DiagCode(DiagID::S012E), _r012.start,
-            ("unterminated string literal; add a closing '\x27\x27\x27' to end the string")
+            ("unterminated string literal; add a closing '\x22\x22\x22' to end the string")
                 if (ctx.is_triple)
-            else ("unterminated string literal; add a closing '\x27' to end the string"))
+            else ("unterminated string literal; add a closing '\x22' to end the string"))
             .first(_r012).emit();
     }
 

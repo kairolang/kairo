@@ -219,3 +219,47 @@ class BalanceTracker {
         self.errors.clear();
     }
 }
+
+
+// /// \brief routes balance-tracker errors through the diagnostic engine
+// /// \details call this after lex() to flush any unclosed/mismatched delimiter errors
+// fn emit_errors(self) {
+//     Logger::debug(Logger::Stage::Lexer, f"Lexer::emit_errors: balance_errors={self._balance.errors.size()}");
+
+//     for var i: usize = 0; i < self._balance.errors.size(); ++i {
+//         var err      = self._balance.errors[i];
+//         var open_range = SourceRange::from_bounds(err.open_loc, err.open_loc);
+//         var err_range  = SourceRange::from_bounds(err.loc, err.loc);
+
+//         switch err.kind {
+//             case BalanceTracker::BalanceErrorKind::Unclosed {
+//                 var msg = (f"unclosed macro invocation delimiter; expected '{token_kind_to_readable_string(err.expected)}\x27")
+//                     if err.is_macro
+//                     else (f"unclosed delimiter; expected '{token_kind_to_readable_string(err.expected)}\x27");
+
+//                 var code: DiagID;
+//                 if      err.expected == TokenKind::OpRParen  { code = DiagID::S019E; }
+//                 else if err.expected == TokenKind::OpRSquare { code = DiagID::S020E; }
+//                 else                                          { code = DiagID::S021E; }
+
+//                 self._diag->report(DiagCode(code), err.open_loc, msg)
+//                     .first(open_range, "opened here").emit();
+
+//             } case BalanceTracker::BalanceErrorKind::Unexpected {
+//                 self._diag->report(DiagCode(DiagID::S034E), err.loc,
+//                     f"unexpected '{token_kind_to_readable_string(err.found)}' with no matching opener")
+//                     .first(err_range).emit();
+
+//             } case BalanceTracker::BalanceErrorKind::Mismatched {
+//                 var msg = (f"mismatched macro delimiter: expected '{token_kind_to_readable_string(err.expected)}' to close macro, found '{token_kind_to_readable_string(err.found)}\x27")
+//                     if err.is_macro
+//                     else (f"mismatched delimiter: expected '{token_kind_to_readable_string(err.expected)}', found '{token_kind_to_readable_string(err.found)}\x27");
+
+//                 self._diag->report(DiagCode(DiagID::S035E), err.loc, msg)
+//                     .first(err_range)
+//                     .second(open_range, "opened here") // TODO: should this be a sub error or a second note?
+//                     .emit();
+//             }
+//         }
+//     }
+// }
