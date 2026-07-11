@@ -14,10 +14,10 @@
 import Token::TokenCacheManager::*;
 import Token::TokenText::*;
 import Resolution::ImportProbe::*;
-import Preprocessor::SkipList::*;
 import Location::SourceManager::*;
-import Preprocessor::ScopeTracker::*;
 import Resolution::ModulePath::*;
+import Preprocessor::TokenSource::*;
+import Preprocessor::StreamCursor::*;
 
 // FIXME: on a big project root with many files, DepScanner makes a lot of
 //        temporary allocations (178k with 280k files) which adds up to a
@@ -103,135 +103,117 @@ class DepScanner {
 
         graph->add_node(fid, mod_path);
         self._visiting.insert(fid);
+        finally { self._visiting.erase(fid); }
 
-        // lex if needed - single-threaded here so no lock needed
-        if !self._tcm->lex_file(fid) {
-            self._visiting.erase(fid);
-            return;
-        }
+        var stream = self._tcm->open_scan_stream(fid);
+        if stream.lexer == &null { return; }
+        finally { self._tcm->close_scan_stream(&stream); }
 
-        var tokens = self._tcm->get_tokens(fid);
-        if tokens == &null {
-            self._visiting.erase(fid);
-            return;
-        }
+        var src = TokenSource(stream.lexer);
+        var cur = StreamCursor(&src, &null); // scan-only: silent
 
-        var tracker = ScopeTracker(self._sym_table, self._sm, self._tcm->get_imm_table_for_fid(fid), self._tcm, mod_path);
-        var i: usize = 0;
+        while !src.at_eof() {
+            var k = src.peek(0).kind;
+            if k == TokenKind::TkEof { break; }
 
-        while i < tokens->size() {
-            var tok = tokens->get(i);
-            var scope_consumed = tracker.update(tokens, i);
-
-            // skip ffi entirely
-            if tok->kind == TokenKind::KwFfi {
-                var skip = self.skip_ffi(tokens, i);
-                if skip > 0 { i += skip; continue; }
-            }
-
-            if tok->kind == TokenKind::KwImport {
-                var dep_fids = self.scan_import(tokens, i, &tracker);
-                for dep in dep_fids {
-                    self.visit(dep.fid, dep.mod_path, graph);
-                    graph->add_edge(fid, dep.fid);
-                }
-                // advance past the import statement
-                i = self.skip_import(tokens, i);
+            if k == TokenKind::KwFfi {
+                self._skip_ffi_stream(&src);
                 continue;
             }
 
-            i += scope_consumed + 1;
+            // visibility prefix: DAG cares only about `<vis> import`
+            if (k == TokenKind::KwPub) || (k == TokenKind::KwPriv) || (k == TokenKind::KwProt) {
+                if src.peek(1).kind == TokenKind::KwImport {
+                    src.next(); // drop vis keyword
+                    self._scan_one_import(&cur, fid, graph);
+                    continue;
+                }
+                src.next();
+                continue;
+            }
+
+            if k == TokenKind::KwImport {
+                self._scan_one_import(&cur, fid, graph);
+                continue;
+            }
+
+            src.next(); // everything else: skip
+        }
+    }
+
+    priv fn _skip_ffi_stream(self, src: *TokenSource) {
+        src->next();                                   // ffi
+        if src->peek(0).kind == TokenKind::LitString { src->next(); } // "lang"
+
+        var k = src->peek(0).kind;
+        if k == TokenKind::KwImport {
+            // ffi "lang" import "hdr" ; no fid dep, drop to terminator
+            while !src->at_eof() {
+                var t = src->next();
+                if t.kind == TokenKind::OpSemicolon { break; }
+                if t.kind == TokenKind::TkNewLine   { break; } // VERIFY: is `;` mandatory
+                                                            // on ffi imports? if yes,
+                                                            // delete this line
+            }
+            return;
+        }
+        if k == TokenKind::OpLBrace {
+            var depth: i32 = 0;
+            while !src->at_eof() {
+                var t = src->next();
+                if t.kind == TokenKind::OpLBrace { depth += 1; }
+                if t.kind == TokenKind::OpRBrace {
+                    depth -= 1;
+                    if depth == 0 { return; }
+                }
+            }
+            return;
+        }
+        // ffi "lang" <single decl> nothing here creates a dep; let the walk skip it
+    }
+
+    /// drives the shared grammar, resolves, recurses, adds the edge.
+    priv fn _scan_one_import(self, cur: *StreamCursor, from_fid: u32, graph: *DepGraph) {
+        var spec = cur->parse_import_spec();
+        if !spec.ok { return; }
+
+        // trailing `;`
+        if cur->ig_kind() == TokenKind::OpSemicolon { cur->ig_bump(); }
+
+        var segs = vec::<string>();
+        for var i: usize = 0; i < spec.segments.size(); ++i {
+            segs.push_back(TokenText::spelling(spec.segments[i], self._tcm));
+        }
+        if segs.size() == 0 { return; }
+
+        // which segments name the FILE?
+        //   wildcard / braced / bang-on-last: base is all-but-nothing / all-but-last
+        //   plain path: try full, then drop last (it may be a symbol, not a module)
+        var dep = DepResult();
+
+        if spec.is_wildcard || (spec.items.size() > 0) {
+            dep = self.resolve_segments(segs, spec.is_module);
+        } else if spec.last_seg_is_macro {
+            segs.pop_back();                       // last seg is the macro name
+            if segs.size() == 0 { return; }
+            dep = self.resolve_segments(segs, spec.is_module);
+        } else {
+            dep = self.resolve_segments(segs, spec.is_module);
+            if dep.fid == 0 && segs.size() > 1 {
+                segs.pop_back();                   // last seg was a symbol
+                dep = self.resolve_segments(segs, spec.is_module);
+            }
         }
 
-        self._visiting.erase(fid);
+        if dep.fid == 0 { return; }   // unresolved: silent here; the PP walk errors
+
+        self.visit(dep.fid, dep.mod_path, graph);
+        graph->add_edge(from_fid, dep.fid);
     }
 
     struct DepResult {
         var fid:      u32;
         var mod_path: ModulePath;
-    }
-
-    priv fn scan_import(
-        self,
-        tokens:  *(TokenBuffer::<512>),
-        start:   usize,
-        tracker: *ScopeTracker
-    ) -> vec::<DepResult> {
-        var result = vec::<DepResult>();
-        var j = start + 1;
-
-        if j >= tokens->size() { return result; }
-
-        // skip `module` qualifier
-        var is_module = false;
-        if tokens->get(j)->kind == TokenKind::KwModule {
-            is_module = true;
-            j += 1;
-        }
-
-        // collect path segments until we hit something that isn't ident::
-        var segments = vec::<string>();
-        while j < tokens->size() {
-            var t = tokens->get(j);
-            if t->kind == TokenKind::LitIdentifier {
-                segments.push_back(
-                    TokenText::spelling(*t, self._tcm));
-                j += 1;
-                // peek for ::
-                if j < tokens->size() && tokens->get(j)->kind == TokenKind::OpColonColon {
-                    j += 1;
-                    // peek for { or * - grouped/wildcard
-                    if j < tokens->size() {
-                        var after = tokens->get(j);
-                        if after->kind == TokenKind::OpLBrace {
-                            // grouped import - resolve base path
-                            var dep = self.resolve_segments(segments, is_module);
-                            if dep.fid != 0 { result.push_back(dep); }
-                            return result;
-                        }
-                        if after->kind == TokenKind::OpStar {
-                            var dep = self.resolve_segments(segments, is_module);
-                            if dep.fid != 0 { result.push_back(dep); }
-                            return result;
-                        }
-                    }
-                    continue;
-                }
-                break;
-            }
-            if t->kind == TokenKind::OpStar {
-                var dep = self.resolve_segments(segments, is_module);
-                if dep.fid != 0 { result.push_back(dep); }
-                return result;
-            }
-            if t->kind == TokenKind::OpLBrace {
-                var dep = self.resolve_segments(segments, is_module);
-                if dep.fid != 0 { result.push_back(dep); }
-                return result;
-            }
-            break;
-        }
-
-        if segments.size() > 0 {
-            // last segment might be the item name, try full path first
-            // then drop last segment (it's the item, not the module)
-            var dep = self.resolve_segments(segments, is_module);
-            if dep.fid != 0 {
-                result.push_back(dep);
-                return result;
-            }
-            // try base path (all but last)
-            if segments.size() > 1 {
-                var base = vec::<string>();
-                for k in usize(0) .. usize(segments.size() - 1) {
-                    base.push_back(segments[k]);
-                }
-                dep = self.resolve_segments(base, is_module);
-                if dep.fid != 0 { result.push_back(dep); }
-            }
-        }
-
-        return result;
     }
 
     priv fn resolve_segments(self, segments: vec::<string>, is_module: bool) -> DepResult {
@@ -279,48 +261,5 @@ class DepScanner {
             path.segments.push_back(ident);
         }
         return path;
-    }
-
-    priv fn skip_ffi(self, tokens: *(TokenBuffer::<512>), start: usize) -> usize {
-        if start >= tokens->size() { return 0; }
-        var tok = tokens->get(start);
-        if tok->kind != TokenKind::KwFfi { return 0; }
-        var j = start + 1;
-        if j >= tokens->size() { return 1; }
-        if tokens->get(j)->kind != TokenKind::LitString { return 0; }
-        j += 1;
-        if j >= tokens->size() { return j - start; }
-        var after = tokens->get(j);
-        if after->kind == TokenKind::KwImport {
-            while j < tokens->size() {
-                if tokens->get(j)->kind == TokenKind::OpSemicolon { return (j + 1) - start; }
-                j += 1;
-            }
-            return j - start;
-        }
-        if after->kind == TokenKind::OpLBrace {
-            var depth: i32 = 1;
-            j += 1;
-            while j < tokens->size() && depth > 0 {
-                if tokens->get(j)->kind == TokenKind::OpLBrace { depth += 1; }
-                if tokens->get(j)->kind == TokenKind::OpRBrace { depth -= 1; }
-                j += 1;
-            }
-            return j - start;
-        }
-        return 1;
-    }
-
-    priv fn skip_import(self, tokens: *(TokenBuffer::<512>), start: usize) -> usize {
-        var j = start + 1;
-        var depth: i32 = 0;
-        while j < tokens->size() {
-            var k = tokens->get(j)->kind;
-            if k == TokenKind::OpLBrace  { depth += 1; }
-            if k == TokenKind::OpRBrace  { depth -= 1; }
-            if k == TokenKind::OpSemicolon && depth == 0 { return j + 1; }
-            j += 1;
-        }
-        return j;
     }
 }

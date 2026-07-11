@@ -1436,10 +1436,10 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, "macro ");
         self.p.paint(Color::Ident, self.tok(mc->name));
         self.p.paint(Color::Punct, "!(");
-        for var i: usize = 0; i < mc->params.size(); ++i {
+        for var i: usize = 0; i < mc->params_spec.size(); ++i {
             if i > 0 { self.p.paint(Color::Punct, ", "); }
-            if mc->is_variadic && (i == mc->params.size() - 1) { self.p.paint(Color::Punct, "..."); }
-            self.p.paint(Color::Ident, self.tok(*(mc->params.get(i))));
+            if mc->is_variadic && (i == mc->params_spec.size() - 1) { self.p.paint(Color::Punct, "..."); }
+            self.p.paint(Color::Ident, self.tok(mc->params_spec.get(i)->name));
         }
         self.p.paint(Color::Punct, ") { ... }");
     }

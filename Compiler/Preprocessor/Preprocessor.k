@@ -1,5 +1,16 @@
 /// --- The Kairo Project ------------------ Preprocessor/Preprocessor.k --- ///
 ///
+///   Single-pass, stream-driven preprocessor. One forward walk per fid over
+///   a streaming lexer, via a TokenSource stack. Imports and macro defs are
+///   consumed into the TU (never emitted); invocations expand by pushing
+///   splice frames the same walk re-enters. FFI imports are skipped; FFI
+///   blocks are copied through for the parser.
+///
+///   Order-dependent macro visibility (C-preprocessor semantics, but scoped
+///   and with pub/priv/prot). Token macros may NOT expand into import/macro
+///   declarations (enforced at def time + emission backstop); lift by
+///   deleting those two checks and routing the kinds back into the walk.
+///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
 ///
@@ -9,1575 +20,710 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-/// Macro Preprocessor
-/// ==================
-///
-/// Handles macro definition collection, scope tracking, and token-level expansion
-/// for regular macros (foo!). Proc macros (@foo) are handled later in the AST phase.
-///
-/// Pipeline
-/// --------
-/// Token Stream
-///
-/// 1. Collect Definitions
-///  - Walk tokens
-///  - Track module scope
-///  - Register macro!(...){}
-///  - Register macro!{}
-///  - Store body tokens
-///
-/// 2. Track Imports
-///  - Record use decls
-///  - Map alias -> origin
-///  - No expansion yet
-///
-/// 3. Resolve Invocations
-///  - Match ident! or ident!(
-///  - Qualified: exact lookup│
-///  - Unqualified: scoped
-///  - Validate delimiters
-///
-/// 4. Expand Tokens
-///  - Substitute params
-///  - Handle defaults
-///  - Handle variadics
-///  - Paste body tokens
-///  - Recurse if nested
-///  - Detect cycles
-///
-/// 5. Return Expanded
-///  - Modified stream
-///  - Preserve locations
-///  - Report errors
-///
-///
-/// Definition Syntax
-/// -----------------
-///
-///   Parameterless (no parens allowed at invoke):
-///     macro foo! { body };
-///     Invoke: foo!
-///
-///   With params (parens required at invoke):
-///     macro foo!(a, b) { body };
-///     Invoke: foo!(x, y)
-///
-///   With defaults:
-///     macro foo!(a, b = "default") { body };
-///     Invoke: foo!(x) or foo!(x, y)
-///
-///   Variadic:
-///     macro foo!(a, ...rest) { body };
-///     Invoke: foo!(x), foo!(x, y, z)
-///
-/// Invocation Syntax
-/// -----------------
-///
-///   Parameterless:
-///     foo!                     -> no parens, ever
-///
-///   With params:
-///     foo!(args)               -> parens required
-///     Foo::Bar::foo!(args)     -> qualified
-///
-///   Rule: parens iff macro accepts params
-///
-/// Resolution Rules
-/// ----------------
-///
-///   Qualified invocation (Foo::Bar::mac!):
-///     1. Resolve module path exactly
-///     2. Lookup macro in that module only
-///     3. ERROR if module not found
-///     4. ERROR if macro not in that module
-///     5. NEVER fall back to other scopes
-///
-///   Unqualified invocation (mac!):
-///     1. Current scope
-///     2. Imports (use Foo::Bar::mac!)
-///     3. Global/prelude
-///     4. ERROR if not found
-///
-/// Expansion Rules
-/// ---------------
-///
-///   - Path is for lookup only, consumed after resolution
-///   - Expansion is pure token substitution
-///   - No path prepending to expanded tokens
-///   - Macro author controls qualification in body
-///   - Use module_path! for self-relative expansion
-///
-/// Delimiter Rules
-/// ---------------
-///
-///   - Invocations with params use parens: foo!(...)
-///   - Content must have balanced delimiters: (), {}, []
-///   - Unbalanced delimiters inside invoke = compile error
-///   - For literal unbalanced content, use strings
-///
-/// Data Structures
-/// ---------------
-///
-///   MacroDefinition:
-///     - name: identifier
-///     - scope: module path
-///     - params: list of (name, default?, variadic?)
-///     - accepts_params: bool (true if defined with parens)
-///     - body: raw token span
-///
-///   MacroTable:
-///     - definitions: scope path -> name -> MacroDefinition
-///     - imports: alias -> fully qualified path
-///
-///   ExpansionContext:
-///     - call_stack: for cycle detection (depth limit = 256)
-///     - param_bindings: name -> token span
-///     - variadic_bindings: name -> list of token spans
-///     - source_loc: invoke site for error reporting
-///     - definition_loc: definition site for error reporting
-///
-/// Built-in Macros
-/// ---------------
-///
-///   Token manipulation:
-///     concat!(a, b)        - join tokens
-///     stringify!(a)        - token -> string
-///     unstringify!(s)      - string -> tokens (⚠ injection risk)
-///
-///   Variadic helpers:
-///     count!(...args)      - count arguments
-///     first!(...args)      - first argument
-///     last!(...args)       - last argument
-///     rest!(...args)       - all but first
-///     init!(...args)       - all but last
-///
-///   Source location:
-///     file!                - current file path
-///     line!                - current line number
-///     column!              - current column number
-///     module_path!         - current module path
-///
-///   Diagnostics:
-///     error!(msg)          - compile error (optional code param)
-///     warning!(msg)        - compile warning (optional code param)
-///     note!(msg)           - compile note (optional code param)
-///
-///   Code generation:
-///     include!(path)       - paste file as tokens
-///     include_str!(path)   - file as string literal
-///     embed!(path)         - file as byte array
-///     unique_id!           - generate unique identifier
-///     todo!(msg = "")      - runtime error placeholder
-///     unreachable!(msg="") - assert unreachable
-///
-///   Conditional:
-///     defined!(name)       - check if macro exists
-///
-///   Macro hygiene:
-///     undef!(name)     - remove macro definition
-///
-/// Error Cases
-/// -----------
-///
-///   Definition errors:
-///     - Duplicate macro in same scope
-///     - Invalid parameter syntax
-///     - Variadic not last parameter
-///     - Default after variadic
-///
-///   Resolution errors:
-///     - Undefined macro
-///     - Module not found (qualified)
-///     - Macro not in specified module (qualified)
-///     - Ambiguous import (same name from multiple modules)
-///
-///   Invocation errors:
-///     - Parens on parameterless macro
-///     - No parens on parameterized macro
-///     - Wrong param count
-///     - Missing required param
-///     - Unbalanced delimiters in args
-///
-///   Expansion errors:
-///     - Recursive expansion cycle (depth > 256)
-///     - Built-in macro misuse
-///
-/// FIXME: at somepoint add support for URLS and string (filesysmtem) based
-///        imports
-
-
 import Token::TokenCacheManager::*;
-import Token::TokenSpan::*;
 import Token::TokenText::*;
+import Token::TokenBuffer::*;
 import Resolution::ImportProbe::*;
-import Macro::DefinitionCollector::*;
-import Preprocessor::ExpansionContext::*;
-import Diagnostic::BasicConsumer::*;
-import Diagnostic::Engine::*;
-import Diagnostic::Registry::*;
 import Config::Preprocessor::*;
 import Macro::Sentinel::*;
+import Preprocessor::TokenSource::*;
+import Preprocessor::MacroTable::*;
+import Preprocessor::FileImportIndex::*;
+import Preprocessor::ScopeTracker::*;
+import Preprocessor::PreprocessorSymbolTable::*;
 import Preprocessor::DepScanner::*;
 import Preprocessor::WaveExecutor::*;
+import Parser::Shared::ImportGrammar::*;
+import Parser::Shared::MacroHeaderGrammar::*;
+import AST::Context::ASTContext::*;
+import AST::Context::TranslationUnit::*;
+import AST::Node::Declarations::*;
+import Diagnostic::Engine::*;
+import Diagnostic::Registry::*;
+import Diagnostic::BufferedDiagSink::*;
 
-class PreProcessor;
-
-class ImportProcessor {
-    priv var _file_states:  map::<u32, FileImportState>; ///< per-fid, written once per fid
-    priv var _sm:           obs::<SourceManager>;
-    priv var _tcm:          obs::<TokenCacheManager>;
-    priv var _resolver:     obs::<ImportResolver>;
-    priv var _sym_table:    obs::<PreprocessorSymbolTable>;
-    priv var _macro_table:  obs::<MacroSymbolTable>;
-    priv var _skip_lists:   obs::<map::<u32, SkipList>>;
-    priv var _skip_mu:      obs::<std::SharedMutex>; ///< guards skip_lists
-    priv var _states_mu:    obs::<std::SharedMutex>; ///< guards _file_states
-    priv var _diag:         obs::<DiagEngine>;
-
-    default fn ImportProcessor(self);
-
-    fn ImportProcessor(
-        self,
-        sm:          *SourceManager,
-        tcm:         *TokenCacheManager,
-        resolver:    *ImportResolver,
-        sym_table:   *PreprocessorSymbolTable,
-        macro_table: *MacroSymbolTable,
-        skip_lists:  *map::<u32, SkipList>,
-        skip_mu:     *std::SharedMutex,
-        _states_mu:  *std::SharedMutex,
-        diag:        *DiagEngine
-    ) {
-        self._sm          = sm;
-        self._tcm         = tcm;
-        self._resolver    = resolver;
-        self._sym_table   = sym_table;
-        self._macro_table = macro_table;
-        self._skip_lists  = skip_lists;
-        self._skip_mu     = skip_mu;
-        self._states_mu   = _states_mu;
-        self._diag        = diag;
-    }
-
-    fn process_file(self, fid: u32, module_base: ModulePath) -> bool;
-    fn get_file_state(self, fid: u32) -> *FileImportState;
-    fn has_errors(self) -> bool;
-
-    priv fn skip_ffi(self, tokens: *(TokenBuffer::<512>), start: usize) -> usize;
-    priv fn parse_import(
-        self,
-        tokens:  *(TokenBuffer::<512>),
-        start:   usize,
-        tracker: *ScopeTracker
-    ) -> ParsedImport;
-    priv fn parse_grouped_imports(
-        self,
-        tokens: *(TokenBuffer::<512>),
-        j:      *usize,
-        result: *ParsedImport
-    );
-    priv fn resolve_import(
-        self,
-        parsed:  *ParsedImport,
-        state:   *FileImportState,
-        src_fid: u32
-    );
-
-    struct ResolveResult {
-        var found:            bool = false;
-        var fid:              u32  = 0;
-        var file_module_path: ModulePath;
-        var remaining_path:   ModulePath;
-    }
-
-    priv fn resolve_module_greedy(
-        self,
-        segments:  vec::<string>,
-        is_module: bool
-    ) -> ResolveResult;
-
-    fn find_macro_for_file(
-        self,
-        fid:        u32,
-        scope:      ModulePath,
-        macro_name: IdentifierToken
-    ) -> *MacroDefinition;
-    fn find_qualified_macro(
-        self,
-        fid:        u32,
-        full_path:  ModulePath,
-        macro_name: IdentifierToken
-    ) -> *MacroDefinition;
-
-    priv fn segments_to_string(self, segments: vec::<string>) -> string;
-
-    fn get_processed_fids(self) -> vec::<u32> {
-        var fids = vec::<u32>();
-        fids.reserve(self._file_states.size());
-
-        for entry in self._file_states {
-            fids.push_back(entry.first);
-        }
-
-        return fids;
-    }
-
-    fn dump_state(self) -> string;
+struct PPResult {
+    var ok:   bool = false;
+    var fids: vec::<u32>;   ///< entry's transitive graph, sorted ascending.
 }
 
 // =========================================================================
-//  MACRO EXPANDER
+//  Per-fid walker. One instance per fid; the batch driver owns the shared
+//  MacroTable + resolver + contexts and runs walkers in wave order.
 // =========================================================================
 
-/// FIXME: builtins wise make risky ops like unstringfy and embed opt out with
-//         -fno-embedded-builtin-macros or something, we can still allow
-//         them in macro bodies but not expand them if the flag is set
-//
-//         this is because they can be used to do sketchy things like read
-//         arbitrary files, or even privilege escalation if they contain asm to
-//         execute commands by buff overwriting or something; we can be
-//         conservative and only allow the most basic ones like `file!` and
-//         `line!` which are generally safe, and leave the more powerful ones
-//         opt-in for now until we have a better sense of the security
-//         implications and use cases
+class PPWalker
+  derives ImportGrammar::<PPWalker>,
+          MacroHeaderGrammar::<PPWalker> {
 
-// FIXME: also make the max recursion depth configurable via a flag, and maybe
-//        even allow users to set it to unlimited (with a warning) if they
-//        really want to do crazy things; for now we can just have a hard limit
-//        of 256 or something to prevent infinite recursion from accidentally
-//        or malicious crafted macros, something like -fmax-macro-depth=256
-
-/// \brief walks a file's token stream, detects macro invocations, resolves
-///        them via PreProcessor's resolution logic, and produces a new
-///        expanded token buffer that replaces the original in the TCM.
-///
-/// Invocation patterns detected:
-///
-///   Unqualified parameterless:   `foo!`             -> ident `!`
-///   Unqualified with params:     `foo!(args)`       -> ident `!` `(` ... `)`
-///   Qualified parameterless:     `Foo::bar!`        -> ident `::` ident `!`
-///   Qualified with params:       `Foo::bar!(args)`  -> ident `::` ident `!` `(` ... `)`
-///
-class MacroExpander {
-    priv var _scope:           ModulePath; ///< current scope during expansion (updated by scope tracker)
-    priv var _diag:           *DiagEngine;
-    priv var _sm:             *SourceManager;
-    priv var _sym_table:      *PreprocessorSymbolTable;
-    priv var _macro_table:    *MacroSymbolTable;
-    priv var _import_proc:    *ImportProcessor;
-    priv var _skip_list:      *SkipList;
-    priv var _imm_table:      *ImmediateTable;  ///< lexer's imm table for the file being expanded
-    priv var _lexer:          *Lexer = &null;
-    priv var _tcm:            *TokenCacheManager;
-    priv var _parent_ex_idx:   u32 = static_cast::<u32>(MacroSentinel::NoParent); ///< index of the parent expansion in the imm table, or -1 if top-level
-    priv var _fid:             u32;
+    priv var _splices: vec::<own::<TokenBuffer::<512>>>; ///< frame backing; freed in finalize
+    priv var _opts:    PreprocessorOptions;
+    priv var _src:     own::<TokenSource>;
+    priv var _imports: own::<FileImportIndex>;
+    priv var _tracker: own::<ScopeTracker>;
+    priv var _out:     own::<TokenBuffer::<512>>;
+    priv var _ctx:     obs::<ASTContext>;
+    priv var _tu:      obs::<TranslationUnit>;
+    priv var _macros:  obs::<MacroTable>;
+    priv var _sym:     obs::<PreprocessorSymbolTable>;
+    priv var _sm:      obs::<SourceManager>;
+    priv var _tcm:     obs::<TokenCacheManager>;
+    priv var _diag:    obs::<DiagEngine>;
+    priv var _imm:     obs::<ImmediateTable>;
+    priv var _lexer:   obs::<Lexer>;
+    priv var _inv:     obs::<CompilerInvocation>;
+    priv var _unique_tag_cache:  map::<string, u32>;
+    priv var _undefined_macros:  set::<SymbolID>;
+    priv var _fid:             u32 = u32(-1); //< invalid sentinel
+    priv var _expansion_count: i32 = 0;
     priv var _unique_counter:  u32 = 0;
-    priv var _cur_ex_serial:   i32 = 0;     ///< serial of the expansion whose body is being
-                                            ///  rescanned; 0 = top level (no expansion).
-    priv var _unique_tag_cache: libcxx::unordered_map::<string, u32>; ///< "(serial):(tag)" -> interned ident idx;
-                                                                      ///  makes unique_id!(tag) stable within one
-                                                                      ///  expansion instance.
-    priv var _max_depth:       i32 = 128;   ///< from PreprocessorOptions::max_depth
-    priv var _max_expansions:  i32 = 65536; ///< from PreprocessorOptions::max_expansions; 0 = unlimited
-    priv var _expansion_count: i32 = 0;     ///< total expansions performed so far
-    priv var _macro_debug:     bool   = false;
-    priv var _debug_filter:    string = "";  ///< empty = all macros
 
-    fn MacroExpander(
+    fn PPWalker(
         self,
-        sm:           *SourceManager,
-        sym_table:    *PreprocessorSymbolTable,
-        macro_table:  *MacroSymbolTable,
-        import_proc:  *ImportProcessor,
-        skip_list:    *SkipList,
-        imm_table:    *ImmediateTable,
-        lexer:        *Lexer,
-        diag:         *DiagEngine,
-        tcm:          *TokenCacheManager,
-        max_depth:    i32 = 128,
-        max_expansions: i32 = 65536,
-        macro_debug:  bool   = false,
-        debug_filter: string = ""
+        fid:      u32,
+        lexer:    *Lexer,
+        ctx:      *ASTContext,
+        tu:       *TranslationUnit,
+        macros:   *MacroTable,
+        resolver: *ImportResolver,
+        sym:      *PreprocessorSymbolTable,
+        sm:       *SourceManager,
+        tcm:      *TokenCacheManager,
+        diag:     *DiagEngine,
+        opts:     PreprocessorOptions,
+        module_base: ModulePath
     ) {
-        self._sm             = sm;
-        self._sym_table      = sym_table;
-        self._macro_table    = macro_table;
-        self._import_proc    = import_proc;
-        self._skip_list      = skip_list;
-        self._imm_table      = imm_table;
-        self._lexer          = lexer;
-        self._diag           = diag;
-        self._tcm            = tcm;
-        self._parent_ex_idx  = static_cast::<u32>(MacroSentinel::NoParent);
-        self._max_depth      = max_depth;
-        self._max_expansions = max_expansions;
-        self._macro_debug    = macro_debug;
-        self._debug_filter   = debug_filter;
-        Logger::info(Logger::Stage::Preprocessor, "MacroExpander: initialized");
+        self._fid     = fid;
+        self._lexer   = lexer;
+        self._ctx     = ctx;
+        self._tu      = tu;
+        self._macros  = macros;
+        self._sym     = sym;
+        self._sm      = sm;
+        self._tcm     = tcm;
+        self._diag    = diag;
+        self._opts    = opts;
+        self._imm     = lexer->get_imm_tbl();
+        self._out     = std::create::<TokenBuffer::<512>>();
+        self._src     = std::create::<TokenSource>(lexer);
+        self._imports = std::create::<FileImportIndex>(sym, sm, tcm, resolver, macros, diag, fid);
+        self._tracker = std::create::<ScopeTracker>(sym, sm, self._imm, tcm, module_base);
     }
 
-    // =====================================================================
-    //  INVOCATION DETECTION
-    // =====================================================================
+    fn op delete (self) {
+        if self._out != &null  { std::destroy(self._out); self._out = &null; }
+        for b in self._splices { std::destroy(b); }
+        
+        self._splices.clear();
+        
+        if self._src     != &null { std::destroy(self._src);     self._src     = &null; }
+        if self._imports != &null { std::destroy(self._imports); self._imports = &null; }
+        if self._tracker != &null { std::destroy(self._tracker); self._tracker = &null; }
+    }
+
+    // --- shared-grammar host surface (raw kinds; stream is pre-expansion) --
+
+    fn ig_kind(self) -> TokenKind {
+        var t = self._src->peek(0);
+        return t.kind;
+    }
+    fn ig_peek_kind(self) -> TokenKind {
+        var t = self._src->peek(1);
+        return t.kind;
+    }
+    fn ig_tok(self)  -> Token { return self._src->peek(0); }
+    fn ig_bump(self) { self._src->next(); }
+    fn ig_bump_nl(self) {
+        self._src->next();
+        while self._src->peek(0).kind == TokenKind::TkNewLine { self._src->next(); }
+    }
+    fn ig_eof(self) -> bool { return self._src->at_eof(); }
+    fn ig_err(self, r: SourceRange, msg: string, code: DiagID) {
+        self._diag->report(DiagCode(code), r.start, msg).first(r).emit();
+    }
+
+    // ======================================================================
+    //  The walk
+    // ======================================================================
+
+    fn run(self) -> bool {
+        while !self._src->at_eof() {
+            var t = self._src->peek(0);
+            var k = t.kind;
+
+            if k == TokenKind::TkEof { break; }
+
+            if k == TokenKind::KwFfi        { self._handle_ffi();       continue; }
+            if k == TokenKind::KwImport     { self._handle_import(1);   continue; } // 1 = priv default
+            if k == TokenKind::KwMacro      { self._handle_macro_def(3); continue; } // 3 = pub default
+
+            if (k == TokenKind::KwPub) || (k == TokenKind::KwPriv) || (k == TokenKind::KwProt) {
+                var vis: u8 = (3) if (k == TokenKind::KwPub) else (1) if (k == TokenKind::KwPriv) else (2);
+                var nk = self._src->peek(1).kind;
+                if nk == TokenKind::KwImport {
+                    self._src->next(); // consume visibility keyword
+                    self._handle_import(vis);
+                    continue;
+                }
+                if nk == TokenKind::KwMacro {
+                    self._src->next();
+                    self._handle_macro_def(vis);
+                    continue;
+                }
+                if nk == TokenKind::KwModule {
+                    var mv = (ModuleVisibility::Public) if (k == TokenKind::KwPub)
+                        else (ModuleVisibility::Private) if (k == TokenKind::KwPriv)
+                        else (ModuleVisibility::Protected);
+                    self._emit(self._src->next()); // vis keyword IS emitted the
+                                                  // parser needs `pub module Foo {`
+                    self._track_scope(self._src->peek(0), mv);
+                    continue;
+                }
+                self._emit(self._src->next()); // plain visibility on some other decl
+                continue;
+            }
+
+            // scope tracking off structural tokens (module/braces)
+            if self._track_scope(t, ModuleVisibility::Public) { continue; }
+
+            // invocation?
+            var inv = self._detect_invocation();
+            if inv.found {
+                self._expand(inv);
+                continue;
+            }
+
+            self._emit(self._src->next());
+        }
+
+        self._finalize();
+        return !self._diag->has_fatal();
+    }
+
+    // ======================================================================
+    //  Emission single choke point + disallow backstop
+    // ======================================================================
+
+    priv fn _emit(self, t: Token) {
+        if self._src->in_splice() {
+            if (t.kind == TokenKind::KwImport) || (t.kind == TokenKind::KwMacro) {
+                // BACKSTOP (primary check is at def time). To lift the rule:
+                // delete this block and route these kinds into the walk switch.
+                self._diag->report(DiagCode(DiagID::R012E),
+                    self._src->top_invoke_loc().start,
+                    "macro expansion may not produce 'import' or 'macro' declarations"
+                ).first(self._src->top_invoke_loc()).emit();
+                return;
+            }
+        }
+        self._out->append(t);
+    }
+
+    // ======================================================================
+    //  Scope tracking
+    // ======================================================================
+    //  ScopeTracker consumes from a TokenSpan today. On the stream we feed it
+    //  one token at a time via a 1-token shim. The tracker only needs the
+    //  current token + the ability to look at i+1 for `module Foo {`; we give
+    //  it a 2-token window built from peeks. This is the one place the
+    //  tracker's API forces a small adapter.
+
+    priv fn _track_scope(self, t: Token, vis: ModuleVisibility) -> bool {
+        var k = t.kind;
+        if (k != TokenKind::OpLBrace) && (k != TokenKind::OpRBrace)
+        && (k != TokenKind::KwModule) {
+            return false;
+        }
+        self._tracker->feed_stream(self._src, vis, fn(tok: Token) { self._emit(tok); });
+        return true;
+    }
+
+    // ======================================================================
+    //  FFI
+    // ======================================================================
+
+    priv fn _handle_ffi(self) {
+        // Decide form by lookahead BEFORE emitting anything.
+        //   peek0 = ffi, peek1 = "lang", peek2 = import | { | decl-lead
+        var p2 = self._src->peek(2).kind;
+
+        if p2 == TokenKind::KwImport {
+            // ffi "lang" import "hdr" (as name)? ;  -> consume + drop entirely
+            self._src->next(); // ffi
+            self._src->next(); // lang
+            self._src->next(); // import
+            while !self._src->at_eof() {
+                var t = self._src->next();
+                if t.kind == TokenKind::OpSemicolon { break; }
+            }
+            return;
+        }
+
+        // ffi "lang" { ... }  or  ffi "lang" <decl>  -> copy through.
+        // Emit ffi + lang, then let the normal walk copy the rest. The block's
+        // braces balance via ordinary emission; a single decl ends at its own
+        // terminator. Nothing special needed just resume.
+        self._emit(self._src->next()); // ffi
+        self._emit(self._src->next()); // lang
+        // walk resumes; `{`/decl tokens copy normally. Macro invocations INSIDE
+        // an ffi block still expand (they did before) the walk doesn't treat
+        // ffi-block interior as special, matching current behavior.
+    }
+
+    // ======================================================================
+    //  Imports
+    // ======================================================================
+
+    priv fn _handle_import(self, default_vis: u8) {
+        // visibility already consumed by caller when prefixed; default_vis
+        // carries priv(1) unless caller saw pub/prot/priv.
+        var vis = default_vis;
+
+        var spec = self.parse_import_spec();   // shared grammar (consumes stmt)
+        if !spec.ok {
+            self._recover_to_terminator();
+            return;
+        }
+
+        // build the ImportDecl node into the TU (authority for klib)
+        var id = self._build_import_decl(&spec, vis);
+        self._tu->imports.push(static_cast::<*Decl>(id));
+
+        // resolve NOW; errors HERE
+        self._imports->record(id);
+
+        // consume trailing `;` if present (grammar leaves it)
+        if self._src->peek(0).kind == TokenKind::OpSemicolon { self._src->next(); }
+        // NOTHING emitted import is PP-invisible in the output buffer.
+    }
+
+    priv fn _build_import_decl(self, spec: *ImportSpec, vis: u8) -> *ImportDecl {
+        var id = ImportDecl::create(self._ctx, spec->range,
+            (ImportKind::ModuleOnly) if (spec->is_module) else (ImportKind::Native));
+
+        var segs: std::StackBuf::<Token, 8>;
+        for var i: usize = 0; i < spec->segments.size(); ++i { segs.push_back(spec->segments[i]); }
+        id->path_segments.from_buf(segs.data(), segs.size(), self._ctx);
+        id->last_seg_is_macro = spec->last_seg_is_macro;
+        id->is_wildcard       = spec->is_wildcard;
+
+        if spec->has_items {
+            var items: std::StackBuf::<ImportItem, 8>;
+            for var i: usize = 0; i < spec->items.size(); ++i {
+                var s = &spec->items[i];
+                var item = ImportItem{};
+                var sub: std::StackBuf::<Token, 4>;
+                for var j: usize = 0; j < s->sub_path.size(); ++j { sub.push_back(s->sub_path[j]); }
+                item.sub_path.from_buf(sub.data(), sub.size(), self._ctx);
+                item.alias       = s->alias;
+                item.has_alias   = s->has_alias;
+                item.is_wildcard = s->is_wildcard;
+                item.is_macro    = s->is_macro;
+                item.range       = s->range;
+                items.push_back(item);
+            }
+            id->items.from_buf(items.data(), items.size(), self._ctx);
+            id->has_items = true;
+        }
+
+        id->alias     = spec->alias;
+        id->has_alias = spec->has_alias;
+        id->set_visibility(self._u8_to_vis(vis), spec->range);
+        id->range     = spec->range;
+        return id;
+    }
+
+    priv fn _u8_to_vis(self, vis: u8) -> VisibilityKind {
+        if vis == 1 { return VisibilityKind::Private;   }
+        if vis == 2 { return VisibilityKind::Protected; }
+        if vis == 3 { return VisibilityKind::Public;    }
+        return VisibilityKind::None;
+    }
+
+    // ======================================================================
+    //  Macro definitions
+    // ======================================================================
+
+    priv fn _handle_macro_def(self, vis: u8) {
+        var kw = self._src->next(); // `macro`
+
+        // proc macro `macro @name` copy through, not ours
+        if self._src->peek(0).kind == TokenKind::OpAt {
+            self._emit(kw);
+            return; // remaining @-macro tokens flow to output via the walk
+        }
+
+        var hdr = self.parse_macro_header();  // shared grammar
+        if !hdr.ok { self._recover_to_terminator(); return; }
+
+        if self._src->peek(0).kind != TokenKind::OpLBrace {
+            self._diag->report(DiagCode(DiagID::S038E), hdr.name.range.start,
+                "expected '{' for macro body").first(hdr.name.range).emit();
+            return;
+        }
+        var lbrace = self._src->next().range; // `{`
+
+        var storage = std::create::<TokenBuffer::<512>>();
+        var depth: i32 = 1;
+        var seen_content = false;
+
+        while !self._src->at_eof() {
+            var t = self._src->next();
+            if t.kind == TokenKind::OpLBrace { depth += 1; }
+            if t.kind == TokenKind::OpRBrace {
+                depth -= 1;
+                if depth == 0 { break; }
+            }
+            if (t.kind == TokenKind::KwImport) || (t.kind == TokenKind::KwMacro) {
+                self._diag->report(DiagCode(DiagID::R012E), t.range.start,
+                    "'import' and 'macro' are not allowed inside a token macro body"
+                ).first(t.range).emit();
+            }
+            if (!seen_content) && (t.kind == TokenKind::TkNewLine) { continue; } // leading trim
+            seen_content = true;
+            storage->append(t);
+        }
+        if depth != 0 {
+            self._diag->report(DiagCode(DiagID::S039E), lbrace.start,
+                "unmatched '{' in macro body").first(lbrace).emit();
+            std::destroy(storage);
+            return;
+        }
+
+        // trim edge newlines (THE newline fix)
+        while (storage->size() > 0)
+           && (storage->get(storage->size() - 1)->kind == TokenKind::TkNewLine) {
+            storage->pop_back();
+        }
+        var lead: usize = 0;
+        while (lead < storage->size())
+           && (storage->get(lead)->kind == TokenKind::TkNewLine) { lead += 1; }
+        if lead > 0 {
+            var trimmed = std::create::<TokenBuffer::<512>>();
+            for var i: usize = lead; i < storage->size(); ++i {
+                trimmed->append(*(storage->get(i)));
+            }
+            std::destroy(storage);
+            storage = trimmed;
+        }
+
+        var body_len = u32(storage->size());
+
+        // params + defaults appended after body
+        var specs: std::StackBuf::<MacroParamSpec, 4>;
+        var is_variadic = false;
+        for var i: usize = 0; i < hdr.params.size(); ++i {
+            var hp = &hdr.params[i];
+            var sp = MacroParamSpec{};
+            sp.name     = hp->name;
+            sp.variadic = hp->variadic;
+            if hp->variadic != 0 { is_variadic = true; }
+            if hp->has_default {
+                sp.has_default = true;
+                sp.default_off = u32(storage->size());
+                for var j: usize = 0; j < hp->default_toks.size(); ++j {
+                    storage->append(hp->default_toks[j]);
+                }
+                sp.default_len = u32(storage->size()) - sp.default_off;
+            }
+            specs.push_back(sp);
+        }
+
+        if self._src->peek(0).kind == TokenKind::OpSemicolon { self._src->next(); }
+
+        // node into TU
+        var decl = MacroDecl::create(self._ctx, kw.range | lbrace, hdr.name);
+        decl->params_spec.from_buf(specs.data(), specs.size(), self._ctx);
+        decl->accepts_params = hdr.accepts_params;
+        decl->is_variadic    = is_variadic;
+        
+        if body_len > 0 {
+            decl->body_span = storage->get(0)->range | storage->get(usize(body_len) - 1)->range;
+        }
+
+        decl->set_visibility(self._u8_to_vis(vis), kw.range | lbrace);
+        self._tu->macros.push(decl);
+
+        var entry = std::create::<MacroEntry>();
+        entry->decl       = decl;
+        entry->storage    = storage;
+        entry->body_len   = body_len;
+        entry->name_sym   = self._sym->intern(TokenText::spelling(hdr.name, self._tcm));
+        entry->scope      = self._tracker->current_scope();
+        entry->source_fid = self._fid;
+        entry->visibility = vis;
+
+        if !self._macros->register(entry) {
+            self._diag->report(DiagCode(DiagID::S040E), hdr.name.range.start,
+                f"duplicate macro '{TokenText::spelling(hdr.name, self._tcm)}!' in this scope"
+            ).first(hdr.name.range).emit();
+        }
+        // NOTHING emitted.
+    }
+
+    // ======================================================================
+    //  Invocation detection + expansion
+    // ======================================================================
+    //  _detect_invocation: PORT of MacroExpander::detect_invocation, retargeted
+    //  to peeks on _src. Pattern unchanged: ident (:: ident)* ! ( ... )?.
+    //  Critical difference: it must NOT consume until `found` is certain, then
+    //  consume exactly the invocation. Because args need to be captured into a
+    //  scratch buffer for pre-expansion, detection also copies the raw arg
+    //  tokens (between balanced parens) into inv.arg_toks.
 
     struct InvocationInfo {
-        var qualified_path: ModulePath;      ///< module path for qualified invocations
-        var name:           IdentifierToken; ///< the macro name (last ident before `!`)
-        var bang_index:     usize = 0;       ///< index of the `!` token
-        var args_start:     usize = 0;       ///< index of `(` (if has_args)
-        var args_end:       usize = 0;       ///< index past `)` (if has_args)
-        var start_index:    usize = 0;       ///< first token of invocation (path start or ident)
-        var end_index:      usize = 0;       ///< first token AFTER the invocation
-        var found:          bool  = false;   ///< was a macro invocation detected
-        var is_qualified:   bool  = false;   ///< is this a qualified invocation (Foo::Bar::mac!)
-        var has_args:       bool  = false;   ///< does this invocation have parens and args (mac!(...))
+        var qualified: ModulePath;
+        var name:      Token;
+        var name_sym:  SymbolID = 0;
+        var is_qualified: bool = false;
+        var has_args:  bool = false;
+        var arg_toks:  vec::<Token>;   ///< raw tokens between ( ), balanced
+        var range:     SourceRange = SourceRange::invalid();
+        var found:     bool = false;
     }
 
-    // =====================================================================
-    //  HELPERS
-    // =====================================================================
-
-    priv fn make_int_token(self, value: u64, range: SourceRange) -> Token {
-        var tok = Token();
-        tok.kind  = TokenKind::LitInt;
-        tok.range = range;
-
-        if self._imm_table != &null {
-            var idx  = self._imm_table->create::<Immediate::IntData>();
-            var data = self._imm_table->get::<Immediate::IntData>(idx);
-            data->value_lo = value;
-            data->value_hi = 0;
-            data->bits     = 32;
-            data->base     = 10;
-            data->flags    = 0;
-            data->body     = range;
-            tok.imm = idx;
-        }
-
-        return tok;
-    }
-
-    /// \brief creates a synthesized identifier token spelling \p name.
-    ///
-    /// \details the spelling has no backing source buffer, so it is copied
-    ///          into the imm table's synth storage and interned; the token's
-    ///          text MUST be read via the imm index (get_ident), never via
-    ///          sm->get_text(range)   the range points at the invocation
-    ///          site and spells something else.
-    priv fn make_ident_token(self, name: string, range: SourceRange) -> Token {
-        var tok = Token();
-        tok.kind  = TokenKind::LitIdentifier;
-        tok.range = range;
-
-        if self._imm_table != &null {
-            tok.imm = self._imm_table->intern_ident_copy(name);
-        }
-
-        return tok;
-    }
-
-    // =====================================================================
-    //  BUILTIN MACROS
-    // =====================================================================
-
-    priv fn builtin_file(self, invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var loc = self._sm->get_full_loc(invoke.name.token->range.start);
-        var filename = self._sm->get_filename(loc.file_id);
-        var tok = Token();
-        tok.kind  = TokenKind::LitString;
-        tok.range = invoke.name.token->range;
-        // TODO: create StringData in imm table with filename content
-        out->append(tok);
-        return out;
-    }
-
-    priv fn builtin_line(self, invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var loc = self._sm->get_full_loc(invoke.name.token->range.start);
-        out->append(self.make_int_token(static_cast::<u64>(loc.line), invoke.name.token->range));
-        return out;
-    }
-
-    priv fn builtin_column(self, invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var loc = self._sm->get_full_loc(invoke.name.token->range.start);
-        out->append(self.make_int_token(static_cast::<u64>(loc.column), invoke.name.token->range));
-        return out;
-    }
-
-    priv fn builtin_module_path(self, invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var tok = Token();
-        tok.kind  = TokenKind::LitString;
-        tok.range = invoke.name.token->range;
-        // TODO: create StringData with module path string
-        out->append(tok);
-        return out;
-    }
-
-    priv fn builtin_count(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        var out  = std::create::<TokenBuffer::<512>>();
-        out->append(self.make_int_token(static_cast::<u64>(args.size()), invoke.name.token->range));
-        return out;
-    }
-
-    priv fn builtin_first(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        var out  = std::create::<TokenBuffer::<512>>();
-        if args.size() == 0 {
-            self.error(tokens->get(invoke.start_index), "builtin 'first!()' requires at least one argument", DiagID::R009E);
-            return out;
-        }
-        for i in usize(0) .. usize(args[0].size()) {
-            out->append(*(args[0].get(i)));
-        }
-        return out;
-    }
-
-    priv fn builtin_last(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        var out  = std::create::<TokenBuffer::<512>>();
-        if args.size() == 0 {
-            self.error(tokens->get(invoke.start_index), "builtin 'last!()' requires at least one argument", DiagID::R009E);
-            return out;
-        }
-        var last = &(args[args.size() - 1]);
-        for i in usize(0) .. usize(last->size()) {
-            out->append(*(last->get(i)));
-        }
-        return out;
-    }
-
-    priv fn builtin_rest(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        var out  = std::create::<TokenBuffer::<512>>();
-        for k in usize(1) .. usize(args.size()) {
-            if k > 1 {
-                var comma = Token();
-                comma.kind  = TokenKind::OpComma;
-                comma.range = invoke.name.token->range;
-                out->append(comma);
-            }
-            for i in usize(0) .. usize(args[k].size()) {
-                out->append(*(args[k].get(i)));
-            }
-        }
-        return out;
-    }
-
-    priv fn builtin_init(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        var out  = std::create::<TokenBuffer::<512>>();
-        if args.size() == 0 { return out; }
-        for k in usize(0) .. usize(args.size() - 1) {
-            if k > 0 {
-                var comma = Token();
-                comma.kind  = TokenKind::OpComma;
-                comma.range = invoke.name.token->range;
-                out->append(comma);
-            }
-            for i in usize(0) .. usize(args[k].size()) {
-                out->append(*(args[k].get(i)));
-            }
-        }
-        return out;
-    }
-
-    priv fn builtin_concat(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        var out  = std::create::<TokenBuffer::<512>>();
-        for k in usize(0) .. usize(args.size()) {
-            for i in usize(0) .. usize(args[k].size()) {
-                out->append(*(args[k].get(i)));
-            }
-        }
-        return out;
-    }
-
-    /// \brief `stringify!(tokens...)`   source text of the arguments as a
-    ///        string literal.
-    ///
-    /// \bug KNOWN LIMITATION: the result is a RANGE over the argument span,
-    ///      so it reproduces exactly what is spelled in some source buffer.
-    ///      Synthesized identifiers (unique_id!, gensym) have no source
-    ///      spelling   stringify!(unique_id!()) yields the invocation-site
-    ///      text, not the __synth name. Fixing this requires StringData to
-    ///      support an owned-text payload (interner-backed, like IdentData)
-    ///      instead of only a SourceRange body, plus per-token reconstruction
-    ///      via TokenText::resolve. Tracked with the macro-defines-macro
-    ///      overlay work; do not paper over it here with token concatenation,
-    ///      which would destroy whitespace fidelity for the common case.
-    priv fn builtin_stringify(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        // reconstruct source text from arg tokens into a StringData
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        var out = std::create::<TokenBuffer::<512>>();
-        var tok = Token();
-        tok.kind  = TokenKind::LitString;
-        tok.range = invoke.name.token->range;
-
-        if (self._imm_table != &null) && (args.size() > 0) {
-            var idx  = self._imm_table->create::<Immediate::StringData>();
-            var data = self._imm_table->get::<Immediate::StringData>(idx);
-            // body range spans from first to last arg token
-            data->body = SourceRange::from_bounds(args[0].get(0)->range.start,
-                                     args[args.size() - 1].get(args[args.size() - 1].size() - 1)->range.end);
-            data->prefix_kind = Immediate::TextPrefixKind::None;  // plain string, not f-string
-            tok.imm = idx;
-        }
-
-        out->append(tok);
-        return out;
-    }
-
-    priv fn builtin_unstringify(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        var out  = std::create::<TokenBuffer::<512>>();
-
-        if args.size() != 1 {
-            self.error(tokens->get(invoke.start_index), "builtin 'unstringify!()' requires exactly one string argument", DiagID::R009E);
-            return out;
-        }
-
-        // get the string token
-        var str_tok = args[0].get(0);
-        if self.get_effective_kind(str_tok) != TokenKind::LitString {
-            self.error(str_tok, "builtin 'unstringify!()' argument must be a string literal", DiagID::R009E);
-            return out;
-        }
-
-        // re-lex the string body into tokens
-        if self._lexer == &null {
-            self.error(str_tok, "builtin 'unstringify!()': could not re-lex string content (no lexer available)", DiagID::R009E);
-            return out;
-        }
-
-        // get string body range (inside quotes)
-        var str_range = str_tok->range;
-        // +1 / -1 to skip the quote characters
-        var start = str_range.start.id;
-        var end   = str_range.end.id - 2;
-
-        if start < end {
-            var lexed = self._lexer->lex_slice::<512>(start, end);
-            if lexed != &null {
-                for i in usize(0) .. usize(lexed->size()) {
-                    var t = lexed->get(i);
-                    if t->kind != TokenKind::TkError {
-                        out->append(*t);
-                    } else {
-                        self.error(str_tok, f"builtin 'unstringify!()': lex error in string content", DiagID::R009E);
-                    }
-                }
-                std::destroy(lexed);
-                return out;
-            }
-        }
-
-        // fallback: just pass the string token through
-        self.error(str_tok, "builtin 'unstringify!()': could not re-lex string content (no lexer available)", DiagID::R009E);
-        return out;
-    }
-
-    priv fn builtin_defined(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var found: u64 = 0;
-
-        if invoke.has_args {
-            var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-            if args.size() == 1 && args[0].size() == 1 {
-                var name_tok = args[0].get(0);
-                if self.get_effective_kind(name_tok) == TokenKind::LitIdentifier {
-                    var name_id = self._sym_table->intern(self.token_text(name_tok));
-                    var ident = IdentifierToken();
-                    ident.name  = name_id;
-                    ident.token = name_tok;
-
-                    var def = self._macro_table->find_macro(self._scope, ident);
-                    if def == &null {
-                        def = self._macro_table->find_macro(ModulePath(), ident);
-                    }
-                    if def != &null { found = 1; }
-                }
-            }
-        }
-
-        out->append(self.make_int_token(found, invoke.name.token->range));
-        return out;
-    }
-
-    priv fn builtin_undef(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        if args.size() == 1 && args[0].size() == 1 {
-            var name_tok = args[0].get(0);
-            if self.get_effective_kind(name_tok) == TokenKind::LitIdentifier {
-                var name_id = self._sym_table->intern(self.token_text(name_tok));
-                var ident   = IdentifierToken();
-                ident.name  = name_id;
-                ident.token = name_tok;
-                var scope_map_it = self._macro_table->table.find(self._scope);
-                if scope_map_it != self._macro_table->table.end() {
-                    scope_map_it->second.erase(ident);
-                }
-            }
-        }
-        return std::create::<TokenBuffer::<512>>();
-    }
-
-    priv fn builtin_todo(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var tok = Token();
-        tok.kind  = TokenKind::TkMacroExpand;
-        tok.range = invoke.name.token->range;
-        tok.imm   = static_cast::<u32>(MacroSentinel::Todo);
-        out->append(tok);
-        return out;
-    }
-
-    priv fn builtin_unreachable(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var tok = Token();
-        tok.kind  = TokenKind::TkMacroExpand;
-        tok.range = invoke.name.token->range;
-        tok.imm   = static_cast::<u32>(MacroSentinel::Unreachable);
-        out->append(tok);
-        return out;
-    }
-
-    /// \brief `unique_id!` / `unique_id!(tag)`   synthesized collision-free identifier.
-    ///
-    /// \details deterministic gensym: `__synth[_tag]_{fid}_{counter}`. No time,
-    ///          no hashing   same input compiles to the same names (reproducible
-    ///          builds, cacheable, diffable dumps).
-    ///
-    ///          Untagged: fresh identifier per invocation. Only useful for
-    ///          anonymous bindings (scope guards, defer!) that are declared and
-    ///          never referenced again.
-    ///
-    ///          Tagged, inside a macro expansion: stable per (expansion
-    ///          instance, tag)   two `unique_id!(g)` in one macro body yield the
-    ///          SAME identifier for one expansion and different identifiers
-    ///          across expansions. This is what lets a macro declare a name and
-    ///          reference it later. Keyed on _cur_ex_serial (the serial of the
-    ///          expansion whose body is being rescanned), so nesting scopes
-    ///          correctly: inner!'s tags never collide with outer!'s.
-    ///
-    ///          Tagged at top level (serial 0): fresh per invocation   there is
-    ///          no expansion instance to be stable within.
-    priv fn builtin_unique_id(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out   = std::create::<TokenBuffer::<512>>();
-        var range = invoke.name.token->range;
-
-        // -- optional tag: unique_id!(tag) --------------------------------
-        var tag: string = "";
-        if invoke.has_args {
-            var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-            var valid = (args.size() == 1) && (args[0].size() == 1)
-                && (self.get_effective_kind(args[0].get(0)) == TokenKind::LitIdentifier);
-            if !valid {
-                self.error(tokens->get(invoke.start_index),
-                    "builtin 'unique_id!()' takes at most one identifier tag, e.g. unique_id!(guard)",
-                    DiagID::R009E);
-                return out;
-            }
-            tag = self.token_text(args[0].get(0));
-        }
-
-        // -- tagged inside an expansion: memoize per (instance, tag) ------
-        if (!tag.empty()) && (self._cur_ex_serial != 0) {
-            var key = f"{self._cur_ex_serial}:{tag}";
-            var it  = self._unique_tag_cache.find(key);
-            if it != self._unique_tag_cache.end() {
-                var tok = Token();
-                tok.kind  = TokenKind::LitIdentifier;
-                tok.range = range;
-                tok.imm   = it->second;
-                out->append(tok);
-                return out;
-            }
-
-            self._unique_counter += 1;
-            var tok = self.make_ident_token(
-                f"__synth_{tag}_{self._fid}_{self._unique_counter}", range);
-            self._unique_tag_cache[key] = tok.imm;
-            out->append(tok);
-            return out;
-        }
-
-        // -- untagged (or top-level tag): fresh per invocation -------------
-        self._unique_counter += 1;
-        var name = (f"__synth_{self._fid}_{self._unique_counter}") if (tag.empty())
-              else (f"__synth_{tag}_{self._fid}_{self._unique_counter}");
-        out->append(self.make_ident_token(name, range));
-        return out;
-    }
-
-    priv fn builtin_include(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var tok = Token();
-        tok.kind  = TokenKind::TkMacroExpand;
-        tok.range = invoke.name.token->range;
-        tok.imm   = static_cast::<u32>(MacroSentinel::Include);
-        out->append(tok);
-        return out;
-    }
-
-    priv fn builtin_include_str(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var tok = Token();
-        tok.kind  = TokenKind::LitString;
-        tok.range = invoke.name.token->range;
-        tok.imm   = static_cast::<u32>(MacroSentinel::IncludeStr);
-        out->append(tok);
-        return out;
-    }
-
-    priv fn builtin_embed(self, tokens: *(TokenBuffer::<512>), invoke: InvocationInfo) -> *(TokenBuffer::<512>) {
-        var out = std::create::<TokenBuffer::<512>>();
-        var tok = Token();
-        tok.kind  = TokenKind::TkMacroExpand;
-        tok.range = invoke.name.token->range;
-        tok.imm   = static_cast::<u32>(MacroSentinel::Embed);
-        out->append(tok);
-        return out;
-    }
-
-    priv fn builtin_diag(
-        self,
-        tokens: *(TokenBuffer::<512>),
-        invoke: InvocationInfo,
-        level:  DiagSeverity
-    ) -> *(TokenBuffer::<512>) {
-        var args = self.parse_arguments(tokens, invoke.args_start + 1, invoke.args_end - 2);
-        if args.size() > 0 {
-            var msg = string();
-            // DECISION: message text renders CANONICAL spellings (0x10 -> 16,
-            // synthesized idents -> __synth names) because it routes through
-            // TokenText::resolve. This is deliberate: correct for synthesized
-            // tokens, one vocabulary with dumps. If source-exact spelling is
-            // ever wanted here, use a raw range slice for unwrapped lexed
-            // tokens only   do not bypass token_text for wrapped/synth ones.
-            for i in usize(0) .. usize(args[0].size()) {
-                msg += self.token_text(args[0].get(i));
-            }
-            var range  = invoke.name.token->range;
-            var code   = DiagCode(DiagID::R010E)
-                if (level == DiagSeverity::Error)
-                else DiagCode(DiagID::R010W)
-                if (level == DiagSeverity::Warning)
-                else DiagCode(DiagID::R010N);
-            self._diag->report(code, range.start, msg).first(range).emit();
-        }
-        return std::create::<TokenBuffer::<512>>();
-    }
-
-    // =====================================================================
-    //  PUBLIC API
-    // =====================================================================
-
-    /// \brief expands all macro invocations in the given token buffer.
-    /// \param tokens  the token buffer to expand (from TCM)
-    /// \param fid     file ID (for resolution context)
-    /// \param scope   file-level module path
-    /// \returns a NEW token buffer with all invocations expanded.
-    ///          caller is responsible for replacing the TCM entry.
-    ///          returns &null if no expansions occurred (original is fine).
-    fn expand(self, tokens: *(TokenBuffer::<512>), fid: u32, scope: ModulePath) -> *(TokenBuffer::<512>) {
-        self._fid   = fid;
-        self._scope = scope;
-
-        Logger::info(Logger::Stage::Preprocessor, f"MacroExpander::expand: fid={fid} tokens={tokens->size()}");
-
-        var tracker = ScopeTracker(self._sym_table, self._sm, self._imm_table, self._tcm, scope);
-        var ctx     = ExpansionContext();
-        var output  = std::create::<TokenBuffer::<512>>();
-        var changed = false;
-
-        var i: usize = 0;
-        while i < tokens->size() {
-            // skip dead zones
-            if self._skip_list->contains(tokens->get(i)->range.start) {
-                var end = self._skip_list->skip_past_index(tokens, i);
-                // copy dead zone tokens verbatim to output
-                while i < end {
-                    output->append(*(tokens->get(i)));
-                    i += 1;
-                }
-                continue;
-            }
-
-            // feed scope tracker
-            var scope_consumed = tracker.update(tokens, i);
-            self._scope = tracker.current_scope();
-
-            var tok = tokens->get(i);
-
-            // -- detect invocation ---------------------------------------
-            var invoke = self.detect_invocation(tokens, i);
-
-            if !invoke.found {
-                var end = i + scope_consumed + 1;
-
-                for var k: usize = i; k < end; ++k {
-                    output->append(*(tokens->get(k)));
-                }
-
-                i = end;
-                continue;
-            }
-
-            // -- try builtins first --------------------------------------
-            var builtin_result = self.try_builtin(tokens, invoke, &ctx);
-            if builtin_result != &null {
-                for j in usize(0) .. usize(builtin_result->size()) {
-                    output->append(self.wrap_token(
-                        *(builtin_result->get(j)),
-                        invoke.name.name,
-                        tokens->get(invoke.start_index)->range,
-                        self._parent_ex_idx
-                    ));
-                }
-                std::destroy(builtin_result);
-                changed = true;
-                i = invoke.end_index;
-                continue;
-            }
-
-            var def = self.resolve_invocation(invoke);
-
-            if def != &null {
-                // validate: parens vs no-parens
-
-                if (def->accepts_params) && (!invoke.has_args) {
-                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' requires arguments but was invoked without any; add '(...)\x27", DiagID::R006E);
-                    output->append(*tok);
-                    i += 1;
-                    continue;
-                }
-
-                if (!def->accepts_params) && (invoke.has_args) {
-                    self.error(tok, f"macro '{self.name_str(def->name.name)}!' is parameterless and does not accept arguments; remove the '(...)\x27", DiagID::R007E);
-                    output->append(*tok);
-                    i += 1;
-                    continue;
-                }
-
-                // expand
-                var expanded = self.expand_invocation(tokens, invoke, def, &ctx);
-
-                if expanded != &null {
-                    // append expanded tokens to output
-                    for j in usize(0) .. usize(expanded->size()) {
-                        output->append(*(expanded->get(j)));
-                    }
-                    std::destroy(expanded);
-                    changed = true;
-                }
-
-                // skip past the invocation in the source
-                i = invoke.end_index;
-                continue;
-            }
-
-            // not found not necessarily an error (could be a type or fn call)
-            // just emit tokens as-is
-
-            // no invocation emit token
-            output->append(*tok);
-            i += scope_consumed + 1;
-        }
-
-        if !changed {
-            std::destroy(output);
-            Logger::debug(Logger::Stage::Preprocessor, f"MacroExpander::expand: fid={fid} no expansions");
-            return &null;
-        }
-
-        Logger::info(Logger::Stage::Preprocessor, f"MacroExpander::expand: fid={fid} output_tokens={output->size()}");
-        return output;
-    }
-
-    fn has_errors(self) -> bool {
-        return self._diag->has_errors();
-    }
-
-    /// \brief detects if tokens[i] starts a macro invocation.
-    ///
-    /// Patterns:
-    ///   ident `!`                     -> unqualified, no args
-    ///   ident `!` `(` ... `)`         -> unqualified, with args
-    ///   ident `::` ... ident `!`      -> qualified, no args
-    ///   ident `::` ... ident `!` `(`  -> qualified, with args
-    priv fn detect_invocation(self, tokens: *(TokenBuffer::<512>), i: usize) -> InvocationInfo {
+    priv fn _detect_invocation(self) -> InvocationInfo {
         var result = InvocationInfo();
 
-        if i >= tokens->size() { return result; }
+        if self._src->peek(0).kind != TokenKind::LitIdentifier { return result; }
 
-        var tok = tokens->get(i);
-        if self.get_effective_kind(tok) != TokenKind::LitIdentifier { return result; }
+        // -- try to parse a path: ident (:: ident)* ----------------------
+        var path_toks = vec::<Token>();
+        path_toks.push_back(self._src->peek(0));
 
-        // -- try to parse a path: ident (:: ident)* ---------------------
-        var path_idents = vec::<usize>(); // indices of identifier tokens in the path
-        path_idents.push_back(i);
-
-        var j = i + 1;
-
-        while j + 1 < tokens->size() {
-            if self.get_effective_kind(tokens->get(j)) != TokenKind::OpColonColon { break; }
-            if self.get_effective_kind(tokens->get(j + 1)) != TokenKind::LitIdentifier { break; }
-            path_idents.push_back(j + 1);
-            j += 2;
+        var n: usize = 1;
+        while true {
+            if self._src->peek(n).kind != TokenKind::OpColonColon { break; }
+            if self._src->peek(n + 1).kind != TokenKind::LitIdentifier { break; }
+            path_toks.push_back(self._src->peek(n + 1));
+            n += 2;
         }
 
-        // -- expect `!` after the last identifier -----------------------
-        if j >= tokens->size() { return result; }
-        if self.get_effective_kind(tokens->get(j)) != TokenKind::OpExclaim { return result; }
+        // -- expect `!` after the last identifier -------------------------
+        if self._src->peek(n).kind != TokenKind::OpExclaim { return result; }
+        var bang_offset = n;
 
-        var bang_idx  = j;
-        var name_idx  = path_idents[path_idents.size() - 1];
-        var name_tok  = tokens->get(name_idx);
+        var name_tok = path_toks[path_toks.size() - 1];
+        result.found   = true;
+        result.name    = name_tok;
+        result.name_sym = self._sym->intern(TokenText::spelling(name_tok, self._tcm));
 
-        result.found       = true;
-        result.bang_index  = bang_idx;
-        result.start_index = i;
-
-        // build name IdentifierToken
-        result.name.token = name_tok;
-        result.name.name  = self._sym_table->intern(self.token_text(name_tok));
-
-        // build qualified path (all idents except last)
-        if path_idents.size() > 1 {
+        if path_toks.size() > 1 {
             result.is_qualified = true;
-            result.qualified_path = ModulePath();
-
-            for k in usize(0) .. usize(path_idents.size() - 1) {
-                var seg_tok = tokens->get(path_idents[k]);
+            result.qualified    = ModulePath();
+            for var k: usize = 0; k + 1 < path_toks.size(); ++k {
                 var seg = IdentifierToken();
-                seg.token = seg_tok;
-                seg.name  = self._sym_table->intern(self.token_text(seg_tok));
-                result.qualified_path.segments.push_back(seg);
+                seg.token = &null; // peeked copy, not a source-owned pointer
+                seg.name  = self._sym->intern(TokenText::spelling(path_toks[k], self._tcm));
+                result.qualified.segments.push_back(seg);
             }
         }
 
-        j = bang_idx + 1; // past `!`
+        n = bang_offset + 1; // past `!`
 
-        // -- check for argument list `(` ... `)` ------------------------
-        if (j < tokens->size()) && (self.get_effective_kind(tokens->get(j)) == TokenKind::OpLParen) {
-            result.has_args   = true;
-            result.args_start = j; // index of `(`
+        // -- check for argument list `(` ... `)` ---------------------------
+        var has_paren = (self._src->peek(n).kind == TokenKind::OpLParen);
+        var total_consumed: usize;
 
-            // find matching `)` with balanced delimiters
+        if has_paren {
+            result.has_args = true;
             var depth: i32 = 1;
-            j += 1;
+            var arg_start = n + 1; // first token inside `(`
+            var m = arg_start;
+            while true {
+                var t = self._src->peek(m);
+                if t.kind == TokenKind::TkEof    { result.found = false; return result; }
+                if t.kind == TokenKind::OpLParen { depth += 1; }
+                if t.kind == TokenKind::OpRParen {
+                    depth -= 1;
+                    if depth == 0 { break; }
+                }
 
-            while j < tokens->size() && depth > 0 {
-                var t = tokens->get(j);
-                if self.get_effective_kind(t) == TokenKind::OpLParen  { depth += 1; }
-                if self.get_effective_kind(t) == TokenKind::OpRParen  { depth -= 1; }
-                j += 1;
+                m += 1;
             }
 
-            if depth != 0 {
-                // unbalanced not a valid invocation
-                result.found = false;
-                return result;
+            // m is the index of the matching `)`
+            for var k: usize = arg_start; k < m; ++k {
+                result.arg_toks.push_back(self._src->peek(k));
             }
 
-            result.args_end  = j; // index past `)`
-            result.end_index = j;
+            total_consumed = m + 1; // past `)`
         } else {
-            result.end_index = bang_idx + 1; // just past `!`
+            total_consumed = bang_offset + 1; // just past `!`
+        }
+
+        result.range = self._src->peek(0).range | self._src->peek(total_consumed - 1).range;
+
+        // -- commit: consume exactly what we detected -----------------------
+        for var k: usize = 0; k < total_consumed; ++k {
+            self._src->next();
         }
 
         return result;
     }
 
-    // =====================================================================
-    //  RESOLUTION
-    // =====================================================================
-
-    /// \brief resolves an invocation to a MacroDefinition using the
-    ///        import processor's scoped lookup.
-    priv fn resolve_invocation(self, invoke: InvocationInfo) -> *MacroDefinition {
-        if invoke.is_qualified {
-            return self._import_proc->find_qualified_macro(
-                self._fid,
-                invoke.qualified_path,
-                invoke.name
-            );
-        }
-
-        // unqualified: current scope -> imports -> global
-        // 1. current scope
-        var def = self._macro_table->find_macro(self._scope, invoke.name);
-        if def != &null { return def; }
-
-        // 2. imports (scoped + wildcard)
-        def = self._import_proc->find_macro_for_file(
-            self._fid,
-            self._scope,
-            invoke.name
-        );
-        if def != &null { return def; }
-
-        // 3. global scope
-        def = self._macro_table->find_macro(ModulePath(), invoke.name);
-        return def;
-    }
-
-    priv fn try_builtin(
-        self,
-        tokens:  *(TokenBuffer::<512>),
-        invoke:  InvocationInfo,
-        ctx:     *ExpansionContext
-    ) -> *(TokenBuffer::<512>) {
-        var name_ptr = self._sym_table->resolve(invoke.name.name);
-        if name_ptr == &null { return &null; }
-        var name = *name_ptr;
-
-        // -- source location builtins ----------------------------------------
-        if name == "file" {
-            return self.builtin_file(invoke);
-        }
-        if name == "line" {
-            return self.builtin_line(invoke);
-        }
-        if name == "column" {
-            return self.builtin_column(invoke);
-        }
-        if name == "module_path" {
-            return self.builtin_module_path(invoke);
-        }
-
-        // -- variadic helpers ------------------------------------------------
-        if name == "count"   { return self.builtin_count(tokens, invoke); }
-        if name == "first"   { return self.builtin_first(tokens, invoke); }
-        if name == "last"    { return self.builtin_last(tokens, invoke); }
-        if name == "rest"    { return self.builtin_rest(tokens, invoke); }
-        if name == "init"    { return self.builtin_init(tokens, invoke); }
-
-        // -- token manipulation ----------------------------------------------
-        if name == "concat"      { return self.builtin_concat(tokens, invoke); }
-        if name == "stringify"   { return self.builtin_stringify(tokens, invoke); }
-        if name == "unstringify" { return self.builtin_unstringify(tokens, invoke); }
-
-        // -- hygiene ---------------------------------------------------------
-        if name == "defined"  { return self.builtin_defined(tokens, invoke); }
-        if name == "undef"    { return self.builtin_undef(tokens, invoke); }
-
-        // -- code gen / deferred ---------------------------------------------
-        // these emit placeholder tokens; real work happens in later passes
-        if name == "todo"        { return self.builtin_todo(tokens, invoke); }
-        if name == "unreachable" { return self.builtin_unreachable(tokens, invoke); }
-        if name == "unique_id"   { return self.builtin_unique_id(tokens, invoke); }
-        if name == "include"     { return self.builtin_include(tokens, invoke); }
-        if name == "include_str" { return self.builtin_include_str(tokens, invoke); }
-        if name == "embed"       { return self.builtin_embed(tokens, invoke); }
-
-        // -- diagnostics (deferred emit nothing now) -----------------------
-        if name == "error"   { return self.builtin_diag(tokens, invoke, DiagSeverity::Error); }
-        if name == "warning" { return self.builtin_diag(tokens, invoke, DiagSeverity::Warning); }
-        if name == "note"    { return self.builtin_diag(tokens, invoke, DiagSeverity::Note); }
-
-        return &null; // not a builtin
-    }
-
-    // =====================================================================
-    //  EXPANSION
-    // =====================================================================
-
-    priv var _active_macros: vec::<SymbolID>;
-
-    priv fn is_in_active_chain(self, name: SymbolID) -> bool {
-        for id in self._active_macros {
-            if id == name { return true; }
-        }
-        return false;
-    }
-
-    /// \brief expands a single invocation, returning a new token buffer
-    ///        with the body tokens (substituted if parameterized).
-    priv fn expand_invocation(
-        self,
-        tokens: *(TokenBuffer::<512>),
-        invoke: InvocationInfo,
-        def:    *MacroDefinition,
-        ctx:    *ExpansionContext
-    ) -> *(TokenBuffer::<512>) {
-        if self.is_in_active_chain(def->name.name) {
-            Logger::warn(Logger::Stage::Preprocessor, f"MacroExpander::expand_invocation: recursive cycle detected for '{self.name_str(def->name.name)}'! ");
-            self.error(tokens->get(invoke.start_index),
-                f"recursive expansion cycle detected for macro '{self.name_str(def->name.name)}!' (note: there are some false positives right now, this will be improved in the future) ");
-            return &null;
-        }
-
-        if ctx->exceeded_depth(usize(self._max_depth)) {
-            var name_str = self.name_str(def->name.name);
-            Logger::warn(Logger::Stage::Preprocessor,
-                f"MacroExpander::expand_invocation: depth limit ({self._max_depth}) exceeded for '{name_str}'! ");
-            self.error(tokens->get(invoke.start_index),
-                f"macro expansion depth limit ({self._max_depth}) exceeded for '{name_str}!' (raise with --cmax-macro-depth=N) ");
-            return &null;
-        }
-
-        if (self._max_expansions > 0) && (self._expansion_count >= self._max_expansions) {
-            var name_str = self.name_str(def->name.name);
-            Logger::warn(Logger::Stage::Preprocessor,
-                f"MacroExpander::expand_invocation: expansion budget ({self._max_expansions}) exhausted at '{name_str}'! ");
-            self.error(tokens->get(invoke.start_index),
-                f"macro expansion budget ({self._max_expansions} total expansions) exhausted (raise with --cmax-macro-expansions=N) ");
-            return &null;
-        }
-
-        ++(self._expansion_count);
-
-        if self._macro_debug {
-            var name_str = self.name_str(def->name.name);
-            var passes_filter = self._debug_filter.empty()
-                || (name_str.raw_string().find(self._debug_filter.raw_string()) != string::npos);
-            if passes_filter {
+    priv fn _expand(self, inv: InvocationInfo) {
+        if self._opts.macro_debug {
+            var nm = self._sym_name(inv.name_sym);
+            if self._opts.macro_debug_filter.empty() || (nm == self._opts.macro_debug_filter) {
                 Logger::info(Logger::Stage::Preprocessor,
-                    f"[macro-debug] expanding '{name_str}!' depth={ctx->depth} count={self._expansion_count} ");
+                    f"[macro-debug] expand '{nm}!' depth={self._src->depth()} count={self._expansion_count}");
             }
         }
 
-        ctx->push(def->name.name);
-        self._active_macros.push_back(def->name.name);
-        ctx->invoke_loc = tokens->get(invoke.start_index)->range;
-
-        var saved_parent = self._parent_ex_idx;
-        // we don't have an idx yet before body runs, so we use a sentinel;
-        // the actual chaining happens inside wrap_token via tok.imm on already-wrapped tokens
-        self._parent_ex_idx = static_cast::<u32>(MacroSentinel::NoParent);
-
-        // this expansion instance's serial: keys unique_id!(tag) memoization.
-        // _expansion_count was already bumped for this expansion above, so it
-        // is unique per instance; saved/restored so nested expansions scope
-        // their own tags.
-        var saved_ex_serial = self._cur_ex_serial;
-        self._cur_ex_serial = self._expansion_count;
-
-        var result: *(TokenBuffer::<512>);
-
-        if !def->accepts_params {
-            result = self.expand_parameterless(def, ctx);
-        } else {
-            result = self.expand_parameterized(tokens, invoke, def, ctx);
+        var b = self._try_builtin(&inv);
+        if b != &null {
+            self._push_splice(b, inv.name_sym, inv.range);
+            return;
         }
 
-        if result == &null {
-            self._cur_ex_serial = saved_ex_serial;
-            self._parent_ex_idx = saved_parent;
-            ctx->pop();
-            self._active_macros.pop_back();
-            return &null;
+        // 2. resolve (order-dependent + scoped + visibility)
+        var entry = self._resolve(inv);
+        if entry == &null {
+            // PP owns the error now (old code passed unknown foo! to the AST)
+            self._diag->report(DiagCode(DiagID::R013E), inv.range.start,
+                f"unknown macro '{self._sym_name(inv.name_sym)}!' (macros must be defined or imported before use)"
+            ).first(inv.range).emit();
+            return;
         }
 
-        // -- re-scan expansion for nested invocations --------------------
-
-        var saved_fid = self._fid;
-        self._fid = def->source_fid;
-
-        var changed = true;
-
-        while changed {
-            changed = false;
-            var rescan = std::create::<TokenBuffer::<512>>();
-            var k: usize = 0;
-
-            while k < result->size() {
-                var nested = self.detect_invocation(result, k);
-
-                if !nested.found {
-                    rescan->append(*(result->get(k)));
-                    k += 1;
-                    continue;
-                }
-
-                // try builtins in nested rescan too
-                var nested_builtin = self.try_builtin(result, nested, ctx);
-                if nested_builtin != &null {
-                    for j in usize(0) .. usize(nested_builtin->size()) {
-                        rescan->append(self.wrap_token(
-                            *(nested_builtin->get(j)),
-                            nested.name.name,
-                            tokens->get(nested.start_index)->range,
-                            self._parent_ex_idx
-                        ));
-                    }
-                    std::destroy(nested_builtin);
-                    changed = true;
-                    k = nested.end_index;
-                    continue;
-                }
-
-                var nested_def = self.resolve_invocation(nested);
-
-                if nested_def != &null { // we de-indent this but cant since we need goto and jumps
-                    // validate parens match
-                    if (nested_def->accepts_params) == (nested.has_args) {
-                        var expanded = self.expand_invocation(
-                            result, nested, nested_def, ctx
-                        );
-
-                        if expanded != &null {
-                            for j in usize(0) .. usize(expanded->size()) {
-                                rescan->append(*(expanded->get(j)));
-                            }
-                            std::destroy(expanded);
-                            changed = true;
-                            k = nested.end_index;
-                            continue;
-                        }
-
-                        while k < nested.end_index {
-                            rescan->append(*(result->get(k)));
-                            k += 1;
-                        }
-
-                        continue;
-                    } else if (nested_def->accepts_params) && (!nested.has_args) {
-                        self.error(result->get(nested.start_index),
-                            f"macro '{self.name_str(nested_def->name.name)}!' requires arguments");
-                    } else if (!nested_def->accepts_params) && (nested.has_args) {
-                        self.error(result->get(nested.start_index),
-                            f"macro '{self.name_str(nested_def->name.name)}!' does not accept arguments");
-                    }
-                }
-
-                rescan->append(*(result->get(k)));
-                k += 1;
-            }
-
-            std::destroy(result);
-            result = rescan;
+        // 3. paren/arity validation (PORT: R006E / R007E)
+        if entry->decl->accepts_params && (!inv.has_args) {
+            self._diag->report(DiagCode(DiagID::R006E), inv.range.start,
+                f"macro '{self._sym_name(inv.name_sym)}!' requires arguments; add '(...)\x27"
+            ).first(inv.range).emit();
+            return;
+        }
+        if (!entry->decl->accepts_params) && inv.has_args {
+            self._diag->report(DiagCode(DiagID::R007E), inv.range.start,
+                f"macro '{self._sym_name(inv.name_sym)}!' is parameterless; remove '(...)\x27"
+            ).first(inv.range).emit();
+            return;
         }
 
-        self._fid = saved_fid;
-        self._cur_ex_serial = saved_ex_serial;
-        self._parent_ex_idx = saved_parent;
-        self._active_macros.pop_back();
-        ctx->pop();
-        return result;
+        // 4. depth / budget (PORT; depth = self._src->depth())
+        if i32(self._src->depth()) >= self._opts.max_depth {
+            self._diag->report(DiagCode(DiagID::R008E), inv.range.start,
+                f"macro expansion depth limit ({self._opts.max_depth}) exceeded"
+            ).first(inv.range).emit();
+            return;
+        }
+        if (self._opts.max_expansions > 0) && (self._expansion_count >= self._opts.max_expansions) {
+            self._diag->report(DiagCode(DiagID::R008E), inv.range.start,
+                "macro expansion budget exhausted"
+            ).first(inv.range).emit();
+            return;
+        }
+
+        // 5. cycle the FRAME STACK, not a side vector (the quad! fix)
+        if self._src->in_active_chain(entry->name_sym) {
+            self._diag->report(DiagCode(DiagID::R008E), inv.range.start,
+                f"recursive expansion of macro '{self._sym_name(inv.name_sym)}!\x27"
+            ).first(inv.range).emit();
+            return;
+        }
+
+        self._expansion_count += 1;
+
+        // 6. ARGUMENTS PRE-EXPAND IN CALLER CONTEXT (before pushing the frame)
+        //    Each arg is a token run; expand invocations within it against the
+        //    CURRENT chain by recursively running a nested expansion over a
+        //    temporary TokenSource seeded with the arg tokens. Because the
+        //    callee is NOT yet on the stack, square!(square!(x)) is legal.
+        var bound = self._bind_and_substitute(entry, &inv);
+        if bound == &null { return; }
+
+        // 7. push; the walk re-enters the spliced body next loop turn, and any
+        //    nested invocations inside it are found by _detect_invocation again.
+        self._push_splice(bound, entry->name_sym, inv.range);
     }
 
-    /// \brief expands a parameterless macro: just copy body tokens
-    priv fn expand_parameterless(self, def: *MacroDefinition, ctx: *ExpansionContext) -> *(TokenBuffer::<512>) {
-        var output = std::create::<TokenBuffer::<512>>();
-        var body = def->body;
-
-        for i in usize(0) .. usize(body.size()) {
-            output->append(self.wrap_token(
-                *(body.get(i)),
-                def->name.name,
-                ctx->invoke_loc,        // need to thread this through
-                self._parent_ex_idx
-            ));
-        }
-
-        return output;
+    priv fn _push_splice(self, buf: *(TokenBuffer::<512>), name: SymbolID, loc: SourceRange) {
+        self._splices.push_back(buf);       // own it for the run's lifetime
+        self._src->push_splice(buf, name, loc);
     }
 
-    /// \brief expands a parameterized macro: parse args, bind params, substitute
-    priv fn expand_parameterized(
-        self,
-        tokens: *(TokenBuffer::<512>),
-        invoke: InvocationInfo,
-        def:    *MacroDefinition,
-        ctx:    *ExpansionContext
-    ) -> *(TokenBuffer::<512>) {
-        // -- pre-expand entire argument list (inside-out) ------------
-        var arg_buf = std::create::<TokenBuffer::<512>>();
-        for j in usize(invoke.args_start + 1) .. usize(invoke.args_end - 1) {
-            arg_buf->append(*(tokens->get(j)));
-        }
+    priv fn _bind_and_substitute(self, e: *MacroEntry, inv: *InvocationInfo) -> *(TokenBuffer::<512>) {
+        // pre-expand each arg in caller context (recursive nested expansion),
+        // matching old code's "clear active, expand, restore" but keyed to the
+        // frame-stack chain instead of a side vector.
+        var args = self._parse_builtin_arguments(inv); // already splits on top-level commas
 
-        var saved_active = self._active_macros;
-        self._active_macros.clear();
-
-        var expanded_args = self.expand(arg_buf, self._fid, self._scope);
-        var final_buf = (expanded_args) if (expanded_args != &null) else arg_buf;
-
-        self._active_macros = saved_active;
-
-        // -- parse arguments from (possibly expanded) buffer ---------
-        var args_end_idx = final_buf->size() - 1;
-        var args = self.parse_arguments(final_buf, 0, args_end_idx);
-
-        // -- bind parameters -----------------------------------------
-        var bindings = map::<SymbolID, TokenSpan>();
-        var variadic = vec::<TokenSpan>();
-
-        var params     = &(def->params.params);
-        var required   = usize(0);
+        var params   = &(e->decl->params_spec);
+        var required: usize = 0;
         var has_variadic = false;
-        var variadic_idx = usize(0);
-
-        for k in usize(0) .. usize(params->size()) {
-            var p = &((*params)[k]);
-            if p->is_variadic != MacroParameter::VariadicType::None {
-                has_variadic = true;
-                variadic_idx = k;
-                break;
-            }
-            if !p->has_default {
-                required += 1;
-            }
+        var variadic_idx: usize = 0;
+        for var k: usize = 0; k < params->size(); ++k {
+            var p = params->get(k);
+            if p->variadic != 0 { has_variadic = true; variadic_idx = k; break; }
+            if !p->has_default { required += 1; }
         }
+        var non_variadic_count = variadic_idx if has_variadic else params->size();
 
-        var non_variadic_count = (variadic_idx) if has_variadic else params->size();
-
-        if (args.size()) < required {
-            var name_str = self.name_str(def->name.name);
-            self.error(tokens->get(invoke.start_index),
-                f"macro '{name_str}!' expects at least {required} arguments, got {args.size()}");
-            if expanded_args != &null { std::destroy(expanded_args); }
-            std::destroy(arg_buf);
+        if args.size() < required {
+            self._diag->report(DiagCode(DiagID::R006E), inv->range.start,
+                f"macro '{self._sym_name(inv->name_sym)}!' expects at least {required} arguments, got {args.size()}"
+            ).first(inv->range).emit();
+            return &null;
+        }
+        if (!has_variadic) && (args.size() > params->size()) {
+            self._diag->report(DiagCode(DiagID::R006E), inv->range.start,
+                f"macro '{self._sym_name(inv->name_sym)}!' expects at most {params->size()} arguments, got {args.size()}"
+            ).first(inv->range).emit();
             return &null;
         }
 
-        if (!has_variadic) && ((args.size()) > (params->size())) {
-            var name_str = self.name_str(def->name.name);
-            self.error(tokens->get(invoke.start_index),
-                f"macro '{name_str}!' expects at most {params->size()} arguments, got {args.size()}");
-            if expanded_args != &null { std::destroy(expanded_args); }
-            std::destroy(arg_buf);
-            return &null;
-        }
-
-        for k in usize(0) .. usize(non_variadic_count) {
-            var p = &((*params)[k]);
+        var bindings = map::<SymbolID, *(TokenBuffer::<512>)>();
+        for var k: usize = 0; k < non_variadic_count; ++k {
+            var p = params->get(k);
+            var name_sym = self._sym->intern(TokenText::spelling(p->name, self._tcm));
             if k < args.size() {
-                bindings[p->name.name] = args[k];
+                bindings[name_sym] = args[k];
             } else if p->has_default {
-                bindings[p->name.name] = p->default_value;
-            }
-        }
-
-        if has_variadic {
-            var vp = &((*params)[variadic_idx]);
-            ctx->variadic_name = vp->name.name;
-
-            for k in usize(non_variadic_count) .. usize(args.size()) {
-                variadic.push_back(args[k]);
-            }
-
-            if (vp->is_variadic == MacroParameter::VariadicType::Named) && (variadic.size() > 0) {
-                bindings[vp->name.name] = variadic[0];
-            }
-        }
-
-        ctx->param_bindings    = bindings;
-        ctx->variadic_bindings = variadic;
-
-        // -- substitute ----------------------------------------------
-        var result = self.substitute_body(def, ctx);
-
-        // -- cleanup pre-expanded buffers ----------------------------
-        if expanded_args != &null { std::destroy(expanded_args); }
-        std::destroy(arg_buf);
-
-        return result;
-    }
-
-    /// \brief parses comma-separated arguments between `(` and `)`.
-    ///        Respects balanced delimiters for nested expressions.
-    /// \param tokens the token buffer
-    /// \param start  index of first token INSIDE parens (past `(`)
-    /// \param end    index of last token INSIDE parens (before `)`)
-    /// \returns vector of TokenSpans, one per argument
-    priv fn parse_arguments(
-        self,
-        tokens: *(TokenBuffer::<512>),
-        start:  usize,
-        end:    usize
-    ) -> vec::<TokenSpan> {
-        var args = vec::<TokenSpan>();
-        if start > end { return args; }  // empty args: `mac!()`
-
-        var depth: i32 = 0;
-        var arg_start  = start;
-
-        for i in usize(start) .. usize(end + 1) {
-            var t = tokens->get(i);
-            var k = self.get_effective_kind(t);
-
-            if k == TokenKind::OpLParen  { depth += 1; }
-            if k == TokenKind::OpLBrace  { depth += 1; }
-            if k == TokenKind::OpLSquare { depth += 1; }
-            if k == TokenKind::OpRParen  { depth -= 1; }
-            if k == TokenKind::OpRBrace  { depth -= 1; }
-            if k == TokenKind::OpRSquare { depth -= 1; }
-
-            if (k == TokenKind::OpComma) && (depth == 0) {
-                if self.has_non_whitespace(tokens, arg_start, i) {
-                    args.push_back(TokenSpan(tokens, arg_start, i - arg_start));
+                var dflt = std::create::<TokenBuffer::<512>>();
+                for var d: usize = p->default_off; d < p->default_off + p->default_len; ++d {
+                    dflt->append(*(e->storage->get(d)));
                 }
-                arg_start = i + 1;
-                continue;
+                bindings[name_sym] = dflt;
             }
         }
 
-        if self.has_non_whitespace(tokens, arg_start, end + 1) {
-            args.push_back(TokenSpan(tokens, arg_start, (end + 1) - arg_start));
-        }
-
-        return args;
-    }
-
-    priv fn has_non_whitespace(self, tokens: *(TokenBuffer::<512>), start: usize, end: usize) -> bool {
-        for i in usize(start) .. usize(end) {
-            var k = self.get_effective_kind(tokens->get(i));
-            if (k != TokenKind::TkNewLine) && (k != TokenKind::TkWhitespace) {
-                return true;
+        var variadic_name: SymbolID = 0;
+        var variadic_bindings = vec::<*(TokenBuffer::<512>)>();
+        if has_variadic {
+            var vp = params->get(variadic_idx);
+            variadic_name = self._sym->intern(TokenText::spelling(vp->name, self._tcm));
+            for var k: usize = non_variadic_count; k < args.size(); ++k {
+                variadic_bindings.push_back(args[k]);
             }
         }
-        return false;
+
+        return self._substitute_body(e, &bindings, variadic_name, &variadic_bindings, inv->range);
     }
 
-    /// \brief walks the macro body and substitutes parameter references
-    ///        with bound argument tokens.
-    priv fn substitute_body(
+    priv fn _substitute_body(
         self,
-        def: *MacroDefinition,
-        ctx: *ExpansionContext
+        e: *MacroEntry,
+        bindings: *map::<SymbolID, *(TokenBuffer::<512>)>,
+        variadic_name: SymbolID,
+        variadic_bindings: *vec::<*(TokenBuffer::<512>)>,
+        invoke_loc: SourceRange
     ) -> *(TokenBuffer::<512>) {
         var output = std::create::<TokenBuffer::<512>>();
-        var body   = def->body;
-
         var i: usize = 0;
-        while i < body.size() {
-            var tok  = body.get(i);
-            var kind = self.get_effective_kind(tok);
+        while i < e->body_len {
+            var tok = e->storage->get(i);
 
-            // -- ...vals  (variadic splice) ------------------------------
-            if kind == TokenKind::OpEllipsis && (i + 1) < body.size() {
-                var next      = body.get(i + 1);
-                var next_kind = self.get_effective_kind(next);
-                if next_kind == TokenKind::LitIdentifier {
-                    var next_name = self._sym_table->intern(self.token_text(next));
-
-                    if (next_name == ctx->variadic_name) && (ctx->variadic_bindings.size() > 0) {
-                        for k in usize(0) .. usize(ctx->variadic_bindings.size()) {
-                            if k > 0 {
-                                var comma = Token();
-                                comma.kind  = TokenKind::OpComma;
-                                comma.range = tok->range;
-                                output->append(self.wrap_token(comma,
-                                    def->name.name,
-                                    ctx->invoke_loc,
-                                    self._parent_ex_idx
-                                ));
-                            }
-
-                            var span = &(ctx->variadic_bindings[k]);
-                            for j in usize(0) .. usize(span->size()) {
-                                output->append(self.wrap_token(*(span->get(j)),
-                                    def->name.name,
-                                    ctx->invoke_loc,
-                                    self._parent_ex_idx
-                                ));
+            if (tok->kind == TokenKind::OpEllipsis) && (i + 1 < e->body_len) {
+                var next = e->storage->get(i + 1);
+                if next->kind == TokenKind::LitIdentifier {
+                    var next_name = self._sym->intern(TokenText::spelling(*next, self._tcm));
+                    if (next_name == variadic_name) && (variadic_bindings->size() > 0) {
+                        for var k: usize = 0; k < variadic_bindings->size(); ++k {
+                            if k > 0 { self._append_builtin_comma(output, tok->range); }
+                            var span = (*variadic_bindings)[k];
+                            for var j: usize = 0; j < span->size(); ++j {
+                                output->append(*(span->get(j)));
                             }
                         }
                         i += 2;
@@ -1586,1833 +732,998 @@ class MacroExpander {
                 }
             }
 
-            // -- identifier -> param binding ------------------------------
-            if kind == TokenKind::LitIdentifier {
-                var tok_name = self._sym_table->intern(self.token_text(tok));
-
-                if ctx->param_bindings.contains(tok_name) {
-                    var bound = &(ctx->param_bindings[tok_name]);
-                    for j in usize(0) .. usize(bound->size()) {
-                        output->append(self.wrap_token(*(bound->get(j)),
-                            def->name.name,
-                            ctx->invoke_loc,
-                            self._parent_ex_idx
-                        ));
+            if tok->kind == TokenKind::LitIdentifier {
+                var tok_name = self._sym->intern(TokenText::spelling(*tok, self._tcm));
+                if bindings->contains(tok_name) {
+                    var bound = (*bindings)[tok_name];
+                    for var j: usize = 0; j < bound->size(); ++j {
+                        output->append(*(bound->get(j)));
                     }
                     i += 1;
                     continue;
                 }
             }
 
-            // -- passthrough ---------------------------------------------
-            output->append(self.wrap_token(*tok,
-                def->name.name,
-                ctx->invoke_loc,
-                self._parent_ex_idx
-            ));
-
+            output->append(*tok);
             i += 1;
         }
-
         return output;
     }
 
-    priv fn wrap_token(
-        self,
-        tok:          Token,
-        macro_name:   SymbolID,
-        invoke_range: SourceRange,
-        parent_idx:   u32
-    ) -> Token {
-        if self._imm_table == &null {
-            return tok;
+    priv fn make_int_token(self, value: u64, range: SourceRange) -> Token {
+        var tok = Token();
+        tok.kind  = TokenKind::LitInt;
+        tok.range = range;
+        if self._imm != &null {
+            var idx  = self._imm->create::<Immediate::IntData>();
+            var data = self._imm->get::<Immediate::IntData>(idx);
+            data->value_lo = value;
+            data->value_hi = 0;
+            data->bits     = 32;
+            data->base     = 10;
+            data->flags    = 0;
+            data->body     = range;
+            tok.imm = idx;
         }
-
-        var info = Immediate::MacroExpansionInfo();
-        info.macro_name   = macro_name;
-        info.invoke_range = invoke_range;
-        info.parent_idx   = parent_idx;
-
-        // if already wrapped, chain through it rather than lose the inner info
-        if (tok.kind == TokenKind::TkMacroExpand) && (tok.imm < static_cast::<u32>(MacroSentinel::Threshold)) {
-            // inner is a real expansion record grab original kind/imm from it
-            var inner = self._imm_table->get::<Immediate::MacroExpansionInfo>(tok.imm);
-            info.original_kind = inner->original_kind;
-            info.original_imm  = inner->original_imm;
-            info.def_range     = inner->def_range;     // keep innermost def site
-            info.parent_idx    = tok.imm;              // current inner becomes parent
-        } else {
-            info.original_kind = tok.kind;
-            info.original_imm  = tok.imm;
-            info.def_range     = tok.range;
-        }
-
-        var idx = self._imm_table->create::<Immediate::MacroExpansionInfo>();
-        (*(self._imm_table->get::<Immediate::MacroExpansionInfo>(idx))) = info;
-
-        var wrapped = tok;
-        wrapped.kind  = TokenKind::TkMacroExpand;
-        wrapped.imm   = idx;
-        wrapped.range = invoke_range;
-        // range = invocation site: the token's range must resolve to the fid
-        // whose imm table holds this expansion record (self._imm_table = the
-        // expanding file). the def-body site is preserved in info.def_range
-        // and is reachable through unwrap for "expanded from" notes.
-        return wrapped;
-    }
-
-    // =====================================================================
-    //  DIAGNOSTICS
-    // =====================================================================
-
-    priv fn error(self, tok: *Token, msg: string, code: DiagID = DiagID::R008E) {
-        if tok == &null {
-            self._diag->report(DiagCode(code), msg).emit();
-            return;
-        }
-        Logger::error(Logger::Stage::Preprocessor, f"MacroExpander: {msg}");
-        self._diag->report(DiagCode(code), tok->range.start, msg)
-            .first(tok->range).emit();
-    }
-
-    priv fn name_str(self, id: SymbolID) -> string {
-        var ptr = self._sym_table->resolve(id);
-        return ("<unknown>") if (ptr == &null) else (*ptr);
-    }
-
-    /// \brief canonical token-text accessor for the expander.
-    ///
-    /// \details unwraps macro-expansion chains and reads identifier spellings
-    ///          from the imm interner. NEVER read token text via
-    ///          _sm->get_text(tok->range) directly: synthesized identifiers
-    ///          (unique_id!, gensym) have no backing source text   their
-    ///          spelling exists only in the interner, and the range points at
-    ///          whatever source happened to be at the invocation site.
-    priv fn token_text(self, tok: *Token) -> string {
-        return TokenText::resolve(*tok, self._tcm).get_text();
-    }
-
-    priv fn get_effective_kind(self, tok: *Token) -> TokenKind {
-        // historical fallback: wrapped non-sentinel token with no table is
-        // assumed to be an identifier (most wrapped tokens are).
-        if (tok->kind == TokenKind::TkMacroExpand)
-        && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
-        && (self._imm_table == &null) {
-            return TokenKind::LitIdentifier;
-        }
-
-        return unwrap_expansion(*tok, self._tcm, 1).kind;
-    }
-}
-
-class PreProcessor {
-    /// ok so the fundamantals here is quite simple for each file we need to build a symbol table of all the imports
-    /// keeping track of scopes and visibilities so when we go to resolve a macro we can do so correctly
-    /// we also need to handle re-exports but that can be done in the AST phase
-    /// the point of this phase is the build a full map of all available macros in the current file with correct scoping
-    /// so then when we get back to the main file we can resolve the macros correctly
-    /// this is a per start file processor not a global one
-    /// but the tokens are global so we can look up any file we need to process imports later quickly
-    /// we have a few kinds of imports to handle
-    ///
-    ///  1. import Foo::Bar::Baz; - remeber since this isnt a proper import processor we just look up Foo/Bar/Baz to get the path if it doesnt exist we move on (its the ast phase that will error later if its not found)
-    ///  2. import Foo::Bar::Baz as Qux; - same as above but we need to remap Qux to Foo::Bar::Baz
-    ///  3. import Foo::Bar::*; - wildcard import we need to look up the path for Foo::Bar
-    ///  4. import Foo::Bar::{Baz, Qux, Mac!}; - multiple imports from same path we ignore any non macro imports so we still look up Foo::Bar for the file and note we only need Mac! from it
-    ///  5. import Foo::Bar::{Baz as Qux, Mac! as MacAlias!}; - same as above but with aliases
-    ///  6. import module Foo::Bar; - module is a disambiguation keyword to avoid conflict if we have both Foo/Bar/module.k and Foo/Bar.k (when module is specified we only look for Foo/Bar/module.k)
-    ///  7. ffi "..." import Foo::Bar; - ffi imports are ignored by the macro preprocessor since they dont define macros
-    ///  8. ffi "..." { ... } - we ignroe these blocks entirely since they wont have kairo code imports in them (THEY might have macro invokes and defs but those are handled in the MacroPreprocessor directly when we scan the tokens)
-    ///
-    /// ofc we also need to track scopes and visibilities so we know what imports are available where and we can error on private/protected imports used out of scope
-    /// like module Foo { import Bar; } // now when the file imports a file that contains that code the import path is techincally Foo::Bar not just Bar and this is handled since now in our main file when we look up `import Foo::Bar::Mac!` we can find it correctly
-    /// the processor would look for Foo::Bar (which would or would not exist as a file/module) where if it doesnt we now look for Foo as the module and Bar as the submodule inside it
-    ///
-
-    var _pp_sym_table: *PreprocessorSymbolTable;
-    var _macro_table:  *MacroSymbolTable;
-    var _sm:           *SourceManager;
-    var _tcm:          *TokenCacheManager;
-    var _diag:         *DiagEngine;
-    var _pool:         *ThreadPool;
-    var _resolver:     *ImportResolver;
-    var _opts:          PreprocessorOptions;
-
-    var _import_proc:            ImportProcessor;
-    var _skip_lists:             map::<u32, SkipList>;
-    var _skip_mu:               *std::SharedMutex; ///< guards _skip_lists
-    var _import_proc_states_mu: *std::SharedMutex;
-
-    fn PreProcessor(self, sm: *SourceManager, tcm: *TokenCacheManager,
-                    resolver: *ImportResolver, pool: *ThreadPool, diag: *DiagEngine,
-                    opts: PreprocessorOptions = PreprocessorOptions()) {
-        self._pp_sym_table = std::create::<PreprocessorSymbolTable>();
-        self._macro_table  = std::create::<MacroSymbolTable>();
-        self._sm           = sm;
-        self._tcm          = tcm;
-        self._resolver     = resolver;
-        self._pool         = pool;
-        self._diag         = diag;
-        self._opts         = opts;
-
-        self._skip_mu               = std::create::<std::SharedMutex>();
-        self._import_proc_states_mu = std::create::<std::SharedMutex>();
-
-        self._import_proc = ImportProcessor(
-            sm, tcm, resolver,
-            self._pp_sym_table,
-            self._macro_table,
-            &self._skip_lists,
-            self._skip_mu,
-            self._import_proc_states_mu,
-            diag
-        );
-
-        Logger::info(Logger::Stage::Preprocessor, "PreProcessor: initialized");
-    }
-
-    fn get_symbol_table(self) -> *PreprocessorSymbolTable {
-        return self._pp_sym_table;
-    }
-
-    fn get_macro_table(self) -> *MacroSymbolTable {
-        return self._macro_table;
-    }
-
-    fn get_import_processor(self) -> *ImportProcessor {
-        return &(self._import_proc);
-    }
-
-    fn op delete (self) {
-        std::destroy(self._pp_sym_table);
-        std::destroy(self._macro_table);
-        std::destroy(self._skip_mu);
-        std::destroy(self._import_proc_states_mu);
-    }
-
-    fn clear(self) {
-        self._pp_sym_table->clear();
-        self._macro_table->table.clear();
-    }
-
-    fn preprocess(self, entry_fid: u32, entry_path: ModulePath) -> bool {
-        self._resolver->wait_for_index();
-
-        // Phase 0: build dep graph (single-threaded)
-        Logger::info(Logger::Stage::Preprocessor, "PreProcessor: phase 0 dep scan");
-        var t0 = libcxx::chrono::high_resolution_clock::now();
-
-        var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._pp_sym_table);
-        var graph   = scanner.build_graph(entry_fid, entry_path);
-
-        var t1 = libcxx::chrono::high_resolution_clock::now();
-        var dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
-
-        // Phase 1: wave-parallel lex + import scan + macro collection
-        t0 = libcxx::chrono::high_resolution_clock::now();
-
-        Logger::info(Logger::Stage::Preprocessor, f"PreProcessor: phase 1 collection waves fids={graph.all_fids.size()}");
-        var executor = WaveExecutor(self._pool);
-
-        executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
-            // ensure skip list exists (needs lock since multiple threads)
-            {
-                var wlock = std::UniqueLock(*(self._skip_mu));
-                if !self._skip_lists.contains(fid) {
-                    self._skip_lists[fid] = SkipList();
-                }
-            }
-
-            var skip_list_ptr: *SkipList;
-            {
-                var rlock = std::SharedLock(*(self._skip_mu));
-                skip_list_ptr = &(self._skip_lists[fid]);
-            }
-
-            // lex (TCM handles its own locking now)
-            if !self._tcm->lex_file(fid) {
-                Logger::error(Logger::Stage::Preprocessor, f"PreProcessor: lex failed fid={fid}");
-                return;
-            }
-
-            // import scan (records state, no recursion)
-            self._import_proc.process_file(fid, mod_path);
-            Logger::info(Logger::Stage::Preprocessor,
-                f"phase1 task: fid={fid} skip_list size after process_file={skip_list_ptr->size()}");
-
-            // macro collection
-            var tokens = self._tcm->get_tokens(fid);
-            if tokens != &null {
-                var fid_imm_tbl = self._tcm->get_imm_table_for_fid(fid);
-                var def_tracker = ScopeTracker(self._pp_sym_table, self._sm, fid_imm_tbl, self._tcm, mod_path);
-                var collector   = MacroDefinitionCollector(
-                    self._pp_sym_table,
-                    self._macro_table,
-                    self._sm,
-                    fid_imm_tbl,
-                    self._diag,
-                    self._tcm
-                );
-                collector.collect(tokens, fid, &def_tracker, skip_list_ptr);
-            }
-        });
-
-        if self._diag->has_fatal() { return false; }
-
-        t1 = libcxx::chrono::high_resolution_clock::now();
-        dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
-
-        // Phase 2: wave-parallel expansion (macro table now frozen)
-        t0 = libcxx::chrono::high_resolution_clock::now();
-        Logger::info(Logger::Stage::Preprocessor, "PreProcessor: phase 2 expansion");
-
-        // rebuild a fresh graph - same topology, same wave ordering
-        // expansion of A can run as soon as A's deps' expansions are done
-        // (expanded tokens from deps aren't needed - only their macro defs are,
-        //  which are already in the table)
-        // so actually all files can expand in parallel - the table is frozen
-        var all_fids = vec::<u32>();
-        for fid in graph.all_fids { all_fids.push_back(fid); }
-
-        for fid in all_fids {
-            var mod_path = graph.mod_paths[fid];
-
-            inline "c++" {{
-                auto captured_fid      = fid;
-                auto captured_mod_path = mod_path;
-                auto captured_self     = this;
-                _pool->enqueue([captured_fid, captured_mod_path, captured_self]() {
-                    SkipList* skip_list_ptr = nullptr;
-                    {
-                        std::SharedLock<std::SharedMutex> rlock(*captured_self->_skip_mu);
-                        skip_list_ptr = &(captured_self->_skip_lists[captured_fid]);
-                    }
-
-                    Logger::info(Logger::Stage::Preprocessor,
-                        libcxx::format(WIDE_STR("phase2 task: fid={} skip_list size before finalize={}"),
-                            captured_fid,
-                            captured_self->_skip_lists[captured_fid].size()));
-                    skip_list_ptr->finalize();
-
-                    auto* tokens = captured_self->_tcm->get_tokens(captured_fid);
-                    if (!tokens) return;
-
-                    auto* lexer_ptr = captured_self->_tcm->get_lexer_for_fid(captured_fid);
-                    auto* imm_ptr   = lexer_ptr->get_imm_tbl();
-
-                    MacroExpander expander(
-                        captured_self->_sm,
-                        captured_self->_pp_sym_table,
-                        captured_self->_macro_table,
-                        &captured_self->_import_proc,
-                        skip_list_ptr,
-                        imm_ptr,
-                        lexer_ptr,
-                        captured_self->_diag,
-                        captured_self->_tcm,
-                        captured_self->_opts.max_depth,
-                        captured_self->_opts.max_expansions,
-                        captured_self->_opts.macro_debug,
-                        captured_self->_opts.macro_debug_filter
-                    );
-
-                    auto* expanded = expander.expand(tokens, captured_fid, captured_mod_path);
-                    if (expanded) {
-                        captured_self->_tcm->replace_tokens(captured_fid, expanded);
-                    }
-                }, static_cast<uint8_t>(2));
-            }}
-        }
-
-        t1 = libcxx::chrono::high_resolution_clock::now();
-        dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
-        self._pool->wait_group(u8(2));
-
-        t1 = libcxx::chrono::high_resolution_clock::now();
-        dur = libcxx::chrono::duration_cast::<libcxx::chrono::milliseconds>(t1 - t0).count();
-
-        // all expansion done: displaced pre-expansion buffers are dead weight
-        // now. Macro definitions were deep-copied at insert_macro, so nothing
-        // outside the PP aliases them, and the PP itself is finished reading
-        // pre-expansion tokens. Without this they leak until shutdown — a
-        // full duplicate token stream per macro-bearing file, held across
-        // parse/sema/codegen.
-        self._tcm->release_old_buffers();
-
-        return !self._diag->has_fatal();
-    }
-
-    static fn unwrap_token(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager) -> Token {
-        var imm_table = tcm->get_imm_table_for_token(tok, sm);
-        if tok.kind != TokenKind::TkMacroExpand { return tok; }
-        if imm_table == &null { return tok; }
-
-        var current_imm = tok.imm;
-        while true {
-            if current_imm == static_cast::<u32>(MacroSentinel::NoParent) { break; } // sentinel
-            var info = imm_table->get::<Immediate::MacroExpansionInfo>(current_imm);
-            if info->parent_idx == static_cast::<u32>(MacroSentinel::NoParent) {
-                // reached the leaf this has the real original kind/imm
-                var result = tok;
-                result.kind = info->original_kind;
-                result.imm  = info->original_imm;
-                return result;
-            }
-            current_imm = info->parent_idx;
-        }
-
         return tok;
     }
 
-    static fn get_invoke_range(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager) -> SourceRange {
-        var imm_table = tcm->get_imm_table_for_token(tok, sm);
-        if (tok.kind != TokenKind::TkMacroExpand) || (imm_table == &null) {
-            return tok.range;
+    priv fn make_ident_token(self, name: string, range: SourceRange) -> Token {
+        var tok = Token();
+        tok.kind  = TokenKind::LitIdentifier;
+        tok.range = range;
+        if self._imm != &null {
+            tok.imm = self._imm->intern_ident_copy(name);
         }
-        var info = imm_table->get::<Immediate::MacroExpansionInfo>(tok.imm);
-        return info->invoke_range;
+        return tok;
     }
 
-    static fn get_def_range(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager) -> SourceRange {
-        var imm_table = tcm->get_imm_table_for_token(tok, sm);
-        if (tok.kind != TokenKind::TkMacroExpand) || (imm_table == &null) {
-            return tok.range;
+    // ======================================================================
+    //  Builtins
+    // ======================================================================
+
+    priv fn _try_builtin(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        // Builtins are unqualified. `foo::count!` must resolve as an ordinary
+        // macro instead of being hijacked by the builtin dispatcher.
+        if invoke->is_qualified {
+            return &null;
         }
 
-        var current_imm = tok.imm;
-        while true {
-            var info = imm_table->get::<Immediate::MacroExpansionInfo>(current_imm);
-            if info->parent_idx == static_cast::<u32>(MacroSentinel::NoParent) {
-                return info->def_range;
+        var name = self._sym_name(invoke->name_sym);
+
+        // source location
+        if name == "file"        { return self._builtin_file(invoke); }
+        if name == "line"        { return self._builtin_line(invoke); }
+        if name == "column"      { return self._builtin_column(invoke); }
+        if name == "module_path" { return self._builtin_module_path(invoke); }
+
+        // argument manipulation
+        if name == "count" { return self._builtin_count(invoke); }
+        if name == "first" { return self._builtin_first(invoke); }
+        if name == "last"  { return self._builtin_last(invoke); }
+        if name == "rest"  { return self._builtin_rest(invoke); }
+        if name == "init"  { return self._builtin_init(invoke); }
+
+        // token manipulation
+        if name == "concat"      { return self._builtin_concat(invoke); }
+        if name == "stringify"   { return self._builtin_stringify(invoke); }
+        if name == "unstringify" { return self._builtin_unstringify(invoke); }
+
+        // macro visibility
+        if name == "defined" { return self._builtin_defined(invoke); }
+        if name == "undef"   { return self._builtin_undef(invoke); }
+
+        // deferred code generation
+        if name == "todo"        { return self._builtin_todo(invoke); }
+        if name == "unreachable" { return self._builtin_unreachable(invoke); }
+        if name == "unique_id"   { return self._builtin_unique_id(invoke); }
+        if name == "include"     { return self._builtin_include(invoke); }
+        if name == "include_str" { return self._builtin_include_str(invoke); }
+        if name == "embed"       { return self._builtin_embed(invoke); }
+
+        // diagnostics
+        if name == "error" {
+            return self._builtin_diag(invoke, DiagSeverity::Error);
+        }
+        if name == "warning" {
+            return self._builtin_diag(invoke, DiagSeverity::Warning);
+        }
+        if name == "note" {
+            return self._builtin_diag(invoke, DiagSeverity::Note);
+        }
+
+        return &null;
+    }
+
+    // ======================================================================
+    //  Builtin helpers
+    // ======================================================================
+
+    priv fn _builtin_report(
+        self,
+        range: SourceRange,
+        message: string,
+        code: DiagID
+    ) {
+        self._diag->report(
+            DiagCode(code),
+            range.start,
+            message
+        ).first(range).emit();
+    }
+
+    /// Splits the tokens inside `(...)` at top-level commas.
+    ///
+    /// `invoke.arg_toks` already excludes the outer `(` and `)`. There is no
+    /// whole-file buffer and therefore no args_start/args_end arithmetic.
+    priv fn _parse_builtin_arguments(
+        self,
+        invoke: *InvocationInfo
+    ) -> vec::<own::<TokenBuffer::<512>>> {
+        var args: vec::<own::<TokenBuffer::<512>>>;
+
+        if !invoke->has_args {
+            return args;
+        }
+
+        // `foo!()` is zero arguments, not one empty argument.
+        if invoke->arg_toks.size() == 0 {
+            return args;
+        }
+
+        var current = std::create::<TokenBuffer::<512>>();
+
+        var paren_depth:   i32 = 0;
+        var square_depth: i32 = 0;
+        var brace_depth:   i32 = 0;
+
+        for var i: usize = 0; i < invoke->arg_toks.size(); ++i {
+            var tok = invoke->arg_toks[i];
+
+            if tok.kind == TokenKind::OpLParen {
+                paren_depth += 1;
+                current->append(tok);
+                continue;
             }
-            current_imm = info->parent_idx;
+
+            if tok.kind == TokenKind::OpRParen {
+                paren_depth -= 1;
+                current->append(tok);
+                continue;
+            }
+
+            if tok.kind == TokenKind::OpLSquare {
+                square_depth += 1;
+                current->append(tok);
+                continue;
+            }
+
+            if tok.kind == TokenKind::OpRSquare {
+                square_depth -= 1;
+                current->append(tok);
+                continue;
+            }
+
+            if tok.kind == TokenKind::OpLBrace {
+                brace_depth += 1;
+                current->append(tok);
+                continue;
+            }
+
+            if tok.kind == TokenKind::OpRBrace {
+                brace_depth -= 1;
+                current->append(tok);
+                continue;
+            }
+
+            if (tok.kind == TokenKind::OpComma)
+            && (paren_depth == 0)
+            && (square_depth == 0)
+            && (brace_depth == 0) {
+                args.push_back(current);
+                current = std::create::<TokenBuffer::<512>>();
+                continue;
+            }
+
+            current->append(tok);
         }
 
-        return tok.range;
+        args.push_back(current);
+        return args;
     }
 
-    static fn get_expansion_chain(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager) -> vec::<SourceRange> {
-        var imm_table = tcm->get_imm_table_for_token(tok, sm);
-        var chain = vec::<SourceRange>();
-        if tok.kind != TokenKind::TkMacroExpand || imm_table == &null {
-            return chain;
+    priv fn _append_builtin_argument(
+        self,
+        out: *(TokenBuffer::<512>),
+        arg: *(TokenBuffer::<512>)
+    ) {
+        for var i: usize = 0; i < arg->size(); ++i {
+            out->append(*(arg->get(i)));
         }
-
-        var current_imm = tok.imm;
-        while current_imm != static_cast::<u32>(MacroSentinel::NoParent) {
-            var info = imm_table->get::<Immediate::MacroExpansionInfo>(current_imm);
-            chain.push_back(info->invoke_range);
-            current_imm = info->parent_idx;
-        }
-
-        return chain; // outermost first
     }
 
-    static fn get_macro_name(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager, sym_table: *PreprocessorSymbolTable) -> string {
-        var imm_table = tcm->get_imm_table_for_token(tok, sm);
-        if tok.kind != TokenKind::TkMacroExpand || imm_table == &null {
-            return "";
-        }
-        var info = imm_table->get::<Immediate::MacroExpansionInfo>(tok.imm);
-        var name_ptr = sym_table->resolve(info->macro_name);
-        return ("<unknown>") if (name_ptr == &null) else (*name_ptr);
+    priv fn _append_builtin_comma(
+        self,
+        out: *(TokenBuffer::<512>),
+        range: SourceRange
+    ) {
+        var comma = Token();
+        comma.kind  = TokenKind::OpComma;
+        comma.range = range;
+        out->append(comma);
     }
 
-    static fn format_expansion_trace(tok: Token, tcm: *TokenCacheManager, sm: *SourceManager, sym_table: *PreprocessorSymbolTable) -> string {
-        var imm_table = tcm->get_imm_table_for_token(tok, sm);
-        if tok.kind != TokenKind::TkMacroExpand || imm_table == &null {
-            return "";
-        }
+    priv fn _builtin_token_text(self, tok: *Token) -> string {
+        return TokenText::spelling(*tok, self._tcm);
+    }
 
-        var out = string();
-        var current_imm = tok.imm;
+    // ======================================================================
+    //  Source-location builtins
+    // ======================================================================
 
-        while current_imm != static_cast::<u32>(MacroSentinel::NoParent) {
-            var info = imm_table->get::<Immediate::MacroExpansionInfo>(current_imm);
+    priv fn _builtin_file(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
 
-            var name_ptr = sym_table->resolve(info->macro_name);
-            var name_str = ("<unknown>") if (name_ptr == &null) else (*name_ptr);
+        var loc      = self._sm->get_full_loc(invoke->name.range.start);
+        var filename = self._sm->get_filename(loc.file_id);
 
-            var full_loc = sm->get_full_loc(info->invoke_range.start);
-            var loc_str  = f"{sm->get_filename(full_loc.file_id)}:{full_loc.line}:{full_loc.column}";
+        var tok = Token();
+        tok.kind  = TokenKind::LitString;
+        tok.range = invoke->name.range;
 
-            out += f"  expanded from macro '{name_str}!' at {loc_str}\n";
-            current_imm = info->parent_idx;
+        // TODO: StringData currently represents source-backed text using a
+        // SourceRange. `filename` is synthesized text and therefore has no source
+        // range. Once StringData has an owned/interner-backed representation:
+        //
+        // tok.imm = self._imm->intern_string_copy(filename);
+
+        out->append(tok);
+        return out;
+    }
+
+    priv fn _builtin_line(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
+        var loc = self._sm->get_full_loc(invoke->name.range.start);
+
+        out->append(self.make_int_token(
+            static_cast::<u64>(loc.line),
+            invoke->name.range
+        ));
+
+        return out;
+    }
+
+    priv fn _builtin_column(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
+        var loc = self._sm->get_full_loc(invoke->name.range.start);
+
+        out->append(self.make_int_token(
+            static_cast::<u64>(loc.column),
+            invoke->name.range
+        ));
+
+        return out;
+    }
+
+    priv fn _builtin_module_path(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var path = self._tracker->current_scope();
+
+        for var i: usize = 0; i < path.segments.size(); ++i {
+            if i != 0 {
+                var sep = Token();
+                sep.kind  = TokenKind::OpColonColon;
+                sep.range = invoke->range;
+                out->append(sep);
+            }
+
+            var segment_name = self._sym_name(path.segments[i].name);
+
+            out->append(self.make_ident_token(
+                segment_name,
+                invoke->range
+            ));
         }
 
         return out;
     }
 
-    static fn is_macro_expanded(tok: Token) -> bool {
-        return tok.kind == TokenKind::TkMacroExpand;
-    }
-}
+    // ======================================================================
+    //  Argument manipulation builtins
+    // ======================================================================
 
-/// \brief processes a single file: lex it, scan imports, record import state
-/// \note does NOT recurse recursion is handled by PreProcessor::preprocess
-///       via the back-pointer in resolve_import
-fn ImportProcessor::process_file(fid: u32, module_base: ModulePath) -> bool {
-    // check already done
-    {
-        var rlock = std::SharedLock(*(self._states_mu));
-        if self._file_states.contains(fid) { return true; }
-    }
+    priv fn _builtin_count(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
 
-    var tokens = self._tcm->get_tokens(fid);
-    if tokens == &null { return false; }
-
-    var state = FileImportState();
-    state.fid         = fid;
-    state.module_base = module_base;
-
-    var tracker = ScopeTracker(self._sym_table, self._sm, self._tcm->get_imm_table_for_fid(fid), self._tcm, module_base);
-    var i: usize = 0;
-
-    while i < tokens->size() {
-        var tok = tokens->get(i);
-        var scope_consumed = tracker.update(tokens, i);
-
-        if tok->kind == TokenKind::KwFfi {
-            var skip = self.skip_ffi(tokens, i);
-            if skip > 0 { i += skip; continue; }
+        if !invoke->has_args {
+            self._builtin_report(
+                invoke->range,
+                "builtin 'count!' requires an argument list; use 'count!(...)\x27",
+                DiagID::R009E
+            );
+            return out;
         }
 
-        if tok->kind == TokenKind::KwImport {
-            var start_i = i;
-            var parsed  = self.parse_import(tokens, i, &tracker);
+        var args = self._parse_builtin_arguments(invoke);
 
-            if (!parsed.is_ffi) && (parsed.items.size() > 0 || parsed.is_wildcard) {
-                // NO recursion - deps already processed
-                self.resolve_import(&parsed, &state, fid);
+        out->append(self.make_int_token(
+            static_cast::<u64>(args.size()),
+            invoke->name.range
+        ));
 
-                if parsed.tokens_consumed > 0 {
-                    var first_tok = tokens->get(start_i);
-                    var last_idx  = parsed.end_index - 1;
-                    if last_idx < tokens->size() {
-                        var last_tok = tokens->get(last_idx);
-                        var range = SourceRange::from_bounds(
-                            first_tok->range.start,
-                            last_tok->range.end
-                        );
-                        var wlock = std::UniqueLock(*(self._skip_mu));
-                        (*self._skip_lists)[fid].add(range);
-                    }
-                }
+        return out;
+    }
+
+    priv fn _builtin_first(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var args = self._parse_builtin_arguments(invoke);
+
+        if args.size() == 0 {
+            self._builtin_report(
+                invoke->range,
+                "builtin 'first!()' requires at least one argument",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        self._append_builtin_argument(out, args[0]);
+        return out;
+    }
+
+    priv fn _builtin_last(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var args = self._parse_builtin_arguments(invoke);
+
+        if args.size() == 0 {
+            self._builtin_report(
+                invoke->range,
+                "builtin 'last!()' requires at least one argument",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        self._append_builtin_argument(out, args[args.size() - 1]);
+        return out;
+    }
+
+    priv fn _builtin_rest(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var args = self._parse_builtin_arguments(invoke);
+
+        for var k: usize = 1; k < args.size(); ++k {
+            if k > 1 {
+                self._append_builtin_comma(out, invoke->name.range);
             }
 
-            i = parsed.end_index;
-            if i <= start_i { i = start_i + 1; }
-            continue;
+            self._append_builtin_argument(out, args[k]);
         }
 
-        i += scope_consumed + 1;
+        return out;
     }
 
-    // store state
-    var wlock = std::UniqueLock(*(self._states_mu));
-    self._file_states[fid] = state;
-    return true;
-}
+    priv fn _builtin_init(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var args = self._parse_builtin_arguments(invoke);
 
-fn ImportProcessor::get_file_state(fid: u32) -> *FileImportState {
-    var rlock = std::SharedLock(*(self._states_mu));
-
-    if self._file_states.contains(fid) {
-        return &(self._file_states[fid]);
-    }
-    return &null;
-}
-
-fn ImportProcessor::has_errors() -> bool {
-    return self._diag->has_errors();
-}
-
-// =========================================================================
-//  FFI SKIPPING
-// =========================================================================
-
-priv fn ImportProcessor::skip_ffi(tokens: *(TokenBuffer::<512>), start: usize) -> usize {
-    if start >= tokens->size() { return 0; }
-
-    var tok = tokens->get(start);
-    if tok->kind != TokenKind::KwFfi { return 0; }
-
-    var j = start + 1;
-
-    if j >= tokens->size() { return 1; }
-    var next = tokens->get(j);
-
-    if next->kind != TokenKind::LitString { return 0; }
-    j += 1;
-
-    if j >= tokens->size() { return j - start; }
-    var after_str = tokens->get(j);
-
-    // ffi "c++" import ... ;
-    if after_str->kind == TokenKind::KwImport {
-        while j < tokens->size() {
-            if tokens->get(j)->kind == TokenKind::OpSemicolon {
-                return (j + 1) - start;
-            }
-            j += 1;
+        if args.size() == 0 {
+            return out;
         }
-        return j - start;
-    }
 
-    // ffi "c++" { ... }
-    if after_str->kind == TokenKind::OpLBrace {
-        var depth: i32 = 1;
-        j += 1;
-        while j < tokens->size() && depth > 0 {
-            var t = tokens->get(j);
-            if t->kind == TokenKind::OpLBrace { ++depth; }
-            if t->kind == TokenKind::OpRBrace { --depth; }
-            j += 1;
-        }
-        return j - start;
-    }
-
-    return 1;
-}
-
-// =========================================================================
-//  IMPORT PARSING (unchanged parse_import, parse_grouped_imports)
-// =========================================================================
-
-priv fn ImportProcessor::parse_import(
-    tokens:  *(TokenBuffer::<512>),
-    start:   usize,
-    tracker: *ScopeTracker
-) -> ParsedImport {
-    var result = ParsedImport();
-    result.scope = tracker->current_scope();
-    result.import_loc = tokens->get(start)->range;
-
-    var j = start + 1;
-
-    if j >= tokens->size() { return result; }
-
-    if tokens->get(j)->kind == TokenKind::KwModule {
-        result.is_module = true;
-        j += 1;
-    }
-
-    var segments = vec::<IdentifierToken>();
-    var last_was_bang = false;
-
-    while j < tokens->size() {
-        var t = tokens->get(j);
-
-        if t->kind == TokenKind::LitIdentifier {
-            var ident = IdentifierToken();
-            ident.token = t;
-            ident.name  = self._sym_table->intern(
-                TokenText::spelling(*t, self._tcm));
-            segments.push_back(ident);
-            j += 1;
-
-            if j < tokens->size() && tokens->get(j)->kind == TokenKind::OpExclaim {
-                last_was_bang = true;
-                j += 1;
+        for var k: usize = 0; k + 1 < args.size(); ++k {
+            if k > 0 {
+                self._append_builtin_comma(out, invoke->name.range);
             }
 
-            if j < tokens->size() && tokens->get(j)->kind == TokenKind::OpColonColon {
-                if last_was_bang {
-                    break;
-                }
-                j += 1;
+            self._append_builtin_argument(out, args[k]);
+        }
+
+        return out;
+    }
+
+    priv fn _builtin_concat(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var args = self._parse_builtin_arguments(invoke);
+
+        for var k: usize = 0; k < args.size(); ++k {
+            self._append_builtin_argument(out, args[k]);
+        }
+
+        return out;
+    }
+
+    // ======================================================================
+    //  Token transformation builtins
+    // ======================================================================
+
+    /// `stringify!(tokens...)`
+    ///
+    /// This remains source-range backed. It preserves source whitespace and
+    /// punctuation exactly for ordinary lexed arguments, but cannot correctly
+    /// represent synthesized/discontiguous token sequences until StringData gains
+    /// an owned-text representation.
+    priv fn _builtin_stringify(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
+
+        if !invoke->has_args || invoke->arg_toks.size() == 0 {
+            self._builtin_report(
+                invoke->range,
+                "builtin 'stringify!()' requires at least one token",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        var first = &invoke->arg_toks[0];
+        var last  = &invoke->arg_toks[invoke->arg_toks.size() - 1];
+
+        var tok = Token();
+        tok.kind  = TokenKind::LitString;
+        tok.range = invoke->range;
+
+        var idx  = self._imm->create::<Immediate::StringData>();
+        var data = self._imm->get::<Immediate::StringData>(idx);
+
+        data->body = SourceRange::from_bounds(
+            first->range.start,
+            last->range.end
+        );
+        data->prefix_kind = Immediate::TextPrefixKind::None;
+
+        tok.imm = idx;
+        out->append(tok);
+        return out;
+    }
+
+    priv fn _builtin_unstringify(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var args = self._parse_builtin_arguments(invoke);
+
+        if (args.size() != 1) || (args[0]->size() != 1) {
+            self._builtin_report(
+                invoke->range,
+                "builtin 'unstringify!()' requires exactly one string literal",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        var str_tok = args[0]->get(0);
+
+        if str_tok->kind != TokenKind::LitString {
+            self._builtin_report(
+                str_tok->range,
+                "builtin 'unstringify!()' argument must be a string literal",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        if self._lexer == &null {
+            self._builtin_report(
+                str_tok->range,
+                "builtin 'unstringify!()': no lexer is available for range re-lexing",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        var data = self._imm->get::<Immediate::StringData>(str_tok->imm);
+        if data == &null {
+            self._builtin_report(
+                str_tok->range,
+                "builtin 'unstringify!()': string literal has no backing data",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        var body = data->body;
+        if body.start.id >= body.end.id {
+            return out; // empty string body, nothing to re-lex
+        }
+
+        var lexed = self._lexer->lex_slice::<512>(body.start.id, body.end.id);
+        if lexed == &null {
+            self._builtin_report(
+                str_tok->range,
+                "builtin 'unstringify!()': could not re-lex string content",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        finally { std::destroy(lexed); }
+
+        for var i: usize = 0; i < lexed->size(); ++i {
+            var tok = lexed->get(i);
+            if tok->kind == TokenKind::TkEof { continue; }
+            if tok->kind == TokenKind::TkError {
+                self._builtin_report(
+                    str_tok->range,
+                    "builtin 'unstringify!()': lexical error in string content",
+                    DiagID::R009E
+                );
                 continue;
             }
-
-            break;
+            out->append(*tok);
         }
 
-        if t->kind == TokenKind::OpStar {
-            result.is_wildcard = true;
-            j += 1;
-            break;
-        }
-
-        if t->kind == TokenKind::OpLBrace {
-            j += 1;
-            self.parse_grouped_imports(tokens, &j, &result);
-            break;
-        }
-
-        break;
+        return out;
     }
 
-    if result.is_wildcard {
-        result.base_path = ModulePath();
-        for seg in segments {
-            result.base_path.segments.push_back(seg);
-        }
-    } else if result.items.size() > 0 {
-        result.base_path = ModulePath();
-        for seg in segments {
-            result.base_path.segments.push_back(seg);
-        }
-    } else if segments.size() > 0 {
-        result.base_path = ModulePath();
-        for i in usize(0) .. usize(segments.size() - 1) {
-            result.base_path.segments.push_back(segments[i]);
-        }
+    // ======================================================================
+    //  Macro visibility builtins
+    // ======================================================================
 
-        var item = ParsedImport::Item();
-        item.name     = segments[segments.size() - 1];
-        item.alias    = item.name;
-        item.is_macro = last_was_bang;
+    priv fn _builtin_defined(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out   = std::create::<TokenBuffer::<512>>();
+        var found: u64 = 0;
+        var args  = self._parse_builtin_arguments(invoke);
 
-        if j < tokens->size() && tokens->get(j)->kind == TokenKind::KwAs {
-            j += 1;
-            if j < tokens->size() && tokens->get(j)->kind == TokenKind::LitIdentifier {
-                var alias_tok = tokens->get(j);
-                item.alias.token = alias_tok;
-                item.alias.name  = self._sym_table->intern(
-                    TokenText::spelling(*alias_tok, self._tcm));
-                item.has_alias = true;
-                j += 1;
+        if (args.size() == 1) && (args[0]->size() == 1) {
+            var name_tok = args[0]->get(0);
 
-                if item.is_macro && j < tokens->size() && tokens->get(j)->kind == TokenKind::OpExclaim {
-                    j += 1;
+            if name_tok->kind == TokenKind::LitIdentifier {
+                var name_sym = self._sym->intern(
+                    self._builtin_token_text(name_tok)
+                );
+
+                var probe = InvocationInfo();
+                probe.name         = *name_tok;
+                probe.name_sym     = name_sym;
+                probe.is_qualified = false;
+                probe.has_args     = false;
+                probe.range        = name_tok->range;
+                probe.found        = true;
+
+                if self._resolve(probe) != &null {
+                    found = 1;
                 }
             }
         }
 
-        result.items.push_back(item);
+        out->append(self.make_int_token(
+            found,
+            invoke->name.range
+        ));
+
+        return out;
     }
 
-    if (j < tokens->size()) && ((tokens->get(j)->kind) == TokenKind::OpSemicolon) {
-        j += 1;
-    }
+    priv fn _builtin_undef(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var args = self._parse_builtin_arguments(invoke);
 
-    result.end_index = j;
-    result.tokens_consumed = j - start;
-    return result;
-}
-
-priv fn ImportProcessor::parse_grouped_imports(
-    tokens: *(TokenBuffer::<512>),
-    j:      *usize,
-    result: *ParsedImport
-) {
-    while (*j) < tokens->size() {
-        var t = tokens->get(*j);
-
-        if t->kind == TokenKind::OpRBrace {
-            (*j) += 1;
-            return;
+        if (args.size() != 1) || (args[0]->size() != 1) {
+            self._builtin_report(
+                invoke->range,
+                "builtin 'undef!()' requires exactly one macro identifier",
+                DiagID::R009E
+            );
+            return out;
         }
 
-        if t->kind == TokenKind::OpComma {
-            (*j) += 1;
-            continue;
+        var name_tok = args[0]->get(0);
+
+        if name_tok->kind != TokenKind::LitIdentifier {
+            self._builtin_report(
+                name_tok->range,
+                "builtin 'undef!()' argument must be a macro identifier",
+                DiagID::R009E
+            );
+            return out;
         }
 
-        if t->kind != TokenKind::LitIdentifier {
-            (*j) += 1;
-            continue;
-        }
-
-        var item = ParsedImport::Item();
-        item.name.token = t;
-        item.name.name  = self._sym_table->intern(
-            TokenText::spelling(*t, self._tcm));
-        item.alias = item.name;
-        (*j) += 1;
-
-        if (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::OpExclaim {
-            item.is_macro = true;
-            (*j) += 1;
-        }
-
-        if (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::KwAs {
-            (*j) += 1;
-            if (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::LitIdentifier {
-                var alias_tok = tokens->get(*j);
-                item.alias.token = alias_tok;
-                item.alias.name  = self._sym_table->intern(
-                    TokenText::spelling(*alias_tok, self._tcm));
-                item.has_alias = true;
-                (*j) += 1;
-
-                if item.is_macro && (*j) < tokens->size() && tokens->get(*j)->kind == TokenKind::OpExclaim {
-                    (*j) += 1;
-                }
-            }
-        }
-
-        result->items.push_back(item);
-    }
-}
-
-// =========================================================================
-//  IMPORT RESOLUTION
-// =========================================================================
-
-priv fn ImportProcessor::resolve_import(
-    parsed:  *ParsedImport,
-    state:   *FileImportState,
-    src_fid: u32
-) {
-    if parsed->is_ffi { return; }
-
-    var path_strings = vec::<string>();
-    for seg in parsed->base_path.segments {
-        var name_ptr = self._sym_table->resolve(seg.name);
-        if name_ptr != &null {
-            path_strings.push_back(*name_ptr);
-        }
-    }
-
-    Logger::info(Logger::Stage::Preprocessor,
-        f"resolve_import: src_fid={src_fid} base_path_segs={parsed->base_path.segments.size()} path_strings={path_strings.size()} items={parsed->items.size()} is_wildcard={parsed->is_wildcard}");
-
-    if (path_strings.size() == 0) && (!parsed->is_wildcard) && (parsed->items.size() > 0) {
-        for item in parsed->items {
-            var name_ptr = self._sym_table->resolve(item.name.name);
-            if name_ptr != &null {
-                path_strings.push_back(*name_ptr);
-                break; // only use the first item as the module path
-            }
-        }
-    }
-
-    /// print what we're trying to resolve for debugging
-    // var debug_path = self.segments_to_string(path_strings);
-    // if parsed->is_module {
-    //     std::print(f"Resolving module import '{debug_path}' from file ID {src_fid}\n");
-    // } else {
-    //     std::print(f"Resolving import '{debug_path}' from file ID {src_fid}\n");
-    // }
-
-    if (path_strings.size() == 0) && (!parsed->is_wildcard) {
-        Logger::info(Logger::Stage::Preprocessor,
-            f"resolve_import: EARLY RETURN - path_strings empty after fallback");
-        Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
-
-        var full_loc = parsed->import_loc;
-        for item in parsed->items {
-            var tok = item.name.token;
-            if tok != &null {
-                full_loc = ((full_loc) | (tok->range));
-            }
-        }
-
-        self._diag->report(DiagCode(DiagID::R011E), parsed->import_loc.start,
-            f"failed to resolve import path '{self.segments_to_string(path_strings)}\x27")
-            .first(full_loc)
-            .emit();
-        return;
-    }
-
-    var resolved = self.resolve_module_greedy(path_strings, parsed->is_module);
-
-    if (resolved.fid == 0) && (!resolved.found) {
-        Logger::info(Logger::Stage::Preprocessor,
-            f"resolve_import: EARLY RETURN - greedy resolve failed for path_strings size={path_strings.size()}");
-        Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_import: unresolved path '[{self.segments_to_string(path_strings)}]' from fid={src_fid}");
-        // we need the full lines loc out starty is the parsed->import_loc.start
-        var start_loc = parsed->import_loc.start;
-        var loc       = parsed->import_loc;
-        for item in parsed->items {
-            var tok = item.name.token;
-            if tok != &null {
-                loc = ((loc) | (tok->range));
-            }
-        }
-
-        self._diag->report(DiagCode(DiagID::R011E), start_loc,
-            f"failed to resolve import path '{self.segments_to_string(path_strings)}\x27")
-            .first(loc)
-            .emit();
-        return;
-    }
-
-    Logger::info(Logger::Stage::Preprocessor,
-        f"resolve_import: resolved fid={resolved.fid} file_module_path segs={resolved.file_module_path.segments.size()}");
-
-
-    // gate recording on whether we actually care about this import
-    if parsed->is_wildcard {
-        state->wildcard_fids.push_back(resolved.fid);
-
-        var imp = MacroImport();
-        imp.source_fid   = resolved.fid;
-        imp.source_scope = resolved.file_module_path;
-        imp.import_loc   = parsed->import_loc;
-        imp.is_wildcard  = true;
-
-        if state->scoped_imports.contains(parsed->scope) {
-            state->scoped_imports[parsed->scope].push_back(imp);
-        } else {
-            var imports = vec::<MacroImport>();
-            imports.push_back(imp);
-            state->scoped_imports[parsed->scope] = imports;
-        }
-    } else {
-        // record module alias for qualified macro resolution
-        // e.g. `import imp::Foo` -> Foo maps to imp::Foo
-        if parsed->items.size() > 0 && resolved.found {
-            var item = &(parsed->items[0]);
-            var alias_path = resolved.file_module_path;
-            for seg in resolved.remaining_path.segments {
-                alias_path.segments.push_back(seg);
-            }
-            alias_path.segments.push_back(item->alias);
-            state->module_aliases[item->alias.name] = alias_path;
-        }
-
-        var has_macro = false;
-        for item in parsed->items {
-            if item.is_macro {
-                has_macro = true;
-                break;
-            }
-        }
-        if !has_macro { return; }
-
-        for item in parsed->items {
-            if !item.is_macro { continue; }
-
-            var name_ptr = self._sym_table->resolve(item.name.name);
-            var name_str = "<unknown>" if (name_ptr == &null) else *name_ptr;
-            Logger::info(Logger::Stage::Preprocessor,
-                f"resolve_import: recording macro import '{name_str}!' source_fid={resolved.fid}");
-
-            var imp = MacroImport();
-            imp.macro_name   = item.name;
-            imp.alias        = item.alias;
-            imp.source_fid   = resolved.fid;
-            imp.source_scope = resolved.remaining_path;
-            imp.import_loc   = parsed->import_loc;
-            imp.is_wildcard  = false;
-
-            state->macro_imports.push_back(imp);
-
-            if state->scoped_imports.contains(parsed->scope) {
-                state->scoped_imports[parsed->scope].push_back(imp);
-            } else {
-                var imports = vec::<MacroImport>();
-                imports.push_back(imp);
-                state->scoped_imports[parsed->scope] = imports;
-            }
-        }
-    }
-}
-
-priv fn ImportProcessor::resolve_module_greedy(
-    segments:  vec::<string>,
-    is_module: bool
-) -> ResolveResult {
-    var result = ResolveResult();
-
-    if segments.size() == 0 { return result; }
-
-    var try_len = segments.size();
-
-    while try_len > 0 {
-        var try_segments = vec::<string>();
-        for i in usize(0) .. usize(try_len) {
-            try_segments.push_back(segments[i]);
-        }
-
-        var resolved: std::Expected::<Path, ResolveError>;
-
-        if is_module {
-            resolved = self._resolver->resolve_module_dir(try_segments);
-        } else {
-            resolved = self._resolver->resolve_module(try_segments);
-        }
-
-        if resolved.check() {
-            var path = *resolved;
-
-            var fid = self._sm->load_file(path);
-            if fid != 0 {
-                result.found = true;
-                result.fid   = fid;
-
-                result.file_module_path = ModulePath();
-                for i in usize(0) .. usize(try_len) {
-                    var ident = IdentifierToken();
-                    ident.name = self._sym_table->intern(segments[i]);
-                    ident.token = &null;
-                    result.file_module_path.segments.push_back(ident);
-                }
-
-                result.remaining_path = ModulePath();
-                for i in usize(try_len) .. usize(segments.size()) {
-                    var ident = IdentifierToken();
-                    ident.name = self._sym_table->intern(segments[i]);
-                    ident.token = &null;
-                    result.remaining_path.segments.push_back(ident);
-                }
-
-                return result;
-            }
-        }
-
-        if (!resolved.check()) && (resolved.err() == ResolveError::AmbiguousModule) {
-            var retry = self._resolver->resolve_module(try_segments);
-            if retry.check() {
-                var path = *retry;
-                var fid = self._sm->load_file(path);
-                if fid != 0 {
-                    Logger::warn(Logger::Stage::Preprocessor, f"ImportProcessor::resolve_module_greedy: ambiguous module '{self.segments_to_string(try_segments)}\x27");
-                    self._diag->report(DiagCode(DiagID::R005W),
-                        f"ambiguous module '{self.segments_to_string(try_segments)}': both a file and a directory exist for this path; the file will be used").emit();
-
-                    result.found = true;
-                    result.fid   = fid;
-
-                    result.file_module_path = ModulePath();
-                    for i in usize(0) .. usize(try_len) {
-                        var ident = IdentifierToken();
-                        ident.name = self._sym_table->intern(segments[i]);
-                        ident.token = &null;
-                        result.file_module_path.segments.push_back(ident);
-                    }
-
-                    result.remaining_path = ModulePath();
-                    for i in usize(try_len) .. usize(segments.size()) {
-                        var ident = IdentifierToken();
-                        ident.name = self._sym_table->intern(segments[i]);
-                        ident.token = &null;
-                        result.remaining_path.segments.push_back(ident);
-                    }
-
-                    return result;
-                }
-            }
-        }
-
-        try_len -= 1;
-    }
-
-    return result;
-}
-
-// =========================================================================
-//  MACRO LOOKUP
-// =========================================================================
-
-fn ImportProcessor::find_macro_for_file(
-    fid:        u32,
-    scope:      ModulePath,
-    macro_name: IdentifierToken
-) -> *MacroDefinition {
-    var state = self.get_file_state(fid);
-    if state == &null { return &null; }
-
-    // single pass: named imports take priority over wildcards
-    var wildcard_result: *MacroDefinition = &null;
-
-    if state->scoped_imports.contains(scope) {
-        for imp in state->scoped_imports[scope] {
-            if !imp.is_wildcard {
-                if imp.alias == macro_name {
-                    var def = self._macro_table->find_macro(imp.source_scope, imp.macro_name);
-                    if def != &null { return def; }
-
-                    var dep_state = self.get_file_state(imp.source_fid);
-                    if dep_state != &null {
-                        def = self._macro_table->find_macro(dep_state->module_base, imp.macro_name);
-                        if def != &null { return def; }
-                    }
-                }
-            } else {
-                if wildcard_result == &null {
-                    var found = self._macro_table->find_macro(imp.source_scope, macro_name);
-                    if found != &null { wildcard_result = found; }
-                }
-            }
-        }
-    }
-
-    if wildcard_result != &null { return wildcard_result; }
-
-    // file-level named imports
-    for imp in state->macro_imports {
-        if (!imp.is_wildcard) && (imp.alias == macro_name) {
-            var def = self._macro_table->find_macro(imp.source_scope, imp.macro_name);
-            if def != &null { return def; }
-
-            var dep_state = self.get_file_state(imp.source_fid);
-            if dep_state != &null {
-                def = self._macro_table->find_macro(dep_state->module_base, imp.macro_name);
-                if def != &null { return def; }
-            }
-        }
-    }
-
-    // wildcard fids
-    for wfid in state->wildcard_fids {
-        var dep_state = self.get_file_state(wfid);
-        if dep_state == &null { continue; }
-        var found = self._macro_table->find_macro(dep_state->module_base, macro_name);
-        if found != &null { return found; }
-    }
-
-    return &null;
-}
-
-fn ImportProcessor::find_qualified_macro(
-    fid:        u32,
-    full_path:  ModulePath,
-    macro_name: IdentifierToken
-) -> *MacroDefinition {
-    // 1. exact scope lookup
-    var def = self._macro_table->find_macro(full_path, macro_name);
-    if def != &null { return def; }
-
-    // 2. check if first segment is a module alias in this file
-    var state = self.get_file_state(fid);
-    if (state != &null) && (full_path.segments.size() > 0) {
-        var first = full_path.segments[0].name;
-        if state->module_aliases.contains(first) {
-            var resolved_path = state->module_aliases[first];
-            // append remaining segments (everything after the first)
-            for k in usize(1) .. usize(full_path.segments.size()) {
-                resolved_path.segments.push_back(full_path.segments[k]);
-            }
-            def = self._macro_table->find_macro(resolved_path, macro_name);
-            if def != &null { return def; }
-        }
-    }
-
-    return &null;
-}
-
-// =========================================================================
-//  UTILITIES
-// =========================================================================
-
-priv fn ImportProcessor::segments_to_string(segments: vec::<string>) -> string {
-    var result = "";
-    for i in usize(0) .. usize(segments.size()) {
-        if i > 0 { result += "::"; }
-        result += segments[i];
-    }
-    return result;
-}
-
-fn ImportProcessor::dump_state() -> string {
-    var out = "=== ImportProcessor State ===\n";
-    out += f"  processed: {self._file_states.size()} files\n";
-    out += f"  errors: {self._diag->error_count()}, warnings: {self._diag->warn_count()}\n\n";
-
-    for entry in self._file_states {
-        var fid   = entry.first;
-        var state = &(entry.second);
-
-        out += f"--- File ID: {fid} ---\n";
-        out += f"  module_base: {state->module_base.as_string(self._sym_table)}\n";
-        out += f"  macro_imports: {state->macro_imports.size()}\n";
-
-        for imp in state->macro_imports {
-            var name_ptr  = self._sym_table->resolve(imp.macro_name.name);
-            var alias_ptr = self._sym_table->resolve(imp.alias.name);
-            var name_str  = "<invalid>" if (name_ptr == &null) else *name_ptr;
-            var alias_str = "<invalid>" if (alias_ptr == &null) else *alias_ptr;
-
-            out += f"    macro: {name_str}!";
-            if imp.alias.name != imp.macro_name.name {
-                out += f" as {alias_str}!";
-            }
-            out += f"  (from fid={imp.source_fid}, scope={imp.source_scope.as_string(self._sym_table)})";
-            out += f"  wildcard={imp.is_wildcard}\n";
-        }
-
-        out += f"  wildcard_fids: {state->wildcard_fids.size()}\n";
-        for wfid in state->wildcard_fids {
-            out += f"    * fid={wfid}\n";
-        }
-
-        out += f"  scoped_imports: {state->scoped_imports.size()} scopes\n";
-        for scope_entry in state->scoped_imports {
-            out += f"    scope: {scope_entry.first.as_string(self._sym_table)}\n";
-            for imp in scope_entry.second {
-                if imp.is_wildcard {
-                    out += f"      * (wildcard from fid={imp.source_fid})\n";
-                } else {
-                    var name_ptr = self._sym_table->resolve(imp.macro_name.name);
-                    var name_str = "<invalid>" if (name_ptr == &null) else *name_ptr;
-                    out += f"      {name_str}! (from fid={imp.source_fid})\n";
-                }
-            }
-        }
-
-        out += "\n";
-    }
-
-    out += "=== End ImportProcessor State ===\n";
-    return out;
-}
-
-/// MacroPreprocessor Test Suite
-/// =============================
-/// Tests the full macro preprocessor pipeline: import resolution,
-/// macro definition collection, and macro expansion.
-///
-/// Uses virtual files loaded via SourceManager::load_virtual so
-/// tests are self-contained with no filesystem dependencies.
-
-fn Test() -> i32 {
-    fn make_virtual(sm: *SourceManager, name: string, src: string) -> u32 {
-        /// we need to keep the data alive since load_virtual takes a raw ptr
-        /// we use a static map to keep the data alive for the duration of the test
-        static var store: map::<string, libcxx::string>;
-        name = ((Path::temp_dir()) / "k_test_macro_preprocessor.k").full_path();
-        var nd = std::string_to_nstring(src);
-        store[name] = libcxx::string(nd);
-        return sm->load_virtual(
-            Path(name, false),
-            reinterpret_cast::<std::ConstPtr::<u8>>(store[name].data()),
-            src.size()
+        var name_sym = self._sym->intern(
+            self._builtin_token_text(name_tok)
         );
+
+        // Do not mutate the shared MacroTable. Walkers execute in parallel and an
+        // imported macro may still be required by another fid. This masks the name
+        // only for the remainder of the current fid.
+        self._undefined_macros.insert(name_sym);
+
+        return out;
     }
 
-    /// helper: preprocess a root file and return the expanded text (tokens joined)
-    fn expand_to_text(sm: *SourceManager, tcm: *TokenCacheManager, resolver: *ImportResolver, pool: *ThreadPool, fid: u32, diag: *DiagEngine) -> string {
-        var macro_proc = PreProcessor(sm, tcm, resolver, pool, diag);
-        macro_proc.preprocess(fid, ModulePath());
+    // ======================================================================
+    //  Deferred/sentinel builtins
+    // ======================================================================
 
-        var tokens = tcm->get_tokens(fid);
-        if tokens == &null { return "<null>"; }
+    priv fn _builtin_todo(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
 
-        var text: string;
-        for i in usize(0) .. usize(tokens->size()) {
-            var tok = tokens->get(i);
-            if tok->kind == TokenKind::TkNewLine { continue; } // skip newlines for clean comparison
-            var t = sm->get_text(tok->range);
-            if text.size() > 0 { text += " "; }
-            text += t;
-        }
-        return text;
+        var tok = Token();
+        tok.kind  = TokenKind::TkMacroExpand;
+        tok.range = invoke->name.range;
+        tok.imm   = static_cast::<u32>(MacroSentinel::Todo);
+
+        out->append(tok);
+        return out;
     }
 
-    // make a new dir in the temp folder for our virtual files (to avoid any potential name clashes with real files)
-    var temp_dir = ((libcxx::filesystem::temp_directory_path()) / r"k_test_macro_preprocessor");
-    if (!libcxx::filesystem::exists(temp_dir)) {
-        libcxx::filesystem::create_directory(temp_dir);
+    priv fn _builtin_unreachable(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
+
+        var tok = Token();
+        tok.kind  = TokenKind::TkMacroExpand;
+        tok.range = invoke->name.range;
+        tok.imm   = static_cast::<u32>(MacroSentinel::Unreachable);
+
+        out->append(tok);
+        return out;
     }
 
-    var pool = std::create::<ThreadPool>(4);
-    var vfm  = std::create::<VirtualFileManager>();
-    var diag = DiagEngine();
-    var sm   = std::create::<SourceManager>(pool, vfm, &diag);
+    /// `unique_id!` / `unique_id!(tag)`
+    ///
+    /// TokenSource must expose the serial of the currently active splice frame.
+    /// A source location is not a valid substitute because the same source token
+    /// can be duplicated and expanded more than once.
+    priv fn _builtin_unique_id(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out   = std::create::<TokenBuffer::<512>>();
+        var range = invoke->name.range;
+        var tag: string = "";
 
-    finally {
-        std::destroy(sm);
-        std::destroy(vfm);
-        std::destroy(pool);
-    }
+        if invoke->has_args {
+            var args = self._parse_builtin_arguments(invoke);
 
-    var suite = Assert("MacroPreprocessor Tests");
+            var valid = (args.size() == 1)
+                && (args[0]->size() == 1)
+                && (args[0]->get(0)->kind == TokenKind::LitIdentifier);
 
-    // =========================================================================
-    // 1. BASIC PARAMETERLESS EXPANSION
-    // =========================================================================
-
-    suite.equal::<string>("basic: parameterless macro expands to body", "pass", fn () -> string {
-        var src = "macro greet! { hello }\ngreet!\n";
-        var fid = make_virtual(sm, "basic_parameterless.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        // should contain "hello" and NOT contain "greet !"
-        if !result.contains("hello") {
-            return f"expected 'hello' in output, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 2. MACRO DEFINITION IS IN DEAD ZONE (NOT EXPANDED)
-    // =========================================================================
-
-    suite.equal::<string>("dead zone: macro definition body not expanded", "pass", fn () -> string {
-        var src = "macro A! { macro_body_token }\n";
-        var fid = make_virtual(sm, "dead_zone.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        // no invocation output should be exactly the definition tokens (dead zone copied verbatim)
-        if result.contains("macro_body_token") {
-            0; // this is fine the definition is copied verbatim as part of the dead zone
-        }
-        // the key test: macro_body_token should NOT appear outside the definition
-        // since there's no invocation, the output is just the definition
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 3. NO EXPANSION WHEN NO INVOCATION
-    // =========================================================================
-
-    suite.equal::<string>("no-op: file with only definitions returns original tokens", "pass", fn () -> string {
-        var src = "macro A! { 1 }\nmacro B! { 2 }\n";
-        var fid = make_virtual(sm, "no_invoke.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess(fid, ModulePath());
-
-        // tokens should be unchanged (expand returns null when nothing changed)
-        var tokens = tcm.get_tokens(fid);
-        if tokens == &null { return "tokens null"; }
-
-        // verify definitions are still present
-        var has_macro_kw = false;
-        for i in usize(0) .. usize(tokens->size()) {
-            if tokens->get(i)->kind == TokenKind::KwMacro {
-                has_macro_kw = true;
-                break;
+            if !valid {
+                self._builtin_report(
+                    invoke->range,
+                    "builtin 'unique_id!()' takes at most one identifier tag, e.g. unique_id!(guard)",
+                    DiagID::R009E
+                );
+                return out;
             }
-        }
-        if !has_macro_kw { return "expected macro keyword in unchanged output"; }
-        return "pass";
-    }, 100);
 
-    // =========================================================================
-    // 4. MULTIPLE INVOCATIONS IN SAME FILE
-    // =========================================================================
-
-    suite.equal::<string>("multi: multiple invocations in same file", "pass", fn () -> string {
-        var src = "macro X! { 42 }\nX!\nX!\nX!\n";
-        var fid = make_virtual(sm, "multi_invoke.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        // count occurrences of "42"
-        var count: i32 = 0;
-        var pos: usize = 0;
-        while true {
-            var found = result.raw_string().find("42", pos);
-            if found == string::npos { break; }
-            count += 1;
-            pos = found + 2;
+            tag = self._builtin_token_text(args[0]->get(0));
         }
 
-        if count != 4 { return f"expected 4 occurrences of '42', got {count}, output: '{result}\x27"; }
-        return "pass";
-    }, 100);
+        var serial = self._src->current_expansion_serial();
 
-    // =========================================================================
-    // 5. NESTED MACRO EXPANSION (SAME FILE)
-    // =========================================================================
+        // Tagged inside a macro expansion: stable for this dynamic expansion
+        // instance and this tag.
+        if (!tag.empty()) && (serial != 0) {
+            var key = f"{serial}:{tag}";
+            var it  = self._unique_tag_cache.find(key);
 
-    suite.equal::<string>("nested: macro body contains another macro invocation", "pass", fn () -> string {
-        var src = "macro inner! { 99 }\nmacro outer! { inner! }\nouter!\n";
-        var fid = make_virtual(sm, "nested.k", src);
+            if it != self._unique_tag_cache.end() {
+                var tok = Token();
+                tok.kind  = TokenKind::LitIdentifier;
+                tok.range = range;
+                tok.imm   = it->second;
 
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        if !result.contains("99") {
-            return f"expected '99' from nested expansion, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 6. PARAMETERIZED MACRO SINGLE PARAM
-    // =========================================================================
-
-    suite.equal::<string>("params: single parameter substitution", "pass", fn () -> string {
-        var src = "macro wrap!(x) { [ x ] }\nwrap!(hello)\n";
-        var fid = make_virtual(sm, "single_param.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        if (!result.contains("[ hello ]")) && (!result.contains("[hello]")) {
-            // check individual tokens
-            if !result.contains("hello") {
-                return f"expected 'hello' in expansion, got: '{result}\x27";
+                out->append(tok);
+                return out;
             }
-        }
-        return "pass";
-    }, 100);
 
-    // =========================================================================
-    // 7. PARAMETERIZED MACRO MULTIPLE PARAMS
-    // =========================================================================
+            self._unique_counter += 1;
 
-    suite.equal::<string>("params: multiple parameter substitution", "pass", fn () -> string {
-        var src = "macro add!(a, b) { a + b }\nadd!(10, 20)\n";
-        var fid = make_virtual(sm, "multi_param.k", src);
+            var tok = self.make_ident_token(
+                f"__synth_{tag}_{self._fid}_{self._unique_counter}",
+                range
+            );
 
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        // should expand to: 10 + 20
-        if (!result.contains("10")) || (!result.contains("20")) || !result.contains("+") {
-            return f"expected '10 + 20' in expansion, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 8. DEFAULT PARAMETER
-    // =========================================================================
-
-    suite.equal::<string>("params: default parameter used when arg omitted", "pass", fn () -> string {
-        var src = "macro say!(msg, loud = false) { msg loud }\nsay!(hi)\n";
-        var fid = make_virtual(sm, "default_param.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        if !result.contains("hi") {
-            return f"expected 'hi' in expansion, got: '{result}\x27";
-        }
-        if !result.contains("false") {
-            return f"expected default 'false' in expansion, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 9. DEFAULT PARAMETER OVERRIDDEN
-    // =========================================================================
-
-    suite.equal::<string>("params: default parameter overridden by explicit arg", "pass", fn () -> string {
-        var src = "macro say!(msg, loud = false) { msg loud }\nsay!(hi, true)\n";
-        var fid = make_virtual(sm, "default_override.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        if (!result.contains("hi")) || (!result.contains("true")) {
-            return f"expected 'hi true' in expansion, got: '{result}\x27";
+            self._unique_tag_cache[key] = tok.imm;
+            out->append(tok);
+            return out;
         }
 
-        if (result.contains("false")) && (!result.contains("true")) {
-            return f"default 'false' should be overridden, got: '{result}\x27";
+        // Untagged, or tagged at the top level: fresh on every invocation.
+        self._unique_counter += 1;
+
+        var name = (f"__synth_{self._fid}_{self._unique_counter}")
+            if tag.empty()
+            else (f"__synth_{tag}_{self._fid}_{self._unique_counter}");
+
+        out->append(self.make_ident_token(name, range));
+        return out;
+    }
+
+    priv fn _builtin_include(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
+
+        var tok = Token();
+        tok.kind  = TokenKind::TkMacroExpand;
+        tok.range = invoke->name.range;
+        tok.imm   = static_cast::<u32>(MacroSentinel::Include);
+
+        out->append(tok);
+        return out;
+    }
+
+    priv fn _builtin_include_str(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
+
+        var tok = Token();
+        tok.kind  = TokenKind::LitString;
+        tok.range = invoke->name.range;
+        tok.imm   = static_cast::<u32>(MacroSentinel::IncludeStr);
+
+        out->append(tok);
+        return out;
+    }
+
+    priv fn _builtin_embed(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
+
+        var tok = Token();
+        tok.kind  = TokenKind::TkMacroExpand;
+        tok.range = invoke->name.range;
+        tok.imm   = static_cast::<u32>(MacroSentinel::Embed);
+
+        out->append(tok);
+        return out;
+    }
+
+    // ======================================================================
+    //  Diagnostic builtins
+    // ======================================================================
+
+    priv fn _builtin_diag(
+        self,
+        invoke: *InvocationInfo,
+        level: DiagSeverity
+    ) -> *(TokenBuffer::<512>) {
+        var out  = std::create::<TokenBuffer::<512>>();
+        var args = self._parse_builtin_arguments(invoke);
+
+        if args.size() == 0 {
+            return out;
         }
-        return "pass";
-    }, 100);
 
-    // =========================================================================
-    // 10. TOO FEW ARGS ERROR
-    // =========================================================================
+        var message = string();
 
-    suite.equal::<string>("error: too few arguments produces error", "pass", fn () -> string {
-        var src = "macro need!(a, b) { a b }\nneed!(only_one)\n";
-        var fid = make_virtual(sm, "too_few_args.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess(fid, ModulePath());
-
-        // should have produced an error diagnostic (too few args)
-        // the expansion should not produce "only_one" in the final output as expanded
-        // (it should either error or leave the invocation as-is)
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 11. TOO MANY ARGS ERROR
-    // =========================================================================
-
-    suite.equal::<string>("error: too many arguments produces error", "pass", fn () -> string {
-        var src = "macro one!(a) { a }\none!(x, y, z)\n";
-        var fid = make_virtual(sm, "too_many_args.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess(fid, ModulePath());
-
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 12. PARAMETERLESS INVOKED WITH PARENS ERROR
-    // =========================================================================
-
-    suite.equal::<string>("error: parameterless macro invoked with parens", "pass", fn () -> string {
-        var src = "macro nope! { 1 }\nnope!()\n";
-        var fid = make_virtual(sm, "no_params_with_parens.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess(fid, ModulePath());
-
-        // should produce "does not accept arguments" error
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 13. PARAMETERIZED INVOKED WITHOUT PARENS ERROR
-    // =========================================================================
-
-    suite.equal::<string>("error: parameterized macro invoked without parens", "pass", fn () -> string {
-        var src = "macro need!(x) { x }\nneed!\n";
-        var fid = make_virtual(sm, "params_without_parens.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess(fid, ModulePath());
-
-        // should produce "requires arguments" error
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 14. SCOPED MACRO MODULE SCOPE
-    // =========================================================================
-
-    suite.equal::<string>("scope: macro inside module is scoped correctly", "pass", fn () -> string {
-        var src = "module Foo {\n    macro bar! { scoped_val }\n}\nFoo::bar!\n";
-        var fid = make_virtual(sm, "scoped_macro.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        if !result.contains("scoped_val") {
-            return f"expected 'scoped_val' from Foo::bar!, got: '{result}\x27";
+        // Canonical spellings are intentional. This handles synthesized
+        // identifiers and wrapped tokens consistently, but does not preserve
+        // source whitespace between separate tokens.
+        for var i: usize = 0; i < args[0]->size(); ++i {
+            message += self._builtin_token_text(args[0]->get(i));
         }
-        return "pass";
-    }, 100);
 
-    // =========================================================================
-    // 15. NESTED MODULE SCOPE
-    // =========================================================================
+        var code = DiagCode(DiagID::R010E)
+            if level == DiagSeverity::Error
+            else DiagCode(DiagID::R010W)
+            if level == DiagSeverity::Warning
+            else DiagCode(DiagID::R010N);
 
-    suite.equal::<string>("scope: nested module macro expansion", "pass", fn () -> string {
-        var src = "module A {\n    module B {\n        macro deep! { found_it }\n    }\n}\nA::B::deep!\n";
-        var fid = make_virtual(sm, "nested_scope.k", src);
+        self._diag->report(
+            code,
+            invoke->name.range.start,
+            message
+        ).first(invoke->name.range).emit();
 
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
+        return out;
+    }
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
 
-        if !result.contains("found_it") {
-            return f"expected 'found_it' from A::B::deep!, got: '{result}\x27";
+    // ======================================================================
+    //  Resolution
+    // ======================================================================
+
+    priv fn _resolve(self, inv: InvocationInfo) -> *MacroEntry {
+        if inv.is_qualified {
+            // exact scope
+            var e = self._macros->find(inv.qualified, inv.name_sym, self._fid);
+            if e != &null { return e; }
+            // alias head: module_aliases[first] + rest
+            if inv.qualified.segments.size() > 0 {
+                var head = inv.qualified.segments[0].name;
+                if self._imports->module_aliases.contains(head) {
+                    var scope = self._imports->module_aliases[head];
+                    for var k: usize = 1; k < inv.qualified.segments.size(); ++k {
+                        scope.segments.push_back(inv.qualified.segments[k]);
+                    }
+                    return self._macros->find(scope, inv.name_sym, self._fid);
+                }
+            }
+            return &null; // qualified NEVER falls back to unqualified
         }
-        return "pass";
-    }, 100);
 
-    // =========================================================================
-    // 16. DUPLICATE MACRO IN SAME SCOPE ERROR
-    // =========================================================================
+        // unqualified: current scope chain (same-fid, order irrelevant under
+        // the two-phase-free single walk since defs before this point are the
+        // only ones registered) -> named imports -> wildcards -> global
+        var scope = self._tracker->current_scope();
+        var e = self._macros->find_same_fid(scope, inv.name_sym, self._fid);
+        if e != &null { return e; }
 
-    suite.equal::<string>("error: duplicate macro definition in same scope", "pass", fn () -> string {
-        var src = "macro dup! { 1 }\nmacro dup! { 2 }\n";
-        var fid = make_virtual(sm, "duplicate_macro.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var macro_proc = PreProcessor(sm, &tcm, resolver, pool, &diag);
-        macro_proc.preprocess(fid, ModulePath());
-
-        // should produce a duplicate macro error
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 17. SAME NAME, DIFFERENT SCOPE OK
-    // =========================================================================
-
-    suite.equal::<string>("scope: same macro name in different modules is OK", "pass", fn () -> string {
-        var src = "module A {\n    macro mac! { from_A }\n}\nmodule B {\n    macro mac! { from_B }\n}\nA::mac!\nB::mac!\n";
-        var fid = make_virtual(sm, "same_name_diff_scope.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        if !result.contains("from_A") {
-            return f"expected 'from_A' from A::mac!, got: '{result}\x27";
+        if self._imports->named.contains(inv.name_sym) {
+            return self._imports->named[inv.name_sym];
         }
-        if !result.contains("from_B") {
-            return f"expected 'from_B' from B::mac!, got: '{result}\x27";
+
+        for wscope in self._imports->wildcards {
+            var w = self._macros->find(wscope, inv.name_sym, self._fid);
+            if w != &null { return w; }
         }
-        return "pass";
-    }, 100);
 
-    // =========================================================================
-    // 18. EXPANSION PRESERVES NON-MACRO TOKENS
-    // =========================================================================
+        // global scope (empty ModulePath)
+        return self._macros->find(ModulePath(), inv.name_sym, self._fid);
+    }
 
-    suite.equal::<string>("preserve: non-macro tokens are untouched", "pass", fn () -> string {
-        var src = "macro M! { expanded }\nvar x = M!\nvar y = 10\n";
-        var fid = make_virtual(sm, "preserve_tokens.k", src);
+    priv fn _sym_name(self, id: SymbolID) -> string {
+        var p = self._sym->resolve(id);
+        return ("<unknown>") if (p == &null) else (*p);
+    }
 
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        if !result.contains("expanded") {
-            return f"expected 'expanded', got: '{result}\x27";
+    priv fn _recover_to_terminator(self) {
+        while !self._src->at_eof() {
+            var k = self._src->peek(0).kind;
+            if (k == TokenKind::OpSemicolon) || (k == TokenKind::TkNewLine) {
+                self._src->next();
+                return;
+            }
+            self._src->next();
         }
-        if !result.contains("var") {
-            return f"expected 'var' preserved, got: '{result}\x27";
-        }
-        if !result.contains("10") {
-            return f"expected '10' preserved, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
+    }
 
-    // =========================================================================
-    // 19. MACRO BODY WITH COMPLEX EXPRESSIONS
-    // =========================================================================
+    // ======================================================================
+    //  Finalize
+    // ======================================================================
 
-    suite.equal::<string>("complex: macro body with operators and nested parens", "pass", fn () -> string {
-        var src = "macro expr!(a, b) { (a + b) * (a - b) }\nexpr!(x, y)\n";
-        var fid = make_virtual(sm, "complex_body.k", src);
+    priv fn _finalize(self) {
+        // hand the produced buffer to the TCM as this fid's tokens.
+        self._tcm->close_stream(self._fid, self._out);
+        self._out = &null; // ownership transferred to the slot
+        // splice buffers stay owned here until op delete their tokens were
+        // COPIED into _out via wrap/append, so freeing them post-handoff is safe.
+    }
+}
 
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
+// =========================================================================
+//  Batch driver replaces the old PreProcessor::preprocess phases
+// =========================================================================
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
+class PreProcessor {
+    priv var _sym:      *PreprocessorSymbolTable;
+    priv var _macros:   *MacroTable;
+    priv var _sm:       *SourceManager;
+    priv var _tcm:      *TokenCacheManager;
+    priv var _diag:     *DiagEngine;
+    priv var _pool:     *ThreadPool;
+    priv var _resolver: *ImportResolver;
+    priv var _gscope:   *GlobalDisambigTable;  ///< owns per-fid ASTContext/TU now
+    priv var _inv:      *CompilerInvocation;
+    priv var _opts:      PreprocessorOptions;
+    priv var _walked:    set::<u32>;
+    priv var _walked_mu: std::SharedMutex;   // wave tasks are parallel
 
-        // should produce: ( x + y ) * ( x - y )
-        if (!result.contains("x")) || (!result.contains("y")) || !result.contains("*") {
-            return f"expected complex expression, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
+    fn PreProcessor(self, sm: *SourceManager,       tcm:  *TokenCacheManager,
+                    resolver: *ImportResolver,      pool: *ThreadPool, diag: *DiagEngine,
+                    gscope:   *GlobalDisambigTable, inv:  *CompilerInvocation,
+                    opts:      PreprocessorOptions = PreprocessorOptions()) {
+        self._sym      = std::create::<PreprocessorSymbolTable>();
+        self._macros   = std::create::<MacroTable>();
+        self._sm       = sm;
+        self._tcm      = tcm;
+        self._resolver = resolver;
+        self._pool     = pool;
+        self._diag     = diag;
+        self._gscope   = gscope;
+        self._opts     = opts;
+        self._inv      = inv;
+    }
 
-    // =========================================================================
-    // 20. UNRESOLVED INVOCATION IS LEFT AS-IS
-    // =========================================================================
+    fn op delete (self) {
+        std::destroy(self._macros);
+        std::destroy(self._sym);
+    }
 
-    suite.equal::<string>("unresolved: unknown macro name left as tokens", "pass", fn () -> string {
-        var src = "not_a_macro!\n";
-        var fid = make_virtual(sm, "unresolved.k", src);
+    fn get_macro_table(self)  -> *MacroTable { return self._macros; }
+    fn get_symbol_table(self) -> *PreprocessorSymbolTable { return self._sym; }
 
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
+    fn preprocess(self, entry_fid: u32, entry_path: ModulePath) -> PPResult {
+        var out = PPResult();
+        self._resolver->wait_for_index();
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
+        var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._sym);
+        var graph   = scanner.build_graph(entry_fid, entry_path);
 
-        // should still contain "not_a_macro" and "!" as tokens
-        if !result.contains("not_a_macro") {
-            return f"expected unresolved invocation preserved, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
+        var executor = WaveExecutor(self._pool);
+        executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
+            {
+                // claim-on-entry is safe ONLY because execute() runs input files
+                // sequentially. if FrontendActions ever parallelize, this needs a
+                // per-fid completion latch, not a claimed-set.
+                var wlock = std::UniqueLock(self._walked_mu);
+                if self._walked.contains(fid) { return; }
+                self._walked.insert(fid);
+            }
 
-    // =========================================================================
-    // 21. SKIP LIST IMPORT STATEMENTS PRESERVED
-    // =========================================================================
+            var lexer = self._tcm->open_stream(fid);
+            if lexer == &null {
+                Logger::error(Logger::Stage::Preprocessor, f"PP: stream open failed fid={fid}");
+                return;
+            }
 
-    suite.equal::<string>("skiplist: import statement tokens preserved in output", "pass", fn () -> string {
-        var src = "macro M! { 42 }\nM!\n";
-        var fid = make_virtual(sm, "skiplist_import.k", src);
+            var ctx = self._gscope->get_or_create_context(
+                fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, mod_path);
+            var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+            if tu == &null {
+                tu = ctx->alloc_init::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
+                ctx->tu = reinterpret_cast::<*void>(tu);
+            }
 
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
+            var walker = std::create::<PPWalker>(
+                fid, lexer, ctx, tu, self._macros, self._resolver,
+                self._sym, self._sm, self._tcm, self._diag, self._opts, mod_path);
+            finally { std::destroy(walker); }
 
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
+            walker->run();
+        });
 
-        // macro definition should be in dead zone but still in output
-        if !result.contains("macro") {
-            return f"expected 'macro' keyword preserved in dead zone, got: '{result}\x27";
-        }
-        if !result.contains("42") {
-            return f"expected '42' from expansion, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 22. EMPTY MACRO BODY
-    // =========================================================================
-
-    suite.equal::<string>("edge: empty macro body expands to nothing", "pass", fn () -> string {
-        var src = "macro empty! { }\nvar x = empty!\n";
-        var fid = make_virtual(sm, "empty_body.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        // should have "var x =" but nothing where empty! was
-        if !result.contains("var") {
-            return f"expected 'var' preserved, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // 23. MACRO EXPANDING TO MULTIPLE STATEMENTS
-    // =========================================================================
-
-    suite.equal::<string>("multi-stmt: macro body with semicolons", "pass", fn () -> string {
-        var src = "macro setup! { var a = 1; var b = 2 }\nsetup!\n";
-        var fid = make_virtual(sm, "multi_stmt.k", src);
-
-        var resolver = ImportResolver::Builder()
-            .cwd((Path::temp_dir()) / "k_test_macro_preprocessor")
-            .create_ptr();
-        var diag     = DiagEngine();
-        var consumer = BasicDiagConsumer(sm);
-        diag.add_consumer(&consumer);
-        var tcm = TokenCacheManager(sm, pool, &diag);
-
-        var result = expand_to_text(sm, &tcm, resolver, pool, fid, &diag);
-
-        if (!result.contains("var")) || (!result.contains("1")) || !result.contains("2") {
-            return f"expected multi-statement expansion, got: '{result}\x27";
-        }
-        return "pass";
-    }, 100);
-
-    // =========================================================================
-    // DONE
-    // =========================================================================
-
-    pool->wait_all();
-    return 0;
+        out.ok = !self._diag->has_fatal();
+        out.fids.reserve(graph.all_fids.size());
+        for fid in graph.all_fids { out.fids.push_back(fid); }
+        libcxx::sort(out.fids.begin(), out.fids.end());
+        return out;
+    }
 }

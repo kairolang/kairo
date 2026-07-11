@@ -14,7 +14,7 @@ compile time.
 From the repo root:
 
 ```bash
-python3 Scripts/gen_diag.py Compiler/Diagnostics/TableGen > Compiler/Diag/DiagRegistry.k
+python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen/ > Compiler/Diagnostic/Registry.k
 ```
 
 Run this after any addition, removal, or modification to a `.diag.toml` file

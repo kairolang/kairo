@@ -1,4 +1,4 @@
-/// --- The Kairo Project ------------------------ Diagnostic/Registry.k --- ///
+/// --- The Kairo Project -------------------------------------------------- ///
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -173,6 +173,8 @@ enum DiagID derives u32 {
   R010W = compute_hash::<r"R010W">(),
   R010N = compute_hash::<r"R010N">(),
   R011E = compute_hash::<r"R011E">(),
+  R012E = compute_hash::<r"R012E">(),
+  R013E = compute_hash::<r"R013E">(),
   CL001W = compute_hash::<r"CL001W">(),
   CL001I = compute_hash::<r"CL001I">(),
   CL001R = compute_hash::<r"CL001R">(),
@@ -1724,6 +1726,26 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Error
       };
     }
+    case DiagID::R012E {
+      return DiagMeta{
+        brief: "declaration is not permitted inside a macro body",
+        group: "macro",
+        number: 12,
+        hash: static_cast::<u32>(compute_hash::<r"R012E">()),
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::R013E {
+      return DiagMeta{
+        brief: "unknown macro invocation",
+        group: "macro",
+        number: 13,
+        hash: static_cast::<u32>(compute_hash::<r"R013E">()),
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
+      };
+    }
     case DiagID::CL001W {
       return DiagMeta{
         brief: "place holder diagnostics",
@@ -2029,7 +2051,7 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::R001D { return "This is placeholder diagnostics. (Debug)"; }
     case DiagID::R001E { return "This is placeholder diagnostics. (Error)"; }
     case DiagID::R001F { return "This is placeholder diagnostics. (Fatal)"; }
-    case DiagID::R003E { return "The macro was invoked but no definition was found in the\ncurrent scope, imported scopes, or global scope."; }
+    case DiagID::R003E { return "macro lookup failed because an imported scope, macro table, or resolution dependency could not be\nprocessed correctly. this diagnostic indicates a resolution failure rather than an absent definition."; }
     case DiagID::R003W { return "The macro was invoked but could not be resolved. This may\nindicate a missing import or a typo in the macro name.\nExpansion was skipped."; }
     case DiagID::R003N { return "Related to an undefined macro reference above."; }
     case DiagID::R002E { return "# failed to lex imported file\n\nthe preprocessor attempted to lex a file that is referenced by an import statement, but the lexer\nreturned an error. this usually means the file does not exist, cannot be read, or contains\nunrecoverable lexical errors.\n\n## how to fix\nverify that the imported file path is correct and that the file is accessible and well-formed."; }
@@ -2043,6 +2065,8 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::R010W { return "# warn!() macro diagnostic\n\nthe source file explicitly invoked `warn!(message)` to emit a compile-time warning.\nthis is a user-defined diagnostic, not a compiler bug."; }
     case DiagID::R010N { return "# note!() macro diagnostic\n\nthe source file explicitly invoked `note!(message)` to emit a compile-time note."; }
     case DiagID::R011E { return "# failed to resolve import path\n\nthe preprocessor attempted to resolve an import path but could not locate a matching file or module.\nthis may indicate a missing file, a typo in the import statement, or an incorrect project layout.\n\n## how to fix\nverify that the imported file or module exists and that the import statement uses the correct path."; }
+    case DiagID::R012E { return "# declaration not permitted inside macro body\n\nan import or macro declaration appeared inside the replacement body of a token macro.\n\ntoken macro expansion may produce ordinary source tokens, but it may not introduce new imports\nor macro definitions. allowing these declarations would make dependency discovery and macro\nvisibility depend on expansion order.\n\n## example\n\n```kairo\nmacro invalid! {\n    import Foo::*;\n}\n```\n\n## how to fix\n\nmove the import or macro declaration outside the macro body. the macro may then reference names\nmade visible by that declaration."; }
+    case DiagID::R013E { return "# unknown macro invocation\n\na macro was invoked, but no visible definition with that name could be found.\n\nmacro lookup considers definitions visible at the invocation point, including accessible imported\nmacros and definitions in enclosing scopes. definitions declared later in the source are not visible\nwhen macro visibility is order-dependent.\n\n## example\n\n```kairo\nvar value = missing_macro!(42);\n```\n\n## how to fix\n\nverify that the macro name is spelled correctly, that its defining module is imported, and that the\ndefinition is visible before the invocation."; }
     case DiagID::CL001W { return "This is placeholder diagnostics. (Warning)"; }
     case DiagID::CL001I { return "This is placeholder diagnostics. (Info)"; }
     case DiagID::CL001R { return "This is placeholder diagnostics. (Remark)"; }
@@ -2409,6 +2433,8 @@ module Diag {
           case 9 { return DiagID::R009E; }
           case 10 { return DiagID::R010E; }
           case 11 { return DiagID::R011E; }
+          case 12 { return DiagID::R012E; }
+          case 13 { return DiagID::R013E; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for R and severity Error")); }
         }
       }

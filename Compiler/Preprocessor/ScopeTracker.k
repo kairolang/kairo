@@ -9,11 +9,13 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Macro::SymbolTable::*;
+import Preprocessor::PreprocessorSymbolTable::*;
+import Resolution::ModulePath::*;
 import Location::SourceManager::*;
 import Lexer::Immediate::*;
 import Token::TokenText::*;
 import Token::TokenCacheManager::*;
+import Preprocessor::TokenSource::*;
 
 enum ModuleVisibility derives u8 {
     Public,     ///< pub module or no modifier - exported
@@ -87,162 +89,91 @@ class ScopeTracker {
         return self._brace_depth;
     }
 
-    /// \brief processes a single token, updating scope state
-    /// \param tokens the token span to read from
-    /// \param i current token index
-    /// \return number of additional tokens consumed (0 if just this token)
-    fn update(self, tokens: TokenSpan, i: usize) -> usize {
-        if i >= tokens.size() { return 0; }
 
-        var tok = tokens.get(i);
+    // ======================================================================
+    //  Streaming driver (PP single-pass walk). Pulls from TokenSource; emits
+    //  consumed tokens through `emit` because module headers are real decls
+    //  the parser needs downstream. Mirrors update()+parse_module_decl but
+    //  forward-only, UNBOUNDED path length (no window).
+    // ======================================================================
 
-        // track all braces for scope popping
-        if tok->kind == TokenKind::OpLBrace {
+    /// \brief called by the walk when the current token is scope-relevant
+    ///        (`{`, `}`, or `module` visibility keywords are pre-stripped by
+    ///        the walk, which passes the resolved visibility in). Consumes and
+    ///        emits exactly the scope syntax; returns nothing (state updated).
+    ///
+    /// \note the walk owns pub/priv/prot routing (it must, to split
+    ///       `<vis> import`/`<vis> macro` from `<vis> module`). So by the time
+    ///       feed_stream sees a `module`, any visibility keyword is already
+    ///       consumed+emitted by the walk and its value handed in via `vis`.
+    fn feed_stream(self, src: *TokenSource, vis: ModuleVisibility, emit: fn(Token)) {
+        var k = src->peek(0).kind;
+
+        if k == TokenKind::OpLBrace {
             ++self._brace_depth;
-            return 0;
+            emit(src->next());
+            return;
         }
 
-        if tok->kind == TokenKind::OpRBrace {
+        if k == TokenKind::OpRBrace {
             --self._brace_depth;
+            emit(src->next());
             self.maybe_pop_scope();
-            return 0;
+            return;
         }
 
-        // check for visibility modifier followed by module
-        if tok->kind == TokenKind::KwPub {
-            if (i + 1) < tokens.size() {
-                var next = tokens.get(i + 1);
-                if next->kind == TokenKind::KwModule {
-                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Public) + 1;
-                }
+        if k != TokenKind::KwModule { return; } // defensive; walk shouldn't call otherwise
+        emit(src->next()); // `module`
+
+        // case: `module :: ...`
+        if src->peek(0).kind == TokenKind::OpColonColon {
+            emit(src->next()); // `::`
+
+            // `module :: {` global scope
+            if src->peek(0).kind == TokenKind::OpLBrace {
+                self.push_global_scope(vis);
+                return; // `{` consumed by the next _track_scope call
             }
-            return 0;
-        }
 
-        if tok->kind == TokenKind::KwPriv {
-            if (i + 1) < tokens.size() {
-                var next = tokens.get(i + 1);
-                if next->kind == TokenKind::KwModule {
-                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Private) + 1;
-                }
+            // `module ::Path {` absolute
+            var path = self._consume_module_path_stream(src, emit);
+            if (path.segments.size() > 0) && (src->peek(0).kind == TokenKind::OpLBrace) {
+                self.push_absolute_scope(path, vis);
             }
-            return 0;
+            return;
         }
 
-        if tok->kind == TokenKind::KwProt {
-            if (i + 1) < tokens.size() {
-                var next = tokens.get(i + 1);
-                if next->kind == TokenKind::KwModule {
-                    return self.parse_module_decl(tokens, i + 1, ModuleVisibility::Protected) + 1;
-                }
-            }
-            return 0;
+        // case: `module {` anonymous visibility block
+        if src->peek(0).kind == TokenKind::OpLBrace {
+            self.push_visibility_scope(vis);
+            return;
         }
 
-        // check for bare module keyword
-        if tok->kind == TokenKind::KwModule {
-            return self.parse_module_decl(tokens, i, ModuleVisibility::Public);
+        // case: `module Path {` relative
+        if src->peek(0).kind != TokenKind::LitIdentifier { return; }
+        var path = self._consume_module_path_stream(src, emit);
+        if (path.segments.size() > 0) && (src->peek(0).kind == TokenKind::OpLBrace) {
+            self.push_scope(path, vis);
         }
-
-        return 0;
     }
 
-    /// \brief parses module declaration starting at `module` keyword
-    /// \returns number of tokens consumed (not including the visibility modifier)
-    priv fn parse_module_decl(self, tokens: TokenSpan, module_idx: usize,
-                              visibility: ModuleVisibility) -> usize {
-        var j = module_idx + 1;
-        if j >= tokens.size() { return 0; }
+    /// \brief stream twin of parse_module_path: ident (:: ident)*, UNBOUNDED.
+    ///        Consumes and emits each token. Stops before the trailing `{`.
+    priv fn _consume_module_path_stream(self, src: *TokenSource, emit: fn(Token)) -> ModulePath {
+        var path = ModulePath();
 
-        var t = tokens.get(j);
-
-        // case: `module :: { }` - global scope
-        if t->kind == TokenKind::OpColonColon {
-            if (j + 1) < tokens.size() {
-                var next = tokens.get(j + 1);
-                if next->kind == TokenKind::OpLBrace {
-                    self.push_global_scope(visibility);
-                    return 2; // `module` + `::`
-                }
-            }
-            // `module ::Foo::Bar` syntax - parse as global-qualified path
-            var path_result = self.parse_module_path(tokens, j + 1);
-            if path_result.path.segments.size() > 0 {
-                var after_path = j + 1 + path_result.tokens_consumed;
-                if after_path < tokens.size() {
-                    var next_tok = tokens.get(after_path);
-                    if next_tok->kind == TokenKind::OpLBrace {
-                        self.push_absolute_scope(path_result.path, visibility);
-                        return 2 + path_result.tokens_consumed; // `module` + `::` + path
-                    }
-                }
-            }
-            return 0;
-        }
-
-        // case: `module { }` - anonymous visibility block
-        if t->kind == TokenKind::OpLBrace {
-            self.push_visibility_scope(visibility);
-            return 1; // just `module`, brace handled by normal tracking
-        }
-
-        // case: `module Ident...` or `module Foo::Bar...`
-        if t->kind != TokenKind::LitIdentifier { return 0; }
-
-        var path_result = self.parse_module_path(tokens, j);
-        if path_result.path.segments.size() == 0 { return 0; }
-
-        var after_path = j + path_result.tokens_consumed;
-        if after_path >= tokens.size() { return 0; }
-
-        var next_tok = tokens.get(after_path);
-        if next_tok->kind == TokenKind::OpLBrace {
-            self.push_scope(path_result.path, visibility);
-            return 1 + path_result.tokens_consumed; // `module` + path tokens
-        }
-
-        return 0;
-    }
-
-    struct PathParseResult {
-        var path:            ModulePath;
-        var tokens_consumed: usize;
-    }
-
-    /// \brief parses a module path (Foo::Bar::Baz)
-    /// \param tokens token span
-    /// \param start index of first identifier
-    /// \returns PathParseResult with path and token count
-    priv fn parse_module_path(self, tokens: TokenSpan, start: usize) -> PathParseResult {
-        var result = PathParseResult();
-        result.path = ModulePath();
-        result.tokens_consumed = 0;
-
-        var j = start;
-
-        while j < tokens.size() {
-            var t = tokens.get(j);
-            if t->kind != TokenKind::LitIdentifier { break; }
-
-            // create IdentifierToken from the token
+        while src->peek(0).kind == TokenKind::LitIdentifier {
+            var t = src->peek(0);
             var ident = IdentifierToken();
-            ident.token = tokens.get(j);
-            ident.name  = self._sym_table->intern(
-                TokenText::spelling(*ident.token, self._tcm));
+            ident.token = &null; // stream token is a copy; spelling is what's used
+            ident.name  = self._sym_table->intern(TokenText::spelling(t, self._tcm));
+            path.segments.push_back(ident);
+            emit(src->next());
 
-            result.path.segments.push_back(ident);
-            result.tokens_consumed += 1;
-
-            // check for ::
-            if (j + 1) >= tokens.size() { break; }
-            var next = tokens.get(j + 1);
-            if next->kind != TokenKind::OpColonColon { break; }
-
-            result.tokens_consumed += 1; // count the ::
-            j += 2; // skip ident and ::
+            if src->peek(0).kind != TokenKind::OpColonColon { break; }
+            emit(src->next()); // `::`
         }
-
-        return result;
+        return path;
     }
 
     /// \brief pushes a new relative scope

@@ -10,6 +10,7 @@
 /// ------------------------------------------------------------------------ ///
 
 ffi "c++" import "Native/CharTable.hh";
+ffi "c++" import "Native/Types.hh";
 
 type SymbolID = u32;;
 

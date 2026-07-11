@@ -35,8 +35,8 @@ group = "macro"
 
     [R003.E]
     explain = """
-    The macro was invoked but no definition was found in the
-    current scope, imported scopes, or global scope.
+    macro lookup failed because an imported scope, macro table, or resolution dependency could not be
+    processed correctly. this diagnostic indicates a resolution failure rather than an absent definition.
     """
 
     [R003.W]
@@ -223,4 +223,58 @@ group = "import"
 
     ## how to fix
     verify that the imported file or module exists and that the import statement uses the correct path.
+    """
+
+[R012]
+brief = "declaration is not permitted inside a macro body"
+group = "macro"
+
+    [R012.E]
+    explain = """
+    # declaration not permitted inside macro body
+
+    an import or macro declaration appeared inside the replacement body of a token macro.
+
+    token macro expansion may produce ordinary source tokens, but it may not introduce new imports
+    or macro definitions. allowing these declarations would make dependency discovery and macro
+    visibility depend on expansion order.
+
+    ## example
+
+    ```kairo
+    macro invalid! {
+        import Foo::*;
+    }
+    ```
+
+    ## how to fix
+
+    move the import or macro declaration outside the macro body. the macro may then reference names
+    made visible by that declaration.
+    """
+
+[R013]
+brief = "unknown macro invocation"
+group = "macro"
+
+    [R013.E]
+    explain = """
+    # unknown macro invocation
+
+    a macro was invoked, but no visible definition with that name could be found.
+
+    macro lookup considers definitions visible at the invocation point, including accessible imported
+    macros and definitions in enclosing scopes. definitions declared later in the source are not visible
+    when macro visibility is order-dependent.
+
+    ## example
+
+    ```kairo
+    var value = missing_macro!(42);
+    ```
+
+    ## how to fix
+
+    verify that the macro name is spelled correctly, that its defining module is imported, and that the
+    definition is visible before the invocation.
     """

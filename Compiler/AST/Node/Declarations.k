@@ -1033,9 +1033,10 @@ enum ImportKind derives u8 {
 struct ImportItem {
     var sub_path:    FrozenList::<Token>; ///< path relative to the base path.
     var alias:       Token;               ///< `as <name>`; meaningful iff has_alias.
+    var range:       SourceRange;
     var has_alias:   bool;
     var is_wildcard: bool;                ///< `*` inside the brace list.
-    var range:       SourceRange;
+    var is_macro:    bool;
 }
 
 class ImportDecl derives Decl, FFILinkage::<ImportDecl> {
@@ -1054,6 +1055,7 @@ class ImportDecl derives Decl, FFILinkage::<ImportDecl> {
     pub var has_alias:     bool = false;
     pub var is_wildcard:   bool = false;         ///< whole-path wildcard `import x::*`.
     pub var has_items:     bool = false;         ///< true when `items` is populated.
+    pub var last_seg_is_macro: bool = false;
 
     static fn create(ctx: *ASTContext, range: SourceRange, import_kind: ImportKind) -> *ImportDecl {
         var node         = ctx->alloc::<ImportDecl>();
@@ -1188,6 +1190,17 @@ class TestDecl derives Decl, DeclContext {
     }
 }
 
+/// structured, klib-visible macro parameter. default token TEXT lives in the
+/// runtime MacroEntry's owned storage; the node carries offsets so printing
+/// and klib can reconstruct without retaining source buffers.
+struct MacroParamSpec {
+    var name:        Token;
+    var variadic:    u8   = 0;    ///< 0 none / 1 named / 2 unnamed
+    var has_default: bool = false;
+    var default_off: u32  = 0;    ///< offset into MacroEntry storage
+    var default_len: u32  = 0;
+}
+
 ///
 ///  MacroDecl
 ///  macro foo!(x) { ... } token-level macro.
@@ -1197,9 +1210,10 @@ class TestDecl derives Decl, DeclContext {
 ///
 class MacroDecl derives Decl {
     pub var name:      Token;
-    pub var params:    FrozenList::<Token>;   ///< typeless macro params.
-    pub var body_span: SourceRange;           ///< raw body token span.
-    pub var is_variadic: bool = false;        ///< `macro f!(...args)`.
+    pub var params_spec: FrozenList::<MacroParamSpec>; ///< structured param info for klib/runtime.
+    pub var body_span: SourceRange;                    ///< raw body token span.
+    pub var is_variadic: bool = false;                 ///< `macro f!(...args)`.
+    pub var accepts_params: bool = false;              ///< `macro f!(x, y) { ... }` vs `macro f! { ... }`.
 
     static fn create(ctx: *ASTContext, range: SourceRange, name: Token) -> *MacroDecl {
         var node   = ctx->alloc::<MacroDecl>();
