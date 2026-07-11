@@ -113,7 +113,7 @@ Examples:
 ```
 
 
-Avoid vague messages like “fixed things”.
+Avoid vague messages like "fixed things".
 
 ---
 

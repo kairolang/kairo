@@ -81,7 +81,7 @@ class TermRenderer {
             } else if (b & 0xE0) == 0xC0 {
                 w += 1; i += 2;
             } else if (b & 0xF0) == 0xE0 {
-                w += 1; i += 3;   // most BMP glyphs are 1 column (→, │, ┌ etc.)
+                w += 1; i += 3;   // most BMP glyphs are 1 column (->, │, ┌ etc.)
             } else if (b & 0xF8) == 0xF0 {
                 w += 2; i += 4;   // assume emoji/CJK supplementary are 2 columns
             } else {

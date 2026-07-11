@@ -1,4 +1,3 @@
-import imp::mac!
+import imp
 
-var x = mac!
 var y = imp::mac!
