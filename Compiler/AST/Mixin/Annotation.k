@@ -220,16 +220,16 @@ class <T> Annotation {
     // (e.g. ignore, merge spans, emit a diag, etc).
 
     fn add_annotation(self, kind: AnnotationKind, name: u32, range: SourceRange) {
-        assert(self.annotations.has_allocator()
-               && r"Annotation::add_* called before init_annotations()");
+        std::ICE(self.annotations.has_allocator(),
+                 "Annotation::add_* called before init_annotations()");
         self.annotations.push(AnnotationEntry(kind, name, range));
         self.presence |= __inline_cpp("Annotation<T>::_bit_for(kind)");
     }
 
     fn add_annotation(self, kind: AnnotationKind, name: u32,
                       range: SourceRange, args: FrozenList::<*void>) {
-        assert(self.annotations.has_allocator()
-               && r"Annotation::add_* called before allocator wiring");
+        std::ICE(self.annotations.has_allocator(),
+                 "Annotation::add_* called before allocator wiring");
         var e  = AnnotationEntry(kind, name, range);
         e.args = args;
         self.annotations.push(e);

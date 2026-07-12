@@ -102,7 +102,7 @@ class TokenCacheManager {
         }
 
         var st = self._slots[fid].state;
-        assert((st == SlotState::NotLexed) && r"open_stream: fid already open or closed");
+        std::ICE(st == SlotState::NotLexed, "open_stream: fid already open or closed");
 
         var imm = std::create::<ImmediateTable>();
         imm->initialize(self._sm);

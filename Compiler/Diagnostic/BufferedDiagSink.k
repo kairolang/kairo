@@ -28,7 +28,7 @@ class BufferedDiagSink derives DiagEngineVBase {
 
     // sink does NOT own-free on dtor assert on bug
     fn op delete (self) {
-        assert((self._diags.size() == 0) && r"BufferedDiagSink dropped without drain");
+        std::ICE(self._diags.size() == 0, "BufferedDiagSink dropped without drain");
     }
 
     // --- report: mirror DiagEngine exactly so DiagBuilder binds to us -------
