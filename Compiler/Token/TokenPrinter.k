@@ -380,7 +380,7 @@ class TokenPrinter {
         var d = tbl->get::<Immediate::StringData>(imm);
         var s = self._sgr;
 
-        var body_text = self._sm->get_text(d->body);
+        var body_text = tbl->string_text(imm, self._sm); // owned bytes when synthesized
         var kind_str  = self._text_prefix_kind_str(d->prefix_kind);
 
         var line: string;

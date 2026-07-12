@@ -554,6 +554,13 @@ class TokenText {
                 }
 
                 return create(f"$FALLBACK-MISSING-INTERN$ {sm->get_text(tok_range)}");
+            } case TokenKind::LitString {
+                if tbl != &null {
+                    var str_text = tbl->string_text(imm, sm);
+                    return create(f"\"{str_text}\"");
+                }
+
+                return create(f"$FALLBACK-MISSING-STRING-INTERN$ {sm->get_text(tok_range)}");
             } default {
                 // everything else falls back to the source manager
                 return TokenText(sm->get_text(tok_range), tok_range, is_expand, false);

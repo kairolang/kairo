@@ -270,7 +270,7 @@ class PrettyDiagConsumer derives DiagConsumer {
         return out;
     }
 
-    /// Codes render on standalone diagnostics regardless of severity — a
+    /// Codes render on standalone diagnostics regardless of severity a
     /// top-level note is independently suppressible and greppable. Children are
     /// supporting evidence for their parent and have no independent existence,
     /// so a code there is noise.
