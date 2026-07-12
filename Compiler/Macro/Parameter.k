@@ -14,7 +14,6 @@ import Preprocessor::PreprocessorSymbolTable::*;
 import Token::TokenSpan::*;
 
 class MacroParameter {
-    
     enum VariadicType derives u8 {
         None,    ///< not variadic
         Named,   ///< named variadic (e.g., =...rest)

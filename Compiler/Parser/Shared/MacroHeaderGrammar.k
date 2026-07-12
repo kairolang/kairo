@@ -6,7 +6,7 @@
 ///   PP-canonical semantics (replaces the collector's parse_params /
 ///   parse_default_value AND the param loop in DeclParse::_parse_macro):
 ///     - `!` REQUIRED after the name (S037E)
-///     - param := IDENT | IDENT = default | IDENT... | ...
+///     - param := IDENT | IDENT = default | ...IDENT | ...
 ///     - variadic must be last; required cannot follow default
 ///     - default = balanced token run to `,` / `)` at depth 0, COPIED out
 ///
@@ -100,14 +100,30 @@ class <T> MacroHeaderGrammar {
                 return hdr;
             }
 
-            // unnamed variadic: `...`
+            // variadic: `...ident` (named) or `...` (unnamed).
+            // Prefix form, matching `fn f(...args: T)`.
             if k == TokenKind::OpEllipsis {
+                if seen_default {
+                    mhd()->ig_err(mhd()->ig_tok().range,
+                        "variadic parameter cannot follow default parameters; place `...` after all required parameters",
+                        DiagID::S042E);
+                    return hdr;
+                }
+
                 var p = MacroHeaderParam();
-                p.name     = mhd()->ig_tok(); // range carrier; consumer synthesizes __va_args
-                p.variadic = 2;
+                p.name = mhd()->ig_tok();   // range carrier for the unnamed case
+                mhd()->ig_bump();           // consume `...`
+
+                if mhd()->ig_kind() == TokenKind::LitIdentifier {
+                    p.name     = mhd()->ig_tok();
+                    p.variadic = 1;         // named:   `...xs`
+                    mhd()->ig_bump();
+                } else {
+                    p.variadic = 2;         // unnamed: `...`
+                }
+
                 hdr.params.push_back(p);
                 seen_variadic = true;
-                mhd()->ig_bump();
                 continue;
             }
 
@@ -131,19 +147,13 @@ class <T> MacroHeaderGrammar {
 
             var nk = mhd()->ig_kind();
 
-            // named variadic: `ident...`
+            // postfix `ident...` is NOT the variadic syntax. Catch it explicitly
+            // so the diagnostic points at the real mistake.
             if nk == TokenKind::OpEllipsis {
-                if seen_default {
-                    mhd()->ig_err(mhd()->ig_tok().range,
-                        "variadic parameter cannot follow default parameters; place `...` after all required parameters",
-                        DiagID::S042E);
-                    return hdr;
-                }
-                p.variadic = 1;
-                seen_variadic = true;
-                mhd()->ig_bump();
-                hdr.params.push_back(p);
-                continue;
+                mhd()->ig_err(p.name.range | mhd()->ig_tok().range,
+                    "variadic parameters use a prefix '...': write '...name', not 'name...\x27",
+                    DiagID::S042E);
+                return hdr;
             }
 
             // default: `ident = <balanced run>`
