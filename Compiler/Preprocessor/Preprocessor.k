@@ -72,25 +72,25 @@ class PPWalker
     priv var _imm:     obs::<ImmediateTable>;
     priv var _lexer:   obs::<Lexer>;
     priv var _inv:     obs::<CompilerInvocation>;
+    priv var _sink:    obs::<TokenBuffer::<512>>;
     priv var _unique_tag_cache:  map::<string, u32>;
-    priv var _undefined_macros:  set::<SymbolID>;
-    priv var _fid:             u32 = u32(-1); //< invalid sentinel
-    priv var _expansion_count: i32 = 0;
-    priv var _unique_counter:  u32 = 0;
+    priv var _fid:               u32 = u32(-1); //< invalid sentinel
+    priv var _expansion_count:   i32 = 0;
+    priv var _unique_counter:    u32 = 0;
 
     fn PPWalker(
         self,
-        fid:      u32,
-        lexer:    *Lexer,
-        ctx:      *ASTContext,
-        tu:       *TranslationUnit,
-        macros:   *MacroTable,
-        resolver: *ImportResolver,
-        sym:      *PreprocessorSymbolTable,
-        sm:       *SourceManager,
-        tcm:      *TokenCacheManager,
-        diag:     *DiagEngine,
-        opts:     PreprocessorOptions,
+        fid:         u32,
+        lexer:      *Lexer,
+        ctx:        *ASTContext,
+        tu:         *TranslationUnit,
+        macros:     *MacroTable,
+        resolver:   *ImportResolver,
+        sym:        *PreprocessorSymbolTable,
+        sm:         *SourceManager,
+        tcm:        *TokenCacheManager,
+        diag:       *DiagEngine,
+        opts:        PreprocessorOptions,
         module_base: ModulePath
     ) {
         self._fid     = fid;
@@ -108,6 +108,7 @@ class PPWalker
         self._src     = std::create::<TokenSource>(lexer);
         self._imports = std::create::<FileImportIndex>(sym, sm, tcm, resolver, macros, diag, fid);
         self._tracker = std::create::<ScopeTracker>(sym, sm, self._imm, tcm, module_base);
+        self._sink    = self._out;
     }
 
     fn op delete (self) {
@@ -216,7 +217,7 @@ class PPWalker
                 return;
             }
         }
-        self._out->append(t);
+        self._sink->append(t);
     }
 
     // ======================================================================
@@ -472,18 +473,23 @@ class PPWalker
     //  tokens (between balanced parens) into inv.arg_toks.
 
     struct InvocationInfo {
-        var qualified: ModulePath;
-        var name:      Token;
-        var name_sym:  SymbolID = 0;
-        var is_qualified: bool = false;
-        var has_args:  bool = false;
-        var arg_toks:  vec::<Token>;   ///< raw tokens between ( ), balanced
-        var range:     SourceRange = SourceRange::invalid();
-        var found:     bool = false;
+        var qualified:    ModulePath;
+        var chain:        vec::<SymbolID>; ///< frame names live at detection
+        var arg_toks:     vec::<Token>;    ///< raw tokens between ( ), balanced
+        var name:         Token;
+        var name_sym:     SymbolID    = 0;
+        var range:        SourceRange = SourceRange::invalid();
+        var origin_site:  SourceRange = SourceRange::invalid(); ///< outermost invoke loc at detection
+        var is_qualified: bool        = false;
+        var found:        bool        = false;
+        var has_args:     bool        = false;
     }
 
     priv fn _detect_invocation(self) -> InvocationInfo {
         var result = InvocationInfo();
+
+        result.origin_site = self._src->bottom_invoke_loc();
+        self._src->snapshot_chain(&result.chain);
 
         if self._src->peek(0).kind != TokenKind::LitIdentifier { return result; }
 
@@ -562,6 +568,43 @@ class PPWalker
         return result;
     }
 
+    priv fn _report_expand_err(
+        self, code: DiagID, inv: *InvocationInfo, msg: string,
+        note: string = "expanded from here", remark: string = ""
+    ) {
+        var site = self._inv_site(inv);
+        if !remark.empty() {
+            if (site.start.id) != (inv->range.start.id) {
+                self._diag->report(DiagCode(code), site.start, msg)
+                    .first(site)
+                    .note(inv->range.start, note)
+                        .child_first(inv->range)
+                    .remark(remark)
+                    .emit();
+                return;
+            }
+
+            self._diag->report(DiagCode(code), site.start, msg)
+                .first(site).remark(remark).emit();
+            
+            return;
+        }
+
+        if (site.start.id) != (inv->range.start.id) {
+            self._diag->report(DiagCode(code), site.start, msg)
+                .first(site)
+                .note(inv->range.start, note)
+                    .child_first(inv->range)
+                .emit();
+            return;
+        }
+
+        self._diag->report(DiagCode(code), site.start, msg)
+            .first(site).emit();
+        
+        return;
+    }
+
     priv fn _expand(self, inv: InvocationInfo) {
         if self._opts.macro_debug {
             var nm = self._sym_name(inv.name_sym);
@@ -577,55 +620,72 @@ class PPWalker
             return;
         }
 
-        // 2. resolve (order-dependent + scoped + visibility)
         var entry = self._resolve(inv);
         if entry == &null {
-            // PP owns the error now (old code passed unknown foo! to the AST)
-            self._diag->report(DiagCode(DiagID::R013E), inv.range.start,
-                f"unknown macro '{self._sym_name(inv.name_sym)}!' (macros must be defined or imported before use)"
-            ).first(inv.range).emit();
+            self._report_expand_err(DiagID::R013E, &inv,
+                f"unknown macro '{self._sym_name(inv.name_sym)}!' (macros must be defined or imported before use)");
+            self._emit_poison(&inv);
             return;
         }
 
-        // 3. paren/arity validation (PORT: R006E / R007E)
         if entry->decl->accepts_params && (!inv.has_args) {
-            self._diag->report(DiagCode(DiagID::R006E), inv.range.start,
-                f"macro '{self._sym_name(inv.name_sym)}!' requires arguments; add '(...)\x27"
-            ).first(inv.range).emit();
+            self._report_expand_err(DiagID::R006E, &inv,
+                f"macro '{self._sym_name(inv.name_sym)}!' requires arguments; add '(...)\x27");
+            self._emit_poison(&inv);
             return;
         }
+
         if (!entry->decl->accepts_params) && inv.has_args {
-            self._diag->report(DiagCode(DiagID::R007E), inv.range.start,
-                f"macro '{self._sym_name(inv.name_sym)}!' is parameterless; remove '(...)\x27"
-            ).first(inv.range).emit();
+            self._report_expand_err(DiagID::R007E, &inv,
+                f"macro '{self._sym_name(inv.name_sym)}!' is parameterless; remove '(...)\x27");
+            self._emit_poison(&inv);
             return;
         }
 
-        // 4. depth / budget (PORT; depth = self._src->depth())
         if i32(self._src->depth()) >= self._opts.max_depth {
-            self._diag->report(DiagCode(DiagID::R008E), inv.range.start,
-                f"macro expansion depth limit ({self._opts.max_depth}) exceeded"
-            ).first(inv.range).emit();
-            return;
-        }
-        if (self._opts.max_expansions > 0) && (self._expansion_count >= self._opts.max_expansions) {
-            self._diag->report(DiagCode(DiagID::R008E), inv.range.start,
-                "macro expansion budget exhausted"
-            ).first(inv.range).emit();
+            self._report_expand_err(DiagID::R008E, &inv,
+                f"macro expansion depth limit ({self._opts.max_depth}) exceeded",
+                "expanded from here",
+                f"limit can be increased with --cmax-macro-depth=N");
+            self._emit_poison(&inv);
             return;
         }
 
-        // 5. cycle the FRAME STACK, not a side vector (the quad! fix)
-        if self._src->in_active_chain(entry->name_sym) {
-            self._diag->report(DiagCode(DiagID::R008E), inv.range.start,
-                f"recursive expansion of macro '{self._sym_name(inv.name_sym)}!\x27"
-            ).first(inv.range).emit();
+        if (self._opts.max_expansions > 0) && (self._expansion_count >= self._opts.max_expansions) {
+            self._report_expand_err(DiagID::R008E, &inv,
+                "macro expansion budget exhausted",
+                "expanded from here",
+                f"budget can be increased with --cmax-macro-expansions=N, current budget is {self._opts.max_expansions}");
+
+            self._emit_poison(&inv);
+            return;
+        }
+
+        if (self._opts.max_expansions > 0) && (self._expansion_count >= self._opts.max_expansions) {
+            self._report_expand_err(DiagID::R008E, &inv,
+                "macro expansion budget exhausted",
+                "expanded from here",
+                f"budget can be increased with --cmax-macro-expansions=N, current budget is {self._opts.max_expansions}");
+            return;
+        }
+
+        var cyclic = false;
+        for s in inv.chain {
+            if s == entry->name_sym { cyclic = true; break; }
+        }
+
+        if cyclic {
+            self._report_expand_err(DiagID::R008E, &inv,
+                f"cyclic expansion of macro '{self._sym_name(inv.name_sym)}!\x27",
+                "recursion occurs here, in the macro body",
+                "a macro cannot invoke itself; recursion is not supported in token macros");
+            self._emit_poison(&inv);
             return;
         }
 
         self._expansion_count += 1;
 
-        // 6. ARGUMENTS PRE-EXPAND IN CALLER CONTEXT (before pushing the frame)
+        //    ARGUMENTS PRE-EXPAND IN CALLER CONTEXT (before pushing the frame)
         //    Each arg is a token run; expand invocations within it against the
         //    CURRENT chain by recursively running a nested expansion over a
         //    temporary TokenSource seeded with the arg tokens. Because the
@@ -633,7 +693,7 @@ class PPWalker
         var bound = self._bind_and_substitute(entry, &inv);
         if bound == &null { return; }
 
-        // 7. push; the walk re-enters the spliced body next loop turn, and any
+        //    push; the walk re-enters the spliced body next loop turn, and any
         //    nested invocations inside it are found by _detect_invocation again.
         self._push_splice(bound, entry->name_sym, inv.range);
     }
@@ -643,11 +703,49 @@ class PPWalker
         self._src->push_splice(buf, name, loc);
     }
 
+    priv fn _buf_has_invocation(self, b: *(TokenBuffer::<512>)) -> bool {
+        for var i: usize = 0; i + 1 < b->size(); ++i {
+            if (b->get(i)->kind == TokenKind::LitIdentifier)
+            && (b->get(i + 1)->kind == TokenKind::OpExclaim) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    priv fn _expand_buffer(self, src_buf: *(TokenBuffer::<512>)) -> *(TokenBuffer::<512>) {
+        var out   = std::create::<TokenBuffer::<512>>();
+        var saved = self._sink;
+        self._sink = out;
+
+        var d0 = self._src->depth();
+        self._src->push_splice(src_buf, 0, SourceRange::invalid());
+
+        while self._src->depth() > d0 {
+            var t = self._src->peek(0);
+            if t.kind == TokenKind::TkEof { break; }
+            var inv = self._detect_invocation();
+            if inv.found { self._expand(inv); continue; }
+            self._emit(self._src->next());
+        }
+
+        self._sink = saved;
+        return out;
+    }
+
     priv fn _bind_and_substitute(self, e: *MacroEntry, inv: *InvocationInfo) -> *(TokenBuffer::<512>) {
-        // pre-expand each arg in caller context (recursive nested expansion),
-        // matching old code's "clear active, expand, restore" but keyed to the
-        // frame-stack chain instead of a side vector.
-        var args = self._parse_builtin_arguments(inv); // already splits on top-level commas
+        // Args pre-expand in CALLER context: the callee's frame is not on the
+        // stack yet, so square!(square!(x)) is legal. Cycle detection then only
+        // fires on true body-recursion (boom!).
+        var args = self._parse_builtin_arguments(inv); // splits on top-level commas
+
+        for var k: usize = 0; k < args.size(); ++k {
+            if self._buf_has_invocation(args[k]) {
+                var ex = self._expand_buffer(args[k]);
+                std::destroy(args[k]);
+                args[k] = ex;
+            }
+        }
 
         var params   = &(e->decl->params_spec);
         var required: usize = 0;
@@ -661,15 +759,13 @@ class PPWalker
         var non_variadic_count = variadic_idx if has_variadic else params->size();
 
         if args.size() < required {
-            self._diag->report(DiagCode(DiagID::R006E), inv->range.start,
-                f"macro '{self._sym_name(inv->name_sym)}!' expects at least {required} arguments, got {args.size()}"
-            ).first(inv->range).emit();
+            self._report_expand_err(DiagID::R006E, inv,
+                f"macro '{self._sym_name(inv->name_sym)}!' expects at least {required} arguments, got {args.size()}");
             return &null;
         }
         if (!has_variadic) && (args.size() > params->size()) {
-            self._diag->report(DiagCode(DiagID::R006E), inv->range.start,
-                f"macro '{self._sym_name(inv->name_sym)}!' expects at most {params->size()} arguments, got {args.size()}"
-            ).first(inv->range).emit();
+            self._report_expand_err(DiagID::R006E, inv,
+                f"macro '{self._sym_name(inv->name_sym)}!' expects at most {params->size()} arguments, got {args.size()}");
             return &null;
         }
 
@@ -685,6 +781,7 @@ class PPWalker
                     dflt->append(*(e->storage->get(d)));
                 }
                 bindings[name_sym] = dflt;
+                self._splices.push_back(dflt); // owner; freed in op delete (leak fix)
             }
         }
 
@@ -814,7 +911,6 @@ class PPWalker
 
         // macro visibility
         if name == "defined" { return self._builtin_defined(invoke); }
-        if name == "undef"   { return self._builtin_undef(invoke); }
 
         // deferred code generation
         if name == "todo"        { return self._builtin_todo(invoke); }
@@ -853,6 +949,19 @@ class PPWalker
             range.start,
             message
         ).first(range).emit();
+    }
+
+    priv fn _inv_site(self, inv: *InvocationInfo) -> SourceRange {
+        if inv->origin_site.is_valid() { return inv->origin_site; }
+        return inv->range;
+    }
+
+    priv fn _emit_poison(self, inv: *InvocationInfo) {
+        var tok = Token();
+        tok.kind  = TokenKind::TkMacroExpand;
+        tok.range = self._inv_site(inv);
+        tok.imm   = static_cast::<u32>(MacroSentinel::Poison);
+        self._emit(tok);
     }
 
     /// Splits the tokens inside `(...)` at top-level commas.
@@ -1152,18 +1261,56 @@ class PPWalker
         return out;
     }
 
-    priv fn _builtin_concat(
-        self,
-        invoke: *InvocationInfo
-    ) -> *(TokenBuffer::<512>) {
+    /// `concat!(a, b, ...)` — token paste. Joins the canonical spelling of every
+    /// token in every argument and produces ONE identifier.
+    ///   concat!(get_, name) -> `get_name`
+    /// Non-identifier results (numbers, operators) are not yet supported: they
+    /// need owned imm payloads, which StringData/IntData do not have.
+    priv fn _builtin_concat(self, invoke: *InvocationInfo) -> *(TokenBuffer::<512>) {
         var out  = std::create::<TokenBuffer::<512>>();
         var args = self._parse_builtin_arguments(invoke);
 
-        for var k: usize = 0; k < args.size(); ++k {
-            self._append_builtin_argument(out, args[k]);
+        if args.size() == 0 {
+            self._builtin_report(invoke->range,
+                "builtin 'concat!()' requires at least one argument", DiagID::R009E);
+            return out;
         }
 
+        var text = string();
+        for var k: usize = 0; k < args.size(); ++k {
+            var a = args[k];
+            for var i: usize = 0; i < a->size(); ++i {
+                text += self._builtin_token_text(a->get(i));
+            }
+        }
+
+        if !self._is_identifier_text(text) {
+            self._builtin_report(invoke->range,
+                f"builtin 'concat!()': '{text}' is not a valid identifier; concat! can only paste identifier-like tokens",
+                DiagID::R009E);
+            return out;
+        }
+
+        out->append(self.make_ident_token(text, invoke->range));
         return out;
+    }
+
+    priv fn _is_identifier_text(self, s: string) -> bool {
+        if s.empty() { return false; }
+        var c0 = s[0];
+        var head_ok = ((c0 >= 'a') && (c0 <= 'z'))
+                   || ((c0 >= 'A') && (c0 <= 'Z'))
+                   || (c0 == '_') || (c0 == '#');
+        if !head_ok { return false; }
+        for var i: usize = 1; i < s.length(); ++i {
+            var c = s[i];
+            var ok = ((c >= 'a') && (c <= 'z'))
+                  || ((c >= 'A') && (c <= 'Z'))
+                  || ((c >= '0') && (c <= '9'))
+                  || (c == '_') || (c == '#');
+            if !ok { return false; }
+        }
+        return true;
     }
 
     // ======================================================================
@@ -1330,45 +1477,6 @@ class PPWalker
             found,
             invoke->name.range
         ));
-
-        return out;
-    }
-
-    priv fn _builtin_undef(
-        self,
-        invoke: *InvocationInfo
-    ) -> *(TokenBuffer::<512>) {
-        var out  = std::create::<TokenBuffer::<512>>();
-        var args = self._parse_builtin_arguments(invoke);
-
-        if (args.size() != 1) || (args[0]->size() != 1) {
-            self._builtin_report(
-                invoke->range,
-                "builtin 'undef!()' requires exactly one macro identifier",
-                DiagID::R009E
-            );
-            return out;
-        }
-
-        var name_tok = args[0]->get(0);
-
-        if name_tok->kind != TokenKind::LitIdentifier {
-            self._builtin_report(
-                name_tok->range,
-                "builtin 'undef!()' argument must be a macro identifier",
-                DiagID::R009E
-            );
-            return out;
-        }
-
-        var name_sym = self._sym->intern(
-            self._builtin_token_text(name_tok)
-        );
-
-        // Do not mutate the shared MacroTable. Walkers execute in parallel and an
-        // imported macro may still be required by another fid. This masks the name
-        // only for the remainder of the current fid.
-        self._undefined_macros.insert(name_sym);
 
         return out;
     }
@@ -1654,7 +1762,7 @@ class PreProcessor {
     priv var _inv:      *CompilerInvocation;
     priv var _opts:      PreprocessorOptions;
     priv var _walked:    set::<u32>;
-    priv var _walked_mu: std::SharedMutex;   // wave tasks are parallel
+    priv var _walked_mu: std::SharedMutex;     // wave tasks are parallel
 
     fn PreProcessor(self, sm: *SourceManager,       tcm:  *TokenCacheManager,
                     resolver: *ImportResolver,      pool: *ThreadPool, diag: *DiagEngine,

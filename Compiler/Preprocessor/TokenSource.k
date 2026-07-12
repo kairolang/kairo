@@ -79,19 +79,41 @@ class TokenSource {
         return self._frames.back().serial;
     }
 
-    fn depth(self)     -> usize { return self._frames.size();     }
-    fn in_splice(self) -> bool  { return self._frames.size() > 0; }
+    fn depth(self) -> usize {
+        self._pop_dead();
+        return self._frames.size();
+    }
+
+    fn in_splice(self) -> bool {
+        self._pop_dead();
+        return self._frames.size() > 0;
+    }
 
     fn in_active_chain(self, name: SymbolID) -> bool {
+        if name == 0 { return false; }
         for f in self._frames {
-            if f.macro_name == name { return true; }
+            if (f.macro_name != 0) && (f.macro_name == name) { return true; }
         }
         return false;
+    }
+
+    fn snapshot_chain(self, out: *vec::<SymbolID>) {
+        for f in self._frames {
+            if f.macro_name != 0 { out->push_back(f.macro_name); }
+        }
     }
 
     fn top_invoke_loc(self) -> SourceRange {
         if self._frames.size() == 0 { return SourceRange::invalid(); }
         return self._frames.back().invoke_loc;
+    }
+
+    fn bottom_invoke_loc(self) -> SourceRange {
+        for var i: usize = 0; i < self._frames.size(); ++i {
+            var f = &self._frames[i];
+            if f->invoke_loc.is_valid() { return f->invoke_loc; }
+        }
+        return SourceRange::invalid();
     }
 
     // --- internal: keep the topmost frame live ---------------------------
