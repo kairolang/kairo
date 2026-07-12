@@ -1717,7 +1717,16 @@ class <T> StmtParse {
             auto imm = dyn()->ctx->get_imm_table()->template get<Immediate::StringData>(tok.imm);
         }
 
-        var spelling = dyn()->ctx->get_spelling(imm->body);
+        // owned-text strings (synthesized by the PP) have no source range
+        var spelling = string();
+        if imm->has_owned_text() {
+            spelling = string(
+                reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(imm->owned_ptr),
+                static_cast::<usize>(imm->owned_len)
+            );
+        } else {
+            spelling = dyn()->ctx->get_spelling(imm->body);
+        }
         var as_lower: string;
         as_lower.reserve(spelling.size());
 

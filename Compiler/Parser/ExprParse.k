@@ -34,6 +34,7 @@ import Diagnostic::Registry::*;
 import Location::SourceRange::*;
 import Token::Token::*;
 import Token::TokenKind::*;
+import Macro::Sentinel::*;
 import AST::Node::Statements::*;
 import Parser::LexicalScope::*;
 
@@ -1588,9 +1589,19 @@ class <T> ExprParse {
         }
 
         // -- no production matched -----------------------------------
-        var resolved_kind = dyn()->resolve_kind_deep(cur_ptr);
+        var resolved = dyn()->resolve_deep(cur_ptr);
+
+        // poisoned macro expansion: the PP already reported the real error at
+        // the invocation site. A second "expected expression" here is pure
+        // noise consume the sentinel and recover silently.
+        if (static_cast::<u32>(resolved.kind) == static_cast::<u32>(TokenKind::TkMacroExpand))
+        && (resolved.imm == static_cast::<u32>(MacroSentinel::Poison)) {
+            dyn()->advance();
+            return self._error_expr(cur_range);
+        }
+
         dyn()->diag->report(DiagID::S052E, cur_range.start,
-            f"expected expression, found '{token_kind_to_readable_string(resolved_kind)}\x27"
+            f"expected expression, found '{token_kind_to_readable_string(resolved.kind)}\x27"
         ).first(cur_range).emit();
 
         dyn()->advance(); // skip to prevent infinite loop
