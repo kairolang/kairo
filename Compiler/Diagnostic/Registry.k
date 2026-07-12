@@ -73,6 +73,14 @@ enum DiagID derives u32 {
   I001F = compute_hash::<r"I001F">(),
   I002F = compute_hash::<r"I002F">(),
   I957E = compute_hash::<r"I957E">(),
+  I900W = compute_hash::<r"I900W">(),
+  I900I = compute_hash::<r"I900I">(),
+  I900R = compute_hash::<r"I900R">(),
+  I900V = compute_hash::<r"I900V">(),
+  I900N = compute_hash::<r"I900N">(),
+  I900D = compute_hash::<r"I900D">(),
+  I900E = compute_hash::<r"I900E">(),
+  I900F = compute_hash::<r"I900F">(),
   P001W = compute_hash::<r"P001W">(),
   P001I = compute_hash::<r"P001I">(),
   P001R = compute_hash::<r"P001R">(),
@@ -724,6 +732,86 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         hash: static_cast::<u32>(compute_hash::<r"I957E">()),
         category: DiagCategory::Internal,
         severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::I900W {
+      return DiagMeta{
+        brief: "Internal Sentinel, used for child note/remark/etc, without a clean specified code",
+        group: "Diagnostics",
+        number: 900,
+        hash: static_cast::<u32>(compute_hash::<r"I900W">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Warning
+      };
+    }
+    case DiagID::I900I {
+      return DiagMeta{
+        brief: "Internal Sentinel, used for child note/remark/etc, without a clean specified code",
+        group: "Diagnostics",
+        number: 900,
+        hash: static_cast::<u32>(compute_hash::<r"I900I">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Ignored
+      };
+    }
+    case DiagID::I900R {
+      return DiagMeta{
+        brief: "Internal Sentinel, used for child note/remark/etc, without a clean specified code",
+        group: "Diagnostics",
+        number: 900,
+        hash: static_cast::<u32>(compute_hash::<r"I900R">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Remark
+      };
+    }
+    case DiagID::I900V {
+      return DiagMeta{
+        brief: "Internal Sentinel, used for child note/remark/etc, without a clean specified code",
+        group: "Diagnostics",
+        number: 900,
+        hash: static_cast::<u32>(compute_hash::<r"I900V">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Verbose
+      };
+    }
+    case DiagID::I900N {
+      return DiagMeta{
+        brief: "Internal Sentinel, used for child note/remark/etc, without a clean specified code",
+        group: "Diagnostics",
+        number: 900,
+        hash: static_cast::<u32>(compute_hash::<r"I900N">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Note
+      };
+    }
+    case DiagID::I900D {
+      return DiagMeta{
+        brief: "Internal Sentinel, used for child note/remark/etc, without a clean specified code",
+        group: "Diagnostics",
+        number: 900,
+        hash: static_cast::<u32>(compute_hash::<r"I900D">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Debug
+      };
+    }
+    case DiagID::I900E {
+      return DiagMeta{
+        brief: "Internal Sentinel, used for child note/remark/etc, without a clean specified code",
+        group: "Diagnostics",
+        number: 900,
+        hash: static_cast::<u32>(compute_hash::<r"I900E">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Error
+      };
+    }
+    case DiagID::I900F {
+      return DiagMeta{
+        brief: "Internal Sentinel, used for child note/remark/etc, without a clean specified code",
+        group: "Diagnostics",
+        number: 900,
+        hash: static_cast::<u32>(compute_hash::<r"I900F">()),
+        category: DiagCategory::Internal,
+        severity: DiagSeverity::Fatal
       };
     }
     case DiagID::P001W {
@@ -1965,6 +2053,14 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::I001F { return "This is placeholder diagnostics. (Fatal)"; }
     case DiagID::I002F { return "# fatal error regarding the AST\n\nthis diagnostic indicates a critical issue with the Abstract Syntax Tree (AST) that prevents the compiler from proceeding. the message should provide specific details about the nature of the problem.\n\n## common causes\n\n- malformed AST nodes\n- invalid references within the AST\n- internal compiler bugs affecting AST construction or manipulation\n\n## how to fix\n\nreview the error message for specific details about the issue. if the message is unclear, consider enabling verbose diagnostics for more context. if you believe this is a compiler bug, please report it to the Kairo development team with a minimal reproducible example."; }
     case DiagID::I957E { return "# error limit reached\n\nthe compiler has reached the maximum number of errors allowed (default is 20). further errors will be suppressed to prevent overwhelming output.\n\n## how to fix\n\n- review and fix the reported errors before attempting to compile again.\n- if you need to see more errors, consider increasing the error limit using `--cmax-errors=50` or a higher value."; }
+    case DiagID::I900W { return "Internal Diagnostic Sentinel (Warning)"; }
+    case DiagID::I900I { return "Internal Diagnostic Sentinel (Info)"; }
+    case DiagID::I900R { return "Internal Diagnostic Sentinel (Remark)"; }
+    case DiagID::I900V { return "Internal Diagnostic Sentinel (Verbose)"; }
+    case DiagID::I900N { return "Internal Diagnostic Sentinel (Note)"; }
+    case DiagID::I900D { return "Internal Diagnostic Sentinel (Debug)"; }
+    case DiagID::I900E { return "Internal Diagnostic Sentinel (Error)"; }
+    case DiagID::I900F { return "Internal Diagnostic Sentinel (Fatal)"; }
     case DiagID::P001W { return "This is placeholder diagnostics. (Warning)"; }
     case DiagID::P001I { return "This is placeholder diagnostics. (Info)"; }
     case DiagID::P001R { return "This is placeholder diagnostics. (Remark)"; }
@@ -2729,36 +2825,42 @@ module Diag {
       case DiagSeverity::Ignored {
         switch num {
           case 1 { return DiagID::I001I; }
+          case 900 { return DiagID::I900I; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for I and severity Ignored")); }
         }
       }
       case DiagSeverity::Remark {
         switch num {
           case 1 { return DiagID::I001R; }
+          case 900 { return DiagID::I900R; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for I and severity Remark")); }
         }
       }
       case DiagSeverity::Verbose {
         switch num {
           case 1 { return DiagID::I001V; }
+          case 900 { return DiagID::I900V; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for I and severity Verbose")); }
         }
       }
       case DiagSeverity::Note {
         switch num {
           case 1 { return DiagID::I001N; }
+          case 900 { return DiagID::I900N; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for I and severity Note")); }
         }
       }
       case DiagSeverity::Debug {
         switch num {
           case 1 { return DiagID::I001D; }
+          case 900 { return DiagID::I900D; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for I and severity Debug")); }
         }
       }
       case DiagSeverity::Warning {
         switch num {
           case 1 { return DiagID::I001W; }
+          case 900 { return DiagID::I900W; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for I and severity Warning")); }
         }
       }
@@ -2766,6 +2868,7 @@ module Diag {
         switch num {
           case 1 { return DiagID::I001E; }
           case 957 { return DiagID::I957E; }
+          case 900 { return DiagID::I900E; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for I and severity Error")); }
         }
       }
@@ -2773,6 +2876,7 @@ module Diag {
         switch num {
           case 1 { return DiagID::I001F; }
           case 2 { return DiagID::I002F; }
+          case 900 { return DiagID::I900F; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for I and severity Fatal")); }
         }
       }

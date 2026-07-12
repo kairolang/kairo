@@ -270,6 +270,18 @@ class PrettyDiagConsumer derives DiagConsumer {
         return out;
     }
 
+    /// Codes render on standalone diagnostics regardless of severity — a
+    /// top-level note is independently suppressible and greppable. Children are
+    /// supporting evidence for their parent and have no independent existence,
+    /// so a code there is noise.
+    priv fn code_prefix(self, code: DiagCode, sev: DiagSeverity, color: bool, is_child: bool) -> string {
+        if is_child { return ""; }
+        if color {
+            return f"{self.severity_color(sev)}[{(code) as string}]{RESET} ";
+        }
+        return f"[{(code) as string}] ";
+    }
+
     priv fn render_group(self, group: ref!(DiagGroup), sm: *SourceManager, color: bool) -> string {
         const var NL = "\n";
         var out: string;
@@ -465,31 +477,31 @@ class PrettyDiagConsumer derives DiagConsumer {
             // Print one label per row, from rightmost span to leftmost.
             for var r: isize = static_cast::<isize>(n_active) - 1; r >= 0; r -= 1 {
                 var ri = static_cast::<usize>(r);
+                var msg_anchor = active_spans[ri].start_col;
 
                 var row: string;
                 var col: usize = 0;
-                for var s: usize = 0; s <= ri; ++s {
+
+                // connectors for spans strictly to the LEFT of this row's message
+                for var s: usize = 0; s < ri; ++s {
                     var anchor = active_spans[s].start_col;
-                    if anchor < col { continue; }  // overlap guard
+                    if anchor >= msg_anchor { continue; }
+                    if anchor < col         { continue; }
                     row += string(' ', anchor - col);
-                    if s == ri {
-                        var msg = active_texts[ri];
-                        if color {
-                            row += f"{RESET}{msg}";
-                        } else {
-                            row += msg;
-                        }
-                        col = anchor + 1;
+                    if color {
+                        var ce = self.severity_color(active_spans[s].sev);
+                        row += f"{ce}|{RESET}";
                     } else {
-                        if color {
-                            var ce = self.severity_color(active_spans[s].sev);
-                            row += f"{ce}|{RESET}";
-                        } else {
-                            row += "|";
-                        }
-                        col = anchor + 1;
+                        row += "|";
                     }
+                    col = anchor + 1;
                 }
+
+                // the message, always padded to its own anchor
+                if msg_anchor > col { row += string(' ', msg_anchor - col); }
+                var msg = active_texts[ri];
+                row += (f"{RESET}{msg}") if color else msg;
+
                 out += conn_gutter + row + NL;
             }
         }
@@ -504,18 +516,30 @@ class PrettyDiagConsumer derives DiagConsumer {
             }
         }
 
-        // --- Children ----------------------------------------------------------
+        // --- Children (deduped: identical child notes render once) --------------
+        var seen_children: vec::<string>;
         for var i: usize = 0; i < group.diags.size(); ++i {
             var diag = group.diags[i];
             for var j: usize = 0; j < diag->children.size(); ++j {
-                out += self.render_single(diag->children[j], color, "    ");
+                var c = diag->children[j];
+
+                var key = f"{(c->code) as string}|{c->message}|{c->loc.id}";
+
+                var dup = false;
+                for var k: usize = 0; k < seen_children.size(); ++k {
+                    if seen_children[k] == key { dup = true; break; }
+                }
+                if dup { continue; }
+
+                seen_children.push_back(key);
+                out += self.render_single(c, color, "    ", true);
             }
         }
 
         return out + NL;
     }
 
-    priv fn render_single(self, diag: *Diagnostic, color: bool, indent: string) -> string {
+    priv fn render_single(self, diag: *Diagnostic, color: bool, indent: string, is_child: bool = false) -> string {
         const var NL = "\n";
         var out: string;
 
@@ -525,9 +549,13 @@ class PrettyDiagConsumer derives DiagConsumer {
         var sev_str  = (f"{sev_col}{BOLD}{sev_name}{RESET}") if (color) else sev_name;
 
         if (!diag->has_loc) || (self._sm == &null) {
-            var the_code = diag->code;
-            var code_str = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
-            out += indent + f"{sev_str} [{code_str}]: {diag->message}" + NL;
+            if is_child {
+                out += indent + f"{sev_str}: {diag->message}" + NL;
+            } else {
+                var the_code = diag->code;
+                var code_str = (sev_col + ((the_code) as string) + RESET) if (color) else ((the_code) as string);
+                out += indent + f"{sev_str} [{code_str}]: {diag->message}" + NL;
+            }
 
             for var i: usize = 0; i < diag->fixits.size(); ++i {
                 var fi      = diag->fixits[i];
@@ -536,7 +564,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             }
 
             for var i: usize = 0; i < diag->children.size(); ++i {
-                out += self.render_single(diag->children[i], color, indent + "    ");
+                out += self.render_single(diag->children[i], color, indent + "    ", true);
             }
 
             return out;
@@ -555,17 +583,24 @@ class PrettyDiagConsumer derives DiagConsumer {
                 temp_labels.push_back(diag->labels[i]);
                 var l_line = sm->get_line_col(diag->labels[i].range.start).line;
                 var l_len = f"{l_line}".length();
-                if l_len > max_num_len {
-                    max_num_len = l_len;
-                }
+                if l_len > max_num_len { max_num_len = l_len; }
+            }
+
+            // The message is on the Diagnostic, not the label. If no label carries
+            // text, attach it to the first primary one or it is never rendered.
+            var has_text = false;
+            for var i: usize = 0; i < temp_labels.size(); ++i {
+                if temp_labels[i].text.length() > 0 { has_text = true; break; }
+            }
+            if !has_text {
+                temp_labels[0].text = self.code_prefix(diag->code, sev, color, is_child) + diag->message;
             }
         } else {
             var label: DiagLabel;
             label.range.start = diag->loc;
             label.range.end   = diag->loc;
             label.style       = DiagLabel::Style::Primary;
-            var code_prefix   = (f"{sev_col}[{(diag->code) as string}]{RESET} ") if color else f"[{(diag->code) as string}] ";
-            label.text        = code_prefix + diag->message;
+            label.text        = self.code_prefix(diag->code, sev, color, is_child) + diag->message;
             temp_labels.push_back(label);
         }
 
@@ -590,7 +625,7 @@ class PrettyDiagConsumer derives DiagConsumer {
         }
 
         for var i: usize = 0; i < diag->children.size(); ++i {
-            out += self.render_single(diag->children[i], color, indent + "    ");
+            out += self.render_single(diag->children[i], color, indent + "    ", true);
         }
 
         return out;
@@ -650,6 +685,26 @@ class PrettyDiagConsumer derives DiagConsumer {
             var prefix_raw = f"{indent}{num_pad}{line_num_str} | ";
             var prefix_vis = f"{indent}{num_pad}{line_col}{line_num_str} {pipe} {reset_col}";
 
+            // --- leading context window (same policy as render_group) ---------
+            var ctx_before: u32 = 2;
+            var res  = sm->resolve(label.range.start);
+            var fid  = res.fid;
+            var first_line = (start_lc.line - ctx_before) if (start_lc.line > ctx_before) else 1;
+
+            while first_line < start_lc.line {
+                var t = sm->get_line_text(fid, first_line);
+                if self.is_line_blank(t) { first_line += 1; } else { break; }
+            }
+
+            for var ln: u32 = first_line; ln < start_lc.line; ++ln {
+                var t       = sm->get_line_text(fid, ln);
+                var num_str = f"{ln}";
+                var npad    = string(' ', left_pad - num_str.length());
+                out += f"{indent}{npad}{line_col}{num_str} {pipe} {reset_col}"
+                     + renderer.highlight_snippet(t) + NL;
+            }
+            // ------------------------------------------------------------------
+
             out += prefix_vis + renderer.highlight_snippet(line_text) + NL;
 
             var pad       = string(' ', prefix_raw.length());
@@ -669,8 +724,7 @@ class PrettyDiagConsumer derives DiagConsumer {
             out += pad + ( f"{glyph_col}{underline}{RESET}" if color else underline );
 
             if label.text.length() > 0 {
-                var label_col = ( f"{glyph_col}{BOLD}" ) if ( color ) else ( "" );
-                out += " " + label_col + label.text + reset_col;
+                out += " " + label.text;
             }
 
             out += NL;

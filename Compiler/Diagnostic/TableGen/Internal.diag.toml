@@ -63,3 +63,23 @@ group = "Diagnostics"
     - review and fix the reported errors before attempting to compile again.
     - if you need to see more errors, consider increasing the error limit using `--cmax-errors=50` or a higher value.
     """
+
+[I900]
+brief = "Internal Sentinel, used for child note/remark/etc, without a clean specified code"
+group = "Diagnostics"
+    [I900.W]
+    explain = "Internal Diagnostic Sentinel (Warning)"
+    [I900.I]
+    explain = "Internal Diagnostic Sentinel (Info)"
+    [I900.R]
+    explain = "Internal Diagnostic Sentinel (Remark)"
+    [I900.V]
+    explain = "Internal Diagnostic Sentinel (Verbose)"
+    [I900.N]
+    explain = "Internal Diagnostic Sentinel (Note)"
+    [I900.D]
+    explain = "Internal Diagnostic Sentinel (Debug)"
+    [I900.E]
+    explain = "Internal Diagnostic Sentinel (Error)"
+    [I900.F]
+    explain = "Internal Diagnostic Sentinel (Fatal)"

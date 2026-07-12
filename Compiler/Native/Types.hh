@@ -48,6 +48,7 @@
 #include <memory_resource>
 #include <mutex>
 #include <new>
+#include <source_location>
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -1048,6 +1049,23 @@ class StackBuf {
     T       &operator[](uint32_t i)       { return _data[i]; }
     const T &operator[](uint32_t i) const { return _data[i]; }
 };
+
+inline void ICE(bool condition, const string& msg, const ::std::source_location location = ::std::source_location::current()) {
+    if (condition) { return; }
+    std::eprintln("Kairo Internal Compiler Error: ", msg);
+    std::eprintln("This is a bug in the Kairo compiler.");
+    std::eprintln("Location: ", location.file_name(), ":", location.line(), ":", location.column());
+    std::eprintln("Please report it: https://github.com/kairolang/kairo/issues, with the generated log files and a minimal reproduction if possible.");
+    libcxx::abort();
+}
+
+inline void ICE(const string& msg, const ::std::source_location location = ::std::source_location::current()) {
+    std::eprintln("Kairo Internal Compiler Error: ", msg);
+    std::eprintln("This is a bug in the Kairo compiler.");
+    std::eprintln("Location: ", location.file_name(), ":", location.line(), ":", location.column());
+    std::eprintln("Please report it: https://github.com/kairolang/kairo/issues, with the generated log files and a minimal reproduction if possible.");
+    libcxx::abort();
+}
 
 ///
 /// \note

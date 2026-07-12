@@ -203,6 +203,16 @@ class DiagBuilder {
         return self;
     }
 
+    fn fix(self, msg: string) -> ref!(DiagBuilder) {
+        var f = FixIt{};
+        f.range       = SourceRange::invalid();
+        f.replacement = "";
+        f.message     = msg;
+        
+        self._diag->fixits.push_back(f);
+        return self;
+    }
+
     /// Attaches a fix-it that inserts \p text at \p loc (zero-length replacement).
     fn insert(self, loc: SourceLocation, text: string, msg: string) -> ref!(DiagBuilder) {
         var r = SourceRange{};
@@ -293,6 +303,77 @@ class DiagBuilder {
         return self._add_child(code, loc, msg);
     }
 
+    fn verbose(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(code, msg);
+    }
+    
+    fn debug_note(self, code: DiagCode, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(code, msg);
+    }
+
+    // --- Child diagnostics (no independent code) -----------------------------
+    //
+    // A child diagnostic is not independently addressable: it is never emitted
+    // to the engine on its own, never counted, never poison-checked, and never
+    // explained. The only field the consumer reads is severity. These overloads
+    // use the reserved I900 base so callers do not have to invent a code that
+    // nothing consumes.
+
+    /// Attaches a child note.
+    fn note(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(DiagCode(DiagID::I900N), msg);
+        }
+        return self._add_child(DiagCode(DiagID::I900N), loc, msg);
+    }
+    fn note(self, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(DiagCode(DiagID::I900N), msg);
+    }
+
+    /// Attaches a child warning.
+    fn warning(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(DiagCode(DiagID::I900W), msg);
+        }
+        return self._add_child(DiagCode(DiagID::I900W), loc, msg);
+    }
+    fn warning(self, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(DiagCode(DiagID::I900W), msg);
+    }
+
+    /// Attaches a child remark.
+    fn remark(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(DiagCode(DiagID::I900R), msg);
+        }
+        return self._add_child(DiagCode(DiagID::I900R), loc, msg);
+    }
+    fn remark(self, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(DiagCode(DiagID::I900R), msg);
+    }
+
+    /// Attaches a child verbose note.
+    fn verbose(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(DiagCode(DiagID::I900V), msg);
+        }
+        return self._add_child(DiagCode(DiagID::I900V), loc, msg);
+    }
+    fn verbose(self, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(DiagCode(DiagID::I900V), msg);
+    }
+
+    /// Attaches a child debug note (stripped in release builds).
+    fn debug_note(self, loc: SourceLocation, msg: string) -> ref!(DiagBuilder) {
+        if loc == SourceLocation::invalid() {
+            return self._add_child_no_loc(DiagCode(DiagID::I900D), msg);
+        }
+        return self._add_child(DiagCode(DiagID::I900D), loc, msg);
+    }
+    fn debug_note(self, msg: string) -> ref!(DiagBuilder) {
+        return self._add_child_no_loc(DiagCode(DiagID::I900D), msg);
+    }
+
     // --- Child labels --------------------------------------------------------
     //
     // These attach labels to the most recently added child diagnostic.
@@ -366,7 +447,7 @@ class DiagBuilder {
             // implicit emit-at-scope-exit collides with suppression scopes
             // (TentativeGuard) and hides the mistake. Debug aborts; release
             // frees the orphan to avoid a leak, dropping the diagnostic.
-            assert(false && r"DiagBuilder dropped without emit()");
+             std::ICE("DiagBuilder dropped without emit()");
             if self._diag != &null {
                 std::destroy(self._diag);
             }
