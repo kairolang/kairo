@@ -183,6 +183,7 @@ enum DiagID derives u32 {
   R011E = compute_hash::<r"R011E">(),
   R012E = compute_hash::<r"R012E">(),
   R013E = compute_hash::<r"R013E">(),
+  R014E = compute_hash::<r"R014E">(),
   CL001W = compute_hash::<r"CL001W">(),
   CL001I = compute_hash::<r"CL001I">(),
   CL001R = compute_hash::<r"CL001R">(),
@@ -1834,6 +1835,16 @@ eval fn diag_meta(id: DiagID) -> DiagMeta {
         severity: DiagSeverity::Error
       };
     }
+    case DiagID::R014E {
+      return DiagMeta{
+        brief: "macro redefines a compiler builtin",
+        group: "macro",
+        number: 14,
+        hash: static_cast::<u32>(compute_hash::<r"R014E">()),
+        category: DiagCategory::Resolution,
+        severity: DiagSeverity::Error
+      };
+    }
     case DiagID::CL001W {
       return DiagMeta{
         brief: "place holder diagnostics",
@@ -2156,12 +2167,13 @@ eval fn diag_explain(id: DiagID) -> string {
     case DiagID::R006E { return "# macro requires arguments\n\na parameterized macro was invoked without providing any arguments. macros defined with a parameter\nlist must be called with matching arguments.\n\n## example\n\n- correct usage:\n```kairo\nmacro add!(a, b) { a + b }\nvar x = add!(1, 2);\n```\n\n- incorrect usage:\n```kairo\nvar x = add!;   // missing argument list\n```\n\n## how to fix\nadd the argument list: `add!(1, 2)`."; }
     case DiagID::R007E { return "# macro does not accept arguments\n\na parameterless macro (defined without a parameter list) was invoked with arguments.\n\n## example\n\n- correct usage:\n```kairo\nmacro greet! { \"hello\" }\nvar s = greet!;\n```\n\n- incorrect usage:\n```kairo\nvar s = greet!(\"world\");  // unexpected args\n```\n\n## how to fix\nremove the argument list from the invocation."; }
     case DiagID::R008E { return "# macro expansion error\n\nan error occurred while expanding a macro invocation. this covers argument count mismatches, too\nmany arguments, too few arguments, or errors in nested expansion.\n\n## how to fix\ncheck the macro definition for the expected parameter list and ensure the invocation supplies\nthe correct number of arguments. see the accompanying note for the exact problem."; }
-    case DiagID::R009E { return "# builtin macro error\n\na compiler-provided builtin macro (such as `error!`, `warn!`, `first!`, `last!`, `unstringify!`)\nwas called with incorrect arguments or in an unsupported context.\n\n## how to fix\nconsult the builtin macro documentation for the expected argument types and counts."; }
+    case DiagID::R009E { return "# builtin macro error\n\na compiler-provided builtin macro (such as `compile_error!`, `compile_warn!`, `first!`, `last!`, `unstringify!`)\nwas called with incorrect arguments or in an unsupported context.\n\n## how to fix\nconsult the builtin macro documentation for the expected argument types and counts."; }
     case DiagID::R010E { return "# error!() macro diagnostic\n\nthe source file explicitly invoked `error!(message)` to emit a compile-time error.\nthis is a user-defined diagnostic, not a compiler bug."; }
     case DiagID::R010W { return "# warn!() macro diagnostic\n\nthe source file explicitly invoked `warn!(message)` to emit a compile-time warning.\nthis is a user-defined diagnostic, not a compiler bug."; }
     case DiagID::R010N { return "# note!() macro diagnostic\n\nthe source file explicitly invoked `note!(message)` to emit a compile-time note."; }
     case DiagID::R011E { return "# failed to resolve import path\n\nthe preprocessor attempted to resolve an import path but could not locate a matching file or module.\nthis may indicate a missing file, a typo in the import statement, or an incorrect project layout.\n\n## how to fix\nverify that the imported file or module exists and that the import statement uses the correct path."; }
     case DiagID::R012E { return "# declaration not permitted inside macro body\n\nan import or macro declaration appeared inside the replacement body of a token macro.\n\ntoken macro expansion may produce ordinary source tokens, but it may not introduce new imports\nor macro definitions. allowing these declarations would make dependency discovery and macro\nvisibility depend on expansion order.\n\n## example\n\n```kairo\nmacro invalid! {\n    import Foo::*;\n}\n```\n\n## how to fix\n\nmove the import or macro declaration outside the macro body. the macro may then reference names\nmade visible by that declaration."; }
+    case DiagID::R014E { return "# macro redefines a compiler builtin\n\na user macro was defined with the name of a compiler-provided builtin macro\n(such as `paste!`, `stringify!`, `count!`, `first!`, `compile_error!`).\nbuiltin names are reserved: the definition would never be reachable, because\nbuiltin dispatch would hijack every unqualified call site silently.\n\n## how to fix\n\nchoose a different macro name. builtins are only reserved unqualified;\na qualified macro (`mymod::count!`) does not collide."; }
     case DiagID::R013E { return "# unknown macro invocation\n\na macro was invoked, but no visible definition with that name could be found.\n\nmacro lookup considers definitions visible at the invocation point, including accessible imported\nmacros and definitions in enclosing scopes. definitions declared later in the source are not visible\nwhen macro visibility is order-dependent.\n\n## example\n\n```kairo\nvar value = missing_macro!(42);\n```\n\n## how to fix\n\nverify that the macro name is spelled correctly, that its defining module is imported, and that the\ndefinition is visible before the invocation."; }
     case DiagID::CL001W { return "This is placeholder diagnostics. (Warning)"; }
     case DiagID::CL001I { return "This is placeholder diagnostics. (Info)"; }
@@ -2531,6 +2543,7 @@ module Diag {
           case 11 { return DiagID::R011E; }
           case 12 { return DiagID::R012E; }
           case 13 { return DiagID::R013E; }
+          case 14 { return DiagID::R014E; }
           default { std::crash(std::Error::RuntimeError("invalid diag number for R and severity Error")); }
         }
       }

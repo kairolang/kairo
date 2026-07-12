@@ -2292,6 +2292,20 @@ class <T> DeclParse {
     ///                     | '@' name '(' typed_params? ')' block )   (proc macro)
     priv fn _parse_macro(self) -> *Decl {
         var start = dyn()->current_ptr()->range;
+
+        // dispatch invariant, not a user error: this production is only ever
+        // entered on `macro` (including the `macro @proc` form, which is
+        // dispatched below AFTER `macro` is consumed). ICE-with-report instead
+        // of a compiled-out assert so release builds fail loudly instead of
+        // mis-parsing.
+        if !dyn()->check(TokenKind::KwMacro) {
+            dyn()->diag->report(DiagID::I002F, start.start,
+                f"internal: _parse_macro entered on '{token_kind_to_readable_string(dyn()->current().kind)}', expected 'macro \x27"
+            ).first(start).emit();
+            self._sync_decl(DeclSyncCtx::TopLevel);
+            return static_cast::<*Decl>(MacroDecl::create_error(dyn()->ctx, start));
+        }
+
         dyn()->advance(T::SkipNL::After); // consume `macro`
 
         if dyn()->check(TokenKind::OpAt) {
