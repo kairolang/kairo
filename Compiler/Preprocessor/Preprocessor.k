@@ -1982,28 +1982,25 @@ class PPWalker
 
         var message = string();
 
-        // Canonical spellings are intentional. This handles synthesized
-        // identifiers and wrapped tokens consistently, but does not preserve
-        // source whitespace between separate tokens.
         for var i: usize = 0; i < args[0]->size(); ++i {
             message += self._builtin_token_text(args[0]->get(i));
         }
 
-        var code = DiagCode(DiagID::R010E)
-            if level == DiagSeverity::Error
-            else DiagCode(DiagID::R010W)
-            if level == DiagSeverity::Warning
-            else DiagCode(DiagID::R010N);
+        var code = (DiagID::R010E)
+            if (level == DiagSeverity::Error)
+            else (DiagID::R010W)
+            if (level == DiagSeverity::Warning)
+            else (DiagID::R010N);
 
-        self._diag->report(
+        self._report_expand_err(
             code,
-            invoke->name.range.start,
-            message
-        ).first(invoke->name.range).emit();
+            invoke,
+            message,
+            "diagnostic emitted from this macro body"
+        );
 
         return out;
     }
-
 
     // ======================================================================
     //  Resolution

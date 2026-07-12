@@ -1,25 +1,11 @@
-import imp
-
-/* imp.k contains:
-macro mac! {
-    109
-}
-*/
-
-var y = imp::mac!
-
-macro square!(x) {
-    x * x
+macro tag! {
+    compile_note!("TAG")
+    "debug"
 }
 
-macro quad!(x) {
-    square!(square!(x))
+macro repeat!(m) {
+    compile_note!("REPEAT")
+    m! m!
 }
 
-var z = quad!(3)
-// -- edge: recursive cycle detection (should emit error, not crash) -------
-macro boom!() {
-    boom!()
-}
-
-var bad = boom!() | boom!();
+var result = repeat!(tag)
