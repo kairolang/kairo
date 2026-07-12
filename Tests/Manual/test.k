@@ -96,7 +96,7 @@ var cnt  = count!(a, b, c, d);
 var fst  = first!(10, 20, 30);
 var lst  = last!(10, 20, 30);
 var rst  = rest!(10, 20, 30);
-var ini  = init!(10, 20, 30);
+var ini  = butlast!(10, 20, 30);
 
 // -- builtin: token manipulation -----------------------------------------
 var s    = stringify!(hello_world);

@@ -357,6 +357,32 @@ class PPWalker
         var hdr = self.parse_macro_header();  // shared grammar
         if !hdr.ok { self._recover_to_terminator(); return; }
 
+        // builtin names are reserved: dispatch checks builtins before user
+        // macros, so this definition could never fire. Reject loudly instead
+        // of letting the builtin silently hijack every call site.
+        var def_name = TokenText::spelling(hdr.name, self._tcm);
+        if self._is_builtin_name(def_name) {
+            self._diag->report(DiagCode(DiagID::R014E), hdr.name.range.start,
+                f"macro '{def_name}!' redefines a compiler builtin; builtin names are reserved"
+            ).first(hdr.name.range).emit();
+
+            // discard the balanced body so it doesn't leak into the output
+            // stream; _recover_to_terminator stops at newlines and would
+            // spill multi-line bodies.
+            if self._src->peek(0).kind == TokenKind::OpLBrace {
+                self._src->next(); // `{`
+                var d: i32 = 1;
+                while (!self._src->at_eof()) && (d > 0) {
+                    var t = self._src->next();
+                    if t.kind == TokenKind::OpLBrace { d += 1; }
+                    if t.kind == TokenKind::OpRBrace { d -= 1; }
+                }
+            } else {
+                self._recover_to_terminator();
+            }
+            return;
+        }
+
         if self._src->peek(0).kind != TokenKind::OpLBrace {
             self._diag->report(DiagCode(DiagID::S038E), hdr.name.range.start,
                 "expected '{' for macro body").first(hdr.name.range).emit();
@@ -737,6 +763,9 @@ class PPWalker
         // Args pre-expand in CALLER context: the callee's frame is not on the
         // stack yet, so square!(square!(x)) is legal. Cycle detection then only
         // fires on true body-recursion (boom!).
+        // Split FIRST, then expand each arg: commas produced by expansion do
+        // not change the call's arity (C semantics). Value-position builtins
+        // deliberately differ see _parse_expanded_builtin_arguments.
         var args = self._parse_builtin_arguments(inv); // splits on top-level commas
 
         for var k: usize = 0; k < args.size(); ++k {
@@ -798,6 +827,22 @@ class PPWalker
         return self._substitute_body(e, &bindings, variadic_name, &variadic_bindings, inv->range);
     }
 
+    /// Body substitution. Pack expansion is POSTFIX, mirroring expression- and
+    /// type-level `PackExpansionExpr` (declaration is prefix `...xs`, use is
+    /// postfix the same split C++ makes):
+    ///
+    ///   BARE SPLAT     `xs...`          -> a, b, c              (comma-joined)
+    ///   PATTERN SPLAT  `( pattern )...` -> pat(a), pat(b), ...  (comma-joined)
+    ///
+    /// A pattern splat replicates the parenthesized token run once per pack
+    /// element, substituting the pack name with that element (and ordinary
+    /// parameter bindings as usual). The parentheses are grouping syntax and
+    /// are NOT emitted. A `( ... )...` whose pattern does not mention the pack
+    /// name is not ours it passes through verbatim as target-language pack
+    /// expansion, as does `ident...` for any non-pack identifier. Expansion is
+    /// single-level: a nested `...` inside a pattern is emitted verbatim.
+    ///
+    /// An empty pack consumes the whole splat and emits nothing.
     priv fn _substitute_body(
         self,
         e: *MacroEntry,
@@ -811,26 +856,43 @@ class PPWalker
         while i < e->body_len {
             var tok = e->storage->get(i);
 
-            if (tok->kind == TokenKind::OpEllipsis) && (i + 1 < e->body_len) {
-                var next = e->storage->get(i + 1);
-                if next->kind == TokenKind::LitIdentifier {
-                    var next_name = self._sym->intern(TokenText::spelling(*next, self._tcm));
-                    if (next_name == variadic_name) && (variadic_bindings->size() > 0) {
-                        for var k: usize = 0; k < variadic_bindings->size(); ++k {
-                            if k > 0 { self._append_builtin_comma(output, tok->range); }
-                            var span = (*variadic_bindings)[k];
-                            for var j: usize = 0; j < span->size(); ++j {
-                                output->append(*(span->get(j)));
-                            }
-                        }
-                        i += 2;
-                        continue;
+            // -- pattern splat: `(` pattern `)` `...` --------------------
+            if (tok->kind == TokenKind::OpLParen) && (variadic_name != 0) {
+                var close = self._find_matching_rparen(e, i);
+                if (close != 0)
+                && (close + 1 < e->body_len)
+                && (e->storage->get(close + 1)->kind == TokenKind::OpEllipsis)
+                && self._pattern_mentions_pack(e, i + 1, close, variadic_name) {
+                    for var k: usize = 0; k < variadic_bindings->size(); ++k {
+                        if k > 0 { self._append_builtin_comma(output, invoke_loc); }
+                        self._emit_pattern_instance(
+                            output, e, i + 1, close,
+                            bindings, variadic_name, (*variadic_bindings)[k]);
                     }
+                    i = close + 2;
+                    continue;
                 }
+                // not a pack pattern: plain parenthesized tokens, fall through
             }
 
             if tok->kind == TokenKind::LitIdentifier {
                 var tok_name = self._sym->intern(TokenText::spelling(*tok, self._tcm));
+
+                // -- bare splat: `xs` `...` ------------------------------
+                if (tok_name == variadic_name)
+                && (i + 1 < e->body_len)
+                && (e->storage->get(i + 1)->kind == TokenKind::OpEllipsis) {
+                    for var k: usize = 0; k < variadic_bindings->size(); ++k {
+                        if k > 0 { self._append_builtin_comma(output, invoke_loc); }
+                        var span = (*variadic_bindings)[k];
+                        for var j: usize = 0; j < span->size(); ++j {
+                            output->append(*(span->get(j)));
+                        }
+                    }
+                    i += 2;
+                    continue;
+                }
+
                 if bindings->contains(tok_name) {
                     var bound = (*bindings)[tok_name];
                     for var j: usize = 0; j < bound->size(); ++j {
@@ -845,6 +907,78 @@ class PPWalker
             i += 1;
         }
         return output;
+    }
+
+    /// index of the `)` matching the `(` at `open`, or 0 if unbalanced
+    /// (0 can never be a valid answer: the match is always past `open`).
+    priv fn _find_matching_rparen(self, e: *MacroEntry, open: usize) -> usize {
+        var depth: i32 = 0;
+        for var i: usize = open; i < e->body_len; ++i {
+            var k = e->storage->get(i)->kind;
+            if k == TokenKind::OpLParen { depth += 1; }
+            if k == TokenKind::OpRParen {
+                depth -= 1;
+                if depth == 0 { return i; }
+            }
+        }
+        return 0;
+    }
+
+    /// does the token run [lo, hi) mention the pack name?
+    priv fn _pattern_mentions_pack(
+        self,
+        e: *MacroEntry,
+        lo: usize,
+        hi: usize,
+        variadic_name: SymbolID
+    ) -> bool {
+        for var i: usize = lo; i < hi; ++i {
+            var t = e->storage->get(i);
+            if t->kind != TokenKind::LitIdentifier { continue; }
+            if self._sym->intern(TokenText::spelling(*t, self._tcm)) == variadic_name {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// emits one instance of the pattern token run [lo, hi): the pack name is
+    /// replaced by `element`, ordinary parameter bindings substitute as usual,
+    /// everything else is copied verbatim.
+    priv fn _emit_pattern_instance(
+        self,
+        output: *(TokenBuffer::<512>),
+        e: *MacroEntry,
+        lo: usize,
+        hi: usize,
+        bindings: *map::<SymbolID, *(TokenBuffer::<512>)>,
+        variadic_name: SymbolID,
+        element: *(TokenBuffer::<512>)
+    ) {
+        for var i: usize = lo; i < hi; ++i {
+            var tok = e->storage->get(i);
+
+            if tok->kind == TokenKind::LitIdentifier {
+                var tok_name = self._sym->intern(TokenText::spelling(*tok, self._tcm));
+
+                if tok_name == variadic_name {
+                    for var j: usize = 0; j < element->size(); ++j {
+                        output->append(*(element->get(j)));
+                    }
+                    continue;
+                }
+
+                if bindings->contains(tok_name) {
+                    var bound = (*bindings)[tok_name];
+                    for var j: usize = 0; j < bound->size(); ++j {
+                        output->append(*(bound->get(j)));
+                    }
+                    continue;
+                }
+            }
+
+            output->append(*tok);
+        }
     }
 
     priv fn make_int_token(self, value: u64, range: SourceRange) -> Token {
@@ -898,14 +1032,14 @@ class PPWalker
         if name == "module_path" { return self._builtin_module_path(invoke); }
 
         // argument manipulation
-        if name == "count" { return self._builtin_count(invoke); }
-        if name == "first" { return self._builtin_first(invoke); }
-        if name == "last"  { return self._builtin_last(invoke); }
-        if name == "rest"  { return self._builtin_rest(invoke); }
-        if name == "init"  { return self._builtin_init(invoke); }
+        if name == "count"   { return self._builtin_count(invoke); }
+        if name == "first"   { return self._builtin_first(invoke); }
+        if name == "last"    { return self._builtin_last(invoke); }
+        if name == "rest"    { return self._builtin_rest(invoke); }
+        if name == "butlast" { return self._builtin_butlast(invoke); }
 
         // token manipulation
-        if name == "concat"      { return self._builtin_concat(invoke); }
+        if name == "paste"       { return self._builtin_paste(invoke); }
         if name == "stringify"   { return self._builtin_stringify(invoke); }
         if name == "unstringify" { return self._builtin_unstringify(invoke); }
 
@@ -915,23 +1049,46 @@ class PPWalker
         // deferred code generation
         if name == "todo"        { return self._builtin_todo(invoke); }
         if name == "unreachable" { return self._builtin_unreachable(invoke); }
+        if name == "unreachable_unchecked" {
+            return self._builtin_unreachable_unchecked(invoke);
+        }
         if name == "unique_id"   { return self._builtin_unique_id(invoke); }
         if name == "include"     { return self._builtin_include(invoke); }
-        if name == "include_str" { return self._builtin_include_str(invoke); }
+        if name == "embed_str"   { return self._builtin_embed_str(invoke); }
         if name == "embed"       { return self._builtin_embed(invoke); }
 
         // diagnostics
-        if name == "error" {
+        if name == "compile_error" {
             return self._builtin_diag(invoke, DiagSeverity::Error);
         }
-        if name == "warning" {
+        if name == "compile_warn" {
             return self._builtin_diag(invoke, DiagSeverity::Warning);
         }
-        if name == "note" {
+        if name == "compile_note" {
             return self._builtin_diag(invoke, DiagSeverity::Note);
         }
 
         return &null;
+    }
+
+    /// Builtin names are reserved unqualified: a user definition would never
+    /// be reachable (dispatch checks builtins first), so `_handle_macro_def`
+    /// rejects the definition outright instead of silently hijacking it.
+    /// MUST mirror the dispatch table in `_try_builtin`.
+    priv fn _is_builtin_name(self, name: string) -> bool {
+        return (name == "file")        || (name == "line")
+            || (name == "column")      || (name == "module_path")
+            || (name == "count")       || (name == "first")
+            || (name == "last")        || (name == "rest")
+            || (name == "butlast")     || (name == "paste")
+            || (name == "stringify")   || (name == "unstringify")
+            || (name == "defined")     || (name == "todo")
+            || (name == "unreachable") || (name == "unreachable_unchecked")
+            || (name == "unique_id")   || (name == "include")
+            || (name == "embed_str")   || (name == "embed")
+            || (name == "compile_error")
+            || (name == "compile_warn")
+            || (name == "compile_note");
     }
 
     // ======================================================================
@@ -1044,6 +1201,93 @@ class PPWalker
         return args;
     }
 
+    /// Builtin argument pre-expansion policy (documented-asymmetric, C model):
+    ///
+    /// VALUE-position builtins count!, first!, last!, rest!, butlast!, paste!,
+    /// unstringify! fully expand macro invocations inside their arguments
+    /// before operating on them, identical to user-macro argument pre-expansion
+    /// in _bind_and_substitute. This makes composition sane:
+    ///     count!(rest!(a, b, c))  ->  2
+    ///
+    /// QUOTING/NAME-position builtins stringify!, defined!, unique_id!,
+    /// diag builtins operate on RAW tokens: stringify! quotes source spelling
+    /// (the `#` analog), defined! probes a macro name without invoking it,
+    /// unique_id! takes a literal tag. Pre-expanding those would destroy their
+    /// meaning, exactly as in C's `#`/`defined` carve-outs.
+    ///
+    /// NOTE: unlike C (where commas produced by expansion never act as argument
+    /// separators), value-position builtins expand FIRST and split on top-level
+    /// commas SECOND. rest!/butlast! return comma lists precisely so they can feed
+    /// count!/first!/last!; split-before-expand would make that composition
+    /// silently arity-1. User macros keep C semantics (split, then expand each
+    /// arg) so expansion cannot change a call's arity.
+    priv fn _parse_expanded_builtin_arguments(
+        self,
+        invoke: *InvocationInfo
+    ) -> vec::<own::<TokenBuffer::<512>>> {
+        var args: vec::<own::<TokenBuffer::<512>>>;
+
+        if !invoke->has_args {
+            return args;
+        }
+        if invoke->arg_toks.size() == 0 {
+            return args;
+        }
+
+        // 1. gather the raw argument token run
+        var run = std::create::<TokenBuffer::<512>>();
+        for var i: usize = 0; i < invoke->arg_toks.size(); ++i {
+            run->append(invoke->arg_toks[i]);
+        }
+
+        // 2. expand invocations within it, in caller context
+        if self._buf_has_invocation(run) {
+            var ex = self._expand_buffer(run);
+            std::destroy(run);
+            run = ex;
+        }
+
+        // an expansion may legitimately produce zero tokens (e.g. butlast!(x));
+        // that is zero arguments, not one empty argument
+        if run->size() == 0 {
+            std::destroy(run);
+            return args;
+        }
+
+        // 3. split the EXPANDED stream on top-level commas
+        var current = std::create::<TokenBuffer::<512>>();
+
+        var paren_depth:  i32 = 0;
+        var square_depth: i32 = 0;
+        var brace_depth:  i32 = 0;
+
+        for var i: usize = 0; i < run->size(); ++i {
+            var tok = *(run->get(i));
+
+            if tok.kind == TokenKind::OpLParen  { paren_depth  += 1; }
+            if tok.kind == TokenKind::OpRParen  { paren_depth  -= 1; }
+            if tok.kind == TokenKind::OpLSquare { square_depth += 1; }
+            if tok.kind == TokenKind::OpRSquare { square_depth -= 1; }
+            if tok.kind == TokenKind::OpLBrace  { brace_depth  += 1; }
+            if tok.kind == TokenKind::OpRBrace  { brace_depth  -= 1; }
+
+            if (tok.kind == TokenKind::OpComma)
+            && (paren_depth == 0)
+            && (square_depth == 0)
+            && (brace_depth == 0) {
+                args.push_back(current);
+                current = std::create::<TokenBuffer::<512>>();
+                continue;
+            }
+
+            current->append(tok);
+        }
+
+        args.push_back(current);
+        std::destroy(run);
+        return args;
+    }
+
     priv fn _append_builtin_argument(
         self,
         out: *(TokenBuffer::<512>),
@@ -1086,11 +1330,9 @@ class PPWalker
         tok.kind  = TokenKind::LitString;
         tok.range = invoke->name.range;
 
-        // TODO: StringData currently represents source-backed text using a
-        // SourceRange. `filename` is synthesized text and therefore has no source
-        // range. Once StringData has an owned/interner-backed representation:
-        //
-        // tok.imm = self._imm->intern_string_copy(filename);
+        if self._imm != &null {
+            tok.imm = self._imm->intern_string_copy(filename);
+        }
 
         out->append(tok);
         return out;
@@ -1171,11 +1413,11 @@ class PPWalker
             return out;
         }
 
-        var args = self._parse_builtin_arguments(invoke);
+        var args = self._parse_expanded_builtin_arguments(invoke);
 
         out->append(self.make_int_token(
             static_cast::<u64>(args.size()),
-            invoke->name.range
+            invoke->range
         ));
 
         return out;
@@ -1186,7 +1428,7 @@ class PPWalker
         invoke: *InvocationInfo
     ) -> *(TokenBuffer::<512>) {
         var out  = std::create::<TokenBuffer::<512>>();
-        var args = self._parse_builtin_arguments(invoke);
+        var args = self._parse_expanded_builtin_arguments(invoke);
 
         if args.size() == 0 {
             self._builtin_report(
@@ -1206,7 +1448,7 @@ class PPWalker
         invoke: *InvocationInfo
     ) -> *(TokenBuffer::<512>) {
         var out  = std::create::<TokenBuffer::<512>>();
-        var args = self._parse_builtin_arguments(invoke);
+        var args = self._parse_expanded_builtin_arguments(invoke);
 
         if args.size() == 0 {
             self._builtin_report(
@@ -1226,11 +1468,11 @@ class PPWalker
         invoke: *InvocationInfo
     ) -> *(TokenBuffer::<512>) {
         var out  = std::create::<TokenBuffer::<512>>();
-        var args = self._parse_builtin_arguments(invoke);
+        var args = self._parse_expanded_builtin_arguments(invoke);
 
         for var k: usize = 1; k < args.size(); ++k {
             if k > 1 {
-                self._append_builtin_comma(out, invoke->name.range);
+                self._append_builtin_comma(out, invoke->range);
             }
 
             self._append_builtin_argument(out, args[k]);
@@ -1239,12 +1481,12 @@ class PPWalker
         return out;
     }
 
-    priv fn _builtin_init(
+    priv fn _builtin_butlast(
         self,
         invoke: *InvocationInfo
     ) -> *(TokenBuffer::<512>) {
         var out  = std::create::<TokenBuffer::<512>>();
-        var args = self._parse_builtin_arguments(invoke);
+        var args = self._parse_expanded_builtin_arguments(invoke);
 
         if args.size() == 0 {
             return out;
@@ -1252,7 +1494,7 @@ class PPWalker
 
         for var k: usize = 0; k + 1 < args.size(); ++k {
             if k > 0 {
-                self._append_builtin_comma(out, invoke->name.range);
+                self._append_builtin_comma(out, invoke->range);
             }
 
             self._append_builtin_argument(out, args[k]);
@@ -1261,18 +1503,18 @@ class PPWalker
         return out;
     }
 
-    /// `concat!(a, b, ...)` — token paste. Joins the canonical spelling of every
+    /// `paste!(a, b, ...)` token paste. Joins the canonical spelling of every
     /// token in every argument and produces ONE identifier.
-    ///   concat!(get_, name) -> `get_name`
+    ///   paste!(get_, name) -> `get_name`
     /// Non-identifier results (numbers, operators) are not yet supported: they
     /// need owned imm payloads, which StringData/IntData do not have.
-    priv fn _builtin_concat(self, invoke: *InvocationInfo) -> *(TokenBuffer::<512>) {
+    priv fn _builtin_paste(self, invoke: *InvocationInfo) -> *(TokenBuffer::<512>) {
         var out  = std::create::<TokenBuffer::<512>>();
-        var args = self._parse_builtin_arguments(invoke);
+        var args = self._parse_expanded_builtin_arguments(invoke);
 
         if args.size() == 0 {
             self._builtin_report(invoke->range,
-                "builtin 'concat!()' requires at least one argument", DiagID::R009E);
+                "builtin 'paste!()' requires at least one argument", DiagID::R009E);
             return out;
         }
 
@@ -1286,7 +1528,7 @@ class PPWalker
 
         if !self._is_identifier_text(text) {
             self._builtin_report(invoke->range,
-                f"builtin 'concat!()': '{text}' is not a valid identifier; concat! can only paste identifier-like tokens",
+                f"builtin 'paste!()': '{text}' is not a valid identifier; paste! can only paste identifier-like tokens",
                 DiagID::R009E);
             return out;
         }
@@ -1319,10 +1561,16 @@ class PPWalker
 
     /// `stringify!(tokens...)`
     ///
-    /// This remains source-range backed. It preserves source whitespace and
-    /// punctuation exactly for ordinary lexed arguments, but cannot correctly
-    /// represent synthesized/discontiguous token sequences until StringData gains
-    /// an owned-text representation.
+    /// Produces an OWNED-text string literal (StringData::owned_ptr). Two text
+    /// strategies:
+    ///
+    ///  - SOURCE-BACKED run: every token's source bytes match its canonical
+    ///    spelling and offsets are monotonic the text is the exact source
+    ///    slice, preserving whitespace/punctuation, and `body` is additionally
+    ///    populated so unstringify! can re-lex it.
+    ///  - SYNTHESIZED/discontiguous run (tokens from paste!, unique_id!,
+    ///    spliced defaults, ...): canonical spellings joined with single
+    ///    spaces. `body` stays invalid.
     priv fn _builtin_stringify(
         self,
         invoke: *InvocationInfo
@@ -1341,20 +1589,53 @@ class PPWalker
         var first = &invoke->arg_toks[0];
         var last  = &invoke->arg_toks[invoke->arg_toks.size() - 1];
 
+        // A synthesized token carries a range pointing at whatever produced it,
+        // not at its own spelling; source bytes != canonical spelling exposes
+        // that. Monotonicity rejects reordered/duplicated splices.
+        var source_backed = first->range.start.id <= last->range.end.id;
+        if source_backed {
+            for var i: usize = 0; i < invoke->arg_toks.size(); ++i {
+                var t = &invoke->arg_toks[i];
+                if (i > 0)
+                && (t->range.start.id < invoke->arg_toks[i - 1].range.end.id) {
+                    source_backed = false;
+                    break;
+                }
+                if self._sm->get_text(t->range) != TokenText::spelling(*t, self._tcm) {
+                    source_backed = false;
+                    break;
+                }
+            }
+        }
+
+        var text = string();
+        if source_backed {
+            text = self._sm->get_text(SourceRange::from_bounds(
+                first->range.start,
+                last->range.end
+            ));
+        } else {
+            for var i: usize = 0; i < invoke->arg_toks.size(); ++i {
+                if i > 0 { text += " "; }
+                text += self._builtin_token_text(&invoke->arg_toks[i]);
+            }
+        }
+
         var tok = Token();
         tok.kind  = TokenKind::LitString;
         tok.range = invoke->range;
+        tok.imm   = self._imm->intern_string_copy(text);
 
-        var idx  = self._imm->create::<Immediate::StringData>();
-        var data = self._imm->get::<Immediate::StringData>(idx);
+        if source_backed {
+            // also range-backed: lets unstringify! re-lex without owned-text
+            // lexing support
+            var data = self._imm->get::<Immediate::StringData>(tok.imm);
+            data->body = SourceRange::from_bounds(
+                first->range.start,
+                last->range.end
+            );
+        }
 
-        data->body = SourceRange::from_bounds(
-            first->range.start,
-            last->range.end
-        );
-        data->prefix_kind = Immediate::TextPrefixKind::None;
-
-        tok.imm = idx;
         out->append(tok);
         return out;
     }
@@ -1364,7 +1645,7 @@ class PPWalker
         invoke: *InvocationInfo
     ) -> *(TokenBuffer::<512>) {
         var out  = std::create::<TokenBuffer::<512>>();
-        var args = self._parse_builtin_arguments(invoke);
+        var args = self._parse_expanded_builtin_arguments(invoke);
 
         if (args.size() != 1) || (args[0]->size() != 1) {
             self._builtin_report(
@@ -1407,10 +1688,41 @@ class PPWalker
 
         var body = data->body;
         if body.start.id >= body.end.id {
+            // no source backing: owned-only text (synthesized via stringify!
+            // on synthesized tokens, or file!) cannot be re-lexed until the
+            // lexer can run over table-owned bytes (load_virtual plumbing).
+            if data->has_owned_text() {
+                self._builtin_report(
+                    str_tok->range,
+                    "builtin 'unstringify!()': re-lexing a compiler-synthesized string is not supported yet",
+                    DiagID::R009E
+                );
+            }
             return out; // empty string body, nothing to re-lex
         }
 
-        var lexed = self._lexer->lex_slice::<512>(body.start.id, body.end.id);
+        // the string's body may live in a different file than the one this
+        // preprocessor's lexer has loaded (imported macro); re-lexing would
+        // read the wrong buffer's bytes.
+        if self._sm->get_fid(body) != self._fid {
+            self._builtin_report(
+                str_tok->range,
+                "builtin 'unstringify!()': string content originates in another file; cross-file re-lexing is not supported yet",
+                DiagID::R009E
+            );
+            return out;
+        }
+
+        // SourceLocation ids are GLOBAL (file_base + offset); the lexer cursor
+        // is FILE-LOCAL. Convert before slicing passing raw ids re-lexes from
+        // the wrong bytes for any nonzero file base.
+        var start_off = self._sm->get_offset(body.start);
+        var body_len  = static_cast::<usize>(body.end.id - body.start.id);
+
+        var lexed = self._lexer->lex_slice::<512>(
+            static_cast::<u32>(start_off),
+            static_cast::<u32>(start_off + body_len)
+        );
         if lexed == &null {
             self._builtin_report(
                 str_tok->range,
@@ -1500,6 +1812,8 @@ class PPWalker
         return out;
     }
 
+    /// `unreachable!` SAFE: lowers to a panic if reached (Rust semantics).
+    /// The UB/optimizer-assume variant is `unreachable_unchecked!`.
     priv fn _builtin_unreachable(
         self,
         invoke: *InvocationInfo
@@ -1510,6 +1824,23 @@ class PPWalker
         tok.kind  = TokenKind::TkMacroExpand;
         tok.range = invoke->name.range;
         tok.imm   = static_cast::<u32>(MacroSentinel::Unreachable);
+
+        out->append(tok);
+        return out;
+    }
+
+    /// `unreachable_unchecked!` UNSAFE: hard assertion to the optimizer that
+    /// the path is dead. Reaching it at runtime is undefined behavior.
+    priv fn _builtin_unreachable_unchecked(
+        self,
+        invoke: *InvocationInfo
+    ) -> *(TokenBuffer::<512>) {
+        var out = std::create::<TokenBuffer::<512>>();
+
+        var tok = Token();
+        tok.kind  = TokenKind::TkMacroExpand;
+        tok.range = invoke->name.range;
+        tok.imm   = static_cast::<u32>(MacroSentinel::UnreachableUnchecked);
 
         out->append(tok);
         return out;
@@ -1603,7 +1934,7 @@ class PPWalker
         return out;
     }
 
-    priv fn _builtin_include_str(
+    priv fn _builtin_embed_str(
         self,
         invoke: *InvocationInfo
     ) -> *(TokenBuffer::<512>) {
@@ -1612,7 +1943,7 @@ class PPWalker
         var tok = Token();
         tok.kind  = TokenKind::LitString;
         tok.range = invoke->name.range;
-        tok.imm   = static_cast::<u32>(MacroSentinel::IncludeStr);
+        tok.imm   = static_cast::<u32>(MacroSentinel::EmbedStr);
 
         out->append(tok);
         return out;
