@@ -122,8 +122,9 @@ fn sentinel_text(imm: u32) -> string {
     if imm == static_cast::<u32>(MacroSentinel::Todo)        { return "<todo>";        }
     if imm == static_cast::<u32>(MacroSentinel::Unreachable) { return "<unreachable>"; }
     if imm == static_cast::<u32>(MacroSentinel::Include)     { return "<include>";     }
-    if imm == static_cast::<u32>(MacroSentinel::IncludeStr)  { return "<include_str>"; }
+    if imm == static_cast::<u32>(MacroSentinel::EmbedStr)    { return "<embed_str>";   }
     if imm == static_cast::<u32>(MacroSentinel::Embed)       { return "<embed>";       }
+    if imm == static_cast::<u32>(MacroSentinel::UnreachableUnchecked) { return "<unreachable_unchecked>"; }
     return "<unknown_macro>";
 }
 
