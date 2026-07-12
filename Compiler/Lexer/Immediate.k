@@ -1139,11 +1139,24 @@ module Immediate {
         pub var next:        u32; // for chained strings, contains the next imm string idx
         pub var prefix_kind: TextPrefixKind;
 
+        /// OWNED-TEXT representation for synthesized strings (stringify! on
+        /// synthesized tokens, file!, future gensym): bytes live in
+        /// ImmediateTable::synth_names (ArenaList, pointers never move).
+        /// When owned_ptr is set it is the authoritative text; `body` may
+        /// ADDITIONALLY be valid when the text is also a contiguous source
+        /// slice (lets unstringify! re-lex without owned-text lexing support).
+        pub var owned_ptr: std::ConstPtr::<u8> = &null;
+        pub var owned_len: u32 = 0;
+
         priv var _evaluation_status_cb: fn (bool);
 
         fn StringData(self, parsing_status_cb: fn (bool)) {
             self._evaluation_status_cb = parsing_status_cb;
             self.next = u32(-1);
+        }
+
+        const fn has_owned_text(self) -> bool {
+            return self.owned_ptr != &null;
         }
 
         /// basic cleanup of all internally stored pools
@@ -1470,6 +1483,45 @@ class ImmediateTable {
         var l = stored->size();
         var h = compute_hash(r, l);
         return self.intern_ident(r, l, h);
+    }
+
+    /// \brief creates a StringData slot whose text is table-owned (no backing
+    ///        source range).
+    ///
+    /// \details copies the bytes into \c synth_names (ArenaList never moves, so
+    ///          the raw pointer stays stable for the table's lifetime). Unlike
+    ///          intern_ident_copy this is NOT an interner the string sheet is
+    ///          an append-only pool, one slot per occurrence, matching lexed
+    ///          string literals. Use for compiler-synthesized string text:
+    ///          stringify! over synthesized tokens, file!, diagnostics.
+    ///
+    /// \note the caller may additionally set `body` on the returned slot when
+    ///       the text also happens to be a contiguous source slice.
+    fn intern_string_copy(self, s: string) -> u32 {
+        if self.synth_names == &null {
+            self.synth_names = std::create::<ArenaList::<nstring>>(64);
+        }
+        var idx  = self.create::<Immediate::StringData>();
+        var data = self.get::<Immediate::StringData>(idx);
+
+        var stored = self.synth_names->push(std::string_to_nstring(s));
+        data->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
+        data->owned_len   = static_cast::<u32>(stored->size());
+        data->prefix_kind = Immediate::TextPrefixKind::None;
+        return idx;
+    }
+
+    /// \brief authoritative text of a string literal slot: owned bytes when
+    ///        present, otherwise the source slice behind `body`.
+    fn string_text(self, idx: u32, sm: *SourceManager) -> string {
+        var d = self.string_literals->get(static_cast::<usize>(idx));
+        if d->owned_ptr != &null {
+            return string(
+                reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->owned_ptr),
+                static_cast::<usize>(d->owned_len)
+            );
+        }
+        return sm->get_text(d->body);
     }
 
     fn ident_bytes(self, idx: u32) -> std::ConstPtr::<u8> {
