@@ -791,6 +791,7 @@ class ASTParse
     /// \brief appends notes to a diagnostic builder showing the macro expansion history.
     inline pub fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
         if tok == &null { return; }
+        if self.imm == &null { return; }
         if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return; }
 
         var kind = tok->kind;
@@ -798,33 +799,34 @@ class ASTParse
         var depth: u32 = 0;
 
         while static_cast::<u32>(kind) == static_cast::<u32>(TokenKind::TkMacroExpand) {
+            // PP already reported the real error at the invocation site; adding a
+            // chain here would double-report. Stay silent.
+            if imm == static_cast::<u32>(MacroSentinel::Poison) { return; }
+
+            // todo!/unreachable!/include! etc. carry no expansion info to walk.
+            if imm >= static_cast::<u32>(MacroSentinel::Threshold) { return; }
+
             if depth >= static_cast::<u32>(self.ctx->ci->pp.max_backtrace) {
-                builder->note(DiagID::S063N, tok->range.start,
+                builder->note(tok->range.start,
                     f"macro expansion chain truncated after {depth} levels"
                 );
                 return;
             }
 
-            if imm >= static_cast::<u32>(MacroSentinel::Threshold) {
-                builder->note(DiagID::S063N, tok->range.start,
-                    f"expanded from compiler-internal macro sentinel"
-                );
-                return;
-            }
-
-            if self.imm == &null { return; }
-
             var info = self.imm->get::<Immediate::MacroExpansionInfo>(imm);
+            if info == &null { return; }
 
+            // Primary already sits on the failing token in the macro body; the chain
+            // walks OUTWARD through invocation sites toward user code.
             var mname = self.ctx->sm->get_text(info->invoke_range);
             if (mname.length() > 0) && (mname.length() <= 64) {
-                builder->note(DiagID::S063N, info->def_range.start,
-                    f"expanded from the body of macro '{mname}!', which failed here (depth {depth})"
-                );
+                builder->note(info->invoke_range.start,
+                    f"in expansion of macro '{mname}!' invoked here"
+                ).child_first(info->invoke_range);
             } else {
-                builder->note(DiagID::S063N, info->def_range.start,
-                    f"expanded from macro defined here (depth {depth})"
-                );
+                builder->note(info->invoke_range.start,
+                    f"in a macro expansion invoked here (depth {depth})"
+                ).child_first(info->invoke_range);
             }
 
             kind  = info->original_kind;

@@ -16,7 +16,8 @@ enum MacroSentinel derives u32 {
     Include     = static_cast::<u32>(-4),
     IncludeStr  = static_cast::<u32>(-5),
     Embed       = static_cast::<u32>(-6),
+    Poison      = static_cast::<u32>(-7),
 
     /// any imm >= Threshold is a sentinel, not an imm table index
-    Threshold   = static_cast::<u32>(-10)
+    Threshold   = static_cast::<u32>(-16),
 }
