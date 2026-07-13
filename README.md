@@ -59,16 +59,27 @@ Kairo is built to slot directly into C **and** C++ ecosystems, offering a fresh 
 
 Kairo is licensed under the Attribution 4.0 International License. See the [LICENSE](https://github.com/kairolang/kairo/blob/main/license) for more details.
 
+### AI Usage Disclosure
+
+[Read The Full Post Here](https://www.kairolang.org/blog/how-ai-is-used-in-kairo/).
+TLDR: Lang design, Compiler, and Architecture are 100% human. No AI-generated code in the compiler and language design stage1 or stage0. Docs have AI usage; mostly used for polishing.
+
 ### Acknowledgements
 
 We want to thank all our contributors pushing Kairo forward.
-
-### [AI Usage Disclosure](https://www.kairolang.org/blog/how-ai-is-used-in-kairo/)
-
-TLDR: lang design, compiler, and architecture are 100% human. AI is used as a debugging assistant (second pair of eyes, not code author), polishing raw technical docs into readable prose, building the website (no one on the team is a web dev), git commit messages (laziness), doc comments (laziness), and the Stage 0 LSP/VSCode extension scaffolding. No AI-generated code in the compiler and language design stage1 or stage0.
 
 <div align="center">
   <a href="https://github.com/kairolang/kairo/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=kairolang/kairo">
 </a>
 </div>
+
+### Stars
+
+<a href="https://www.star-history.com/?repos=kairolang%2Fkairo&type=timeline&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=kairolang/kairo&type=timeline&theme=dark&legend=top-left&sealed_token=RrrzUDpwMVZfmAhKTMoffR2pTPUXIYzucBvcqBCemCfJ8TIoWwRLM7JHP94oqYawcyH9SZDCYlqeBhoYtszRBUG5ml0dJVQHtszhdMCjZgQxejQ757s5W5jpfP-r17CFfLmcMOgY74-HVdWfBwk3NMqpRcNiwR0nabY7ZcdPFXidbe3cT4Nz1BeSzOd8" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=kairolang/kairo&type=timeline&legend=top-left&sealed_token=RrrzUDpwMVZfmAhKTMoffR2pTPUXIYzucBvcqBCemCfJ8TIoWwRLM7JHP94oqYawcyH9SZDCYlqeBhoYtszRBUG5ml0dJVQHtszhdMCjZgQxejQ757s5W5jpfP-r17CFfLmcMOgY74-HVdWfBwk3NMqpRcNiwR0nabY7ZcdPFXidbe3cT4Nz1BeSzOd8" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=kairolang/kairo&type=timeline&legend=top-left&sealed_token=RrrzUDpwMVZfmAhKTMoffR2pTPUXIYzucBvcqBCemCfJ8TIoWwRLM7JHP94oqYawcyH9SZDCYlqeBhoYtszRBUG5ml0dJVQHtszhdMCjZgQxejQ757s5W5jpfP-r17CFfLmcMOgY74-HVdWfBwk3NMqpRcNiwR0nabY7ZcdPFXidbe3cT4Nz1BeSzOd8" />
+ </picture>
+</a>
