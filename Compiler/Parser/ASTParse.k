@@ -216,13 +216,11 @@ class ASTParse
     /// \brief executes the full parse of the token stream.
     ///
     /// \details top-level loop. Annotations are consumed ONCE per item and
-    ///          stamped on the routed node. Decl lead-ins go to parse_decl and
-    ///          land in tu->dc_decls (source order) AND program->items;
-    ///          everything else parses as a statement (script-style top level
-    ///          is legal). var/const always route through the stmt path it
-    ///          owns the plain-decl vs destructuring split. After the loop, a
-    ///          wiring pass connects each named DeclContext to its hoisted
-    ///          DisambigNode so sema lookup_local works.
+    ///          stamped on the routed node. Routing: decl lead-ins go to
+    ///          _parse_top_decl, everything else to _parse_top_stmt. See
+    ///          _routes_to_decl for the var/const/eval/fn carve-outs.
+    ///          After the loop, _wire_scopes connects named DeclContexts to
+    ///          their hoisted DisambigNodes so sema lookup_local works.
     fn parse(self) -> *TranslationUnit {
         var program = self.ctx->alloc_init::<Program>(self.ctx->fid, self.ctx);
         self.tu->program = program;
@@ -246,69 +244,11 @@ class ASTParse
             self.consume_leading_annotations(&annot);
             if self.is_eof() { break; }
 
-            var k = self.resolve_kind_deep(self._current);
-
-            var route_decl = self._starts_decl_kw(k);
-            if (k == TokenKind::KwVar) || (k == TokenKind::KwConst) {
-                route_decl = false; // stmt path owns destructuring split
-            }
-            if (k == TokenKind::KwEval) && (!self.check_peek(TokenKind::OpLBrace)) {
-                route_decl = false; // `eval {` is a decl block; `eval for/if/var`
-                                    // are statements (stmt dispatcher owns them).
-            }
-
-            if route_decl {
-                var d = self.parse_decl();
-                if d == &null { break; }
-                if self.is_fatal::<Decl>(d) { break; }
-
-                if isa::<VisibilityGroupDecl>(d) {
-                    var annot_has_any: bool = !annot.empty();
-                    if annot_has_any {
-                        var first_span: SourceRange = annot.entries.front().range;
-
-                        var b = self.diag->report(DiagID::S048E, first_span.start,
-                            "annotations and attributes cannot be applied to a visibility group; "
-                            "apply them to individual members instead"
-                        );
-
-                        b.first(first_span);
-
-                        // one note per additional annotation: each gets its own
-                        // caret on its own line, instead of one fused multi-line span.
-                        for var i: usize = 1; i < annot.entries.size(); ++i {
-                            var e = &annot.entries[i];
-                            b.note(DiagID::S048N, e->range.start,
-                                "this annotation also cannot apply to the group"
-                            ).first(e->range);
-                        }
-
-                        b.emit();
-                    }
-                    // do NOT stamp annot onto the group
-                } else {
-                    self.apply_annotations_to_decl(d, &annot);
-                }
-
-                self.tu->add_decl(d);
-                program->add_item(TopLevelItem::from_decl(d));
-                self._attach_trailing(d);
-            } else {
-                var s = self.parse_stmt();
-                if s == &null { break; }
-                if self.is_fatal::<Stmt>(s) { break; }
-
-                if isa::<DeclStmt>(s) {
-                    var ds = cast::<DeclStmt>(s);
-                    if ds->decl != &null {
-                        self.apply_annotations_to_decl(ds->decl, &annot);
-                    }
-                } else {
-                    self.apply_annotations_to_node(s, &annot);
-                }
-                program->add_item(TopLevelItem::from_stmt(s));
-                self._attach_trailing(s);
-            }
+            var k  = self.resolve_kind_deep(self._current);
+            var ok = (self._parse_top_decl(program, &annot, k))
+                     if self._routes_to_decl(k)
+                     else (self._parse_top_stmt(program, &annot));
+            if !ok { break; }
 
             while self._is_terminator_tok(self._current) {
                 self.advance_raw();
@@ -321,6 +261,99 @@ class ASTParse
 
         self._wire_scopes();
         return self.tu;
+    }
+
+    /// \brief decl-vs-stmt routing for the top-level loop.
+    ///
+    /// \details var/const always take the stmt path (it owns the plain-decl vs
+    ///          destructuring split). `eval` is a decl only when followed by
+    ///          `{`; `eval for/if/var` are statements.
+    priv fn _routes_to_decl(self, k: TokenKind) -> bool {
+        if !self._starts_decl_kw(k) { return false; }
+        if (k == TokenKind::KwVar) || (k == TokenKind::KwConst) { return false; }
+        if (k == TokenKind::KwEval) && (!self.check_peek(TokenKind::OpLBrace)) { return false; }
+        return true;
+    }
+
+    /// \brief parses one top-level declaration and lands it in tu->dc_decls
+    ///        (source order) AND program->items.
+    ///
+    /// \details `fn` at top level may be a named decl or an anonymous closure
+    ///          (`fn ()|&| { }()` as an IIFE). parse_decl speculates and returns
+    ///          null with the cursor rolled back to `fn` when it's the latter;
+    ///          we hand off to the statement path, which owns the expression.
+    ///
+    /// \return false to stop the top-level loop (fatal or unroutable).
+    priv fn _parse_top_decl(self, program: *Program, annot: *PendingAnnotations, k: TokenKind) -> bool {
+        var d = self.parse_decl(true);
+        if d == &null {
+            if k == TokenKind::KwFn {
+                return self._parse_top_stmt(program, annot);
+            }
+            return false;
+        }
+        if self.is_fatal::<Decl>(d) { return false; }
+
+        if isa::<VisibilityGroupDecl>(d) {
+            self._diag_annot_on_vis_group(annot);
+            // do NOT stamp annot onto the group
+        } else {
+            self.apply_annotations_to_decl(d, annot);
+        }
+
+        self.tu->add_decl(d);
+        program->add_item(TopLevelItem::from_decl(d));
+        self._attach_trailing(d);
+        return true;
+    }
+
+    /// \brief parses one top-level statement (script-style top level is legal).
+    ///
+    /// \details DeclStmt unwraps so annotations land on the inner decl, not
+    ///          the statement wrapper.
+    ///
+    /// \return false to stop the top-level loop (null or fatal).
+    priv fn _parse_top_stmt(self, program: *Program, annot: *PendingAnnotations) -> bool {
+        var s = self.parse_stmt();
+        if s == &null { return false; }
+        if self.is_fatal::<Stmt>(s) { return false; }
+
+        if isa::<DeclStmt>(s) {
+            var ds = cast::<DeclStmt>(s);
+            if ds->decl != &null {
+                self.apply_annotations_to_decl(ds->decl, annot);
+            }
+        } else {
+            self.apply_annotations_to_node(s, annot);
+        }
+
+        program->add_item(TopLevelItem::from_stmt(s));
+        self._attach_trailing(s);
+        return true;
+    }
+
+    /// \brief S048E: annotations/attributes cannot apply to a visibility group.
+    ///        one note per additional annotation so each gets its own caret
+    ///        instead of one fused multi-line span.
+    priv fn _diag_annot_on_vis_group(self, annot: *PendingAnnotations) {
+        if annot->empty() { return; }
+
+        var first_span: SourceRange = annot->entries.front().range;
+
+        var b = self.diag->report(DiagID::S048E, first_span.start,
+            "annotations and attributes cannot be applied to a visibility group; "
+            "apply them to individual members instead"
+        );
+        b.first(first_span);
+
+        for var i: usize = 1; i < annot->entries.size(); ++i {
+            var e = &annot->entries[i];
+            b.note(DiagID::S048N, e->range.start,
+                "this annotation also cannot apply to the group"
+            ).first(e->range);
+        }
+
+        b.emit();
     }
 
     /// \brief routes parsing to specific top-level declaration logic.
