@@ -9,12 +9,20 @@ compile time.
 
 ---
 
-## Regenerating the registry
+## Regenerating the registry and Clang diagnostic lookup table
 
-From the repo root:
+From the repo root (order matters, run `gen_clang_diag_table.py` first):
 
 ```bash
-python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen/ > Compiler/Diagnostic/Registry.k
+./build/x86_64-linux-gnu/debug/bin/clang-diag-identity              \
+    | python3 Scripts/gen_clang_diag_table.py                       \
+        --manifest Compiler/Diagnostic/TableGen/ClangDiagCodes.toml \
+        --output Compiler/Diagnostic/TableGen/Clang.diag.toml       \
+        --lookup-output Compiler/Diagnostic/ClangDiagLookup.k
+
+python3 Scripts/gen_diag.py         \
+      Compiler/Diagnostic/TableGen/ \
+    > Compiler/Diagnostic/Registry.k
 ```
 
 Run this after any addition, removal, or modification to a `.diag.toml` file

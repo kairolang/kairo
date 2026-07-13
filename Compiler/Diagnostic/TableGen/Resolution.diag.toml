@@ -278,3 +278,18 @@ group = "macro"
     verify that the macro name is spelled correctly, that its defining module is imported, and that the
     definition is visible before the invocation.
     """
+
+[R014]
+brief = "redefines builtin macro"
+group = "macro"
+    [R014.E]
+    explain = """
+    # redefines a builtin macro
+
+    a user-defined macro has the same name as a compiler-provided builtin macro. this is not allowed
+    because it would shadow the builtin and change its behavior.
+
+    ## how to fix
+
+    rename the user-defined macro to avoid conflicting with the builtin macro name.
+    """

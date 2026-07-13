@@ -1,0 +1,3452 @@
+# Stable Clang warning-group to Kairo diagnostic-code allocations.
+#
+# This file is persistent ABI state.
+# Never renumber entries and never reuse removed numbers.
+
+version = 1
+prefix = "C"
+width = 4
+
+[groups."#pragma-messages"]
+number = 1
+
+[groups."#warnings"]
+number = 2
+
+[groups."CFString-literal"]
+number = 3
+
+[groups."CL4"]
+number = 4
+
+[groups."IndependentClass-attribute"]
+number = 5
+
+[groups."NSObject-attribute"]
+number = 6
+
+[groups."TU-local-entity-exposure"]
+number = 7
+
+[groups."aarch64-sme-attributes"]
+number = 8
+
+[groups."abi"]
+number = 9
+
+[groups."absolute-value"]
+number = 10
+
+[groups."abstract-final-class"]
+number = 11
+
+[groups."abstract-vbase-init"]
+number = 12
+
+[groups."address"]
+number = 13
+
+[groups."address-of-packed-member"]
+number = 14
+
+[groups."address-of-temporary"]
+number = 15
+
+[groups."aggregate-return"]
+number = 16
+
+[groups."aix-compat"]
+number = 17
+
+[groups."alias-template-in-declaration-name"]
+number = 18
+
+[groups."align-mismatch"]
+number = 19
+
+[groups."all"]
+number = 20
+
+[groups."alloc-size"]
+number = 21
+
+[groups."alloca"]
+number = 22
+
+[groups."alloca-with-align-alignof"]
+number = 23
+
+[groups."always-inline-coroutine"]
+number = 24
+
+[groups."ambiguous-delete"]
+number = 25
+
+[groups."ambiguous-ellipsis"]
+number = 26
+
+[groups."ambiguous-macro"]
+number = 27
+
+[groups."ambiguous-member-template"]
+number = 28
+
+[groups."ambiguous-reversed-operator"]
+number = 29
+
+[groups."analyzer-incompatible-plugin"]
+number = 30
+
+[groups."android-unversioned-fallback"]
+number = 31
+
+[groups."anon-enum-enum-conversion"]
+number = 32
+
+[groups."anonymous-pack-parens"]
+number = 33
+
+[groups."apinotes"]
+number = 34
+
+[groups."arc"]
+number = 35
+
+[groups."arc-bridge-casts-disallowed-in-nonarc"]
+number = 36
+
+[groups."arc-maybe-repeated-use-of-weak"]
+number = 37
+
+[groups."arc-non-pod-memaccess"]
+number = 38
+
+[groups."arc-performSelector-leaks"]
+number = 39
+
+[groups."arc-repeated-use-of-weak"]
+number = 40
+
+[groups."arc-retain-cycles"]
+number = 41
+
+[groups."arc-unsafe-retained-assign"]
+number = 42
+
+[groups."argument-outside-range"]
+number = 43
+
+[groups."argument-undefined-behaviour"]
+number = 44
+
+[groups."arm-interrupt-save-fp-no-vfp-unit"]
+number = 45
+
+[groups."arm-interrupt-vfp-clobber"]
+number = 46
+
+[groups."array-bounds"]
+number = 47
+
+[groups."array-bounds-pointer-arithmetic"]
+number = 48
+
+[groups."array-compare"]
+number = 49
+
+[groups."array-compare-cxx26"]
+number = 50
+
+[groups."array-parameter"]
+number = 51
+
+[groups."asm"]
+number = 52
+
+[groups."asm-operand-widths"]
+number = 53
+
+[groups."assign-enum"]
+number = 54
+
+[groups."assume"]
+number = 55
+
+[groups."at-protocol"]
+number = 56
+
+[groups."atimport-in-framework-header"]
+number = 57
+
+[groups."atomic-access"]
+number = 58
+
+[groups."atomic-alignment"]
+number = 59
+
+[groups."atomic-implicit-seq-cst"]
+number = 60
+
+[groups."atomic-memory-ordering"]
+number = 61
+
+[groups."atomic-properties"]
+number = 62
+
+[groups."atomic-property-with-user-defined-accessor"]
+number = 63
+
+[groups."attribute-packed-for-bitfield"]
+number = 64
+
+[groups."attribute-preprocessor-tokens"]
+number = 65
+
+[groups."attribute-statement"]
+number = 66
+
+[groups."attribute-warning"]
+number = 67
+
+[groups."attributes"]
+number = 68
+
+[groups."auto-decl-extensions"]
+number = 69
+
+[groups."auto-disable-vptr-sanitizer"]
+number = 70
+
+[groups."auto-import"]
+number = 71
+
+[groups."auto-storage-class"]
+number = 72
+
+[groups."auto-var-id"]
+number = 73
+
+[groups."availability"]
+number = 74
+
+[groups."avr-rtlib-linking-quirks"]
+number = 75
+
+[groups."backend-plugin"]
+number = 76
+
+[groups."backslash-newline-escape"]
+number = 77
+
+[groups."bad-function-cast"]
+number = 78
+
+[groups."binary-literal"]
+number = 79
+
+[groups."bind-to-temporary-copy"]
+number = 80
+
+[groups."bit-int-extension"]
+number = 81
+
+[groups."bitfield-constant-conversion"]
+number = 82
+
+[groups."bitfield-enum-conversion"]
+number = 83
+
+[groups."bitfield-width"]
+number = 84
+
+[groups."bitwise-conditional-parentheses"]
+number = 85
+
+[groups."bitwise-instead-of-logical"]
+number = 86
+
+[groups."bitwise-op-parentheses"]
+number = 87
+
+[groups."block-capture-autoreleasing"]
+number = 88
+
+[groups."bool-conversion"]
+number = 89
+
+[groups."bool-conversions"]
+number = 90
+
+[groups."bool-operation"]
+number = 91
+
+[groups."bounds-safety-counted-by-elt-type-unknown-size"]
+number = 92
+
+[groups."braced-scalar-init"]
+number = 93
+
+[groups."branch-protection"]
+number = 94
+
+[groups."bridge-cast"]
+number = 95
+
+[groups."builtin-assume-aligned-alignment"]
+number = 96
+
+[groups."builtin-macro-redefined"]
+number = 97
+
+[groups."builtin-memcpy-chk-size"]
+number = 98
+
+[groups."builtin-requires-header"]
+number = 99
+
+[groups."c++-compat"]
+number = 100
+
+[groups."c++-hidden-decl"]
+number = 101
+
+[groups."c++-keyword"]
+number = 102
+
+[groups."c++-unterminated-string-initialization"]
+number = 103
+
+[groups."c++0x-compat"]
+number = 104
+
+[groups."c++0x-extensions"]
+number = 105
+
+[groups."c++0x-narrowing"]
+number = 106
+
+[groups."c++11-compat"]
+number = 107
+
+[groups."c++11-compat-deprecated-writable-strings"]
+number = 108
+
+[groups."c++11-compat-pedantic"]
+number = 109
+
+[groups."c++11-compat-reserved-user-defined-literal"]
+number = 110
+
+[groups."c++11-extensions"]
+number = 111
+
+[groups."c++11-extra-semi"]
+number = 112
+
+[groups."c++11-inline-namespace"]
+number = 113
+
+[groups."c++11-long-long"]
+number = 114
+
+[groups."c++11-narrowing"]
+number = 115
+
+[groups."c++11-narrowing-const-reference"]
+number = 116
+
+[groups."c++14-attribute-extensions"]
+number = 117
+
+[groups."c++14-binary-literal"]
+number = 118
+
+[groups."c++14-compat"]
+number = 119
+
+[groups."c++14-compat-pedantic"]
+number = 120
+
+[groups."c++14-extensions"]
+number = 121
+
+[groups."c++17-attribute-extensions"]
+number = 122
+
+[groups."c++17-compat"]
+number = 123
+
+[groups."c++17-compat-mangling"]
+number = 124
+
+[groups."c++17-compat-pedantic"]
+number = 125
+
+[groups."c++17-extensions"]
+number = 126
+
+[groups."c++1y-extensions"]
+number = 127
+
+[groups."c++1z-compat"]
+number = 128
+
+[groups."c++1z-compat-mangling"]
+number = 129
+
+[groups."c++1z-extensions"]
+number = 130
+
+[groups."c++20-attribute-extensions"]
+number = 131
+
+[groups."c++20-compat"]
+number = 132
+
+[groups."c++20-compat-pedantic"]
+number = 133
+
+[groups."c++20-designator"]
+number = 134
+
+[groups."c++20-extensions"]
+number = 135
+
+[groups."c++23-attribute-extensions"]
+number = 136
+
+[groups."c++23-compat"]
+number = 137
+
+[groups."c++23-extensions"]
+number = 138
+
+[groups."c++23-lambda-attributes"]
+number = 139
+
+[groups."c++26-extensions"]
+number = 140
+
+[groups."c++2a-compat"]
+number = 141
+
+[groups."c++2a-compat-pedantic"]
+number = 142
+
+[groups."c++2a-extensions"]
+number = 143
+
+[groups."c++2b-extensions"]
+number = 144
+
+[groups."c++2c-compat"]
+number = 145
+
+[groups."c++2c-extensions"]
+number = 146
+
+[groups."c++98-c++11-c++14-c++17-compat"]
+number = 147
+
+[groups."c++98-c++11-c++14-c++17-compat-pedantic"]
+number = 148
+
+[groups."c++98-c++11-c++14-compat"]
+number = 149
+
+[groups."c++98-c++11-c++14-compat-pedantic"]
+number = 150
+
+[groups."c++98-c++11-compat"]
+number = 151
+
+[groups."c++98-c++11-compat-binary-literal"]
+number = 152
+
+[groups."c++98-c++11-compat-pedantic"]
+number = 153
+
+[groups."c++98-compat"]
+number = 154
+
+[groups."c++98-compat-bind-to-temporary-copy"]
+number = 155
+
+[groups."c++98-compat-extra-semi"]
+number = 156
+
+[groups."c++98-compat-local-type-template-args"]
+number = 157
+
+[groups."c++98-compat-pedantic"]
+number = 158
+
+[groups."c++98-compat-unnamed-type-template-args"]
+number = 159
+
+[groups."c-attribute-extension"]
+number = 160
+
+[groups."c11-extensions"]
+number = 161
+
+[groups."c23-compat"]
+number = 162
+
+[groups."c23-extensions"]
+number = 163
+
+[groups."c2x-compat"]
+number = 164
+
+[groups."c2x-extensions"]
+number = 165
+
+[groups."c2y-extensions"]
+number = 166
+
+[groups."c99-compat"]
+number = 167
+
+[groups."c99-designator"]
+number = 168
+
+[groups."c99-extensions"]
+number = 169
+
+[groups."call-to-pure-virtual-from-ctor-dtor"]
+number = 170
+
+[groups."called-once-parameter"]
+number = 171
+
+[groups."cast-align"]
+number = 172
+
+[groups."cast-calling-convention"]
+number = 173
+
+[groups."cast-function-type"]
+number = 174
+
+[groups."cast-function-type-mismatch"]
+number = 175
+
+[groups."cast-function-type-strict"]
+number = 176
+
+[groups."cast-of-sel-type"]
+number = 177
+
+[groups."cast-qual"]
+number = 178
+
+[groups."cast-qual-unrelated"]
+number = 179
+
+[groups."cfi-unchecked-callee"]
+number = 180
+
+[groups."char-align"]
+number = 181
+
+[groups."char-subscripts"]
+number = 182
+
+[groups."character-conversion"]
+number = 183
+
+[groups."clang-cl-pch"]
+number = 184
+
+[groups."class-conversion"]
+number = 185
+
+[groups."class-varargs"]
+number = 186
+
+[groups."cmse-union-leak"]
+number = 187
+
+[groups."comma"]
+number = 188
+
+[groups."comment"]
+number = 189
+
+[groups."comments"]
+number = 190
+
+[groups."compare-distinct-pointer-types"]
+number = 191
+
+[groups."completion-handler"]
+number = 192
+
+[groups."complex-component-init"]
+number = 193
+
+[groups."compound-token-split"]
+number = 194
+
+[groups."compound-token-split-by-macro"]
+number = 195
+
+[groups."compound-token-split-by-space"]
+number = 196
+
+[groups."conditional-type-mismatch"]
+number = 197
+
+[groups."conditional-uninitialized"]
+number = 198
+
+[groups."config-macros"]
+number = 199
+
+[groups."constant-conversion"]
+number = 200
+
+[groups."constant-evaluated"]
+number = 201
+
+[groups."constant-logical-operand"]
+number = 202
+
+[groups."constexpr-not-const"]
+number = 203
+
+[groups."consumed"]
+number = 204
+
+[groups."conversion"]
+number = 205
+
+[groups."conversion-null"]
+number = 206
+
+[groups."coro-non-aligned-allocation-function"]
+number = 207
+
+[groups."coro-type-aware-allocation-function"]
+number = 208
+
+[groups."coroutine"]
+number = 209
+
+[groups."coroutine-missing-unhandled-exception"]
+number = 210
+
+[groups."covered-switch-default"]
+number = 211
+
+[groups."cpp"]
+number = 212
+
+[groups."cstring-format-directive"]
+number = 213
+
+[groups."ctad-maybe-unsupported"]
+number = 214
+
+[groups."ctor-dtor-privacy"]
+number = 215
+
+[groups."ctu"]
+number = 216
+
+[groups."cuda-compat"]
+number = 217
+
+[groups."custom-atomic-properties"]
+number = 218
+
+[groups."cxx-attribute-extension"]
+number = 219
+
+[groups."dangling"]
+number = 220
+
+[groups."dangling-assignment"]
+number = 221
+
+[groups."dangling-assignment-gsl"]
+number = 222
+
+[groups."dangling-capture"]
+number = 223
+
+[groups."dangling-else"]
+number = 224
+
+[groups."dangling-field"]
+number = 225
+
+[groups."dangling-gsl"]
+number = 226
+
+[groups."dangling-initializer-list"]
+number = 227
+
+[groups."darwin-sdk-settings"]
+number = 228
+
+[groups."date-time"]
+number = 229
+
+[groups."dealloc-in-category"]
+number = 230
+
+[groups."debug-compression-unavailable"]
+number = 231
+
+[groups."declaration-after-statement"]
+number = 232
+
+[groups."decls-in-multiple-modules"]
+number = 233
+
+[groups."default-const-init"]
+number = 234
+
+[groups."default-const-init-field"]
+number = 235
+
+[groups."default-const-init-field-unsafe"]
+number = 236
+
+[groups."default-const-init-unsafe"]
+number = 237
+
+[groups."default-const-init-var"]
+number = 238
+
+[groups."default-const-init-var-unsafe"]
+number = 239
+
+[groups."defaulted-function-deleted"]
+number = 240
+
+[groups."delayed-template-parsing-in-cxx20"]
+number = 241
+
+[groups."delegating-ctor-cycles"]
+number = 242
+
+[groups."delete-abstract-non-virtual-dtor"]
+number = 243
+
+[groups."delete-incomplete"]
+number = 244
+
+[groups."delete-non-abstract-non-virtual-dtor"]
+number = 245
+
+[groups."delete-non-virtual-dtor"]
+number = 246
+
+[groups."delimited-escape-sequence-extension"]
+number = 247
+
+[groups."deprecate-lax-vec-conv-all"]
+number = 248
+
+[groups."deprecated"]
+number = 249
+
+[groups."deprecated-altivec-src-compat"]
+number = 250
+
+[groups."deprecated-anon-enum-enum-conversion"]
+number = 251
+
+[groups."deprecated-array-compare"]
+number = 252
+
+[groups."deprecated-attributes"]
+number = 253
+
+[groups."deprecated-builtins"]
+number = 254
+
+[groups."deprecated-comma-subscript"]
+number = 255
+
+[groups."deprecated-copy"]
+number = 256
+
+[groups."deprecated-copy-dtor"]
+number = 257
+
+[groups."deprecated-copy-with-dtor"]
+number = 258
+
+[groups."deprecated-copy-with-user-provided-copy"]
+number = 259
+
+[groups."deprecated-copy-with-user-provided-dtor"]
+number = 260
+
+[groups."deprecated-coroutine"]
+number = 261
+
+[groups."deprecated-declarations"]
+number = 262
+
+[groups."deprecated-declarations-switch-case"]
+number = 263
+
+[groups."deprecated-dynamic-exception-spec"]
+number = 264
+
+[groups."deprecated-enum-compare"]
+number = 265
+
+[groups."deprecated-enum-compare-conditional"]
+number = 266
+
+[groups."deprecated-enum-enum-conversion"]
+number = 267
+
+[groups."deprecated-enum-float-conversion"]
+number = 268
+
+[groups."deprecated-implementations"]
+number = 269
+
+[groups."deprecated-increment-bool"]
+number = 270
+
+[groups."deprecated-literal-operator"]
+number = 271
+
+[groups."deprecated-missing-comma-variadic-parameter"]
+number = 272
+
+[groups."deprecated-module-dot-map"]
+number = 273
+
+[groups."deprecated-non-prototype"]
+number = 274
+
+[groups."deprecated-objc-isa-usage"]
+number = 275
+
+[groups."deprecated-objc-pointer-introspection"]
+number = 276
+
+[groups."deprecated-objc-pointer-introspection-performSelector"]
+number = 277
+
+[groups."deprecated-octal-literals"]
+number = 278
+
+[groups."deprecated-ofast"]
+number = 279
+
+[groups."deprecated-pragma"]
+number = 280
+
+[groups."deprecated-redundant-constexpr-static-def"]
+number = 281
+
+[groups."deprecated-register"]
+number = 282
+
+[groups."deprecated-this-capture"]
+number = 283
+
+[groups."deprecated-type"]
+number = 284
+
+[groups."deprecated-volatile"]
+number = 285
+
+[groups."deprecated-writable-strings"]
+number = 286
+
+[groups."direct-ivar-access"]
+number = 287
+
+[groups."disabled-macro-expansion"]
+number = 288
+
+[groups."disabled-optimization"]
+number = 289
+
+[groups."discard-qual"]
+number = 290
+
+[groups."distributed-object-modifiers"]
+number = 291
+
+[groups."div-by-zero"]
+number = 292
+
+[groups."division-by-zero"]
+number = 293
+
+[groups."dll-attribute-on-redeclaration"]
+number = 294
+
+[groups."dllexport-explicit-instantiation"]
+number = 295
+
+[groups."dllexport-explicit-instantiation-decl"]
+number = 296
+
+[groups."dllimport-static-field-def"]
+number = 297
+
+[groups."documentation"]
+number = 298
+
+[groups."documentation-deprecated-sync"]
+number = 299
+
+[groups."documentation-html"]
+number = 300
+
+[groups."documentation-pedantic"]
+number = 301
+
+[groups."documentation-unknown-command"]
+number = 302
+
+[groups."dollar-in-identifier-extension"]
+number = 303
+
+[groups."double-promotion"]
+number = 304
+
+[groups."dtor-name"]
+number = 305
+
+[groups."dtor-typedef"]
+number = 306
+
+[groups."duplicate-decl-specifier"]
+number = 307
+
+[groups."duplicate-enum"]
+number = 308
+
+[groups."duplicate-method-arg"]
+number = 309
+
+[groups."duplicate-method-match"]
+number = 310
+
+[groups."duplicate-protocol"]
+number = 311
+
+[groups."dxil-validation"]
+number = 312
+
+[groups."dynamic-class-memaccess"]
+number = 313
+
+[groups."dynamic-exception-spec"]
+number = 314
+
+[groups."eager-load-cxx-named-modules"]
+number = 315
+
+[groups."effc++"]
+number = 316
+
+[groups."elaborated-enum-base"]
+number = 317
+
+[groups."elaborated-enum-class"]
+number = 318
+
+[groups."embedded-directive"]
+number = 319
+
+[groups."empty-body"]
+number = 320
+
+[groups."empty-decomposition"]
+number = 321
+
+[groups."empty-init-stmt"]
+number = 322
+
+[groups."empty-translation-unit"]
+number = 323
+
+[groups."encode-type"]
+number = 324
+
+[groups."endif-labels"]
+number = 325
+
+[groups."enum-compare"]
+number = 326
+
+[groups."enum-compare-conditional"]
+number = 327
+
+[groups."enum-compare-switch"]
+number = 328
+
+[groups."enum-compare-typo"]
+number = 329
+
+[groups."enum-conversion"]
+number = 330
+
+[groups."enum-enum-conversion"]
+number = 331
+
+[groups."enum-float-conversion"]
+number = 332
+
+[groups."enum-too-large"]
+number = 333
+
+[groups."exceptions"]
+number = 334
+
+[groups."excess-initializers"]
+number = 335
+
+[groups."excessive-regsave"]
+number = 336
+
+[groups."exit-time-destructors"]
+number = 337
+
+[groups."expansion-to-defined"]
+number = 338
+
+[groups."experimental-header-units"]
+number = 339
+
+[groups."experimental-lifetime-safety"]
+number = 340
+
+[groups."experimental-lifetime-safety-cross-tu-suggestions"]
+number = 341
+
+[groups."experimental-lifetime-safety-intra-tu-suggestions"]
+number = 342
+
+[groups."experimental-lifetime-safety-permissive"]
+number = 343
+
+[groups."experimental-lifetime-safety-strict"]
+number = 344
+
+[groups."experimental-lifetime-safety-suggestions"]
+number = 345
+
+[groups."experimental-option"]
+number = 346
+
+[groups."explicit-initialize-call"]
+number = 347
+
+[groups."explicit-ownership-type"]
+number = 348
+
+[groups."explicit-specialization-storage-class"]
+number = 349
+
+[groups."export-unnamed"]
+number = 350
+
+[groups."ext-cxx-type-aware-allocators"]
+number = 351
+
+[groups."extern-c-compat"]
+number = 352
+
+[groups."extern-initializer"]
+number = 353
+
+[groups."extra"]
+number = 354
+
+[groups."extra-qualification"]
+number = 355
+
+[groups."extra-semi"]
+number = 356
+
+[groups."extra-semi-stmt"]
+number = 357
+
+[groups."extra-tokens"]
+number = 358
+
+[groups."extractapi-misuse"]
+number = 359
+
+[groups."extraneous-template-head"]
+number = 360
+
+[groups."final-dtor-non-final-class"]
+number = 361
+
+[groups."final-macro"]
+number = 362
+
+[groups."fixed-point-overflow"]
+number = 363
+
+[groups."flag-enum"]
+number = 364
+
+[groups."flexible-array-extensions"]
+number = 365
+
+[groups."float-conversion"]
+number = 366
+
+[groups."float-equal"]
+number = 367
+
+[groups."float-overflow-conversion"]
+number = 368
+
+[groups."float-zero-conversion"]
+number = 369
+
+[groups."for-loop-analysis"]
+number = 370
+
+[groups."format"]
+number = 371
+
+[groups."format-extra-args"]
+number = 372
+
+[groups."format-insufficient-args"]
+number = 373
+
+[groups."format-invalid-specifier"]
+number = 374
+
+[groups."format-non-iso"]
+number = 375
+
+[groups."format-nonliteral"]
+number = 376
+
+[groups."format-overflow"]
+number = 377
+
+[groups."format-overflow-non-kprintf"]
+number = 378
+
+[groups."format-pedantic"]
+number = 379
+
+[groups."format-security"]
+number = 380
+
+[groups."format-signedness"]
+number = 381
+
+[groups."format-truncation"]
+number = 382
+
+[groups."format-truncation-non-kprintf"]
+number = 383
+
+[groups."format-type-confusion"]
+number = 384
+
+[groups."format-y2k"]
+number = 385
+
+[groups."format-zero-length"]
+number = 386
+
+[groups."format=2"]
+number = 387
+
+[groups."fortify-source"]
+number = 388
+
+[groups."four-char-constants"]
+number = 389
+
+[groups."frame-address"]
+number = 390
+
+[groups."frame-larger-than"]
+number = 391
+
+[groups."frame-larger-than="]
+number = 392
+
+[groups."framework-include-private-from-public"]
+number = 393
+
+[groups."free-nonheap-object"]
+number = 394
+
+[groups."friend-enum"]
+number = 395
+
+[groups."function-def-in-objc-container"]
+number = 396
+
+[groups."function-effect-redeclarations"]
+number = 397
+
+[groups."function-effects"]
+number = 398
+
+[groups."function-multiversion"]
+number = 399
+
+[groups."fuse-ld-path"]
+number = 400
+
+[groups."future-attribute-extensions"]
+number = 401
+
+[groups."future-compat"]
+number = 402
+
+[groups."gcc-compat"]
+number = 403
+
+[groups."gcc-install-dir-libstdcxx"]
+number = 404
+
+[groups."global-constructors"]
+number = 405
+
+[groups."global-isel"]
+number = 406
+
+[groups."gnu"]
+number = 407
+
+[groups."gnu-alignof-expression"]
+number = 408
+
+[groups."gnu-anonymous-struct"]
+number = 409
+
+[groups."gnu-array-member-paren-init"]
+number = 410
+
+[groups."gnu-auto-type"]
+number = 411
+
+[groups."gnu-binary-literal"]
+number = 412
+
+[groups."gnu-case-range"]
+number = 413
+
+[groups."gnu-complex-integer"]
+number = 414
+
+[groups."gnu-compound-literal-initializer"]
+number = 415
+
+[groups."gnu-conditional-omitted-operand"]
+number = 416
+
+[groups."gnu-designator"]
+number = 417
+
+[groups."gnu-empty-initializer"]
+number = 418
+
+[groups."gnu-empty-struct"]
+number = 419
+
+[groups."gnu-flexible-array-initializer"]
+number = 420
+
+[groups."gnu-flexible-array-union-member"]
+number = 421
+
+[groups."gnu-folding-constant"]
+number = 422
+
+[groups."gnu-imaginary-constant"]
+number = 423
+
+[groups."gnu-include-next"]
+number = 424
+
+[groups."gnu-inline-cpp-without-extern"]
+number = 425
+
+[groups."gnu-label-as-value"]
+number = 426
+
+[groups."gnu-line-marker"]
+number = 427
+
+[groups."gnu-null-pointer-arithmetic"]
+number = 428
+
+[groups."gnu-offsetof-extensions"]
+number = 429
+
+[groups."gnu-pointer-arith"]
+number = 430
+
+[groups."gnu-redeclared-enum"]
+number = 431
+
+[groups."gnu-statement-expression"]
+number = 432
+
+[groups."gnu-statement-expression-from-macro-expansion"]
+number = 433
+
+[groups."gnu-static-float-init"]
+number = 434
+
+[groups."gnu-string-literal-operator-template"]
+number = 435
+
+[groups."gnu-union-cast"]
+number = 436
+
+[groups."gnu-variable-sized-type-not-at-end"]
+number = 437
+
+[groups."gnu-zero-line-directive"]
+number = 438
+
+[groups."gnu-zero-variadic-macro-arguments"]
+number = 439
+
+[groups."gpu-maybe-wrong-side"]
+number = 440
+
+[groups."header-guard"]
+number = 441
+
+[groups."header-hygiene"]
+number = 442
+
+[groups."higher-precision-for-complex-division"]
+number = 443
+
+[groups."hip-omp-target-directives"]
+number = 444
+
+[groups."hip-only"]
+number = 445
+
+[groups."hlsl-202y-extensions"]
+number = 446
+
+[groups."hlsl-availability"]
+number = 447
+
+[groups."hlsl-dxc-compatability"]
+number = 448
+
+[groups."hlsl-extensions"]
+number = 449
+
+[groups."hlsl-implicit-binding"]
+number = 450
+
+[groups."idiomatic-parentheses"]
+number = 451
+
+[groups."ignored-attributes"]
+number = 452
+
+[groups."ignored-availability-without-sdk-settings"]
+number = 453
+
+[groups."ignored-base-class-qualifiers"]
+number = 454
+
+[groups."ignored-gch"]
+number = 455
+
+[groups."ignored-optimization-argument"]
+number = 456
+
+[groups."ignored-pragma-intrinsic"]
+number = 457
+
+[groups."ignored-pragma-optimize"]
+number = 458
+
+[groups."ignored-pragmas"]
+number = 459
+
+[groups."ignored-qualifiers"]
+number = 460
+
+[groups."ignored-reference-qualifiers"]
+number = 461
+
+[groups."implicit"]
+number = 462
+
+[groups."implicit-atomic-properties"]
+number = 463
+
+[groups."implicit-const-int-float-conversion"]
+number = 464
+
+[groups."implicit-conversion-floating-point-to-bool"]
+number = 465
+
+[groups."implicit-enum-enum-cast"]
+number = 466
+
+[groups."implicit-exception-spec-mismatch"]
+number = 467
+
+[groups."implicit-fallthrough"]
+number = 468
+
+[groups."implicit-fallthrough-per-function"]
+number = 469
+
+[groups."implicit-fixed-point-conversion"]
+number = 470
+
+[groups."implicit-float-conversion"]
+number = 471
+
+[groups."implicit-function-declaration"]
+number = 472
+
+[groups."implicit-int"]
+number = 473
+
+[groups."implicit-int-conversion"]
+number = 474
+
+[groups."implicit-int-conversion-on-negation"]
+number = 475
+
+[groups."implicit-int-enum-cast"]
+number = 476
+
+[groups."implicit-int-float-conversion"]
+number = 477
+
+[groups."implicit-retain-self"]
+number = 478
+
+[groups."implicit-void-ptr-cast"]
+number = 479
+
+[groups."implicitly-unsigned-literal"]
+number = 480
+
+[groups."import"]
+number = 481
+
+[groups."import-implementation-partition-unit-in-interface-unit"]
+number = 482
+
+[groups."import-preprocessor-directive-pedantic"]
+number = 483
+
+[groups."inaccessible-base"]
+number = 484
+
+[groups."include-angled-in-module-purview"]
+number = 485
+
+[groups."include-next-absolute-path"]
+number = 486
+
+[groups."include-next-outside-header"]
+number = 487
+
+[groups."incompatible-exception-spec"]
+number = 488
+
+[groups."incompatible-function-pointer-types"]
+number = 489
+
+[groups."incompatible-function-pointer-types-strict"]
+number = 490
+
+[groups."incompatible-library-redeclaration"]
+number = 491
+
+[groups."incompatible-ms-pragma-section"]
+number = 492
+
+[groups."incompatible-ms-struct"]
+number = 493
+
+[groups."incompatible-pointer-types"]
+number = 494
+
+[groups."incompatible-pointer-types-discards-qualifiers"]
+number = 495
+
+[groups."incompatible-property-type"]
+number = 496
+
+[groups."incompatible-sysroot"]
+number = 497
+
+[groups."incomplete-framework-module-declaration"]
+number = 498
+
+[groups."incomplete-implementation"]
+number = 499
+
+[groups."incomplete-module"]
+number = 500
+
+[groups."incomplete-setjmp-declaration"]
+number = 501
+
+[groups."incomplete-umbrella"]
+number = 502
+
+[groups."inconsistent-dllimport"]
+number = 503
+
+[groups."inconsistent-missing-destructor-override"]
+number = 504
+
+[groups."inconsistent-missing-override"]
+number = 505
+
+[groups."increment-bool"]
+number = 506
+
+[groups."infinite-recursion"]
+number = 507
+
+[groups."init-priority-reserved"]
+number = 508
+
+[groups."init-self"]
+number = 509
+
+[groups."initializer-overrides"]
+number = 510
+
+[groups."injected-class-name"]
+number = 511
+
+[groups."inline"]
+number = 512
+
+[groups."inline-asm"]
+number = 513
+
+[groups."inline-namespace-reopened-noninline"]
+number = 514
+
+[groups."inline-new-delete"]
+number = 515
+
+[groups."installapi-violation"]
+number = 516
+
+[groups."instantiation-after-specialization"]
+number = 517
+
+[groups."int-conversion"]
+number = 518
+
+[groups."int-conversions"]
+number = 519
+
+[groups."int-in-bool-context"]
+number = 520
+
+[groups."int-to-pointer-cast"]
+number = 521
+
+[groups."int-to-void-pointer-cast"]
+number = 522
+
+[groups."integer-overflow"]
+number = 523
+
+[groups."invalid-command-line-argument"]
+number = 524
+
+[groups."invalid-constexpr"]
+number = 525
+
+[groups."invalid-feature-combination"]
+number = 526
+
+[groups."invalid-gnu-asm-cast"]
+number = 527
+
+[groups."invalid-iboutlet"]
+number = 528
+
+[groups."invalid-initializer-from-system-header"]
+number = 529
+
+[groups."invalid-ios-deployment-target"]
+number = 530
+
+[groups."invalid-no-builtin-names"]
+number = 531
+
+[groups."invalid-noreturn"]
+number = 532
+
+[groups."invalid-offsetof"]
+number = 533
+
+[groups."invalid-or-nonexistent-directory"]
+number = 534
+
+[groups."invalid-partial-specialization"]
+number = 535
+
+[groups."invalid-pch"]
+number = 536
+
+[groups."invalid-pp-token"]
+number = 537
+
+[groups."invalid-source-encoding"]
+number = 538
+
+[groups."invalid-specialization"]
+number = 539
+
+[groups."invalid-static-assert-message"]
+number = 540
+
+[groups."invalid-token-paste"]
+number = 541
+
+[groups."invalid-unevaluated-string"]
+number = 542
+
+[groups."invalid-utf8"]
+number = 543
+
+[groups."invalid-version-availability"]
+number = 544
+
+[groups."jump-misses-init"]
+number = 545
+
+[groups."jump-seh-finally"]
+number = 546
+
+[groups."keyword-compat"]
+number = 547
+
+[groups."keyword-macro"]
+number = 548
+
+[groups."knr-promoted-parameter"]
+number = 549
+
+[groups."language-extension-token"]
+number = 550
+
+[groups."large-by-value-copy"]
+number = 551
+
+[groups."legacy-constant-register-binding"]
+number = 552
+
+[groups."liblto"]
+number = 553
+
+[groups."linker-warnings"]
+number = 554
+
+[groups."literal-conversion"]
+number = 555
+
+[groups."literal-range"]
+number = 556
+
+[groups."local-type-template-args"]
+number = 557
+
+[groups."logical-not-parentheses"]
+number = 558
+
+[groups."logical-op-parentheses"]
+number = 559
+
+[groups."long-long"]
+number = 560
+
+[groups."loop-analysis"]
+number = 561
+
+[groups."macro-redefined"]
+number = 562
+
+[groups."main"]
+number = 563
+
+[groups."main-attached-to-named-module"]
+number = 564
+
+[groups."main-return-type"]
+number = 565
+
+[groups."malformed-warning-check"]
+number = 566
+
+[groups."many-braces-around-scalar-init"]
+number = 567
+
+[groups."math-errno-enabled-with-veclib"]
+number = 568
+
+[groups."mathematical-notation-identifier-extension"]
+number = 569
+
+[groups."matrix-conversion"]
+number = 570
+
+[groups."matrix-conversions"]
+number = 571
+
+[groups."max-tokens"]
+number = 572
+
+[groups."max-unsigned-zero"]
+number = 573
+
+[groups."memset-transposed-args"]
+number = 574
+
+[groups."memsize-comparison"]
+number = 575
+
+[groups."method-signatures"]
+number = 576
+
+[groups."microsoft"]
+number = 577
+
+[groups."microsoft-abstract"]
+number = 578
+
+[groups."microsoft-anon-tag"]
+number = 579
+
+[groups."microsoft-cast"]
+number = 580
+
+[groups."microsoft-charize"]
+number = 581
+
+[groups."microsoft-comment-paste"]
+number = 582
+
+[groups."microsoft-const-init"]
+number = 583
+
+[groups."microsoft-cpp-macro"]
+number = 584
+
+[groups."microsoft-default-arg-redefinition"]
+number = 585
+
+[groups."microsoft-drectve-section"]
+number = 586
+
+[groups."microsoft-empty-enum"]
+number = 587
+
+[groups."microsoft-end-of-file"]
+number = 588
+
+[groups."microsoft-enum-forward-reference"]
+number = 589
+
+[groups."microsoft-enum-value"]
+number = 590
+
+[groups."microsoft-exception-spec"]
+number = 591
+
+[groups."microsoft-exists"]
+number = 592
+
+[groups."microsoft-explicit-constructor-call"]
+number = 593
+
+[groups."microsoft-extra-qualification"]
+number = 594
+
+[groups."microsoft-fixed-enum"]
+number = 595
+
+[groups."microsoft-flexible-array"]
+number = 596
+
+[groups."microsoft-goto"]
+number = 597
+
+[groups."microsoft-inaccessible-base"]
+number = 598
+
+[groups."microsoft-include"]
+number = 599
+
+[groups."microsoft-init-from-predefined"]
+number = 600
+
+[groups."microsoft-inline-on-non-function"]
+number = 601
+
+[groups."microsoft-mutable-reference"]
+number = 602
+
+[groups."microsoft-pure-definition"]
+number = 603
+
+[groups."microsoft-redeclare-static"]
+number = 604
+
+[groups."microsoft-sealed"]
+number = 605
+
+[groups."microsoft-string-literal-from-predefined"]
+number = 606
+
+[groups."microsoft-template"]
+number = 607
+
+[groups."microsoft-template-shadow"]
+number = 608
+
+[groups."microsoft-union-member-reference"]
+number = 609
+
+[groups."microsoft-unqualified-friend"]
+number = 610
+
+[groups."microsoft-using-decl"]
+number = 611
+
+[groups."microsoft-void-pseudo-dtor"]
+number = 612
+
+[groups."misexpect"]
+number = 613
+
+[groups."misleading-indentation"]
+number = 614
+
+[groups."mismatched-new-delete"]
+number = 615
+
+[groups."mismatched-parameter-types"]
+number = 616
+
+[groups."mismatched-return-types"]
+number = 617
+
+[groups."mismatched-tags"]
+number = 618
+
+[groups."missing-braces"]
+number = 619
+
+[groups."missing-constinit"]
+number = 620
+
+[groups."missing-declarations"]
+number = 621
+
+[groups."missing-designated-field-initializers"]
+number = 622
+
+[groups."missing-exception-spec"]
+number = 623
+
+[groups."missing-field-initializers"]
+number = 624
+
+[groups."missing-format-attribute"]
+number = 625
+
+[groups."missing-include-dirs"]
+number = 626
+
+[groups."missing-method-return-type"]
+number = 627
+
+[groups."missing-multilib"]
+number = 628
+
+[groups."missing-noescape"]
+number = 629
+
+[groups."missing-noreturn"]
+number = 630
+
+[groups."missing-prototype-for-cc"]
+number = 631
+
+[groups."missing-prototypes"]
+number = 632
+
+[groups."missing-selector-name"]
+number = 633
+
+[groups."missing-sysroot"]
+number = 634
+
+[groups."missing-template-arg-list-after-template-kw"]
+number = 635
+
+[groups."missing-variable-declarations"]
+number = 636
+
+[groups."misspelled-assumption"]
+number = 637
+
+[groups."mix-packoffset"]
+number = 638
+
+[groups."module-build"]
+number = 639
+
+[groups."module-conflict"]
+number = 640
+
+[groups."module-file-config-mismatch"]
+number = 641
+
+[groups."module-file-extension"]
+number = 642
+
+[groups."module-file-mapping-mismatch"]
+number = 643
+
+[groups."module-import"]
+number = 644
+
+[groups."module-import-in-extern-c"]
+number = 645
+
+[groups."module-include-translation"]
+number = 646
+
+[groups."module-lock"]
+number = 647
+
+[groups."module-map"]
+number = 648
+
+[groups."module-validation"]
+number = 649
+
+[groups."modules-ambiguous-internal-linkage"]
+number = 650
+
+[groups."modules-import-nested-redundant"]
+number = 651
+
+[groups."most"]
+number = 652
+
+[groups."move"]
+number = 653
+
+[groups."ms-bitfield-padding"]
+number = 654
+
+[groups."msvc-include"]
+number = 655
+
+[groups."msvc-not-found"]
+number = 656
+
+[groups."multi-gpu"]
+number = 657
+
+[groups."multichar"]
+number = 658
+
+[groups."multilib-not-found"]
+number = 659
+
+[groups."multiple-move-vbase"]
+number = 660
+
+[groups."nan-infinity-disabled"]
+number = 661
+
+[groups."narrowing"]
+number = 662
+
+[groups."nested-anon-types"]
+number = 663
+
+[groups."nested-externs"]
+number = 664
+
+[groups."new-returns-null"]
+number = 665
+
+[groups."newline-eof"]
+number = 666
+
+[groups."noderef"]
+number = 667
+
+[groups."noexcept-type"]
+number = 668
+
+[groups."non-c-typedef-for-linkage"]
+number = 669
+
+[groups."non-gcc"]
+number = 670
+
+[groups."non-literal-null-conversion"]
+number = 671
+
+[groups."non-modular-include-in-framework-module"]
+number = 672
+
+[groups."non-modular-include-in-module"]
+number = 673
+
+[groups."non-pod-varargs"]
+number = 674
+
+[groups."non-power-of-two-alignment"]
+number = 675
+
+[groups."non-virtual-dtor"]
+number = 676
+
+[groups."nonnull"]
+number = 677
+
+[groups."nonportable-cfstrings"]
+number = 678
+
+[groups."nonportable-include-path"]
+number = 679
+
+[groups."nonportable-private-apinotes-path"]
+number = 680
+
+[groups."nonportable-private-system-apinotes-path"]
+number = 681
+
+[groups."nonportable-sycl"]
+number = 682
+
+[groups."nonportable-system-include-path"]
+number = 683
+
+[groups."nonportable-vector-initialization"]
+number = 684
+
+[groups."nontrivial-memaccess"]
+number = 685
+
+[groups."nontrivial-memcall"]
+number = 686
+
+[groups."nrvo"]
+number = 687
+
+[groups."nsconsumed-mismatch"]
+number = 688
+
+[groups."nsreturns-mismatch"]
+number = 689
+
+[groups."null-arithmetic"]
+number = 690
+
+[groups."null-character"]
+number = 691
+
+[groups."null-conversion"]
+number = 692
+
+[groups."null-dereference"]
+number = 693
+
+[groups."null-pointer-arithmetic"]
+number = 694
+
+[groups."null-pointer-subtraction"]
+number = 695
+
+[groups."nullability"]
+number = 696
+
+[groups."nullability-completeness"]
+number = 697
+
+[groups."nullability-completeness-on-arrays"]
+number = 698
+
+[groups."nullability-declspec"]
+number = 699
+
+[groups."nullability-extension"]
+number = 700
+
+[groups."nullability-inferred-on-nested-type"]
+number = 701
+
+[groups."nullable-to-nonnull-conversion"]
+number = 702
+
+[groups."nvcc-compat"]
+number = 703
+
+[groups."objc-autosynthesis-property-ivar-name-match"]
+number = 704
+
+[groups."objc-bool-constant-conversion"]
+number = 705
+
+[groups."objc-boxing"]
+number = 706
+
+[groups."objc-circular-container"]
+number = 707
+
+[groups."objc-cocoa-api"]
+number = 708
+
+[groups."objc-designated-initializers"]
+number = 709
+
+[groups."objc-dictionary-duplicate-keys"]
+number = 710
+
+[groups."objc-duplicate-category-definition"]
+number = 711
+
+[groups."objc-flexible-array"]
+number = 712
+
+[groups."objc-forward-class-redefinition"]
+number = 713
+
+[groups."objc-interface-ivars"]
+number = 714
+
+[groups."objc-literal-compare"]
+number = 715
+
+[groups."objc-literal-conversion"]
+number = 716
+
+[groups."objc-macro-redefinition"]
+number = 717
+
+[groups."objc-messaging-id"]
+number = 718
+
+[groups."objc-method-access"]
+number = 719
+
+[groups."objc-missing-property-synthesis"]
+number = 720
+
+[groups."objc-missing-super-calls"]
+number = 721
+
+[groups."objc-multiple-method-names"]
+number = 722
+
+[groups."objc-noncopy-retain-block-property"]
+number = 723
+
+[groups."objc-nonunified-exceptions"]
+number = 724
+
+[groups."objc-property-assign-on-object-type"]
+number = 725
+
+[groups."objc-property-implementation"]
+number = 726
+
+[groups."objc-property-implicit-mismatch"]
+number = 727
+
+[groups."objc-property-matches-cocoa-ownership-rule"]
+number = 728
+
+[groups."objc-property-no-attribute"]
+number = 729
+
+[groups."objc-property-synthesis"]
+number = 730
+
+[groups."objc-protocol-method-implementation"]
+number = 731
+
+[groups."objc-protocol-property-synthesis"]
+number = 732
+
+[groups."objc-protocol-qualifiers"]
+number = 733
+
+[groups."objc-readonly-with-setter-property"]
+number = 734
+
+[groups."objc-redundant-api-use"]
+number = 735
+
+[groups."objc-redundant-literal-use"]
+number = 736
+
+[groups."objc-root-class"]
+number = 737
+
+[groups."objc-signed-char-bool"]
+number = 738
+
+[groups."objc-signed-char-bool-implicit-float-conversion"]
+number = 739
+
+[groups."objc-signed-char-bool-implicit-int-conversion"]
+number = 740
+
+[groups."objc-string-compare"]
+number = 741
+
+[groups."objc-string-concatenation"]
+number = 742
+
+[groups."objc-unsafe-perform-selector"]
+number = 743
+
+[groups."octal-prefix-extension"]
+number = 744
+
+[groups."odr"]
+number = 745
+
+[groups."old-style-cast"]
+number = 746
+
+[groups."old-style-definition"]
+number = 747
+
+[groups."openacc"]
+number = 748
+
+[groups."openacc-cache-var-inside-loop"]
+number = 749
+
+[groups."openacc-confusing-routine-name"]
+number = 750
+
+[groups."openacc-deprecated-clause-alias"]
+number = 751
+
+[groups."openacc-extension"]
+number = 752
+
+[groups."openacc-self-if-potential-conflict"]
+number = 753
+
+[groups."openacc-var-lacks-operation"]
+number = 754
+
+[groups."openacc-var-non-const-array"]
+number = 755
+
+[groups."opencl-unsupported-rgba"]
+number = 756
+
+[groups."openmp"]
+number = 757
+
+[groups."openmp-51-extensions"]
+number = 758
+
+[groups."openmp-clauses"]
+number = 759
+
+[groups."openmp-extensions"]
+number = 760
+
+[groups."openmp-future"]
+number = 761
+
+[groups."openmp-loop-form"]
+number = 762
+
+[groups."openmp-mapping"]
+number = 763
+
+[groups."openmp-target"]
+number = 764
+
+[groups."openmp-target-exception"]
+number = 765
+
+[groups."option-ignored"]
+number = 766
+
+[groups."ordered-compare-function-pointers"]
+number = 767
+
+[groups."out-of-line-declaration"]
+number = 768
+
+[groups."out-of-scope-function"]
+number = 769
+
+[groups."over-aligned"]
+number = 770
+
+[groups."overflow"]
+number = 771
+
+[groups."overlength-strings"]
+number = 772
+
+[groups."overloaded-shift-op-parentheses"]
+number = 773
+
+[groups."overloaded-virtual"]
+number = 774
+
+[groups."override-init"]
+number = 775
+
+[groups."override-module"]
+number = 776
+
+[groups."overriding-complex-range"]
+number = 777
+
+[groups."overriding-deployment-version"]
+number = 778
+
+[groups."overriding-method-mismatch"]
+number = 779
+
+[groups."overriding-option"]
+number = 780
+
+[groups."packed"]
+number = 781
+
+[groups."packed-non-pod"]
+number = 782
+
+[groups."padded"]
+number = 783
+
+[groups."padded-bitfield"]
+number = 784
+
+[groups."parentheses"]
+number = 785
+
+[groups."parentheses-equality"]
+number = 786
+
+[groups."partial-availability"]
+number = 787
+
+[groups."pass"]
+number = 788
+
+[groups."pass-analysis"]
+number = 789
+
+[groups."pass-failed"]
+number = 790
+
+[groups."pass-missed"]
+number = 791
+
+[groups."pch-date-time"]
+number = 792
+
+[groups."pch-vfs-diff"]
+number = 793
+
+[groups."pedantic"]
+number = 794
+
+[groups."pedantic-core-features"]
+number = 795
+
+[groups."pedantic-macros"]
+number = 796
+
+[groups."perf-constraint-implies-noexcept"]
+number = 797
+
+[groups."pessimizing-move"]
+number = 798
+
+[groups."pgo-coverage"]
+number = 799
+
+[groups."pointer-arith"]
+number = 800
+
+[groups."pointer-bool-conversion"]
+number = 801
+
+[groups."pointer-compare"]
+number = 802
+
+[groups."pointer-integer-compare"]
+number = 803
+
+[groups."pointer-sign"]
+number = 804
+
+[groups."pointer-to-enum-cast"]
+number = 805
+
+[groups."pointer-to-int-cast"]
+number = 806
+
+[groups."pointer-type-mismatch"]
+number = 807
+
+[groups."poison-system-directories"]
+number = 808
+
+[groups."potentially-direct-selector"]
+number = 809
+
+[groups."potentially-evaluated-expression"]
+number = 810
+
+[groups."pragma-clang-attribute"]
+number = 811
+
+[groups."pragma-once-outside-header"]
+number = 812
+
+[groups."pragma-pack"]
+number = 813
+
+[groups."pragma-pack-suspicious-include"]
+number = 814
+
+[groups."pragma-system-header-outside-header"]
+number = 815
+
+[groups."pragmas"]
+number = 816
+
+[groups."pre-c++14-compat"]
+number = 817
+
+[groups."pre-c++14-compat-pedantic"]
+number = 818
+
+[groups."pre-c++17-compat"]
+number = 819
+
+[groups."pre-c++17-compat-pedantic"]
+number = 820
+
+[groups."pre-c++20-compat"]
+number = 821
+
+[groups."pre-c++20-compat-pedantic"]
+number = 822
+
+[groups."pre-c++23-compat"]
+number = 823
+
+[groups."pre-c++23-compat-pedantic"]
+number = 824
+
+[groups."pre-c++26-compat"]
+number = 825
+
+[groups."pre-c++26-compat-pedantic"]
+number = 826
+
+[groups."pre-c++2c-compat"]
+number = 827
+
+[groups."pre-c++2c-compat-pedantic"]
+number = 828
+
+[groups."pre-c11-compat"]
+number = 829
+
+[groups."pre-c11-compat-pedantic"]
+number = 830
+
+[groups."pre-c23-compat"]
+number = 831
+
+[groups."pre-c23-compat-pedantic"]
+number = 832
+
+[groups."pre-c2x-compat"]
+number = 833
+
+[groups."pre-c2x-compat-pedantic"]
+number = 834
+
+[groups."pre-c2y-compat"]
+number = 835
+
+[groups."pre-c2y-compat-pedantic"]
+number = 836
+
+[groups."pre-openmp-51-compat"]
+number = 837
+
+[groups."predefined-identifier-outside-function"]
+number = 838
+
+[groups."preferred-type-bitfield-enum-conversion"]
+number = 839
+
+[groups."preferred-type-bitfield-width"]
+number = 840
+
+[groups."private-extern"]
+number = 841
+
+[groups."private-header"]
+number = 842
+
+[groups."private-module"]
+number = 843
+
+[groups."profile-instr-missing"]
+number = 844
+
+[groups."profile-instr-out-of-date"]
+number = 845
+
+[groups."profile-instr-unprofiled"]
+number = 846
+
+[groups."property-access-dot-syntax"]
+number = 847
+
+[groups."property-attribute-mismatch"]
+number = 848
+
+[groups."protocol"]
+number = 849
+
+[groups."protocol-property-synthesis-ambiguity"]
+number = 850
+
+[groups."psabi"]
+number = 851
+
+[groups."ptrauth-null-pointers"]
+number = 852
+
+[groups."qualified-void-return-type"]
+number = 853
+
+[groups."quoted-include-in-framework-header"]
+number = 854
+
+[groups."range-loop-analysis"]
+number = 855
+
+[groups."range-loop-bind-reference"]
+number = 856
+
+[groups."range-loop-construct"]
+number = 857
+
+[groups."read-only-types"]
+number = 858
+
+[groups."readonly-iboutlet-property"]
+number = 859
+
+[groups."receiver-expr"]
+number = 860
+
+[groups."receiver-forward-class"]
+number = 861
+
+[groups."redeclared-class-member"]
+number = 862
+
+[groups."reduced-bmi-output-overrided"]
+number = 863
+
+[groups."redundant-attribute"]
+number = 864
+
+[groups."redundant-consteval-if"]
+number = 865
+
+[groups."redundant-decls"]
+number = 866
+
+[groups."redundant-move"]
+number = 867
+
+[groups."redundant-parens"]
+number = 868
+
+[groups."reference-tu-local-entity-in-other-tu"]
+number = 869
+
+[groups."register"]
+number = 870
+
+[groups."reinterpret-base-class"]
+number = 871
+
+[groups."remark-backend-plugin"]
+number = 872
+
+[groups."reorder"]
+number = 873
+
+[groups."reorder-ctor"]
+number = 874
+
+[groups."reorder-init-list"]
+number = 875
+
+[groups."requires-super-attribute"]
+number = 876
+
+[groups."reserved-attribute-identifier"]
+number = 877
+
+[groups."reserved-id-macro"]
+number = 878
+
+[groups."reserved-identifier"]
+number = 879
+
+[groups."reserved-macro-identifier"]
+number = 880
+
+[groups."reserved-module-identifier"]
+number = 881
+
+[groups."reserved-user-defined-literal"]
+number = 882
+
+[groups."restrict-expansion"]
+number = 883
+
+[groups."retained-language-linkage"]
+number = 884
+
+[groups."return-local-addr"]
+number = 885
+
+[groups."return-mismatch"]
+number = 886
+
+[groups."return-stack-address"]
+number = 887
+
+[groups."return-std-move"]
+number = 888
+
+[groups."return-type"]
+number = 889
+
+[groups."return-type-c-linkage"]
+number = 890
+
+[groups."rewrite-not-bool"]
+number = 891
+
+[groups."round-trip-cc1-args"]
+number = 892
+
+[groups."rtti"]
+number = 893
+
+[groups."sanitize-address"]
+number = 894
+
+[groups."sarif-format-unstable"]
+number = 895
+
+[groups."search-path-usage"]
+number = 896
+
+[groups."section"]
+number = 897
+
+[groups."selector"]
+number = 898
+
+[groups."selector-type-mismatch"]
+number = 899
+
+[groups."self-assign"]
+number = 900
+
+[groups."self-assign-field"]
+number = 901
+
+[groups."self-assign-overloaded"]
+number = 902
+
+[groups."self-move"]
+number = 903
+
+[groups."semicolon-before-method-body"]
+number = 904
+
+[groups."sentinel"]
+number = 905
+
+[groups."sequence-point"]
+number = 906
+
+[groups."serialized-diagnostics"]
+number = 907
+
+[groups."shadow"]
+number = 908
+
+[groups."shadow-all"]
+number = 909
+
+[groups."shadow-field"]
+number = 910
+
+[groups."shadow-field-in-constructor"]
+number = 911
+
+[groups."shadow-field-in-constructor-modified"]
+number = 912
+
+[groups."shadow-header"]
+number = 913
+
+[groups."shadow-ivar"]
+number = 914
+
+[groups."shadow-uncaptured-local"]
+number = 915
+
+[groups."shift-bool"]
+number = 916
+
+[groups."shift-count-negative"]
+number = 917
+
+[groups."shift-count-overflow"]
+number = 918
+
+[groups."shift-negative-value"]
+number = 919
+
+[groups."shift-op-parentheses"]
+number = 920
+
+[groups."shift-overflow"]
+number = 921
+
+[groups."shift-sign-overflow"]
+number = 922
+
+[groups."shorten-64-to-32"]
+number = 923
+
+[groups."sign-compare"]
+number = 924
+
+[groups."sign-conversion"]
+number = 925
+
+[groups."sign-promo"]
+number = 926
+
+[groups."signed-enum-bitfield"]
+number = 927
+
+[groups."signed-unsigned-wchar"]
+number = 928
+
+[groups."simdlen"]
+number = 929
+
+[groups."single-bit-bitfield-constant-conversion"]
+number = 930
+
+[groups."sizeof-array-argument"]
+number = 931
+
+[groups."sizeof-array-decay"]
+number = 932
+
+[groups."sizeof-array-div"]
+number = 933
+
+[groups."sizeof-pointer-div"]
+number = 934
+
+[groups."sizeof-pointer-memaccess"]
+number = 935
+
+[groups."slash-u-filename"]
+number = 936
+
+[groups."slh-asm-goto"]
+number = 937
+
+[groups."sloc-usage"]
+number = 938
+
+[groups."sometimes-uninitialized"]
+number = 939
+
+[groups."source-mgr"]
+number = 940
+
+[groups."source-uses-openacc"]
+number = 941
+
+[groups."source-uses-openmp"]
+number = 942
+
+[groups."spir-compat"]
+number = 943
+
+[groups."spirv-compat"]
+number = 944
+
+[groups."stack-exhausted"]
+number = 945
+
+[groups."stack-protector"]
+number = 946
+
+[groups."static-float-init"]
+number = 947
+
+[groups."static-in-inline"]
+number = 948
+
+[groups."static-inline-explicit-instantiation"]
+number = 949
+
+[groups."static-local-in-inline"]
+number = 950
+
+[groups."static-self-init"]
+number = 951
+
+[groups."stdlibcxx-not-found"]
+number = 952
+
+[groups."strict-aliasing"]
+number = 953
+
+[groups."strict-aliasing=0"]
+number = 954
+
+[groups."strict-aliasing=1"]
+number = 955
+
+[groups."strict-aliasing=2"]
+number = 956
+
+[groups."strict-overflow"]
+number = 957
+
+[groups."strict-overflow=0"]
+number = 958
+
+[groups."strict-overflow=1"]
+number = 959
+
+[groups."strict-overflow=2"]
+number = 960
+
+[groups."strict-overflow=3"]
+number = 961
+
+[groups."strict-overflow=4"]
+number = 962
+
+[groups."strict-overflow=5"]
+number = 963
+
+[groups."strict-potentially-direct-selector"]
+number = 964
+
+[groups."strict-primary-template-shadow"]
+number = 965
+
+[groups."strict-prototypes"]
+number = 966
+
+[groups."strict-selector-match"]
+number = 967
+
+[groups."string-compare"]
+number = 968
+
+[groups."string-concatenation"]
+number = 969
+
+[groups."string-conversion"]
+number = 970
+
+[groups."string-plus-char"]
+number = 971
+
+[groups."string-plus-int"]
+number = 972
+
+[groups."strlcpy-strlcat-size"]
+number = 973
+
+[groups."strncat-size"]
+number = 974
+
+[groups."suggest-destructor-override"]
+number = 975
+
+[groups."suggest-override"]
+number = 976
+
+[groups."super-class-method-mismatch"]
+number = 977
+
+[groups."suspicious-bzero"]
+number = 978
+
+[groups."suspicious-memaccess"]
+number = 979
+
+[groups."swift-name-attribute"]
+number = 980
+
+[groups."switch"]
+number = 981
+
+[groups."switch-bool"]
+number = 982
+
+[groups."switch-default"]
+number = 983
+
+[groups."switch-enum"]
+number = 984
+
+[groups."sync-alignment"]
+number = 985
+
+[groups."sync-fetch-and-nand-semantics-changed"]
+number = 986
+
+[groups."synth"]
+number = 987
+
+[groups."target-clones-mixed-specifiers"]
+number = 988
+
+[groups."tautological-bitwise-compare"]
+number = 989
+
+[groups."tautological-compare"]
+number = 990
+
+[groups."tautological-constant-compare"]
+number = 991
+
+[groups."tautological-constant-in-range-compare"]
+number = 992
+
+[groups."tautological-constant-out-of-range-compare"]
+number = 993
+
+[groups."tautological-negation-compare"]
+number = 994
+
+[groups."tautological-objc-bool-compare"]
+number = 995
+
+[groups."tautological-overlap-compare"]
+number = 996
+
+[groups."tautological-pointer-compare"]
+number = 997
+
+[groups."tautological-type-limit-compare"]
+number = 998
+
+[groups."tautological-undefined-compare"]
+number = 999
+
+[groups."tautological-unsigned-char-zero-compare"]
+number = 1000
+
+[groups."tautological-unsigned-enum-zero-compare"]
+number = 1001
+
+[groups."tautological-unsigned-zero-compare"]
+number = 1002
+
+[groups."tautological-value-range-compare"]
+number = 1003
+
+[groups."tcb-enforcement"]
+number = 1004
+
+[groups."template-in-declaration-name"]
+number = 1005
+
+[groups."tentative-definition-array"]
+number = 1006
+
+[groups."tentative-definition-compat"]
+number = 1007
+
+[groups."tentative-definition-incomplete-type"]
+number = 1008
+
+[groups."thread-safety"]
+number = 1009
+
+[groups."thread-safety-analysis"]
+number = 1010
+
+[groups."thread-safety-attributes"]
+number = 1011
+
+[groups."thread-safety-beta"]
+number = 1012
+
+[groups."thread-safety-negative"]
+number = 1013
+
+[groups."thread-safety-pointer"]
+number = 1014
+
+[groups."thread-safety-precise"]
+number = 1015
+
+[groups."thread-safety-reference"]
+number = 1016
+
+[groups."thread-safety-reference-return"]
+number = 1017
+
+[groups."thread-safety-verbose"]
+number = 1018
+
+[groups."trigraphs"]
+number = 1019
+
+[groups."trivial-auto-var-init"]
+number = 1020
+
+[groups."type-limits"]
+number = 1021
+
+[groups."type-safety"]
+number = 1022
+
+[groups."typedef-redefinition"]
+number = 1023
+
+[groups."typename-missing"]
+number = 1024
+
+[groups."unable-to-open-stats-file"]
+number = 1025
+
+[groups."unaligned-access"]
+number = 1026
+
+[groups."unaligned-qualifier-implicit-cast"]
+number = 1027
+
+[groups."unavailable-declarations"]
+number = 1028
+
+[groups."undeclared-selector"]
+number = 1029
+
+[groups."undef"]
+number = 1030
+
+[groups."undef-prefix"]
+number = 1031
+
+[groups."undef-true"]
+number = 1032
+
+[groups."undefined-arm-za"]
+number = 1033
+
+[groups."undefined-arm-zt0"]
+number = 1034
+
+[groups."undefined-bool-conversion"]
+number = 1035
+
+[groups."undefined-func-template"]
+number = 1036
+
+[groups."undefined-inline"]
+number = 1037
+
+[groups."undefined-internal"]
+number = 1038
+
+[groups."undefined-internal-type"]
+number = 1039
+
+[groups."undefined-reinterpret-cast"]
+number = 1040
+
+[groups."undefined-var-template"]
+number = 1041
+
+[groups."underaligned-exception-object"]
+number = 1042
+
+[groups."underlying-atomic-qualifier-ignored"]
+number = 1043
+
+[groups."underlying-cv-qualifier-ignored"]
+number = 1044
+
+[groups."unevaluated-expression"]
+number = 1045
+
+[groups."unguarded-availability"]
+number = 1046
+
+[groups."unguarded-availability-new"]
+number = 1047
+
+[groups."unicode"]
+number = 1048
+
+[groups."unicode-homoglyph"]
+number = 1049
+
+[groups."unicode-whitespace"]
+number = 1050
+
+[groups."unicode-zero-width"]
+number = 1051
+
+[groups."uninitialized"]
+number = 1052
+
+[groups."uninitialized-const-pointer"]
+number = 1053
+
+[groups."uninitialized-const-reference"]
+number = 1054
+
+[groups."uninitialized-explicit-init"]
+number = 1055
+
+[groups."unique-object-duplication"]
+number = 1056
+
+[groups."unknown-acc-extension-clause"]
+number = 1057
+
+[groups."unknown-argument"]
+number = 1058
+
+[groups."unknown-assumption"]
+number = 1059
+
+[groups."unknown-attributes"]
+number = 1060
+
+[groups."unknown-cuda-version"]
+number = 1061
+
+[groups."unknown-directives"]
+number = 1062
+
+[groups."unknown-escape-sequence"]
+number = 1063
+
+[groups."unknown-pragmas"]
+number = 1064
+
+[groups."unknown-sanitizers"]
+number = 1065
+
+[groups."unknown-warning-option"]
+number = 1066
+
+[groups."unnamed-type-template-args"]
+number = 1067
+
+[groups."unnecessary-virtual-specifier"]
+number = 1068
+
+[groups."unneeded-internal-declaration"]
+number = 1069
+
+[groups."unneeded-member-function"]
+number = 1070
+
+[groups."unqualified-std-cast-call"]
+number = 1071
+
+[groups."unreachable-code"]
+number = 1072
+
+[groups."unreachable-code-aggressive"]
+number = 1073
+
+[groups."unreachable-code-break"]
+number = 1074
+
+[groups."unreachable-code-fallthrough"]
+number = 1075
+
+[groups."unreachable-code-generic-assoc"]
+number = 1076
+
+[groups."unreachable-code-loop-increment"]
+number = 1077
+
+[groups."unreachable-code-return"]
+number = 1078
+
+[groups."unsafe-buffer-usage"]
+number = 1079
+
+[groups."unsafe-buffer-usage-in-container"]
+number = 1080
+
+[groups."unsafe-buffer-usage-in-format-attr-call"]
+number = 1081
+
+[groups."unsafe-buffer-usage-in-libc-call"]
+number = 1082
+
+[groups."unsafe-buffer-usage-in-unique-ptr-array-access"]
+number = 1083
+
+[groups."unsequenced"]
+number = 1084
+
+[groups."unsupported-abi"]
+number = 1085
+
+[groups."unsupported-abs"]
+number = 1086
+
+[groups."unsupported-availability-guard"]
+number = 1087
+
+[groups."unsupported-cb"]
+number = 1088
+
+[groups."unsupported-dll-base-class-template"]
+number = 1089
+
+[groups."unsupported-floating-point-opt"]
+number = 1090
+
+[groups."unsupported-friend"]
+number = 1091
+
+[groups."unsupported-gpopt"]
+number = 1092
+
+[groups."unsupported-nan"]
+number = 1093
+
+[groups."unsupported-target-opt"]
+number = 1094
+
+[groups."unsupported-visibility"]
+number = 1095
+
+[groups."unterminated-string-initialization"]
+number = 1096
+
+[groups."unusable-partial-specialization"]
+number = 1097
+
+[groups."unused"]
+number = 1098
+
+[groups."unused-argument"]
+number = 1099
+
+[groups."unused-but-set-parameter"]
+number = 1100
+
+[groups."unused-but-set-variable"]
+number = 1101
+
+[groups."unused-command-line-argument"]
+number = 1102
+
+[groups."unused-comparison"]
+number = 1103
+
+[groups."unused-const-variable"]
+number = 1104
+
+[groups."unused-exception-parameter"]
+number = 1105
+
+[groups."unused-function"]
+number = 1106
+
+[groups."unused-getter-return-value"]
+number = 1107
+
+[groups."unused-label"]
+number = 1108
+
+[groups."unused-lambda-capture"]
+number = 1109
+
+[groups."unused-local-typedef"]
+number = 1110
+
+[groups."unused-local-typedefs"]
+number = 1111
+
+[groups."unused-macros"]
+number = 1112
+
+[groups."unused-member-function"]
+number = 1113
+
+[groups."unused-parameter"]
+number = 1114
+
+[groups."unused-private-field"]
+number = 1115
+
+[groups."unused-property-ivar"]
+number = 1116
+
+[groups."unused-result"]
+number = 1117
+
+[groups."unused-template"]
+number = 1118
+
+[groups."unused-value"]
+number = 1119
+
+[groups."unused-variable"]
+number = 1120
+
+[groups."unused-volatile-lvalue"]
+number = 1121
+
+[groups."used-but-marked-unused"]
+number = 1122
+
+[groups."user-defined-literals"]
+number = 1123
+
+[groups."user-defined-warnings"]
+number = 1124
+
+[groups."varargs"]
+number = 1125
+
+[groups."variadic-macro-arguments-omitted"]
+number = 1126
+
+[groups."variadic-macros"]
+number = 1127
+
+[groups."vec-elem-size"]
+number = 1128
+
+[groups."vector-conversion"]
+number = 1129
+
+[groups."vector-conversions"]
+number = 1130
+
+[groups."vexing-parse"]
+number = 1131
+
+[groups."visibility"]
+number = 1132
+
+[groups."vla"]
+number = 1133
+
+[groups."vla-cxx-extension"]
+number = 1134
+
+[groups."vla-extension"]
+number = 1135
+
+[groups."vla-extension-static-assert"]
+number = 1136
+
+[groups."void-pointer-to-enum-cast"]
+number = 1137
+
+[groups."void-pointer-to-int-cast"]
+number = 1138
+
+[groups."void-ptr-dereference"]
+number = 1139
+
+[groups."volatile-register-var"]
+number = 1140
+
+[groups."wasm-exception-spec"]
+number = 1141
+
+[groups."weak-template-vtables"]
+number = 1142
+
+[groups."weak-vtables"]
+number = 1143
+
+[groups."writable-strings"]
+number = 1144
+
+[groups."write-strings"]
+number = 1145
+
+[groups."xor-used-as-pow"]
+number = 1146
+
+[groups."zero-as-null-pointer-constant"]
+number = 1147
+
+[groups."zero-length-array"]
+number = 1148

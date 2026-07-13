@@ -10,7 +10,7 @@ CAT_MAP = {
     "S": "Syntax", "U": "Uncategorized", "C": "CodeGen",
     "M": "Memory", "R": "Resolution", "L": "Linker",
     "SC": "Semantic", "P": "Portability", "CL": "Lowering",
-    "OPT": "Optimization", "I": "Internal",
+    "OPT": "Optimization", "I": "Internal"
 }
 SEV_MAP = {
     "I": "Ignored", "R": "Remark", "V": "Verbose",

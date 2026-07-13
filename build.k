@@ -305,13 +305,15 @@ fn main() -> i32 {
     var kpkg_inc     = ["Extras/PackageManager", core];
     var compiler_inc = ["Compiler", core, "Extras/KaTAR", "Linker"];
 
-    p.target(llvm_tool("kairo", "Compiler/Driver/Kairo.k",             KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
-    p.target(llvm_tool("kbld",  "Extras/BuildTool/Driver/kbld.k",      KBLD_VERSION,  kbld_inc,     llvm_src, llvm_build, out_lib));
-    p.target(llvm_tool("kfmt",  "Extras/Formatter/Driver/kfmt.k",      KFMT_VERSION,  kfmt_inc,     llvm_src, llvm_build, out_lib));
-    p.target(llvm_tool("kld",   "Linker/Driver/kld.k",                 KLD_VERSION,   kld_inc,      llvm_src, llvm_build, out_lib));
-    p.target(llvm_tool("kals",  "Analyzer/Driver/kals.k",              KALS_VERSION,  kals_inc,     llvm_src, llvm_build, out_lib));
-    p.target(llvm_tool("kpkg",  "Extras/PackageManager/Driver/kpkg.k", KPKG_VERSION,  kpkg_inc,     llvm_src, llvm_build, out_lib));
-    p.target(llvm_tool("katar", "Extras/KaTAR/KTCompress.k",           KAIRO_VERSION, katar_inc,    llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kairo", "Compiler/Driver/Kairo.k",                KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kbld",  "Extras/BuildTool/Driver/kbld.k",         KBLD_VERSION,  kbld_inc,     llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kfmt",  "Extras/Formatter/Driver/kfmt.k",         KFMT_VERSION,  kfmt_inc,     llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kld",   "Linker/Driver/kld.k",                    KLD_VERSION,   kld_inc,      llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kals",  "Analyzer/Driver/kals.k",                 KALS_VERSION,  kals_inc,     llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kpkg",  "Extras/PackageManager/Driver/kpkg.k",    KPKG_VERSION,  kpkg_inc,     llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("katar", "Extras/KaTAR/KTCompress.k",              KAIRO_VERSION, katar_inc,    llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("clang-diag-identity", "Compiler/Driver/GenClangDiagIdentity.k", KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
+
 
     return 0;
 }
