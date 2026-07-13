@@ -319,6 +319,16 @@ class <T> StmtParse {
             return self._parse_var_or_destructure();
         }
 
+        if k == TokenKind::KwFn {
+            var d = dyn()->parse_decl(true);
+            if d == &null {
+                return self._parse_expr_or_context(); // cursor on `fn`
+            }
+
+            inline "c++" { if (dyn()->is_fatal_decl(d)) { return dyn()->template fatal_ptr<Stmt>(); } }
+            return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
+        }
+
         // -- other declarations ---------------------------------------
         if self._starts_decl(k) {
             return self._parse_decl_stmt();

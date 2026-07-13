@@ -65,7 +65,7 @@ class <T> DeclParse {
         return static_cast::<*T>(&self);
     }
 
-    priv inline fn is_fatal_decl(self, d: *Decl) -> bool {
+    pub inline fn is_fatal_decl(self, d: *Decl) -> bool {
         inline "c++" {
             return dyn()->template is_fatal<Decl>(d);
         }
@@ -114,7 +114,7 @@ class <T> DeclParse {
     ///          PendingAnnotations buffer, parses the core decl, then stamps
     ///          annotations + visibility onto it. Returns null at EOF or when
     ///          the lead token cannot begin a decl.
-    fn parse_decl(self) -> *Decl {
+    fn parse_decl(self, allow_closure_fallback: bool = false) -> *Decl {
         if dyn()->is_eof() { return &null; }
 
         inline "c++" { typename T::PendingAnnotations annot; }
@@ -122,8 +122,8 @@ class <T> DeclParse {
 
         if dyn()->is_eof() { return &null; }
 
-        var d = self._dispatch_decl();
-        if (d != &null) && (!is_fatal_decl(d)) {
+        var d = self._dispatch_decl(allow_closure_fallback);
+        if (d != &null) && (!self.is_fatal_decl(d)) {
             if !isa::<VisibilityGroupDecl>(d) {
                 dyn()->apply_annotations_to_decl(d, &annot);
             }
@@ -136,12 +136,29 @@ class <T> DeclParse {
         return d;
     }
 
+    /// `fn` is a decl iff the token after `fn` (and after an optional generic
+    /// param list) is an identifier, `op`, or `self`. Anything else - `(`, `|`,
+    /// `||` - is a closure literal. No diagnostics, no allocation, no sync.
+    priv fn _fn_is_decl_head(self) -> bool {
+        inline "c++" { using ASTTentativeGuard = typename T::TentativeGuard; }
+        var t = ASTTentativeGuard(dyn());
+        dyn()->advance(T::SkipNL::After);          // past `fn`
+        if dyn()->check(TokenKind::OpLess) {
+            var gp: std::StackBuf::<*GenericParamDecl, 2>;
+            self._parse_generic_params(&gp);       // allocates; acceptable, discarded
+        }
+        return dyn()->check(TokenKind::LitIdentifier)
+            || dyn()->check(TokenKind::KwOp)
+            || dyn()->check(TokenKind::KwSelf);
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
     /// \brief routes the current token to its declaration production.
     /// \details visibility and the leading-modifier keywords (override/virtual/
     ///          final/static) are consumed here into a small modifier set that
     ///          is threaded into the function/type productions. Anything not a
     ///          decl lead-in returns null (caller's problem).
-    priv fn _dispatch_decl(self) -> *Decl {
+    priv fn _dispatch_decl(self, allow_closure_fallback: bool = false) -> *Decl {
         var cur_ptr = dyn()->current_ptr();
         if cur_ptr == &null { return &null; }
 
@@ -163,7 +180,13 @@ class <T> DeclParse {
         var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
 
         switch k {
-            case TokenKind::KwFn        { return self._parse_function(&lead); }
+            case TokenKind::KwFn {
+                if (!allow_closure_fallback) || lead.any {
+                    return self._parse_function(&lead);
+                }
+                if !self._fn_is_decl_head() { return &null; }
+                return self._parse_function(&lead);   // committed: it IS a decl
+            }
             case TokenKind::KwClass     { return self._parse_class(&lead);    }
             case TokenKind::KwStruct    { return self._parse_struct();        }
             case TokenKind::KwEnum      { return self._parse_enum();          }
@@ -281,7 +304,7 @@ class <T> DeclParse {
 
             var d = self.parse_decl();
             if d == &null { break; }
-            if is_fatal_decl(d) { break; }
+            if self.is_fatal_decl(d) { break; }
 
             if d->has_visibility() {
                 dyn()->diag->report(DiagID::S048E, d->visibility_range().start,
@@ -396,7 +419,7 @@ class <T> DeclParse {
                     // NOTE: parenthesize the deref. Stage 0 gives prefix `*`
                     // lower precedence than `+=`, so `*field_idx += 1` is
                     // miscompiled as `*(field_idx += 1)` (pointer bump, not
-                    // counter bump) -- see the stack-buffer-overflow it caused.
+                    // counter bump) - see the stack-buffer-overflow it caused.
                     (*field_idx) += 1;
                 } else {
                     self._sync_decl(DeclSyncCtx::TypeBody);
@@ -406,7 +429,7 @@ class <T> DeclParse {
 
             // nested types etc.
             var nested = self._dispatch_decl();
-            if (nested != &null) && (!is_fatal_decl(nested)) {
+            if (nested != &null) && (!self.is_fatal_decl(nested)) {
                 dyn()->apply_annotations_to_decl(nested, &m_annot);
                 nested->set_visibility(vis_kind, start);
                 owner->add_decl(nested);
@@ -614,7 +637,7 @@ class <T> DeclParse {
     }
 
     /// \brief parses one or more impl/derives bound types after a generic param.
-    ///  Grammar:  ('impl'|'derives') type (',' type)*  -- but stops at the
+    ///  Grammar:  ('impl'|'derives') type (',' type)*  - but stops at the
     ///  list-level ',' that separates generic params (we only greedily take
     ///  additional bound types when they follow another impl/derives keyword).
     priv fn _parse_param_bounds(self, out: *std::StackBuf::<*Type, 4>) {
@@ -903,7 +926,7 @@ class <T> DeclParse {
             // Disambiguate a named param (`name: T`) from a bare type-only
             // param (`T`). A name is an identifier immediately followed by `:`
             // (but not `::`, which begins a scoped type path). Anything else
-            // -- a leading `*`/`[`/`(`, a scoped name, a bare type name -- is a
+            // - a leading `*`/`[`/`(`, a scoped name, a bare type name - is a
             // type-only parameter, i.e. a forward-declaration signature
             // (`fn foo(i32, f64)`, the equivalent of C's `void foo(int, double)`).
             var is_named = dyn()->check(TokenKind::LitIdentifier)
@@ -1510,9 +1533,9 @@ class <T> DeclParse {
         var have_prev = false;
 
         while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
-            // progress guard: if the previous iteration consumed nothing -- a
+            // progress guard: if the previous iteration consumed nothing - a
             // recovery path whose `_sync_decl` stopped on a member-start token
-            // it could not parse (e.g. a `fn` in a method-less body) -- force a
+            // it could not parse (e.g. a `fn` in a method-less body) - force a
             // single advance so a malformed member can never spin the parser.
             if have_prev && (dyn()->c_idx == prev_idx) {
                 dyn()->advance();
@@ -1577,7 +1600,7 @@ class <T> DeclParse {
             }
 
             // a method where methods are not allowed (struct/union body). Parse
-            // and discard it so the tokens are consumed -- a bare `fn` would
+            // and discard it so the tokens are consumed - a bare `fn` would
             // otherwise fall through to the unknown-member path, whose
             // `_sync_decl` stops on `fn` without consuming it, spinning forever.
             // (Only `fn` is handled here; `static`/`virtual` leads stay ambiguous
@@ -1599,7 +1622,7 @@ class <T> DeclParse {
             || (k == TokenKind::KwEnum)  || (k == TokenKind::KwUnion)
             || (k == TokenKind::KwInterface) || (k == TokenKind::KwType) {
                 var nested = self._dispatch_decl();
-                if (nested != &null) && (!is_fatal_decl(nested)) {
+                if (nested != &null) && (!self.is_fatal_decl(nested)) {
                     dyn()->apply_annotations_to_decl(nested, &m_annot);
                     owner->add_decl(nested);
                 }
@@ -2228,7 +2251,7 @@ class <T> DeclParse {
             }
             var inner = self.parse_decl();
             if inner == &null { break; }
-            if is_fatal_decl(inner) { break; }
+            if self.is_fatal_decl(inner) { break; }
             static_cast::<*DeclContext>(md)->add_decl(inner);
         }
 
@@ -2586,7 +2609,7 @@ class <T> DeclParse {
                 }
                 var d = self.parse_decl();
                 if d == &null { break; }
-                if is_fatal_decl(d) { break; }
+                if self.is_fatal_decl(d) { break; }
 
                 if !self._stamp_ffi_linkage(d, linkage_kind, lang_tok, ffi_range) {
                     dyn()->diag->report(DiagID::S064E, d->range.start,
@@ -2612,7 +2635,7 @@ class <T> DeclParse {
 
         // ---- ffi "c++" fn foo(...) ----------------------------------------
         var d = self._dispatch_decl();
-        if (d == &null) || is_fatal_decl(d) {
+        if (d == &null) || self.is_fatal_decl(d) {
             dyn()->diag->report(DiagID::S064E, start.start,
                 "expected a declaration, 'import', or '{' after 'ffi \"...\"\x27"
             ).first(start).emit();
@@ -2699,7 +2722,7 @@ class <T> DeclParse {
             }
             var d = self.parse_decl();
             if d == &null { break; }
-            if is_fatal_decl(d) { break; }
+            if self.is_fatal_decl(d) { break; }
             decls.push_back(d);
         }
 
