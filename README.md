@@ -1,4 +1,4 @@
-# Kairo Programming Language
+# The Kairo Programming Language
 
 <div align="center">
   <img src="Assets/kairo-logo.svg" alt="Kairo Programming Language Logo" width="60%">
