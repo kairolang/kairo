@@ -181,8 +181,7 @@ class SourceManager {
 
         // Metadata says regular file, but we may still lack read permission
         // (chmod 000). Path does no I/O, so the open can still fail with EACCES.
-        // register_file below opens/maps the file; validate it succeeded
-        // BEFORE handing its (possibly null) buffer to the line table.
+        // register_file below opens/maps the file;
         var base_fid = _vfile_mgr->register_file(path);
         if base_fid == static_cast::<FileID>(u32(-1)) {
             self._diag->report(DiagID::U001F,
@@ -786,8 +785,8 @@ class SourceManager {
 
 fn Test() -> i32 {
     var pool = std::create::<ThreadPool>(4);
-    var vfm  = std::create::<VirtualFileManager>();
     var diag = DiagEngine();
+    var vfm  = std::create::<VirtualFileManager>(&diag);
     var sm   = std::create::<SourceManager>(pool, vfm, &diag);
 
     finally {

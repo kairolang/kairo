@@ -238,8 +238,8 @@ class CompilerInstance {
     ///   - SM before consumers: consumers need it for source context.
     ///   - Command last: CLI parsing may emit diagnostics into the engine.
     fn CompilerInstance(self, argc: i32, argv: *(*kairo::std::Legacy::char)) {
-        self._vfm    = std::create::<VirtualFileManager>();
         self._diag   = std::create::<DiagEngine>        ();
+        self._vfm    = std::create::<VirtualFileManager>(self._diag);
         self._pretty = std::create::<PrettyDiagConsumer>();
         self._basic  = std::create::<BasicDiagConsumer> ();
         self._diag->add_consumer(self._pretty); // pretty is the default consumer

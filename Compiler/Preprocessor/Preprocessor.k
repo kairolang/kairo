@@ -1962,6 +1962,33 @@ class PPWalker
 
         out->append(tok);
         return out;
+
+        /// we have to put some like [ bytes, ... ]
+        // if !(invoke->has_args) {
+        //     self._builtin_report(
+        //         invoke->range,
+        //         "builtin 'embed!()' requires at least one argument",
+        //         DiagID::R009E
+        //     );
+        //     return out;
+        // }
+        
+        // var args = self._parse_builtin_arguments(invoke);
+
+        // // we need to open the file in byte mode read it and store its contents
+        
+        
+        // var make_int_tok = fn (value: u8) -> Token {
+        //     /// so we need to make a TkMacroExpand and make its underlying point
+        //     /// into our buffer
+            
+        //     var outer: Token;
+
+        // };
+
+        
+
+        // return out;
     }
 
     // ======================================================================

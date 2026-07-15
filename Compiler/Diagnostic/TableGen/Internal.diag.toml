@@ -49,6 +49,42 @@ group = "ast"
     review the error message for specific details about the issue. if the message is unclear, consider enabling verbose diagnostics for more context. if you believe this is a compiler bug, please report it to the Kairo development team with a minimal reproducible example.
     """
 
+[I102]
+brief = "internal compiler error, the message should be self-explanatory"
+group = "internal"
+    [I102.F]
+    explain = """
+    # internal compiler error SM or VFM out of addressable range (4GB limit)
+    
+    this diagnostic indicates that the compiler has an internal cap related to the Source Manager (SM) or Virtual File Manager (VFM) exceeding the addressable range of 4GB. this is typically a result of attempting to process extremely large source files or a large number of files.
+
+    ## example
+    ```kairo
+    // main.k
+    import Foo // Foo.k is greater than 4GB in size or pulls in a large number of files
+    // and sum of all files including main.k file exceeds 4GB
+    ```
+
+    ## how to fix
+    - reduce the size of the source files being compiled.
+    - split into a separate TU and compile separately with `-c` and link later, while exposing forward declarations in a shared file.
+
+    ```kairo
+    // main.k
+    // replace the import with:
+    module Foo {
+        ffi fn foo() -> i32
+        ffi class Bar {
+            fn Bar(self) -> Bar
+            fn foo(self) -> i32
+            fn op+ (self, other: Bar) -> Bar
+        }
+    }
+    ```
+
+    then compile with `kairo -c main.k` and `kairo -c Foo.k` and link later with `kairo main.o Foo.o -o out`.
+    """
+
 [I957]
 brief = "error limit reached, further errors will be suppressed"
 group = "Diagnostics"

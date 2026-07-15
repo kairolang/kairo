@@ -19,6 +19,7 @@ import Memory::MemoryBuffer::*;
 import Location::SourceLocation::*;
 import Location::SourceRange::*;
 import Threading::ThreadPool::*;
+import Diagnostic::Engine::*;
 
 ///
 /// \file VirtualFileManager.k
@@ -61,8 +62,9 @@ class VirtualFileManager {
     priv var _parents:       vec::<own::<MappedFileBuffer>> = vec::<own::<MappedFileBuffer>>();
     priv var _segments:      vec::<own::<Segment>>          = vec::<own::<Segment>>();
     priv var _page_table:    vec::<u32> = vec::<u32>(); ///< page index -> segment index, 0xFFFFFFFF = gap/invalid.
-    priv var _next_fid:      u32   = 0;
+    priv var _diag:          obs::<DiagEngine>;
     priv var _global_offset: usize = 0;
+    priv var _next_fid:      u32   = 0;
 
     ///
     /// \class Segment
@@ -167,9 +169,10 @@ class VirtualFileManager {
     ///
     /// \brief default constructor.
     ///
-    fn VirtualFileManager(self) {
-        self._next_fid = 0;
+    fn VirtualFileManager(self, diag_engine: obs::<DiagEngine>) {
+        self._next_fid      = 0;
         self._global_offset = 0;
+        self._diag          = diag_engine;
     }
 
     ///
@@ -214,34 +217,44 @@ class VirtualFileManager {
             std::destroy(parent);
             Logger::error(Logger::Stage::Driver,
                 f"VirtualFileManager::register_file: failed to map {abs_full}");
+            self._diag->report(DiagID::I102F,
+                f"failed to map '{abs_full}\x27").emit();
             return u32(-1);
         }
 
-        var total     = parent->bytes().size();
-        var nseg: u32 = (static_cast::<u32>((total + 0x100000000 - 1) / 0x100000000)) if (total > 0) else 1;
-        var base_fid  = self._next_fid;
+        var total = parent->bytes().size();
+
+        // projected end of this file in the global space, after alignment
+        var aligned = (self._global_offset + 0xFFF) & (~usize(0xFFF));
+        if (total > 0xFFFFFFFF) || ((aligned + total + 1) > 0xFFFFFFFF) {
+            std::destroy(parent);
+            self._diag->report(DiagID::I102F,
+                f"cannot load '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit"
+            ).emit();
+            return u32(-1);
+        }
+
+        if total > 0xFFFFFFFF {
+            std::destroy(parent);
+            self._diag->report(DiagID::I102F,
+                f"'{abs_full}' is {total}B; source files are limited to 4GB").emit();
+            return u32(-1);
+        }
+
+        var seg_fid = self._next_fid;
+        self._next_fid += 1;
 
         _parents.push_back(parent);
 
-        for i in range::<u32>(0, nseg) {
-            var start   = (i as usize) * 0x100000000;
-            var remain  = total - start;
-            var seg_len = (remain if remain < 0x100000000 else 0x100000000);
-            var seg_fid = self._next_fid;
-            self._next_fid += 1;
-            var seg     = std::create::<Segment>(seg_fid, abs, start, seg_len);
+        var seg = std::create::<Segment>(seg_fid, abs, 0, total);
+        self._align_global_offset();
+        seg->global_base = self._global_offset;
+        self._global_offset += (total + 1);
+        seg->attach(parent, 0, total);
+        _segments.push_back(seg);
+        self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, total);
 
-            self._align_global_offset();
-            seg->global_base = self._global_offset;
-            self._global_offset += (seg_len + 1);
-
-            seg->attach(parent, start, seg_len);
-            _segments.push_back(seg);
-            self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, seg_len);
-        }
-
-        Logger::info(Logger::Stage::Driver, f"VirtualFileManager::register_file: fid={base_fid} path={abs_full} total={total}B nseg={nseg}");
-        return base_fid;
+        return seg_fid;
     }
 
     ///
@@ -371,21 +384,21 @@ class VirtualFileManager {
     fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
         if fid >= self._segments.size() {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: invalid fid={fid} off={off} seg_count={self._segments.size()}");
-            std::crash(std::Error::RuntimeError(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})"));
+            std::ICE(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})");
         }
 
         var seg = self._segments[fid];
 
         if off > seg->size {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: off={off} exceeds segment size={seg->size} for fid={fid}");
-            std::crash(std::Error::RuntimeError(f"VirtualFileManager: Offset out of segment bounds (fid: {fid}, off: {off})"));
+            std::ICE(f"VirtualFileManager: Offset out of segment bounds (fid: {fid}, off: {off})");
         }
 
         var raw = seg->global_base + off + 1;
 
         if raw > 0xFFFFFFFF {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: global source space exceeded 4GB (raw={raw})");
-            std::crash(std::Error::RuntimeError("VirtualFileManager: SourceLocation address space exhausted (4GB u32 cap)"));
+            std::ICE("VirtualFileManager: SourceLocation address space exhausted (4GB u32 cap)");
         }
 
         return SourceLocation::from_raw(static_cast::<u32>(raw));

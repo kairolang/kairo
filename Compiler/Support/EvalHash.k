@@ -20,7 +20,7 @@ const HASH_MAX:          usize = 0xFFFFFFFFFFFFFFFF;;
 ///
 /// \brief Converts a usize value to a hexadecimal string.
 ///
-fn to_hex_string(const value: usize) -> string {
+inline fn to_hex_string(const value: usize) -> string {
     return libcxx::format(r"{:x}", value).data();
 }
 
@@ -330,85 +330,85 @@ class HashState {
     }
 };
 
-fn Test() -> i32 {
-    // --- eval-time string literal hashes ---
-    print(f"hash<\"inline\">\t= 0x{to_hex_string(compute_hash::<r"inline">())}");
-    print(f"hash<\"fn\">    \t= 0x{to_hex_string(compute_hash::<r"fn">())}");
-    print(f"hash<\"var\">   \t= 0x{to_hex_string(compute_hash::<r"var">())}");
-    print(f"hash<\"class\"> \t= 0x{to_hex_string(compute_hash::<r"class">())}");
-    print(f"hash<\"return\">\t= 0x{to_hex_string(compute_hash::<r"return">())}");
-    print(f"hash<\"if\">    \t= 0x{to_hex_string(compute_hash::<r"if">())}");
-    print(f"hash<\"else\">  \t= 0x{to_hex_string(compute_hash::<r"else">())}");
-    print(f"hash<\"while\"> \t= 0x{to_hex_string(compute_hash::<r"while">())}");
-    print(f"hash<\"for\">   \t= 0x{to_hex_string(compute_hash::<r"for">())}");
-    print(f"hash<\"match\"> \t= 0x{to_hex_string(compute_hash::<r"match">())}");
+// fn Test() -> i32 {
+//     // --- eval-time string literal hashes ---
+//     print(f"hash<\"inline\">\t= 0x{to_hex_string(compute_hash::<r"inline">())}");
+//     print(f"hash<\"fn\">    \t= 0x{to_hex_string(compute_hash::<r"fn">())}");
+//     print(f"hash<\"var\">   \t= 0x{to_hex_string(compute_hash::<r"var">())}");
+//     print(f"hash<\"class\"> \t= 0x{to_hex_string(compute_hash::<r"class">())}");
+//     print(f"hash<\"return\">\t= 0x{to_hex_string(compute_hash::<r"return">())}");
+//     print(f"hash<\"if\">    \t= 0x{to_hex_string(compute_hash::<r"if">())}");
+//     print(f"hash<\"else\">  \t= 0x{to_hex_string(compute_hash::<r"else">())}");
+//     print(f"hash<\"while\"> \t= 0x{to_hex_string(compute_hash::<r"while">())}");
+//     print(f"hash<\"for\">   \t= 0x{to_hex_string(compute_hash::<r"for">())}");
+//     print(f"hash<\"match\"> \t= 0x{to_hex_string(compute_hash::<r"match">())}");
 
-    // --- wide string literal ---
-    __inline_cpp("libcxx::cout << \"hash<L\\\"inline\\\">\t= 0x\" << libcxx::hex << (compute_hash<L\"inline\">()) << libcxx::endl;");
+//     // --- wide string literal ---
+//     __inline_cpp("libcxx::cout << \"hash<L\\\"inline\\\">\t= 0x\" << libcxx::hex << (compute_hash<L\"inline\">()) << libcxx::endl;");
 
-    // --- runtime string hashing ---
-    var s: string = "inline";
-    print(f"hash(\"inline\")\t= 0x{to_hex_string(compute_hash(&s))}");
+//     // --- runtime string hashing ---
+//     var s: string = "inline";
+//     print(f"hash(\"inline\")\t= 0x{to_hex_string(compute_hash(&s))}");
 
-    s = "fn";
-    print(f"hash(\"fn\")\t= 0x{to_hex_string(compute_hash(&s))}");
+//     s = "fn";
+//     print(f"hash(\"fn\")\t= 0x{to_hex_string(compute_hash(&s))}");
 
-    s = "var";
-    print(f"hash(\"var\")\t= 0x{to_hex_string(compute_hash(&s))}");
+//     s = "var";
+//     print(f"hash(\"var\")\t= 0x{to_hex_string(compute_hash(&s))}");
 
-    // --- empty string case ---
-    var empty: string = "";
-    print(f"hash(\"\")\t= 0x{to_hex_string(compute_hash(&empty))}");
-    print(f"hash<\"\">\t= 0x{to_hex_string(compute_hash::<r"\"">())}");
+//     // --- empty string case ---
+//     var empty: string = "";
+//     print(f"hash(\"\")\t= 0x{to_hex_string(compute_hash(&empty))}");
+//     print(f"hash<\"\">\t= 0x{to_hex_string(compute_hash::<r"\"">())}");
 
-    // --- long string (to trigger runtime error path if ≥ 256) ---
-    // note: runtime will throw, so just demo eval-time length guard
-    try {
-        var long_str = string(300, 'a');
-        print(f"hash(long string 300a)\t= 0x{to_hex_string(compute_hash(&long_str))}");
-    } catch (e: libcxx::exception) {
-        libcxx::cout << r"runtime error (expected for long string): " << e.what() << libcxx::endl;
-    }
+//     // --- long string (to trigger runtime error path if ≥ 256) ---
+//     // note: runtime will throw, so just demo eval-time length guard
+//     try {
+//         var long_str = string(300, 'a');
+//         print(f"hash(long string 300a)\t= 0x{to_hex_string(compute_hash(&long_str))}");
+//     } catch (e: libcxx::exception) {
+//         libcxx::cout << r"runtime error (expected for long string): " << e.what() << libcxx::endl;
+//     }
 
-    // Case sensitivity
-    print(f"hash<\"fn\">\t= 0x{to_hex_string(compute_hash::<r"fn">())}");
-    print(f"hash<\"Fn\">\t= 0x{to_hex_string(compute_hash::<r"Fn">())}");
-    print(f"hash<\"fN\">\t= 0x{to_hex_string(compute_hash::<r"fN">())}");
-    print(f"hash<\"FN\">\t= 0x{to_hex_string(compute_hash::<r"FN">())}");
+//     // Case sensitivity
+//     print(f"hash<\"fn\">\t= 0x{to_hex_string(compute_hash::<r"fn">())}");
+//     print(f"hash<\"Fn\">\t= 0x{to_hex_string(compute_hash::<r"Fn">())}");
+//     print(f"hash<\"fN\">\t= 0x{to_hex_string(compute_hash::<r"fN">())}");
+//     print(f"hash<\"FN\">\t= 0x{to_hex_string(compute_hash::<r"FN">())}");
 
-    // Single chars
-    print(f"hash<\"a\">\t= 0x{to_hex_string(compute_hash::<r"a">())}");
-    print(f"hash<\"A\">\t= 0x{to_hex_string(compute_hash::<r"A">())}");
-    print(f"hash<\"_\">\t= 0x{to_hex_string(compute_hash::<r"_">())}");
-    print(f"hash<\"$\">\t= 0x{to_hex_string(compute_hash::<r"$">())}");
-    print(f"hash<\"0\">\t= 0x{to_hex_string(compute_hash::<r"0">())}");
+//     // Single chars
+//     print(f"hash<\"a\">\t= 0x{to_hex_string(compute_hash::<r"a">())}");
+//     print(f"hash<\"A\">\t= 0x{to_hex_string(compute_hash::<r"A">())}");
+//     print(f"hash<\"_\">\t= 0x{to_hex_string(compute_hash::<r"_">())}");
+//     print(f"hash<\"$\">\t= 0x{to_hex_string(compute_hash::<r"$">())}");
+//     print(f"hash<\"0\">\t= 0x{to_hex_string(compute_hash::<r"0">())}");
 
-    __inline_cpp("
-        auto lbrace = to_hex_string(compute_hash<L\"{\">());
-        auto rbrace = to_hex_string(compute_hash<L\"}\">());
-    ");
+//     __inline_cpp("
+//         auto lbrace = to_hex_string(compute_hash<L\"{\">());
+//         auto rbrace = to_hex_string(compute_hash<L\"}\">());
+//     ");
 
-    print(f"hash<\"L Brace\">\t= 0x{lbrace}");
-    print(f"hash<\"R Brace\">\t= 0x{rbrace}");
+//     print(f"hash<\"L Brace\">\t= 0x{lbrace}");
+//     print(f"hash<\"R Brace\">\t= 0x{rbrace}");
 
-    // Whitespace / escapes
-    print(f"hash<\" \">\t= 0x{to_hex_string(compute_hash::<r" ">())}");
-    print(f"hash<\"\\t\">\t= 0x{to_hex_string(compute_hash::<r"\\t">())}");
-    print(f"hash<\"\\n\">\t= 0x{to_hex_string(compute_hash::<r"\\n">())}");
-    // beware: embedded null can't be expressed in Kairo literal unless you support raw bytes
+//     // Whitespace / escapes
+//     print(f"hash<\" \">\t= 0x{to_hex_string(compute_hash::<r" ">())}");
+//     print(f"hash<\"\\t\">\t= 0x{to_hex_string(compute_hash::<r"\\t">())}");
+//     print(f"hash<\"\\n\">\t= 0x{to_hex_string(compute_hash::<r"\\n">())}");
+//     // beware: embedded null can't be expressed in Kairo literal unless you support raw bytes
 
-    // Operators
-    print(f"hash<\"+\">\t= 0x{to_hex_string(compute_hash::<r"+">())}");
-    print(f"hash<\"==\">\t= 0x{to_hex_string(compute_hash::<r"==">())}");
-    print(f"hash<\"!=\">\t= 0x{to_hex_string(compute_hash::<r"!=">())}");
-    print(f"hash<\"=>\">\t= 0x{to_hex_string(compute_hash::<r"=>">())}");
+//     // Operators
+//     print(f"hash<\"+\">\t= 0x{to_hex_string(compute_hash::<r"+">())}");
+//     print(f"hash<\"==\">\t= 0x{to_hex_string(compute_hash::<r"==">())}");
+//     print(f"hash<\"!=\">\t= 0x{to_hex_string(compute_hash::<r"!=">())}");
+//     print(f"hash<\"=>\">\t= 0x{to_hex_string(compute_hash::<r"=>">())}");
 
-    // Unicode
-    var uni: string = "λ";
-    print(f"hash(\"λ\")\t= 0x{to_hex_string(compute_hash(&uni))}");
+//     // Unicode
+//     var uni: string = "λ";
+//     print(f"hash(\"λ\")\t= 0x{to_hex_string(compute_hash(&uni))}");
 
-    uni = "你好";
-    print(f"hash(\"你好\")\t= 0x{to_hex_string(compute_hash(&uni))}");
+//     uni = "你好";
+//     print(f"hash(\"你好\")\t= 0x{to_hex_string(compute_hash(&uni))}");
 
-    return 0;
-}
+//     return 0;
+// }

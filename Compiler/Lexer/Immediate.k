@@ -1269,8 +1269,8 @@ class ImmediateTable {
         self.float_literals   = std::create::<ArenaList::<Immediate::FloatData>>(64);
         self.char_literals    = std::create::<ArenaList::<Immediate::CharData>>(64);
         self.string_literals  = std::create::<ArenaList::<Immediate::StringData>>(64);
-        self.macro_expansions = std::create::<ArenaList::<Immediate::MacroExpansionInfo>>(64);
-        self.ident_descs      = std::create::<ArenaList::<Immediate::IdentData>>(256);
+        self.macro_expansions = std::create::<ArenaList::<Immediate::MacroExpansionInfo>>(256);
+        self.ident_descs      = std::create::<ArenaList::<Immediate::IdentData>>(512);
         self.synth_names      = std::create::<ArenaList::<nstring>>(64);
         Logger::debug(Logger::Stage::Lexer, "ImmediateTable::initialize: initialized with source manager at {sm}");
     }
