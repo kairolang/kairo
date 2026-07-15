@@ -183,6 +183,13 @@ fn common_flags(t: ref!(Target)) {
     if (really_is_debug()) && (platform() == "windows") {
         t.passthrough("-fno-sanitize=all");
     }
+
+    if (really_is_debug()) {
+        t.passthrough("-DDEBUG");
+        t.passthrough("-fno-lto");
+    } else {
+        t.passthrough("-DNDEBUG");
+    }
 }
 
 fn require_vendored_llvm(llvm_build: string) {
@@ -265,13 +272,16 @@ fn prebuild_script() -> string {
 }
 
 // Every LLVM-linking tool shares this shape. One call site = no drift.
-fn llvm_tool(name: string, entry: string, ver: string, includes: vec::<string>,
+fn llvm_tool(name:     string, entry:      string, ver:     string, includes: vec::<string>,
              llvm_src: string, llvm_build: string, out_lib: string) -> Target {
     var t = Target(name)
         .entry(entry)
         .includes(includes)
         .define(ver)
-        .pre_build(prebuild_script());
+        .passthrough("-Lbuild/.kbld/")
+        .passthrough("-lregistry.o")
+        .pre_build(prebuild_script())
+        .pre_build("python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k");
     apply_llvm(t, llvm_src, llvm_build, out_lib);
     return t;
 }
@@ -313,7 +323,6 @@ fn main() -> i32 {
     p.target(llvm_tool("kpkg",  "Extras/PackageManager/Driver/kpkg.k",    KPKG_VERSION,  kpkg_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("katar", "Extras/KaTAR/KTCompress.k",              KAIRO_VERSION, katar_inc,    llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("clang-diag-identity", "Compiler/Driver/GenClangDiagIdentity.k", KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
-
 
     return 0;
 }
