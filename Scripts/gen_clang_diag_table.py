@@ -423,7 +423,7 @@ def render_lookup_k(
 
         lines.extend([
             f'        case compute_hash::<r"{name}">() {{',
-            f'            return ({entry.number}) if group == "{name}" else 0;',
+            f'            return {entry.number};',
             "        }",
         ])
 

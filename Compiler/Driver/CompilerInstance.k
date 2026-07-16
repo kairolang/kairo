@@ -119,6 +119,7 @@ import AST::Context::GlobalDisambigTable::*;
 import AST::Printer::ASTPrinter::*;
 import Token::TokenPrinter::*;
 import Sema::NullableTypeLowering::*;
+import Interop::Clang::ClangBackend::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -222,6 +223,7 @@ class CompilerInstance {
     priv var _pp:      *PreProcessor;
     priv var _imp:     *ImportResolver;
     priv var _g_scope: *GlobalDisambigTable;
+    priv var _backend: *ClangBackend = &null; ///< shared clang backend; owned
 
     // --- CLI state -------------------------------------------------------
     priv var _parsed: ParsedArgs;
@@ -272,6 +274,16 @@ class CompilerInstance {
 
     /// Destroys all resources in reverse-construction order.
     fn op delete (self) {
+        // backend first: its ClangLocMap borrows _sm, and its clang SM holds
+        // MemoryBufferRef views into _vfm's mmaps. Pool tasks touching it
+        // (startup/preload groups) must be drained before teardown.
+        if self._backend != &null {
+            self._pool->wait_group(CLANG_STARTUP_GROUP());
+            self._pool->wait_group(CLANG_PRELOAD_GROUP());
+            std::destroy(self._backend);
+            self._backend = &null;
+        }
+
         if self._cmd     != &null { std::destroy(self._cmd);     self._cmd     = &null; }
         if self._pp      != &null { std::destroy(self._pp);      self._pp      = &null; }
         if self._g_scope != &null { std::destroy(self._g_scope); self._g_scope = &null; }
@@ -305,6 +317,7 @@ class CompilerInstance {
     fn global_scope(self) -> *GlobalDisambigTable     { return self._g_scope; }
     fn invocation(self)   -> ref!(CompilerInvocation) { return self._inv;     }
     fn pp(self)           -> *PreProcessor            { return self._pp;      }
+    fn backend(self)      -> *ClangBackend            { return self._backend; }
     // --- CLI query helpers -----------------------------------------------
 
     fn wants_help(self)    -> bool { return self._parsed.get_bool("help");               }
@@ -680,6 +693,20 @@ class CompilerInstance {
         self._pp = std::create::<PreProcessor>(
             self._sm, self._tcm, self._imp, self._pool,
             self._diag, self._g_scope, &self._inv, self._inv.pp);
+
+        // Shared clang backend: kick the expensive startup (invocation parse,
+        // TargetInfo, FileManager/SourceManager) onto the pool NOW so it runs
+        // concurrently with lex/preprocess. startup() and preload() serialize
+        // on the backend's internal mutex, so this cannot race the per-TU
+        // preload tasks. Joined via CLANG_STARTUP_GROUP before codegen.
+        var bcfg = ClangBackendConfig{};
+        (bcfg.triple) = self._effective_triple();
+        self._backend = std::create::<ClangBackend>(self._sm, bcfg);
+
+        inline "c++" {
+            auto* be = _backend;
+            _pool->enqueue([be]() { be->startup(); }, CLANG_STARTUP_GROUP());
+        }
     }
 
     /// Compiles all input files described by the invocation.
@@ -869,6 +896,17 @@ fn FrontendAction::_preprocess() -> bool {
         return false;
     }
 
+    // All fids for this TU's dependency graph are now final: mirror them into
+    // the shared clang SM off-thread while parse runs. preload() is idempotent
+    // (maps only the unmapped tail) and self-runs startup if that task lost
+    // the race. Joined via CLANG_PRELOAD_GROUP before codegen touches clang.
+    if self._ci->backend() != &null {
+        inline "c++" {
+            auto* be = _ci->backend();
+            _ci->pool()->enqueue([be]() { be->preload(); }, CLANG_PRELOAD_GROUP());
+        }
+    }
+
     var fe = self._ci->invocation().frontend;
     if fe.print_tokens  { self._dump_tokens();  }
     if fe.print_macros  { self._dump_macros();  }
@@ -1008,6 +1046,25 @@ fn FrontendAction::_sema() -> bool {
 /// Code generation stage not yet implemented.
 fn FrontendAction::_codegen() -> bool {
     self._stage = TUStage::Codegen;
+
+    // Join the shared clang backend: startup + fid preload must be complete
+    // before anything touches the clang SM. This is the happens-before edge
+    // the ClangLocMap threading contract requires.
+    self._ci->pool()->wait_group(CLANG_STARTUP_GROUP());
+    self._ci->pool()->wait_group(CLANG_PRELOAD_GROUP());
+
+    var be = self._ci->backend();
+    if (be != &null) && (be->ready()) {
+        // TODO(codegen): per-TU token injection over the shared clang TU:
+        //   var adapter = be->begin_tu(&tu_sink, self._file_id);
+        //   ... build the clang token stream (borrowed .kro locs via
+        //       be->locmap(), divergent literals via the arena buffer),
+        //       replace FrontendOpts.Inputs, ExecuteAction on be->ci() ...
+        //   be->end_tu(adapter);   // flushes trailing notes, detaches client
+        //   tu_sink.drain_into(self._ci->diag());
+        0;
+    }
+
     var fe = self._ci->invocation().frontend;
     if fe.print_ir   { std::print(f"-- IR: {self.path.full_path()} (not yet implemented) --"); }
     if fe.print_bcir { std::print(f"-- BCIR: {self.path.full_path()} (not yet implemented) --"); }

@@ -181,6 +181,13 @@ using const_view = const T *;
 template <typename T>
 using volatile_view = volatile T *;
 
+/// \brief Const lvalue reference alias (const T&) for FFI signatures.
+///        Required to exactly match C++ virtual method signatures.
+///
+/// \invariant Parameter-position only. Never store a cref member.
+template <typename T>
+using cref = const T &;
+
 ///
 /// \class SmallFunction
 /// \brief Fixed-capacity callable wrapper for small, move-only lambdas.
