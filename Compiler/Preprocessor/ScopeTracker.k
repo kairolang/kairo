@@ -186,7 +186,7 @@ class ScopeTracker {
             frame.path.segments.push_back(seg);
         }
 
-        frame.brace_depth = self._brace_depth;
+        frame.brace_depth = self._brace_depth + 1;
         frame.visibility  = visibility;
         frame.is_global   = false;
 
@@ -198,7 +198,7 @@ class ScopeTracker {
     priv fn push_global_scope(self, visibility: ModuleVisibility) {
         var frame = Frame();
         frame.path        = ModulePath(); // empty = global
-        frame.brace_depth = self._brace_depth;
+        frame.brace_depth = self._brace_depth + 1;
         frame.visibility  = visibility;
         frame.is_global   = true;
 
@@ -210,7 +210,7 @@ class ScopeTracker {
     priv fn push_absolute_scope(self, path: ModulePath, visibility: ModuleVisibility) {
         var frame = Frame();
         frame.path        = path; // absolute path, replaces current
-        frame.brace_depth = self._brace_depth;
+        frame.brace_depth = self._brace_depth + 1;
         frame.visibility  = visibility;
         frame.is_global   = false;
 
@@ -222,7 +222,7 @@ class ScopeTracker {
     priv fn push_visibility_scope(self, visibility: ModuleVisibility) {
         var frame = Frame();
         frame.path        = self._current;
-        frame.brace_depth = self._brace_depth;
+        frame.brace_depth = self._brace_depth + 1;
         frame.visibility  = visibility;
         frame.is_global   = false;
 
