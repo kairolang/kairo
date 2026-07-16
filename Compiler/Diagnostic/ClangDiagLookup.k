@@ -12,3448 +12,3448 @@ eval fn clang_diag_number(group: string) -> u32 {
 
     switch h {
         case compute_hash::<r"#pragma-messages">() {
-            return (1) if group == "#pragma-messages" else 0;
+            return 1;
         }
         case compute_hash::<r"#warnings">() {
-            return (2) if group == "#warnings" else 0;
+            return 2;
         }
         case compute_hash::<r"CFString-literal">() {
-            return (3) if group == "CFString-literal" else 0;
+            return 3;
         }
         case compute_hash::<r"CL4">() {
-            return (4) if group == "CL4" else 0;
+            return 4;
         }
         case compute_hash::<r"IndependentClass-attribute">() {
-            return (5) if group == "IndependentClass-attribute" else 0;
+            return 5;
         }
         case compute_hash::<r"NSObject-attribute">() {
-            return (6) if group == "NSObject-attribute" else 0;
+            return 6;
         }
         case compute_hash::<r"TU-local-entity-exposure">() {
-            return (7) if group == "TU-local-entity-exposure" else 0;
+            return 7;
         }
         case compute_hash::<r"aarch64-sme-attributes">() {
-            return (8) if group == "aarch64-sme-attributes" else 0;
+            return 8;
         }
         case compute_hash::<r"abi">() {
-            return (9) if group == "abi" else 0;
+            return 9;
         }
         case compute_hash::<r"absolute-value">() {
-            return (10) if group == "absolute-value" else 0;
+            return 10;
         }
         case compute_hash::<r"abstract-final-class">() {
-            return (11) if group == "abstract-final-class" else 0;
+            return 11;
         }
         case compute_hash::<r"abstract-vbase-init">() {
-            return (12) if group == "abstract-vbase-init" else 0;
+            return 12;
         }
         case compute_hash::<r"address">() {
-            return (13) if group == "address" else 0;
+            return 13;
         }
         case compute_hash::<r"address-of-packed-member">() {
-            return (14) if group == "address-of-packed-member" else 0;
+            return 14;
         }
         case compute_hash::<r"address-of-temporary">() {
-            return (15) if group == "address-of-temporary" else 0;
+            return 15;
         }
         case compute_hash::<r"aggregate-return">() {
-            return (16) if group == "aggregate-return" else 0;
+            return 16;
         }
         case compute_hash::<r"aix-compat">() {
-            return (17) if group == "aix-compat" else 0;
+            return 17;
         }
         case compute_hash::<r"alias-template-in-declaration-name">() {
-            return (18) if group == "alias-template-in-declaration-name" else 0;
+            return 18;
         }
         case compute_hash::<r"align-mismatch">() {
-            return (19) if group == "align-mismatch" else 0;
+            return 19;
         }
         case compute_hash::<r"all">() {
-            return (20) if group == "all" else 0;
+            return 20;
         }
         case compute_hash::<r"alloc-size">() {
-            return (21) if group == "alloc-size" else 0;
+            return 21;
         }
         case compute_hash::<r"alloca">() {
-            return (22) if group == "alloca" else 0;
+            return 22;
         }
         case compute_hash::<r"alloca-with-align-alignof">() {
-            return (23) if group == "alloca-with-align-alignof" else 0;
+            return 23;
         }
         case compute_hash::<r"always-inline-coroutine">() {
-            return (24) if group == "always-inline-coroutine" else 0;
+            return 24;
         }
         case compute_hash::<r"ambiguous-delete">() {
-            return (25) if group == "ambiguous-delete" else 0;
+            return 25;
         }
         case compute_hash::<r"ambiguous-ellipsis">() {
-            return (26) if group == "ambiguous-ellipsis" else 0;
+            return 26;
         }
         case compute_hash::<r"ambiguous-macro">() {
-            return (27) if group == "ambiguous-macro" else 0;
+            return 27;
         }
         case compute_hash::<r"ambiguous-member-template">() {
-            return (28) if group == "ambiguous-member-template" else 0;
+            return 28;
         }
         case compute_hash::<r"ambiguous-reversed-operator">() {
-            return (29) if group == "ambiguous-reversed-operator" else 0;
+            return 29;
         }
         case compute_hash::<r"analyzer-incompatible-plugin">() {
-            return (30) if group == "analyzer-incompatible-plugin" else 0;
+            return 30;
         }
         case compute_hash::<r"android-unversioned-fallback">() {
-            return (31) if group == "android-unversioned-fallback" else 0;
+            return 31;
         }
         case compute_hash::<r"anon-enum-enum-conversion">() {
-            return (32) if group == "anon-enum-enum-conversion" else 0;
+            return 32;
         }
         case compute_hash::<r"anonymous-pack-parens">() {
-            return (33) if group == "anonymous-pack-parens" else 0;
+            return 33;
         }
         case compute_hash::<r"apinotes">() {
-            return (34) if group == "apinotes" else 0;
+            return 34;
         }
         case compute_hash::<r"arc">() {
-            return (35) if group == "arc" else 0;
+            return 35;
         }
         case compute_hash::<r"arc-bridge-casts-disallowed-in-nonarc">() {
-            return (36) if group == "arc-bridge-casts-disallowed-in-nonarc" else 0;
+            return 36;
         }
         case compute_hash::<r"arc-maybe-repeated-use-of-weak">() {
-            return (37) if group == "arc-maybe-repeated-use-of-weak" else 0;
+            return 37;
         }
         case compute_hash::<r"arc-non-pod-memaccess">() {
-            return (38) if group == "arc-non-pod-memaccess" else 0;
+            return 38;
         }
         case compute_hash::<r"arc-performSelector-leaks">() {
-            return (39) if group == "arc-performSelector-leaks" else 0;
+            return 39;
         }
         case compute_hash::<r"arc-repeated-use-of-weak">() {
-            return (40) if group == "arc-repeated-use-of-weak" else 0;
+            return 40;
         }
         case compute_hash::<r"arc-retain-cycles">() {
-            return (41) if group == "arc-retain-cycles" else 0;
+            return 41;
         }
         case compute_hash::<r"arc-unsafe-retained-assign">() {
-            return (42) if group == "arc-unsafe-retained-assign" else 0;
+            return 42;
         }
         case compute_hash::<r"argument-outside-range">() {
-            return (43) if group == "argument-outside-range" else 0;
+            return 43;
         }
         case compute_hash::<r"argument-undefined-behaviour">() {
-            return (44) if group == "argument-undefined-behaviour" else 0;
+            return 44;
         }
         case compute_hash::<r"arm-interrupt-save-fp-no-vfp-unit">() {
-            return (45) if group == "arm-interrupt-save-fp-no-vfp-unit" else 0;
+            return 45;
         }
         case compute_hash::<r"arm-interrupt-vfp-clobber">() {
-            return (46) if group == "arm-interrupt-vfp-clobber" else 0;
+            return 46;
         }
         case compute_hash::<r"array-bounds">() {
-            return (47) if group == "array-bounds" else 0;
+            return 47;
         }
         case compute_hash::<r"array-bounds-pointer-arithmetic">() {
-            return (48) if group == "array-bounds-pointer-arithmetic" else 0;
+            return 48;
         }
         case compute_hash::<r"array-compare">() {
-            return (49) if group == "array-compare" else 0;
+            return 49;
         }
         case compute_hash::<r"array-compare-cxx26">() {
-            return (50) if group == "array-compare-cxx26" else 0;
+            return 50;
         }
         case compute_hash::<r"array-parameter">() {
-            return (51) if group == "array-parameter" else 0;
+            return 51;
         }
         case compute_hash::<r"asm">() {
-            return (52) if group == "asm" else 0;
+            return 52;
         }
         case compute_hash::<r"asm-operand-widths">() {
-            return (53) if group == "asm-operand-widths" else 0;
+            return 53;
         }
         case compute_hash::<r"assign-enum">() {
-            return (54) if group == "assign-enum" else 0;
+            return 54;
         }
         case compute_hash::<r"assume">() {
-            return (55) if group == "assume" else 0;
+            return 55;
         }
         case compute_hash::<r"at-protocol">() {
-            return (56) if group == "at-protocol" else 0;
+            return 56;
         }
         case compute_hash::<r"atimport-in-framework-header">() {
-            return (57) if group == "atimport-in-framework-header" else 0;
+            return 57;
         }
         case compute_hash::<r"atomic-access">() {
-            return (58) if group == "atomic-access" else 0;
+            return 58;
         }
         case compute_hash::<r"atomic-alignment">() {
-            return (59) if group == "atomic-alignment" else 0;
+            return 59;
         }
         case compute_hash::<r"atomic-implicit-seq-cst">() {
-            return (60) if group == "atomic-implicit-seq-cst" else 0;
+            return 60;
         }
         case compute_hash::<r"atomic-memory-ordering">() {
-            return (61) if group == "atomic-memory-ordering" else 0;
+            return 61;
         }
         case compute_hash::<r"atomic-properties">() {
-            return (62) if group == "atomic-properties" else 0;
+            return 62;
         }
         case compute_hash::<r"atomic-property-with-user-defined-accessor">() {
-            return (63) if group == "atomic-property-with-user-defined-accessor" else 0;
+            return 63;
         }
         case compute_hash::<r"attribute-packed-for-bitfield">() {
-            return (64) if group == "attribute-packed-for-bitfield" else 0;
+            return 64;
         }
         case compute_hash::<r"attribute-preprocessor-tokens">() {
-            return (65) if group == "attribute-preprocessor-tokens" else 0;
+            return 65;
         }
         case compute_hash::<r"attribute-statement">() {
-            return (66) if group == "attribute-statement" else 0;
+            return 66;
         }
         case compute_hash::<r"attribute-warning">() {
-            return (67) if group == "attribute-warning" else 0;
+            return 67;
         }
         case compute_hash::<r"attributes">() {
-            return (68) if group == "attributes" else 0;
+            return 68;
         }
         case compute_hash::<r"auto-decl-extensions">() {
-            return (69) if group == "auto-decl-extensions" else 0;
+            return 69;
         }
         case compute_hash::<r"auto-disable-vptr-sanitizer">() {
-            return (70) if group == "auto-disable-vptr-sanitizer" else 0;
+            return 70;
         }
         case compute_hash::<r"auto-import">() {
-            return (71) if group == "auto-import" else 0;
+            return 71;
         }
         case compute_hash::<r"auto-storage-class">() {
-            return (72) if group == "auto-storage-class" else 0;
+            return 72;
         }
         case compute_hash::<r"auto-var-id">() {
-            return (73) if group == "auto-var-id" else 0;
+            return 73;
         }
         case compute_hash::<r"availability">() {
-            return (74) if group == "availability" else 0;
+            return 74;
         }
         case compute_hash::<r"avr-rtlib-linking-quirks">() {
-            return (75) if group == "avr-rtlib-linking-quirks" else 0;
+            return 75;
         }
         case compute_hash::<r"backend-plugin">() {
-            return (76) if group == "backend-plugin" else 0;
+            return 76;
         }
         case compute_hash::<r"backslash-newline-escape">() {
-            return (77) if group == "backslash-newline-escape" else 0;
+            return 77;
         }
         case compute_hash::<r"bad-function-cast">() {
-            return (78) if group == "bad-function-cast" else 0;
+            return 78;
         }
         case compute_hash::<r"binary-literal">() {
-            return (79) if group == "binary-literal" else 0;
+            return 79;
         }
         case compute_hash::<r"bind-to-temporary-copy">() {
-            return (80) if group == "bind-to-temporary-copy" else 0;
+            return 80;
         }
         case compute_hash::<r"bit-int-extension">() {
-            return (81) if group == "bit-int-extension" else 0;
+            return 81;
         }
         case compute_hash::<r"bitfield-constant-conversion">() {
-            return (82) if group == "bitfield-constant-conversion" else 0;
+            return 82;
         }
         case compute_hash::<r"bitfield-enum-conversion">() {
-            return (83) if group == "bitfield-enum-conversion" else 0;
+            return 83;
         }
         case compute_hash::<r"bitfield-width">() {
-            return (84) if group == "bitfield-width" else 0;
+            return 84;
         }
         case compute_hash::<r"bitwise-conditional-parentheses">() {
-            return (85) if group == "bitwise-conditional-parentheses" else 0;
+            return 85;
         }
         case compute_hash::<r"bitwise-instead-of-logical">() {
-            return (86) if group == "bitwise-instead-of-logical" else 0;
+            return 86;
         }
         case compute_hash::<r"bitwise-op-parentheses">() {
-            return (87) if group == "bitwise-op-parentheses" else 0;
+            return 87;
         }
         case compute_hash::<r"block-capture-autoreleasing">() {
-            return (88) if group == "block-capture-autoreleasing" else 0;
+            return 88;
         }
         case compute_hash::<r"bool-conversion">() {
-            return (89) if group == "bool-conversion" else 0;
+            return 89;
         }
         case compute_hash::<r"bool-conversions">() {
-            return (90) if group == "bool-conversions" else 0;
+            return 90;
         }
         case compute_hash::<r"bool-operation">() {
-            return (91) if group == "bool-operation" else 0;
+            return 91;
         }
         case compute_hash::<r"bounds-safety-counted-by-elt-type-unknown-size">() {
-            return (92) if group == "bounds-safety-counted-by-elt-type-unknown-size" else 0;
+            return 92;
         }
         case compute_hash::<r"braced-scalar-init">() {
-            return (93) if group == "braced-scalar-init" else 0;
+            return 93;
         }
         case compute_hash::<r"branch-protection">() {
-            return (94) if group == "branch-protection" else 0;
+            return 94;
         }
         case compute_hash::<r"bridge-cast">() {
-            return (95) if group == "bridge-cast" else 0;
+            return 95;
         }
         case compute_hash::<r"builtin-assume-aligned-alignment">() {
-            return (96) if group == "builtin-assume-aligned-alignment" else 0;
+            return 96;
         }
         case compute_hash::<r"builtin-macro-redefined">() {
-            return (97) if group == "builtin-macro-redefined" else 0;
+            return 97;
         }
         case compute_hash::<r"builtin-memcpy-chk-size">() {
-            return (98) if group == "builtin-memcpy-chk-size" else 0;
+            return 98;
         }
         case compute_hash::<r"builtin-requires-header">() {
-            return (99) if group == "builtin-requires-header" else 0;
+            return 99;
         }
         case compute_hash::<r"c++-compat">() {
-            return (100) if group == "c++-compat" else 0;
+            return 100;
         }
         case compute_hash::<r"c++-hidden-decl">() {
-            return (101) if group == "c++-hidden-decl" else 0;
+            return 101;
         }
         case compute_hash::<r"c++-keyword">() {
-            return (102) if group == "c++-keyword" else 0;
+            return 102;
         }
         case compute_hash::<r"c++-unterminated-string-initialization">() {
-            return (103) if group == "c++-unterminated-string-initialization" else 0;
+            return 103;
         }
         case compute_hash::<r"c++0x-compat">() {
-            return (104) if group == "c++0x-compat" else 0;
+            return 104;
         }
         case compute_hash::<r"c++0x-extensions">() {
-            return (105) if group == "c++0x-extensions" else 0;
+            return 105;
         }
         case compute_hash::<r"c++0x-narrowing">() {
-            return (106) if group == "c++0x-narrowing" else 0;
+            return 106;
         }
         case compute_hash::<r"c++11-compat">() {
-            return (107) if group == "c++11-compat" else 0;
+            return 107;
         }
         case compute_hash::<r"c++11-compat-deprecated-writable-strings">() {
-            return (108) if group == "c++11-compat-deprecated-writable-strings" else 0;
+            return 108;
         }
         case compute_hash::<r"c++11-compat-pedantic">() {
-            return (109) if group == "c++11-compat-pedantic" else 0;
+            return 109;
         }
         case compute_hash::<r"c++11-compat-reserved-user-defined-literal">() {
-            return (110) if group == "c++11-compat-reserved-user-defined-literal" else 0;
+            return 110;
         }
         case compute_hash::<r"c++11-extensions">() {
-            return (111) if group == "c++11-extensions" else 0;
+            return 111;
         }
         case compute_hash::<r"c++11-extra-semi">() {
-            return (112) if group == "c++11-extra-semi" else 0;
+            return 112;
         }
         case compute_hash::<r"c++11-inline-namespace">() {
-            return (113) if group == "c++11-inline-namespace" else 0;
+            return 113;
         }
         case compute_hash::<r"c++11-long-long">() {
-            return (114) if group == "c++11-long-long" else 0;
+            return 114;
         }
         case compute_hash::<r"c++11-narrowing">() {
-            return (115) if group == "c++11-narrowing" else 0;
+            return 115;
         }
         case compute_hash::<r"c++11-narrowing-const-reference">() {
-            return (116) if group == "c++11-narrowing-const-reference" else 0;
+            return 116;
         }
         case compute_hash::<r"c++14-attribute-extensions">() {
-            return (117) if group == "c++14-attribute-extensions" else 0;
+            return 117;
         }
         case compute_hash::<r"c++14-binary-literal">() {
-            return (118) if group == "c++14-binary-literal" else 0;
+            return 118;
         }
         case compute_hash::<r"c++14-compat">() {
-            return (119) if group == "c++14-compat" else 0;
+            return 119;
         }
         case compute_hash::<r"c++14-compat-pedantic">() {
-            return (120) if group == "c++14-compat-pedantic" else 0;
+            return 120;
         }
         case compute_hash::<r"c++14-extensions">() {
-            return (121) if group == "c++14-extensions" else 0;
+            return 121;
         }
         case compute_hash::<r"c++17-attribute-extensions">() {
-            return (122) if group == "c++17-attribute-extensions" else 0;
+            return 122;
         }
         case compute_hash::<r"c++17-compat">() {
-            return (123) if group == "c++17-compat" else 0;
+            return 123;
         }
         case compute_hash::<r"c++17-compat-mangling">() {
-            return (124) if group == "c++17-compat-mangling" else 0;
+            return 124;
         }
         case compute_hash::<r"c++17-compat-pedantic">() {
-            return (125) if group == "c++17-compat-pedantic" else 0;
+            return 125;
         }
         case compute_hash::<r"c++17-extensions">() {
-            return (126) if group == "c++17-extensions" else 0;
+            return 126;
         }
         case compute_hash::<r"c++1y-extensions">() {
-            return (127) if group == "c++1y-extensions" else 0;
+            return 127;
         }
         case compute_hash::<r"c++1z-compat">() {
-            return (128) if group == "c++1z-compat" else 0;
+            return 128;
         }
         case compute_hash::<r"c++1z-compat-mangling">() {
-            return (129) if group == "c++1z-compat-mangling" else 0;
+            return 129;
         }
         case compute_hash::<r"c++1z-extensions">() {
-            return (130) if group == "c++1z-extensions" else 0;
+            return 130;
         }
         case compute_hash::<r"c++20-attribute-extensions">() {
-            return (131) if group == "c++20-attribute-extensions" else 0;
+            return 131;
         }
         case compute_hash::<r"c++20-compat">() {
-            return (132) if group == "c++20-compat" else 0;
+            return 132;
         }
         case compute_hash::<r"c++20-compat-pedantic">() {
-            return (133) if group == "c++20-compat-pedantic" else 0;
+            return 133;
         }
         case compute_hash::<r"c++20-designator">() {
-            return (134) if group == "c++20-designator" else 0;
+            return 134;
         }
         case compute_hash::<r"c++20-extensions">() {
-            return (135) if group == "c++20-extensions" else 0;
+            return 135;
         }
         case compute_hash::<r"c++23-attribute-extensions">() {
-            return (136) if group == "c++23-attribute-extensions" else 0;
+            return 136;
         }
         case compute_hash::<r"c++23-compat">() {
-            return (137) if group == "c++23-compat" else 0;
+            return 137;
         }
         case compute_hash::<r"c++23-extensions">() {
-            return (138) if group == "c++23-extensions" else 0;
+            return 138;
         }
         case compute_hash::<r"c++23-lambda-attributes">() {
-            return (139) if group == "c++23-lambda-attributes" else 0;
+            return 139;
         }
         case compute_hash::<r"c++26-extensions">() {
-            return (140) if group == "c++26-extensions" else 0;
+            return 140;
         }
         case compute_hash::<r"c++2a-compat">() {
-            return (141) if group == "c++2a-compat" else 0;
+            return 141;
         }
         case compute_hash::<r"c++2a-compat-pedantic">() {
-            return (142) if group == "c++2a-compat-pedantic" else 0;
+            return 142;
         }
         case compute_hash::<r"c++2a-extensions">() {
-            return (143) if group == "c++2a-extensions" else 0;
+            return 143;
         }
         case compute_hash::<r"c++2b-extensions">() {
-            return (144) if group == "c++2b-extensions" else 0;
+            return 144;
         }
         case compute_hash::<r"c++2c-compat">() {
-            return (145) if group == "c++2c-compat" else 0;
+            return 145;
         }
         case compute_hash::<r"c++2c-extensions">() {
-            return (146) if group == "c++2c-extensions" else 0;
+            return 146;
         }
         case compute_hash::<r"c++98-c++11-c++14-c++17-compat">() {
-            return (147) if group == "c++98-c++11-c++14-c++17-compat" else 0;
+            return 147;
         }
         case compute_hash::<r"c++98-c++11-c++14-c++17-compat-pedantic">() {
-            return (148) if group == "c++98-c++11-c++14-c++17-compat-pedantic" else 0;
+            return 148;
         }
         case compute_hash::<r"c++98-c++11-c++14-compat">() {
-            return (149) if group == "c++98-c++11-c++14-compat" else 0;
+            return 149;
         }
         case compute_hash::<r"c++98-c++11-c++14-compat-pedantic">() {
-            return (150) if group == "c++98-c++11-c++14-compat-pedantic" else 0;
+            return 150;
         }
         case compute_hash::<r"c++98-c++11-compat">() {
-            return (151) if group == "c++98-c++11-compat" else 0;
+            return 151;
         }
         case compute_hash::<r"c++98-c++11-compat-binary-literal">() {
-            return (152) if group == "c++98-c++11-compat-binary-literal" else 0;
+            return 152;
         }
         case compute_hash::<r"c++98-c++11-compat-pedantic">() {
-            return (153) if group == "c++98-c++11-compat-pedantic" else 0;
+            return 153;
         }
         case compute_hash::<r"c++98-compat">() {
-            return (154) if group == "c++98-compat" else 0;
+            return 154;
         }
         case compute_hash::<r"c++98-compat-bind-to-temporary-copy">() {
-            return (155) if group == "c++98-compat-bind-to-temporary-copy" else 0;
+            return 155;
         }
         case compute_hash::<r"c++98-compat-extra-semi">() {
-            return (156) if group == "c++98-compat-extra-semi" else 0;
+            return 156;
         }
         case compute_hash::<r"c++98-compat-local-type-template-args">() {
-            return (157) if group == "c++98-compat-local-type-template-args" else 0;
+            return 157;
         }
         case compute_hash::<r"c++98-compat-pedantic">() {
-            return (158) if group == "c++98-compat-pedantic" else 0;
+            return 158;
         }
         case compute_hash::<r"c++98-compat-unnamed-type-template-args">() {
-            return (159) if group == "c++98-compat-unnamed-type-template-args" else 0;
+            return 159;
         }
         case compute_hash::<r"c-attribute-extension">() {
-            return (160) if group == "c-attribute-extension" else 0;
+            return 160;
         }
         case compute_hash::<r"c11-extensions">() {
-            return (161) if group == "c11-extensions" else 0;
+            return 161;
         }
         case compute_hash::<r"c23-compat">() {
-            return (162) if group == "c23-compat" else 0;
+            return 162;
         }
         case compute_hash::<r"c23-extensions">() {
-            return (163) if group == "c23-extensions" else 0;
+            return 163;
         }
         case compute_hash::<r"c2x-compat">() {
-            return (164) if group == "c2x-compat" else 0;
+            return 164;
         }
         case compute_hash::<r"c2x-extensions">() {
-            return (165) if group == "c2x-extensions" else 0;
+            return 165;
         }
         case compute_hash::<r"c2y-extensions">() {
-            return (166) if group == "c2y-extensions" else 0;
+            return 166;
         }
         case compute_hash::<r"c99-compat">() {
-            return (167) if group == "c99-compat" else 0;
+            return 167;
         }
         case compute_hash::<r"c99-designator">() {
-            return (168) if group == "c99-designator" else 0;
+            return 168;
         }
         case compute_hash::<r"c99-extensions">() {
-            return (169) if group == "c99-extensions" else 0;
+            return 169;
         }
         case compute_hash::<r"call-to-pure-virtual-from-ctor-dtor">() {
-            return (170) if group == "call-to-pure-virtual-from-ctor-dtor" else 0;
+            return 170;
         }
         case compute_hash::<r"called-once-parameter">() {
-            return (171) if group == "called-once-parameter" else 0;
+            return 171;
         }
         case compute_hash::<r"cast-align">() {
-            return (172) if group == "cast-align" else 0;
+            return 172;
         }
         case compute_hash::<r"cast-calling-convention">() {
-            return (173) if group == "cast-calling-convention" else 0;
+            return 173;
         }
         case compute_hash::<r"cast-function-type">() {
-            return (174) if group == "cast-function-type" else 0;
+            return 174;
         }
         case compute_hash::<r"cast-function-type-mismatch">() {
-            return (175) if group == "cast-function-type-mismatch" else 0;
+            return 175;
         }
         case compute_hash::<r"cast-function-type-strict">() {
-            return (176) if group == "cast-function-type-strict" else 0;
+            return 176;
         }
         case compute_hash::<r"cast-of-sel-type">() {
-            return (177) if group == "cast-of-sel-type" else 0;
+            return 177;
         }
         case compute_hash::<r"cast-qual">() {
-            return (178) if group == "cast-qual" else 0;
+            return 178;
         }
         case compute_hash::<r"cast-qual-unrelated">() {
-            return (179) if group == "cast-qual-unrelated" else 0;
+            return 179;
         }
         case compute_hash::<r"cfi-unchecked-callee">() {
-            return (180) if group == "cfi-unchecked-callee" else 0;
+            return 180;
         }
         case compute_hash::<r"char-align">() {
-            return (181) if group == "char-align" else 0;
+            return 181;
         }
         case compute_hash::<r"char-subscripts">() {
-            return (182) if group == "char-subscripts" else 0;
+            return 182;
         }
         case compute_hash::<r"character-conversion">() {
-            return (183) if group == "character-conversion" else 0;
+            return 183;
         }
         case compute_hash::<r"clang-cl-pch">() {
-            return (184) if group == "clang-cl-pch" else 0;
+            return 184;
         }
         case compute_hash::<r"class-conversion">() {
-            return (185) if group == "class-conversion" else 0;
+            return 185;
         }
         case compute_hash::<r"class-varargs">() {
-            return (186) if group == "class-varargs" else 0;
+            return 186;
         }
         case compute_hash::<r"cmse-union-leak">() {
-            return (187) if group == "cmse-union-leak" else 0;
+            return 187;
         }
         case compute_hash::<r"comma">() {
-            return (188) if group == "comma" else 0;
+            return 188;
         }
         case compute_hash::<r"comment">() {
-            return (189) if group == "comment" else 0;
+            return 189;
         }
         case compute_hash::<r"comments">() {
-            return (190) if group == "comments" else 0;
+            return 190;
         }
         case compute_hash::<r"compare-distinct-pointer-types">() {
-            return (191) if group == "compare-distinct-pointer-types" else 0;
+            return 191;
         }
         case compute_hash::<r"completion-handler">() {
-            return (192) if group == "completion-handler" else 0;
+            return 192;
         }
         case compute_hash::<r"complex-component-init">() {
-            return (193) if group == "complex-component-init" else 0;
+            return 193;
         }
         case compute_hash::<r"compound-token-split">() {
-            return (194) if group == "compound-token-split" else 0;
+            return 194;
         }
         case compute_hash::<r"compound-token-split-by-macro">() {
-            return (195) if group == "compound-token-split-by-macro" else 0;
+            return 195;
         }
         case compute_hash::<r"compound-token-split-by-space">() {
-            return (196) if group == "compound-token-split-by-space" else 0;
+            return 196;
         }
         case compute_hash::<r"conditional-type-mismatch">() {
-            return (197) if group == "conditional-type-mismatch" else 0;
+            return 197;
         }
         case compute_hash::<r"conditional-uninitialized">() {
-            return (198) if group == "conditional-uninitialized" else 0;
+            return 198;
         }
         case compute_hash::<r"config-macros">() {
-            return (199) if group == "config-macros" else 0;
+            return 199;
         }
         case compute_hash::<r"constant-conversion">() {
-            return (200) if group == "constant-conversion" else 0;
+            return 200;
         }
         case compute_hash::<r"constant-evaluated">() {
-            return (201) if group == "constant-evaluated" else 0;
+            return 201;
         }
         case compute_hash::<r"constant-logical-operand">() {
-            return (202) if group == "constant-logical-operand" else 0;
+            return 202;
         }
         case compute_hash::<r"constexpr-not-const">() {
-            return (203) if group == "constexpr-not-const" else 0;
+            return 203;
         }
         case compute_hash::<r"consumed">() {
-            return (204) if group == "consumed" else 0;
+            return 204;
         }
         case compute_hash::<r"conversion">() {
-            return (205) if group == "conversion" else 0;
+            return 205;
         }
         case compute_hash::<r"conversion-null">() {
-            return (206) if group == "conversion-null" else 0;
+            return 206;
         }
         case compute_hash::<r"coro-non-aligned-allocation-function">() {
-            return (207) if group == "coro-non-aligned-allocation-function" else 0;
+            return 207;
         }
         case compute_hash::<r"coro-type-aware-allocation-function">() {
-            return (208) if group == "coro-type-aware-allocation-function" else 0;
+            return 208;
         }
         case compute_hash::<r"coroutine">() {
-            return (209) if group == "coroutine" else 0;
+            return 209;
         }
         case compute_hash::<r"coroutine-missing-unhandled-exception">() {
-            return (210) if group == "coroutine-missing-unhandled-exception" else 0;
+            return 210;
         }
         case compute_hash::<r"covered-switch-default">() {
-            return (211) if group == "covered-switch-default" else 0;
+            return 211;
         }
         case compute_hash::<r"cpp">() {
-            return (212) if group == "cpp" else 0;
+            return 212;
         }
         case compute_hash::<r"cstring-format-directive">() {
-            return (213) if group == "cstring-format-directive" else 0;
+            return 213;
         }
         case compute_hash::<r"ctad-maybe-unsupported">() {
-            return (214) if group == "ctad-maybe-unsupported" else 0;
+            return 214;
         }
         case compute_hash::<r"ctor-dtor-privacy">() {
-            return (215) if group == "ctor-dtor-privacy" else 0;
+            return 215;
         }
         case compute_hash::<r"ctu">() {
-            return (216) if group == "ctu" else 0;
+            return 216;
         }
         case compute_hash::<r"cuda-compat">() {
-            return (217) if group == "cuda-compat" else 0;
+            return 217;
         }
         case compute_hash::<r"custom-atomic-properties">() {
-            return (218) if group == "custom-atomic-properties" else 0;
+            return 218;
         }
         case compute_hash::<r"cxx-attribute-extension">() {
-            return (219) if group == "cxx-attribute-extension" else 0;
+            return 219;
         }
         case compute_hash::<r"dangling">() {
-            return (220) if group == "dangling" else 0;
+            return 220;
         }
         case compute_hash::<r"dangling-assignment">() {
-            return (221) if group == "dangling-assignment" else 0;
+            return 221;
         }
         case compute_hash::<r"dangling-assignment-gsl">() {
-            return (222) if group == "dangling-assignment-gsl" else 0;
+            return 222;
         }
         case compute_hash::<r"dangling-capture">() {
-            return (223) if group == "dangling-capture" else 0;
+            return 223;
         }
         case compute_hash::<r"dangling-else">() {
-            return (224) if group == "dangling-else" else 0;
+            return 224;
         }
         case compute_hash::<r"dangling-field">() {
-            return (225) if group == "dangling-field" else 0;
+            return 225;
         }
         case compute_hash::<r"dangling-gsl">() {
-            return (226) if group == "dangling-gsl" else 0;
+            return 226;
         }
         case compute_hash::<r"dangling-initializer-list">() {
-            return (227) if group == "dangling-initializer-list" else 0;
+            return 227;
         }
         case compute_hash::<r"darwin-sdk-settings">() {
-            return (228) if group == "darwin-sdk-settings" else 0;
+            return 228;
         }
         case compute_hash::<r"date-time">() {
-            return (229) if group == "date-time" else 0;
+            return 229;
         }
         case compute_hash::<r"dealloc-in-category">() {
-            return (230) if group == "dealloc-in-category" else 0;
+            return 230;
         }
         case compute_hash::<r"debug-compression-unavailable">() {
-            return (231) if group == "debug-compression-unavailable" else 0;
+            return 231;
         }
         case compute_hash::<r"declaration-after-statement">() {
-            return (232) if group == "declaration-after-statement" else 0;
+            return 232;
         }
         case compute_hash::<r"decls-in-multiple-modules">() {
-            return (233) if group == "decls-in-multiple-modules" else 0;
+            return 233;
         }
         case compute_hash::<r"default-const-init">() {
-            return (234) if group == "default-const-init" else 0;
+            return 234;
         }
         case compute_hash::<r"default-const-init-field">() {
-            return (235) if group == "default-const-init-field" else 0;
+            return 235;
         }
         case compute_hash::<r"default-const-init-field-unsafe">() {
-            return (236) if group == "default-const-init-field-unsafe" else 0;
+            return 236;
         }
         case compute_hash::<r"default-const-init-unsafe">() {
-            return (237) if group == "default-const-init-unsafe" else 0;
+            return 237;
         }
         case compute_hash::<r"default-const-init-var">() {
-            return (238) if group == "default-const-init-var" else 0;
+            return 238;
         }
         case compute_hash::<r"default-const-init-var-unsafe">() {
-            return (239) if group == "default-const-init-var-unsafe" else 0;
+            return 239;
         }
         case compute_hash::<r"defaulted-function-deleted">() {
-            return (240) if group == "defaulted-function-deleted" else 0;
+            return 240;
         }
         case compute_hash::<r"delayed-template-parsing-in-cxx20">() {
-            return (241) if group == "delayed-template-parsing-in-cxx20" else 0;
+            return 241;
         }
         case compute_hash::<r"delegating-ctor-cycles">() {
-            return (242) if group == "delegating-ctor-cycles" else 0;
+            return 242;
         }
         case compute_hash::<r"delete-abstract-non-virtual-dtor">() {
-            return (243) if group == "delete-abstract-non-virtual-dtor" else 0;
+            return 243;
         }
         case compute_hash::<r"delete-incomplete">() {
-            return (244) if group == "delete-incomplete" else 0;
+            return 244;
         }
         case compute_hash::<r"delete-non-abstract-non-virtual-dtor">() {
-            return (245) if group == "delete-non-abstract-non-virtual-dtor" else 0;
+            return 245;
         }
         case compute_hash::<r"delete-non-virtual-dtor">() {
-            return (246) if group == "delete-non-virtual-dtor" else 0;
+            return 246;
         }
         case compute_hash::<r"delimited-escape-sequence-extension">() {
-            return (247) if group == "delimited-escape-sequence-extension" else 0;
+            return 247;
         }
         case compute_hash::<r"deprecate-lax-vec-conv-all">() {
-            return (248) if group == "deprecate-lax-vec-conv-all" else 0;
+            return 248;
         }
         case compute_hash::<r"deprecated">() {
-            return (249) if group == "deprecated" else 0;
+            return 249;
         }
         case compute_hash::<r"deprecated-altivec-src-compat">() {
-            return (250) if group == "deprecated-altivec-src-compat" else 0;
+            return 250;
         }
         case compute_hash::<r"deprecated-anon-enum-enum-conversion">() {
-            return (251) if group == "deprecated-anon-enum-enum-conversion" else 0;
+            return 251;
         }
         case compute_hash::<r"deprecated-array-compare">() {
-            return (252) if group == "deprecated-array-compare" else 0;
+            return 252;
         }
         case compute_hash::<r"deprecated-attributes">() {
-            return (253) if group == "deprecated-attributes" else 0;
+            return 253;
         }
         case compute_hash::<r"deprecated-builtins">() {
-            return (254) if group == "deprecated-builtins" else 0;
+            return 254;
         }
         case compute_hash::<r"deprecated-comma-subscript">() {
-            return (255) if group == "deprecated-comma-subscript" else 0;
+            return 255;
         }
         case compute_hash::<r"deprecated-copy">() {
-            return (256) if group == "deprecated-copy" else 0;
+            return 256;
         }
         case compute_hash::<r"deprecated-copy-dtor">() {
-            return (257) if group == "deprecated-copy-dtor" else 0;
+            return 257;
         }
         case compute_hash::<r"deprecated-copy-with-dtor">() {
-            return (258) if group == "deprecated-copy-with-dtor" else 0;
+            return 258;
         }
         case compute_hash::<r"deprecated-copy-with-user-provided-copy">() {
-            return (259) if group == "deprecated-copy-with-user-provided-copy" else 0;
+            return 259;
         }
         case compute_hash::<r"deprecated-copy-with-user-provided-dtor">() {
-            return (260) if group == "deprecated-copy-with-user-provided-dtor" else 0;
+            return 260;
         }
         case compute_hash::<r"deprecated-coroutine">() {
-            return (261) if group == "deprecated-coroutine" else 0;
+            return 261;
         }
         case compute_hash::<r"deprecated-declarations">() {
-            return (262) if group == "deprecated-declarations" else 0;
+            return 262;
         }
         case compute_hash::<r"deprecated-declarations-switch-case">() {
-            return (263) if group == "deprecated-declarations-switch-case" else 0;
+            return 263;
         }
         case compute_hash::<r"deprecated-dynamic-exception-spec">() {
-            return (264) if group == "deprecated-dynamic-exception-spec" else 0;
+            return 264;
         }
         case compute_hash::<r"deprecated-enum-compare">() {
-            return (265) if group == "deprecated-enum-compare" else 0;
+            return 265;
         }
         case compute_hash::<r"deprecated-enum-compare-conditional">() {
-            return (266) if group == "deprecated-enum-compare-conditional" else 0;
+            return 266;
         }
         case compute_hash::<r"deprecated-enum-enum-conversion">() {
-            return (267) if group == "deprecated-enum-enum-conversion" else 0;
+            return 267;
         }
         case compute_hash::<r"deprecated-enum-float-conversion">() {
-            return (268) if group == "deprecated-enum-float-conversion" else 0;
+            return 268;
         }
         case compute_hash::<r"deprecated-implementations">() {
-            return (269) if group == "deprecated-implementations" else 0;
+            return 269;
         }
         case compute_hash::<r"deprecated-increment-bool">() {
-            return (270) if group == "deprecated-increment-bool" else 0;
+            return 270;
         }
         case compute_hash::<r"deprecated-literal-operator">() {
-            return (271) if group == "deprecated-literal-operator" else 0;
+            return 271;
         }
         case compute_hash::<r"deprecated-missing-comma-variadic-parameter">() {
-            return (272) if group == "deprecated-missing-comma-variadic-parameter" else 0;
+            return 272;
         }
         case compute_hash::<r"deprecated-module-dot-map">() {
-            return (273) if group == "deprecated-module-dot-map" else 0;
+            return 273;
         }
         case compute_hash::<r"deprecated-non-prototype">() {
-            return (274) if group == "deprecated-non-prototype" else 0;
+            return 274;
         }
         case compute_hash::<r"deprecated-objc-isa-usage">() {
-            return (275) if group == "deprecated-objc-isa-usage" else 0;
+            return 275;
         }
         case compute_hash::<r"deprecated-objc-pointer-introspection">() {
-            return (276) if group == "deprecated-objc-pointer-introspection" else 0;
+            return 276;
         }
         case compute_hash::<r"deprecated-objc-pointer-introspection-performSelector">() {
-            return (277) if group == "deprecated-objc-pointer-introspection-performSelector" else 0;
+            return 277;
         }
         case compute_hash::<r"deprecated-octal-literals">() {
-            return (278) if group == "deprecated-octal-literals" else 0;
+            return 278;
         }
         case compute_hash::<r"deprecated-ofast">() {
-            return (279) if group == "deprecated-ofast" else 0;
+            return 279;
         }
         case compute_hash::<r"deprecated-pragma">() {
-            return (280) if group == "deprecated-pragma" else 0;
+            return 280;
         }
         case compute_hash::<r"deprecated-redundant-constexpr-static-def">() {
-            return (281) if group == "deprecated-redundant-constexpr-static-def" else 0;
+            return 281;
         }
         case compute_hash::<r"deprecated-register">() {
-            return (282) if group == "deprecated-register" else 0;
+            return 282;
         }
         case compute_hash::<r"deprecated-this-capture">() {
-            return (283) if group == "deprecated-this-capture" else 0;
+            return 283;
         }
         case compute_hash::<r"deprecated-type">() {
-            return (284) if group == "deprecated-type" else 0;
+            return 284;
         }
         case compute_hash::<r"deprecated-volatile">() {
-            return (285) if group == "deprecated-volatile" else 0;
+            return 285;
         }
         case compute_hash::<r"deprecated-writable-strings">() {
-            return (286) if group == "deprecated-writable-strings" else 0;
+            return 286;
         }
         case compute_hash::<r"direct-ivar-access">() {
-            return (287) if group == "direct-ivar-access" else 0;
+            return 287;
         }
         case compute_hash::<r"disabled-macro-expansion">() {
-            return (288) if group == "disabled-macro-expansion" else 0;
+            return 288;
         }
         case compute_hash::<r"disabled-optimization">() {
-            return (289) if group == "disabled-optimization" else 0;
+            return 289;
         }
         case compute_hash::<r"discard-qual">() {
-            return (290) if group == "discard-qual" else 0;
+            return 290;
         }
         case compute_hash::<r"distributed-object-modifiers">() {
-            return (291) if group == "distributed-object-modifiers" else 0;
+            return 291;
         }
         case compute_hash::<r"div-by-zero">() {
-            return (292) if group == "div-by-zero" else 0;
+            return 292;
         }
         case compute_hash::<r"division-by-zero">() {
-            return (293) if group == "division-by-zero" else 0;
+            return 293;
         }
         case compute_hash::<r"dll-attribute-on-redeclaration">() {
-            return (294) if group == "dll-attribute-on-redeclaration" else 0;
+            return 294;
         }
         case compute_hash::<r"dllexport-explicit-instantiation">() {
-            return (295) if group == "dllexport-explicit-instantiation" else 0;
+            return 295;
         }
         case compute_hash::<r"dllexport-explicit-instantiation-decl">() {
-            return (296) if group == "dllexport-explicit-instantiation-decl" else 0;
+            return 296;
         }
         case compute_hash::<r"dllimport-static-field-def">() {
-            return (297) if group == "dllimport-static-field-def" else 0;
+            return 297;
         }
         case compute_hash::<r"documentation">() {
-            return (298) if group == "documentation" else 0;
+            return 298;
         }
         case compute_hash::<r"documentation-deprecated-sync">() {
-            return (299) if group == "documentation-deprecated-sync" else 0;
+            return 299;
         }
         case compute_hash::<r"documentation-html">() {
-            return (300) if group == "documentation-html" else 0;
+            return 300;
         }
         case compute_hash::<r"documentation-pedantic">() {
-            return (301) if group == "documentation-pedantic" else 0;
+            return 301;
         }
         case compute_hash::<r"documentation-unknown-command">() {
-            return (302) if group == "documentation-unknown-command" else 0;
+            return 302;
         }
         case compute_hash::<r"dollar-in-identifier-extension">() {
-            return (303) if group == "dollar-in-identifier-extension" else 0;
+            return 303;
         }
         case compute_hash::<r"double-promotion">() {
-            return (304) if group == "double-promotion" else 0;
+            return 304;
         }
         case compute_hash::<r"dtor-name">() {
-            return (305) if group == "dtor-name" else 0;
+            return 305;
         }
         case compute_hash::<r"dtor-typedef">() {
-            return (306) if group == "dtor-typedef" else 0;
+            return 306;
         }
         case compute_hash::<r"duplicate-decl-specifier">() {
-            return (307) if group == "duplicate-decl-specifier" else 0;
+            return 307;
         }
         case compute_hash::<r"duplicate-enum">() {
-            return (308) if group == "duplicate-enum" else 0;
+            return 308;
         }
         case compute_hash::<r"duplicate-method-arg">() {
-            return (309) if group == "duplicate-method-arg" else 0;
+            return 309;
         }
         case compute_hash::<r"duplicate-method-match">() {
-            return (310) if group == "duplicate-method-match" else 0;
+            return 310;
         }
         case compute_hash::<r"duplicate-protocol">() {
-            return (311) if group == "duplicate-protocol" else 0;
+            return 311;
         }
         case compute_hash::<r"dxil-validation">() {
-            return (312) if group == "dxil-validation" else 0;
+            return 312;
         }
         case compute_hash::<r"dynamic-class-memaccess">() {
-            return (313) if group == "dynamic-class-memaccess" else 0;
+            return 313;
         }
         case compute_hash::<r"dynamic-exception-spec">() {
-            return (314) if group == "dynamic-exception-spec" else 0;
+            return 314;
         }
         case compute_hash::<r"eager-load-cxx-named-modules">() {
-            return (315) if group == "eager-load-cxx-named-modules" else 0;
+            return 315;
         }
         case compute_hash::<r"effc++">() {
-            return (316) if group == "effc++" else 0;
+            return 316;
         }
         case compute_hash::<r"elaborated-enum-base">() {
-            return (317) if group == "elaborated-enum-base" else 0;
+            return 317;
         }
         case compute_hash::<r"elaborated-enum-class">() {
-            return (318) if group == "elaborated-enum-class" else 0;
+            return 318;
         }
         case compute_hash::<r"embedded-directive">() {
-            return (319) if group == "embedded-directive" else 0;
+            return 319;
         }
         case compute_hash::<r"empty-body">() {
-            return (320) if group == "empty-body" else 0;
+            return 320;
         }
         case compute_hash::<r"empty-decomposition">() {
-            return (321) if group == "empty-decomposition" else 0;
+            return 321;
         }
         case compute_hash::<r"empty-init-stmt">() {
-            return (322) if group == "empty-init-stmt" else 0;
+            return 322;
         }
         case compute_hash::<r"empty-translation-unit">() {
-            return (323) if group == "empty-translation-unit" else 0;
+            return 323;
         }
         case compute_hash::<r"encode-type">() {
-            return (324) if group == "encode-type" else 0;
+            return 324;
         }
         case compute_hash::<r"endif-labels">() {
-            return (325) if group == "endif-labels" else 0;
+            return 325;
         }
         case compute_hash::<r"enum-compare">() {
-            return (326) if group == "enum-compare" else 0;
+            return 326;
         }
         case compute_hash::<r"enum-compare-conditional">() {
-            return (327) if group == "enum-compare-conditional" else 0;
+            return 327;
         }
         case compute_hash::<r"enum-compare-switch">() {
-            return (328) if group == "enum-compare-switch" else 0;
+            return 328;
         }
         case compute_hash::<r"enum-compare-typo">() {
-            return (329) if group == "enum-compare-typo" else 0;
+            return 329;
         }
         case compute_hash::<r"enum-conversion">() {
-            return (330) if group == "enum-conversion" else 0;
+            return 330;
         }
         case compute_hash::<r"enum-enum-conversion">() {
-            return (331) if group == "enum-enum-conversion" else 0;
+            return 331;
         }
         case compute_hash::<r"enum-float-conversion">() {
-            return (332) if group == "enum-float-conversion" else 0;
+            return 332;
         }
         case compute_hash::<r"enum-too-large">() {
-            return (333) if group == "enum-too-large" else 0;
+            return 333;
         }
         case compute_hash::<r"exceptions">() {
-            return (334) if group == "exceptions" else 0;
+            return 334;
         }
         case compute_hash::<r"excess-initializers">() {
-            return (335) if group == "excess-initializers" else 0;
+            return 335;
         }
         case compute_hash::<r"excessive-regsave">() {
-            return (336) if group == "excessive-regsave" else 0;
+            return 336;
         }
         case compute_hash::<r"exit-time-destructors">() {
-            return (337) if group == "exit-time-destructors" else 0;
+            return 337;
         }
         case compute_hash::<r"expansion-to-defined">() {
-            return (338) if group == "expansion-to-defined" else 0;
+            return 338;
         }
         case compute_hash::<r"experimental-header-units">() {
-            return (339) if group == "experimental-header-units" else 0;
+            return 339;
         }
         case compute_hash::<r"experimental-lifetime-safety">() {
-            return (340) if group == "experimental-lifetime-safety" else 0;
+            return 340;
         }
         case compute_hash::<r"experimental-lifetime-safety-cross-tu-suggestions">() {
-            return (341) if group == "experimental-lifetime-safety-cross-tu-suggestions" else 0;
+            return 341;
         }
         case compute_hash::<r"experimental-lifetime-safety-intra-tu-suggestions">() {
-            return (342) if group == "experimental-lifetime-safety-intra-tu-suggestions" else 0;
+            return 342;
         }
         case compute_hash::<r"experimental-lifetime-safety-permissive">() {
-            return (343) if group == "experimental-lifetime-safety-permissive" else 0;
+            return 343;
         }
         case compute_hash::<r"experimental-lifetime-safety-strict">() {
-            return (344) if group == "experimental-lifetime-safety-strict" else 0;
+            return 344;
         }
         case compute_hash::<r"experimental-lifetime-safety-suggestions">() {
-            return (345) if group == "experimental-lifetime-safety-suggestions" else 0;
+            return 345;
         }
         case compute_hash::<r"experimental-option">() {
-            return (346) if group == "experimental-option" else 0;
+            return 346;
         }
         case compute_hash::<r"explicit-initialize-call">() {
-            return (347) if group == "explicit-initialize-call" else 0;
+            return 347;
         }
         case compute_hash::<r"explicit-ownership-type">() {
-            return (348) if group == "explicit-ownership-type" else 0;
+            return 348;
         }
         case compute_hash::<r"explicit-specialization-storage-class">() {
-            return (349) if group == "explicit-specialization-storage-class" else 0;
+            return 349;
         }
         case compute_hash::<r"export-unnamed">() {
-            return (350) if group == "export-unnamed" else 0;
+            return 350;
         }
         case compute_hash::<r"ext-cxx-type-aware-allocators">() {
-            return (351) if group == "ext-cxx-type-aware-allocators" else 0;
+            return 351;
         }
         case compute_hash::<r"extern-c-compat">() {
-            return (352) if group == "extern-c-compat" else 0;
+            return 352;
         }
         case compute_hash::<r"extern-initializer">() {
-            return (353) if group == "extern-initializer" else 0;
+            return 353;
         }
         case compute_hash::<r"extra">() {
-            return (354) if group == "extra" else 0;
+            return 354;
         }
         case compute_hash::<r"extra-qualification">() {
-            return (355) if group == "extra-qualification" else 0;
+            return 355;
         }
         case compute_hash::<r"extra-semi">() {
-            return (356) if group == "extra-semi" else 0;
+            return 356;
         }
         case compute_hash::<r"extra-semi-stmt">() {
-            return (357) if group == "extra-semi-stmt" else 0;
+            return 357;
         }
         case compute_hash::<r"extra-tokens">() {
-            return (358) if group == "extra-tokens" else 0;
+            return 358;
         }
         case compute_hash::<r"extractapi-misuse">() {
-            return (359) if group == "extractapi-misuse" else 0;
+            return 359;
         }
         case compute_hash::<r"extraneous-template-head">() {
-            return (360) if group == "extraneous-template-head" else 0;
+            return 360;
         }
         case compute_hash::<r"final-dtor-non-final-class">() {
-            return (361) if group == "final-dtor-non-final-class" else 0;
+            return 361;
         }
         case compute_hash::<r"final-macro">() {
-            return (362) if group == "final-macro" else 0;
+            return 362;
         }
         case compute_hash::<r"fixed-point-overflow">() {
-            return (363) if group == "fixed-point-overflow" else 0;
+            return 363;
         }
         case compute_hash::<r"flag-enum">() {
-            return (364) if group == "flag-enum" else 0;
+            return 364;
         }
         case compute_hash::<r"flexible-array-extensions">() {
-            return (365) if group == "flexible-array-extensions" else 0;
+            return 365;
         }
         case compute_hash::<r"float-conversion">() {
-            return (366) if group == "float-conversion" else 0;
+            return 366;
         }
         case compute_hash::<r"float-equal">() {
-            return (367) if group == "float-equal" else 0;
+            return 367;
         }
         case compute_hash::<r"float-overflow-conversion">() {
-            return (368) if group == "float-overflow-conversion" else 0;
+            return 368;
         }
         case compute_hash::<r"float-zero-conversion">() {
-            return (369) if group == "float-zero-conversion" else 0;
+            return 369;
         }
         case compute_hash::<r"for-loop-analysis">() {
-            return (370) if group == "for-loop-analysis" else 0;
+            return 370;
         }
         case compute_hash::<r"format">() {
-            return (371) if group == "format" else 0;
+            return 371;
         }
         case compute_hash::<r"format-extra-args">() {
-            return (372) if group == "format-extra-args" else 0;
+            return 372;
         }
         case compute_hash::<r"format-insufficient-args">() {
-            return (373) if group == "format-insufficient-args" else 0;
+            return 373;
         }
         case compute_hash::<r"format-invalid-specifier">() {
-            return (374) if group == "format-invalid-specifier" else 0;
+            return 374;
         }
         case compute_hash::<r"format-non-iso">() {
-            return (375) if group == "format-non-iso" else 0;
+            return 375;
         }
         case compute_hash::<r"format-nonliteral">() {
-            return (376) if group == "format-nonliteral" else 0;
+            return 376;
         }
         case compute_hash::<r"format-overflow">() {
-            return (377) if group == "format-overflow" else 0;
+            return 377;
         }
         case compute_hash::<r"format-overflow-non-kprintf">() {
-            return (378) if group == "format-overflow-non-kprintf" else 0;
+            return 378;
         }
         case compute_hash::<r"format-pedantic">() {
-            return (379) if group == "format-pedantic" else 0;
+            return 379;
         }
         case compute_hash::<r"format-security">() {
-            return (380) if group == "format-security" else 0;
+            return 380;
         }
         case compute_hash::<r"format-signedness">() {
-            return (381) if group == "format-signedness" else 0;
+            return 381;
         }
         case compute_hash::<r"format-truncation">() {
-            return (382) if group == "format-truncation" else 0;
+            return 382;
         }
         case compute_hash::<r"format-truncation-non-kprintf">() {
-            return (383) if group == "format-truncation-non-kprintf" else 0;
+            return 383;
         }
         case compute_hash::<r"format-type-confusion">() {
-            return (384) if group == "format-type-confusion" else 0;
+            return 384;
         }
         case compute_hash::<r"format-y2k">() {
-            return (385) if group == "format-y2k" else 0;
+            return 385;
         }
         case compute_hash::<r"format-zero-length">() {
-            return (386) if group == "format-zero-length" else 0;
+            return 386;
         }
         case compute_hash::<r"format=2">() {
-            return (387) if group == "format=2" else 0;
+            return 387;
         }
         case compute_hash::<r"fortify-source">() {
-            return (388) if group == "fortify-source" else 0;
+            return 388;
         }
         case compute_hash::<r"four-char-constants">() {
-            return (389) if group == "four-char-constants" else 0;
+            return 389;
         }
         case compute_hash::<r"frame-address">() {
-            return (390) if group == "frame-address" else 0;
+            return 390;
         }
         case compute_hash::<r"frame-larger-than">() {
-            return (391) if group == "frame-larger-than" else 0;
+            return 391;
         }
         case compute_hash::<r"frame-larger-than=">() {
-            return (392) if group == "frame-larger-than=" else 0;
+            return 392;
         }
         case compute_hash::<r"framework-include-private-from-public">() {
-            return (393) if group == "framework-include-private-from-public" else 0;
+            return 393;
         }
         case compute_hash::<r"free-nonheap-object">() {
-            return (394) if group == "free-nonheap-object" else 0;
+            return 394;
         }
         case compute_hash::<r"friend-enum">() {
-            return (395) if group == "friend-enum" else 0;
+            return 395;
         }
         case compute_hash::<r"function-def-in-objc-container">() {
-            return (396) if group == "function-def-in-objc-container" else 0;
+            return 396;
         }
         case compute_hash::<r"function-effect-redeclarations">() {
-            return (397) if group == "function-effect-redeclarations" else 0;
+            return 397;
         }
         case compute_hash::<r"function-effects">() {
-            return (398) if group == "function-effects" else 0;
+            return 398;
         }
         case compute_hash::<r"function-multiversion">() {
-            return (399) if group == "function-multiversion" else 0;
+            return 399;
         }
         case compute_hash::<r"fuse-ld-path">() {
-            return (400) if group == "fuse-ld-path" else 0;
+            return 400;
         }
         case compute_hash::<r"future-attribute-extensions">() {
-            return (401) if group == "future-attribute-extensions" else 0;
+            return 401;
         }
         case compute_hash::<r"future-compat">() {
-            return (402) if group == "future-compat" else 0;
+            return 402;
         }
         case compute_hash::<r"gcc-compat">() {
-            return (403) if group == "gcc-compat" else 0;
+            return 403;
         }
         case compute_hash::<r"gcc-install-dir-libstdcxx">() {
-            return (404) if group == "gcc-install-dir-libstdcxx" else 0;
+            return 404;
         }
         case compute_hash::<r"global-constructors">() {
-            return (405) if group == "global-constructors" else 0;
+            return 405;
         }
         case compute_hash::<r"global-isel">() {
-            return (406) if group == "global-isel" else 0;
+            return 406;
         }
         case compute_hash::<r"gnu">() {
-            return (407) if group == "gnu" else 0;
+            return 407;
         }
         case compute_hash::<r"gnu-alignof-expression">() {
-            return (408) if group == "gnu-alignof-expression" else 0;
+            return 408;
         }
         case compute_hash::<r"gnu-anonymous-struct">() {
-            return (409) if group == "gnu-anonymous-struct" else 0;
+            return 409;
         }
         case compute_hash::<r"gnu-array-member-paren-init">() {
-            return (410) if group == "gnu-array-member-paren-init" else 0;
+            return 410;
         }
         case compute_hash::<r"gnu-auto-type">() {
-            return (411) if group == "gnu-auto-type" else 0;
+            return 411;
         }
         case compute_hash::<r"gnu-binary-literal">() {
-            return (412) if group == "gnu-binary-literal" else 0;
+            return 412;
         }
         case compute_hash::<r"gnu-case-range">() {
-            return (413) if group == "gnu-case-range" else 0;
+            return 413;
         }
         case compute_hash::<r"gnu-complex-integer">() {
-            return (414) if group == "gnu-complex-integer" else 0;
+            return 414;
         }
         case compute_hash::<r"gnu-compound-literal-initializer">() {
-            return (415) if group == "gnu-compound-literal-initializer" else 0;
+            return 415;
         }
         case compute_hash::<r"gnu-conditional-omitted-operand">() {
-            return (416) if group == "gnu-conditional-omitted-operand" else 0;
+            return 416;
         }
         case compute_hash::<r"gnu-designator">() {
-            return (417) if group == "gnu-designator" else 0;
+            return 417;
         }
         case compute_hash::<r"gnu-empty-initializer">() {
-            return (418) if group == "gnu-empty-initializer" else 0;
+            return 418;
         }
         case compute_hash::<r"gnu-empty-struct">() {
-            return (419) if group == "gnu-empty-struct" else 0;
+            return 419;
         }
         case compute_hash::<r"gnu-flexible-array-initializer">() {
-            return (420) if group == "gnu-flexible-array-initializer" else 0;
+            return 420;
         }
         case compute_hash::<r"gnu-flexible-array-union-member">() {
-            return (421) if group == "gnu-flexible-array-union-member" else 0;
+            return 421;
         }
         case compute_hash::<r"gnu-folding-constant">() {
-            return (422) if group == "gnu-folding-constant" else 0;
+            return 422;
         }
         case compute_hash::<r"gnu-imaginary-constant">() {
-            return (423) if group == "gnu-imaginary-constant" else 0;
+            return 423;
         }
         case compute_hash::<r"gnu-include-next">() {
-            return (424) if group == "gnu-include-next" else 0;
+            return 424;
         }
         case compute_hash::<r"gnu-inline-cpp-without-extern">() {
-            return (425) if group == "gnu-inline-cpp-without-extern" else 0;
+            return 425;
         }
         case compute_hash::<r"gnu-label-as-value">() {
-            return (426) if group == "gnu-label-as-value" else 0;
+            return 426;
         }
         case compute_hash::<r"gnu-line-marker">() {
-            return (427) if group == "gnu-line-marker" else 0;
+            return 427;
         }
         case compute_hash::<r"gnu-null-pointer-arithmetic">() {
-            return (428) if group == "gnu-null-pointer-arithmetic" else 0;
+            return 428;
         }
         case compute_hash::<r"gnu-offsetof-extensions">() {
-            return (429) if group == "gnu-offsetof-extensions" else 0;
+            return 429;
         }
         case compute_hash::<r"gnu-pointer-arith">() {
-            return (430) if group == "gnu-pointer-arith" else 0;
+            return 430;
         }
         case compute_hash::<r"gnu-redeclared-enum">() {
-            return (431) if group == "gnu-redeclared-enum" else 0;
+            return 431;
         }
         case compute_hash::<r"gnu-statement-expression">() {
-            return (432) if group == "gnu-statement-expression" else 0;
+            return 432;
         }
         case compute_hash::<r"gnu-statement-expression-from-macro-expansion">() {
-            return (433) if group == "gnu-statement-expression-from-macro-expansion" else 0;
+            return 433;
         }
         case compute_hash::<r"gnu-static-float-init">() {
-            return (434) if group == "gnu-static-float-init" else 0;
+            return 434;
         }
         case compute_hash::<r"gnu-string-literal-operator-template">() {
-            return (435) if group == "gnu-string-literal-operator-template" else 0;
+            return 435;
         }
         case compute_hash::<r"gnu-union-cast">() {
-            return (436) if group == "gnu-union-cast" else 0;
+            return 436;
         }
         case compute_hash::<r"gnu-variable-sized-type-not-at-end">() {
-            return (437) if group == "gnu-variable-sized-type-not-at-end" else 0;
+            return 437;
         }
         case compute_hash::<r"gnu-zero-line-directive">() {
-            return (438) if group == "gnu-zero-line-directive" else 0;
+            return 438;
         }
         case compute_hash::<r"gnu-zero-variadic-macro-arguments">() {
-            return (439) if group == "gnu-zero-variadic-macro-arguments" else 0;
+            return 439;
         }
         case compute_hash::<r"gpu-maybe-wrong-side">() {
-            return (440) if group == "gpu-maybe-wrong-side" else 0;
+            return 440;
         }
         case compute_hash::<r"header-guard">() {
-            return (441) if group == "header-guard" else 0;
+            return 441;
         }
         case compute_hash::<r"header-hygiene">() {
-            return (442) if group == "header-hygiene" else 0;
+            return 442;
         }
         case compute_hash::<r"higher-precision-for-complex-division">() {
-            return (443) if group == "higher-precision-for-complex-division" else 0;
+            return 443;
         }
         case compute_hash::<r"hip-omp-target-directives">() {
-            return (444) if group == "hip-omp-target-directives" else 0;
+            return 444;
         }
         case compute_hash::<r"hip-only">() {
-            return (445) if group == "hip-only" else 0;
+            return 445;
         }
         case compute_hash::<r"hlsl-202y-extensions">() {
-            return (446) if group == "hlsl-202y-extensions" else 0;
+            return 446;
         }
         case compute_hash::<r"hlsl-availability">() {
-            return (447) if group == "hlsl-availability" else 0;
+            return 447;
         }
         case compute_hash::<r"hlsl-dxc-compatability">() {
-            return (448) if group == "hlsl-dxc-compatability" else 0;
+            return 448;
         }
         case compute_hash::<r"hlsl-extensions">() {
-            return (449) if group == "hlsl-extensions" else 0;
+            return 449;
         }
         case compute_hash::<r"hlsl-implicit-binding">() {
-            return (450) if group == "hlsl-implicit-binding" else 0;
+            return 450;
         }
         case compute_hash::<r"idiomatic-parentheses">() {
-            return (451) if group == "idiomatic-parentheses" else 0;
+            return 451;
         }
         case compute_hash::<r"ignored-attributes">() {
-            return (452) if group == "ignored-attributes" else 0;
+            return 452;
         }
         case compute_hash::<r"ignored-availability-without-sdk-settings">() {
-            return (453) if group == "ignored-availability-without-sdk-settings" else 0;
+            return 453;
         }
         case compute_hash::<r"ignored-base-class-qualifiers">() {
-            return (454) if group == "ignored-base-class-qualifiers" else 0;
+            return 454;
         }
         case compute_hash::<r"ignored-gch">() {
-            return (455) if group == "ignored-gch" else 0;
+            return 455;
         }
         case compute_hash::<r"ignored-optimization-argument">() {
-            return (456) if group == "ignored-optimization-argument" else 0;
+            return 456;
         }
         case compute_hash::<r"ignored-pragma-intrinsic">() {
-            return (457) if group == "ignored-pragma-intrinsic" else 0;
+            return 457;
         }
         case compute_hash::<r"ignored-pragma-optimize">() {
-            return (458) if group == "ignored-pragma-optimize" else 0;
+            return 458;
         }
         case compute_hash::<r"ignored-pragmas">() {
-            return (459) if group == "ignored-pragmas" else 0;
+            return 459;
         }
         case compute_hash::<r"ignored-qualifiers">() {
-            return (460) if group == "ignored-qualifiers" else 0;
+            return 460;
         }
         case compute_hash::<r"ignored-reference-qualifiers">() {
-            return (461) if group == "ignored-reference-qualifiers" else 0;
+            return 461;
         }
         case compute_hash::<r"implicit">() {
-            return (462) if group == "implicit" else 0;
+            return 462;
         }
         case compute_hash::<r"implicit-atomic-properties">() {
-            return (463) if group == "implicit-atomic-properties" else 0;
+            return 463;
         }
         case compute_hash::<r"implicit-const-int-float-conversion">() {
-            return (464) if group == "implicit-const-int-float-conversion" else 0;
+            return 464;
         }
         case compute_hash::<r"implicit-conversion-floating-point-to-bool">() {
-            return (465) if group == "implicit-conversion-floating-point-to-bool" else 0;
+            return 465;
         }
         case compute_hash::<r"implicit-enum-enum-cast">() {
-            return (466) if group == "implicit-enum-enum-cast" else 0;
+            return 466;
         }
         case compute_hash::<r"implicit-exception-spec-mismatch">() {
-            return (467) if group == "implicit-exception-spec-mismatch" else 0;
+            return 467;
         }
         case compute_hash::<r"implicit-fallthrough">() {
-            return (468) if group == "implicit-fallthrough" else 0;
+            return 468;
         }
         case compute_hash::<r"implicit-fallthrough-per-function">() {
-            return (469) if group == "implicit-fallthrough-per-function" else 0;
+            return 469;
         }
         case compute_hash::<r"implicit-fixed-point-conversion">() {
-            return (470) if group == "implicit-fixed-point-conversion" else 0;
+            return 470;
         }
         case compute_hash::<r"implicit-float-conversion">() {
-            return (471) if group == "implicit-float-conversion" else 0;
+            return 471;
         }
         case compute_hash::<r"implicit-function-declaration">() {
-            return (472) if group == "implicit-function-declaration" else 0;
+            return 472;
         }
         case compute_hash::<r"implicit-int">() {
-            return (473) if group == "implicit-int" else 0;
+            return 473;
         }
         case compute_hash::<r"implicit-int-conversion">() {
-            return (474) if group == "implicit-int-conversion" else 0;
+            return 474;
         }
         case compute_hash::<r"implicit-int-conversion-on-negation">() {
-            return (475) if group == "implicit-int-conversion-on-negation" else 0;
+            return 475;
         }
         case compute_hash::<r"implicit-int-enum-cast">() {
-            return (476) if group == "implicit-int-enum-cast" else 0;
+            return 476;
         }
         case compute_hash::<r"implicit-int-float-conversion">() {
-            return (477) if group == "implicit-int-float-conversion" else 0;
+            return 477;
         }
         case compute_hash::<r"implicit-retain-self">() {
-            return (478) if group == "implicit-retain-self" else 0;
+            return 478;
         }
         case compute_hash::<r"implicit-void-ptr-cast">() {
-            return (479) if group == "implicit-void-ptr-cast" else 0;
+            return 479;
         }
         case compute_hash::<r"implicitly-unsigned-literal">() {
-            return (480) if group == "implicitly-unsigned-literal" else 0;
+            return 480;
         }
         case compute_hash::<r"import">() {
-            return (481) if group == "import" else 0;
+            return 481;
         }
         case compute_hash::<r"import-implementation-partition-unit-in-interface-unit">() {
-            return (482) if group == "import-implementation-partition-unit-in-interface-unit" else 0;
+            return 482;
         }
         case compute_hash::<r"import-preprocessor-directive-pedantic">() {
-            return (483) if group == "import-preprocessor-directive-pedantic" else 0;
+            return 483;
         }
         case compute_hash::<r"inaccessible-base">() {
-            return (484) if group == "inaccessible-base" else 0;
+            return 484;
         }
         case compute_hash::<r"include-angled-in-module-purview">() {
-            return (485) if group == "include-angled-in-module-purview" else 0;
+            return 485;
         }
         case compute_hash::<r"include-next-absolute-path">() {
-            return (486) if group == "include-next-absolute-path" else 0;
+            return 486;
         }
         case compute_hash::<r"include-next-outside-header">() {
-            return (487) if group == "include-next-outside-header" else 0;
+            return 487;
         }
         case compute_hash::<r"incompatible-exception-spec">() {
-            return (488) if group == "incompatible-exception-spec" else 0;
+            return 488;
         }
         case compute_hash::<r"incompatible-function-pointer-types">() {
-            return (489) if group == "incompatible-function-pointer-types" else 0;
+            return 489;
         }
         case compute_hash::<r"incompatible-function-pointer-types-strict">() {
-            return (490) if group == "incompatible-function-pointer-types-strict" else 0;
+            return 490;
         }
         case compute_hash::<r"incompatible-library-redeclaration">() {
-            return (491) if group == "incompatible-library-redeclaration" else 0;
+            return 491;
         }
         case compute_hash::<r"incompatible-ms-pragma-section">() {
-            return (492) if group == "incompatible-ms-pragma-section" else 0;
+            return 492;
         }
         case compute_hash::<r"incompatible-ms-struct">() {
-            return (493) if group == "incompatible-ms-struct" else 0;
+            return 493;
         }
         case compute_hash::<r"incompatible-pointer-types">() {
-            return (494) if group == "incompatible-pointer-types" else 0;
+            return 494;
         }
         case compute_hash::<r"incompatible-pointer-types-discards-qualifiers">() {
-            return (495) if group == "incompatible-pointer-types-discards-qualifiers" else 0;
+            return 495;
         }
         case compute_hash::<r"incompatible-property-type">() {
-            return (496) if group == "incompatible-property-type" else 0;
+            return 496;
         }
         case compute_hash::<r"incompatible-sysroot">() {
-            return (497) if group == "incompatible-sysroot" else 0;
+            return 497;
         }
         case compute_hash::<r"incomplete-framework-module-declaration">() {
-            return (498) if group == "incomplete-framework-module-declaration" else 0;
+            return 498;
         }
         case compute_hash::<r"incomplete-implementation">() {
-            return (499) if group == "incomplete-implementation" else 0;
+            return 499;
         }
         case compute_hash::<r"incomplete-module">() {
-            return (500) if group == "incomplete-module" else 0;
+            return 500;
         }
         case compute_hash::<r"incomplete-setjmp-declaration">() {
-            return (501) if group == "incomplete-setjmp-declaration" else 0;
+            return 501;
         }
         case compute_hash::<r"incomplete-umbrella">() {
-            return (502) if group == "incomplete-umbrella" else 0;
+            return 502;
         }
         case compute_hash::<r"inconsistent-dllimport">() {
-            return (503) if group == "inconsistent-dllimport" else 0;
+            return 503;
         }
         case compute_hash::<r"inconsistent-missing-destructor-override">() {
-            return (504) if group == "inconsistent-missing-destructor-override" else 0;
+            return 504;
         }
         case compute_hash::<r"inconsistent-missing-override">() {
-            return (505) if group == "inconsistent-missing-override" else 0;
+            return 505;
         }
         case compute_hash::<r"increment-bool">() {
-            return (506) if group == "increment-bool" else 0;
+            return 506;
         }
         case compute_hash::<r"infinite-recursion">() {
-            return (507) if group == "infinite-recursion" else 0;
+            return 507;
         }
         case compute_hash::<r"init-priority-reserved">() {
-            return (508) if group == "init-priority-reserved" else 0;
+            return 508;
         }
         case compute_hash::<r"init-self">() {
-            return (509) if group == "init-self" else 0;
+            return 509;
         }
         case compute_hash::<r"initializer-overrides">() {
-            return (510) if group == "initializer-overrides" else 0;
+            return 510;
         }
         case compute_hash::<r"injected-class-name">() {
-            return (511) if group == "injected-class-name" else 0;
+            return 511;
         }
         case compute_hash::<r"inline">() {
-            return (512) if group == "inline" else 0;
+            return 512;
         }
         case compute_hash::<r"inline-asm">() {
-            return (513) if group == "inline-asm" else 0;
+            return 513;
         }
         case compute_hash::<r"inline-namespace-reopened-noninline">() {
-            return (514) if group == "inline-namespace-reopened-noninline" else 0;
+            return 514;
         }
         case compute_hash::<r"inline-new-delete">() {
-            return (515) if group == "inline-new-delete" else 0;
+            return 515;
         }
         case compute_hash::<r"installapi-violation">() {
-            return (516) if group == "installapi-violation" else 0;
+            return 516;
         }
         case compute_hash::<r"instantiation-after-specialization">() {
-            return (517) if group == "instantiation-after-specialization" else 0;
+            return 517;
         }
         case compute_hash::<r"int-conversion">() {
-            return (518) if group == "int-conversion" else 0;
+            return 518;
         }
         case compute_hash::<r"int-conversions">() {
-            return (519) if group == "int-conversions" else 0;
+            return 519;
         }
         case compute_hash::<r"int-in-bool-context">() {
-            return (520) if group == "int-in-bool-context" else 0;
+            return 520;
         }
         case compute_hash::<r"int-to-pointer-cast">() {
-            return (521) if group == "int-to-pointer-cast" else 0;
+            return 521;
         }
         case compute_hash::<r"int-to-void-pointer-cast">() {
-            return (522) if group == "int-to-void-pointer-cast" else 0;
+            return 522;
         }
         case compute_hash::<r"integer-overflow">() {
-            return (523) if group == "integer-overflow" else 0;
+            return 523;
         }
         case compute_hash::<r"invalid-command-line-argument">() {
-            return (524) if group == "invalid-command-line-argument" else 0;
+            return 524;
         }
         case compute_hash::<r"invalid-constexpr">() {
-            return (525) if group == "invalid-constexpr" else 0;
+            return 525;
         }
         case compute_hash::<r"invalid-feature-combination">() {
-            return (526) if group == "invalid-feature-combination" else 0;
+            return 526;
         }
         case compute_hash::<r"invalid-gnu-asm-cast">() {
-            return (527) if group == "invalid-gnu-asm-cast" else 0;
+            return 527;
         }
         case compute_hash::<r"invalid-iboutlet">() {
-            return (528) if group == "invalid-iboutlet" else 0;
+            return 528;
         }
         case compute_hash::<r"invalid-initializer-from-system-header">() {
-            return (529) if group == "invalid-initializer-from-system-header" else 0;
+            return 529;
         }
         case compute_hash::<r"invalid-ios-deployment-target">() {
-            return (530) if group == "invalid-ios-deployment-target" else 0;
+            return 530;
         }
         case compute_hash::<r"invalid-no-builtin-names">() {
-            return (531) if group == "invalid-no-builtin-names" else 0;
+            return 531;
         }
         case compute_hash::<r"invalid-noreturn">() {
-            return (532) if group == "invalid-noreturn" else 0;
+            return 532;
         }
         case compute_hash::<r"invalid-offsetof">() {
-            return (533) if group == "invalid-offsetof" else 0;
+            return 533;
         }
         case compute_hash::<r"invalid-or-nonexistent-directory">() {
-            return (534) if group == "invalid-or-nonexistent-directory" else 0;
+            return 534;
         }
         case compute_hash::<r"invalid-partial-specialization">() {
-            return (535) if group == "invalid-partial-specialization" else 0;
+            return 535;
         }
         case compute_hash::<r"invalid-pch">() {
-            return (536) if group == "invalid-pch" else 0;
+            return 536;
         }
         case compute_hash::<r"invalid-pp-token">() {
-            return (537) if group == "invalid-pp-token" else 0;
+            return 537;
         }
         case compute_hash::<r"invalid-source-encoding">() {
-            return (538) if group == "invalid-source-encoding" else 0;
+            return 538;
         }
         case compute_hash::<r"invalid-specialization">() {
-            return (539) if group == "invalid-specialization" else 0;
+            return 539;
         }
         case compute_hash::<r"invalid-static-assert-message">() {
-            return (540) if group == "invalid-static-assert-message" else 0;
+            return 540;
         }
         case compute_hash::<r"invalid-token-paste">() {
-            return (541) if group == "invalid-token-paste" else 0;
+            return 541;
         }
         case compute_hash::<r"invalid-unevaluated-string">() {
-            return (542) if group == "invalid-unevaluated-string" else 0;
+            return 542;
         }
         case compute_hash::<r"invalid-utf8">() {
-            return (543) if group == "invalid-utf8" else 0;
+            return 543;
         }
         case compute_hash::<r"invalid-version-availability">() {
-            return (544) if group == "invalid-version-availability" else 0;
+            return 544;
         }
         case compute_hash::<r"jump-misses-init">() {
-            return (545) if group == "jump-misses-init" else 0;
+            return 545;
         }
         case compute_hash::<r"jump-seh-finally">() {
-            return (546) if group == "jump-seh-finally" else 0;
+            return 546;
         }
         case compute_hash::<r"keyword-compat">() {
-            return (547) if group == "keyword-compat" else 0;
+            return 547;
         }
         case compute_hash::<r"keyword-macro">() {
-            return (548) if group == "keyword-macro" else 0;
+            return 548;
         }
         case compute_hash::<r"knr-promoted-parameter">() {
-            return (549) if group == "knr-promoted-parameter" else 0;
+            return 549;
         }
         case compute_hash::<r"language-extension-token">() {
-            return (550) if group == "language-extension-token" else 0;
+            return 550;
         }
         case compute_hash::<r"large-by-value-copy">() {
-            return (551) if group == "large-by-value-copy" else 0;
+            return 551;
         }
         case compute_hash::<r"legacy-constant-register-binding">() {
-            return (552) if group == "legacy-constant-register-binding" else 0;
+            return 552;
         }
         case compute_hash::<r"liblto">() {
-            return (553) if group == "liblto" else 0;
+            return 553;
         }
         case compute_hash::<r"linker-warnings">() {
-            return (554) if group == "linker-warnings" else 0;
+            return 554;
         }
         case compute_hash::<r"literal-conversion">() {
-            return (555) if group == "literal-conversion" else 0;
+            return 555;
         }
         case compute_hash::<r"literal-range">() {
-            return (556) if group == "literal-range" else 0;
+            return 556;
         }
         case compute_hash::<r"local-type-template-args">() {
-            return (557) if group == "local-type-template-args" else 0;
+            return 557;
         }
         case compute_hash::<r"logical-not-parentheses">() {
-            return (558) if group == "logical-not-parentheses" else 0;
+            return 558;
         }
         case compute_hash::<r"logical-op-parentheses">() {
-            return (559) if group == "logical-op-parentheses" else 0;
+            return 559;
         }
         case compute_hash::<r"long-long">() {
-            return (560) if group == "long-long" else 0;
+            return 560;
         }
         case compute_hash::<r"loop-analysis">() {
-            return (561) if group == "loop-analysis" else 0;
+            return 561;
         }
         case compute_hash::<r"macro-redefined">() {
-            return (562) if group == "macro-redefined" else 0;
+            return 562;
         }
         case compute_hash::<r"main">() {
-            return (563) if group == "main" else 0;
+            return 563;
         }
         case compute_hash::<r"main-attached-to-named-module">() {
-            return (564) if group == "main-attached-to-named-module" else 0;
+            return 564;
         }
         case compute_hash::<r"main-return-type">() {
-            return (565) if group == "main-return-type" else 0;
+            return 565;
         }
         case compute_hash::<r"malformed-warning-check">() {
-            return (566) if group == "malformed-warning-check" else 0;
+            return 566;
         }
         case compute_hash::<r"many-braces-around-scalar-init">() {
-            return (567) if group == "many-braces-around-scalar-init" else 0;
+            return 567;
         }
         case compute_hash::<r"math-errno-enabled-with-veclib">() {
-            return (568) if group == "math-errno-enabled-with-veclib" else 0;
+            return 568;
         }
         case compute_hash::<r"mathematical-notation-identifier-extension">() {
-            return (569) if group == "mathematical-notation-identifier-extension" else 0;
+            return 569;
         }
         case compute_hash::<r"matrix-conversion">() {
-            return (570) if group == "matrix-conversion" else 0;
+            return 570;
         }
         case compute_hash::<r"matrix-conversions">() {
-            return (571) if group == "matrix-conversions" else 0;
+            return 571;
         }
         case compute_hash::<r"max-tokens">() {
-            return (572) if group == "max-tokens" else 0;
+            return 572;
         }
         case compute_hash::<r"max-unsigned-zero">() {
-            return (573) if group == "max-unsigned-zero" else 0;
+            return 573;
         }
         case compute_hash::<r"memset-transposed-args">() {
-            return (574) if group == "memset-transposed-args" else 0;
+            return 574;
         }
         case compute_hash::<r"memsize-comparison">() {
-            return (575) if group == "memsize-comparison" else 0;
+            return 575;
         }
         case compute_hash::<r"method-signatures">() {
-            return (576) if group == "method-signatures" else 0;
+            return 576;
         }
         case compute_hash::<r"microsoft">() {
-            return (577) if group == "microsoft" else 0;
+            return 577;
         }
         case compute_hash::<r"microsoft-abstract">() {
-            return (578) if group == "microsoft-abstract" else 0;
+            return 578;
         }
         case compute_hash::<r"microsoft-anon-tag">() {
-            return (579) if group == "microsoft-anon-tag" else 0;
+            return 579;
         }
         case compute_hash::<r"microsoft-cast">() {
-            return (580) if group == "microsoft-cast" else 0;
+            return 580;
         }
         case compute_hash::<r"microsoft-charize">() {
-            return (581) if group == "microsoft-charize" else 0;
+            return 581;
         }
         case compute_hash::<r"microsoft-comment-paste">() {
-            return (582) if group == "microsoft-comment-paste" else 0;
+            return 582;
         }
         case compute_hash::<r"microsoft-const-init">() {
-            return (583) if group == "microsoft-const-init" else 0;
+            return 583;
         }
         case compute_hash::<r"microsoft-cpp-macro">() {
-            return (584) if group == "microsoft-cpp-macro" else 0;
+            return 584;
         }
         case compute_hash::<r"microsoft-default-arg-redefinition">() {
-            return (585) if group == "microsoft-default-arg-redefinition" else 0;
+            return 585;
         }
         case compute_hash::<r"microsoft-drectve-section">() {
-            return (586) if group == "microsoft-drectve-section" else 0;
+            return 586;
         }
         case compute_hash::<r"microsoft-empty-enum">() {
-            return (587) if group == "microsoft-empty-enum" else 0;
+            return 587;
         }
         case compute_hash::<r"microsoft-end-of-file">() {
-            return (588) if group == "microsoft-end-of-file" else 0;
+            return 588;
         }
         case compute_hash::<r"microsoft-enum-forward-reference">() {
-            return (589) if group == "microsoft-enum-forward-reference" else 0;
+            return 589;
         }
         case compute_hash::<r"microsoft-enum-value">() {
-            return (590) if group == "microsoft-enum-value" else 0;
+            return 590;
         }
         case compute_hash::<r"microsoft-exception-spec">() {
-            return (591) if group == "microsoft-exception-spec" else 0;
+            return 591;
         }
         case compute_hash::<r"microsoft-exists">() {
-            return (592) if group == "microsoft-exists" else 0;
+            return 592;
         }
         case compute_hash::<r"microsoft-explicit-constructor-call">() {
-            return (593) if group == "microsoft-explicit-constructor-call" else 0;
+            return 593;
         }
         case compute_hash::<r"microsoft-extra-qualification">() {
-            return (594) if group == "microsoft-extra-qualification" else 0;
+            return 594;
         }
         case compute_hash::<r"microsoft-fixed-enum">() {
-            return (595) if group == "microsoft-fixed-enum" else 0;
+            return 595;
         }
         case compute_hash::<r"microsoft-flexible-array">() {
-            return (596) if group == "microsoft-flexible-array" else 0;
+            return 596;
         }
         case compute_hash::<r"microsoft-goto">() {
-            return (597) if group == "microsoft-goto" else 0;
+            return 597;
         }
         case compute_hash::<r"microsoft-inaccessible-base">() {
-            return (598) if group == "microsoft-inaccessible-base" else 0;
+            return 598;
         }
         case compute_hash::<r"microsoft-include">() {
-            return (599) if group == "microsoft-include" else 0;
+            return 599;
         }
         case compute_hash::<r"microsoft-init-from-predefined">() {
-            return (600) if group == "microsoft-init-from-predefined" else 0;
+            return 600;
         }
         case compute_hash::<r"microsoft-inline-on-non-function">() {
-            return (601) if group == "microsoft-inline-on-non-function" else 0;
+            return 601;
         }
         case compute_hash::<r"microsoft-mutable-reference">() {
-            return (602) if group == "microsoft-mutable-reference" else 0;
+            return 602;
         }
         case compute_hash::<r"microsoft-pure-definition">() {
-            return (603) if group == "microsoft-pure-definition" else 0;
+            return 603;
         }
         case compute_hash::<r"microsoft-redeclare-static">() {
-            return (604) if group == "microsoft-redeclare-static" else 0;
+            return 604;
         }
         case compute_hash::<r"microsoft-sealed">() {
-            return (605) if group == "microsoft-sealed" else 0;
+            return 605;
         }
         case compute_hash::<r"microsoft-string-literal-from-predefined">() {
-            return (606) if group == "microsoft-string-literal-from-predefined" else 0;
+            return 606;
         }
         case compute_hash::<r"microsoft-template">() {
-            return (607) if group == "microsoft-template" else 0;
+            return 607;
         }
         case compute_hash::<r"microsoft-template-shadow">() {
-            return (608) if group == "microsoft-template-shadow" else 0;
+            return 608;
         }
         case compute_hash::<r"microsoft-union-member-reference">() {
-            return (609) if group == "microsoft-union-member-reference" else 0;
+            return 609;
         }
         case compute_hash::<r"microsoft-unqualified-friend">() {
-            return (610) if group == "microsoft-unqualified-friend" else 0;
+            return 610;
         }
         case compute_hash::<r"microsoft-using-decl">() {
-            return (611) if group == "microsoft-using-decl" else 0;
+            return 611;
         }
         case compute_hash::<r"microsoft-void-pseudo-dtor">() {
-            return (612) if group == "microsoft-void-pseudo-dtor" else 0;
+            return 612;
         }
         case compute_hash::<r"misexpect">() {
-            return (613) if group == "misexpect" else 0;
+            return 613;
         }
         case compute_hash::<r"misleading-indentation">() {
-            return (614) if group == "misleading-indentation" else 0;
+            return 614;
         }
         case compute_hash::<r"mismatched-new-delete">() {
-            return (615) if group == "mismatched-new-delete" else 0;
+            return 615;
         }
         case compute_hash::<r"mismatched-parameter-types">() {
-            return (616) if group == "mismatched-parameter-types" else 0;
+            return 616;
         }
         case compute_hash::<r"mismatched-return-types">() {
-            return (617) if group == "mismatched-return-types" else 0;
+            return 617;
         }
         case compute_hash::<r"mismatched-tags">() {
-            return (618) if group == "mismatched-tags" else 0;
+            return 618;
         }
         case compute_hash::<r"missing-braces">() {
-            return (619) if group == "missing-braces" else 0;
+            return 619;
         }
         case compute_hash::<r"missing-constinit">() {
-            return (620) if group == "missing-constinit" else 0;
+            return 620;
         }
         case compute_hash::<r"missing-declarations">() {
-            return (621) if group == "missing-declarations" else 0;
+            return 621;
         }
         case compute_hash::<r"missing-designated-field-initializers">() {
-            return (622) if group == "missing-designated-field-initializers" else 0;
+            return 622;
         }
         case compute_hash::<r"missing-exception-spec">() {
-            return (623) if group == "missing-exception-spec" else 0;
+            return 623;
         }
         case compute_hash::<r"missing-field-initializers">() {
-            return (624) if group == "missing-field-initializers" else 0;
+            return 624;
         }
         case compute_hash::<r"missing-format-attribute">() {
-            return (625) if group == "missing-format-attribute" else 0;
+            return 625;
         }
         case compute_hash::<r"missing-include-dirs">() {
-            return (626) if group == "missing-include-dirs" else 0;
+            return 626;
         }
         case compute_hash::<r"missing-method-return-type">() {
-            return (627) if group == "missing-method-return-type" else 0;
+            return 627;
         }
         case compute_hash::<r"missing-multilib">() {
-            return (628) if group == "missing-multilib" else 0;
+            return 628;
         }
         case compute_hash::<r"missing-noescape">() {
-            return (629) if group == "missing-noescape" else 0;
+            return 629;
         }
         case compute_hash::<r"missing-noreturn">() {
-            return (630) if group == "missing-noreturn" else 0;
+            return 630;
         }
         case compute_hash::<r"missing-prototype-for-cc">() {
-            return (631) if group == "missing-prototype-for-cc" else 0;
+            return 631;
         }
         case compute_hash::<r"missing-prototypes">() {
-            return (632) if group == "missing-prototypes" else 0;
+            return 632;
         }
         case compute_hash::<r"missing-selector-name">() {
-            return (633) if group == "missing-selector-name" else 0;
+            return 633;
         }
         case compute_hash::<r"missing-sysroot">() {
-            return (634) if group == "missing-sysroot" else 0;
+            return 634;
         }
         case compute_hash::<r"missing-template-arg-list-after-template-kw">() {
-            return (635) if group == "missing-template-arg-list-after-template-kw" else 0;
+            return 635;
         }
         case compute_hash::<r"missing-variable-declarations">() {
-            return (636) if group == "missing-variable-declarations" else 0;
+            return 636;
         }
         case compute_hash::<r"misspelled-assumption">() {
-            return (637) if group == "misspelled-assumption" else 0;
+            return 637;
         }
         case compute_hash::<r"mix-packoffset">() {
-            return (638) if group == "mix-packoffset" else 0;
+            return 638;
         }
         case compute_hash::<r"module-build">() {
-            return (639) if group == "module-build" else 0;
+            return 639;
         }
         case compute_hash::<r"module-conflict">() {
-            return (640) if group == "module-conflict" else 0;
+            return 640;
         }
         case compute_hash::<r"module-file-config-mismatch">() {
-            return (641) if group == "module-file-config-mismatch" else 0;
+            return 641;
         }
         case compute_hash::<r"module-file-extension">() {
-            return (642) if group == "module-file-extension" else 0;
+            return 642;
         }
         case compute_hash::<r"module-file-mapping-mismatch">() {
-            return (643) if group == "module-file-mapping-mismatch" else 0;
+            return 643;
         }
         case compute_hash::<r"module-import">() {
-            return (644) if group == "module-import" else 0;
+            return 644;
         }
         case compute_hash::<r"module-import-in-extern-c">() {
-            return (645) if group == "module-import-in-extern-c" else 0;
+            return 645;
         }
         case compute_hash::<r"module-include-translation">() {
-            return (646) if group == "module-include-translation" else 0;
+            return 646;
         }
         case compute_hash::<r"module-lock">() {
-            return (647) if group == "module-lock" else 0;
+            return 647;
         }
         case compute_hash::<r"module-map">() {
-            return (648) if group == "module-map" else 0;
+            return 648;
         }
         case compute_hash::<r"module-validation">() {
-            return (649) if group == "module-validation" else 0;
+            return 649;
         }
         case compute_hash::<r"modules-ambiguous-internal-linkage">() {
-            return (650) if group == "modules-ambiguous-internal-linkage" else 0;
+            return 650;
         }
         case compute_hash::<r"modules-import-nested-redundant">() {
-            return (651) if group == "modules-import-nested-redundant" else 0;
+            return 651;
         }
         case compute_hash::<r"most">() {
-            return (652) if group == "most" else 0;
+            return 652;
         }
         case compute_hash::<r"move">() {
-            return (653) if group == "move" else 0;
+            return 653;
         }
         case compute_hash::<r"ms-bitfield-padding">() {
-            return (654) if group == "ms-bitfield-padding" else 0;
+            return 654;
         }
         case compute_hash::<r"msvc-include">() {
-            return (655) if group == "msvc-include" else 0;
+            return 655;
         }
         case compute_hash::<r"msvc-not-found">() {
-            return (656) if group == "msvc-not-found" else 0;
+            return 656;
         }
         case compute_hash::<r"multi-gpu">() {
-            return (657) if group == "multi-gpu" else 0;
+            return 657;
         }
         case compute_hash::<r"multichar">() {
-            return (658) if group == "multichar" else 0;
+            return 658;
         }
         case compute_hash::<r"multilib-not-found">() {
-            return (659) if group == "multilib-not-found" else 0;
+            return 659;
         }
         case compute_hash::<r"multiple-move-vbase">() {
-            return (660) if group == "multiple-move-vbase" else 0;
+            return 660;
         }
         case compute_hash::<r"nan-infinity-disabled">() {
-            return (661) if group == "nan-infinity-disabled" else 0;
+            return 661;
         }
         case compute_hash::<r"narrowing">() {
-            return (662) if group == "narrowing" else 0;
+            return 662;
         }
         case compute_hash::<r"nested-anon-types">() {
-            return (663) if group == "nested-anon-types" else 0;
+            return 663;
         }
         case compute_hash::<r"nested-externs">() {
-            return (664) if group == "nested-externs" else 0;
+            return 664;
         }
         case compute_hash::<r"new-returns-null">() {
-            return (665) if group == "new-returns-null" else 0;
+            return 665;
         }
         case compute_hash::<r"newline-eof">() {
-            return (666) if group == "newline-eof" else 0;
+            return 666;
         }
         case compute_hash::<r"noderef">() {
-            return (667) if group == "noderef" else 0;
+            return 667;
         }
         case compute_hash::<r"noexcept-type">() {
-            return (668) if group == "noexcept-type" else 0;
+            return 668;
         }
         case compute_hash::<r"non-c-typedef-for-linkage">() {
-            return (669) if group == "non-c-typedef-for-linkage" else 0;
+            return 669;
         }
         case compute_hash::<r"non-gcc">() {
-            return (670) if group == "non-gcc" else 0;
+            return 670;
         }
         case compute_hash::<r"non-literal-null-conversion">() {
-            return (671) if group == "non-literal-null-conversion" else 0;
+            return 671;
         }
         case compute_hash::<r"non-modular-include-in-framework-module">() {
-            return (672) if group == "non-modular-include-in-framework-module" else 0;
+            return 672;
         }
         case compute_hash::<r"non-modular-include-in-module">() {
-            return (673) if group == "non-modular-include-in-module" else 0;
+            return 673;
         }
         case compute_hash::<r"non-pod-varargs">() {
-            return (674) if group == "non-pod-varargs" else 0;
+            return 674;
         }
         case compute_hash::<r"non-power-of-two-alignment">() {
-            return (675) if group == "non-power-of-two-alignment" else 0;
+            return 675;
         }
         case compute_hash::<r"non-virtual-dtor">() {
-            return (676) if group == "non-virtual-dtor" else 0;
+            return 676;
         }
         case compute_hash::<r"nonnull">() {
-            return (677) if group == "nonnull" else 0;
+            return 677;
         }
         case compute_hash::<r"nonportable-cfstrings">() {
-            return (678) if group == "nonportable-cfstrings" else 0;
+            return 678;
         }
         case compute_hash::<r"nonportable-include-path">() {
-            return (679) if group == "nonportable-include-path" else 0;
+            return 679;
         }
         case compute_hash::<r"nonportable-private-apinotes-path">() {
-            return (680) if group == "nonportable-private-apinotes-path" else 0;
+            return 680;
         }
         case compute_hash::<r"nonportable-private-system-apinotes-path">() {
-            return (681) if group == "nonportable-private-system-apinotes-path" else 0;
+            return 681;
         }
         case compute_hash::<r"nonportable-sycl">() {
-            return (682) if group == "nonportable-sycl" else 0;
+            return 682;
         }
         case compute_hash::<r"nonportable-system-include-path">() {
-            return (683) if group == "nonportable-system-include-path" else 0;
+            return 683;
         }
         case compute_hash::<r"nonportable-vector-initialization">() {
-            return (684) if group == "nonportable-vector-initialization" else 0;
+            return 684;
         }
         case compute_hash::<r"nontrivial-memaccess">() {
-            return (685) if group == "nontrivial-memaccess" else 0;
+            return 685;
         }
         case compute_hash::<r"nontrivial-memcall">() {
-            return (686) if group == "nontrivial-memcall" else 0;
+            return 686;
         }
         case compute_hash::<r"nrvo">() {
-            return (687) if group == "nrvo" else 0;
+            return 687;
         }
         case compute_hash::<r"nsconsumed-mismatch">() {
-            return (688) if group == "nsconsumed-mismatch" else 0;
+            return 688;
         }
         case compute_hash::<r"nsreturns-mismatch">() {
-            return (689) if group == "nsreturns-mismatch" else 0;
+            return 689;
         }
         case compute_hash::<r"null-arithmetic">() {
-            return (690) if group == "null-arithmetic" else 0;
+            return 690;
         }
         case compute_hash::<r"null-character">() {
-            return (691) if group == "null-character" else 0;
+            return 691;
         }
         case compute_hash::<r"null-conversion">() {
-            return (692) if group == "null-conversion" else 0;
+            return 692;
         }
         case compute_hash::<r"null-dereference">() {
-            return (693) if group == "null-dereference" else 0;
+            return 693;
         }
         case compute_hash::<r"null-pointer-arithmetic">() {
-            return (694) if group == "null-pointer-arithmetic" else 0;
+            return 694;
         }
         case compute_hash::<r"null-pointer-subtraction">() {
-            return (695) if group == "null-pointer-subtraction" else 0;
+            return 695;
         }
         case compute_hash::<r"nullability">() {
-            return (696) if group == "nullability" else 0;
+            return 696;
         }
         case compute_hash::<r"nullability-completeness">() {
-            return (697) if group == "nullability-completeness" else 0;
+            return 697;
         }
         case compute_hash::<r"nullability-completeness-on-arrays">() {
-            return (698) if group == "nullability-completeness-on-arrays" else 0;
+            return 698;
         }
         case compute_hash::<r"nullability-declspec">() {
-            return (699) if group == "nullability-declspec" else 0;
+            return 699;
         }
         case compute_hash::<r"nullability-extension">() {
-            return (700) if group == "nullability-extension" else 0;
+            return 700;
         }
         case compute_hash::<r"nullability-inferred-on-nested-type">() {
-            return (701) if group == "nullability-inferred-on-nested-type" else 0;
+            return 701;
         }
         case compute_hash::<r"nullable-to-nonnull-conversion">() {
-            return (702) if group == "nullable-to-nonnull-conversion" else 0;
+            return 702;
         }
         case compute_hash::<r"nvcc-compat">() {
-            return (703) if group == "nvcc-compat" else 0;
+            return 703;
         }
         case compute_hash::<r"objc-autosynthesis-property-ivar-name-match">() {
-            return (704) if group == "objc-autosynthesis-property-ivar-name-match" else 0;
+            return 704;
         }
         case compute_hash::<r"objc-bool-constant-conversion">() {
-            return (705) if group == "objc-bool-constant-conversion" else 0;
+            return 705;
         }
         case compute_hash::<r"objc-boxing">() {
-            return (706) if group == "objc-boxing" else 0;
+            return 706;
         }
         case compute_hash::<r"objc-circular-container">() {
-            return (707) if group == "objc-circular-container" else 0;
+            return 707;
         }
         case compute_hash::<r"objc-cocoa-api">() {
-            return (708) if group == "objc-cocoa-api" else 0;
+            return 708;
         }
         case compute_hash::<r"objc-designated-initializers">() {
-            return (709) if group == "objc-designated-initializers" else 0;
+            return 709;
         }
         case compute_hash::<r"objc-dictionary-duplicate-keys">() {
-            return (710) if group == "objc-dictionary-duplicate-keys" else 0;
+            return 710;
         }
         case compute_hash::<r"objc-duplicate-category-definition">() {
-            return (711) if group == "objc-duplicate-category-definition" else 0;
+            return 711;
         }
         case compute_hash::<r"objc-flexible-array">() {
-            return (712) if group == "objc-flexible-array" else 0;
+            return 712;
         }
         case compute_hash::<r"objc-forward-class-redefinition">() {
-            return (713) if group == "objc-forward-class-redefinition" else 0;
+            return 713;
         }
         case compute_hash::<r"objc-interface-ivars">() {
-            return (714) if group == "objc-interface-ivars" else 0;
+            return 714;
         }
         case compute_hash::<r"objc-literal-compare">() {
-            return (715) if group == "objc-literal-compare" else 0;
+            return 715;
         }
         case compute_hash::<r"objc-literal-conversion">() {
-            return (716) if group == "objc-literal-conversion" else 0;
+            return 716;
         }
         case compute_hash::<r"objc-macro-redefinition">() {
-            return (717) if group == "objc-macro-redefinition" else 0;
+            return 717;
         }
         case compute_hash::<r"objc-messaging-id">() {
-            return (718) if group == "objc-messaging-id" else 0;
+            return 718;
         }
         case compute_hash::<r"objc-method-access">() {
-            return (719) if group == "objc-method-access" else 0;
+            return 719;
         }
         case compute_hash::<r"objc-missing-property-synthesis">() {
-            return (720) if group == "objc-missing-property-synthesis" else 0;
+            return 720;
         }
         case compute_hash::<r"objc-missing-super-calls">() {
-            return (721) if group == "objc-missing-super-calls" else 0;
+            return 721;
         }
         case compute_hash::<r"objc-multiple-method-names">() {
-            return (722) if group == "objc-multiple-method-names" else 0;
+            return 722;
         }
         case compute_hash::<r"objc-noncopy-retain-block-property">() {
-            return (723) if group == "objc-noncopy-retain-block-property" else 0;
+            return 723;
         }
         case compute_hash::<r"objc-nonunified-exceptions">() {
-            return (724) if group == "objc-nonunified-exceptions" else 0;
+            return 724;
         }
         case compute_hash::<r"objc-property-assign-on-object-type">() {
-            return (725) if group == "objc-property-assign-on-object-type" else 0;
+            return 725;
         }
         case compute_hash::<r"objc-property-implementation">() {
-            return (726) if group == "objc-property-implementation" else 0;
+            return 726;
         }
         case compute_hash::<r"objc-property-implicit-mismatch">() {
-            return (727) if group == "objc-property-implicit-mismatch" else 0;
+            return 727;
         }
         case compute_hash::<r"objc-property-matches-cocoa-ownership-rule">() {
-            return (728) if group == "objc-property-matches-cocoa-ownership-rule" else 0;
+            return 728;
         }
         case compute_hash::<r"objc-property-no-attribute">() {
-            return (729) if group == "objc-property-no-attribute" else 0;
+            return 729;
         }
         case compute_hash::<r"objc-property-synthesis">() {
-            return (730) if group == "objc-property-synthesis" else 0;
+            return 730;
         }
         case compute_hash::<r"objc-protocol-method-implementation">() {
-            return (731) if group == "objc-protocol-method-implementation" else 0;
+            return 731;
         }
         case compute_hash::<r"objc-protocol-property-synthesis">() {
-            return (732) if group == "objc-protocol-property-synthesis" else 0;
+            return 732;
         }
         case compute_hash::<r"objc-protocol-qualifiers">() {
-            return (733) if group == "objc-protocol-qualifiers" else 0;
+            return 733;
         }
         case compute_hash::<r"objc-readonly-with-setter-property">() {
-            return (734) if group == "objc-readonly-with-setter-property" else 0;
+            return 734;
         }
         case compute_hash::<r"objc-redundant-api-use">() {
-            return (735) if group == "objc-redundant-api-use" else 0;
+            return 735;
         }
         case compute_hash::<r"objc-redundant-literal-use">() {
-            return (736) if group == "objc-redundant-literal-use" else 0;
+            return 736;
         }
         case compute_hash::<r"objc-root-class">() {
-            return (737) if group == "objc-root-class" else 0;
+            return 737;
         }
         case compute_hash::<r"objc-signed-char-bool">() {
-            return (738) if group == "objc-signed-char-bool" else 0;
+            return 738;
         }
         case compute_hash::<r"objc-signed-char-bool-implicit-float-conversion">() {
-            return (739) if group == "objc-signed-char-bool-implicit-float-conversion" else 0;
+            return 739;
         }
         case compute_hash::<r"objc-signed-char-bool-implicit-int-conversion">() {
-            return (740) if group == "objc-signed-char-bool-implicit-int-conversion" else 0;
+            return 740;
         }
         case compute_hash::<r"objc-string-compare">() {
-            return (741) if group == "objc-string-compare" else 0;
+            return 741;
         }
         case compute_hash::<r"objc-string-concatenation">() {
-            return (742) if group == "objc-string-concatenation" else 0;
+            return 742;
         }
         case compute_hash::<r"objc-unsafe-perform-selector">() {
-            return (743) if group == "objc-unsafe-perform-selector" else 0;
+            return 743;
         }
         case compute_hash::<r"octal-prefix-extension">() {
-            return (744) if group == "octal-prefix-extension" else 0;
+            return 744;
         }
         case compute_hash::<r"odr">() {
-            return (745) if group == "odr" else 0;
+            return 745;
         }
         case compute_hash::<r"old-style-cast">() {
-            return (746) if group == "old-style-cast" else 0;
+            return 746;
         }
         case compute_hash::<r"old-style-definition">() {
-            return (747) if group == "old-style-definition" else 0;
+            return 747;
         }
         case compute_hash::<r"openacc">() {
-            return (748) if group == "openacc" else 0;
+            return 748;
         }
         case compute_hash::<r"openacc-cache-var-inside-loop">() {
-            return (749) if group == "openacc-cache-var-inside-loop" else 0;
+            return 749;
         }
         case compute_hash::<r"openacc-confusing-routine-name">() {
-            return (750) if group == "openacc-confusing-routine-name" else 0;
+            return 750;
         }
         case compute_hash::<r"openacc-deprecated-clause-alias">() {
-            return (751) if group == "openacc-deprecated-clause-alias" else 0;
+            return 751;
         }
         case compute_hash::<r"openacc-extension">() {
-            return (752) if group == "openacc-extension" else 0;
+            return 752;
         }
         case compute_hash::<r"openacc-self-if-potential-conflict">() {
-            return (753) if group == "openacc-self-if-potential-conflict" else 0;
+            return 753;
         }
         case compute_hash::<r"openacc-var-lacks-operation">() {
-            return (754) if group == "openacc-var-lacks-operation" else 0;
+            return 754;
         }
         case compute_hash::<r"openacc-var-non-const-array">() {
-            return (755) if group == "openacc-var-non-const-array" else 0;
+            return 755;
         }
         case compute_hash::<r"opencl-unsupported-rgba">() {
-            return (756) if group == "opencl-unsupported-rgba" else 0;
+            return 756;
         }
         case compute_hash::<r"openmp">() {
-            return (757) if group == "openmp" else 0;
+            return 757;
         }
         case compute_hash::<r"openmp-51-extensions">() {
-            return (758) if group == "openmp-51-extensions" else 0;
+            return 758;
         }
         case compute_hash::<r"openmp-clauses">() {
-            return (759) if group == "openmp-clauses" else 0;
+            return 759;
         }
         case compute_hash::<r"openmp-extensions">() {
-            return (760) if group == "openmp-extensions" else 0;
+            return 760;
         }
         case compute_hash::<r"openmp-future">() {
-            return (761) if group == "openmp-future" else 0;
+            return 761;
         }
         case compute_hash::<r"openmp-loop-form">() {
-            return (762) if group == "openmp-loop-form" else 0;
+            return 762;
         }
         case compute_hash::<r"openmp-mapping">() {
-            return (763) if group == "openmp-mapping" else 0;
+            return 763;
         }
         case compute_hash::<r"openmp-target">() {
-            return (764) if group == "openmp-target" else 0;
+            return 764;
         }
         case compute_hash::<r"openmp-target-exception">() {
-            return (765) if group == "openmp-target-exception" else 0;
+            return 765;
         }
         case compute_hash::<r"option-ignored">() {
-            return (766) if group == "option-ignored" else 0;
+            return 766;
         }
         case compute_hash::<r"ordered-compare-function-pointers">() {
-            return (767) if group == "ordered-compare-function-pointers" else 0;
+            return 767;
         }
         case compute_hash::<r"out-of-line-declaration">() {
-            return (768) if group == "out-of-line-declaration" else 0;
+            return 768;
         }
         case compute_hash::<r"out-of-scope-function">() {
-            return (769) if group == "out-of-scope-function" else 0;
+            return 769;
         }
         case compute_hash::<r"over-aligned">() {
-            return (770) if group == "over-aligned" else 0;
+            return 770;
         }
         case compute_hash::<r"overflow">() {
-            return (771) if group == "overflow" else 0;
+            return 771;
         }
         case compute_hash::<r"overlength-strings">() {
-            return (772) if group == "overlength-strings" else 0;
+            return 772;
         }
         case compute_hash::<r"overloaded-shift-op-parentheses">() {
-            return (773) if group == "overloaded-shift-op-parentheses" else 0;
+            return 773;
         }
         case compute_hash::<r"overloaded-virtual">() {
-            return (774) if group == "overloaded-virtual" else 0;
+            return 774;
         }
         case compute_hash::<r"override-init">() {
-            return (775) if group == "override-init" else 0;
+            return 775;
         }
         case compute_hash::<r"override-module">() {
-            return (776) if group == "override-module" else 0;
+            return 776;
         }
         case compute_hash::<r"overriding-complex-range">() {
-            return (777) if group == "overriding-complex-range" else 0;
+            return 777;
         }
         case compute_hash::<r"overriding-deployment-version">() {
-            return (778) if group == "overriding-deployment-version" else 0;
+            return 778;
         }
         case compute_hash::<r"overriding-method-mismatch">() {
-            return (779) if group == "overriding-method-mismatch" else 0;
+            return 779;
         }
         case compute_hash::<r"overriding-option">() {
-            return (780) if group == "overriding-option" else 0;
+            return 780;
         }
         case compute_hash::<r"packed">() {
-            return (781) if group == "packed" else 0;
+            return 781;
         }
         case compute_hash::<r"packed-non-pod">() {
-            return (782) if group == "packed-non-pod" else 0;
+            return 782;
         }
         case compute_hash::<r"padded">() {
-            return (783) if group == "padded" else 0;
+            return 783;
         }
         case compute_hash::<r"padded-bitfield">() {
-            return (784) if group == "padded-bitfield" else 0;
+            return 784;
         }
         case compute_hash::<r"parentheses">() {
-            return (785) if group == "parentheses" else 0;
+            return 785;
         }
         case compute_hash::<r"parentheses-equality">() {
-            return (786) if group == "parentheses-equality" else 0;
+            return 786;
         }
         case compute_hash::<r"partial-availability">() {
-            return (787) if group == "partial-availability" else 0;
+            return 787;
         }
         case compute_hash::<r"pass">() {
-            return (788) if group == "pass" else 0;
+            return 788;
         }
         case compute_hash::<r"pass-analysis">() {
-            return (789) if group == "pass-analysis" else 0;
+            return 789;
         }
         case compute_hash::<r"pass-failed">() {
-            return (790) if group == "pass-failed" else 0;
+            return 790;
         }
         case compute_hash::<r"pass-missed">() {
-            return (791) if group == "pass-missed" else 0;
+            return 791;
         }
         case compute_hash::<r"pch-date-time">() {
-            return (792) if group == "pch-date-time" else 0;
+            return 792;
         }
         case compute_hash::<r"pch-vfs-diff">() {
-            return (793) if group == "pch-vfs-diff" else 0;
+            return 793;
         }
         case compute_hash::<r"pedantic">() {
-            return (794) if group == "pedantic" else 0;
+            return 794;
         }
         case compute_hash::<r"pedantic-core-features">() {
-            return (795) if group == "pedantic-core-features" else 0;
+            return 795;
         }
         case compute_hash::<r"pedantic-macros">() {
-            return (796) if group == "pedantic-macros" else 0;
+            return 796;
         }
         case compute_hash::<r"perf-constraint-implies-noexcept">() {
-            return (797) if group == "perf-constraint-implies-noexcept" else 0;
+            return 797;
         }
         case compute_hash::<r"pessimizing-move">() {
-            return (798) if group == "pessimizing-move" else 0;
+            return 798;
         }
         case compute_hash::<r"pgo-coverage">() {
-            return (799) if group == "pgo-coverage" else 0;
+            return 799;
         }
         case compute_hash::<r"pointer-arith">() {
-            return (800) if group == "pointer-arith" else 0;
+            return 800;
         }
         case compute_hash::<r"pointer-bool-conversion">() {
-            return (801) if group == "pointer-bool-conversion" else 0;
+            return 801;
         }
         case compute_hash::<r"pointer-compare">() {
-            return (802) if group == "pointer-compare" else 0;
+            return 802;
         }
         case compute_hash::<r"pointer-integer-compare">() {
-            return (803) if group == "pointer-integer-compare" else 0;
+            return 803;
         }
         case compute_hash::<r"pointer-sign">() {
-            return (804) if group == "pointer-sign" else 0;
+            return 804;
         }
         case compute_hash::<r"pointer-to-enum-cast">() {
-            return (805) if group == "pointer-to-enum-cast" else 0;
+            return 805;
         }
         case compute_hash::<r"pointer-to-int-cast">() {
-            return (806) if group == "pointer-to-int-cast" else 0;
+            return 806;
         }
         case compute_hash::<r"pointer-type-mismatch">() {
-            return (807) if group == "pointer-type-mismatch" else 0;
+            return 807;
         }
         case compute_hash::<r"poison-system-directories">() {
-            return (808) if group == "poison-system-directories" else 0;
+            return 808;
         }
         case compute_hash::<r"potentially-direct-selector">() {
-            return (809) if group == "potentially-direct-selector" else 0;
+            return 809;
         }
         case compute_hash::<r"potentially-evaluated-expression">() {
-            return (810) if group == "potentially-evaluated-expression" else 0;
+            return 810;
         }
         case compute_hash::<r"pragma-clang-attribute">() {
-            return (811) if group == "pragma-clang-attribute" else 0;
+            return 811;
         }
         case compute_hash::<r"pragma-once-outside-header">() {
-            return (812) if group == "pragma-once-outside-header" else 0;
+            return 812;
         }
         case compute_hash::<r"pragma-pack">() {
-            return (813) if group == "pragma-pack" else 0;
+            return 813;
         }
         case compute_hash::<r"pragma-pack-suspicious-include">() {
-            return (814) if group == "pragma-pack-suspicious-include" else 0;
+            return 814;
         }
         case compute_hash::<r"pragma-system-header-outside-header">() {
-            return (815) if group == "pragma-system-header-outside-header" else 0;
+            return 815;
         }
         case compute_hash::<r"pragmas">() {
-            return (816) if group == "pragmas" else 0;
+            return 816;
         }
         case compute_hash::<r"pre-c++14-compat">() {
-            return (817) if group == "pre-c++14-compat" else 0;
+            return 817;
         }
         case compute_hash::<r"pre-c++14-compat-pedantic">() {
-            return (818) if group == "pre-c++14-compat-pedantic" else 0;
+            return 818;
         }
         case compute_hash::<r"pre-c++17-compat">() {
-            return (819) if group == "pre-c++17-compat" else 0;
+            return 819;
         }
         case compute_hash::<r"pre-c++17-compat-pedantic">() {
-            return (820) if group == "pre-c++17-compat-pedantic" else 0;
+            return 820;
         }
         case compute_hash::<r"pre-c++20-compat">() {
-            return (821) if group == "pre-c++20-compat" else 0;
+            return 821;
         }
         case compute_hash::<r"pre-c++20-compat-pedantic">() {
-            return (822) if group == "pre-c++20-compat-pedantic" else 0;
+            return 822;
         }
         case compute_hash::<r"pre-c++23-compat">() {
-            return (823) if group == "pre-c++23-compat" else 0;
+            return 823;
         }
         case compute_hash::<r"pre-c++23-compat-pedantic">() {
-            return (824) if group == "pre-c++23-compat-pedantic" else 0;
+            return 824;
         }
         case compute_hash::<r"pre-c++26-compat">() {
-            return (825) if group == "pre-c++26-compat" else 0;
+            return 825;
         }
         case compute_hash::<r"pre-c++26-compat-pedantic">() {
-            return (826) if group == "pre-c++26-compat-pedantic" else 0;
+            return 826;
         }
         case compute_hash::<r"pre-c++2c-compat">() {
-            return (827) if group == "pre-c++2c-compat" else 0;
+            return 827;
         }
         case compute_hash::<r"pre-c++2c-compat-pedantic">() {
-            return (828) if group == "pre-c++2c-compat-pedantic" else 0;
+            return 828;
         }
         case compute_hash::<r"pre-c11-compat">() {
-            return (829) if group == "pre-c11-compat" else 0;
+            return 829;
         }
         case compute_hash::<r"pre-c11-compat-pedantic">() {
-            return (830) if group == "pre-c11-compat-pedantic" else 0;
+            return 830;
         }
         case compute_hash::<r"pre-c23-compat">() {
-            return (831) if group == "pre-c23-compat" else 0;
+            return 831;
         }
         case compute_hash::<r"pre-c23-compat-pedantic">() {
-            return (832) if group == "pre-c23-compat-pedantic" else 0;
+            return 832;
         }
         case compute_hash::<r"pre-c2x-compat">() {
-            return (833) if group == "pre-c2x-compat" else 0;
+            return 833;
         }
         case compute_hash::<r"pre-c2x-compat-pedantic">() {
-            return (834) if group == "pre-c2x-compat-pedantic" else 0;
+            return 834;
         }
         case compute_hash::<r"pre-c2y-compat">() {
-            return (835) if group == "pre-c2y-compat" else 0;
+            return 835;
         }
         case compute_hash::<r"pre-c2y-compat-pedantic">() {
-            return (836) if group == "pre-c2y-compat-pedantic" else 0;
+            return 836;
         }
         case compute_hash::<r"pre-openmp-51-compat">() {
-            return (837) if group == "pre-openmp-51-compat" else 0;
+            return 837;
         }
         case compute_hash::<r"predefined-identifier-outside-function">() {
-            return (838) if group == "predefined-identifier-outside-function" else 0;
+            return 838;
         }
         case compute_hash::<r"preferred-type-bitfield-enum-conversion">() {
-            return (839) if group == "preferred-type-bitfield-enum-conversion" else 0;
+            return 839;
         }
         case compute_hash::<r"preferred-type-bitfield-width">() {
-            return (840) if group == "preferred-type-bitfield-width" else 0;
+            return 840;
         }
         case compute_hash::<r"private-extern">() {
-            return (841) if group == "private-extern" else 0;
+            return 841;
         }
         case compute_hash::<r"private-header">() {
-            return (842) if group == "private-header" else 0;
+            return 842;
         }
         case compute_hash::<r"private-module">() {
-            return (843) if group == "private-module" else 0;
+            return 843;
         }
         case compute_hash::<r"profile-instr-missing">() {
-            return (844) if group == "profile-instr-missing" else 0;
+            return 844;
         }
         case compute_hash::<r"profile-instr-out-of-date">() {
-            return (845) if group == "profile-instr-out-of-date" else 0;
+            return 845;
         }
         case compute_hash::<r"profile-instr-unprofiled">() {
-            return (846) if group == "profile-instr-unprofiled" else 0;
+            return 846;
         }
         case compute_hash::<r"property-access-dot-syntax">() {
-            return (847) if group == "property-access-dot-syntax" else 0;
+            return 847;
         }
         case compute_hash::<r"property-attribute-mismatch">() {
-            return (848) if group == "property-attribute-mismatch" else 0;
+            return 848;
         }
         case compute_hash::<r"protocol">() {
-            return (849) if group == "protocol" else 0;
+            return 849;
         }
         case compute_hash::<r"protocol-property-synthesis-ambiguity">() {
-            return (850) if group == "protocol-property-synthesis-ambiguity" else 0;
+            return 850;
         }
         case compute_hash::<r"psabi">() {
-            return (851) if group == "psabi" else 0;
+            return 851;
         }
         case compute_hash::<r"ptrauth-null-pointers">() {
-            return (852) if group == "ptrauth-null-pointers" else 0;
+            return 852;
         }
         case compute_hash::<r"qualified-void-return-type">() {
-            return (853) if group == "qualified-void-return-type" else 0;
+            return 853;
         }
         case compute_hash::<r"quoted-include-in-framework-header">() {
-            return (854) if group == "quoted-include-in-framework-header" else 0;
+            return 854;
         }
         case compute_hash::<r"range-loop-analysis">() {
-            return (855) if group == "range-loop-analysis" else 0;
+            return 855;
         }
         case compute_hash::<r"range-loop-bind-reference">() {
-            return (856) if group == "range-loop-bind-reference" else 0;
+            return 856;
         }
         case compute_hash::<r"range-loop-construct">() {
-            return (857) if group == "range-loop-construct" else 0;
+            return 857;
         }
         case compute_hash::<r"read-only-types">() {
-            return (858) if group == "read-only-types" else 0;
+            return 858;
         }
         case compute_hash::<r"readonly-iboutlet-property">() {
-            return (859) if group == "readonly-iboutlet-property" else 0;
+            return 859;
         }
         case compute_hash::<r"receiver-expr">() {
-            return (860) if group == "receiver-expr" else 0;
+            return 860;
         }
         case compute_hash::<r"receiver-forward-class">() {
-            return (861) if group == "receiver-forward-class" else 0;
+            return 861;
         }
         case compute_hash::<r"redeclared-class-member">() {
-            return (862) if group == "redeclared-class-member" else 0;
+            return 862;
         }
         case compute_hash::<r"reduced-bmi-output-overrided">() {
-            return (863) if group == "reduced-bmi-output-overrided" else 0;
+            return 863;
         }
         case compute_hash::<r"redundant-attribute">() {
-            return (864) if group == "redundant-attribute" else 0;
+            return 864;
         }
         case compute_hash::<r"redundant-consteval-if">() {
-            return (865) if group == "redundant-consteval-if" else 0;
+            return 865;
         }
         case compute_hash::<r"redundant-decls">() {
-            return (866) if group == "redundant-decls" else 0;
+            return 866;
         }
         case compute_hash::<r"redundant-move">() {
-            return (867) if group == "redundant-move" else 0;
+            return 867;
         }
         case compute_hash::<r"redundant-parens">() {
-            return (868) if group == "redundant-parens" else 0;
+            return 868;
         }
         case compute_hash::<r"reference-tu-local-entity-in-other-tu">() {
-            return (869) if group == "reference-tu-local-entity-in-other-tu" else 0;
+            return 869;
         }
         case compute_hash::<r"register">() {
-            return (870) if group == "register" else 0;
+            return 870;
         }
         case compute_hash::<r"reinterpret-base-class">() {
-            return (871) if group == "reinterpret-base-class" else 0;
+            return 871;
         }
         case compute_hash::<r"remark-backend-plugin">() {
-            return (872) if group == "remark-backend-plugin" else 0;
+            return 872;
         }
         case compute_hash::<r"reorder">() {
-            return (873) if group == "reorder" else 0;
+            return 873;
         }
         case compute_hash::<r"reorder-ctor">() {
-            return (874) if group == "reorder-ctor" else 0;
+            return 874;
         }
         case compute_hash::<r"reorder-init-list">() {
-            return (875) if group == "reorder-init-list" else 0;
+            return 875;
         }
         case compute_hash::<r"requires-super-attribute">() {
-            return (876) if group == "requires-super-attribute" else 0;
+            return 876;
         }
         case compute_hash::<r"reserved-attribute-identifier">() {
-            return (877) if group == "reserved-attribute-identifier" else 0;
+            return 877;
         }
         case compute_hash::<r"reserved-id-macro">() {
-            return (878) if group == "reserved-id-macro" else 0;
+            return 878;
         }
         case compute_hash::<r"reserved-identifier">() {
-            return (879) if group == "reserved-identifier" else 0;
+            return 879;
         }
         case compute_hash::<r"reserved-macro-identifier">() {
-            return (880) if group == "reserved-macro-identifier" else 0;
+            return 880;
         }
         case compute_hash::<r"reserved-module-identifier">() {
-            return (881) if group == "reserved-module-identifier" else 0;
+            return 881;
         }
         case compute_hash::<r"reserved-user-defined-literal">() {
-            return (882) if group == "reserved-user-defined-literal" else 0;
+            return 882;
         }
         case compute_hash::<r"restrict-expansion">() {
-            return (883) if group == "restrict-expansion" else 0;
+            return 883;
         }
         case compute_hash::<r"retained-language-linkage">() {
-            return (884) if group == "retained-language-linkage" else 0;
+            return 884;
         }
         case compute_hash::<r"return-local-addr">() {
-            return (885) if group == "return-local-addr" else 0;
+            return 885;
         }
         case compute_hash::<r"return-mismatch">() {
-            return (886) if group == "return-mismatch" else 0;
+            return 886;
         }
         case compute_hash::<r"return-stack-address">() {
-            return (887) if group == "return-stack-address" else 0;
+            return 887;
         }
         case compute_hash::<r"return-std-move">() {
-            return (888) if group == "return-std-move" else 0;
+            return 888;
         }
         case compute_hash::<r"return-type">() {
-            return (889) if group == "return-type" else 0;
+            return 889;
         }
         case compute_hash::<r"return-type-c-linkage">() {
-            return (890) if group == "return-type-c-linkage" else 0;
+            return 890;
         }
         case compute_hash::<r"rewrite-not-bool">() {
-            return (891) if group == "rewrite-not-bool" else 0;
+            return 891;
         }
         case compute_hash::<r"round-trip-cc1-args">() {
-            return (892) if group == "round-trip-cc1-args" else 0;
+            return 892;
         }
         case compute_hash::<r"rtti">() {
-            return (893) if group == "rtti" else 0;
+            return 893;
         }
         case compute_hash::<r"sanitize-address">() {
-            return (894) if group == "sanitize-address" else 0;
+            return 894;
         }
         case compute_hash::<r"sarif-format-unstable">() {
-            return (895) if group == "sarif-format-unstable" else 0;
+            return 895;
         }
         case compute_hash::<r"search-path-usage">() {
-            return (896) if group == "search-path-usage" else 0;
+            return 896;
         }
         case compute_hash::<r"section">() {
-            return (897) if group == "section" else 0;
+            return 897;
         }
         case compute_hash::<r"selector">() {
-            return (898) if group == "selector" else 0;
+            return 898;
         }
         case compute_hash::<r"selector-type-mismatch">() {
-            return (899) if group == "selector-type-mismatch" else 0;
+            return 899;
         }
         case compute_hash::<r"self-assign">() {
-            return (900) if group == "self-assign" else 0;
+            return 900;
         }
         case compute_hash::<r"self-assign-field">() {
-            return (901) if group == "self-assign-field" else 0;
+            return 901;
         }
         case compute_hash::<r"self-assign-overloaded">() {
-            return (902) if group == "self-assign-overloaded" else 0;
+            return 902;
         }
         case compute_hash::<r"self-move">() {
-            return (903) if group == "self-move" else 0;
+            return 903;
         }
         case compute_hash::<r"semicolon-before-method-body">() {
-            return (904) if group == "semicolon-before-method-body" else 0;
+            return 904;
         }
         case compute_hash::<r"sentinel">() {
-            return (905) if group == "sentinel" else 0;
+            return 905;
         }
         case compute_hash::<r"sequence-point">() {
-            return (906) if group == "sequence-point" else 0;
+            return 906;
         }
         case compute_hash::<r"serialized-diagnostics">() {
-            return (907) if group == "serialized-diagnostics" else 0;
+            return 907;
         }
         case compute_hash::<r"shadow">() {
-            return (908) if group == "shadow" else 0;
+            return 908;
         }
         case compute_hash::<r"shadow-all">() {
-            return (909) if group == "shadow-all" else 0;
+            return 909;
         }
         case compute_hash::<r"shadow-field">() {
-            return (910) if group == "shadow-field" else 0;
+            return 910;
         }
         case compute_hash::<r"shadow-field-in-constructor">() {
-            return (911) if group == "shadow-field-in-constructor" else 0;
+            return 911;
         }
         case compute_hash::<r"shadow-field-in-constructor-modified">() {
-            return (912) if group == "shadow-field-in-constructor-modified" else 0;
+            return 912;
         }
         case compute_hash::<r"shadow-header">() {
-            return (913) if group == "shadow-header" else 0;
+            return 913;
         }
         case compute_hash::<r"shadow-ivar">() {
-            return (914) if group == "shadow-ivar" else 0;
+            return 914;
         }
         case compute_hash::<r"shadow-uncaptured-local">() {
-            return (915) if group == "shadow-uncaptured-local" else 0;
+            return 915;
         }
         case compute_hash::<r"shift-bool">() {
-            return (916) if group == "shift-bool" else 0;
+            return 916;
         }
         case compute_hash::<r"shift-count-negative">() {
-            return (917) if group == "shift-count-negative" else 0;
+            return 917;
         }
         case compute_hash::<r"shift-count-overflow">() {
-            return (918) if group == "shift-count-overflow" else 0;
+            return 918;
         }
         case compute_hash::<r"shift-negative-value">() {
-            return (919) if group == "shift-negative-value" else 0;
+            return 919;
         }
         case compute_hash::<r"shift-op-parentheses">() {
-            return (920) if group == "shift-op-parentheses" else 0;
+            return 920;
         }
         case compute_hash::<r"shift-overflow">() {
-            return (921) if group == "shift-overflow" else 0;
+            return 921;
         }
         case compute_hash::<r"shift-sign-overflow">() {
-            return (922) if group == "shift-sign-overflow" else 0;
+            return 922;
         }
         case compute_hash::<r"shorten-64-to-32">() {
-            return (923) if group == "shorten-64-to-32" else 0;
+            return 923;
         }
         case compute_hash::<r"sign-compare">() {
-            return (924) if group == "sign-compare" else 0;
+            return 924;
         }
         case compute_hash::<r"sign-conversion">() {
-            return (925) if group == "sign-conversion" else 0;
+            return 925;
         }
         case compute_hash::<r"sign-promo">() {
-            return (926) if group == "sign-promo" else 0;
+            return 926;
         }
         case compute_hash::<r"signed-enum-bitfield">() {
-            return (927) if group == "signed-enum-bitfield" else 0;
+            return 927;
         }
         case compute_hash::<r"signed-unsigned-wchar">() {
-            return (928) if group == "signed-unsigned-wchar" else 0;
+            return 928;
         }
         case compute_hash::<r"simdlen">() {
-            return (929) if group == "simdlen" else 0;
+            return 929;
         }
         case compute_hash::<r"single-bit-bitfield-constant-conversion">() {
-            return (930) if group == "single-bit-bitfield-constant-conversion" else 0;
+            return 930;
         }
         case compute_hash::<r"sizeof-array-argument">() {
-            return (931) if group == "sizeof-array-argument" else 0;
+            return 931;
         }
         case compute_hash::<r"sizeof-array-decay">() {
-            return (932) if group == "sizeof-array-decay" else 0;
+            return 932;
         }
         case compute_hash::<r"sizeof-array-div">() {
-            return (933) if group == "sizeof-array-div" else 0;
+            return 933;
         }
         case compute_hash::<r"sizeof-pointer-div">() {
-            return (934) if group == "sizeof-pointer-div" else 0;
+            return 934;
         }
         case compute_hash::<r"sizeof-pointer-memaccess">() {
-            return (935) if group == "sizeof-pointer-memaccess" else 0;
+            return 935;
         }
         case compute_hash::<r"slash-u-filename">() {
-            return (936) if group == "slash-u-filename" else 0;
+            return 936;
         }
         case compute_hash::<r"slh-asm-goto">() {
-            return (937) if group == "slh-asm-goto" else 0;
+            return 937;
         }
         case compute_hash::<r"sloc-usage">() {
-            return (938) if group == "sloc-usage" else 0;
+            return 938;
         }
         case compute_hash::<r"sometimes-uninitialized">() {
-            return (939) if group == "sometimes-uninitialized" else 0;
+            return 939;
         }
         case compute_hash::<r"source-mgr">() {
-            return (940) if group == "source-mgr" else 0;
+            return 940;
         }
         case compute_hash::<r"source-uses-openacc">() {
-            return (941) if group == "source-uses-openacc" else 0;
+            return 941;
         }
         case compute_hash::<r"source-uses-openmp">() {
-            return (942) if group == "source-uses-openmp" else 0;
+            return 942;
         }
         case compute_hash::<r"spir-compat">() {
-            return (943) if group == "spir-compat" else 0;
+            return 943;
         }
         case compute_hash::<r"spirv-compat">() {
-            return (944) if group == "spirv-compat" else 0;
+            return 944;
         }
         case compute_hash::<r"stack-exhausted">() {
-            return (945) if group == "stack-exhausted" else 0;
+            return 945;
         }
         case compute_hash::<r"stack-protector">() {
-            return (946) if group == "stack-protector" else 0;
+            return 946;
         }
         case compute_hash::<r"static-float-init">() {
-            return (947) if group == "static-float-init" else 0;
+            return 947;
         }
         case compute_hash::<r"static-in-inline">() {
-            return (948) if group == "static-in-inline" else 0;
+            return 948;
         }
         case compute_hash::<r"static-inline-explicit-instantiation">() {
-            return (949) if group == "static-inline-explicit-instantiation" else 0;
+            return 949;
         }
         case compute_hash::<r"static-local-in-inline">() {
-            return (950) if group == "static-local-in-inline" else 0;
+            return 950;
         }
         case compute_hash::<r"static-self-init">() {
-            return (951) if group == "static-self-init" else 0;
+            return 951;
         }
         case compute_hash::<r"stdlibcxx-not-found">() {
-            return (952) if group == "stdlibcxx-not-found" else 0;
+            return 952;
         }
         case compute_hash::<r"strict-aliasing">() {
-            return (953) if group == "strict-aliasing" else 0;
+            return 953;
         }
         case compute_hash::<r"strict-aliasing=0">() {
-            return (954) if group == "strict-aliasing=0" else 0;
+            return 954;
         }
         case compute_hash::<r"strict-aliasing=1">() {
-            return (955) if group == "strict-aliasing=1" else 0;
+            return 955;
         }
         case compute_hash::<r"strict-aliasing=2">() {
-            return (956) if group == "strict-aliasing=2" else 0;
+            return 956;
         }
         case compute_hash::<r"strict-overflow">() {
-            return (957) if group == "strict-overflow" else 0;
+            return 957;
         }
         case compute_hash::<r"strict-overflow=0">() {
-            return (958) if group == "strict-overflow=0" else 0;
+            return 958;
         }
         case compute_hash::<r"strict-overflow=1">() {
-            return (959) if group == "strict-overflow=1" else 0;
+            return 959;
         }
         case compute_hash::<r"strict-overflow=2">() {
-            return (960) if group == "strict-overflow=2" else 0;
+            return 960;
         }
         case compute_hash::<r"strict-overflow=3">() {
-            return (961) if group == "strict-overflow=3" else 0;
+            return 961;
         }
         case compute_hash::<r"strict-overflow=4">() {
-            return (962) if group == "strict-overflow=4" else 0;
+            return 962;
         }
         case compute_hash::<r"strict-overflow=5">() {
-            return (963) if group == "strict-overflow=5" else 0;
+            return 963;
         }
         case compute_hash::<r"strict-potentially-direct-selector">() {
-            return (964) if group == "strict-potentially-direct-selector" else 0;
+            return 964;
         }
         case compute_hash::<r"strict-primary-template-shadow">() {
-            return (965) if group == "strict-primary-template-shadow" else 0;
+            return 965;
         }
         case compute_hash::<r"strict-prototypes">() {
-            return (966) if group == "strict-prototypes" else 0;
+            return 966;
         }
         case compute_hash::<r"strict-selector-match">() {
-            return (967) if group == "strict-selector-match" else 0;
+            return 967;
         }
         case compute_hash::<r"string-compare">() {
-            return (968) if group == "string-compare" else 0;
+            return 968;
         }
         case compute_hash::<r"string-concatenation">() {
-            return (969) if group == "string-concatenation" else 0;
+            return 969;
         }
         case compute_hash::<r"string-conversion">() {
-            return (970) if group == "string-conversion" else 0;
+            return 970;
         }
         case compute_hash::<r"string-plus-char">() {
-            return (971) if group == "string-plus-char" else 0;
+            return 971;
         }
         case compute_hash::<r"string-plus-int">() {
-            return (972) if group == "string-plus-int" else 0;
+            return 972;
         }
         case compute_hash::<r"strlcpy-strlcat-size">() {
-            return (973) if group == "strlcpy-strlcat-size" else 0;
+            return 973;
         }
         case compute_hash::<r"strncat-size">() {
-            return (974) if group == "strncat-size" else 0;
+            return 974;
         }
         case compute_hash::<r"suggest-destructor-override">() {
-            return (975) if group == "suggest-destructor-override" else 0;
+            return 975;
         }
         case compute_hash::<r"suggest-override">() {
-            return (976) if group == "suggest-override" else 0;
+            return 976;
         }
         case compute_hash::<r"super-class-method-mismatch">() {
-            return (977) if group == "super-class-method-mismatch" else 0;
+            return 977;
         }
         case compute_hash::<r"suspicious-bzero">() {
-            return (978) if group == "suspicious-bzero" else 0;
+            return 978;
         }
         case compute_hash::<r"suspicious-memaccess">() {
-            return (979) if group == "suspicious-memaccess" else 0;
+            return 979;
         }
         case compute_hash::<r"swift-name-attribute">() {
-            return (980) if group == "swift-name-attribute" else 0;
+            return 980;
         }
         case compute_hash::<r"switch">() {
-            return (981) if group == "switch" else 0;
+            return 981;
         }
         case compute_hash::<r"switch-bool">() {
-            return (982) if group == "switch-bool" else 0;
+            return 982;
         }
         case compute_hash::<r"switch-default">() {
-            return (983) if group == "switch-default" else 0;
+            return 983;
         }
         case compute_hash::<r"switch-enum">() {
-            return (984) if group == "switch-enum" else 0;
+            return 984;
         }
         case compute_hash::<r"sync-alignment">() {
-            return (985) if group == "sync-alignment" else 0;
+            return 985;
         }
         case compute_hash::<r"sync-fetch-and-nand-semantics-changed">() {
-            return (986) if group == "sync-fetch-and-nand-semantics-changed" else 0;
+            return 986;
         }
         case compute_hash::<r"synth">() {
-            return (987) if group == "synth" else 0;
+            return 987;
         }
         case compute_hash::<r"target-clones-mixed-specifiers">() {
-            return (988) if group == "target-clones-mixed-specifiers" else 0;
+            return 988;
         }
         case compute_hash::<r"tautological-bitwise-compare">() {
-            return (989) if group == "tautological-bitwise-compare" else 0;
+            return 989;
         }
         case compute_hash::<r"tautological-compare">() {
-            return (990) if group == "tautological-compare" else 0;
+            return 990;
         }
         case compute_hash::<r"tautological-constant-compare">() {
-            return (991) if group == "tautological-constant-compare" else 0;
+            return 991;
         }
         case compute_hash::<r"tautological-constant-in-range-compare">() {
-            return (992) if group == "tautological-constant-in-range-compare" else 0;
+            return 992;
         }
         case compute_hash::<r"tautological-constant-out-of-range-compare">() {
-            return (993) if group == "tautological-constant-out-of-range-compare" else 0;
+            return 993;
         }
         case compute_hash::<r"tautological-negation-compare">() {
-            return (994) if group == "tautological-negation-compare" else 0;
+            return 994;
         }
         case compute_hash::<r"tautological-objc-bool-compare">() {
-            return (995) if group == "tautological-objc-bool-compare" else 0;
+            return 995;
         }
         case compute_hash::<r"tautological-overlap-compare">() {
-            return (996) if group == "tautological-overlap-compare" else 0;
+            return 996;
         }
         case compute_hash::<r"tautological-pointer-compare">() {
-            return (997) if group == "tautological-pointer-compare" else 0;
+            return 997;
         }
         case compute_hash::<r"tautological-type-limit-compare">() {
-            return (998) if group == "tautological-type-limit-compare" else 0;
+            return 998;
         }
         case compute_hash::<r"tautological-undefined-compare">() {
-            return (999) if group == "tautological-undefined-compare" else 0;
+            return 999;
         }
         case compute_hash::<r"tautological-unsigned-char-zero-compare">() {
-            return (1000) if group == "tautological-unsigned-char-zero-compare" else 0;
+            return 1000;
         }
         case compute_hash::<r"tautological-unsigned-enum-zero-compare">() {
-            return (1001) if group == "tautological-unsigned-enum-zero-compare" else 0;
+            return 1001;
         }
         case compute_hash::<r"tautological-unsigned-zero-compare">() {
-            return (1002) if group == "tautological-unsigned-zero-compare" else 0;
+            return 1002;
         }
         case compute_hash::<r"tautological-value-range-compare">() {
-            return (1003) if group == "tautological-value-range-compare" else 0;
+            return 1003;
         }
         case compute_hash::<r"tcb-enforcement">() {
-            return (1004) if group == "tcb-enforcement" else 0;
+            return 1004;
         }
         case compute_hash::<r"template-in-declaration-name">() {
-            return (1005) if group == "template-in-declaration-name" else 0;
+            return 1005;
         }
         case compute_hash::<r"tentative-definition-array">() {
-            return (1006) if group == "tentative-definition-array" else 0;
+            return 1006;
         }
         case compute_hash::<r"tentative-definition-compat">() {
-            return (1007) if group == "tentative-definition-compat" else 0;
+            return 1007;
         }
         case compute_hash::<r"tentative-definition-incomplete-type">() {
-            return (1008) if group == "tentative-definition-incomplete-type" else 0;
+            return 1008;
         }
         case compute_hash::<r"thread-safety">() {
-            return (1009) if group == "thread-safety" else 0;
+            return 1009;
         }
         case compute_hash::<r"thread-safety-analysis">() {
-            return (1010) if group == "thread-safety-analysis" else 0;
+            return 1010;
         }
         case compute_hash::<r"thread-safety-attributes">() {
-            return (1011) if group == "thread-safety-attributes" else 0;
+            return 1011;
         }
         case compute_hash::<r"thread-safety-beta">() {
-            return (1012) if group == "thread-safety-beta" else 0;
+            return 1012;
         }
         case compute_hash::<r"thread-safety-negative">() {
-            return (1013) if group == "thread-safety-negative" else 0;
+            return 1013;
         }
         case compute_hash::<r"thread-safety-pointer">() {
-            return (1014) if group == "thread-safety-pointer" else 0;
+            return 1014;
         }
         case compute_hash::<r"thread-safety-precise">() {
-            return (1015) if group == "thread-safety-precise" else 0;
+            return 1015;
         }
         case compute_hash::<r"thread-safety-reference">() {
-            return (1016) if group == "thread-safety-reference" else 0;
+            return 1016;
         }
         case compute_hash::<r"thread-safety-reference-return">() {
-            return (1017) if group == "thread-safety-reference-return" else 0;
+            return 1017;
         }
         case compute_hash::<r"thread-safety-verbose">() {
-            return (1018) if group == "thread-safety-verbose" else 0;
+            return 1018;
         }
         case compute_hash::<r"trigraphs">() {
-            return (1019) if group == "trigraphs" else 0;
+            return 1019;
         }
         case compute_hash::<r"trivial-auto-var-init">() {
-            return (1020) if group == "trivial-auto-var-init" else 0;
+            return 1020;
         }
         case compute_hash::<r"type-limits">() {
-            return (1021) if group == "type-limits" else 0;
+            return 1021;
         }
         case compute_hash::<r"type-safety">() {
-            return (1022) if group == "type-safety" else 0;
+            return 1022;
         }
         case compute_hash::<r"typedef-redefinition">() {
-            return (1023) if group == "typedef-redefinition" else 0;
+            return 1023;
         }
         case compute_hash::<r"typename-missing">() {
-            return (1024) if group == "typename-missing" else 0;
+            return 1024;
         }
         case compute_hash::<r"unable-to-open-stats-file">() {
-            return (1025) if group == "unable-to-open-stats-file" else 0;
+            return 1025;
         }
         case compute_hash::<r"unaligned-access">() {
-            return (1026) if group == "unaligned-access" else 0;
+            return 1026;
         }
         case compute_hash::<r"unaligned-qualifier-implicit-cast">() {
-            return (1027) if group == "unaligned-qualifier-implicit-cast" else 0;
+            return 1027;
         }
         case compute_hash::<r"unavailable-declarations">() {
-            return (1028) if group == "unavailable-declarations" else 0;
+            return 1028;
         }
         case compute_hash::<r"undeclared-selector">() {
-            return (1029) if group == "undeclared-selector" else 0;
+            return 1029;
         }
         case compute_hash::<r"undef">() {
-            return (1030) if group == "undef" else 0;
+            return 1030;
         }
         case compute_hash::<r"undef-prefix">() {
-            return (1031) if group == "undef-prefix" else 0;
+            return 1031;
         }
         case compute_hash::<r"undef-true">() {
-            return (1032) if group == "undef-true" else 0;
+            return 1032;
         }
         case compute_hash::<r"undefined-arm-za">() {
-            return (1033) if group == "undefined-arm-za" else 0;
+            return 1033;
         }
         case compute_hash::<r"undefined-arm-zt0">() {
-            return (1034) if group == "undefined-arm-zt0" else 0;
+            return 1034;
         }
         case compute_hash::<r"undefined-bool-conversion">() {
-            return (1035) if group == "undefined-bool-conversion" else 0;
+            return 1035;
         }
         case compute_hash::<r"undefined-func-template">() {
-            return (1036) if group == "undefined-func-template" else 0;
+            return 1036;
         }
         case compute_hash::<r"undefined-inline">() {
-            return (1037) if group == "undefined-inline" else 0;
+            return 1037;
         }
         case compute_hash::<r"undefined-internal">() {
-            return (1038) if group == "undefined-internal" else 0;
+            return 1038;
         }
         case compute_hash::<r"undefined-internal-type">() {
-            return (1039) if group == "undefined-internal-type" else 0;
+            return 1039;
         }
         case compute_hash::<r"undefined-reinterpret-cast">() {
-            return (1040) if group == "undefined-reinterpret-cast" else 0;
+            return 1040;
         }
         case compute_hash::<r"undefined-var-template">() {
-            return (1041) if group == "undefined-var-template" else 0;
+            return 1041;
         }
         case compute_hash::<r"underaligned-exception-object">() {
-            return (1042) if group == "underaligned-exception-object" else 0;
+            return 1042;
         }
         case compute_hash::<r"underlying-atomic-qualifier-ignored">() {
-            return (1043) if group == "underlying-atomic-qualifier-ignored" else 0;
+            return 1043;
         }
         case compute_hash::<r"underlying-cv-qualifier-ignored">() {
-            return (1044) if group == "underlying-cv-qualifier-ignored" else 0;
+            return 1044;
         }
         case compute_hash::<r"unevaluated-expression">() {
-            return (1045) if group == "unevaluated-expression" else 0;
+            return 1045;
         }
         case compute_hash::<r"unguarded-availability">() {
-            return (1046) if group == "unguarded-availability" else 0;
+            return 1046;
         }
         case compute_hash::<r"unguarded-availability-new">() {
-            return (1047) if group == "unguarded-availability-new" else 0;
+            return 1047;
         }
         case compute_hash::<r"unicode">() {
-            return (1048) if group == "unicode" else 0;
+            return 1048;
         }
         case compute_hash::<r"unicode-homoglyph">() {
-            return (1049) if group == "unicode-homoglyph" else 0;
+            return 1049;
         }
         case compute_hash::<r"unicode-whitespace">() {
-            return (1050) if group == "unicode-whitespace" else 0;
+            return 1050;
         }
         case compute_hash::<r"unicode-zero-width">() {
-            return (1051) if group == "unicode-zero-width" else 0;
+            return 1051;
         }
         case compute_hash::<r"uninitialized">() {
-            return (1052) if group == "uninitialized" else 0;
+            return 1052;
         }
         case compute_hash::<r"uninitialized-const-pointer">() {
-            return (1053) if group == "uninitialized-const-pointer" else 0;
+            return 1053;
         }
         case compute_hash::<r"uninitialized-const-reference">() {
-            return (1054) if group == "uninitialized-const-reference" else 0;
+            return 1054;
         }
         case compute_hash::<r"uninitialized-explicit-init">() {
-            return (1055) if group == "uninitialized-explicit-init" else 0;
+            return 1055;
         }
         case compute_hash::<r"unique-object-duplication">() {
-            return (1056) if group == "unique-object-duplication" else 0;
+            return 1056;
         }
         case compute_hash::<r"unknown-acc-extension-clause">() {
-            return (1057) if group == "unknown-acc-extension-clause" else 0;
+            return 1057;
         }
         case compute_hash::<r"unknown-argument">() {
-            return (1058) if group == "unknown-argument" else 0;
+            return 1058;
         }
         case compute_hash::<r"unknown-assumption">() {
-            return (1059) if group == "unknown-assumption" else 0;
+            return 1059;
         }
         case compute_hash::<r"unknown-attributes">() {
-            return (1060) if group == "unknown-attributes" else 0;
+            return 1060;
         }
         case compute_hash::<r"unknown-cuda-version">() {
-            return (1061) if group == "unknown-cuda-version" else 0;
+            return 1061;
         }
         case compute_hash::<r"unknown-directives">() {
-            return (1062) if group == "unknown-directives" else 0;
+            return 1062;
         }
         case compute_hash::<r"unknown-escape-sequence">() {
-            return (1063) if group == "unknown-escape-sequence" else 0;
+            return 1063;
         }
         case compute_hash::<r"unknown-pragmas">() {
-            return (1064) if group == "unknown-pragmas" else 0;
+            return 1064;
         }
         case compute_hash::<r"unknown-sanitizers">() {
-            return (1065) if group == "unknown-sanitizers" else 0;
+            return 1065;
         }
         case compute_hash::<r"unknown-warning-option">() {
-            return (1066) if group == "unknown-warning-option" else 0;
+            return 1066;
         }
         case compute_hash::<r"unnamed-type-template-args">() {
-            return (1067) if group == "unnamed-type-template-args" else 0;
+            return 1067;
         }
         case compute_hash::<r"unnecessary-virtual-specifier">() {
-            return (1068) if group == "unnecessary-virtual-specifier" else 0;
+            return 1068;
         }
         case compute_hash::<r"unneeded-internal-declaration">() {
-            return (1069) if group == "unneeded-internal-declaration" else 0;
+            return 1069;
         }
         case compute_hash::<r"unneeded-member-function">() {
-            return (1070) if group == "unneeded-member-function" else 0;
+            return 1070;
         }
         case compute_hash::<r"unqualified-std-cast-call">() {
-            return (1071) if group == "unqualified-std-cast-call" else 0;
+            return 1071;
         }
         case compute_hash::<r"unreachable-code">() {
-            return (1072) if group == "unreachable-code" else 0;
+            return 1072;
         }
         case compute_hash::<r"unreachable-code-aggressive">() {
-            return (1073) if group == "unreachable-code-aggressive" else 0;
+            return 1073;
         }
         case compute_hash::<r"unreachable-code-break">() {
-            return (1074) if group == "unreachable-code-break" else 0;
+            return 1074;
         }
         case compute_hash::<r"unreachable-code-fallthrough">() {
-            return (1075) if group == "unreachable-code-fallthrough" else 0;
+            return 1075;
         }
         case compute_hash::<r"unreachable-code-generic-assoc">() {
-            return (1076) if group == "unreachable-code-generic-assoc" else 0;
+            return 1076;
         }
         case compute_hash::<r"unreachable-code-loop-increment">() {
-            return (1077) if group == "unreachable-code-loop-increment" else 0;
+            return 1077;
         }
         case compute_hash::<r"unreachable-code-return">() {
-            return (1078) if group == "unreachable-code-return" else 0;
+            return 1078;
         }
         case compute_hash::<r"unsafe-buffer-usage">() {
-            return (1079) if group == "unsafe-buffer-usage" else 0;
+            return 1079;
         }
         case compute_hash::<r"unsafe-buffer-usage-in-container">() {
-            return (1080) if group == "unsafe-buffer-usage-in-container" else 0;
+            return 1080;
         }
         case compute_hash::<r"unsafe-buffer-usage-in-format-attr-call">() {
-            return (1081) if group == "unsafe-buffer-usage-in-format-attr-call" else 0;
+            return 1081;
         }
         case compute_hash::<r"unsafe-buffer-usage-in-libc-call">() {
-            return (1082) if group == "unsafe-buffer-usage-in-libc-call" else 0;
+            return 1082;
         }
         case compute_hash::<r"unsafe-buffer-usage-in-unique-ptr-array-access">() {
-            return (1083) if group == "unsafe-buffer-usage-in-unique-ptr-array-access" else 0;
+            return 1083;
         }
         case compute_hash::<r"unsequenced">() {
-            return (1084) if group == "unsequenced" else 0;
+            return 1084;
         }
         case compute_hash::<r"unsupported-abi">() {
-            return (1085) if group == "unsupported-abi" else 0;
+            return 1085;
         }
         case compute_hash::<r"unsupported-abs">() {
-            return (1086) if group == "unsupported-abs" else 0;
+            return 1086;
         }
         case compute_hash::<r"unsupported-availability-guard">() {
-            return (1087) if group == "unsupported-availability-guard" else 0;
+            return 1087;
         }
         case compute_hash::<r"unsupported-cb">() {
-            return (1088) if group == "unsupported-cb" else 0;
+            return 1088;
         }
         case compute_hash::<r"unsupported-dll-base-class-template">() {
-            return (1089) if group == "unsupported-dll-base-class-template" else 0;
+            return 1089;
         }
         case compute_hash::<r"unsupported-floating-point-opt">() {
-            return (1090) if group == "unsupported-floating-point-opt" else 0;
+            return 1090;
         }
         case compute_hash::<r"unsupported-friend">() {
-            return (1091) if group == "unsupported-friend" else 0;
+            return 1091;
         }
         case compute_hash::<r"unsupported-gpopt">() {
-            return (1092) if group == "unsupported-gpopt" else 0;
+            return 1092;
         }
         case compute_hash::<r"unsupported-nan">() {
-            return (1093) if group == "unsupported-nan" else 0;
+            return 1093;
         }
         case compute_hash::<r"unsupported-target-opt">() {
-            return (1094) if group == "unsupported-target-opt" else 0;
+            return 1094;
         }
         case compute_hash::<r"unsupported-visibility">() {
-            return (1095) if group == "unsupported-visibility" else 0;
+            return 1095;
         }
         case compute_hash::<r"unterminated-string-initialization">() {
-            return (1096) if group == "unterminated-string-initialization" else 0;
+            return 1096;
         }
         case compute_hash::<r"unusable-partial-specialization">() {
-            return (1097) if group == "unusable-partial-specialization" else 0;
+            return 1097;
         }
         case compute_hash::<r"unused">() {
-            return (1098) if group == "unused" else 0;
+            return 1098;
         }
         case compute_hash::<r"unused-argument">() {
-            return (1099) if group == "unused-argument" else 0;
+            return 1099;
         }
         case compute_hash::<r"unused-but-set-parameter">() {
-            return (1100) if group == "unused-but-set-parameter" else 0;
+            return 1100;
         }
         case compute_hash::<r"unused-but-set-variable">() {
-            return (1101) if group == "unused-but-set-variable" else 0;
+            return 1101;
         }
         case compute_hash::<r"unused-command-line-argument">() {
-            return (1102) if group == "unused-command-line-argument" else 0;
+            return 1102;
         }
         case compute_hash::<r"unused-comparison">() {
-            return (1103) if group == "unused-comparison" else 0;
+            return 1103;
         }
         case compute_hash::<r"unused-const-variable">() {
-            return (1104) if group == "unused-const-variable" else 0;
+            return 1104;
         }
         case compute_hash::<r"unused-exception-parameter">() {
-            return (1105) if group == "unused-exception-parameter" else 0;
+            return 1105;
         }
         case compute_hash::<r"unused-function">() {
-            return (1106) if group == "unused-function" else 0;
+            return 1106;
         }
         case compute_hash::<r"unused-getter-return-value">() {
-            return (1107) if group == "unused-getter-return-value" else 0;
+            return 1107;
         }
         case compute_hash::<r"unused-label">() {
-            return (1108) if group == "unused-label" else 0;
+            return 1108;
         }
         case compute_hash::<r"unused-lambda-capture">() {
-            return (1109) if group == "unused-lambda-capture" else 0;
+            return 1109;
         }
         case compute_hash::<r"unused-local-typedef">() {
-            return (1110) if group == "unused-local-typedef" else 0;
+            return 1110;
         }
         case compute_hash::<r"unused-local-typedefs">() {
-            return (1111) if group == "unused-local-typedefs" else 0;
+            return 1111;
         }
         case compute_hash::<r"unused-macros">() {
-            return (1112) if group == "unused-macros" else 0;
+            return 1112;
         }
         case compute_hash::<r"unused-member-function">() {
-            return (1113) if group == "unused-member-function" else 0;
+            return 1113;
         }
         case compute_hash::<r"unused-parameter">() {
-            return (1114) if group == "unused-parameter" else 0;
+            return 1114;
         }
         case compute_hash::<r"unused-private-field">() {
-            return (1115) if group == "unused-private-field" else 0;
+            return 1115;
         }
         case compute_hash::<r"unused-property-ivar">() {
-            return (1116) if group == "unused-property-ivar" else 0;
+            return 1116;
         }
         case compute_hash::<r"unused-result">() {
-            return (1117) if group == "unused-result" else 0;
+            return 1117;
         }
         case compute_hash::<r"unused-template">() {
-            return (1118) if group == "unused-template" else 0;
+            return 1118;
         }
         case compute_hash::<r"unused-value">() {
-            return (1119) if group == "unused-value" else 0;
+            return 1119;
         }
         case compute_hash::<r"unused-variable">() {
-            return (1120) if group == "unused-variable" else 0;
+            return 1120;
         }
         case compute_hash::<r"unused-volatile-lvalue">() {
-            return (1121) if group == "unused-volatile-lvalue" else 0;
+            return 1121;
         }
         case compute_hash::<r"used-but-marked-unused">() {
-            return (1122) if group == "used-but-marked-unused" else 0;
+            return 1122;
         }
         case compute_hash::<r"user-defined-literals">() {
-            return (1123) if group == "user-defined-literals" else 0;
+            return 1123;
         }
         case compute_hash::<r"user-defined-warnings">() {
-            return (1124) if group == "user-defined-warnings" else 0;
+            return 1124;
         }
         case compute_hash::<r"varargs">() {
-            return (1125) if group == "varargs" else 0;
+            return 1125;
         }
         case compute_hash::<r"variadic-macro-arguments-omitted">() {
-            return (1126) if group == "variadic-macro-arguments-omitted" else 0;
+            return 1126;
         }
         case compute_hash::<r"variadic-macros">() {
-            return (1127) if group == "variadic-macros" else 0;
+            return 1127;
         }
         case compute_hash::<r"vec-elem-size">() {
-            return (1128) if group == "vec-elem-size" else 0;
+            return 1128;
         }
         case compute_hash::<r"vector-conversion">() {
-            return (1129) if group == "vector-conversion" else 0;
+            return 1129;
         }
         case compute_hash::<r"vector-conversions">() {
-            return (1130) if group == "vector-conversions" else 0;
+            return 1130;
         }
         case compute_hash::<r"vexing-parse">() {
-            return (1131) if group == "vexing-parse" else 0;
+            return 1131;
         }
         case compute_hash::<r"visibility">() {
-            return (1132) if group == "visibility" else 0;
+            return 1132;
         }
         case compute_hash::<r"vla">() {
-            return (1133) if group == "vla" else 0;
+            return 1133;
         }
         case compute_hash::<r"vla-cxx-extension">() {
-            return (1134) if group == "vla-cxx-extension" else 0;
+            return 1134;
         }
         case compute_hash::<r"vla-extension">() {
-            return (1135) if group == "vla-extension" else 0;
+            return 1135;
         }
         case compute_hash::<r"vla-extension-static-assert">() {
-            return (1136) if group == "vla-extension-static-assert" else 0;
+            return 1136;
         }
         case compute_hash::<r"void-pointer-to-enum-cast">() {
-            return (1137) if group == "void-pointer-to-enum-cast" else 0;
+            return 1137;
         }
         case compute_hash::<r"void-pointer-to-int-cast">() {
-            return (1138) if group == "void-pointer-to-int-cast" else 0;
+            return 1138;
         }
         case compute_hash::<r"void-ptr-dereference">() {
-            return (1139) if group == "void-ptr-dereference" else 0;
+            return 1139;
         }
         case compute_hash::<r"volatile-register-var">() {
-            return (1140) if group == "volatile-register-var" else 0;
+            return 1140;
         }
         case compute_hash::<r"wasm-exception-spec">() {
-            return (1141) if group == "wasm-exception-spec" else 0;
+            return 1141;
         }
         case compute_hash::<r"weak-template-vtables">() {
-            return (1142) if group == "weak-template-vtables" else 0;
+            return 1142;
         }
         case compute_hash::<r"weak-vtables">() {
-            return (1143) if group == "weak-vtables" else 0;
+            return 1143;
         }
         case compute_hash::<r"writable-strings">() {
-            return (1144) if group == "writable-strings" else 0;
+            return 1144;
         }
         case compute_hash::<r"write-strings">() {
-            return (1145) if group == "write-strings" else 0;
+            return 1145;
         }
         case compute_hash::<r"xor-used-as-pow">() {
-            return (1146) if group == "xor-used-as-pow" else 0;
+            return 1146;
         }
         case compute_hash::<r"zero-as-null-pointer-constant">() {
-            return (1147) if group == "zero-as-null-pointer-constant" else 0;
+            return 1147;
         }
         case compute_hash::<r"zero-length-array">() {
-            return (1148) if group == "zero-length-array" else 0;
+            return 1148;
         }
     }
 
