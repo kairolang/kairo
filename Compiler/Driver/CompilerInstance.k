@@ -113,7 +113,6 @@ import Driver::BatchResult::*;
 import Driver::TUResult::*;
 import Driver::TUStage::*;
 import Preprocessor::Preprocessor::*;
-import AST::Context::ASTIndex::*;
 import Parser::ASTParse::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Printer::ASTPrinter::*;
@@ -919,13 +918,21 @@ fn FrontendAction::_parse() -> bool {
 
     var fids = self._fids;  // tree order, fids[0] == main
 
-    // index phase: unchanged
+    // index phase: Index-mode ASTParse over each fid (same grammar as the
+    // full parse, shallow materialization). Replaces the old ASTIndex
+    // token-level pre-pass.
     for fid: u32 in fids {
         inline "c++" {
             auto captured_fid  = fid;
             auto captured_self = this;
             _ci->pool()->enqueue([captured_fid, captured_self]() {
-                captured_self->_global_scope->index_file(captured_fid);
+                auto* gs  = captured_self->_global_scope;
+                auto* ctx = gs->begin_index(captured_fid);
+                if (ctx) {
+                    ASTParse indexer(ctx, nullptr, gs, ASTParse::ParseMode::Index);
+                    indexer.index();
+                    gs->finish_index(captured_fid);
+                }
             }, u8(5));
         }
     }
@@ -965,7 +972,7 @@ fn FrontendAction::_parse() -> bool {
             _ci->pool()->enqueue([gs, fid, done, i]() {
                 auto* ctx = gs->get_context(fid);
                 if (ctx) {
-                    ASTParse parser(ctx, nullptr, gs);
+                    ASTParse parser(ctx, nullptr, gs, ASTParse::ParseMode::Full);
                     auto* tu = parser.parse();
                     ctx->tu = reinterpret_cast<void*>(tu);
                 }

@@ -3397,16 +3397,23 @@ class ASTPrinter {
         }
 
         var d = AstDumper(tu->ctx, opts);
+        var debug = opts.is_debug();
 
-        var name = tu->ctx->sm->get_filename(tu->fid);
-        d.p.paint(Color::NodeKind, "TranslationUnit");
-        d.p.put(f" '{name}\x27");
-        d.p.paint(Color::Dim, f"(fid={tu->fid})");
-        d.p.newline();
+        // Banner + footer are tree-dump affordances; sema never prints them.
+        // Suppress in flat/canonical so output matches the src_* form sema embeds.
+        if debug {
+            var name = tu->ctx->sm->get_filename(tu->fid);
+            d.p.paint(Color::NodeKind, "TranslationUnit");
+            d.p.put(f" '{name}\x27");
+            d.p.paint(Color::Dim, f"(fid={tu->fid})");
+            d.p.newline();
+        }
 
         if tu->program == &null {
-            d.p.paint(Color::Dim, "<no program>");
-            d.p.newline();
+            if debug {
+                d.p.paint(Color::Dim, "<no program>");
+                d.p.newline();
+            }
             std::print(d.p.out);
             return;
         }
@@ -3418,18 +3425,32 @@ class ASTPrinter {
             if item == &null { continue; }
             var last = (i == (n - 1));
             switch item->get_kind() {
-                case TopLevelKind::Decl { d.dump_decl(item->as_decl(), last); }
-                case TopLevelKind::Stmt { d.dump_stmt(item->as_stmt(), last); }
-                case TopLevelKind::Expr { d.dump_expr(item->as_expr(), last); }
+                case TopLevelKind::Decl {
+                    if debug { d.dump_decl(item->as_decl(), last); }
+                    else     { d.src_decl(item->as_decl()); d.p.newline(); }
+                }
+                case TopLevelKind::Stmt {
+                    if debug { d.dump_stmt(item->as_stmt(), last); }
+                    else     { d.src_stmt(item->as_stmt()); d.p.newline(); }
+                }
+                case TopLevelKind::Expr {
+                    if debug { d.dump_expr(item->as_expr(), last); }
+                    else     { d.src_expr(item->as_expr()); d.p.newline(); }
+                }
                 default {
-                    d._head("<unknown-top-level>", last);
-                    d.p.newline();
+                    if debug {
+                        d._head("<unknown-top-level>", last);
+                        d.p.newline();
+                    }
                 }
             }
         }
 
-        d.p.paint(Color::Dim, f"-- {tu->error_count} error(s), {tu->warn_count} warning(s) --");
-        d.p.newline();
+        if debug {
+            d.p.paint(Color::Dim, f"-- {tu->error_count} error(s), {tu->warn_count} warning(s) --");
+            d.p.newline();
+        }
+
         std::print(d.p.out);
         libcxx::fflush(stdout);
     }

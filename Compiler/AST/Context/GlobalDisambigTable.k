@@ -14,7 +14,6 @@
 
 import AST::Context::ASTContext::*;
 import Resolution::ModulePath::*;
-import AST::Context::ASTIndex::*;
 
 /// Aggregates all file-level DisambigTable instances for cross-file lookup.
 /// Owns all ASTContext instances created during the index phase.
@@ -76,31 +75,41 @@ class GlobalDisambigTable {
         var entry: GlobalScopeEntry;
         entry.fid      = fid;
         entry.ctx      = ctx;
-        entry.hoisted  = &null;          // set by index_file
+        entry.hoisted  = &null;          // set by finish_index
         entry.mod_path = mod_path;
         self._by_fid.insert(libcxx::make_pair(fid, entry));
         return ctx;
     }
 
-    /// parse-time: ASTIndex over an EXISTING ctx. all args except fid are gone.
-    fn index_file(self, fid: u32) {
-        var ctx: *ASTContext = &null;
-        {
-            var rlock = std::SharedLock(self._mu);
-            var it = self._by_fid.find(fid);
-            if it == self._by_fid.end() { return; } // VERIFY: assert instead? PP must
-                                                    // have created it a miss here is
-                                                    // a phase-ordering bug, not a skip
-            if it->second.hoisted != &null { return; } // already indexed
-            ctx = it->second.ctx;
-        }
+    /// parse-time, step 1 of 2: claims \p fid for indexing.
+    ///
+    /// \details the Index-mode parser (ASTParse, constructed by the DRIVER
+    ///          this module cannot import Parser without a cycle) runs
+    ///          between begin_index and finish_index:
+    ///
+    ///            var ctx = gs->begin_index(fid);
+    ///            if ctx != null {
+    ///                ASTParse(ctx, null, gs, ParseMode::Index).index();
+    ///                gs->finish_index(fid);
+    ///            }
+    ///
+    /// \return the context to index, or null if the fid is unknown (a
+    ///         phase-ordering bug PP must have created it) or already
+    ///         indexed.
+    fn begin_index(self, fid: u32) -> *ASTContext {
+        var rlock = std::SharedLock(self._mu);
+        var it = self._by_fid.find(fid);
+        if it == self._by_fid.end() { return &null; }
+        if it->second.hoisted != &null { return &null; } // already indexed
+        return it->second.ctx;
+    }
 
-        var ast_idx = ASTIndex(ctx);
-        ast_idx.index();
-
+    /// parse-time, step 2 of 2: publishes ctx->hoisted (allocated by the
+    /// Index-mode parser's constructor) into the global entry.
+    fn finish_index(self, fid: u32) {
         var lock = std::LockGuard(self._mu);
-        var it2 = self._by_fid.find(fid);
-        if it2 != self._by_fid.end() { it2->second.hoisted = ctx->hoisted; }
+        var it = self._by_fid.find(fid);
+        if it != self._by_fid.end() { it->second.hoisted = it->second.ctx->hoisted; }
     }
 
     // --- Lookup (parse phase, read-only) -------------------------------------
