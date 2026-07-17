@@ -1865,7 +1865,6 @@ class Lexer {
                     self._diag->report(DiagCode(DiagID::S025W), range.start,
                         f"octal escape '{self._sm->get_text(range)}' is only valid in byte strings (b\"...\"); use '\\u' for unicode codepoints")
                         .first(range).emit();
-                    return false;
                 }
 
                 /// we now validate the value
