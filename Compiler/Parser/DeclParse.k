@@ -457,6 +457,180 @@ class <T> DeclParse {
     //  Generic parameter list  <T, T impl Foo, const N: i32, ...T>
     // ========================================================================
 
+    /// \brief parses the leading generic/specialization introducer at a decl
+    ///        head: either `<T, ...>` (type params) or `<>` (specialization
+    ///        marker). See issue #68.
+    ///
+    /// \details Precondition: caller has NOT yet checked for `<`. Handles the
+    ///          three head forms:
+    ///            (a) no `<`            -> params empty, sets *intro = None
+    ///            (b) `<>` empty        -> params empty, sets *intro = Explicit
+    ///                                     (the definitive kind primary vs
+    ///                                     explicit vs partial is decided by
+    ///                                     the post-name pattern; `<>` alone
+    ///                                     only tells us "this is specialized")
+    ///            (c) `<T, ...>`        -> fills params, sets *intro = None
+    ///                                     (a `<T>` primary is a plain generic;
+    ///                                     Primary classification for the
+    ///                                     `<> Name<T>` form is set later)
+    ///
+    ///          Unlike a bare `_parse_generic_params`, empty `<>` here is NOT
+    ///          an error (S049E) it is the specialization introducer. This
+    ///          function is the single decl-position entry point; the old
+    ///          `_parse_generic_params` remains for contexts where empty `<>`
+    ///          is genuinely malformed.
+    ///
+    /// \returns true if recovery was entered while parsing type params.
+    fn _parse_generic_or_spec_intro(
+        self,
+        out:   *std::StackBuf::<*GenericParamDecl, 2>,
+        intro: *SpecKind
+    ) -> bool {
+        (*intro) = SpecKind::None;
+
+        if !dyn()->check(TokenKind::OpLess) { return false; }
+
+        // Peek for the empty `<>` specialization marker. `<>` is lexed as two
+        // adjacent tokens (OpLess, OpGreater); there is no fused diamond token.
+        if dyn()->check_peek(TokenKind::OpGreater) {
+            dyn()->advance_raw();  // consume `<`
+            dyn()->advance_raw();  // consume `>`
+            (*intro) = SpecKind::Explicit; // provisional; refined post-name
+            return false;
+        }
+
+        // Ordinary `<T, ...>` type-parameter list.
+        return self._parse_generic_params(out);
+    }
+
+    /// \brief parses the post-name specialization argument pattern
+    ///        (`sum<i32>`, `Box<[T]>`, `Box<T>`) into `out` as a list of types.
+    ///
+    /// \details Precondition: current token is `<` immediately after the decl
+    ///          name, and the head carried a `<>` introducer (so we are in a
+    ///          specialization). Each argument is a full type parsed via
+    ///          `parse_type(gen_arg=true)`; a type variable (`T`), a concrete
+    ///          type (`i32`), or a structured pattern (`[T]`) are all just
+    ///          types here classification into Primary/Explicit/Partial is
+    ///          the caller's job based on whether the args are bare type vars.
+    ///
+    /// \returns true on clean close, false on recovery.
+    fn _parse_spec_args(self, out: *std::StackBuf::<*Type, 4>) -> bool {
+        if !dyn()->check(TokenKind::OpLess) { return false; }
+        dyn()->advance(T::SkipNL::After); // consume `<`
+        dyn()->nl_push();
+
+        if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
+
+        // `<>` with no args after a name is not a valid specialization pattern.
+        if dyn()->check(TokenKind::OpGreater) {
+            dyn()->diag->report(DiagID::S049E, dyn()->prev().range.start,
+                "specialization argument list cannot be empty"
+            ).first(dyn()->prev().range).emit();
+            dyn()->nl_pop();
+            dyn()->advance_raw();
+            return false;
+        }
+
+        while !dyn()->is_eof() {
+            var ty = dyn()->parse_type(false, false, true); // gen_arg = true
+            if (ty == &null) || is_recovery(ty) {
+                self._sync_decl(DeclSyncCtx::Generics);
+                if dyn()->_pending_close_angle {
+                    dyn()->_pending_close_angle = false;
+                    dyn()->nl_pop();
+                    return false;
+                }
+                if dyn()->check(TokenKind::OpGreater) {
+                    dyn()->nl_pop();
+                    dyn()->advance_raw();
+                    return false;
+                }
+                dyn()->nl_pop();
+                return false;
+            }
+            out->push_back(ty);
+
+            // A nested `>>` may have been split, leaving us owing one `>`.
+            if dyn()->_pending_close_angle {
+                dyn()->_pending_close_angle = false;
+                dyn()->nl_pop();
+                return true;
+            }
+
+            if dyn()->check(TokenKind::OpComma) {
+                dyn()->advance(T::SkipNL::After);
+                if dyn()->check(TokenKind::OpGreater) { break; }
+                if dyn()->check(TokenKind::OpGreaterGreater) { break; }
+                continue;
+            }
+            break;
+        }
+
+        if dyn()->check(TokenKind::OpGreater) {
+            dyn()->nl_pop();
+            dyn()->advance_raw();
+            return true;
+        }
+        if dyn()->check(TokenKind::OpGreaterGreater) {
+            dyn()->_pending_close_angle = true;
+            dyn()->nl_pop();
+            dyn()->advance_raw();
+            return true;
+        }
+
+        dyn()->diag->report(DiagID::S049E, dyn()->current_ptr()->range.start,
+            "expected '>' to close specialization arguments"
+        ).first(dyn()->current_ptr()->range).emit();
+        dyn()->nl_pop();
+        return false;
+    }
+
+    /// \brief coarse *syntactic* classification of a specialization from its
+    ///        post-name argument pattern. See issue #68.
+    ///
+    /// \details The parser can only decide what is decidable from syntax alone:
+    ///
+    ///            all args are single simple identifiers (`Box<T>`, `Pair<A,B>`)
+    ///              -> Primary  (candidate every arg *could* be a type var;
+    ///                           sema confirms against the primary's params. A
+    ///                           `Box<i32>` is syntactically identical to
+    ///                           `Box<T>` at this stage one simple ident —
+    ///                           so both land here and sema splits Primary vs
+    ///                           Explicit by checking whether the ident names a
+    ///                           declared type.)
+    ///
+    ///            any arg is a *structured* type (`[T]`, `*T`, `(A, B)`, a path
+    ///            with its own generic args like `Vec<T>`)
+    ///              -> Partial  (a structured pattern is never a primary
+    ///                           re-declaration; it is a partial specialization.
+    ///                           `fn` rejects this enforced by the caller.)
+    ///
+    ///          The Primary/Explicit split is intentionally left to sema: it is
+    ///          a name-resolution fact (does the single ident resolve to a type
+    ///          variable of the primary, or to a concrete type?), not a
+    ///          syntactic one. Returning Primary here is the conservative
+    ///          "not-structured" bucket; sema downgrades to Explicit as needed.
+    fn _classify_spec(self, spec_args: *std::StackBuf::<*Type, 4>) -> SpecKind {
+        if spec_args->is_empty() { return SpecKind::Explicit; }
+
+        for var i: usize = 0; i < spec_args->size(); ++i {
+            if !self._is_simple_ident_type((*spec_args)[i]) {
+                return SpecKind::Partial; // structured arg -> partial spec
+            }
+        }
+        return SpecKind::Primary; // all simple idents; sema refines vs Explicit
+    }
+
+    /// \brief true if `ty` is a single-segment `ChainType` naming a bare
+    ///        identifier with no generic args of its own (`T`, `i32`, `Foo`).
+    ///        Structured types (`[T]`, `*T`, `Vec<T>`, `A::B`) return false.
+    fn _is_simple_ident_type(self, ty: *Type) -> bool {
+        if ty == &null { return false; }
+        if !isa::<ChainType>(ty) { return false; }
+        return cast::<ChainType>(ty)->is_simple(); // single unqualified name, no args
+    }
+
     /// \brief parses an optional generic parameter list into `out`.
     ///  Grammar:  '<' generic_param (',' generic_param)* '>'
     ///    generic_param := '...'? identifier (':' kind_bound)?
@@ -703,12 +877,13 @@ class <T> DeclParse {
             fd->modifiers |= FnModifier::IsFinal;
         }
 
-        // optional generics: `fn <T> name(...)`
-        if dyn()->check(TokenKind::OpLess) {
-            var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-            self._parse_generic_params(&gparams);
-            fd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
-        }
+        // optional generics or specialization introducer:
+        //   `fn <T> name(...)`  -> type params
+        //   `fn <> name<i32>()` -> specialization marker (#68)
+        var fn_intro: SpecKind = SpecKind::None;
+        var gparams: std::StackBuf::<*GenericParamDecl, 2>;
+        self._parse_generic_or_spec_intro(&gparams, &fn_intro);
+        fd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
 
         // name | `op <operator>` | qualified `Class::method`
         if dyn()->check(TokenKind::KwOp) {
@@ -740,6 +915,32 @@ class <T> DeclParse {
                 }
             } else {
                 fd->name = name_tok;
+            }
+
+            // specialization argument pattern: `name<i32>`, `name<[T]>`.
+            // Only meaningful when a `<>` introducer preceded the name.
+            if (fn_intro != SpecKind::None) && dyn()->check(TokenKind::OpLess) {
+                var sargs: std::StackBuf::<*Type, 4>;
+                self._parse_spec_args(&sargs);
+                fd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
+
+                var kind = self._classify_spec(&sargs);
+                // Functions accept primary + explicit only; partial (structured
+                // pattern) is a class/struct/union feature. See issue #68.
+                if kind == SpecKind::Partial {
+                    dyn()->diag->report(DiagID::S049E, fd->name.range.start,
+                        "partial specialization is not allowed on functions; "
+                        "only classes, structs, and unions may be partially specialized"
+                    ).first(fd->name.range).emit();
+                    kind = SpecKind::Explicit; // best-effort recovery
+                }
+                fd->spec_kind = kind;
+            } else if fn_intro != SpecKind::None {
+                // `fn <>` with no post-name `<...>` is malformed.
+                dyn()->diag->report(DiagID::S049E, fd->name.range.start,
+                    "expected specialization arguments '<...>' after the name "
+                    "following the '<>' specialization marker"
+                ).first(fd->name.range).emit();
             }
         } else {
             dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
@@ -1678,13 +1879,15 @@ class <T> DeclParse {
         }
         dyn()->advance(T::SkipNL::After); // consume `class`
 
-        // a class name may itself carry generics: `class <T> Foo`
+        // a class name may itself carry generics or a specialization marker:
+        //   `class <T> Foo`     -> type params
+        //   `class <> Box<T>`   -> primary via specialization form (#68)
+        //   `class <> Box<i32>` -> explicit specialization
+        //   `class <> Box<[T]>` -> partial specialization
         var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var has_generics = false;
-        if dyn()->check(TokenKind::OpLess) {
-            self._parse_generic_params(&gparams);
-            has_generics = true;
-        }
+        var cls_intro: SpecKind = SpecKind::None;
+        self._parse_generic_or_spec_intro(&gparams, &cls_intro);
+        var has_generics = !gparams.is_empty();
 
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S046E, start.start,
@@ -1701,6 +1904,20 @@ class <T> DeclParse {
         cd->is_final = lead->is_final;
         if has_generics {
             cd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+        }
+
+        // specialization argument pattern after the name: `Box<T>`, `Box<[T]>`.
+        // classes/structs/unions accept primary, explicit, and partial. (#68)
+        if (cls_intro != SpecKind::None) && dyn()->check(TokenKind::OpLess) {
+            var sargs: std::StackBuf::<*Type, 4>;
+            self._parse_spec_args(&sargs);
+            cd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
+            cd->spec_kind = self._classify_spec(&sargs);
+        } else if cls_intro != SpecKind::None {
+            dyn()->diag->report(DiagID::S049E, name.range.start,
+                "expected specialization arguments '<...>' after the name "
+                "following the '<>' specialization marker"
+            ).first(name.range).emit();
         }
 
         // heritage
@@ -1760,11 +1977,9 @@ class <T> DeclParse {
         dyn()->advance(T::SkipNL::After); // consume `struct`
 
         var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var has_generics = false;
-        if dyn()->check(TokenKind::OpLess) {
-            self._parse_generic_params(&gparams);
-            has_generics = true;
-        }
+        var struct_intro: SpecKind = SpecKind::None;
+        self._parse_generic_or_spec_intro(&gparams, &struct_intro);
+        var has_generics = !gparams.is_empty();
 
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S046E, start.start,
@@ -1780,6 +1995,19 @@ class <T> DeclParse {
         var sd = StructDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
         if has_generics {
             sd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+        }
+
+        // specialization argument pattern (#68).
+        if (struct_intro != SpecKind::None) && dyn()->check(TokenKind::OpLess) {
+            var sargs: std::StackBuf::<*Type, 4>;
+            self._parse_spec_args(&sargs);
+            sd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
+            sd->spec_kind = self._classify_spec(&sargs);
+        } else if struct_intro != SpecKind::None {
+            dyn()->diag->report(DiagID::S049E, name.range.start,
+                "expected specialization arguments '<...>' after the name "
+                "following the '<>' specialization marker"
+            ).first(name.range).emit();
         }
 
         // structs take only `impl` (no derives).
@@ -1823,11 +2051,9 @@ class <T> DeclParse {
         dyn()->advance(T::SkipNL::After); // consume `union`
 
         var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var has_generics = false;
-        if dyn()->check(TokenKind::OpLess) {
-            self._parse_generic_params(&gparams);
-            has_generics = true;
-        }
+        var union_intro: SpecKind = SpecKind::None;
+        self._parse_generic_or_spec_intro(&gparams, &union_intro);
+        var has_generics = !gparams.is_empty();
 
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S046E, start.start,
@@ -1843,6 +2069,19 @@ class <T> DeclParse {
         var ud = UnionDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
         if has_generics {
             ud->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+        }
+
+        // specialization argument pattern (#68).
+        if (union_intro != SpecKind::None) && dyn()->check(TokenKind::OpLess) {
+            var sargs: std::StackBuf::<*Type, 4>;
+            self._parse_spec_args(&sargs);
+            ud->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
+            ud->spec_kind = self._classify_spec(&sargs);
+        } else if union_intro != SpecKind::None {
+            dyn()->diag->report(DiagID::S049E, name.range.start,
+                "expected specialization arguments '<...>' after the name "
+                "following the '<>' specialization marker"
+            ).first(name.range).emit();
         }
 
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(ud));

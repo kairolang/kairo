@@ -1009,6 +1009,50 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.src_expr(req);
     }
 
+    /// Renders the `<>` specialization introducer that precedes the name when a
+    /// decl is a specialization (#68). Primary/Explicit/Partial all print the
+    /// bare `<>` marker in source form; the distinction is on the arg pattern.
+    fn _spec_intro(self, kind: SpecKind) {
+        if kind == SpecKind::None { return; }
+        self.p.paint(Color::Punct, "<>");
+        self.p.put(" ");
+    }
+
+    /// Renders the post-name `<...>` specialization argument pattern (#68).
+    fn _spec_args(self, kind: SpecKind, args: FrozenList::<*Type>) {
+        if kind == SpecKind::None { return; }
+        self.p.paint(Color::Punct, "<");
+        for var i: usize = 0; i < args.size(); ++i {
+            if i > 0 { self.p.paint(Color::Punct, ", "); }
+            self.src_type(args[i]);
+        }
+        self.p.paint(Color::Punct, ">");
+    }
+
+    /// Debug-tree annotation for a decl's specialization classification (#68).
+    /// Emitted on the DEBUG path so `--print-ast=tree` shows Primary/Explicit/
+    /// Partial per decl, making the classification verifiable.
+    fn _spec_kind_label(self, kind: SpecKind) -> string {
+        switch kind {
+            case SpecKind::None     { return "";          }
+            case SpecKind::Primary  { return "primary";   }
+            case SpecKind::Explicit { return "explicit";  }
+            case SpecKind::Partial  { return "partial";   }
+        }
+        return "";
+    }
+
+    /// Debug-tree inline tag for a specialization: ` [spec=explicit <i32>]`.
+    /// Renders nothing for non-specializations (#68).
+    fn _dd_spec(self, kind: SpecKind, args: FrozenList::<*Type>) {
+        if kind == SpecKind::None { return; }
+        self.p.paint(Color::Punct, " [spec=");
+        self.p.paint(Color::Keyword, self._spec_kind_label(kind));
+        self.p.put(" ");
+        self._spec_args(kind, args);
+        self.p.paint(Color::Punct, "]");
+    }
+
     fn _inherit_list(self, kw: string, edges: FrozenList::<InheritEdge>) {
         if edges.is_empty() { return; }
         self.p.put(" ");
@@ -1096,6 +1140,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, "fn");
         self._generic_params(fd->generic_params);
         self.p.put(" ");
+        self._spec_intro(fd->spec_kind); // `<>` marker (#68)
 
         if fd->qualifier != &null {
             self.src_expr(fd->qualifier);
@@ -1107,6 +1152,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         } else {
             self.p.paint(Color::Ident, self.tok(fd->name));
         }
+        self._spec_args(fd->spec_kind, fd->spec_args); // post-name `<...>` (#68)
 
         self._param_list(fd->params, fd->is_variadic);
         self._fn_modifiers(fd);
@@ -1225,7 +1271,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, "struct");
         self._generic_params(sd->generic_params);
         self.p.put(" ");
+        self._spec_intro(sd->spec_kind); // `<>` marker (#68)
         self.p.paint(Color::TypeName, self.tok(sd->name));
+        self._spec_args(sd->spec_kind, sd->spec_args); // post-name `<...>` (#68)
         self._inherit_list("impl", sd->implements);
         self._requires(sd->requires_clause);
         self._member_body(sd->fields, empty_methods);
@@ -1236,7 +1284,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, "class");
         self._generic_params(cd->generic_params);
         self.p.put(" ");
+        self._spec_intro(cd->spec_kind); // `<>` marker (#68)
         self.p.paint(Color::TypeName, self.tok(cd->name));
+        self._spec_args(cd->spec_kind, cd->spec_args); // post-name `<...>` (#68)
         self._inherit_list("derives", cd->derives_list);
         self._inherit_list("impl", cd->implements);
         self._requires(cd->requires_clause);
@@ -1305,7 +1355,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Keyword, "union");
         self._generic_params(ud->generic_params);
         self.p.put(" ");
+        self._spec_intro(ud->spec_kind); // `<>` marker (#68)
         self.p.paint(Color::TypeName, self.tok(ud->name));
+        self._spec_args(ud->spec_kind, ud->spec_args); // post-name `<...>` (#68)
         self._member_body(ud->fields, empty_methods);
     }
 
@@ -2620,6 +2672,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         } else {
             self.p.paint(Color::Ident, self.tok(fd->name));
         }
+        self._dd_spec(fd->spec_kind, fd->spec_args); // specialization tag + pattern (#68)
         // signature (params + return) inline; full declarations explode as children.
         self._param_list(fd->params, fd->is_variadic);
         if fd->is_noreturn {
@@ -2830,6 +2883,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(sd));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(sd->name));
+        self._dd_spec(sd->spec_kind, sd->spec_args); // specialization tag (#68)
         self._inherit_list("impl", sd->implements);
         self.p.newline();
         var empty_methods: FrozenList::<*FunctionDecl>;
@@ -2845,6 +2899,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(cd));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(cd->name));
+        self._dd_spec(cd->spec_kind, cd->spec_args); // specialization tag (#68)
         self._inherit_list("derives", cd->derives_list);
         self._inherit_list("impl", cd->implements);
         self.p.newline();
@@ -2887,6 +2942,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_ffi_linkage(static_cast::<*Decl>(ud));
         self.p.put(" ");
         self.p.paint(Color::TypeName, self.tok(ud->name));
+        self._dd_spec(ud->spec_kind, ud->spec_args); // specialization tag (#68)
         self.p.newline();
         var empty_methods: FrozenList::<*FunctionDecl>;
         var members = vec::<*Decl>();

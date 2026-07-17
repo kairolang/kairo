@@ -1102,6 +1102,7 @@ class <D> ASTWriter {
 
     fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
+        self.dyn()->rebuild_type_list(&(n->spec_args)); // specialization pattern (#68)
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->params)));
         if n->return_type != &null { n->return_type = self.dyn()->transform_type(n->return_type); }
@@ -1138,6 +1139,7 @@ class <D> ASTWriter {
 
     fn transform_struct_decl(self, n: *StructDecl) -> vec::<*Decl> {
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
+        self.dyn()->rebuild_type_list(&(n->spec_args)); // specialization pattern (#68)
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         for var i: usize = 0; i < n->implements.size(); i++ {
             if self.stop { break; }
@@ -1150,6 +1152,7 @@ class <D> ASTWriter {
 
     fn transform_class_decl(self, n: *ClassDecl) -> vec::<*Decl> {
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
+        self.dyn()->rebuild_type_list(&(n->spec_args)); // specialization pattern (#68)
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         for var i: usize = 0; i < n->derives_list.size(); i++ {
             if self.stop { break; }
@@ -1206,6 +1209,7 @@ class <D> ASTWriter {
 
     fn transform_union_decl(self, n: *UnionDecl) -> vec::<*Decl> {
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
+        self.dyn()->rebuild_type_list(&(n->spec_args)); // specialization pattern (#68)
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->fields)));
         self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));

@@ -42,6 +42,26 @@ class FieldDecl;     // enum-variant payloads, struct/class members
 class ParamDecl;     // function parameters
 class GenericParamDecl;
 
+/// Specialization form of a generic declaration. Drives disambiguation and
+/// sema template selection. See issue #68.
+///
+///   None      plain decl, no `<...>` involvement            `fn foo`
+///   Primary   `<>`-introduced primary generic template      `class <> Box<T>`
+///             (also the classic `class <T> Box` primary form)
+///   Explicit  full explicit specialization                  `fn <> sum<i32>`
+///   Partial   partial specialization (class/struct/union)   `class <> Box<[T]>`
+///
+/// \note Only Primary declarations *own* the generic-ness of a name for
+///       parser disambiguation. Explicit/Partial are specializations OF an
+///       existing primary and must not, by themselves, mark a name generic;
+///       if no primary exists, sema (type resolve) reports the error.
+enum SpecKind derives u8 {
+    None = 0,
+    Primary,
+    Explicit,
+    Partial,
+}
+
 /// CRTP mixin: a decl `T` derives TemplateParams::<T> to carry generic
 /// parameters. Non-generic decls leave `params` empty (count 0) and
 /// `requires_clause` null; is_generic() is the cheap gate.
@@ -49,8 +69,31 @@ class <T> TemplateParams {
     pub var generic_params: FrozenList::<*GenericParamDecl>;
     pub var requires_clause: *Expr = &null; ///< `requires <expr>`; null if none.
 
-    fn is_generic(self) -> bool {
+    /// Specialization classification. `spec_kind == None` for ordinary decls.
+    pub var spec_kind: SpecKind = SpecKind::None;
+    /// The post-name `<...>` argument pattern for a specialization
+    /// (`<i32>`, `<[T]>`). Empty for None/Primary-via-`<T>` forms.
+    pub var spec_args: FrozenList::<*Type>;
+
+    /// True if this decl has explicit `<T>` type parameters.
+    fn has_type_params(self) -> bool {
         return !self.generic_params.is_empty();
+    }
+
+    /// Parser-disambiguation gate: does this decl make its *name* a generic
+    /// use-site (`name<...>` parses as generic application)?
+    ///
+    /// A name is generic iff it carries type parameters OR is a Primary
+    /// template. Explicit/Partial specializations do NOT mark the name
+    /// generic on their own the primary owns that fact.
+    fn is_generic(self) -> bool {
+        return self.has_type_params()
+            || (self.spec_kind == SpecKind::Primary);
+    }
+
+    fn is_specialization(self) -> bool {
+        return (self.spec_kind == SpecKind::Explicit)
+            || (self.spec_kind == SpecKind::Partial);
     }
 
     fn generic_param_count(self) -> usize {

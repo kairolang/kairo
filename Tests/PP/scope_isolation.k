@@ -21,7 +21,7 @@ module a {
     module b {
         macro m!() { 1 }   // registered under [a, b]
     }
-    macro n!() { 2 }       // registered under [a] — proves b popped on its `}`
+    macro n!() { 2 }       // registered under [a] proves b popped on its `}`
 }
 a::b::m!()   // 1, resolves under [a, b]
 a::n!()      // 2, resolves under [a]; if b didn't pop, n would land in [a, b]

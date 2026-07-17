@@ -1444,6 +1444,12 @@ class <D> RecursiveASTVisitor {
             self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
         }
         if self.stop { return n; }
+        // specialization argument pattern types (#68)
+        for var i: usize = 0; i < n->spec_args.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(n->spec_args.get(i));  // discard
+        }
+        if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
         // params
         for var i: usize = 0; i < n->params.size(); i++ {
@@ -1511,6 +1517,12 @@ class <D> RecursiveASTVisitor {
             self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
         }
         if self.stop { return n; }
+        // specialization argument pattern types (#68)
+        for var i: usize = 0; i < n->spec_args.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(n->spec_args.get(i));  // discard
+        }
+        if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
         for var i: usize = 0; i < n->implements.size(); i++ {
             if self.stop { break; }
@@ -1531,6 +1543,12 @@ class <D> RecursiveASTVisitor {
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
             self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+        }
+        if self.stop { return n; }
+        // specialization argument pattern types (#68)
+        for var i: usize = 0; i < n->spec_args.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(n->spec_args.get(i));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
@@ -1624,6 +1642,12 @@ class <D> RecursiveASTVisitor {
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
             self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+        }
+        if self.stop { return n; }
+        // specialization argument pattern types (#68)
+        for var i: usize = 0; i < n->spec_args.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_type(n->spec_args.get(i));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
