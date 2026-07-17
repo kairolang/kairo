@@ -278,8 +278,8 @@ fn llvm_tool(name:     string, entry:      string, ver:     string, includes: ve
         .entry(entry)
         .includes(includes)
         .define(ver)
-        .passthrough("-Lbuild/.kbld/")
-        .passthrough("-lregistry.o")
+        .passthrough("-x none")
+        .passthrough("build/.kbld/registry.o")
         .pre_build(prebuild_script())
         .pre_build("python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k");
     apply_llvm(t, llvm_src, llvm_build, out_lib);

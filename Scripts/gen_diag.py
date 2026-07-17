@@ -252,8 +252,7 @@ def main():
         "kairo", temp_registry_path,
         "-I", output_dir,
         "-I", "Compiler/",
-        "-o", lib_output_path,
-        "--", "-c", "-flto=thin", "-fuse-ld=lld"
+        "--", "-o", lib_output_path, "-c", "-flto=thin", "-fuse-ld=lld"
     ]
     print(f"+ {' '.join(cmd)}", file=sys.stderr)
     result = subprocess.run(cmd)
