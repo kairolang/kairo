@@ -223,24 +223,30 @@ enum DisambigKind derives u8 {
 
 /// A single entry in the hoisted scope table.
 ///
-/// \c num_params == 0 means the declaration is not generic.
 /// \c decl is null for declarations originating from C++ FFI use
 /// \c origin for source location in that case.
 /// \c is_foreign is true for symbols introduced via import, not declared
 /// locally in the file being indexed.
+///
+/// \c generic mirrors TemplateParams::is_generic() on the declaring node:
+/// true iff the decl carries explicit `<T>` type params OR is a Primary
+/// specialization form. Explicit/Partial specializations do NOT set it
+/// genericness of a name is owned by the primary declaration. The zero
+/// value (false) is the safe default: an entry never accidentally reads
+/// as generic. (Replaces the old num_params sentinel, whose two competing
+/// contracts 0-means-not-generic vs -1-means-not-generic made every
+/// zero-count path read as generic.)
 class DisambigEntry {
     struct DeclEntry { // 128 bits
         pub var origin: SourceRange;
     }
-
-    pub const static var NO_GENERICS: u32;
 
     pub var extend_of_name: u32 = u32(-1); ///< imm ident index of the extended type's name.
     pub var name:           u32 = u32(-1); ///< imm ident index of this entry's name.
     pub var kind:           DisambigKind;
     pub var decl:           DeclEntry;
     pub var extend_of:      DeclEntry;
-    pub var num_params:     u32 = u32(-1);  ///< Generic parameter count. 0 = not generic.
+    pub var generic:        bool = false; ///< See class docs; from TemplateParams::is_generic().
     pub var is_foreign:     bool; ///< True if introduced via import.
     pub var extended:       bool; ///< True if this is an extended impl of an existing type, not a new declaration.
 
@@ -267,14 +273,10 @@ class DisambigEntry {
             || self.kind == DisambigKind::BasicMacro;
     }
 
-    fn is_generic(self)   -> bool { return self.num_params != NO_GENERICS; }
+    fn is_generic(self)   -> bool { return self.generic;        }
     fn is_extension(self) -> bool { return self.extended;       }
     fn is_from_foreign(self)   -> bool { return self.is_foreign;     }
 }
-
-__inline_cpp("
-u32 DisambigEntry::NO_GENERICS = u32(-1);
-");
 
 /// One node in the hoisted scope trie.
 ///
@@ -655,7 +657,7 @@ class DisambigTable {
 
     priv static fn _flags_str(entry: ref!(DisambigEntry)) -> string {
         var s: string = "";
-        if entry.is_generic()  { s = (s + "  <generic:" + std::to_string(entry.num_params) + ">"); }
+        if entry.is_generic()  { s = (s + "  <generic>"); }
         if entry.is_from_foreign()  { s = (s + "  [foreign]");  }
         if entry.extended      { s = (s + "  [extension]"); }
         return s;

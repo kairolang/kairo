@@ -118,6 +118,11 @@ class DeclContext {
     /// Looks up a name in THIS scope only (no parent walk). Delegates to
     /// the hoisted scope node. Returns not_found if the scope isn't wired
     /// or the name isn't present.
+    ///
+    /// \warning the hoisted table holds PARSER-RELEVANT entries only: all
+    ///          type decls, and generic functions/operators. Variables,
+    ///          non-generic callables, and macros are never hoisted. Sema
+    ///          must not use this as a member table; it builds its own.
     fn lookup_local(self, name: u32) -> LookupResult {
         if self.dc_scope == &null { return LookupResult::not_found(); }
         var entries = self.dc_scope->lookup(name);
