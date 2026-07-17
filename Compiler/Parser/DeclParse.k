@@ -951,6 +951,16 @@ class <T> DeclParse {
             return static_cast::<*Decl>(FunctionDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
 
+        // index mode: the head is fully parsed (generics, name, spec pattern
+        // all live on `fd`). Token-skip the signature and body; the index
+        // walker hoists from the returned node.
+        if dyn()->mode == T::ParseMode::Index {
+            dyn()->_index_skip_stmt();
+            fd->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(fd);
+        }
+
         // parameter list
         dyn()->enter_scope(ScopeKind::Function, static_cast::<*DeclContext>(fd));
 
@@ -1548,6 +1558,15 @@ class <T> DeclParse {
 
         var vd = VariableDecl::create(dyn()->ctx, start, name, storage);
 
+        // index mode: the name is all the table needs; skip type and init
+        // (the init is an expression parsing it here would query the
+        // half-built table).
+        if dyn()->mode == T::ParseMode::Index {
+            dyn()->_index_skip_stmt();
+            vd->range = start | dyn()->prev().range;
+            return static_cast::<*Decl>(vd);
+        }
+
         // optional `: type`
         if dyn()->check(TokenKind::OpColon) {
             dyn()->advance(T::SkipNL::After); // consume `:`
@@ -1713,6 +1732,51 @@ class <T> DeclParse {
     /// \details pushes no scope of its own the caller owns scope lifetime;
     ///          this only routes members. Nested type decls are appended to
     ///          the owner's dc_decls via add_decl.
+    /// \brief index-mode type-body walk: parses member decls shallowly (every
+    ///        production cuts after its head in index mode) and lands them in
+    ///        \p owner->dc_decls so the post-parse hoist recursion
+    ///        (ASTParse::_index_hoist_decl) can insert them under the type's
+    ///        scope-path segment. Anything that is not a decl lead-in is
+    ///        token-skipped never walked into.
+    ///
+    /// \pre the opening `{` is consumed (via _index_skip_to_body).
+    /// \post the closing `}` is consumed if present.
+    priv fn _index_walk_body(self, owner: *DeclContext) {
+        var prev_idx: usize = 0;
+        var have_prev = false;
+
+        while (!dyn()->is_eof()) && (!dyn()->check(TokenKind::OpRBrace)) {
+            // progress guard (same rationale as _parse_member_body).
+            if have_prev && (dyn()->c_idx == prev_idx) {
+                dyn()->advance();
+                continue;
+            }
+            prev_idx  = dyn()->c_idx;
+            have_prev = true;
+
+            if dyn()->check(TokenKind::TkNewLine) || dyn()->check(TokenKind::OpSemicolon) {
+                dyn()->advance();
+                continue;
+            }
+
+            var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+            if self._starts_decl_kw(k) {
+                var d = self.parse_decl();
+                if d == &null {
+                    dyn()->_index_skip_stmt();
+                } else if !self.is_fatal_decl(d) {
+                    owner->add_decl(d);
+                }
+            } else {
+                dyn()->_index_skip_stmt();
+            }
+        }
+
+        if dyn()->check(TokenKind::OpRBrace) {
+            dyn()->advance(T::SkipNL::Before); // consume `}`
+        }
+    }
+
     priv fn _parse_member_body(
         self,
         owner:        *DeclContext,
@@ -1920,6 +1984,18 @@ class <T> DeclParse {
             ).first(name.range).emit();
         }
 
+        // index mode: token-skip heritage/requires to the body (no type or
+        // expression parsing against the half-built table), then walk members
+        // shallowly into dc_decls for the hoist recursion.
+        if dyn()->mode == T::ParseMode::Index {
+            if dyn()->_index_skip_to_body() {
+                self._index_walk_body(static_cast::<*DeclContext>(cd));
+            }
+            cd->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(cd);
+        }
+
         // heritage
         var dlist: std::StackBuf::<InheritEdge, 4>;
         var ilist: std::StackBuf::<InheritEdge, 4>;
@@ -2010,6 +2086,16 @@ class <T> DeclParse {
             ).first(name.range).emit();
         }
 
+        // index mode: see _parse_class.
+        if dyn()->mode == T::ParseMode::Index {
+            if dyn()->_index_skip_to_body() {
+                self._index_walk_body(static_cast::<*DeclContext>(sd));
+            }
+            sd->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(sd);
+        }
+
         // structs take only `impl` (no derives).
         var ilist: std::StackBuf::<InheritEdge, 4>;
         while dyn()->check(TokenKind::KwImpl) {
@@ -2084,6 +2170,16 @@ class <T> DeclParse {
             ).first(name.range).emit();
         }
 
+        // index mode: see _parse_class.
+        if dyn()->mode == T::ParseMode::Index {
+            if dyn()->_index_skip_to_body() {
+                self._index_walk_body(static_cast::<*DeclContext>(ud));
+            }
+            ud->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(ud);
+        }
+
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(ud));
         var fields:  std::StackBuf::<*FieldDecl, 8>;
         var methods: std::StackBuf::<*FunctionDecl, 8>; // unused
@@ -2133,6 +2229,16 @@ class <T> DeclParse {
         var id = InterfaceDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
         if has_generics {
             id->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+        }
+
+        // index mode: see _parse_class.
+        if dyn()->mode == T::ParseMode::Index {
+            if dyn()->_index_skip_to_body() {
+                self._index_walk_body(static_cast::<*DeclContext>(id));
+            }
+            id->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(id);
         }
 
         // interface inheritance via `derives`
@@ -2255,6 +2361,17 @@ class <T> DeclParse {
         var en = EnumDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
         if has_generics {
             en->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+        }
+
+        // index mode: variants are not decls and are not hoisted; skip the
+        // `derives` clause and the whole body.
+        if dyn()->mode == T::ParseMode::Index {
+            if dyn()->_index_skip_to_body() {
+                dyn()->_index_skip_block();
+            }
+            en->range = start | dyn()->prev().range;
+            dyn()->exit_depth();
+            return static_cast::<*Decl>(en);
         }
 
         // `derives <int type>` underlying type (NOT inheritance for enums).
@@ -2415,6 +2532,18 @@ class <T> DeclParse {
         var name = dyn()->current();
         dyn()->advance();
 
+        // index mode: the name and generics are all the table needs; the
+        // aliased type is sema's business. Node carries a null `aliased`.
+        if dyn()->mode == T::ParseMode::Index {
+            var ita = TypeAliasDecl::create(dyn()->ctx, start | dyn()->prev().range,
+                                            name, static_cast::<*Type>(&null));
+            if has_generics {
+                ita->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
+            }
+            dyn()->_index_skip_stmt();
+            return static_cast::<*Decl>(ita);
+        }
+
         if !dyn()->check(TokenKind::OpEqual) {
             dyn()->diag->report(DiagID::S050E, start.start,
                 "expected '=' in type alias declaration"
@@ -2520,6 +2649,13 @@ class <T> DeclParse {
         dyn()->advance(T::SkipNL::After); // consume `test`
 
         var td = TestDecl::create(dyn()->ctx, start, dyn()->scope.current_dc());
+
+        // index mode: tests contribute nothing to the table; skip wholesale.
+        if dyn()->mode == T::ParseMode::Index {
+            dyn()->_index_skip_stmt();
+            td->range = start | dyn()->prev().range;
+            return static_cast::<*Decl>(td);
+        }
 
         if dyn()->check(TokenKind::LitString) {
             var s_tok = dyn()->current();
@@ -2640,6 +2776,15 @@ class <T> DeclParse {
         dyn()->advance();
 
         var pm = ProcedureMacroDecl::create(dyn()->ctx, start, name, dyn()->scope.current_dc());
+
+        // index mode: proc-macro bodies are full statement blocks; skip them.
+        // (Token macros run their normal production its body is a raw
+        // brace-balanced span, no expression parsing.)
+        if dyn()->mode == T::ParseMode::Index {
+            dyn()->_index_skip_stmt();
+            pm->range = start | dyn()->prev().range;
+            return static_cast::<*Decl>(pm);
+        }
 
         dyn()->enter_scope(ScopeKind::Function, static_cast::<*DeclContext>(pm));
 

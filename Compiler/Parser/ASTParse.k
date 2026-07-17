@@ -100,6 +100,25 @@ class ASTParse
     pub var _pending_trailing: vec::<PendingComment>;
     pub var _last_exp_diag_loc: u32 = 0;     ///< raw loc of the last expansion-site diagnostic;
                                              ///  collapses repeated backtraces for one invocation.
+
+    // --- Index mode (merged indexer) -----------------------------------------
+
+    /// \enum ParseMode
+    /// \brief selects between the full parse and the table-building index pass.
+    ///
+    /// \details Index mode drives the SAME decl grammar as Full, but decl
+    ///          productions cut after their heads (name, generics, spec
+    ///          pattern) and token-skip signatures/bodies, so nothing heavy is
+    ///          materialized and no expression parsing runs against the
+    ///          half-built DisambigTable. Statement positions are never walked
+    ///          into, which kills the old indexer's phantom-global hoists.
+    enum ParseMode derives u8 {
+        Full,   ///< normal parse: builds the AST, emits diagnostics.
+        Index,  ///< pre-pass: populates ctx->hoisted, suppresses diagnostics.
+    }
+
+    pub var mode: ParseMode = ParseMode::Full; ///< see ParseMode.
+    var _index_path: vec::<string>;            ///< named-scope path for hoisted inserts (index mode only).
     
 
     class TentativeGuard {
@@ -188,12 +207,23 @@ class ASTParse
     /// \param ctx      the ASTContext which provides tokens and memory arenas.
     /// \param cc       optional completion consumer for IDE features.
     /// \param g_scope  the global scope used for hoisting top-level declarations.
-    fn ASTParse(self, ctx: *ASTContext, cc: *CodeCompleteConsumer, g_scope: *GlobalDisambigTable) {
+    /// \param mode     Full (default) or Index; Index allocates ctx->hoisted
+    ///                 (previously ASTIndex's job) and expects index() to be
+    ///                 called instead of parse().
+    fn ASTParse(self, ctx: *ASTContext, cc: *CodeCompleteConsumer, g_scope: *GlobalDisambigTable, mode: ParseMode = ParseMode::Full) {
         self.ctx   = ctx;
         self.diag = &(ctx->diag_sink);
         self.imm   = ctx->get_imm_table();
         self.cc    = cc;
         self.span  = ctx->get_tokens();
+
+        self.mode = mode;
+        if (mode == ParseMode::Index) && (ctx->hoisted == &null) {
+            // the index pass owns table allocation; must precede TU creation
+            // below since the TU constructor captures ctx->hoisted.
+            ctx->hoisted = ctx->alloc_init::<DisambigTable>(ctx);
+        }
+
         var existing = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         if existing != &null {
             self.tu = existing;   // PP-built TU: imports/macros already in it
@@ -412,6 +442,329 @@ class ASTParse
 
             child_dc->set_scope(child);
             self._wire_dc_children(child_dc, child);
+        }
+    }
+
+    //  Index mode (merged indexer)
+
+    /// \brief Index-mode entry point: walks the token stream with the REAL
+    ///        decl grammar (shallow: heads only, bodies token-skipped) and
+    ///        populates ctx->hoisted from the returned decl nodes.
+    ///
+    /// \details replaces ASTIndex. One grammar, two depths: decl productions
+    ///          check `mode` and cut after their heads; this loop and
+    ///          _index_hoist_decl own all table population. Statement
+    ///          positions are token-skipped wholesale, so a `var` inside a
+    ///          for-header or destructure RHS can never hoist a phantom
+    ///          global (old indexer bug #2).
+    ///
+    ///          Diagnostics are suppressed for the whole pass: the Full parse
+    ///          that follows re-parses everything and owns every diagnostic;
+    ///          emitting here would double-report.
+    fn index(self) {
+        if self.mode != ParseMode::Index { return; }
+        if self.ctx->hoisted == &null    { return; }
+
+        self.diag->push_suppress();
+
+        var iterations: usize = 0;
+        var max_iter  = self.span.size() << 2;
+        var prev_idx: usize = 0;
+        var have_prev = false;
+
+        while !self.is_eof() {
+            ++iterations;
+            if iterations > max_iter { break; }
+
+            // progress guard: a production that consumed nothing (recovery
+            // stopping on the very token we dispatched on) must not spin.
+            if have_prev && (self.c_idx == prev_idx) {
+                self.advance_raw();
+                continue;
+            }
+            prev_idx  = self.c_idx;
+            have_prev = true;
+
+            if self._is_terminator_tok(self._current) {
+                self.advance_raw();
+                continue;
+            }
+
+            var annot: PendingAnnotations;
+            self.consume_leading_annotations(&annot); // consumed, discarded
+            if self.is_eof() { break; }
+
+            var k = self.resolve_kind_deep(self._current);
+            if self._starts_decl_kw(k) {
+                var d = self.parse_decl(true);
+                if d == &null {
+                    // closure IIFE fallback (cursor rolled back to `fn`) or a
+                    // non-decl after modifiers: skip the statement wholesale.
+                    self._index_skip_stmt();
+                } else {
+                    self._index_hoist_decl(d, false);
+                }
+            } else {
+                // statement position: never walked into.
+                self._index_skip_stmt();
+            }
+        }
+
+        self.diag->pop_suppress();
+    }
+
+    /// \brief inserts one entry at the current _index_path scope.
+    priv fn _index_insert(self, name: string, entry: DisambigEntry) {
+        if name == "" { return; }
+        if self._index_path.empty() {
+            self.ctx->hoisted->insert(name, entry);
+        } else {
+            self.ctx->hoisted->insert_into(&self._index_path, name, entry);
+        }
+    }
+
+    /// \brief builds a DisambigEntry for \p d and inserts it, recursing into
+    ///        container decls (modules, visibility groups, eval/ffi blocks,
+    ///        type bodies via dc_decls) with the scope path maintained.
+    ///
+    /// \details genericness comes from TemplateParams::is_generic() on the
+    ///          node: has_type_params() || spec_kind == Primary. Explicit and
+    ///          Partial specializations therefore never mark a name generic
+    ///          on their own (old indexer bug #1).
+    fn _index_hoist_decl(self, d: *Decl, foreign: bool) {
+        if d == &null { return; }
+
+        if isa::<FunctionDecl>(d) {
+            var n = cast::<FunctionDecl>(d);
+            if n->qualifier != &null { return; }             // out-of-line impl: not a new decl
+            if n->name.kind == TokenKind::KwSelf { return; } // ctor: not a root name
+            // Non-generic callables are stored as NEGATIVE evidence: rule 4
+            // of the disambiguation model demands that `<` after a known
+            // non-generic name commits to a comparison, and the verdict
+            // (_generic_verdict) needs found-and-not-generic to be
+            // distinguishable from not-found (which stays tentative for
+            // unqualified imported generics).
+            var e = DisambigEntry{};
+            e.kind        = (DisambigKind::Operator) if (n->is_operator) else (DisambigKind::Function);
+            e.generic     = n->is_generic();
+            e.is_foreign  = foreign;
+            e.extended    = false;
+            e.decl.origin = n->range;
+            self._index_insert(self.ctx->get_spelling(n->name), e);
+            return;
+        }
+
+        if isa::<ClassDecl>(d) {
+            var n = cast::<ClassDecl>(d);
+            self._index_hoist_type_scope(static_cast::<*DeclContext>(n), n->name,
+                DisambigKind::ClassType, n->is_generic(), n->range, foreign);
+            return;
+        }
+        if isa::<StructDecl>(d) {
+            var n = cast::<StructDecl>(d);
+            self._index_hoist_type_scope(static_cast::<*DeclContext>(n), n->name,
+                DisambigKind::StructType, n->is_generic(), n->range, foreign);
+            return;
+        }
+        if isa::<UnionDecl>(d) {
+            var n = cast::<UnionDecl>(d);
+            self._index_hoist_type_scope(static_cast::<*DeclContext>(n), n->name,
+                DisambigKind::UnionType, n->is_generic(), n->range, foreign);
+            return;
+        }
+        if isa::<InterfaceDecl>(d) {
+            var n = cast::<InterfaceDecl>(d);
+            self._index_hoist_type_scope(static_cast::<*DeclContext>(n), n->name,
+                DisambigKind::InterfaceType, n->is_generic(), n->range, foreign);
+            return;
+        }
+
+        if isa::<EnumDecl>(d) {
+            var n = cast::<EnumDecl>(d);
+            var e = DisambigEntry{};
+            e.kind        = DisambigKind::EnumType;
+            e.generic     = n->is_generic();
+            e.is_foreign  = foreign;
+            e.extended    = false;
+            e.decl.origin = n->range;
+            self._index_insert(self.ctx->get_spelling(n->name), e);
+            return; // variants are not hoisted (parity with the old indexer)
+        }
+
+        if isa::<TypeAliasDecl>(d) {
+            var n = cast::<TypeAliasDecl>(d);
+            var e = DisambigEntry{};
+            e.kind        = DisambigKind::TypeAlias;
+            e.generic     = n->is_generic();
+            e.is_foreign  = foreign;
+            e.extended    = false;
+            e.decl.origin = n->range;
+            self._index_insert(self.ctx->get_spelling(n->name), e);
+            return;
+        }
+
+        if isa::<VariableDecl>(d) {
+            // Negative evidence for rule 4 (see FunctionDecl above):
+            // `scale<a>(10)` on a known global var must commit to a
+            // comparison chain. Generic closures bound to vars are a
+            // LexicalScope concern (locals shadow globals; the verdict
+            // checks the scope stack first). PatternParse uses is_type()
+            // so value entries cannot flip `case x` into a constructor.
+            var n = cast::<VariableDecl>(d);
+            var e = DisambigEntry{};
+            e.kind        = DisambigKind::Variable;
+            e.generic     = false;
+            e.is_foreign  = foreign;
+            e.extended    = false;
+            e.decl.origin = n->range;
+            self._index_insert(self.ctx->get_spelling(n->name), e);
+            return;
+        }
+
+        // MacroDecl / ProcedureMacroDecl: never hoisted. Macro invocations
+        // are resolved by the PP; is_macro() has zero parser callsites, and
+        // macro names never head a `<` disambiguation (`foo!` / `@foo`).
+
+        if isa::<ModuleDecl>(d) {
+            var n = cast::<ModuleDecl>(d);
+            // no entry for the module itself (parity with the old indexer);
+            // named modules contribute a scope-path segment for their decls.
+            if !n->is_anonymous {
+                self._index_path.push_back(self.ctx->get_spelling(n->name));
+            }
+            self._index_hoist_dc_children(static_cast::<*DeclContext>(n), foreign);
+            if !n->is_anonymous {
+                self._index_path.pop_back();
+            }
+            return;
+        }
+
+        if isa::<VisibilityGroupDecl>(d) {
+            var n = cast::<VisibilityGroupDecl>(d);
+            for var i: usize = 0; i < n->members.size(); ++i {
+                self._index_hoist_decl(n->members[i], foreign);
+            }
+            return;
+        }
+        if isa::<EvalBlockDecl>(d) {
+            var n = cast::<EvalBlockDecl>(d);
+            for var i: usize = 0; i < n->body.size(); ++i {
+                self._index_hoist_decl(n->body[i], foreign);
+            }
+            return;
+        }
+        if isa::<FFIBlockDecl>(d) {
+            var n = cast::<FFIBlockDecl>(d);
+            for var i: usize = 0; i < n->body.size(); ++i {
+                self._index_hoist_decl(n->body[i], true); // ffi block: foreign
+            }
+            return;
+        }
+
+        // ImportDecl, TestDecl, ExtensionDecl, error nodes: nothing to hoist.
+        // (Extension members are sema's job; the old indexer's flat-hoisting
+        // of extend bodies was pollution, not a feature.)
+    }
+
+    /// \brief hoists a type entry, then recurses into its dc_decls with the
+    ///        type's name pushed onto the scope path so members land in the
+    ///        child trie node (which _wire_scopes later connects to the DC).
+    priv fn _index_hoist_type_scope(
+        self,
+        dc:       *DeclContext,
+        name_tok: Token,
+        kind:     DisambigKind,
+        generic:  bool,
+        origin:   SourceRange,
+        foreign:  bool
+    ) {
+        var name_str = self.ctx->get_spelling(name_tok);
+
+        var e = DisambigEntry{};
+        e.kind        = kind;
+        e.generic     = generic;
+        e.is_foreign  = foreign;
+        e.extended    = false;
+        e.decl.origin = origin;
+        self._index_insert(name_str, e);
+
+        if name_str == "" { return; }
+        self._index_path.push_back(name_str);
+        self._index_hoist_dc_children(dc, foreign);
+        self._index_path.pop_back();
+    }
+
+    priv fn _index_hoist_dc_children(self, dc: *DeclContext, foreign: bool) {
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var d = *(dc->dc_decls.get(i));
+            self._index_hoist_decl(d, foreign);
+        }
+    }
+
+    //  Index-mode token skippers: dumb bracket-balanced skips, no grammar.
+
+    /// \brief skips to the end of the current decl/statement: a `;`/newline at
+    ///        depth 0, or an unmatched `}` (left unconsumed the enclosing
+    ///        walker owns it). Brace/paren/bracket contents are crossed whole.
+    fn _index_skip_stmt(self) {
+        var depth: u32 = 0;
+        while !self.is_eof() {
+            var k = self.resolve_kind_deep(self._current);
+            if depth == 0 {
+                if (k == TokenKind::OpSemicolon) || (k == TokenKind::TkNewLine) { return; }
+                if k == TokenKind::OpRBrace { return; }
+            }
+            if (k == TokenKind::OpLBrace) || (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) {
+                depth += 1;
+            } else if (k == TokenKind::OpRBrace) || (k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare) {
+                if depth > 0 { depth -= 1; }
+            }
+            self.advance_raw();
+        }
+    }
+
+    /// \brief crosses a type-decl head's tail (heritage, impl, requires) to
+    ///        the body without parsing it.
+    /// \return true with the `{` consumed, or false at a decl end (newline,
+    ///         `;`, unmatched `}` left unconsumed) forward declaration.
+    fn _index_skip_to_body(self) -> bool {
+        var depth: u32 = 0;
+        while !self.is_eof() {
+            var k = self.resolve_kind_deep(self._current);
+            if depth == 0 {
+                if k == TokenKind::OpLBrace {
+                    self.advance_raw(); // consume `{`
+                    return true;
+                }
+                if (k == TokenKind::OpSemicolon) || (k == TokenKind::TkNewLine) { return false; }
+                if k == TokenKind::OpRBrace { return false; }
+            }
+            if (k == TokenKind::OpLParen) || (k == TokenKind::OpLSquare) {
+                depth += 1;
+            } else if (k == TokenKind::OpRParen) || (k == TokenKind::OpRSquare) {
+                if depth > 0 { depth -= 1; }
+            }
+            self.advance_raw();
+        }
+        return false;
+    }
+
+    /// \brief precondition: just inside a `{`. Skips to and consumes the
+    ///        matching `}`.
+    fn _index_skip_block(self) {
+        var depth: u32 = 0;
+        while !self.is_eof() {
+            var k = self.resolve_kind_deep(self._current);
+            if k == TokenKind::OpLBrace {
+                depth += 1;
+            } else if k == TokenKind::OpRBrace {
+                if depth == 0 {
+                    self.advance_raw(); // consume `}`
+                    return;
+                }
+                depth -= 1;
+            }
+            self.advance_raw();
         }
     }
 

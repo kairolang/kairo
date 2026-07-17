@@ -458,7 +458,11 @@ class <T> PatternParse {
 
         if lead == &null { return false; }
 
-        return dyn()->ctx->hoisted->lookup_tok(lead->name).found();
+        // is_type(), NOT found(): the table also stores value entries (vars,
+        // functions) as negative evidence for `<` disambiguation, and a
+        // global value name must never flip a bare binding pattern into a
+        // constructor head. Constructor heads are types/variants only.
+        return dyn()->ctx->hoisted->lookup_tok(lead->name).is_type();
     }
 
     // ========================================================================

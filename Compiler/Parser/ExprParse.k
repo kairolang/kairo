@@ -1631,9 +1631,12 @@ class <T> ExprParse {
         var nte = NamedIdentExpr::create(dyn()->ctx, id_range, id_tok);
 
         // check for generic args: Foo<T>
-        // only if `<` follows AND hoisted scope says this name is generic
+        // three-state verdict (rule 3/4): known generic commits generic args,
+        // known non-generic commits comparison (rule 4 no tentative), and
+        // only genuinely unknown names run the tentative parse.
         if dyn()->check(TokenKind::OpLess) {
-            if self._is_generic_name(*id_ptr) {
+            var verdict = self._generic_verdict(*id_ptr);
+            if verdict == GenericVerdict::Generic {
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 dyn()->_parse_generic_args(&generic_args);
                 if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
@@ -1642,7 +1645,7 @@ class <T> ExprParse {
                 );
                 nte->range = id_range | dyn()->prev().range;
             }
-            else { // not in hoisted scope tentative parse
+            else if verdict == GenericVerdict::Unknown { // no evidence tentative parse
                 var t = ASTTentativeGuard(dyn());
                 var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
                 var ok = dyn()->_parse_generic_args(&generic_args);
@@ -2860,12 +2863,75 @@ class <T> ExprParse {
 
     /// \brief checks if a name refers to a generic type/function in hoisted scope.
     ///        used to disambiguate `<` as generic args vs comparison operator.
+    ///
+    /// \details scans ALL entries for the name, not first(): a mixed overload
+    ///          set (non-generic + generic under one name) is generic if ANY
+    ///          overload is the entry insertion order must not decide.
     inline fn _is_generic_name(self, tok: Token) -> bool {
         var hr = dyn()->ctx->hoisted->lookup_tok(tok);
-        if hr.found() {
-            return hr.first()->is_generic();
+        if !hr.found() { return false; }
+        for var i: usize = 0; i < hr.entries->size(); ++i {
+            if (*hr.entries)[i].is_generic() { return true; }
         }
         return false;
+    }
+
+    /// \brief three-state `<`-disambiguation verdict for a head-position name
+    ///        (rules 3/4 of the disambiguation model).
+    ///
+    /// \details lookup order is lexical-first locals shadow globals:
+    ///          1. LexicalScope binding (params, locals). A var bound to a
+    ///             generic closure (`var f = fn <T> ...`) is Generic; a
+    ///             generic-param binding (is_tparam, rule 2) is Generic;
+    ///             any other local binding is a plain VALUE -> NotGeneric.
+    ///          2. Hoisted table. Any generic overload -> Generic. All
+    ///             entries Variables -> NotGeneric (a var can never take
+    ///             generic args; commit comparison, rule 4). Known
+    ///             non-generic fn/op/type -> Unknown: assume generic WHEN
+    ///             THE SHAPE FITS (tentative), because "foo takes no
+    ///             generic arguments" is the right diagnostic for
+    ///             `foo<a>(10)`, while `foo < limit` still rolls back to a
+    ///             comparison. An unconditional generic commit here would
+    ///             re-break the `foo < limit` shape (old bug 1).
+    ///          3. Unknown -> the caller runs the tentative parse (also
+    ///             covers unqualified imported generics).
+    enum GenericVerdict derives u8 {
+        Generic,     ///< commit `<` as generic arguments.
+        NotGeneric,  ///< commit `<` as a comparison operator.
+        Unknown,     ///< tentative parse decides.
+    }
+
+    fn _generic_verdict(self, tok: Token) -> GenericVerdict {
+        // 1. lexical bindings shadow everything.
+        var b = dyn()->scope.lookup(dyn()->ctx->get_spelling(tok));
+        if b != &null {
+            if b->is_tparam { return GenericVerdict::Generic; }
+            if (b->decl != &null) && isa::<VariableDecl>(b->decl) {
+                var vd = cast::<VariableDecl>(b->decl);
+                if (vd->init != &null) && isa::<ClosureExpr>(vd->init) {
+                    var cl = cast::<ClosureExpr>(vd->init);
+                    if !cl->generic_params.is_empty() {
+                        return GenericVerdict::Generic;
+                    }
+                }
+            }
+            return GenericVerdict::NotGeneric;
+        }
+
+        // 2. hoisted table.
+        var hr = dyn()->ctx->hoisted->lookup_tok(tok);
+        if hr.found() {
+            var all_vars = true;
+            for var i: usize = 0; i < hr.entries->size(); ++i {
+                if (*hr.entries)[i].is_generic() { return GenericVerdict::Generic; }
+                if (*hr.entries)[i].kind != DisambigKind::Variable { all_vars = false; }
+            }
+            if all_vars { return GenericVerdict::NotGeneric; }
+            return GenericVerdict::Unknown; // known fn/op/type: assume generic if it parses as one
+        }
+
+        // 3. no evidence either way.
+        return GenericVerdict::Unknown;
     }
 
 
