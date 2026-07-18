@@ -64,11 +64,95 @@ import Location::SourceManager::*;
 import Diagnostic::BufferedDiagSink::*;
 import Diagnostic::ClangDiagAdapter::*;
 import Interop::Clang::ClangLocMap::*;
+import Config::Diagnostic::*;
 
 /// ThreadPool group ids used by the driver for backend tasks.
 /// (5 = index, 6 = parse are taken by FrontendAction::_parse.)
 eval fn CLANG_STARTUP_GROUP() -> u8 { return 9;  }
 eval fn CLANG_PRELOAD_GROUP() -> u8 { return 10; }
+
+
+/// Extracts the numeric part of a diagnostic code string, used as the
+/// severity-letter-agnostic key into the DiagEngine policy table. Scans for
+/// the run of decimal digits and parses it; category prefix (S, SC, CL, ...)
+/// and trailing severity letter (W, E, F, ...) are ignored. Returns 0 if the
+/// string contains no digits (never a valid diagnostic number).
+///
+///   "S025"  -> 25    "S025W" -> 25    "s025" -> 25    "C889" -> 889
+fn _diag_code_to_number(code: string) -> u32 {
+    var n = code.length();
+    var i: usize = 0;
+    var val: u32 = 0;
+    var seen: bool = false;
+    while i < n {
+        var c = code[i];
+        if c >= '0' && c <= '9' {
+            seen = true;
+            val = val * 10 + static_cast::<u32>(c - '0');
+        } else if seen {
+            break; // digit run ended; ignore any trailing severity letter
+        }
+        i += 1;
+    }
+    return val;
+}
+
+
+/// True if \p code is a clang-sourced C-code (category prefix \c C followed by
+/// a digit, e.g. \c C889 / \c C889W). Excludes \c CL... (Lowering) and native
+/// categories, which have no clang warning group.
+fn _is_clang_c_code(code: string) -> bool {
+    var n = code.length();
+    var i: usize = 0;
+    // skip leading whitespace defensively
+    while i < n && (code[i] == ' ' || code[i] == '\t') { i += 1; }
+    if i >= n { return false; }
+    if !(code[i] == 'C' || code[i] == 'c') { return false; }
+    i += 1;
+    if i >= n { return false; }
+    return code[i] >= '0' && code[i] <= '9'; // C<digit>; 'CL' fails here
+}
+
+/// Translates the user's per-code diagnostic policy into clang cc1 warning
+/// arguments for the subset that maps to clang warning groups (C-codes).
+///   allow  -> -Wno-<grp>   deny/--error -> -Werror=<grp>
+///   forbid -> -Werror=<grp>  warn/enable -> -W<grp>
+/// Native (non-C) codes are skipped here; they are governed by the emit layer.
+/// \p suppress_all adds a bare \c -w so clang also honours global -w.
+fn _clang_wargs_from_policy(d: ref!(DiagnosticOptions)) -> vec::<string> {
+    var out: vec::<string>;
+    if d.suppress_warnings { out.push_back("-w"); }
+    // Warning-group bulk switches map straight to their clang spellings so
+    // clang enables the same group sets it would under a normal driver.
+    if d.Wall     { out.push_back("-Wall");      }
+    if d.Wextra   { out.push_back("-Wextra");    }
+    if d.Wpedantic { out.push_back("-Wpedantic"); }
+    for c: string in d.allow_list {
+        if _is_clang_c_code(c) {
+            var g = clang_diag_group(_diag_code_to_number(c));
+            if !g.empty() { out.push_back(f"-Wno-{g}"); }
+        }
+    }
+    for c: string in d.warn_list {
+        if _is_clang_c_code(c) {
+            var g = clang_diag_group(_diag_code_to_number(c));
+            if !g.empty() { out.push_back(f"-W{g}"); }
+        }
+    }
+    for c: string in d.deny_list {
+        if _is_clang_c_code(c) {
+            var g = clang_diag_group(_diag_code_to_number(c));
+            if !g.empty() { out.push_back(f"-Werror={g}"); }
+        }
+    }
+    for c: string in d.forbid_list {
+        if _is_clang_c_code(c) {
+            var g = clang_diag_group(_diag_code_to_number(c));
+            if !g.empty() { out.push_back(f"-Werror={g}"); }
+        }
+    }
+    return out;
+}
 
 struct ClangBackendConfig {
     var triple:       string;              ///< effective target triple
@@ -77,6 +161,7 @@ struct ClangBackendConfig {
     var cxx_std:      string = "c++26";
     var includes:     vec::<string>;       ///< -include names (predefines buffer)
     var extra_cc1:    vec::<string>;       ///< platform extras (exception model, PIC, CPU, ...)
+    var wargs:        vec::<string>;       ///< diagnostic -W/-Wno-/-Werror= args from user policy, injected pre-CreateFromArgs
 }
 
 class ClangBackend {
@@ -187,6 +272,18 @@ class ClangBackend {
         a->clang_kfid = self._locmap->clang_fid(kfid);
 
         self._ci->getDiagnostics().Reset();
+
+        // Reset() (soft=false) wipes the per-diagnostic warning MAPPINGS set up
+        // by CreateFromArgs, so the -W/-Wno-/-Werror= args we injected for the
+        // user's diagnostic policy would be lost every TU. Reinstall them from
+        // the invocation's DiagnosticOptions after each reset. ReportDiags=false:
+        // arg-parse errors were already reported at startup.
+        clang::ProcessWarningOptions(
+            self._ci->getDiagnostics(),
+            self._ci->getInvocation().getDiagnosticOpts(),
+            *(self._vfs.get()),
+            false);
+
         self._ci->getDiagnostics().setClient(a, false);
         a->BeginSourceFile(self._ci->getLangOpts(), &null);
 
@@ -269,6 +366,14 @@ class ClangBackend {
         }
 
         for a: string in self._cfg.extra_cc1 {
+            self._arg(&argv, a);
+        }
+
+        // User diagnostic policy for clang-sourced diagnostics: -W<grp> (enable),
+        // -Wno-<grp> (silence), -Werror=<grp> (promote/forbid). Resolved from
+        // Kairo C-codes to clang warning groups by the driver. Injected here so
+        // clang honours them at analysis time, not just post-hoc at emit.
+        for a: string in self._cfg.wargs {
             self._arg(&argv, a);
         }
 
