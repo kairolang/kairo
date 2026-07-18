@@ -40,10 +40,22 @@ struct DiagLabel {
 /// Describes a single source replacement: remove \c range and insert
 /// \c replacement in its place. \c message is shown to the user explaining
 /// the intent of the fix.
+/// The three fix-it edit shapes, kept explicitly separate rather than inferred
+/// from range/replacement emptiness (which is ambiguous). Renderers key on this.
+///   Add     insert \c replacement at a point (\c range is a zero-width caret)
+///   Remove  delete \c range (\c replacement is empty)
+///   Replace delete \c range and insert \c replacement in its place
+enum FixKind {
+    Add,
+    Remove,
+    Replace,
+}
+
 struct FixIt {
     pub var replacement: string;
     pub var message:     string; ///< e.g. "change the return type to 'i32\x27"
     pub var range:       SourceRange;
+    pub var kind:        FixKind = FixKind::Replace; ///< default preserves prior fix() behaviour
 }
 
 

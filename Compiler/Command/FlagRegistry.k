@@ -67,7 +67,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("entry",          "",  "entry",          "override entry point symbol name (default: main)",                                  "main");
     cmd->define::<FlagKind::Bool>  ("compile-only",   "c", "compile-only",   "compile only, do not link (sugar for --emit obj)",                                  false);
     cmd->define::<FlagKind::Bool>  ("emit-asm",       "S", "emit-asm",       "emit assembly output (sugar for --emit asm)",                                       false);
-    cmd->define::<FlagKind::Bool>  ("preprocess",     "E", "preprocess",     "run preprocessor only and write result, then exit",                                 false);
+    cmd->define::<FlagKind::Bool>  ("preprocess",     "",  "preprocess",     "run preprocessor only and write result, then exit",                                 false);
     cmd->define::<FlagKind::Bool>  ("dump-preprocessed","","dump-preprocessed","write full preprocessed source to file (like -E but saved, not stdout)",          false);
     cmd->define::<FlagKind::Bool>  ("syntax-only",    "",  "syntax-only",    "stop after parsing and report only syntax errors, no sema or codegen",             false);
     cmd->define::<FlagKind::Bool>  ("type-check-only","",  "type-check-only","stop after type checking, no codegen or linking",                                   false);
@@ -242,7 +242,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>      ("nowarn",             "w", "",                   "suppress all warnings",                                                false);
     cmd->define::<FlagKind::StringList>("warn",               "W", "",                   "enable a specific diagnostic warning by name (repeatable)");
     cmd->define::<FlagKind::StringList>("allow",              "A", "",                   "silence a specific diagnostic by name (repeatable)");
-    cmd->define::<FlagKind::StringList>("deny",               "E", "",                   "promote a specific diagnostic to error (repeatable)");
+    cmd->define::<FlagKind::StringList>("deny",               "E", "error",                   "promote a specific diagnostic to error (repeatable)");
     cmd->define::<FlagKind::StringList>("forbid",             "F", "",                   "forbid a diagnostic - error, cannot be overridden downstream (repeatable)");
     cmd->define::<FlagKind::String>    ("error-format",       "",  "error-format",       "diagnostic output format: pretty|basic|json|msvc (default: pretty)",  "pretty");
     cmd->define::<FlagKind::Bool>      ("no-color",           "",  "no-color",           "disable ANSI color in diagnostic output",                             false);
