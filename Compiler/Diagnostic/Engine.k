@@ -57,6 +57,22 @@ class DiagEngineVBase {
 }
 
 class DiagEngine;
+
+/// Per-code diagnostic policy action, set from the command line and applied
+/// uniformly at the single \c emit choke point.
+///
+///   \c Silence  drop the diagnostic entirely (\c --allow / \c -A)
+///   \c Promote  raise a warning to an error   (\c --error / \c -E)
+///   \c Forbid   force an error that downstream cannot override (\c --forbid / \c -F)
+///
+/// The policy table is keyed on the NUMERIC part of the code only
+/// (e.g. 25 for \c S025 / \c S025W, 889 for \c C889); the severity letter
+/// is not part of the address.
+enum DiagAction {
+    Silence,
+    Promote,
+    Forbid,
+}
 class DiagBuilder;
 
 /// Fluent builder for constructing and emitting a single \c Diagnostic.
@@ -190,6 +206,7 @@ class DiagBuilder {
 
     /// Attaches a fix-it that replaces \p range with \p replacement.
     /// \p msg is shown to the user describing the intent of the edit.
+    /// Replace \p range with \p replacement (the general edit).
     fn fix(self, range: SourceRange, replacement: string, msg: string) -> ref!(DiagBuilder) {
         if !range.is_valid() {
             return self;
@@ -199,6 +216,22 @@ class DiagBuilder {
         f.range       = range;
         f.replacement = replacement;
         f.message     = msg;
+        f.kind        = FixKind::Replace;
+        self._diag->fixits.push_back(f);
+        return self;
+    }
+
+    /// Delete \p range (no insertion).
+    fn remove(self, range: SourceRange, msg: string) -> ref!(DiagBuilder) {
+        if !range.is_valid() {
+            return self;
+        }
+
+        var f = FixIt{};
+        f.range       = range;
+        f.replacement = "";
+        f.message     = msg;
+        f.kind        = FixKind::Remove;
         self._diag->fixits.push_back(f);
         return self;
     }
@@ -227,6 +260,7 @@ class DiagBuilder {
         f.range       = r;
         f.replacement = text;
         f.message     = msg;
+        f.kind        = FixKind::Add;
         self._diag->fixits.push_back(f);
         return self;
     }
@@ -501,6 +535,8 @@ class DiagEngine derives DiagEngineVBase {
     priv var _error_limit:        u32  = 50; ///< Max errors before suppression kicks in.
     priv var _suppress_depth:     u32  = 0;
     priv var _warnings_as_errors: bool = false;
+    priv var _suppress_all_warnings: bool = false;   ///< -w: drop every Warning-severity diagnostic.
+    priv var _policy: map::<u32, DiagAction>;        ///< numeric-code -> per-code action (see DiagAction).
 
     // --- Constructors --------------------------------------------------------
 
@@ -646,7 +682,48 @@ class DiagEngine derives DiagEngineVBase {
             }
         }
 
-        if sev == DiagSeverity::Warning && self._warnings_as_errors {
+        // --- Per-code policy + global warning control --------------------
+        // Applied at the single choke point so it governs ALL diagnostics
+        // (native S### and clang-adapter C### alike). Keyed on the numeric
+        // part of the code only; the severity letter is not part of the key.
+        //
+        // Precedence, highest wins (do not reorder):
+        //   1. Forbid  (--forbid/-F) -> force Error, non-overridable.
+        //   2. Promote (--error/-E)  -> Warning becomes Error.
+        //   3. Silence (--allow/-A)  -> drop, count suppressed, return.
+        //   4. -w (_suppress_all_warnings) -> drop all Warning-severity.
+        //   5. --Werror (_warnings_as_errors) -> blanket Warning -> Error.
+        // Explicit per-code policy beats blanket flags: --allow beats
+        // --Werror; --forbid beats a later --warn/enable.
+        var num = diag->code.number();
+        if self._policy.contains(num) {
+            switch self._policy[num] {
+                case DiagAction::Forbid {
+                    // Non-overridable: force Error regardless of prior severity.
+                    if sev != DiagSeverity::Error && sev != DiagSeverity::Fatal {
+                        diag->code = self._override_severity(diag->code, DiagSeverity::Error);
+                        sev = DiagSeverity::Error;
+                    }
+                }
+                case DiagAction::Promote {
+                    if sev == DiagSeverity::Warning {
+                        diag->code = self._override_severity(diag->code, DiagSeverity::Error);
+                        sev = DiagSeverity::Error;
+                    }
+                }
+                case DiagAction::Silence {
+                    self._suppressed_count += 1;
+                    self._all_diags.push_back(diag);
+                    return;
+                }
+                default {}
+            }
+        } else if self._suppress_all_warnings && sev == DiagSeverity::Warning {
+            self._suppressed_count += 1;
+            self._all_diags.push_back(diag);
+            return;
+        } else if sev == DiagSeverity::Warning && self._warnings_as_errors {
+            diag->code = self._override_severity(diag->code, DiagSeverity::Error);
             sev = DiagSeverity::Error;
         }
 
@@ -703,6 +780,40 @@ class DiagEngine derives DiagEngineVBase {
 
     /// Promotes all warnings to errors when \p val is true.
     fn set_warnings_as_errors(self, val: bool)  { self._warnings_as_errors = val; }
+
+    /// Suppresses every Warning-severity diagnostic when \p val is true (\c -w).
+    fn set_suppress_all_warnings(self, val: bool) { self._suppress_all_warnings = val; }
+
+    /// Installs a per-code policy action, keyed on the numeric part of the
+    /// code (severity-letter-agnostic). Last write for a given number wins.
+    fn set_policy(self, code: u32, action: DiagAction) { self._policy[code] = action; }
+
+    /// Returns a copy of \p code re-tagged at \p new_sev. Used to promote a
+    /// warning to an error at the emit choke point.
+    ///
+    /// Severity is baked into a code\'s identity (the hash encodes
+    /// category+number+severity) and the error-severity twin of a given code
+    /// is not guaranteed to exist in the registry (e.g. S025W has no S025E).
+    /// We therefore synthesize the meta directly: the category, number, brief,
+    /// and group are preserved; only the severity and the derived id-string
+    /// hash change. Consumers render from meta.severity and (code as string),
+    /// both of which recompute correctly from the synthesized meta.
+    priv fn _override_severity(self, code: DiagCode, new_sev: DiagSeverity) -> DiagCode {
+        var m: DiagMeta;
+        m.brief    = code.brief();
+        m.group    = code.group();
+        m.number   = code.number();
+        m.category = code.category();
+        m.severity = new_sev;
+        // hash encodes category+number+severity for registry re-lookup. A
+        // promoted diagnostic is terminal (rendered now, never re-resolved):
+        // consumers read only meta.severity and (code as string), neither of
+        // which uses hash, and the error-severity twin (e.g. S025E) may not
+        // exist in the registry at all. We deliberately carry the original hash
+        // forward rather than synthesize a new one; it never round-trips.
+        m.hash     = code.hash();
+        return DiagCode(m);
+    }
 
     // --- Counters ------------------------------------------------------------
 

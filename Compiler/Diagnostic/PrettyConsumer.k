@@ -98,6 +98,8 @@ class PrettyDiagConsumer derives DiagConsumer {
     priv var BLUE:     string = "\x1b[34m";
     priv var MAGENTA:  string = "\x1b[35m";
     priv var WHITE:    string = "\x1b[37m";
+    priv var GREEN:    string = "\x1b[32m";
+    priv var STRIKE:   string = "\x1b[9m";  ///< strikethrough (SGR 9) for removed text
 
     // --- Constructors --------------------------------------------------------
 
@@ -158,6 +160,8 @@ class PrettyDiagConsumer derives DiagConsumer {
             self.BLUE     = "";
             self.MAGENTA  = "";
             self.WHITE    = "";
+            self.GREEN    = "";
+            self.STRIKE   = "";
         }
     }
 
@@ -432,32 +436,106 @@ class PrettyDiagConsumer derives DiagConsumer {
         // Gutter aligned precisely to left_pad
         var conn_gutter = f"{string(' ', left_pad)} {pipe} ";
 
+        // Find a fix-it anchored on the primary line. If present, the fix is
+        // rendered IN PLACE: the primary source line shows the edited text
+        // (removed span struck red, inserted text green, rest syntax-
+        // highlighted) and the caret row carries '-'/'+' change markers at the
+        // edit columns. Caret, label-message rows, and every other line render
+        // exactly as they would without a fix-it.
+        var has_primary_fix: bool = false;
+        var primary_fix: FixIt;
+        for var di: usize = 0; di < group.diags.size(); ++di {
+            var dg = group.diags[di];
+            for var fj: usize = 0; fj < dg->fixits.size(); ++fj {
+                var pf = dg->fixits[fj];
+                if pf.range.is_valid()
+                        && (sm->get_line_col(pf.range.start).line == group.line_num) {
+                    primary_fix     = pf;
+                    has_primary_fix = true;
+                }
+            }
+        }
+
+        // Fix-it geometry, 0-based columns clamped to the primary line.
+        var fix_start_col: usize = 0;
+        var fix_mid_len:   usize = 0;  ///< removed span width ('-' markers)
+        var fix_ins_len:   usize = 0;  ///< inserted text width ('+' markers)
+        if has_primary_fix {
+            fix_start_col  = sm->get_line_col(primary_fix.range.start).column;
+            var f_end_col  = sm->get_line_col(primary_fix.range.end).column;
+            if fix_start_col > 0 { fix_start_col -= 1; }
+            if f_end_col     > 0 { f_end_col     -= 1; }
+            if fix_start_col > line_text.length() { fix_start_col = line_text.length(); }
+            if f_end_col     > line_text.length() { f_end_col     = line_text.length(); }
+            if f_end_col     < fix_start_col      { f_end_col     = fix_start_col;      }
+            fix_mid_len = f_end_col - fix_start_col;
+            fix_ins_len = primary_fix.replacement.length();
+        }
+
         for var ln: u32 = first_line; ln <= last_line; ++ln {
             var text    = sm->get_line_text(group.key.file_id, ln);
             var num_str = f"{ln}";
             var npad    = string(' ', left_pad - num_str.length());
             var prefix  = f"{npad}{line_col_esc}{num_str} {pipe} {reset_esc}";
 
-            out += prefix + renderer.highlight_snippet(text) + NL;
+            if (ln == group.line_num) && has_primary_fix {
+                out += prefix + self.render_fixed_line(
+                    renderer, line_text, fix_start_col, fix_mid_len,
+                    primary_fix.replacement, color) + NL;
+            } else {
+                out += prefix + renderer.highlight_snippet(text) + NL;
+            }
 
             if ln != group.line_num { continue; }
 
-            // === Caret row: ^^^  for each span, severity-colored ==============
-            var caret_row: string;
-            var cursor: usize = 0;
+            // === Caret row: ^^^ per span + fix-it change markers ==============
+            // Column-addressed so fix markers can overlay carets: '-' (red)
+            // over removed columns, '+' (green) under inserted text, both in
+            // fixed-line coordinates.
+            var fix_end_col: usize = fix_start_col + fix_mid_len + fix_ins_len;
+            var row_cols:    usize = max_col;
+            if has_primary_fix && (fix_end_col > row_cols) { row_cols = fix_end_col; }
+
+            var row_glyph: vec::<char>;
+            var row_color: vec::<string>;
+            row_glyph.resize(row_cols, ' ');
+            row_color.resize(row_cols, string());
+
             for var s: usize = 0; s < spans.size(); ++s {
-                var span = spans[s];
-                if span.start_col >= cursor {
-                    caret_row += string(' ', span.start_col - cursor);
-                    var glyph = self.label_char(span.style);
-                    for var c: usize = span.start_col; c < span.end_col; ++c {
-                        if color {
-                            caret_row += f"{self.severity_color(col_sev[c])}{string(glyph, 1)}{RESET}";
-                        } else {
-                            caret_row += string(glyph, 1);
-                        }
-                    }
-                    cursor = span.end_col;
+                var span  = spans[s];
+                var glyph = self.label_char(span.style);
+                for var c: usize = span.start_col; c < span.end_col; ++c {
+                    row_glyph[c] = glyph;
+                    row_color[c] = self.severity_color(col_sev[c]);
+                }
+            }
+
+            if has_primary_fix {
+                var mc: usize = fix_start_col;
+                for var c: usize = 0; c < fix_mid_len; ++c {
+                    row_glyph[mc] = '-';
+                    row_color[mc] = RED;
+                    mc += 1;
+                }
+                for var c: usize = 0; c < fix_ins_len; ++c {
+                    row_glyph[mc] = '+';
+                    row_color[mc] = GREEN;
+                    mc += 1;
+                }
+            }
+
+            var caret_row: string;
+            for var c: usize = 0; c < row_cols; ++c {
+                if row_glyph[c] == ' ' {
+                    caret_row += ' ';
+                    continue;
+                }
+                var mark = string(row_glyph[c], 1);
+                if color {
+                    var mcol = row_color[c];
+                    caret_row += f"{mcol}{mark}{RESET}";
+                } else {
+                    caret_row += mark;
                 }
             }
             out += conn_gutter + caret_row + NL;
@@ -506,13 +584,14 @@ class PrettyDiagConsumer derives DiagConsumer {
             }
         }
 
-        // --- Fix-its -----------------------------------------------------------
+        // --- Fix-its: the edit is already shown inline on the primary line;
+        // here we only print the trailing "> fix: <message>" line.
         for var i: usize = 0; i < group.diags.size(); ++i {
             var diag = group.diags[i];
             for var j: usize = 0; j < diag->fixits.size(); ++j {
                 var fi      = diag->fixits[j];
                 var fix_pfx = ( f"{BOLD}{CYAN}fix{RESET}" ) if ( color ) else ( "fix" );
-                out += f"  > {fix_pfx}: {fi.message}" + NL;
+                out += f" > {fix_pfx}: {fi.message}" + NL;
             }
         }
 
@@ -734,6 +813,46 @@ class PrettyDiagConsumer derives DiagConsumer {
     }
 
     // --- Helpers -------------------------------------------------------------
+
+    /// Renders the primary source line WITH its fix-it applied inline:
+    ///
+    ///   head (highlighted) + removed span (red, struck) +
+    ///   inserted text (green) + tail (highlighted)
+    ///
+    /// Add has an empty removed span; Remove has an empty insertion; Replace
+    /// has both. The change markers ('-'/'+') live on the caret row, not here.
+    ///
+    /// head/mid/tail are rebuilt char-by-char from the source line rather than
+    /// via string(raw_string().substr(...)) rewrapping identical construction
+    /// to SourceManager::get_text, so the highlighter's tokenizer sees exactly
+    /// the same kind of string as any normal source line.
+    priv fn render_fixed_line(self, renderer: ref!(TermRenderer), line_text: string,
+                              start_col: usize, mid_len: usize, ins: string,
+                              color: bool) -> string {
+        var head: string;
+        var mid:  string;
+        var tail: string;
+        head.reserve(start_col);
+        for var i: usize = 0; i < start_col; ++i {
+            head.push_back(line_text[i]);
+        }
+        for var i: usize = start_col; i < start_col + mid_len; ++i {
+            mid.push_back(line_text[i]);
+        }
+        for var i: usize = start_col + mid_len; i < line_text.length(); ++i {
+            tail.push_back(line_text[i]);
+        }
+
+        var head_hl = renderer.highlight_snippet(head);
+        var tail_hl = renderer.highlight_snippet(tail);
+        var del_vis = ( f"{RED}{STRIKE}{mid}{RESET}" ) if ( color ) else ( mid );
+        var ins_vis = ( f"{GREEN}{ins}{RESET}" )       if ( color ) else ( ins );
+
+        if mid.length() == 0 { del_vis = ""; }
+        if ins.length() == 0 { ins_vis = ""; }
+
+        return head_hl + del_vis + ins_vis + tail_hl;
+    }
 
     priv fn severity_color(self, sev: DiagSeverity) -> string {
         switch sev {
