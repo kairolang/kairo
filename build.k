@@ -41,51 +41,220 @@ fn version_macro(target: string, suffix: string) -> string {
 }
 
 // llvm-config queries (Windows-only)
-
 fn llvm_static_components(t: ref!(Target)) {
     // Windows links static.
-    t.passthrough("-lLLVMCore").passthrough("-lLLVMSupport").passthrough("-lLLVMTarget").passthrough("-lLLVMTargetParser")
-     .passthrough("-lLLVMX86CodeGen").passthrough("-lLLVMX86AsmParser").passthrough("-lLLVMX86Desc")
-     .passthrough("-lLLVMX86Info").passthrough("-lLLVMAArch64CodeGen").passthrough("-lLLVMAArch64AsmParser")
-     .passthrough("-lLLVMAArch64Desc").passthrough("-lLLVMAArch64Info").passthrough("-lLLVMAArch64Utils")
-     .passthrough("-lLLVMWebAssemblyCodeGen").passthrough("-lLLVMWebAssemblyAsmParser")
-     .passthrough("-lLLVMWebAssemblyDesc").passthrough("-lLLVMWebAssemblyInfo").passthrough("-lLLVMWebAssemblyUtils")
-     .passthrough("-lLLVMARMCodeGen").passthrough("-lLLVMARMAsmParser").passthrough("-lLLVMARMDesc").passthrough("-lLLVMARMInfo").passthrough("-lLLVMARMUtils")
-     .passthrough("-lLLVMRISCVCodeGen").passthrough("-lLLVMRISCVAsmParser").passthrough("-lLLVMRISCVDesc").passthrough("-lLLVMRISCVInfo")
-     .passthrough("-lLLVMCodeGen").passthrough("-lLLVMCodeGenTypes").passthrough("-lLLVMAsmPrinter")
-     .passthrough("-lLLVMSelectionDAG").passthrough("-lLLVMGlobalISel").passthrough("-lLLVMScalarOpts")
-     .passthrough("-lLLVMInstCombine").passthrough("-lLLVMAggressiveInstCombine").passthrough("-lLLVMTransformUtils")
-     .passthrough("-lLLVMAnalysis").passthrough("-lLLVMProfileData").passthrough("-lLLVMipo")
-     .passthrough("-lLLVMVectorize").passthrough("-lLLVMPasses").passthrough("-lLLVMLinker")
-     .passthrough("-lLLVMIRReader").passthrough("-lLLVMAsmParser").passthrough("-lLLVMBitReader")
-     .passthrough("-lLLVMBitWriter").passthrough("-lLLVMMC").passthrough("-lLLVMMCParser")
-     .passthrough("-lLLVMMCDisassembler").passthrough("-lLLVMObject").passthrough("-lLLVMBinaryFormat")
-     .passthrough("-lLLVMRemarks").passthrough("-lLLVMBitstreamReader").passthrough("-lLLVMDemangle")
-     .passthrough("-lLLVMTextAPI").passthrough("-lLLVMOption").passthrough("-lLLVMCoroutines")
-     .passthrough("-lLLVMInstrumentation").passthrough("-lLLVMIRPrinter").passthrough("-lLLVMWindowsDriver")
-     .passthrough("-lLLVMFrontendOpenMP").passthrough("-lLLVMFrontendOffloading").passthrough("-lLLVMFrontendHLSL")
-     .passthrough("-lLLVMFrontendAtomic").passthrough("-lLLVMFrontendDirective").passthrough("-lLLVMFrontendDriver")
-     .passthrough("-lLLVMLTO").passthrough("-lLLVMCFGuard").passthrough("-lLLVMObjCARCOpts")
-     .passthrough("-lLLVMHipStdPar").passthrough("-lLLVMCGData").passthrough("-lLLVMSandboxIR")
-     .passthrough("-lLLVMExtensions").passthrough("-lLLVMDebugInfoDWARF").passthrough("-lLLVMDebugInfoDWARFLowLevel")
-     .passthrough("-lLLVMDebugInfoCodeView").passthrough("-lLLVMDebugInfoMSF").passthrough("-lLLVMDebugInfoPDB")
-     .passthrough("-lLLVMDebugInfoBTF").passthrough("-lLLVMSymbolize").passthrough("-lLLVMCoverage")
-     .passthrough("-lLLVMTelemetry").passthrough("-lLLVMMIRParser")
-     .passthrough("-lversion").passthrough("-ladvapi32").passthrough("-lshell32")
-     .passthrough("-lole32").passthrough("-luuid").passthrough("-lntdll")
-     .passthrough("-lws2_32").passthrough("-lpsapi").passthrough("-lzstd").passthrough("-lzlib");
+    t.passthrough("-lLLVMCore")
+     .passthrough("-lLLVMSupport")
+     .passthrough("-lLLVMDemangle")
+     .passthrough("-lLLVMTarget")
+     .passthrough("-lLLVMTargetParser")
+
+     .passthrough("-lLLVMX86CodeGen")
+     .passthrough("-lLLVMX86AsmParser")
+     .passthrough("-lLLVMX86Desc")
+     .passthrough("-lLLVMX86Disassembler")
+     .passthrough("-lLLVMX86Info")
+     .passthrough("-lLLVMX86TargetMCA")
+
+     .passthrough("-lLLVMAArch64CodeGen")
+     .passthrough("-lLLVMAArch64AsmParser")
+     .passthrough("-lLLVMAArch64Desc")
+     .passthrough("-lLLVMAArch64Disassembler")
+     .passthrough("-lLLVMAArch64Info")
+     .passthrough("-lLLVMAArch64Utils")
+
+     .passthrough("-lLLVMWebAssemblyCodeGen")
+     .passthrough("-lLLVMWebAssemblyAsmParser")
+     .passthrough("-lLLVMWebAssemblyDesc")
+     .passthrough("-lLLVMWebAssemblyDisassembler")
+     .passthrough("-lLLVMWebAssemblyInfo")
+     .passthrough("-lLLVMWebAssemblyUtils")
+
+     .passthrough("-lLLVMARMCodeGen")
+     .passthrough("-lLLVMARMAsmParser")
+     .passthrough("-lLLVMARMDesc")
+     .passthrough("-lLLVMARMDisassembler")
+     .passthrough("-lLLVMARMInfo")
+     .passthrough("-lLLVMARMUtils")
+
+     .passthrough("-lLLVMRISCVCodeGen")
+     .passthrough("-lLLVMRISCVAsmParser")
+     .passthrough("-lLLVMRISCVDesc")
+     .passthrough("-lLLVMRISCVDisassembler")
+     .passthrough("-lLLVMRISCVInfo")
+     .passthrough("-lLLVMRISCVTargetMCA")
+
+     .passthrough("-lLLVMCodeGen")
+     .passthrough("-lLLVMCodeGenTypes")
+     .passthrough("-lLLVMAsmPrinter")
+     .passthrough("-lLLVMSelectionDAG")
+     .passthrough("-lLLVMGlobalISel")
+     .passthrough("-lLLVMMCA")
+
+     .passthrough("-lLLVMScalarOpts")
+     .passthrough("-lLLVMInstCombine")
+     .passthrough("-lLLVMAggressiveInstCombine")
+     .passthrough("-lLLVMTransformUtils")
+     .passthrough("-lLLVMVectorize")
+     .passthrough("-lLLVMSandboxIR")
+
+     .passthrough("-lLLVMAnalysis")
+     .passthrough("-lLLVMProfileData")
+     .passthrough("-lLLVMipo")
+     .passthrough("-lLLVMPasses")
+     .passthrough("-lLLVMPlugins")
+     .passthrough("-lLLVMLinker")
+     .passthrough("-lLLVMCGData")
+
+     .passthrough("-lLLVMIRReader")
+     .passthrough("-lLLVMIRPrinter")
+     .passthrough("-lLLVMAsmParser")
+     .passthrough("-lLLVMBitReader")
+     .passthrough("-lLLVMBitWriter")
+     .passthrough("-lLLVMBitstreamReader")
+
+     .passthrough("-lLLVMMC")
+     .passthrough("-lLLVMMCParser")
+     .passthrough("-lLLVMMCDisassembler")
+     .passthrough("-lLLVMObject")
+     .passthrough("-lLLVMObjectYAML")
+     .passthrough("-lLLVMBinaryFormat")
+     .passthrough("-lLLVMInterfaceStub")
+
+     .passthrough("-lLLVMExecutionEngine")
+     .passthrough("-lLLVMInterpreter")
+     .passthrough("-lLLVMMCJIT")
+     .passthrough("-lLLVMJITLink")
+     .passthrough("-lLLVMOrcJIT")
+     .passthrough("-lLLVMOrcDebugging")
+     .passthrough("-lLLVMOrcShared")
+     .passthrough("-lLLVMOrcTargetProcess")
+     .passthrough("-lLLVMRuntimeDyld")
+
+     .passthrough("-lLLVMRemarks")
+     .passthrough("-lLLVMTextAPI")
+     .passthrough("-lLLVMTextAPIBinaryReader")
+     .passthrough("-lLLVMOption")
+     .passthrough("-lLLVMCoroutines")
+     .passthrough("-lLLVMInstrumentation")
+     .passthrough("-lLLVMWindowsDriver")
+     .passthrough("-lLLVMWindowsManifest")
+
+     .passthrough("-lLLVMFrontendOpenMP")
+     .passthrough("-lLLVMFrontendOffloading")
+     .passthrough("-lLLVMFrontendOpenACC")
+     .passthrough("-lLLVMFrontendHLSL")
+     .passthrough("-lLLVMFrontendAtomic")
+     .passthrough("-lLLVMFrontendDirective")
+     .passthrough("-lLLVMFrontendDriver")
+
+     .passthrough("-lLLVMLTO")
+     .passthrough("-lLLVMDTLTO")
+     .passthrough("-lLLVMCFGuard")
+     .passthrough("-lLLVMObjCARCOpts")
+     .passthrough("-lLLVMHipStdPar")
+     .passthrough("-lLLVMExtensions")
+
+     .passthrough("-lLLVMDebugInfoDWARF")
+     .passthrough("-lLLVMDebugInfoDWARFLowLevel")
+     .passthrough("-lLLVMDebugInfoCodeView")
+     .passthrough("-lLLVMDebugInfoMSF")
+     .passthrough("-lLLVMDebugInfoPDB")
+     .passthrough("-lLLVMDebugInfoGSYM")
+     .passthrough("-lLLVMDebugInfoLogicalView")
+     .passthrough("-lLLVMDebugInfoBTF")
+     .passthrough("-lLLVMDebuginfod")
+     .passthrough("-lLLVMDWP")
+     .passthrough("-lLLVMDWARFLinker")
+     .passthrough("-lLLVMDWARFLinkerClassic")
+     .passthrough("-lLLVMDWARFLinkerParallel")
+     .passthrough("-lLLVMDWARFCFIChecker")
+     .passthrough("-lLLVMSymbolize")
+     .passthrough("-lLLVMCoverage")
+
+     .passthrough("-lLLVMObjCopy")
+     .passthrough("-lLLVMXRay")
+     .passthrough("-lLLVMDlltoolDriver")
+     .passthrough("-lLLVMLibDriver")
+     .passthrough("-lLLVMCFIVerify")
+     .passthrough("-lLLVMDiff")
+     .passthrough("-lLLVMExegesis")
+     .passthrough("-lLLVMExegesisX86")
+     .passthrough("-lLLVMExegesisAArch64")
+     .passthrough("-lLLVMExegesisRISCV")
+     .passthrough("-lLLVMOptDriver")
+     .passthrough("-lLLVMFuzzMutate")
+     .passthrough("-lLLVMFuzzerCLI")
+     .passthrough("-lLLVMFileCheck")
+     .passthrough("-lLLVMLineEditor")
+     .passthrough("-lLLVMTelemetry")
+     .passthrough("-lLLVMMIRParser")
+     .passthrough("-lLLVMABI")
+
+     .passthrough("-lversion")
+     .passthrough("-ladvapi32")
+     .passthrough("-lshell32")
+     .passthrough("-lole32")
+     .passthrough("-luuid")
+     .passthrough("-lntdll")
+     .passthrough("-lws2_32")
+     .passthrough("-lpsapi")
+     .passthrough("-lzstd")
+     .passthrough("-lzlib");
 }
 
 // Clang archives, explicit because llvm-config doesn't report them.
 // Windows static only.
 fn clang_static_components(t: ref!(Target)) {
-    t.passthrough("-lclangBasic").passthrough("-lclangDriver").passthrough("-lclangFrontend")
-     .passthrough("-lclangFrontendTool").passthrough("-lclangCodeGen").passthrough("-lclangSema")
-     .passthrough("-lclangAnalysis").passthrough("-lclangAST").passthrough("-lclangParse")
-     .passthrough("-lclangLex").passthrough("-lclangEdit").passthrough("-lclangRewrite")
-     .passthrough("-lclangSerialization").passthrough("-lclangSupport");
-}
+    t.passthrough("-lclangBasic")
+     .passthrough("-lclangDriver")
+     .passthrough("-lclangOptions")
+     .passthrough("-lclangFrontend")
+     .passthrough("-lclangFrontendTool")
+     .passthrough("-lclangRewriteFrontend")
 
+     .passthrough("-lclangCodeGen")
+     .passthrough("-lclangSema")
+     .passthrough("-lclangAnalysis")
+     .passthrough("-lclangAnalysisFlowSensitive")
+     .passthrough("-lclangAnalysisFlowSensitiveModels")
+     .passthrough("-lclangAnalysisLifetimeSafety")
+     .passthrough("-lclangAnalysisScalable")
+
+     .passthrough("-lclangAST")
+     .passthrough("-lclangASTMatchers")
+     .passthrough("-lclangDynamicASTMatchers")
+     .passthrough("-lclangParse")
+     .passthrough("-lclangLex")
+     .passthrough("-lclangEdit")
+     .passthrough("-lclangRewrite")
+     .passthrough("-lclangAPINotes")
+
+     .passthrough("-lclangSerialization")
+     .passthrough("-lclangCrossTU")
+     .passthrough("-lclangIndex")
+     .passthrough("-lclangIndexSerialization")
+     .passthrough("-lclangInstallAPI")
+     .passthrough("-lclangExtractAPI")
+
+     .passthrough("-lclangStaticAnalyzerCore")
+     .passthrough("-lclangStaticAnalyzerCheckers")
+     .passthrough("-lclangStaticAnalyzerFrontend")
+
+     .passthrough("-lclangFormat")
+     .passthrough("-lclangToolingCore")
+     .passthrough("-lclangToolingInclusions")
+     .passthrough("-lclangToolingInclusionsStdlib")
+     .passthrough("-lclangToolingRefactoring")
+     .passthrough("-lclangToolingASTDiff")
+     .passthrough("-lclangToolingSyntax")
+     .passthrough("-lclangTransformer")
+     .passthrough("-lclangTooling")
+
+     .passthrough("-lclangDependencyScanning")
+     .passthrough("-lclangDirectoryWatcher")
+     .passthrough("-lclangSupport");
+}
 
 // Windows SDK / MSVC toolchain discovery
 //   Host-toolchain probing, NOT LLVM linkage.
@@ -265,9 +434,9 @@ fn apply_llvm(t: ref!(Target), llvm_src: string, llvm_build: string, out_lib: st
 // Target wiring
 
 fn prebuild_script() -> string {
-    if platform() == "linux"   { return "bash Scripts/prebuild-llvm-linux.sh"; }
-    if platform() == "macos"   { return "bash Scripts/prebuild-llvm-macos.sh"; }
-    if platform() == "windows" { return "powershell -ExecutionPolicy Bypass -File Scripts/prebuild-llvm-windows.ps1"; }
+    if platform() == "linux"   { return "bash Scripts/prebuild-llvm-linux.sh && python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k"; }
+    if platform() == "macos"   { return "bash Scripts/prebuild-llvm-macos.sh && python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k"; }
+    if platform() == "windows" { return "powershell -ExecutionPolicy Bypass -Command \"& 'Scripts/prebuild-llvm-windows.ps1'; python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k\" "; }
     return "";
 }
 
@@ -280,8 +449,7 @@ fn llvm_tool(name:     string, entry:      string, ver:     string, includes: ve
         .define(ver)
         .passthrough("-x none")
         .passthrough("build/.kbld/registry.o")
-        .pre_build(prebuild_script())
-        .pre_build("python3 Scripts/gen_diag.py Compiler/Diagnostic/TableGen --lib-output=build/.kbld/registry.o --output=Compiler/Diagnostic/Registry.k");
+        .pre_build(prebuild_script());
     apply_llvm(t, llvm_src, llvm_build, out_lib);
     return t;
 }
