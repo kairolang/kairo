@@ -115,12 +115,14 @@ class GlobalDisambigTable {
     // --- Lookup (parse phase, read-only) -------------------------------------
 
     fn get_scope(self, fid: u32) -> *DisambigTable {
+        var rlock = std::SharedLock(self._mu);
         var it = self._by_fid.find(fid);
         if it == self._by_fid.end() { return &null; }
         return it->second.hoisted;
     }
 
     fn get_context(self, fid: u32) -> *ASTContext {
+        var rlock = std::SharedLock(self._mu);
         var it = self._by_fid.find(fid);
         if it == self._by_fid.end() { return &null; }
         return it->second.ctx;
