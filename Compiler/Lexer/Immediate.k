@@ -1263,15 +1263,6 @@ class ImmediateTable {
     var source_manager:    obs::<SourceManager> = &null;
     var is_evaluating:     std::Atomic::<bool>  = false;
 
-    /// Guards ident_buckets / ident_mask / ident_live / ident_descs / synth_names.
-    /// Held for the *entire* body of every public entry point below that touches
-    /// the interner (intern_ident, intern_ident_copy, intern_string_copy,
-    /// get_ident, ident_bytes, _ident_eq, _ident_grow) so no caller can observe
-    /// or mutate a table mid-resize. Non-reentrant: public entry points call the
-    /// private *_locked helpers internally rather than re-entering a public,
-    /// lock-taking function.
-    var _intern_mu: std::Mutex;
-
     fn initialize(self, sm: *SourceManager) {
         self.source_manager   = sm;
         self.int_literals     = std::create::<ArenaList::<Immediate::IntData>>(256);
@@ -1285,8 +1276,6 @@ class ImmediateTable {
     }
 
     fn reset(self) {
-        var lock = std::UniqueLock(self._intern_mu);
-
         // reset() may run before initialize() (e.g. a lexer reset before its
         // first lex)   every list is null until then. guard all of them.
         if self.int_literals     != &null { self.int_literals->clear();     }
@@ -1399,6 +1388,8 @@ class ImmediateTable {
         }
     }
 
+
+
     /// \brief interns an identifier from its raw UTF-8 bytes and precomputed hash.
     ///
     /// \details This is the hot path. The lexer already folds a 32-bit hash
@@ -1423,133 +1414,6 @@ class ImmediateTable {
     ///             a given spelling so identical identifiers collide and dedup.
     /// \return the interned index into the identifier sheet.
     fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32 {
-        var lock = std::UniqueLock(self._intern_mu);
-        return self._intern_ident_locked(data, len, hash);
-    }
-
-    /// \brief interns an identifier spelling that has no backing source buffer.
-    ///
-    /// \details copies the bytes into table-owned storage (\c synth_names),
-    ///          then interns through the normal path so synthesized and lexed
-    ///          spellings of the same identifier collapse to one index.
-    ///          Use for compiler-synthesized identifiers: PP builtins
-    ///          (unique_id!), gensym, sema-generated names.
-    ///
-    ///          The entire body (synth_names lazy-create + push + intern) runs
-    ///          under _intern_mu: the lazy-create was previously a bare
-    ///          check-then-create with no lock, and two concurrent callers could
-    ///          each see synth_names == null, each create their own ArenaList,
-    ///          and race the assignment leaking one and leaving anything that
-    ///          captured the other's pointer dangling. Calls the *_locked
-    ///          interning helper directly rather than the public intern_ident,
-    ///          since _intern_mu is not reentrant.
-    ///
-    /// \note hashing matches the lexer's incremental hash (compute_hash), so
-    ///       a synthesized `foo` and a lexed `foo` intern to the same slot.
-    fn intern_ident_copy(self, s: string) -> u32 {
-        var lock = std::UniqueLock(self._intern_mu);
-
-        if self.synth_names == &null {
-            self.synth_names = std::create::<ArenaList::<nstring>>(64);
-        }
-        var stored = self.synth_names->push(std::string_to_nstring(s));
-        var r = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
-        var l = stored->size();
-        var h = compute_hash(r, l);
-        return self._intern_ident_locked(r, l, h);
-    }
-
-    fn get_ident(self, idx: u32) -> string {
-        var lock = std::UniqueLock(self._intern_mu);
-        var d = self.ident_descs->get(static_cast::<usize>(idx));
-        return string(
-            reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->ptr),
-            static_cast::<usize>(d->len)
-        );
-    }
-
-    /// \brief creates a StringData slot whose text is table-owned (no backing
-    ///        source range).
-    ///
-    /// \details copies the bytes into \c synth_names (ArenaList never moves, so
-    ///          the raw pointer stays stable for the table's lifetime). Unlike
-    ///          intern_ident_copy this is NOT an interner the string sheet is
-    ///          an append-only pool, one slot per occurrence, matching lexed
-    ///          string literals. Use for compiler-synthesized string text:
-    ///          stringify! over synthesized tokens, file!, diagnostics.
-    ///
-    ///          Same synth_names lazy-create race as intern_ident_copy; guarded
-    ///          by the same mutex for the same reason.
-    ///
-    /// \note the caller may additionally set `body` on the returned slot when
-    ///       the text also happens to be a contiguous source slice.
-    fn intern_string_copy(self, s: string) -> u32 {
-        var lock = std::UniqueLock(self._intern_mu);
-
-        if self.synth_names == &null {
-            self.synth_names = std::create::<ArenaList::<nstring>>(64);
-        }
-        var idx  = self.create::<Immediate::StringData>();
-        var data = self.get::<Immediate::StringData>(idx);
-
-        var stored = self.synth_names->push(std::string_to_nstring(s));
-        data->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
-        data->owned_len   = static_cast::<u32>(stored->size());
-        data->prefix_kind = Immediate::TextPrefixKind::None;
-        return idx;
-    }
-
-    /// \brief authoritative text of a string literal slot: owned bytes when
-    ///        present, otherwise the source slice behind `body`.
-    fn string_text(self, idx: u32, sm: *SourceManager) -> string {
-        var d = self.string_literals->get(static_cast::<usize>(idx));
-        if d->owned_ptr != &null {
-            return string(
-                reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->owned_ptr),
-                static_cast::<usize>(d->owned_len)
-            );
-        }
-        return sm->get_text(d->body);
-    }
-
-    fn ident_bytes(self, idx: u32) -> std::ConstPtr::<u8> {
-        var lock = std::UniqueLock(self._intern_mu);
-        return self.ident_descs->get(static_cast::<usize>(idx))->ptr;
-    }
-
-    priv fn _ident_eq(self, idx: u32, const data: *u8, len: usize) -> bool {
-        // Called only from _intern_ident_locked, which already holds
-        // _intern_mu -- do not take the lock here.
-        var d = self.ident_descs->get(static_cast::<usize>(idx));
-        if static_cast::<usize>(d->len) != len {
-            return false;
-        }
-        for var i: usize = 0; i < len; ++i {
-            if d->ptr[i] != data[i] {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /// \brief byte length of an interned identifier.
-    fn ident_len(self, idx: u32) -> usize {
-        var lock = std::UniqueLock(self._intern_mu);
-        return static_cast::<usize>(self.ident_descs->get(static_cast::<usize>(idx))->len);
-    }
-
-    /// \brief number of unique identifiers interned for this file.
-    fn ident_count(self) -> usize {
-        var lock = std::UniqueLock(self._intern_mu);
-        return self.ident_descs->size();
-    }
-
-    /// \brief actual interning logic, shared by intern_ident and
-    ///        intern_ident_copy. Assumes _intern_mu is already held by the
-    ///        caller -- never call this directly from outside this class, and
-    ///        never take _intern_mu again inside it (the mutex is not
-    ///        reentrant).
-    priv fn _intern_ident_locked(self, const data: *u8, len: usize, hash: u32) -> u32 {
         if self.ident_mask == 0 {
             self._ident_grow();
         }
@@ -1594,14 +1458,107 @@ class ImmediateTable {
         return idx;
     }
 
+    fn get_ident(self, idx: u32) -> string {
+        var d = self.ident_descs->get(static_cast::<usize>(idx));
+        return string(
+            reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->ptr),
+            static_cast::<usize>(d->len)
+        );
+    }
+
+    /// \brief interns an identifier spelling that has no backing source buffer.
+    ///
+    /// \details copies the bytes into table-owned storage (\c synth_names),
+    ///          then interns through the normal path so synthesized and lexed
+    ///          spellings of the same identifier collapse to one index.
+    ///          Use for compiler-synthesized identifiers: PP builtins
+    ///          (unique_id!), gensym, sema-generated names.
+    ///
+    /// \note hashing matches the lexer's incremental hash (compute_hash), so
+    ///       a synthesized `foo` and a lexed `foo` intern to the same slot.
+    fn intern_ident_copy(self, s: string) -> u32 {
+        if self.synth_names == &null {
+            self.synth_names = std::create::<ArenaList::<nstring>>(64);
+        }
+        var stored = self.synth_names->push(std::string_to_nstring(s));
+        var r = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
+        var l = stored->size();
+        var h = compute_hash(r, l);
+        return self.intern_ident(r, l, h);
+    }
+
+    /// \brief creates a StringData slot whose text is table-owned (no backing
+    ///        source range).
+    ///
+    /// \details copies the bytes into \c synth_names (ArenaList never moves, so
+    ///          the raw pointer stays stable for the table's lifetime). Unlike
+    ///          intern_ident_copy this is NOT an interner the string sheet is
+    ///          an append-only pool, one slot per occurrence, matching lexed
+    ///          string literals. Use for compiler-synthesized string text:
+    ///          stringify! over synthesized tokens, file!, diagnostics.
+    ///
+    /// \note the caller may additionally set `body` on the returned slot when
+    ///       the text also happens to be a contiguous source slice.
+    fn intern_string_copy(self, s: string) -> u32 {
+        if self.synth_names == &null {
+            self.synth_names = std::create::<ArenaList::<nstring>>(64);
+        }
+        var idx  = self.create::<Immediate::StringData>();
+        var data = self.get::<Immediate::StringData>(idx);
+
+        var stored = self.synth_names->push(std::string_to_nstring(s));
+        data->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
+        data->owned_len   = static_cast::<u32>(stored->size());
+        data->prefix_kind = Immediate::TextPrefixKind::None;
+        return idx;
+    }
+
+    /// \brief authoritative text of a string literal slot: owned bytes when
+    ///        present, otherwise the source slice behind `body`.
+    fn string_text(self, idx: u32, sm: *SourceManager) -> string {
+        var d = self.string_literals->get(static_cast::<usize>(idx));
+        if d->owned_ptr != &null {
+            return string(
+                reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(d->owned_ptr),
+                static_cast::<usize>(d->owned_len)
+            );
+        }
+        return sm->get_text(d->body);
+    }
+
+    fn ident_bytes(self, idx: u32) -> std::ConstPtr::<u8> {
+        return self.ident_descs->get(static_cast::<usize>(idx))->ptr;
+    }
+
+    priv fn _ident_eq(self, idx: u32, const data: *u8, len: usize) -> bool {
+        var d = self.ident_descs->get(static_cast::<usize>(idx));
+        if static_cast::<usize>(d->len) != len {
+            return false;
+        }
+        for var i: usize = 0; i < len; ++i {
+            if d->ptr[i] != data[i] {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// \brief byte length of an interned identifier.
+    fn ident_len(self, idx: u32) -> usize {
+        return static_cast::<usize>(self.ident_descs->get(static_cast::<usize>(idx))->len);
+    }
+
+    /// \brief number of unique identifiers interned for this file.
+    fn ident_count(self) -> usize {
+        return self.ident_descs->size();
+    }
+
     /// \brief seeds or doubles the bucket table and rehashes the live entries.
     ///
     /// \details Buckets carry their own hash, so rehashing never re-reads
     ///          identifier bytes -- it just re-probes each occupied slot into the
     ///          larger table. Descriptor indices (the values stored in `imm`) are
     ///          unaffected; only the hash->index acceleration structure moves.
-    ///          Assumes _intern_mu is already held (called only from
-    ///          _intern_ident_locked) -- do not take the lock here.
     priv fn _ident_grow(self) {
         var old_cap: u32 = 0;
         if self.ident_mask != 0 {
