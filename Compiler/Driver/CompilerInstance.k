@@ -119,6 +119,7 @@ import AST::Printer::ASTPrinter::*;
 import Token::TokenPrinter::*;
 import Sema::NullableTypeLowering::*;
 import Interop::Clang::ClangBackend::*;
+import Diagnostic::ClangDiagLookup::*;
 
 ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Support/raw_ostream.h";
@@ -133,6 +134,7 @@ ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Target/TargetMachine.h";
 ffi "c++" import "llvm/Target/TargetOptions.h";
 ffi "c++" import "llvm/Support/CodeGen.h";
+ffi "c++" import "clang/Frontend/FrontendActions.h";
 
 class CompilerInstance; // forward breaks the CI <-> FrontendAction cycle
 
@@ -700,6 +702,7 @@ class CompilerInstance {
         // preload tasks. Joined via CLANG_STARTUP_GROUP before codegen.
         var bcfg = ClangBackendConfig{};
         (bcfg.triple) = self._effective_triple();
+        (bcfg.wargs)  = _clang_wargs_from_policy(self._inv.diag);
         self._backend = std::create::<ClangBackend>(self._sm, bcfg);
 
         inline "c++" {
@@ -785,6 +788,14 @@ class CompilerInstance {
 
         self._diag->set_error_limit(u32(d.max_errors));
         self._diag->set_warnings_as_errors(d.warnings_as_errors);
+        self._diag->set_suppress_all_warnings(d.suppress_warnings);
+
+        // Per-code diagnostic policy. Codes are addressed by their numeric part
+        // only (severity-letter-agnostic): S025, S025W, s025 all key on 25.
+        // allow -> Silence, deny(--error/-E) -> Promote, forbid -> Forbid.
+        for c in d.allow_list  { self._diag->set_policy(_diag_code_to_number(c), DiagAction::Silence); }
+        for c in d.deny_list   { self._diag->set_policy(_diag_code_to_number(c), DiagAction::Promote); }
+        for c in d.forbid_list { self._diag->set_policy(_diag_code_to_number(c), DiagAction::Forbid);  }
 
         // Logger was initialised at Trace in main(); quiet it down unless
         // the user asked for verbose output.
@@ -1050,33 +1061,49 @@ fn FrontendAction::_sema() -> bool {
     return true;
 }
 
-/// Code generation stage not yet implemented.
+/// Codegen stage: currently a clang-diagnostic-adapter smoke test.
+/// Points clang's syntax-only frontend at the already-loaded Kairo buffer
+/// (parsed as C++) so it errors against real offsets in clang_kfid, proving
+/// the ClangDiagAdapter loc path end to end. Real codegen replaces this.
 fn FrontendAction::_codegen() -> bool {
     self._stage = TUStage::Codegen;
 
-    // Join the shared clang backend: startup + fid preload must be complete
-    // before anything touches the clang SM. This is the happens-before edge
-    // the ClangLocMap threading contract requires.
+    // Backend must be fully started + this fid preloaded before touching
+    // clang's SM the ClangLocMap happens-before edge.
     self._ci->pool()->wait_group(CLANG_STARTUP_GROUP());
     self._ci->pool()->wait_group(CLANG_PRELOAD_GROUP());
 
     var be = self._ci->backend();
-    if (be != &null) && (be->ready()) {
-        // TODO(codegen): per-TU token injection over the shared clang TU:
-        //   var adapter = be->begin_tu(&tu_sink, self._file_id);
-        //   ... build the clang token stream (borrowed .kro locs via
-        //       be->locmap(), divergent literals via the arena buffer),
-        //       replace FrontendOpts.Inputs, ExecuteAction on be->ci() ...
-        //   be->end_tu(adapter);   // flushes trailing notes, detaches client
-        //   tu_sink.drain_into(self._ci->diag());
-        0;
+    if (be == &null) || (!be->ready()) {
+        return self._fatal("clang backend not ready for diag selftest");
     }
 
-    var fe = self._ci->invocation().frontend;
-    if fe.print_ir   { std::print(f"-- IR: {self.path.full_path()} (not yet implemented) --"); }
-    if fe.print_bcir { std::print(f"-- BCIR: {self.path.full_path()} (not yet implemented) --"); }
-    if fe.verify_ir  { std::print(f"-- IR verify: {self.path.full_path()} (not yet implemented) --"); }
-    // TODO(codegen): CodeGen(ci, typed).emit();
+    var kfid    = self._file_id;
+    var sink    = BufferedDiagSink{};
+    var adapter = be->begin_tu(&sink, kfid);
+    finally { be->end_tu(adapter); }
+
+    var ok: bool = false;
+    inline "c++" {
+        auto* ci   = be->ci();
+        auto  cfid = be->locmap()->clang_fid(kfid);
+        auto  ref  = ci->getSourceManager().getBufferOrFake(cfid);
+
+        auto& cfe = ci->getInvocation().getFrontendOpts();
+        cfe.Inputs.clear();
+        cfe.Inputs.push_back(clang::FrontendInputFile(
+            ref, clang::InputKind(clang::Language::CXX)));
+        cfe.ProgramAction = clang::frontend::ParseSyntaxOnly;
+        cfe.OutputFile = "";
+
+        clang::SyntaxOnlyAction act;
+        ok = ci->ExecuteAction(act);
+    }
+
+    sink.drain_into(self._ci->diag());
+    std::eprintln(f"[diag-selftest] errors={sink.error_count()} warnings={sink.warn_count()}");
+
+    self._stage = TUStage::Done;
     return true;
 }
 
