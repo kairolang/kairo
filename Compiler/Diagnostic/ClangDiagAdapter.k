@@ -56,7 +56,6 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         clang::DiagnosticConsumer::HandleDiagnostic(lvl, info);
 
         var msg     = self._format(info);
-        var tail    = self._identity_tail(info);
         var kloc    = self._to_kairo_loc(info);      // invalid == "none"
         var is_note = lvl == clang::DiagnosticsEngine::Note;
 
@@ -71,13 +70,13 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
         if kloc.is_valid() {
             self._open = std::create::<DiagBuilder>(
-                self.sink, code, kloc.start, f"{msg}{tail}");
+                self.sink, code, kloc.start, msg);
             self._open->first(kloc);
             self._apply_ranges_and_fixits(self._open, info);
             // stays open for trailing notes; emitted in _flush_open
         } else {
             // loc-less (cc1 args, target setup, header-blamed): plain no-loc
-            self.sink->report(code, f"{msg}{tail}").emit();
+            self.sink->report(code, msg).emit();
             self._open = &null;                      // nothing to attach notes to
         }
 
@@ -100,31 +99,6 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var s: llvm::SmallString::<256>;
         info.FormatDiagnostic(s);
         return std::nstring_to_string(s.str().str());
-    }
-
-    /// " [-Wunused-variable]" / " [Semantic Issue]" tail. Clang identity
-    /// travels in the MESSAGE, never in the code space clang diag IDs are
-    /// tablegen ordinals and renumber across releases.
-    priv fn _identity_tail(self, info: cref::<clang::Diagnostic>) -> string {
-        var wopt: llvm::StringRef;
-        var de = info.getDiags();
-
-        if de != &null {
-            wopt = de->getDiagnosticIDs()->getWarningOptionForDiag(info.getID());
-        }
-
-        if !wopt.empty() {
-            return f" [-W{std::nstring_to_string(wopt.str())}]";
-        }
-
-        var cat   = clang::DiagnosticIDs::getCategoryNumberForDiag(info.getID());
-        var cname = clang::DiagnosticIDs::getCategoryNameFromID(cat);
-
-        if cname.empty() {
-            return "";
-        }
-
-        return f" [{std::nstring_to_string(cname.str())}]";
     }
 
     /// clang loc -> Kairo SourceRange via EXPANSION loc (never spelling loc:
@@ -241,10 +215,20 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
                 continue;
             }
 
-            var rr = self._range_in_kfid(h.RemoveRange, info);
+            var rr   = self._range_in_kfid(h.RemoveRange, info);
+            var text = std::nstring_to_string(h.CodeToInsert);
             if rr.is_valid() {
-                b->fix(rr, std::nstring_to_string(h.CodeToInsert),
-                       "apply the change suggested by the backend");
+                var msg = "apply the change suggested by the backend";
+                // Map clang's (RemoveRange, CodeToInsert) onto the three Kairo
+                // fix-it shapes: empty remove-range => pure insertion (Add);
+                // empty insertion text => pure deletion (Remove); both => Replace.
+                if rr.is_empty() {
+                    b->insert(rr.start, text, msg);
+                } else if text.length() == 0 {
+                    b->remove(rr, msg);
+                } else {
+                    b->fix(rr, text, msg);
+                }
             }
         }
     }
