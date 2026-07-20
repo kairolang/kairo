@@ -1,0 +1,64 @@
+# Kairo Formatter — Style Rules (draft)
+
+
+ > Line width: 100 columns.
+
+
+### 1. Argument/parameter list wrapping
+
+If a parenthesized list `(item1, item2, ...)` would exceed the line width on one line, break it — one item per line, aligned to the column just after the opening paren:
+```rs
+fn example(
+    item1,
+    item2,
+    item3,
+    ...
+    itemLast 
+   )
+```
+
+
+
+### 2. Multiline assignment aligning
+
+For multiline assignmenst or declarations with : and = 
+format will be converted to 
+
+```rs
+item1      = 67
+item2      = 34
+itemscount = 56
+tree       = "binary"
+
+var item1      : u32
+var itemscount : u8
+var item2      : u32
+var tree       : string
+```
+
+
+
+### 3. Blank line preservation
+
+Preserve up to 4 consecutive blank lines from source; collapse anything beyond that down to 4. Configurable via `--blankline=preserve` (flag name/behavior subject to change).
+
+
+
+### 4. Comment relocation
+
+Because reformatting changes line counts, a trailing comment is re-anchored to the line where its associated node starts, not where it originally sat:
+
+```rs
+fn example(item1, item2, item3, ...itemLast)   // hello mate 
+```
+becomes, once wrapped:
+
+```rs
+fn example(  
+    item1,   // hello mate
+    item2,
+    item3,
+    ...
+    itemLast
+)
+```
