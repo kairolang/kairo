@@ -850,6 +850,136 @@ class <T> DeclParse {
     // ========================================================================
     //  Function declaration
     // ========================================================================
+    
+    /// \returns false if validation failed
+    pub fn _parse_and_validate_op_spelling(self, out: *std::StackBuf::<Token, 2>) -> bool {
+        // so we have upto 2 max 1 is single ops - anything else thats not a opener after is jut wrong
+        var cur_tok = dyn()->current();
+        out->push_back(cur_tok);
+        
+        if dyn()->current() == TokenKind::OpLParen {
+            dyn()->advance();
+            if dyn()->current() == TokenKind::OpRParen {
+                out->push_back(dyn()->current());
+                dyn()->advance(T::SkipNL::After);
+                return true;
+            }
+
+            dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
+                "expected ')' to close the matching opener"
+            );
+            return false;
+        }
+
+        if dyn()->current() == TokenKind::OpLSquare {
+            dyn()->advance();
+            if dyn()->current() == TokenKind::OpRSquare {
+                out->push_back(dyn()->current());
+                dyn()->advance(T::SkipNL::After);
+                return true;
+            }
+
+            dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
+                "expected ']' to close the matching opener"
+            );
+            return false;
+        }
+
+        if dyn()->current() == TokenKind::LitIdentifier {
+            // an `l`/`r` prefix must be followed by `++` or `--`; anything
+            // else is invalid. a bare identifier here is not a valid operator.
+            var spelling = dyn()->ctx->get_spelling(dyn()->current());
+            var is_lr    = ((spelling == "l") || (spelling == "r"));
+
+            if !is_lr {
+                dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
+                    "given operator is not valid to overload"
+                );
+                out->push_back(dyn()->current());
+                dyn()->advance(T::SkipNL::After);
+                return false;
+            }
+
+            out->push_back(dyn()->current()); // the `l`/`r` prefix
+            dyn()->advance();
+
+            // must be `++` or `--`
+            if (dyn()->current() != TokenKind::OpPlusPlus)
+            && (dyn()->current() != TokenKind::OpMinusMinus) {
+                dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
+                    "l or r prefix is only valid for '++' and '--' op's"
+                );
+                return false;
+            }
+
+            out->push_back(dyn()->current()); // the `++` / `--`
+            dyn()->advance(T::SkipNL::After);
+            return true;
+        }
+
+        switch dyn()->current().kind {
+            // arithmetic
+            case TokenKind::OpPlus:           // +
+            case TokenKind::OpMinus:          // -
+            case TokenKind::OpStar:           // *
+            case TokenKind::OpSlash:          // /
+            case TokenKind::OpPercent:        // %
+
+            case TokenKind::OpCaretCaret:     // ^^
+
+            case TokenKind::OpLess:           // <
+            case TokenKind::OpGreater:        // >
+
+            case TokenKind::OpLessLess:       // "<<"
+            case TokenKind::OpGreaterGreater: // ">>"
+
+            // bitwise
+            case TokenKind::OpCaret: // ^
+            case TokenKind::OpPipe:  // |
+            case TokenKind::OpAmp:   // &
+            case TokenKind::OpTilde: // ~
+
+            // boolean comparison
+            case TokenKind::OpEqualEqual:       // "=="
+            case TokenKind::OpExclaimEqual:     // "!="
+
+            case TokenKind::OpLessEqualGreater: // "<=>"
+            case TokenKind::OpEqualEqualEqual:  // "==="
+
+            case TokenKind::OpAmpAmp:           // "&&"
+            case TokenKind::OpPipePipe:         // "||"
+            case TokenKind::OpLessEqual:        // "<="
+            case TokenKind::OpGreaterEqual:     // ">="
+
+            // inc / dec
+            case TokenKind::OpPlusPlus:   // ++
+            case TokenKind::OpMinusMinus: // --
+
+            case TokenKind::OpArrow: // ->
+
+            case TokenKind::KwIn: // in
+            case TokenKind::KwAs: // as
+
+            case TokenKind::KwThread: // thread
+            case TokenKind::KwDelete: // delete
+            case TokenKind::KwYield:  // yield
+
+            // nullability and boolean
+            case TokenKind::OpQuestion { // ?
+                dyn()->advance(T::SkipNL::After);
+                return true;
+            }
+
+            default {
+                dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
+                    "given operator is not valid to overload"
+                );
+                dyn()->advance(T::SkipNL::After);
+                return false;
+            }
+        }
+    }
+
 
     /// \brief parses a function/method/operator declaration.
     ///  Grammar:  'fn' generics? (identifier | 'op' operator | qualified-name)
@@ -889,12 +1019,10 @@ class <T> DeclParse {
         if dyn()->check(TokenKind::KwOp) {
             dyn()->advance(); // consume `op`
             fd->is_operator = true;
-            fd->op_token    = dyn()->current();
-            // operators may be multi-token (l++/r++, op as, op in, op delete,
-            // op [], op ==, etc). The lexer hands these as distinct tokens; we
-            // record the first and let sema validate the operator spelling.
-            dyn()->advance();
-            fd->name = fd->op_token;
+            var ops: std::StackBuf::<Token, 2>;
+            self._parse_and_validate_op_spelling(&ops);
+            fd->op_token.from_buf(ops.data(), ops.size(), dyn()->ctx);
+            fd->name = Token();
         } else if dyn()->check(TokenKind::LitIdentifier) || dyn()->check(TokenKind::KwSelf) {
             var name_tok = dyn()->current();
             dyn()->advance();
@@ -906,9 +1034,10 @@ class <T> DeclParse {
                 if dyn()->check(TokenKind::KwOp) {
                     dyn()->advance();
                     fd->is_operator = true;
-                    fd->op_token    = dyn()->current();
-                    dyn()->advance();
-                    fd->name = fd->op_token;
+                    var ops: std::StackBuf::<Token, 2>;
+                    self._parse_and_validate_op_spelling(&ops);
+                    fd->op_token.from_buf(ops.data(), ops.size(), dyn()->ctx);
+                    fd->name = Token();
                 } else {
                     fd->name = dyn()->current();
                     dyn()->advance();

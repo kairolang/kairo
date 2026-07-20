@@ -330,7 +330,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         for var i: usize = 0; i < e->steps.size(); ++i {
             var s = e->steps.get(i);
             self._access_op(s->access_kind);
-            if s->name != &null {
+            if s->is_operator {
+                self.p.paint(Color::Keyword, "op");
+                for var j: usize = 0; j < s->op_tokens.size(); ++j {
+                    self.p.paint(Color::Operator, self.tok(s->op_tokens[j]));
+                }
+            } else if s->name != &null {
                 self.p.paint(Color::Ident, self.tok(s->name->name));
             } else {
                 self.p.paint(Color::Error, "<error>");
@@ -1148,7 +1153,11 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
         if fd->is_operator {
             self.p.paint(Color::Keyword, "op ");
-            self.p.paint(Color::Operator, self.tok(fd->op_token));
+            if !(fd->op_token.is_empty()) {
+                for var i: usize = 0; i < fd->op_token.size(); ++i {
+                    self.p.paint(Color::Operator, self.tok(fd->op_token[i]));
+                }
+            }
         } else {
             self.p.paint(Color::Ident, self.tok(fd->name));
         }
@@ -1980,7 +1989,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self._head("Step", last);
             self.p.put(" ");
             self._access_op(s->access_kind);
-            if s->name != &null {
+            if s->is_operator {
+                self.p.paint(Color::Keyword, "op");
+                for var j: usize = 0; j < s->op_tokens.size(); ++j {
+                    self.p.paint(Color::Operator, self.tok(s->op_tokens[j]));
+                }
+            } else if s->name != &null {
                 self.p.paint(Color::Ident, self.tok(s->name->name));
             } else {
                 self.p.paint(Color::Error, "<error>");
@@ -2667,7 +2681,15 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.put(" ");
         if fd->is_operator {
             self.p.put("op ");
-            self.p.paint(Color::Operator, self.tok(fd->op_token));
+            if fd->op_token.is_empty() {
+                self.p.put(" ");
+                return;
+            }
+
+            for var i: usize = 0; i < fd->op_token.size(); ++i {
+                self.p.paint(Color::Operator, self.tok(fd->op_token[i]));
+            }
+
             self.p.put(" ");
         } else {
             self.p.paint(Color::Ident, self.tok(fd->name));

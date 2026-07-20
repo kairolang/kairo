@@ -278,8 +278,18 @@ class ChainExpr derives Expr {
     /// \struct Step
     /// \brief a single access operation in the chain.
     struct Step {
-        /// the identifier being accessed.
+        /// the identifier being accessed. null when `is_operator` (the step
+        /// refers to an overloaded operator, e.g. `Foo::op+` / `a->op[]`).
         var name:          *NamedIdentExpr;
+
+        /// true when this step names an overloaded operator (`op <spelling>`)
+        /// instead of an identifier. mirrors FunctionDecl::is_operator.
+        var is_operator:   bool = false;
+
+        /// the operator spelling tokens when `is_operator`. up to two tokens
+        /// (e.g. `[` `]`, `l` `++`). empty otherwise. mirrors
+        /// FunctionDecl::op_token.
+        var op_tokens:     FrozenList::<Token>;
 
         /// generic arguments on this step, e.g. `bar::<i32, bool>`.
         /// empty if no generic args. reuses GenericArg from ChainType.

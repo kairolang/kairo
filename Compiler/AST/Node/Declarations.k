@@ -326,7 +326,7 @@ class FunctionDecl
     pub var body_block:  *CompoundStmt = &null; ///< when body_kind == Block.
     pub var body_expr:   *Expr         = &null; ///< when body_kind == Expr.
     pub var is_operator: bool = false;          ///< `fn op <x>`.
-    pub var op_token:    Token;                 ///< the operator token when is_operator.
+    pub var op_token:    FrozenList::<Token>;   ///< the operator token when is_operator.
     pub var is_variadic: bool = false;          ///< trailing `...name: T` pack param.
     pub var is_noreturn: bool = false;          ///< return type is `!`.
     pub var transfer:    TransferKind = TransferKind::NotTransfer; ///< @copy/@move on a transfer ctor.

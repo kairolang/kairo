@@ -857,7 +857,7 @@ class <T> ExprParse {
             || dyn()->check(TokenKind::OpQuestionDot)
             || dyn()->check(TokenKind::OpQuestionArrow) {
                 var step = self._parse_access_step();
-                if step.name != &null {
+                if (step.name != &null) || step.is_operator {
                     chain_steps.push_back(step);
                     continue;
                 }
@@ -978,6 +978,7 @@ class <T> ExprParse {
     inline fn _parse_access_step(self) -> ChainExpr::Step {
         var result = ChainExpr::Step{};
         result.name          = &null;
+        result.is_operator   = false;
         result.access_kind   = ChainExpr::AccessKind::Dot;
         result.resolved_type = &null;
         result.resolved_decl = &null;
@@ -1000,6 +1001,38 @@ class <T> ExprParse {
             dyn()->advance(T::SkipNL::After);
             result.range = sep_range;
             return result; // name stays null, caller handles
+        }
+
+        // -- qualified operator: `Foo::op+`, `a->op[]`, `a.op<<i32>(..)` -----
+        // an `op` after the separator names an overloaded operator instead of
+        // an identifier. mirror the decl side: parse+validate the spelling,
+        // freeze the tokens onto the step, leave `name` null.
+        if dyn()->check(TokenKind::KwOp) {
+            var op_start = dyn()->current_ptr()->range;
+            dyn()->advance(); // consume `op`
+            result.is_operator = true;
+
+            // `<<` after `op` is ambiguous: the shift operator, or the `<`
+            // operator followed by a generic-args opener (`(k.op<)<i32>(..)`).
+            // Try the split reading tentatively; on rollback the `<<` token is
+            // restored and we fall through to the greedy shift-op reading.
+            if dyn()->check(TokenKind::OpLessLess)
+            && self._try_op_less_less_split(&result, op_start, sep_range) {
+                return result;
+            }
+
+            var ops: std::StackBuf::<Token, 2>;
+            dyn()->_parse_and_validate_op_spelling(&ops);
+            result.op_tokens.from_buf(ops.data(), ops.size(), dyn()->ctx);
+            result.range = sep_range | dyn()->prev().range;
+
+            // generic args on the operator: `op+<i32>(..)`. tentative, so a
+            // trailing shift/comparison (`k = a.op<<i32`) rolls back cleanly
+            // while `a.op+<i32>(..)` commits.
+            if dyn()->check(TokenKind::OpLess) {
+                self._try_step_generic_args(&result, op_start, sep_range);
+            }
+            return result;
         }
 
         // expect identifier
@@ -1085,6 +1118,84 @@ class <T> ExprParse {
             }
         }
         // fall through: guard dtor pops suppress and rolls cursor back
+    }
+
+    /// \brief tentatively splits a `<<` after `op` into the `<` operator plus a
+    ///        generic-args opener: `(k.op<)<i32>(..)`.
+    ///
+    /// \details the lexer fuses `op<` + `<` into `op` `<<`. When generic args
+    ///          are actually present, the first `<` is the overloaded operator
+    ///          and the second opens the generic list. We rewrite the physical
+    ///          `<<` token in place to a single `<` covering only its second
+    ///          column, then run the normal generic-args parse. On success the
+    ///          op token is the synthesized `<` over the first column. On
+    ///          failure we restore the `<<` token (TentativeGuard does NOT
+    ///          snapshot the token buffer) and return false so the caller falls
+    ///          back to reading `<<` as the shift operator.
+    ///
+    /// precondition: current token is `<<`, `op` already consumed.
+    /// \returns true if the split reading committed (result is fully populated).
+    inline fn _try_op_less_less_split(
+        self,
+        result:    *ChainExpr::Step,
+        op_start:  SourceRange,
+        sep_range: SourceRange
+    ) -> bool {
+        inline "c++" {
+            using ASTTentativeGuard = typename T::TentativeGuard;
+        }
+
+        var ll_ptr   = dyn()->current_ptr();
+        var ll_range = ll_ptr->range;   // saved for restore on rollback
+
+        // first column: the `<` operator; second column: generic opener.
+        var lt_range = SourceRange::from_bounds(ll_range.start, ll_range.start.with_offset(1));
+        var op_tok   = Token(lt_range, TokenKind::OpLess);
+
+        // rewrite the buffer token to the leftover `<` (second column) so the
+        // generic-args parser consumes it as the opener.
+        ll_ptr->kind  = TokenKind::OpLess;
+        ll_ptr->range = SourceRange::from_bounds(ll_range.start.with_offset(1), ll_range.end);
+
+        var t = ASTTentativeGuard(dyn());
+        var generic_args: std::StackBuf::<ChainType::GenericArg, 4>;
+        var ok = dyn()->_parse_generic_args(&generic_args);
+        if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
+
+        if ok && !generic_args.is_empty() {
+            var k = dyn()->current().kind;
+            if k == TokenKind::OpLParen
+            || k == TokenKind::OpDot
+            || k == TokenKind::OpArrow
+            || k == TokenKind::OpColonColon
+            || k == TokenKind::OpQuestionDot
+            || k == TokenKind::OpQuestionArrow
+            || k == TokenKind::OpLSquare
+            || k == TokenKind::OpLBrace
+            || k == TokenKind::OpComma
+            || k == TokenKind::OpSemicolon
+            || k == TokenKind::OpRParen
+            || k == TokenKind::OpRSquare
+            || k == TokenKind::OpRBrace
+            || k == TokenKind::TkNewLine
+            || k == TokenKind::TkEof {
+                var ops: std::StackBuf::<Token, 2>;
+                ops.push_back(op_tok);
+                result->op_tokens.from_buf(ops.data(), ops.size(), dyn()->ctx);
+                result->generic_args.from_buf(
+                    generic_args.data(), generic_args.size(), dyn()->ctx
+                );
+                result->range = sep_range | dyn()->prev().range;
+                t.commit();
+                return true;
+            }
+        }
+
+        // rollback: the guard restores the cursor, but NOT the token buffer.
+        // put the fused `<<` token back so the shift-op fallback sees it whole.
+        ll_ptr->kind  = TokenKind::OpLessLess;
+        ll_ptr->range = ll_range;
+        return false;
     }
 
     /// \brief flushes accumulated chain steps into a ChainExpr wrapping base.
