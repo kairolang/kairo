@@ -17,6 +17,7 @@
 
 import Memory::ArenaList::*;
 import AST::Context::ASTContext::*;
+import AST::Context::SymbolTable::*;
 import AST::Node::Base::*;
 
 /// \enum DeclContextKind
@@ -81,18 +82,20 @@ enum DeclContextKind derives u8 {
 /// A scope that owns declarations.
 /// Mixed into concrete decl nodes (ClassDecl, FunctionDecl, etc).
 class DeclContext {
-    pub var dc_kind:   DeclContextKind;
-    pub var dc_parent: obs::<DeclContext>;      // lexical parent scope
-    pub var dc_owner:  obs::<Decl>;             // the Decl that owns this context (null for TU)
-    pub var dc_decls:  ArenaList::<*Decl>;      // owned decls, in source order (parser ordering)
-    pub var dc_scope:  obs::<DisambigNode>;        // hoisted scope node for lookup; populated by indexer
+    pub var dc_kind:    DeclContextKind;
+    pub var dc_parent:  obs::<DeclContext>;      // lexical parent scope
+    pub var dc_owner:   obs::<Decl>;             // the Decl that owns this context (null for TU)
+    pub var dc_decls:   ArenaList::<*Decl>;      // owned decls, in source order (parser ordering)
+    pub var dc_scope:   obs::<DisambigNode>;     // hoisted scope node for lookup; populated by indexer
+    pub var dc_symbols: obs::<SymbolTable>;
 
     fn init_dc(self, kind: DeclContextKind, ctx: *ASTContext, parent: *DeclContext, owner: *Decl) {
-        self.dc_kind   = kind;
-        self.dc_parent = parent;
-        self.dc_owner  = owner;
+        self.dc_kind    = kind;
+        self.dc_parent  = parent;
+        self.dc_owner   = owner;
         self.dc_decls.set_allocator(&(ctx->nodes));
-        self.dc_scope  = &null;
+        self.dc_scope   = &null;
+        self.dc_symbols = &null;
     }
 
     /// Wire the hoisted scope node in after the index pass. The indexer
@@ -101,6 +104,12 @@ class DeclContext {
     fn set_scope(self, scope: *DisambigNode) {
         self.dc_scope = scope;
     }
+
+    fn set_symbols(self, t: *SymbolTable) {
+        self.dc_symbols = t;
+    }
+
+    fn symbols(self) -> *SymbolTable { return self.dc_symbols; }
 
     /// Append a child decl in source order. NOTE: this updates the flat
     /// ordered list only the lookup index (dc_scope) is populated by the
@@ -131,6 +140,19 @@ class DeclContext {
         r.entries = entries;
         r.node    = self.dc_scope;
         return r;
+    }
+
+    /// Sema-facing lookup in THIS scope only. Null if the table isn't built
+    /// or the name is absent. Unqualified lookup are NameResolutions job built
+    /// on this primitive.
+    fn lookup_symbol(self, name: DeclName) -> *OverloadCell {
+        if self.dc_symbols == &null { return &null; }
+        return self.dc_symbols->lookup(name);
+    }
+
+    fn lookup_symbol_ident(self, imm: u32) -> *OverloadCell {
+        if self.dc_symbols == &null { return &null; }
+        return self.dc_symbols->lookup_ident(imm);
     }
 
     /// Walks up the parent chain looking for a context of the given kind.

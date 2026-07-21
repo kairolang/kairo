@@ -16,6 +16,7 @@
 import Memory::ArenaList::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
+import AST::Context::SymbolTable::*;
 import AST::Context::DeclContext::*;
 import AST::Node::Program::*;
 import AST::Node::Base::*;
@@ -148,19 +149,21 @@ struct BodyRange {
 /// Root of a parsed file's AST. Derives DeclContext so it participates in
 /// name lookup like any other scope.
 class TranslationUnit derives DeclContext {
-    pub var ctx:          obs::<ASTContext>;
-    pub var fid:          u32;
-    pub var module_path:  ModulePath;
-    pub var program:      obs::<Program>;
-    pub var imports:      ArenaList::<*Decl>;
-    pub var macros:       ArenaList::<*Decl>;
-    pub var tu_attrs:     ArenaList::<*Decl>;
-    pub var error_count:  u32 = 0;
-    pub var warn_count:   u32 = 0;
-    pub var body_ranges:  ArenaList::<BodyRange>;
+    pub var ctx:         obs::<ASTContext>;
+    pub var fid:         u32;
+    pub var module_path: ModulePath;
+    pub var program:     obs::<Program>;
+    pub var imports:     ArenaList::<*Decl>;
+    pub var macros:      ArenaList::<*Decl>;
+    pub var tu_attrs:    ArenaList::<*Decl>;
+    pub var error_count: u32 = 0;
+    pub var warn_count:  u32 = 0;
+    pub var body_ranges: ArenaList::<BodyRange>;
 
-    pub var scope:        obs::<DisambigTable>;
-    pub var global_scope: obs::<GlobalDisambigTable>;
+    pub var scope:          obs::<DisambigTable>;
+    pub var global_scope:   obs::<GlobalDisambigTable>;
+    pub var out_of_line:    ArenaList::<*Decl>;
+    pub var import_overlay: obs::<SymbolTable>;
 
     fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
         self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
@@ -171,5 +174,7 @@ class TranslationUnit derives DeclContext {
         self.imports.set_allocator(&(ctx->nodes), 16);
         self.tu_attrs.set_allocator(&(ctx->nodes), 4);
         self.body_ranges.set_allocator(&(ctx->nodes), 64);
+        self.out_of_line.set_allocator(&(ctx->nodes), 8);
+        self.import_overlay = &null;
     }
 }
