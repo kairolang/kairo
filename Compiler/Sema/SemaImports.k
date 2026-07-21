@@ -9,8 +9,10 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import Sema::SemaContext::*;
 import AST::Printer::PrintCore::*;
 import AST::Context::ASTContext::*;
+import AST::Context::SymbolTable::*;
 import AST::Context::DeclContext::*;
 import AST::ASTSupport::*;
 import AST::Context::TranslationUnit::*;
