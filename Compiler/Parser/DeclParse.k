@@ -2937,23 +2937,24 @@ class <T> DeclParse {
             // discard; body parse continues below
         }
 
-        // STUB: proc-macro bodies execute compile-time AST transforms; the
-        // body parses as a normal block here, but the AST-API surface it uses
-        // (std::AST) is not finalized. Parse the block for structure now;
-        // semantic handling is deferred.
-        if dyn()->check(TokenKind::OpLBrace) {
-            pm->body = dyn()->parse_compound();
-        } else {
-            self._parse_proc_macro_body_stub();
+        // A body is MANDATORY: unlike a function, a proc macro cannot be
+        // forward-declared.
+        if !dyn()->check(TokenKind::OpLBrace) {
+            var r = dyn()->current_ptr()->range;
+            dyn()->diag->report(DiagID::S050E, r.start,
+                "a proc macro requires a body; it cannot be forward-declared "
+                "(proc macros run at compile time and must be defined before use)"
+            ).first(start).emit();
+            dyn()->exit_scope();
+            self._sync_decl(DeclSyncCtx::TopLevel);
+            return static_cast::<*Decl>(ProcedureMacroDecl::create_error(dyn()->ctx, start | dyn()->prev().range));
         }
+        
+        pm->body = dyn()->parse_compound();
 
         dyn()->exit_scope();
         pm->range = start | dyn()->prev().range;
         return static_cast::<*Decl>(pm);
-    }
-
-    priv fn _parse_proc_macro_body_stub(self) {
-        std::ICE("DeclParse::_parse_proc_macro_body: proc-macro body handling not yet defined");
     }
 
     // ========================================================================
