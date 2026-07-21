@@ -19,6 +19,7 @@ import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::DeclContext::*;
+import AST::Context::SymbolTable::*;
 import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;
 import AST::Node::Base::*;
@@ -119,6 +120,7 @@ class ASTParse
 
     pub var mode: ParseMode = ParseMode::Full; ///< see ParseMode.
     var _index_path: vec::<string>;            ///< named-scope path for hoisted inserts (index mode only).
+    var _sym_tables: vec::<*SymbolTable>;      ///< tables created by _build_symbols; frozen at parse exit.
     
 
     class TentativeGuard {
@@ -290,6 +292,7 @@ class ASTParse
         self.tu->warn_count  = self.diag->warn_count()  - warn_count_base;
 
         self._wire_scopes();
+        self._build_symbols();
         return self.tu;
     }
 
@@ -443,6 +446,267 @@ class ASTParse
             child_dc->set_scope(child);
             self._wire_dc_children(child_dc, child);
         }
+    }
+
+    //  Symbol table build (post-parse)
+
+    /// \brief builds the REAL per-DeclContext symbol tables (dc_symbols) in
+    ///        one walk over the completed TU, then freezes them. This is the
+    ///        table sema resolves against; dc_scope/DisambigTable stays a
+    ///        parser-only phase artifact. See Sema/RESOLUTION.md §1.
+    ///
+    /// \details Rules:
+    ///        - append-only multimap, ZERO diagnostics. Duplicate names,
+    ///          fwd-decl + definition, primary + specializations: all just
+    ///          stack in the cell. NameResolution links Redeclarable
+    ///          chains and reports redefinitions later.
+    ///        - `fn Class::method` out-of-line defs land in
+    ///          tu->out_of_line, never in a table (attachment is N(a)'s
+    ///          job).
+    ///        - locals and params are EXCLUDED: the walk never descends
+    ///          into Function/Lambda/Block contexts. Body resolution
+    ///          walks its own lexical stack; params come off the
+    ///          FunctionDecl signature.
+    ///        - anonymous containers (anonymous modules, visibility
+    ///          groups, eval blocks, ffi blocks) get no table of their
+    ///          own; their decls land in the enclosing DC's table.
+    ///        - a fn in a type scope whose name equals the type's name
+    ///          keys as DeclName::ctor() context-relative, no type info
+    ///          in the key. Operators key on the packed op-token kinds.
+    ///        - extension members go in the ExtensionDecl's OWN table;
+    ///          folding them into the target type is sema's job.
+    ///        - top-level `var`/`const` route through the stmt path
+    ///          (DeclStmt) and never hit tu->dc_decls, so they are picked
+    ///          up from program->items separately.
+    ///        - after the walk, every created table is frozen. FROZEN
+    ///          MEANS FROZEN: later phases grow overlays, node links, or
+    ///          registries never these tables.
+    fn _build_symbols(self) {
+        var tu_dc = static_cast::<*DeclContext>(self.tu);
+        self._collect_symbols(tu_dc, tu_dc, u32(-1));
+
+        // top-level DeclStmt-wrapped decls (script-style `var x = 5`).
+        var prog = self.tu->program;
+        if prog != &null {
+            for var i: usize = 0; i < prog->items.size(); ++i {
+                var item = prog->items.get(i);
+                if item == &null { continue; }
+                if item->get_kind() != TopLevelKind::Stmt { continue; }
+                
+                var s = item->as_stmt();
+                if (s == &null) || (!isa::<DeclStmt>(s)) { continue; }
+                
+                var ds = cast::<DeclStmt>(s);
+                if ds->decl != &null {
+                    self._index_symbol_decl(ds->decl, tu_dc, tu_dc, u32(-1));
+                }
+            }
+        }
+
+        for var i: usize = 0; i < self._sym_tables.size(); ++i {
+            self._sym_tables[i]->freeze();
+        }
+    }
+
+    /// \brief lazily allocates the SymbolTable for \p dc and registers it
+    ///        for the freeze sweep at the end of _build_symbols.
+    priv fn _symtab_for(self, dc: *DeclContext) -> *SymbolTable {
+        if dc->dc_symbols == &null {
+            var t = self.ctx->alloc_init::<SymbolTable>();
+            dc->set_symbols(t);
+            self._sym_tables.push_back(t);
+        }
+
+        return dc->dc_symbols;
+    }
+
+    /// \brief appends \p d under \p name in \p table_dc's table and stamps
+    ///        the dual-context links (lexical = where written, semantic =
+    ///        lookup home). They differ for anonymous-module members now
+    ///        and for extension members once sema folds them.
+    priv fn _append_symbol(self, table_dc: *DeclContext, lex_dc: *DeclContext, name: DeclName, d: *Decl) {
+        self._symtab_for(table_dc)->append(name, d);
+        d->lexical_dc  = reinterpret_cast::<*void>(lex_dc);
+        d->semantic_dc = reinterpret_cast::<*void>(table_dc);
+    }
+
+    /// \brief identifier-keyed append. Silently skips recovery/synthetic
+    ///        names that fail imm resolution sema surfaces those with
+    ///        context; a half-keyed table entry helps no one.
+    priv fn _append_ident_symbol(self, table_dc: *DeclContext, lex_dc: *DeclContext, name_tok: Token, d: *Decl) {
+        var im = self.ctx->get_ident_imm(name_tok);
+        if im == u32(-1) { return; }
+        
+        self._append_symbol(table_dc, lex_dc, DeclName::ident(im), d);
+    }
+
+    /// \brief DeclName for `fn op <x>` from its (up to two) operator tokens.
+    priv fn _op_decl_name(self, f: *FunctionDecl) -> DeclName {
+        var k0 = TokenKind::TkUnknown;
+        var k1 = TokenKind::TkUnknown;
+        if f->op_token.count > 0 { k0 = f->op_token[0].kind; }
+        if f->op_token.count > 1 { k1 = f->op_token[1].kind; }
+        
+        return DeclName::op_name(k0, k1);
+    }
+
+    /// \brief walks \p walk_dc's owned decls, appending each named decl to
+    ///        \p table_dc's table. \p owner_name_imm is the imm of the
+    ///        enclosing TYPE's name when table_dc is a type scope (ctor
+    ///        detection), u32(-1) otherwise.
+    priv fn _collect_symbols(self, walk_dc: *DeclContext, table_dc: *DeclContext, owner_name_imm: u32) {
+        for var i: usize = 0; i < walk_dc->dc_decls.size(); ++i {
+            var d = *(walk_dc->dc_decls.get(i));
+            if d == &null { continue; }
+            self._index_symbol_decl(d, walk_dc, table_dc, owner_name_imm);
+        }
+    }
+
+    /// \brief routes one decl into the tables. Pass-through containers
+    ///        (visibility groups, eval blocks, ffi blocks) recurse with the
+    ///        SAME table_dc; scope-owning named decls append themselves and
+    ///        recurse into their own context.
+    priv fn _index_symbol_decl(self, d: *Decl, walk_dc: *DeclContext, table_dc: *DeclContext, owner_name_imm: u32) {
+        if isa::<ClassDecl>(d) {
+            var n = cast::<ClassDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            
+            var dc = static_cast::<*DeclContext>(n);
+            self._collect_symbols(dc, dc, self.ctx->get_ident_imm(n->name));
+            
+            return;
+        } if isa::<StructDecl>(d) {
+            var n = cast::<StructDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            
+            var dc = static_cast::<*DeclContext>(n);
+            self._collect_symbols(dc, dc, self.ctx->get_ident_imm(n->name));
+            
+            return;
+        } if isa::<UnionDecl>(d) {
+            var n = cast::<UnionDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            
+            var dc = static_cast::<*DeclContext>(n);
+            self._collect_symbols(dc, dc, self.ctx->get_ident_imm(n->name));
+            
+            return;
+        } if isa::<InterfaceDecl>(d) {
+            var n = cast::<InterfaceDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            
+            var dc = static_cast::<*DeclContext>(n);
+            self._collect_symbols(dc, dc, self.ctx->get_ident_imm(n->name));
+            
+            return;
+        } if isa::<EnumDecl>(d) {
+            var n = cast::<EnumDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            var dc = static_cast::<*DeclContext>(n);
+            // variants are owned via n->variants (not dc_decls); key them in
+            // the enum's own table so `Direction::North` resolves per segment.
+            for var v: usize = 0; v < n->variants.count; ++v {
+                var vd = n->variants[v];
+                if vd != &null {
+                    self._append_ident_symbol(dc, dc, vd->name, static_cast::<*Decl>(vd));
+                }
+            }
+            
+            self._collect_symbols(dc, dc, u32(-1));
+            return;
+        } if isa::<ModuleDecl>(d) {
+            var n  = cast::<ModuleDecl>(d);
+            var dc = static_cast::<*DeclContext>(n);
+            if n->is_anonymous {
+                // anonymous modules get no table; decls land in the
+                // enclosing DC's table. lexical_dc still records the module.
+                self._collect_symbols(dc, table_dc, owner_name_imm);
+                return;
+            }
+            
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            self._collect_symbols(dc, dc, u32(-1));
+            return;
+        } if isa::<ExtensionDecl>(d) {
+            // extension members key in the extension's OWN table. Folding
+            // into the target type (and rewriting semantic_dc) is sema's
+            // job the parser cannot resolve the target here.
+            var n  = cast::<ExtensionDecl>(d);
+            var dc = static_cast::<*DeclContext>(n);
+            
+            self._collect_symbols(dc, dc, u32(-1));
+            return;
+        } if isa::<FunctionDecl>(d) {
+            var f = cast::<FunctionDecl>(d);
+            if f->is_out_of_line() {
+                // `fn Class::method` no table entry; N(a) attaches it.
+                self.tu->out_of_line.push(d);
+                d->lexical_dc  = reinterpret_cast::<*void>(walk_dc);
+                d->semantic_dc = &null; // unknown until attachment
+                return;
+            }
+
+            if f->is_operator {
+                self._append_symbol(table_dc, walk_dc, self._op_decl_name(f), d);
+                return;
+            }
+            
+            var im = self.ctx->get_ident_imm(f->name);
+            if im == u32(-1) { return; }
+            if table_dc->is_type_scope() && (im == owner_name_imm) {
+                self._append_symbol(table_dc, walk_dc, DeclName::ctor(), d);
+                return;
+            }
+            
+            self._append_symbol(table_dc, walk_dc, DeclName::ident(im), d);
+            // no recursion: locals/params are excluded by design.
+            return;
+        }
+        if isa::<VariableDecl>(d) {
+            var n = cast::<VariableDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            return;
+        }
+        if isa::<FieldDecl>(d) {
+            var n = cast::<FieldDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            return;
+        }
+        if isa::<TypeAliasDecl>(d) {
+            var n = cast::<TypeAliasDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            return;
+        }
+        if isa::<VisibilityGroupDecl>(d) {
+            var n = cast::<VisibilityGroupDecl>(d);
+            for var i: usize = 0; i < n->members.count; ++i {
+                var m = n->members[i];
+                if m != &null { self._index_symbol_decl(m, walk_dc, table_dc, owner_name_imm); }
+            }
+            return;
+        }
+        if isa::<EvalBlockDecl>(d) {
+            var n = cast::<EvalBlockDecl>(d);
+            for var i: usize = 0; i < n->body.count; ++i {
+                var m = n->body[i];
+                if m != &null { self._index_symbol_decl(m, walk_dc, table_dc, owner_name_imm); }
+            }
+            return;
+        }
+        if isa::<FFIBlockDecl>(d) {
+            var n = cast::<FFIBlockDecl>(d);
+            for var i: usize = 0; i < n->body.count; ++i {
+                var m = n->body[i];
+                if m != &null { self._index_symbol_decl(m, walk_dc, table_dc, owner_name_imm); }
+            }
+            return;
+        }
+        // TODO: ProcedureMacroDecl - this is handled by the parser
+        // ImportDecl:                   phase I owns imports (overlay), nothing to record.
+        // MacroDecl:                    the macro table belongs to the PP.
+        // TestDecl:                     anonymous, never looked up.
+        // ParamDecl / GenericParamDecl: excluded (come off signatures).
+        // EnumVariantDecl:              handled at its owning EnumDecl above.
     }
 
     //  Index mode (merged indexer)

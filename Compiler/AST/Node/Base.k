@@ -21,6 +21,10 @@ import AST::Kind::StmtKind::*;
 import AST::Kind::PatternKind::*;
 import AST::Context::ASTContext::*;
 
+/// Fwd decl: Expr and Pattern carry a sema-resolved *Type slot, and Type is
+/// defined later in this file (stage0 cannot split this across files).
+class Type;
+
 class Expr derives Annotation::<Expr> {
     pub var kind:          ExprKind    = ExprKind::RecoveryExpr;
     pub var range:         SourceRange = SourceRange::invalid();
@@ -34,7 +38,61 @@ class Expr derives Annotation::<Expr> {
         XValue,   // expiring value (move semantics)needed for C++ interop
     }
 
+    /// Dependence bits, mirroring Type::TypeFlags. Expressions in generic
+    /// bodies are exactly as dependent as types are (`sizeof(T)`, `x + y`
+    /// with x: T) and sema defers them the same way (RESOLUTION.md hard
+    /// invariant #5: dependent = deferred, not failed).
+    enum ExprFlags derives u8 {
+        None                     = 0,
+        /// Value/type depends on a generic parameter; checking deferred to
+        /// instantiation (M2).
+        IsDependent              = 1 << 0,
+        /// Affects instantiation without necessarily changing meaning
+        /// (e.g. sizeof(T)). Superset of IsDependent.
+        IsInstantiationDependent = 1 << 1,
+        /// Contains an unexpanded pack (...Ts).
+        ContainsUnexpandedPack   = 1 << 2,
+    }
+
     pub var value_category: ValueCategory = ValueCategory::Unknown;
+    pub var type_:      *Type     = &null;
+    pub var expr_flags: ExprFlags = ExprFlags::None;
+    pub var poisoned: bool = false;
+
+    fn poison(self)              { self.poisoned = true;  }
+    fn is_poisoned(self) -> bool { return self.poisoned;  }
+
+    fn get_type(self) -> *Type   { return self.type_; }
+    fn set_type(self, t: *Type)  { self.type_ = t;    }
+
+    fn adopt_sema(self, other: *Expr) {
+        if other == &null { return; }
+        self.type_          = other->type_;
+        self.expr_flags     = other->expr_flags;
+        self.poisoned       = other->poisoned;
+        self.value_category = other->value_category;
+    }
+
+    fn is_dependent(self) -> bool {
+        return static_cast::<ExprFlags>(
+              static_cast::<u8>(self.expr_flags)
+            & static_cast::<u8>(ExprFlags::IsDependent))
+         != ExprFlags::None;
+    }
+
+    fn is_instantiation_dependent(self) -> bool {
+        return static_cast::<ExprFlags>(
+              static_cast::<u8>(self.expr_flags)
+            & static_cast::<u8>(ExprFlags::IsInstantiationDependent))
+         != ExprFlags::None;
+    }
+
+    fn contains_unexpanded_pack(self) -> bool {
+        return static_cast::<ExprFlags>(
+              static_cast::<u8>(self.expr_flags)
+            & static_cast::<u8>(ExprFlags::ContainsUnexpandedPack))
+         != ExprFlags::None;
+    }
 
     fn is_valid(self) -> bool {
         return self.kind != ExprKind::RecoveryExpr;
@@ -44,7 +102,7 @@ class Expr derives Annotation::<Expr> {
         return self.kind == ExprKind::RecoveryExpr;
     }
 
-    fn get_excepted(self) -> ExprKind {
+    fn get_expected(self) -> ExprKind {
         if self.is_error() {
             return self.recovery_kind;
         }
@@ -87,7 +145,7 @@ class Stmt derives Annotation::<Stmt> {
         return self.kind == StmtKind::RecoveryStmt;
     }
 
-    fn get_excepted(self) -> StmtKind {
+    fn get_expected(self) -> StmtKind {
         if self.is_error() {
             return self.recovery_kind;
         }
@@ -110,6 +168,54 @@ class Decl derives VisibilityAnnotation::<Decl>, Annotation::<Decl> {
     // for error nodes, the kind of stmt we were trying to parse (for better error messages)
     pub var recovery_kind: DeclKind    = DeclKind::RecoveryDecl;
 
+    /// Sema poison bit; see Expr::poisoned for the contract. A decl that
+    /// fails sema (bad type ref, redefinition loser) is poisoned so uses
+    /// degrade gracefully instead of cascading.
+    pub var poisoned: bool = false;
+
+    /// Compiler-generated decl (synthesized member, monomorphized
+    /// instantiation, implicit ctor). Walkers that mirror user source
+    /// (printer round-trip, LSP listings) skip implicit decls.
+    pub var is_implicit: bool = false;
+
+    /// Dual-context links, Clang's lexical-vs-semantic DeclContext model.
+    /// lexical_dc  = the scope this decl was WRITTEN in (an ExtensionDecl
+    ///               body, an anonymous module, the TU).
+    /// semantic_dc = the scope this decl BELONGS to for lookup (the scope
+    ///               whose SymbolTable holds it).
+    /// They differ for extension members, anonymous-module members, and
+    /// (post name-res) out-of-line `fn Class::method` definitions.
+    /// "declared in an extend" == (lexical_dc != semantic_dc).
+    /// Set by ASTParse::_build_symbols; rewritten by sema when it attaches
+    /// out-of-line defs / folds extensions.
+    ///
+    /// Stored as *void (stage0 cannot forward-declare DeclContext across
+    /// files; same limitation as ASTContext::tu). Cast with
+    /// reinterpret_cast::<*DeclContext>.
+    pub var lexical_dc:  obs::<void> = &null;
+    pub var semantic_dc: obs::<void> = &null;
+
+    fn poison(self)              { self.poisoned = true; }
+    fn is_poisoned(self) -> bool { return self.poisoned; }
+
+    /// True iff this decl was introduced through an `extend` block or other
+    /// context where its written home differs from its lookup home. Only
+    /// meaningful after _build_symbols has run.
+    fn is_lexically_displaced(self) -> bool {
+        return (self.lexical_dc != &null) && (self.lexical_dc != self.semantic_dc);
+    }
+
+    /// Copy sema-owned slots from \p other. See Expr::adopt_sema. For decl
+    /// splits/splices in ASTWriter where the replacement stands for the
+    /// same declared entity.
+    fn adopt_sema(self, other: *Decl) {
+        if other == &null { return; }
+        self.poisoned    = other->poisoned;
+        self.is_implicit = other->is_implicit;
+        self.lexical_dc  = other->lexical_dc;
+        self.semantic_dc = other->semantic_dc;
+    }
+
     fn is_valid(self) -> bool {
         return self.kind != DeclKind::RecoveryDecl;
     }
@@ -118,7 +224,7 @@ class Decl derives VisibilityAnnotation::<Decl>, Annotation::<Decl> {
         return self.kind == DeclKind::RecoveryDecl;
     }
 
-    fn get_excepted(self) -> DeclKind {
+    fn get_expected(self) -> DeclKind {
         if self.is_error() {
             return self.recovery_kind;
         }
@@ -158,11 +264,37 @@ class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qual
     // for error nodes, the kind of stmt we were trying to parse (for better error messages)
     pub var size_bits:       usize       = 0;
     pub var align_bits:      usize       = 0;
+    /// INVARIANT (enforced by TypeResolution, relied on by everything after):
+    /// canonical always points to the fully-desugared, UNQUALIFIED type.
+    /// Type identity is (a->canonical == b->canonical) && (a->quals ==
+    /// b->quals); uniquing/instantiation caches key on canonical with quals
+    /// excluded. A canonical that sometimes retains quals silently forks
+    /// duplicate instantiations do not relax this.
     pub var canonical:      *Type        = &null; // for types that are qualified by another type, e.g. associated types like T::Item or pointer types like *T
     pub var kind:            TypeKind    = TypeKind::RecoveryType;
     pub var range:           SourceRange = SourceRange::invalid();
     pub var recovery_kind:   TypeKind    = TypeKind::RecoveryType;
     pub var type_flags:      TypeFlags   = TypeFlags::None;
+
+    /// Sema poison bit; see Expr::poisoned for the contract.
+    pub var poisoned: bool = false;
+
+    fn poison(self)              { self.poisoned = true; }
+    fn is_poisoned(self) -> bool { return self.poisoned; }
+
+    /// Copy sema-owned slots from \p other. See Expr::adopt_sema. For Type
+    /// this carries the canonical link + layout a post-sema rewrite that
+    /// substitutes an equivalent type keeps its resolved identity. If the
+    /// rewrite CHANGES the type's meaning, do not call this; let
+    /// TypeResolution recompute.
+    fn adopt_sema(self, other: *Type) {
+        if other == &null { return; }
+        self.canonical  = other->canonical;
+        self.size_bits  = other->size_bits;
+        self.align_bits = other->align_bits;
+        self.type_flags = other->type_flags;
+        self.poisoned   = other->poisoned;
+    }
 
     fn is_valid(self) -> bool {
         return self.kind != TypeKind::RecoveryType;
@@ -172,7 +304,7 @@ class Type derives TypeQual::<Type>, Annotation::<Type> { // all types have qual
         return self.kind == TypeKind::RecoveryType;
     }
 
-    fn get_excepted(self) -> TypeKind {
+    fn get_expected(self) -> TypeKind {
         if self.is_error() {
             return self.recovery_kind;
         }
@@ -226,6 +358,26 @@ class Pattern derives Annotation::<Pattern> {
     pub var range:         SourceRange = SourceRange::invalid();
     pub var recovery_kind: PatternKind = PatternKind::RecoveryPattern;
 
+    /// The type this pattern matches. Written by pattern checking (the vars
+    /// a pattern binds take their types from here); null until then.
+    pub var type_: *Type = &null;
+
+    /// Sema poison bit; see Expr::poisoned for the contract.
+    pub var poisoned: bool = false;
+
+    fn poison(self)              { self.poisoned = true; }
+    fn is_poisoned(self) -> bool { return self.poisoned; }
+
+    fn get_type(self) -> *Type  { return self.type_; }
+    fn set_type(self, t: *Type) { self.type_ = t;    }
+
+    /// Copy sema-owned slots from \p other. See Expr::adopt_sema.
+    fn adopt_sema(self, other: *Pattern) {
+        if other == &null { return; }
+        self.type_    = other->type_;
+        self.poisoned = other->poisoned;
+    }
+
     static fn classof(ptr: *Pattern) -> bool {
         return true; // all Pattern* are valid for classof(Pattern)
     }
@@ -242,7 +394,7 @@ class Pattern derives Annotation::<Pattern> {
         return self.kind == PatternKind::RecoveryPattern;
     }
 
-    fn get_excepted(self) -> PatternKind {
+    fn get_expected(self) -> PatternKind {
         if self.is_error() {
             return self.recovery_kind;
         }

@@ -15,6 +15,7 @@
 
 import AST::Node::Base::*;
 import AST::Context::ASTContext::*;
+import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
 import AST::Node::Casting::*;
 
@@ -206,6 +207,23 @@ class NamedIdentExpr derives Expr {
     pub var generic_args: FrozenList::<ChainType::GenericArg>;
     pub var ctx: *ASTContext; ///< for TokenText::get_name()
 
+    /// Name-resolution result. Exactly three legal states after phase N:
+    ///   unique binding:  resolved_decl set, candidate_cell null.
+    ///   overload set:    candidate_cell set (points INTO the frozen
+    ///                    SymbolTable never a copy), resolved_decl null
+    ///                    until type-directed overload resolution picks the
+    ///                    winner and promotes it.
+    ///   failure:         both null, node poisoned, one diagnostic (N(b)).
+    /// One-writer rule: N writes these; inference promotes cell -> decl;
+    /// nobody else touches them.
+    pub var resolved_decl:  *Decl         = &null;
+    pub var candidate_cell: *OverloadCell = &null;
+
+    fn is_bound(self)    -> bool { return self.resolved_decl != &null; }
+    fn is_deferred(self) -> bool {
+        return (self.resolved_decl == &null) && (self.candidate_cell != &null);
+    }
+
     static fn create(
         ctx:   *ASTContext,
         range: SourceRange,
@@ -306,6 +324,11 @@ class ChainExpr derives Expr {
 
         /// resolved declaration this step refers to. set by sema, null before.
         var resolved_decl: *Decl;
+
+        /// deferred overload set for this step: points INTO the frozen
+        /// SymbolTable when overload resolution needs type info to pick.
+        /// Same three-state contract as NamedIdentExpr::candidate_cell.
+        var candidate_cell: *OverloadCell = &null;
 
         /// true if sema resolved this as a UFCS call (extension method).
         var is_ufcs:       bool = false;
