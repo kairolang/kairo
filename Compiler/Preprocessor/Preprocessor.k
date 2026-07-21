@@ -1577,7 +1577,7 @@ class PPWalker
     ) -> *(TokenBuffer::<512>) {
         var out = std::create::<TokenBuffer::<512>>();
 
-        if !invoke->has_args || invoke->arg_toks.size() == 0 {
+        if (!invoke->has_args) || (invoke->arg_toks.size() == 0) {
             self._builtin_report(
                 invoke->range,
                 "builtin 'stringify!()' requires at least one token",
