@@ -1181,6 +1181,40 @@ fn FrontendAction::_dump_imports() {
     }
 }
 
+/// Disambiguating suffix for a type-decl scope header. Overloaded/specialized
+/// types (e.g. `class <T> Box`, `class <> Box<i32>`, `class <> Box<[T]>`) all
+/// share the bare name `Box`, so three `scope <tu>::Box` headers are
+/// indistinguishable in the dump. Append the specialization args (`<i32>`) or,
+/// for a generic primary, the parameter list (`<T>`), rendered through the
+/// same type/token printers the AST dump uses. Non-generic decls get "".
+fn _sym_spec_suffix(ctx:            *ASTContext,
+                    opts:           PrintOptions,
+                    spec_kind:      SpecKind,
+                    spec_args:      ref!(FrozenList::<*Type>),
+                    generic_params: ref!(FrozenList::<*GenericParamDecl>)) -> string {
+    // Specialization: render the post-name `<...>` argument pattern.
+    if (spec_kind == SpecKind::Explicit) || (spec_kind == SpecKind::Partial) {
+        var s: string = "<";
+        for var i: usize = 0; i < spec_args.size(); ++i {
+            if i > 0 { s += ", "; }
+            if spec_args[i] != &null { s += TypePrinter::print(spec_args[i], ctx, opts); }
+        }
+        s += ">";
+        return s;
+    }
+    // Generic primary: render the parameter names.
+    if !generic_params.is_empty() {
+        var s: string = "<";
+        for var i: usize = 0; i < generic_params.size(); ++i {
+            if i > 0 { s += ", "; }
+            if generic_params[i] != &null { s += ctx->get_spelling(generic_params[i]->name); }
+        }
+        s += ">";
+        return s;
+    }
+    return "";
+}
+
 fn FrontendAction::_dump_symbols(tu: *TranslationUnit, ctx: *ASTContext, opts: PrintOptions) {
     var tu_dc = static_cast::<*DeclContext>(tu);
     self._dump_symbols_dc(tu_dc, ctx, opts, "<tu>");
@@ -1251,23 +1285,28 @@ priv fn FrontendAction::_dump_symbols_dc(dc: *DeclContext, ctx: *ASTContext, opt
         if isa::<ClassDecl>(d) {
             var n = cast::<ClassDecl>(d);
             child = static_cast::<*DeclContext>(n);
-            name  = ctx->get_spelling(n->name);
+            name  = ctx->get_spelling(n->name)
+                  + _sym_spec_suffix(ctx, opts, n->spec_kind, n->spec_args, n->generic_params);
         } else if isa::<StructDecl>(d) {
             var n = cast::<StructDecl>(d);
             child = static_cast::<*DeclContext>(n);
-            name  = ctx->get_spelling(n->name);
+            name  = ctx->get_spelling(n->name)
+                  + _sym_spec_suffix(ctx, opts, n->spec_kind, n->spec_args, n->generic_params);
         } else if isa::<UnionDecl>(d) {
             var n = cast::<UnionDecl>(d);
             child = static_cast::<*DeclContext>(n);
-            name  = ctx->get_spelling(n->name);
+            name  = ctx->get_spelling(n->name)
+                  + _sym_spec_suffix(ctx, opts, n->spec_kind, n->spec_args, n->generic_params);
         } else if isa::<InterfaceDecl>(d) {
             var n = cast::<InterfaceDecl>(d);
             child = static_cast::<*DeclContext>(n);
-            name  = ctx->get_spelling(n->name);
+            name  = ctx->get_spelling(n->name)
+                  + _sym_spec_suffix(ctx, opts, n->spec_kind, n->spec_args, n->generic_params);
         } else if isa::<EnumDecl>(d) {
             var n = cast::<EnumDecl>(d);
             child = static_cast::<*DeclContext>(n);
-            name  = ctx->get_spelling(n->name);
+            name  = ctx->get_spelling(n->name)
+                  + _sym_spec_suffix(ctx, opts, n->spec_kind, n->spec_args, n->generic_params);
         } else if isa::<ModuleDecl>(d) {
             var n = cast::<ModuleDecl>(d);
             child = static_cast::<*DeclContext>(n);

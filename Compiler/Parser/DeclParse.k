@@ -3057,6 +3057,7 @@ class <T> DeclParse {
         }
         var lang_tok  = dyn()->current();
         var lang = dyn()->parse_ffi_lang(lang_tok, start);
+        dyn()->advance(T::SkipNL::After); // consume the language string; parse_ffi_lang only classifies, it does not advance
         var linkage_kind: LinkageKind;
         switch lang {
             case FFILang::C { linkage_kind = LinkageKind::C; }
