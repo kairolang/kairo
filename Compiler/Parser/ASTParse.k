@@ -731,7 +731,20 @@ class ASTParse
             }
             return;
         }
-        // TODO: ProcedureMacroDecl - this is handled by the parser
+        if isa::<ProcedureMacroDecl>(d) {
+            // A proc macro (`macro @name(...) { ... }`) is an eval-time function:
+            // it has a real name, executes at compile time, and is referenced by
+            // that name. Key it by ident in the enclosing table exactly like a
+            // FunctionDecl. No recursion: params are ParamDecl (off the
+            // signature) and the body holds locals, both excluded by design   the
+            // same rule as the FunctionDecl branch above.
+            //
+            // NOTE distinct from MacroDecl (`macro name!`), which is a PP token
+            // macro owned by the preprocessor and deliberately never tabled.
+            var n = cast::<ProcedureMacroDecl>(d);
+            self._append_ident_symbol(table_dc, walk_dc, n->name, d);
+            return;
+        }
         // ImportDecl:                   phase I owns imports (overlay), nothing to record.
         // MacroDecl:                    the macro table belongs to the PP.
         // TestDecl:                     anonymous, never looked up.
