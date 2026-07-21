@@ -20,6 +20,7 @@
 
 import AST::Node::Base::*;
 import Token::TokenKind::*;
+import AST::Context::ASTContext::*;
 
 /// \enum DeclNameKind
 /// \brief Discriminates the kind of a lookup key.
@@ -109,6 +110,30 @@ class DeclName {
     /// A default-constructed / failed-intern name. Never insert these.
     fn is_valid(self) -> bool {
         return (self.kind != DeclNameKind::Identifier) || (self.payload != u32(-1));
+    }
+
+    /// Reverse-decode this key to a human-readable name for dumps ONLY.
+    /// Never use in a hot path diagnostics/dump.
+    fn describe(self, ctx: *ASTContext) -> string {
+        switch self.kind {
+            case DeclNameKind::Identifier {
+                if ctx == &null { return "<ident?>"; }
+                var tbl = ctx->get_imm_table();
+                if tbl == &null { return "<ident?>"; }
+                return tbl->get_ident(self.payload);
+            }
+            case DeclNameKind::Operator {
+                var k0 = static_cast::<TokenKind>((self.payload >> 16) & 0xFFFF);
+                var k1 = static_cast::<TokenKind>(self.payload & 0xFFFF);
+                var s: string = "op ";
+                s += token_kind_to_string(k0);
+                if k1 != TokenKind::TkUnknown { s += token_kind_to_string(k1); }
+                return s;
+            }
+            case DeclNameKind::Constructor { return "<ctor>"; }
+            case DeclNameKind::Destructor  { return "<dtor>"; }
+        }
+        return "<name?>";
     }
 }
 
@@ -221,5 +246,21 @@ class SymbolTable {
 
     fn empty(self) -> bool {
         return self._cells.size() == 0;
+    }
+
+    /// A single row, materialized for dumping.
+    class Entry {
+        pub var name: DeclName;            ///< reconstructed key; decode with name.describe(ctx).
+        pub var cell: obs::<OverloadCell>;
+    }
+
+    fn collect_entries(self, out: ref!(vec::<Entry>)) {
+        for var it = self._cells.begin(); it != self._cells.end(); ++it {
+            var e = Entry{};
+            e.name.kind    = static_cast::<DeclNameKind>(static_cast::<u8>((it->first >> 32) & 0xFF));
+            e.name.payload = static_cast::<u32>(it->first & 0xFFFFFFFF);
+            e.cell         = &(it->second);
+            out.push_back(e);
+        }
     }
 }

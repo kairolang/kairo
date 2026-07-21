@@ -382,6 +382,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("print-tokens",     "",  "print-tokens",     "dump token stream after preprocessing",                                        false);
     cmd->define::<FlagKind::Bool>  ("print-macros",     "",  "print-macros",     "dump macro symbol table after preprocessing",                                  false);
     cmd->define::<FlagKind::Bool>  ("print-imports",    "",  "print-imports",    "dump the full import resolution graph",                                        false);
+    cmd->define::<FlagKind::Bool>  ("print-symbols",    "",  "print-symbols",    "dump the frozen per-DeclContext symbol tables (uses --print-ast style)",       false);
     cmd->define::<FlagKind::Bool>  ("print-generics",   "",  "print-generics",   "dump every generic instantiation and its origin site",                        false);
     cmd->define::<FlagKind::Bool>  ("verify-ir",        "",  "verify-ir",        "run LLVM IR verifier after codegen",                                           false);
     cmd->define::<FlagKind::Bool>  ("macro-debug",      "",  "macro-debug",      "dump macro expansion trace (ExpansionContext output)",                         false);

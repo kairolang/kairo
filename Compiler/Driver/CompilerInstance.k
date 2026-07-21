@@ -116,6 +116,12 @@ import Preprocessor::Preprocessor::*;
 import Parser::ASTParse::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Printer::ASTPrinter::*;
+import AST::Printer::PrintCore::*;
+import AST::Context::DeclContext::*;
+import AST::Context::SymbolTable::*;
+import AST::Node::Declarations::*;
+import AST::Node::Casting::*;
+import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
 import Sema::NullableTypeLowering::*;
 import Interop::Clang::ClangBackend::*;
@@ -201,6 +207,8 @@ class FrontendAction {
     priv fn _dump_tokens(self);
     priv fn _dump_macros(self);
     priv fn _dump_imports(self);
+    priv fn _dump_symbols(self, tu: *TranslationUnit, ctx: *ASTContext, opts: PrintOptions);
+    priv fn _dump_symbols_dc(self, dc: *DeclContext, ctx: *ASTContext, opts: PrintOptions, qual: string);
     priv fn _dump_mem_stats(self);
 }
 
@@ -1041,6 +1049,27 @@ fn FrontendAction::_parse() -> bool {
         }
     }
 
+    // --- print-symbols: frozen per-DeclContext symbol tables ----------------
+    // Styled by the same --print-ast value (default 'tree' -> dump()); when
+    // --print-ast is unset we still honor --print-symbols with diag() (flat)
+    // rows, since the symbol dump renders decls one-line regardless.
+    if self._ci->invocation().frontend.print_symbols {
+        var use_color = !self._ci->invocation().diag.no_color;
+        var sym_opts: PrintOptions = PrintOptions::diag();
+        if      ast_mode == "tree"      { sym_opts = PrintOptions::dump();      }
+        else if ast_mode == "canonical" { sym_opts = PrintOptions::canonical(); }
+        sym_opts.color = use_color;
+
+        for fid: u32 in fids {
+            var ctx = self._global_scope->get_context(fid);
+            if ctx == &null { continue; }
+            var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+            if tu == &null { continue; }
+            std::print(f"============== SYMBOLS for fid {fid} ==============");
+            self._dump_symbols(tu, ctx, sym_opts);
+        }
+    }
+
     // dump the hoisted scope as well
     if !ast_mode.empty() {
         std::print(f"-- hoisted scope: {self.path.full_path()} --");
@@ -1149,6 +1178,92 @@ fn FrontendAction::_dump_imports() {
             // TODO: ASTPrinter::decl_summary not yet implemented
             0;
         }
+    }
+}
+
+fn FrontendAction::_dump_symbols(tu: *TranslationUnit, ctx: *ASTContext, opts: PrintOptions) {
+    var tu_dc = static_cast::<*DeclContext>(tu);
+    self._dump_symbols_dc(tu_dc, ctx, opts, "<tu>");
+}
+
+priv fn FrontendAction::_dump_symbols_dc(dc: *DeclContext, ctx: *ASTContext, opts: PrintOptions, qual: string) {
+    if dc == &null { return; }
+
+    var p = Painter(opts);
+    p.paint(Color::NodeKind, f"scope {qual}");
+    if dc->dc_symbols == &null {
+        p.paint(Color::Dim, "  (no table)");
+        p.newline();
+    } else {
+        var tbl = dc->dc_symbols;
+        if tbl->is_frozen() {
+            p.paint(Color::Dim, f"  ({tbl->size()} names, frozen)");
+        } else {
+            p.paint(Color::Error, f"  ({tbl->size()} names, NOT FROZEN)");
+        }
+        p.newline();
+
+        var entries: vec::<SymbolTable::Entry>;
+        tbl->collect_entries(entries);
+        for var ei: usize = 0; ei < entries.size(); ++ei {
+            var name = entries[ei].name.describe(ctx);
+            var cell = entries[ei].cell;
+            if cell == &null { continue; }
+
+            var n = cell->size();
+            p.paint(Color::Ident, name);
+            if n > 1 { p.paint(Color::Dim, f"  [overloaded x{n}]"); }
+            p.newline();
+            for var di: usize = 0; di < n; ++di {
+                var d = cell->get(di);
+                if d == &null { continue; }
+                p.paint(Color::Tree, "    ");
+                p.put(DeclPrinter::print(d, ctx, opts));
+                p.newline();
+            }
+        }
+    }
+    std::print(p.out);
+
+    for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+        var d = *(dc->dc_decls.get(i));
+        if d == &null { continue; }
+
+        var child: *DeclContext = &null;
+        var name:  string       = "";
+
+        if isa::<ClassDecl>(d) {
+            var n = cast::<ClassDecl>(d);
+            child = static_cast::<*DeclContext>(n);
+            name  = ctx->get_spelling(n->name);
+        } else if isa::<StructDecl>(d) {
+            var n = cast::<StructDecl>(d);
+            child = static_cast::<*DeclContext>(n);
+            name  = ctx->get_spelling(n->name);
+        } else if isa::<UnionDecl>(d) {
+            var n = cast::<UnionDecl>(d);
+            child = static_cast::<*DeclContext>(n);
+            name  = ctx->get_spelling(n->name);
+        } else if isa::<InterfaceDecl>(d) {
+            var n = cast::<InterfaceDecl>(d);
+            child = static_cast::<*DeclContext>(n);
+            name  = ctx->get_spelling(n->name);
+        } else if isa::<EnumDecl>(d) {
+            var n = cast::<EnumDecl>(d);
+            child = static_cast::<*DeclContext>(n);
+            name  = ctx->get_spelling(n->name);
+        } else if isa::<ModuleDecl>(d) {
+            var n = cast::<ModuleDecl>(d);
+            child = static_cast::<*DeclContext>(n);
+            name  = ctx->get_spelling(n->name);
+        } else if isa::<ExtensionDecl>(d) {
+            var n = cast::<ExtensionDecl>(d);
+            child = static_cast::<*DeclContext>(n);
+            name  = "<extension>";
+        }
+
+        if child == &null { continue; }
+        self._dump_symbols_dc(child, ctx, opts, f"{qual}::{name}");
     }
 }
 

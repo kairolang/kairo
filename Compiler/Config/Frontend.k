@@ -68,6 +68,7 @@ class FrontendOptions {
     pub var print_tokens:        bool   = false;
     pub var print_macros:        bool   = false;
     pub var print_imports:       bool   = false;
+    pub var print_symbols:       bool   = false;
     pub var print_ast:           string = "";
     pub var print_sema:          bool   = false;
     pub var print_ir:            bool   = false;
@@ -172,6 +173,7 @@ class FrontendOptions {
         (o.print_tokens)        = args.get_bool("print-tokens");
         (o.print_macros)        = args.get_bool("print-macros");
         (o.print_imports)       = args.get_bool("print-imports");
+        (o.print_symbols)       = args.get_bool("print-symbols");
         (o.print_ast)           = FrontendOptions::_mode_or(args, "print-ast", "tree");
         (o.print_sema)          = args.get_bool("print-sema");
         (o.print_ir)            = args.get_bool("print-ir");
