@@ -570,34 +570,64 @@ class ASTParse
         if isa::<ClassDecl>(d) {
             var n = cast::<ClassDecl>(d);
             self._append_ident_symbol(table_dc, walk_dc, n->name, d);
-            
-            var dc = static_cast::<*DeclContext>(n);
-            self._collect_symbols(dc, dc, self.ctx->get_ident_imm(n->name));
-            
+
+            var dc    = static_cast::<*DeclContext>(n);
+            var owner = self.ctx->get_ident_imm(n->name);
+            // Members live in the typed FrozenLists (fields/methods), NOT in
+            // dc_decls; only nested types are add_decl'd. Route each member
+            // back through _index_symbol_decl so operator/ctor detection fires.
+            for var mi: usize = 0; mi < n->fields.size(); ++mi {
+                var fd = n->fields[mi];
+                if fd != &null { self._index_symbol_decl(static_cast::<*Decl>(fd), dc, dc, owner); }
+            }
+            for var mi: usize = 0; mi < n->methods.size(); ++mi {
+                var md = n->methods[mi];
+                if md != &null { self._index_symbol_decl(static_cast::<*Decl>(md), dc, dc, owner); }
+            }
+            self._collect_symbols(dc, dc, owner);   // nested types from dc_decls
+
             return;
         } if isa::<StructDecl>(d) {
             var n = cast::<StructDecl>(d);
             self._append_ident_symbol(table_dc, walk_dc, n->name, d);
-            
-            var dc = static_cast::<*DeclContext>(n);
-            self._collect_symbols(dc, dc, self.ctx->get_ident_imm(n->name));
-            
+
+            var dc    = static_cast::<*DeclContext>(n);
+            var owner = self.ctx->get_ident_imm(n->name);
+            // struct: fields + nested types only (methods are rejected at parse).
+            for var mi: usize = 0; mi < n->fields.size(); ++mi {
+                var fd = n->fields[mi];
+                if fd != &null { self._index_symbol_decl(static_cast::<*Decl>(fd), dc, dc, owner); }
+            }
+            self._collect_symbols(dc, dc, owner);
+
             return;
         } if isa::<UnionDecl>(d) {
             var n = cast::<UnionDecl>(d);
             self._append_ident_symbol(table_dc, walk_dc, n->name, d);
-            
-            var dc = static_cast::<*DeclContext>(n);
-            self._collect_symbols(dc, dc, self.ctx->get_ident_imm(n->name));
-            
+
+            var dc    = static_cast::<*DeclContext>(n);
+            var owner = self.ctx->get_ident_imm(n->name);
+            // union: fields + nested types only.
+            for var mi: usize = 0; mi < n->fields.size(); ++mi {
+                var fd = n->fields[mi];
+                if fd != &null { self._index_symbol_decl(static_cast::<*Decl>(fd), dc, dc, owner); }
+            }
+            self._collect_symbols(dc, dc, owner);
+
             return;
         } if isa::<InterfaceDecl>(d) {
             var n = cast::<InterfaceDecl>(d);
             self._append_ident_symbol(table_dc, walk_dc, n->name, d);
-            
-            var dc = static_cast::<*DeclContext>(n);
-            self._collect_symbols(dc, dc, self.ctx->get_ident_imm(n->name));
-            
+
+            var dc    = static_cast::<*DeclContext>(n);
+            var owner = self.ctx->get_ident_imm(n->name);
+            // interface: requirement-signature methods + nested types.
+            for var mi: usize = 0; mi < n->methods.size(); ++mi {
+                var md = n->methods[mi];
+                if md != &null { self._index_symbol_decl(static_cast::<*Decl>(md), dc, dc, owner); }
+            }
+            self._collect_symbols(dc, dc, owner);
+
             return;
         } if isa::<EnumDecl>(d) {
             var n = cast::<EnumDecl>(d);

@@ -1206,9 +1206,25 @@ priv fn FrontendAction::_dump_symbols_dc(dc: *DeclContext, ctx: *ASTContext, opt
         var entries: vec::<SymbolTable::Entry>;
         tbl->collect_entries(entries);
         for var ei: usize = 0; ei < entries.size(); ++ei {
-            var name = entries[ei].name.describe(ctx);
             var cell = entries[ei].cell;
             if cell == &null { continue; }
+
+            // Name header: idents/ctor/dtor decode from the key; operators
+            // cannot (the key packs TokenKind hashes lossily), so render them
+            // from the first decl's op_token via get_spelling   the exact
+            // source bytes the user wrote.
+            var name = entries[ei].name.describe(ctx);
+            if entries[ei].name.is_op() {
+                var od = cell->get(0);
+                if (od != &null) && isa::<FunctionDecl>(od) {
+                    var f = cast::<FunctionDecl>(od);
+                    var opr: string = "op ";
+                    for var ti: usize = 0; ti < f->op_token.size(); ++ti {
+                        opr += ctx->get_spelling(f->op_token[ti]);
+                    }
+                    name = opr;
+                }
+            }
 
             var n = cell->size();
             p.paint(Color::Ident, name);

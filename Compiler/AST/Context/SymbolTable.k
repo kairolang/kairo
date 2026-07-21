@@ -123,12 +123,13 @@ class DeclName {
                 return tbl->get_ident(self.payload);
             }
             case DeclNameKind::Operator {
-                var k0 = static_cast::<TokenKind>((self.payload >> 16) & 0xFFFF);
-                var k1 = static_cast::<TokenKind>(self.payload & 0xFFFF);
-                var s: string = "op ";
-                s += token_kind_to_string(k0);
-                if k1 != TokenKind::TkUnknown { s += token_kind_to_string(k1); }
-                return s;
+                // The operator key packs two u32 TokenKind hashes lossily into
+                // one u32 payload   good enough to key/disambiguate, but NOT
+                // reversible to a spelling. Callers that have the decl in hand
+                // (e.g. the symbol dumper) render the name from the operator's
+                // op_token via ctx->get_spelling instead. This is only the
+                // keyless fallback for when no decl is available.
+                return "op";
             }
             case DeclNameKind::Constructor { return "<ctor>"; }
             case DeclNameKind::Destructor  { return "<dtor>"; }
