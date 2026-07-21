@@ -265,35 +265,36 @@ fn windows_sdk_paths(t: ref!(Target)) {
         t.passthrough("-Xlinker").passthrough("/nodefaultlib:libcmt");
 
         var sdk_lib_root: string = "";
-        inline "c++" {
-            HKEY hkey;
-            if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-                    "SOFTWARE\\WOW6432Node\\Microsoft\\Windows Kits\\Installed Roots",
-                    0, KEY_READ, &hkey) == ERROR_SUCCESS) {
-                char buf[512]; DWORD sz = 512;
-                if (RegQueryValueExA(hkey, "KitsRoot10", nullptr, nullptr,
-                        reinterpret_cast<LPBYTE>(buf), &sz) == ERROR_SUCCESS) {
-                    sdk_lib_root = kairo::std::nstring_to_string(buf)
-                                 + kairo::std::nstring_to_string("Lib");
-                }
-                RegCloseKey(hkey);
+        var hkey: HKEY;
+        if RegOpenKeyExA(HKEY_LOCAL_MACHINE,
+          r"SOFTWARE\\WOW6432Node\\Microsoft\\Windows Kits\\Installed Roots",
+          0, KEY_READ, &hkey) == ERROR_SUCCESS {
+            var buf: std::Memory::buffer::<char, 512>;
+            var sz:  DWORD = 512;
+            
+            if RegQueryValueExA(hkey, r"KitsRoot10", &null, &null,
+              reinterpret_cast::<LPBYTE>(buf), &sz) == ERROR_SUCCESS {
+                sdk_lib_root = (kairo::std::nstring_to_string(buf)
+                                +  kairo::std::nstring_to_string(r"Lib"));
             }
+
+            RegCloseKey(hkey);
         }
+
         if sdk_lib_root.is_empty() {
             sdk_lib_root = "C:/Program Files (x86)/Windows Kits/10/Lib";
         }
 
         var newest_sdk: string = "";
-        inline "c++" {
-            for (auto& entry : libcxx::filesystem::directory_iterator(sdk_lib_root.raw())) {
-                if (entry.is_directory()) {
-                    auto name = kairo::std::nstring_to_string(entry.path().filename().string().c_str());
-                    if (name.starts_with(kairo::std::nstring_to_string("10.")) && name > newest_sdk) {
-                        newest_sdk = name;
-                    }
+        for entry in libcxx::filesystem::directory_iterator(sdk_lib_root.raw()) {
+            if entry.is_directory() {
+                var name = kairo::std::nstring_to_string(entry.path().filename().string().c_str());
+                if name.starts_with(kairo::std::nstring_to_string(r"10.")) && (name > newest_sdk) {
+                    newest_sdk = name;
                 }
             }
         }
+        
         if newest_sdk.is_empty() {
             log::error("No Windows SDK found in " + sdk_lib_root);
             log::error("Install the Windows 10/11 SDK");
