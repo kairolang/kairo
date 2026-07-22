@@ -1174,9 +1174,30 @@ fn FrontendAction::_dump_imports() {
         if ctx == &null { continue; }
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         if tu == &null { continue; }
-        for var i: usize = 0; i < tu->imports.size(); ++i {
-            // TODO: ASTPrinter::decl_summary not yet implemented
-            0;
+
+        std::print(f"fid {fid}: {tu->import_edges.size()} edge(s)");
+        for var i: usize = 0; i < tu->import_edges.size(); ++i {
+            var edge = tu->import_edges[i];   // *ImportEdge (ArenaList::op[] yields *T)
+            var id   = dyn_cast::<ImportDecl>(edge->decl);
+            if id == &null { continue; }
+
+            // path spelling: a::b::c
+            var path: string = "";
+            for var s: usize = 0; s < id->path_segments.size(); ++s {
+                if s > 0 { path += "::"; }
+                path += ctx->get_spelling(id->path_segments[s]);
+            }
+
+            // edge shape label
+            var kind: string = "plain";
+            if id->is_wildcard        { kind = "wildcard"; }
+            else if id->has_items     { kind = "selective"; }
+            else if id->last_seg_is_macro { kind = "macro"; }
+
+            var alias: string = "";
+            if id->has_alias { alias = f" as {ctx->get_spelling(id->alias)}"; }
+
+            std::print(f"  [{kind}] {path}{alias} -> fid {edge->target_fid}");
         }
     }
 }

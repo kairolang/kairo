@@ -290,8 +290,17 @@ class PPWalker
         var id = self._build_import_decl(&spec, vis);
         self._tu->imports.push(static_cast::<*Decl>(id));
 
-        // resolve NOW; errors HERE
-        self._imports->record(id);
+        // resolve NOW; errors HERE. record() stamps id->resolved_fid and hands
+        // back the source-module fid; a non-zero fid becomes a TU import edge in
+        // declaration order (the one writer of import_edges). ffi imports never
+        // reach here, so no edge is ever synthesized for them.
+        var target_fid = self._imports->record(id);
+        if target_fid != 0 {
+            var edge = ImportEdge{};
+            edge.target_fid = target_fid;
+            edge.decl       = static_cast::<*Decl>(id);
+            self._tu->import_edges.push(edge);
+        }
 
         // consume trailing `;` if present (grammar leaves it)
         if self._src->peek(0).kind == TokenKind::OpSemicolon { self._src->next(); }

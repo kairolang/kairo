@@ -67,27 +67,31 @@ class FileImportIndex {
 
     /// resolves an ImportDecl and records its macro-relevant surface.
     /// ffi imports are never passed here (walk skips them).
-    fn record(self, id: *ImportDecl) {
+    /// Returns the resolved source-module fid (0 = unresolved), and stamps it
+    /// onto `id->resolved_fid` as the one writer of that fact. The caller
+    /// (Preprocessor::_handle_import) turns a non-zero return into a TU import
+    /// edge; a zero return contributes no edge.
+    fn record(self, id: *ImportDecl) -> u32 {
         // --- base path segments -> strings ---------------------------------
         var segs = vec::<string>();
         for var i: usize = 0; i < id->path_segments.size(); ++i {
             segs.push_back(self._spell(id->path_segments[i]));
         }
-        if segs.size() == 0 { return; }
+        if segs.size() == 0 { return 0; }
 
         // --- selective / wildcard / bare split ----------------------------
         if id->is_wildcard {
             var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly);
-            if rr.found { self.wildcards.push_back(rr.source_scope); }
-            else        { self._unresolved(id, segs); }
-            return;
+            if rr.found { self.wildcards.push_back(rr.source_scope); id->resolved_fid = rr.target_fid; return rr.target_fid; }
+            else        { self._unresolved(id, segs); return 0; }
         }
 
         if id->has_items {
             var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly);
-            if !rr.found { self._unresolved(id, segs); return; }
+            if !rr.found { self._unresolved(id, segs); return 0; }
             // always record the module alias too (Foo::{...} still allows Foo::x)
             self.module_aliases[self._sym->intern(segs[segs.size() - 1])] = rr.full_scope;
+            id->resolved_fid = rr.target_fid;
 
             for var i: usize = 0; i < id->items.size(); ++i {
                 var it =id->items[i];
@@ -108,7 +112,7 @@ class FileImportIndex {
 
                 self._record_named(item_scope, name_sym, alias_sym, it.range);
             }
-            return;
+            return rr.target_fid;
         }
 
         // --- bare path ----------------------------------------------------
@@ -119,22 +123,25 @@ class FileImportIndex {
             for var i: usize = 0; i + 1 < segs.size(); ++i { base.push_back(segs[i]); }
 
             var rr = self._resolve(base, id->import_kind == ImportKind::ModuleOnly);
-            if !rr.found { self._unresolved(id, segs); return; }
+            if !rr.found { self._unresolved(id, segs); return 0; }
 
             var name_sym  = self._sym->intern(segs[segs.size() - 1]);
             var alias_sym = (self._sym->intern(self._spell(id->alias))) if (id->has_alias) else (name_sym);
             self._record_named(rr.source_scope, name_sym, alias_sym, id->range);
-            return;
+            id->resolved_fid = rr.target_fid;
+            return rr.target_fid;
         }
 
         // plain `import Foo` / `import Foo::Bar` / `import Foo as m`
         var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly);
-        if !rr.found { self._unresolved(id, segs); return; }
+        if !rr.found { self._unresolved(id, segs); return 0; }
 
         var alias_key = (self._sym->intern(self._spell(id->alias)))
             if (id->has_alias)
             else (self._sym->intern(segs[segs.size() - 1]));
         self.module_aliases[alias_key] = rr.full_scope;
+        id->resolved_fid = rr.target_fid;
+        return rr.target_fid;
     }
 
     // --- named macro import: resolve eagerly, enforce visibility ----------
@@ -172,6 +179,7 @@ class FileImportIndex {
         var found:        bool = false;
         var source_scope: ModulePath;  ///< scope to look up the imported symbol in
         var full_scope:   ModulePath;  ///< module alias target (source + resolved prefix)
+        var target_fid:   u32 = 0;     ///< source-module fid (the file the import points at)
     }
 
     /// greedy longest-prefix resolution behavior ported from
@@ -206,6 +214,7 @@ class FileImportIndex {
                     out.found = true;
                     out.source_scope = self._to_path(segs, 0, segs.size());
                     out.full_scope   = self._to_path(segs, 0, try_len);
+                    out.target_fid   = fid;
                     return out;
                 }
             }

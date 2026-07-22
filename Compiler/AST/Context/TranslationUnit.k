@@ -146,6 +146,18 @@ struct BodyRange {
     pub var tok_end:   SourceLocation;
 }
 
+/// One resolved import edge for this TU, in declaration order. Written ONLY by
+/// the PP walk (FileImportIndex), read by the parser disambig fallback (Full
+/// mode) and by Sema/ImportResolution. `decl` is typed `*Decl` to dodge a
+/// stage0 import cycle (same reason as `out_of_line`); it always points to an
+/// ImportDecl and is downcast at use. `target_fid` mirrors that node's
+/// `resolved_fid`: the source-module file the edge points at (0 = ffi/unres).
+/// alias / items / wildcard / visibility all live on the node, not here.
+struct ImportEdge {
+    pub var target_fid: u32 = 0;
+    pub var decl:       obs::<Decl> = &null;   ///< always an *ImportDecl; downcast at use.
+}
+
 /// Root of a parsed file's AST. Derives DeclContext so it participates in
 /// name lookup like any other scope.
 class TranslationUnit derives DeclContext {
@@ -165,6 +177,10 @@ class TranslationUnit derives DeclContext {
     pub var out_of_line:    ArenaList::<*Decl>;
     pub var import_overlay: obs::<SymbolTable>;
 
+    /// Resolved import edges, in declaration order. One writer: the PP walk
+    /// (FileImportIndex). Readers: parser disambig fallback + ImportResolution.
+    pub var import_edges:   ArenaList::<ImportEdge>;
+
     fn TranslationUnit(self, ctx: *ASTContext, fid: u32, scope: *DisambigTable, g_scope: *GlobalDisambigTable) {
         self.init_dc(DeclContextKind::TranslationUnit, ctx, &null, &null);
         self.ctx          = ctx;
@@ -176,5 +192,6 @@ class TranslationUnit derives DeclContext {
         self.body_ranges.set_allocator(&(ctx->nodes), 64);
         self.out_of_line.set_allocator(&(ctx->nodes), 8);
         self.import_overlay = &null;
+        self.import_edges.set_allocator(&(ctx->nodes), 16);
     }
 }

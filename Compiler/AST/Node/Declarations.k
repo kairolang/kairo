@@ -1100,6 +1100,12 @@ class ImportDecl derives Decl, FFILinkage::<ImportDecl> {
     pub var has_items:     bool = false;         ///< true when `items` is populated.
     pub var last_seg_is_macro: bool = false;
 
+    /// Source-module file id, resolved by the PP walk (FileImportIndex) at the
+    /// point the import path resolves. 0 = unresolved or ffi (ffi imports carry
+    /// linkage, not a fid). Written ONCE by the PP; read by the parser disambig
+    /// fallback (Full mode) and by Sema/ImportResolution. Never mutated after.
+    pub var resolved_fid: u32 = 0;
+
     static fn create(ctx: *ASTContext, range: SourceRange, import_kind: ImportKind) -> *ImportDecl {
         var node         = ctx->alloc::<ImportDecl>();
         node->kind        = DeclKind::ImportDecl;
