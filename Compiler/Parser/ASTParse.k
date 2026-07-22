@@ -23,9 +23,13 @@ import AST::Context::SymbolTable::*;
 import AST::Mixin::TypeQual::*;
 import AST::Mixin::Annotation::*;
 import AST::Node::Base::*;
+import AST::Node::Declarations::*;
 import AST::Node::Program::*;
+import Resolution::ModulePath::*;
 import Token::TokenSpan::*;
 import Token::Token::*;
+import Token::TokenKind::*;
+import Token::IdentifierToken::*;
 import Token::TokenText::*;
 import Diagnostic::Engine::*;
 
@@ -314,7 +318,56 @@ class ASTParse
 
         self._wire_scopes();
         self._build_symbols();
+        self._synthesize_module_self();
         return self.tu;
+    }
+
+    /// \brief Create the synthetic per-file ModuleDecl (A2: shares the TU's
+    ///        symbol table) so a plain `import bar` binds a REAL *Decl and
+    ///        `bar::foo` resolves through one uniform module path.
+    ///
+    /// \details Runs AFTER _build_symbols so tu->dc_symbols exists to share.
+    ///          The module name is the LEAF segment of ctx->module_base (the
+    ///          file's resolved module path). An empty base = the root/main
+    ///          file: no name to bind, left anonymous (module_self stays null).
+    ///          The node's dc_symbols is aliased to the TU's table (read-only
+    ///          post-freeze), and its full module_path is carried for a future
+    ///          codegen uniqueness fix (see ModuleDecl::module_path).
+    priv fn _synthesize_module_self(self) {
+        var base = self.ctx->module_base;
+        if base.segments.size() == 0 { return; }   // anonymous root file.
+
+        var leaf = base.segments[base.segments.size() - 1];
+
+        // Prefer the leaf's real source token; else synthesize an identifier
+        // token carrying the leaf imm (name-domain only, no source slice).
+        var name_tok: Token;
+        if leaf.token != &null {
+            name_tok = *(leaf.token);
+        } else {
+            name_tok       = Token{};
+            name_tok.kind  = TokenKind::LitIdentifier;
+            name_tok.imm   = leaf.name;
+            name_tok.range = SourceRange::invalid();
+        }
+
+        var tu_dc = static_cast::<*DeclContext>(self.tu);
+        var md = ModuleDecl::create(self.ctx, SourceRange::invalid(), name_tok, tu_dc);
+
+        // A2: share the TU's symbol table rather than owning a second one, so
+        // member lookup through the module hits the same frozen decls. A file
+        // with no top-level named decls never triggered _symtab_for, so the TU
+        // table can be null share an empty frozen table so qualified lookup
+        // through the module is a clean miss, not a null deref.
+        if self.tu->dc_symbols == &null {
+            var empty = self.ctx->alloc_init::<SymbolTable>();
+            empty->freeze();
+            self.tu->set_symbols(empty);
+        }
+        md->set_symbols(self.tu->dc_symbols);
+        md->module_path = base;
+
+        self.tu->module_self = static_cast::<*Decl>(md);
     }
 
     /// \brief decl-vs-stmt routing for the top-level loop.

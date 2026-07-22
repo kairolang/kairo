@@ -36,6 +36,7 @@ import AST::Mixin::TemplateParams::*;
 import AST::Mixin::FFILinkage::*;
 import Location::SourceRange::*;
 import Token::Token::*;
+import Resolution::ModulePath::*;
 
 /// Forward decls for cross-references between decl nodes.
 class FieldDecl;     // enum-variant payloads, struct/class members
@@ -1018,6 +1019,18 @@ class ModuleDecl
     pub var name:         Token;
     pub var is_inline:    bool = false;  ///< `inline module`.
     pub var is_anonymous: bool = false;  ///< `module { }`.
+
+    /// FULL module path of this module (e.g. `foo::bar`), not just the leaf
+    /// `name`. For a synthetic per-file module this is the file's module_base.
+    ///
+    /// NOT YET READ by mangling/codegen, which key off `name` (the leaf) today.
+    /// That is a KNOWN limitation: two files sharing a leaf (foo/bar.k and
+    /// baz/bar.k both named `bar`) would emit two `namespace bar` blocks that
+    /// C++ MERGES  distinct modules would fuse. When that case is hit, switch
+    /// mangling/codegen to reconstruct the qualified name from `module_path`
+    /// (or the DC parent chain); this field is stored now precisely so that fix
+    /// is a one-consumer bolt-on, not an AST reshape.
+    pub var module_path:  ModulePath;
 
     static fn create(
         ctx:    *ASTContext,
