@@ -119,6 +119,12 @@ class ASTParse
     }
 
     pub var mode: ParseMode = ParseMode::Full; ///< see ParseMode.
+
+    /// True in normal AST-building mode. Used by mixin parsers (which cannot
+    /// name the nested ParseMode enum directly) to gate Full-only behavior such
+    /// as the import-edge generic disambiguation fallback.
+    pub fn is_full_mode(self) -> bool { return self.mode == ParseMode::Full; }
+
     var _index_path: vec::<string>;            ///< named-scope path for hoisted inserts (index mode only).
     var _sym_tables: vec::<*SymbolTable>;      ///< tables created by _build_symbols; frozen at parse exit.
     
@@ -274,6 +280,21 @@ class ASTParse
 
             var annot: PendingAnnotations;
             self.consume_leading_annotations(&annot);
+            if self.is_eof() { break; }
+
+            // A leading comment binds to the NEXT construct, but the PP deletes
+            // imports/ffi-imports before parsing so a comment written directly
+            // above an import (`// why\nimport foo`) leaves its trailing
+            // newline(s) orphaned in the stream. Without this skip the loop
+            // would dispatch on that residual terminator and mis-parse it as an
+            // expression statement (spurious S052E). Skipping terminators here
+            // does NOT drop `annot`: it is a local and still applies to the
+            // real decl that follows. If only terminators remain to EOF, the
+            // comment was genuinely trailing nothing break, no diagnostic.
+            while self._is_terminator_tok(self._current) {
+                self.advance_raw();
+                if self.is_eof() { break; }
+            }
             if self.is_eof() { break; }
 
             var k  = self.resolve_kind_deep(self._current);

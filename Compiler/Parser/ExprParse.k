@@ -29,6 +29,8 @@ import AST::Node::Types::*;
 import AST::Node::Casting::*;
 import AST::CodeCompleteConsumer::*;
 import AST::Context::ASTContext::*;
+import AST::Context::TranslationUnit::*;
+import AST::Context::GlobalDisambigTable::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Location::SourceRange::*;
@@ -2980,11 +2982,14 @@ class <T> ExprParse {
     ///          overload is the entry insertion order must not decide.
     inline fn _is_generic_name(self, tok: Token) -> bool {
         var hr = dyn()->ctx->hoisted->lookup_tok(tok);
-        if !hr.found() { return false; }
-        for var i: usize = 0; i < hr.entries->size(); ++i {
-            if (*hr.entries)[i].is_generic() { return true; }
+        if hr.found() {
+            for var i: usize = 0; i < hr.entries->size(); ++i {
+                if (*hr.entries)[i].is_generic() { return true; }
+            }
+            return false;
         }
-        return false;
+        // hoisted miss: fall back to imported generics (unqualified surface).
+        return self._import_generic_fallback(tok);
     }
 
     /// \brief three-state `<`-disambiguation verdict for a head-position name
@@ -3041,8 +3046,98 @@ class <T> ExprParse {
             return GenericVerdict::Unknown; // known fn/op/type: assume generic if it parses as one
         }
 
-        // 3. no evidence either way.
+        // 3. hoisted miss: consult imported generics. A positive hit is
+        //    authoritative (the source module says the name is generic), so
+        //    commit `<` as generic args. A miss preserves the tentative path
+        //    (also the correct home for unqualified imported generics whose
+        //    genericity we cannot prove here).
+        if self._import_generic_fallback(tok) { return GenericVerdict::Generic; }
+
+        // 4. no evidence either way.
         return GenericVerdict::Unknown;
+    }
+
+    /// \brief lazy import-edge fallback for unqualified generic disambiguation.
+    ///
+    /// \details On a hoisted-table MISS, walk this fid's import edges (written
+    ///          by the PP in declaration order, RESOLUTION.md §2 lazy-not-merge)
+    ///          and ask each edge's SOURCE fid whether the probed name is a
+    ///          generic. Full mode only the index barrier (CompilerInstance
+    ///          wait_group(5)) guarantees every imported fid is already indexed
+    ///          in the GlobalDisambigTable, so `lookup_in(fid, name)` is safe.
+    ///
+    ///          Edge shape rules (unqualified probe):
+    ///            - wildcard  `import a::*`      : probe the name UNMAPPED.
+    ///            - selective `import a::{x, y}` : the name must match an item's
+    ///              VISIBLE name (its alias if present, else the item's last
+    ///              sub_path segment); look the ORIGINAL name up in the source.
+    ///              A `{*}` item behaves like a wildcard edge.
+    ///            - plain     `import a [as m]`  : binds only a module handle, so
+    ///              it contributes NOTHING to an unqualified probe (the handle
+    ///              heads a qualified chain, disambiguated per-segment elsewhere).
+    ///
+    ///          First hit wins parse-time only needs "is this a generic?", not
+    ///          full resolution. Collisions are ImportResolution's problem, not
+    ///          the parser's (RESOLUTION.md §2, lazy-not-merge bullet). NO merge
+    ///          of disambig tables, ever.
+    fn _import_generic_fallback(self, tok: Token) -> bool {
+        if !dyn()->is_full_mode() { return false; }
+        var tu = dyn()->tu;
+        if tu == &null { return false; }
+        var gs = tu->global_scope;
+        if gs == &null { return false; }
+
+        var probe = dyn()->ctx->get_spelling(tok);
+
+        for var i: usize = 0; i < tu->import_edges.size(); ++i {
+            var edge = tu->import_edges[i];         // *ImportEdge
+            var id   = dyn_cast::<ImportDecl>(edge->decl);
+            if id == &null { continue; }
+            var fid = edge->target_fid;
+            if fid == 0 { continue; }
+
+            // --- wildcard edge: probe unmapped ------------------------------
+            if id->is_wildcard {
+                if self._src_name_is_generic(gs, fid, probe) { return true; }
+                continue;
+            }
+
+            // --- selective edge: match a visible item, look up the original -
+            if id->has_items {
+                for var j: usize = 0; j < id->items.size(); ++j {
+                    var it = id->items[j];
+                    if it.is_wildcard {
+                        if self._src_name_is_generic(gs, fid, probe) { return true; }
+                        continue;
+                    }
+                    if it.sub_path.size() == 0 { continue; }
+                    var orig_tok    = it.sub_path[it.sub_path.size() - 1];
+                    var visible_tok = (it.alias) if (it.has_alias) else (orig_tok);
+                    if dyn()->ctx->get_spelling(visible_tok) != probe { continue; }
+                    // matched the alias/name the user wrote resolve the ORIGINAL.
+                    if self._src_name_is_generic(gs, fid, dyn()->ctx->get_spelling(orig_tok)) {
+                        return true;
+                    }
+                }
+                continue;
+            }
+
+            // --- plain edge: module handle only, nothing unqualified --------
+        }
+        return false;
+    }
+
+    /// \brief cross-file "is this name a generic in fid?" boolean.
+    ///        Reads `is_generic()` off the source fid's frozen DisambigEntry a
+    ///        pure name-domain bool, no cross-TU imm hazard (the source table
+    ///        interns the string itself).
+    inline fn _src_name_is_generic(self, gs: *GlobalDisambigTable, fid: u32, name: string) -> bool {
+        var lr = gs->lookup_in(fid, name);
+        if !lr.found() { return false; }
+        for var i: usize = 0; i < lr.entries->size(); ++i {
+            if (*lr.entries)[i].is_generic() { return true; }
+        }
+        return false;
     }
 
 
