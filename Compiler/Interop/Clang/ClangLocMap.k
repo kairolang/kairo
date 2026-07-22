@@ -41,7 +41,7 @@
 /// with Kairo parsing (which never touches the clang SM). The join that
 /// ends the parse phase is the happens-before edge: preload() MUST have
 /// completed before any to_clang/to_kairo call or any clang parse touches
-/// the shared SM. clang::SourceManager::createFileID is not thread-safe —
+/// the shared SM. clang::SourceManager::createFileID is not thread-safe
 /// exactly one preloader thread, and a quiescent clang SM while it runs.
 ///
 /// \par Lifetime
@@ -184,7 +184,7 @@ class ClangLocMap {
 
     /// Returns the Kairo loc for a clang loc via its EXPANSION location
     /// (macro-blamed locs land on the expansion site, matching how Kairo
-    /// renders spans). Invalid if the file is not one we registered —
+    /// renders spans). Invalid if the file is not one we registered
     /// e.g. a clang-pulled system header; the caller's policy layer
     /// classifies those (typically a loc-less forward).
     fn to_kairo(self, cloc: clang::SourceLocation) -> SourceLocation {

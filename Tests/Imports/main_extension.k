@@ -12,7 +12,7 @@
 //       currently trip R016 (ambiguity) instead of merging as an extension.
 //       Fixing this needs is_ambiguous to exempt same-name ModuleHandle targets
 //       (module extension) from the non-function ambiguity rule. See
-//       RESOLUTION.md §2 (overlay multi-target: "module extension across TUs").
+//       RESOLUTION.md #2 (overlay multi-target: "module extension across TUs").
 
 import ext_a::shape
 import ext_b::shape

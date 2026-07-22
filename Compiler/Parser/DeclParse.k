@@ -595,7 +595,7 @@ class <T> DeclParse {
     ///              -> Primary  (candidate every arg *could* be a type var;
     ///                           sema confirms against the primary's params. A
     ///                           `Box<i32>` is syntactically identical to
-    ///                           `Box<T>` at this stage one simple ident —
+    ///                           `Box<T>` at this stage one simple ident
     ///                           so both land here and sema splits Primary vs
     ///                           Explicit by checking whether the ident names a
     ///                           declared type.)
