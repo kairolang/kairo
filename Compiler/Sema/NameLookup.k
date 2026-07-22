@@ -17,6 +17,7 @@
 import AST::Context::TranslationUnit::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
+import AST::Context::ImportOverlay::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
@@ -109,8 +110,12 @@ class NameLookup {
             dc = dc->dc_parent;
         }
 
-        if (self.tu != &null) && (self.tu->import_overlay != &null) {
-            var cell = self.tu->import_overlay->lookup(name);
+        // Overlay is LAST and imm-keyed by THIS TU's imms (RESOLUTION.md §2,
+        // hard invariant #2). Only plain-identifier names are folded into it;
+        // operator keys are compared cross-TU directly and ctors are
+        // context-relative, so neither routes through the overlay.
+        if (self.tu != &null) && (self.tu->import_overlay != &null) && name.is_ident() {
+            var cell = self.tu->import_overlay->lookup_ident(name.payload);
             if cell != &null {
                 var r = SemaLookupResult{};
                 r.cell        = cell;

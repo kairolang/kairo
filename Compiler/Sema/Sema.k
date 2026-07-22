@@ -31,11 +31,11 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
+import Sema::ImportResolution::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
 
 // Pass imports land here as each pass becomes real, e.g.:
-//   import Sema::ImportResolution::*;
 //   import Sema::NameResolution::*;
 //   import Sema::TypeChecking::*;
 // The driver is the ONLY file that imports passes; passes import
@@ -132,7 +132,7 @@ class Sema {
     priv fn _stage_imports(self) -> bool {
         if self._already(SemaPhase::ImportsResolved) { return true; }
         self.sc.require_phase(SemaPhase::Parsed);
-        // TODO(sema): ImportResolution(&self.sc).run();
+        ImportResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::ImportsResolved);
         return !self._hard_stop();
     }

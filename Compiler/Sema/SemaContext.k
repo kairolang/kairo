@@ -179,6 +179,20 @@ class SemaContext {
     /// sema itself produced (parse errors already gated the run).
     pub var error_count_base: u32 = 0;
 
+    /// Default ctor: leaves the context UNWIRED (null handles, Parsed phase).
+    /// Exists so a by-value SemaContext member (e.g. Sema::sc) can be
+    /// default-constructed and then assigned the wired form below. A pass must
+    /// never run against a default-constructed context the driver always
+    /// assigns SemaContext(ctx, g) before scheduling any stage.
+    fn SemaContext(self) {
+        self.ctx   = &null;
+        self.g     = &null;
+        self.tu    = &null;
+        self.diag  = &null;
+        self.phase = SemaPhase::Parsed;
+        self.error_count_base = 0;
+    }
+
     fn SemaContext(self, ctx: *ASTContext, g: *GlobalDisambigTable) {
         self.ctx   = ctx;
         self.g     = g;

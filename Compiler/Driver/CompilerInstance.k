@@ -124,6 +124,9 @@ import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
 import Sema::NullableTypeLowering::*;
+import Sema::Sema::*;
+import Sema::SemaContext::*;
+import AST::Context::ImportOverlay::*;
 import Interop::Clang::ClangBackend::*;
 import Diagnostic::ClangDiagLookup::*;
 
@@ -207,6 +210,7 @@ class FrontendAction {
     priv fn _dump_tokens(self);
     priv fn _dump_macros(self);
     priv fn _dump_imports(self);
+    priv fn _dump_overlays(self);
     priv fn _dump_symbols(self, tu: *TranslationUnit, ctx: *ASTContext, opts: PrintOptions);
     priv fn _dump_symbols_dc(self, dc: *DeclContext, ctx: *ASTContext, opts: PrintOptions, qual: string);
     priv fn _dump_mem_stats(self);
@@ -1086,7 +1090,27 @@ fn FrontendAction::_sema() -> bool {
     var fe = self._ci->invocation().frontend;
     if fe.print_sema     { std::print(f"-- sema: {self.path.full_path()} (not yet implemented) --"); }
     if fe.dump_type_info { std::print(f"-- type info: {self.path.full_path()} (not yet implemented) --"); }
-    // TODO(sema): var typed = Sema(ci, ast).analyze();
+
+    // Phase I (ImportResolution) across every fid of this TU's graph. Run in
+    // REVERSE tree order so leaf modules build their overlays before importers
+    // fold re-exports (DAG order guarantees source-overlay completeness,
+    // RESOLUTION.md §2). Only phase I is implemented; run_to stops there, and
+    // the N/T/... stubs are not reached.
+    var n = self._fids.size();
+    for var i: usize = 0; i < n; ++i {
+        var fid = self._fids[n - 1 - i];
+        var ctx = self._global_scope->get_context(fid);
+        if ctx == &null { continue; }
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if tu == &null { continue; }
+        var sem = Sema(ctx, self._global_scope);
+        sem.run_to(SemaPhase::ImportsResolved);
+        ctx->diag_sink.drain_into(self._ci->diag());
+    }
+
+    if fe.print_imports { self._dump_overlays(); }
+
+    // TODO(sema): full pipeline once N/T/checks land: Sema(ctx, gs).run().
     return true;
 }
 
@@ -1198,6 +1222,55 @@ fn FrontendAction::_dump_imports() {
             if id->has_alias { alias = f" as {ctx->get_spelling(id->alias)}"; }
 
             std::print(f"  [{kind}] {path}{alias} -> fid {edge->target_fid}");
+        }
+    }
+}
+
+fn _overlay_kind_str(k: OverlayTargetKind) -> string {
+    if k == OverlayTargetKind::FunctionSet  { return "fn-set"; }
+    if k == OverlayTargetKind::Type         { return "type";   }
+    if k == OverlayTargetKind::ModuleHandle { return "module"; }
+    if k == OverlayTargetKind::FfiAnchor    { return "ffi";    }
+    return "?";
+}
+
+fn _overlay_vis_str(v: OverlayVisibility) -> string {
+    if v == OverlayVisibility::Public    { return "pub";  }
+    if v == OverlayVisibility::Protected { return "prot"; }
+    if v == OverlayVisibility::Private   { return "priv"; }
+    return "?";
+}
+
+/// Dump the built import overlays (phase I output): per fid, each folded name
+/// key and its targets (kind, source fid, visibility, origin import shape).
+/// Runs AFTER ImportResolution in _sema, so the overlay is populated. Pairs
+/// with _dump_imports (edges) the way --print-symbols pairs with the parse.
+fn FrontendAction::_dump_overlays() {
+    std::print(f"-- overlays: {self.path.full_path()} --");
+    for fid: u32 in self._fids {
+        var ctx = self._global_scope->get_context(fid);
+        if ctx == &null { continue; }
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if tu == &null { continue; }
+        var ov = tu->import_overlay;
+        if ov == &null {
+            std::print(f"fid {fid}: (no overlay)");
+            continue;
+        }
+
+        std::print(f"fid {fid}: {ov->size()} overlay key(s)");
+        var imms = ctx->get_imm_table();
+        var rows = vec::<ImportOverlay::Row>();
+        ov->collect_rows(rows);
+        for var i: usize = 0; i < rows.size(); ++i {
+            var row  = rows[i];
+            var name = ("<?>") if (imms == &null) else (imms->get_ident(row.key));
+            var amb  = (" [AMBIGUOUS]") if (row.entry->is_ambiguous()) else ("");
+            std::print(f"  {name}: {row.entry->targets.size()} target(s){amb}");
+            for var t: usize = 0; t < row.entry->targets.size(); ++t {
+                var tg = row.entry->targets[t];
+                std::print(f"    - {_overlay_kind_str(tg.kind)} src=fid {tg.src_fid} vis={_overlay_vis_str(tg.vis)}");
+            }
         }
     }
 }

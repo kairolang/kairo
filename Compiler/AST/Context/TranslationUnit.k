@@ -17,6 +17,7 @@ import Memory::ArenaList::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Context::SymbolTable::*;
+import AST::Context::ImportOverlay::*;
 import AST::Context::DeclContext::*;
 import AST::Node::Program::*;
 import AST::Node::Base::*;
@@ -175,7 +176,15 @@ class TranslationUnit derives DeclContext {
     pub var scope:          obs::<DisambigTable>;
     pub var global_scope:   obs::<GlobalDisambigTable>;
     pub var out_of_line:    ArenaList::<*Decl>;
-    pub var import_overlay: obs::<SymbolTable>;
+    pub var import_overlay: obs::<ImportOverlay>;   ///< built by phase I; null until then.
+
+    /// Synthetic per-file module node: a real ModuleDecl whose dc_symbols is
+    /// SHARED with this TU (A2 model), created at parse exit. Gives plain
+    /// imports a genuine *Decl to bind (no TU->Decl reinterpret) and unifies
+    /// file-modules with `module foo {}` blocks under one lookup path. Typed
+    /// *Decl to dodge the stage0 import cycle (same reason as out_of_line);
+    /// always a ModuleDecl, downcast at use. Null for an anonymous root file.
+    pub var module_self:    obs::<Decl> = &null;
 
     /// Resolved import edges, in declaration order. One writer: the PP walk
     /// (FileImportIndex). Readers: parser disambig fallback + ImportResolution.

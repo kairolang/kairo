@@ -293,3 +293,40 @@ group = "macro"
 
     rename the user-defined macro to avoid conflicting with the builtin macro name.
     """
+
+[R015]
+brief = "imported name not found in source module"
+group = "import"
+
+    [R015.E]
+    explain = """
+    # imported name not found
+
+    a selective import (`import Foo::{Bar}`) named a symbol that does not exist in the resolved source
+    module. import resolution verifies each selected name against the source module's frozen symbol
+    table; this is the sole place that existence is checked.
+
+    ## how to fix
+
+    verify the name is spelled correctly and is actually declared (at any visibility) in the source
+    module. if it is a submodule, use `import module Foo::Bar` instead.
+    """
+
+[R016]
+brief = "ambiguous import"
+group = "import"
+
+    [R016.E]
+    explain = """
+    # ambiguous import
+
+    two or more non-function symbols were folded into the current file under the same name (for
+    example, two different types imported from two modules, or a type and a module handle). unlike
+    function overloads, which union into one overload set, non-function targets cannot coexist under
+    one name.
+
+    ## how to fix
+
+    alias one of the conflicting imports (`import Foo::{Bar as FooBar}`) or import them selectively so
+    each visible name binds a single target.
+    """
