@@ -110,7 +110,7 @@ class NameLookup {
             dc = dc->dc_parent;
         }
 
-        // Overlay is LAST and imm-keyed by THIS TU's imms (RESOLUTION.md §2,
+        // Overlay is LAST and imm-keyed by THIS TU's imms (RESOLUTION.md #2,
         // hard invariant #2). Only plain-identifier names are folded into it;
         // operator keys are compared cross-TU directly and ctors are
         // context-relative, so neither routes through the overlay.

@@ -19,11 +19,6 @@
 ///     var sem = Sema(ctx, g_scope);
 ///     if !sem.run() { /* diags already emitted */ }
 ///
-///   Ordering is RESOLUTION.md's contract, NOT the old stub comment that
-///   had type resolution before name resolution T's precondition is N
-///   complete (type names bind through the same tables and need redecl
-///   chains linked). See Sema/RESOLUTION.md §2.
-///
 ///   Phase: DRIVER
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
@@ -185,7 +180,7 @@ class Sema {
         // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit
         //             using Base::name; for merged base overloads C++ would
         //             hide reads type->needs_using written by MemberLookup,
-        //             never re-walks bases. See RESOLUTION.md §2b.
+        //             never re-walks bases.
         // TODO(sema): OperatorLowering(&self.sc).run();
         // TODO(sema): MatchLowering(&self.sc).run();
         // TODO(sema): PanicLowering(&self.sc).run();

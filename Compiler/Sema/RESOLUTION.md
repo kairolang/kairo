@@ -124,15 +124,94 @@ registries (instantiations) never entries in source tables.
 **I ImportResolution.**
 PRE: all imported TUs are parsed and frozen (reading a foreign frozen
 table is read-only and thread-safe; ordering is import-DAG order, same
-begin/finish discipline as GlobalDisambigTable).
+begin/finish discipline as GlobalDisambigTable). Import cycles are the
+DRIVER's error, diagnosed before I runs; I never sees a non-frozen
+source TU and carries no defensive path for one.
 JOB: for each import, verify the imported symbols exist in the source
 TU's frozen table (selective imports error here, nowhere else); fold
-them into this TU's `import_overlay`, re-interned into this TU's imm
-space; dedup; overlay collision = ambiguous-import error, reported here,
-nowhere else.
+them into this TU's `import_overlay`; dedup; overlay collision between
+two non-function targets = ambiguous-import error, reported here,
+nowhere else (function sets union into one overload set instead).
 POST: every name visible in this TU is findable in local tables or the
 overlay. The TU is now SELF-CONTAINED: no later phase touches another
 TU until M2.
+
+Decided contract (locked, same status as §2b):
+
+- **Path -> TU link.** The PP is the ONE WRITER of path->file: during
+  its walk it already resolves every import path (FileImportIndex ->
+  ImportResolver -> SourceManager::load_file) and stamps the result
+  onto the node as `ImportDecl::resolved_fid`. I maps fid -> TU via
+  `GlobalDisambigTable::get_context(fid)->tu`. I never touches
+  ImportResolver or the filesystem.
+- **Cross-TU keys.** Frozen tables are keyed by per-TU imms; a raw u32
+  from this TU is meaningless in the source TU. At the import boundary
+  ONLY, I spells the importing token and asks the SOURCE TU's imm
+  table for its imm, then hits the frozen table. One string trip per
+  imported name at I time; the hot unqualified-lookup path stays
+  integer-keyed. No global interner, no reverse-lookup plumbing.
+- **Overlay cells are thin and MULTI-TARGET.** An overlay entry is a
+  small this-TU arena cell holding N references to source cells/decls;
+  it never copies and never owns foreign cells (arenas are all alive
+  under GlobalDisambigTable). Multi-target is required day one: two
+  imports of the same name, and module extension across TUs, both
+  land as one key with N targets. N function-set targets = a unioned
+  overload set at resolution; >=2 non-function targets = ambiguity,
+  diagnosed in I.
+- **Plain `import a::b::c` binds ONE name.** The overlay entry `c`
+  (or the alias) references the source ModuleDecl. `c::foo` resolves
+  through the existing trie walk (`decl->dc_symbols` per segment,
+  cross-TU pointers follow for free). There is NO unfold pass, NO
+  fwd-decl synthesis pass, NO textual rewrite to `a::b::c::foo`:
+  after N stamps `resolved_decl` the spelling is dead, and mangling/
+  codegen reconstruct qualified names from the decl's DC parent chain.
+- **Visibility: import EVERYTHING, carry the fact, diagnose later.**
+  Wildcard/selective imports fold non-pub names into the overlay too,
+  with visibility recorded on the entry. I writes presence + the
+  visibility fact; N writes the access diagnostic ("exists but is
+  priv/prot", with fixit) at the use site. This is deliberate: the
+  alternative (filter in I) degrades the error to "not found".
+- **No accidental transitivity (two walls) + explicit re-export.**
+  Decl visibility is a property of the NAME; import visibility is a
+  property of the EDGE. Wall 1: a priv import edge is pure topology
+  I folds the source TU's frozen `dc_symbols`, never what the source
+  merely imported. A priv-decl name enters the overlay (for the
+  "exists but priv" error); a priv-EDGE name does not exist to
+  importers at all a priv import is not a weaker export, it is not
+  an export. Re-export: pub/prot imports ARE surface, so I also folds
+  the source's overlay entries whose originating ImportDecl is
+  pub/prot, visibility carried on the entry, prot access enforced by
+  N. Transitive pub-chains collapse one level per I step for free
+  (import-DAG order guarantees the source overlay is complete). Wall
+  2: overlay is LAST in unqualified lookup order, so a TU-local decl
+  shadows any imported name before the overlay is consulted.
+  Local-vs-import is shadowing, never ambiguity; ambiguity is
+  strictly overlay-vs-overlay.
+- **Parse-time disambig sees imports LAZILY, never by merge.** The
+  index phase completes for ALL fids before any full parse (driver
+  barrier), so imported generics/types already sit in the
+  GlobalDisambigTable under their home fid when an importer parses.
+  The parser's disambig probe, on a local-table miss, walks the TU's
+  import edges and calls `lookup_in(edge.fid, name)` with the edge's
+  alias/filter map applied (alias maps at the edge; wildcard probes
+  unmapped; selective filters; qualified heads pick the fid through
+  the same edge list). NO eager merge of disambig tables: merging is
+  a second writer, quadratic in the import closure, and re-creates
+  the transitivity leak at the disambig layer. Edge facts (resolved
+  fid, alias map, wildcard/items) are written ONCE by the PP into a
+  per-fid ImportEdge list consumed by both the parser fallback and
+  phase I; `ImportDecl::resolved_fid` mirrors the same fact on the
+  node.
+- **FFI imports.** I verifies the header path resolved and stamps
+  linkage (`LinkageKind` already parsed onto the node); a bare
+  `ffi import "h"` contributes NOTHING to lookup. `as z` binds `z` ->
+  the ImportDecl node itself, giving later passes an anchor. The
+  clang extraction pass (separate, post-I) hangs real decls off that
+  anchor and integrates them into the global disambig table. Contract
+  for that pass: kairo-side sema checks only existence, genericity,
+  param/gparam arity, defaults, and candidate/ADL enumeration, plus
+  type meta (size/align/qualified name) for sizeof-class queries;
+  everything else (full conformance) is deferred to clang at codegen.
 
 **N NameResolution.** Two halves, one pass.
 (a) Decl validation over the frozen cells: link `Redeclarable` chains
@@ -235,8 +314,11 @@ canonicalizes it, so member lookup cannot walk bases before types resolve.
 1. Frozen means frozen. Post-parse, source tables take no inserts.
    Overlays, node links, and registries are the only growth points.
 2. One key space per TU. A u32 imm from TU A never indexes a table of
-   TU B; folding re-interns.
-3. One error, one home. Import existence errors: phase I. Redefinition /
+   TU B; the cross-TU boundary goes through a spell -> source-imm shim
+   in I, once per imported name, never on the lookup hot path.
+3. One error, one home. Import existence + import ambiguity: phase I.
+   Import-access ("exists but priv/prot"): N(b), reading the
+   visibility fact I recorded on the overlay entry. Redefinition /
    spec-without-primary: N(a). Unresolved ident: N(b). Arity /
    unknown-type-name: T. Dependent conformance: M2. No phase re-checks
    another's territory.

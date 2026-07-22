@@ -3060,7 +3060,7 @@ class <T> ExprParse {
     /// \brief lazy import-edge fallback for unqualified generic disambiguation.
     ///
     /// \details On a hoisted-table MISS, walk this fid's import edges (written
-    ///          by the PP in declaration order, RESOLUTION.md §2 lazy-not-merge)
+    ///          by the PP in declaration order, RESOLUTION.md #2 lazy-not-merge)
     ///          and ask each edge's SOURCE fid whether the probed name is a
     ///          generic. Full mode only the index barrier (CompilerInstance
     ///          wait_group(5)) guarantees every imported fid is already indexed
@@ -3078,7 +3078,7 @@ class <T> ExprParse {
     ///
     ///          First hit wins parse-time only needs "is this a generic?", not
     ///          full resolution. Collisions are ImportResolution's problem, not
-    ///          the parser's (RESOLUTION.md §2, lazy-not-merge bullet). NO merge
+    ///          the parser's (RESOLUTION.md #2, lazy-not-merge bullet). NO merge
     ///          of disambig tables, ever.
     fn _import_generic_fallback(self, tok: Token) -> bool {
         if !dyn()->is_full_mode() { return false; }

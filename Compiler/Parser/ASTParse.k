@@ -527,7 +527,7 @@ class ASTParse
     /// \brief builds the REAL per-DeclContext symbol tables (dc_symbols) in
     ///        one walk over the completed TU, then freezes them. This is the
     ///        table sema resolves against; dc_scope/DisambigTable stays a
-    ///        parser-only phase artifact. See Sema/RESOLUTION.md §1.
+    ///        parser-only phase artifact. See Sema/RESOLUTION.md #1.
     ///
     /// \details Rules:
     ///        - append-only multimap, ZERO diagnostics. Duplicate names,

@@ -5,7 +5,7 @@
 // ==========================================================================
 
 
-// --- Doc §Basic Syntax ---------------------------------------------------
+// --- Doc #Basic Syntax ---------------------------------------------------
 
 // Anonymous function with explicit return type and block body
 var add = fn (a: i32, b: i32) -> i32 {
@@ -21,7 +21,7 @@ var double = fn (x: i32) -> i32 {
 var opr: fn(i32, i32) -> i32 = fn (a: i32, b: i32) -> i32 { return a + b }
 
 
-// --- Doc §Capture Modes --------------------------------------------------
+// --- Doc #Capture Modes --------------------------------------------------
 
 // Default capture: by copy, mutations inside do not affect original
 var x = 10
@@ -66,21 +66,21 @@ var ptr_named = fn ()|*pa, *pb| -> i32 {
 }
 
 
-// --- Doc §Default Parameters ---------------------------------------------
+// --- Doc #Default Parameters ---------------------------------------------
 
 var greet = fn (name: string = "world") {
     std::println(f"Hello, {name}!")
 }
 
 
-// --- Doc §Generic Closures -----------------------------------------------
+// --- Doc #Generic Closures -----------------------------------------------
 
 var identity = fn <T>(x: T) -> T {
     return x
 }
 
 
-// --- Doc §Panic Specifier ------------------------------------------------
+// --- Doc #Panic Specifier ------------------------------------------------
 
 var risky = fn () panic -> i32 {
     if bad_condition {
@@ -90,7 +90,7 @@ var risky = fn () panic -> i32 {
 }
 
 
-// --- Doc §Closures vs Inner Functions ------------------------------------
+// --- Doc #Closures vs Inner Functions ------------------------------------
 
 fn outer() -> i32 {
     var x = 10
@@ -99,7 +99,7 @@ fn outer() -> i32 {
 }
 
 
-// --- Doc §Passing Closures to Functions ----------------------------------
+// --- Doc #Passing Closures to Functions ----------------------------------
 
 fn apply(f: fn(i32) -> i32, x: i32) -> i32 {
     return f(x)
@@ -123,7 +123,7 @@ fn map(data: [i32], transform: fn(i32) -> i32) -> [i32] {
 
 var doubled = map([1, 2, 3], fn (x: i32) -> i32 { return x * 2 })
 
-// --- Doc §Modifiers ------------------------------------------------------
+// --- Doc #Modifiers ------------------------------------------------------
 
 var panic_closure = fn () panic -> i32 {
     if bad_condition {
@@ -145,7 +145,7 @@ var divergent = fn () panic -> ! {
 }
 
 
-// --- Doc §Nested Closures ------------------------------------------------
+// --- Doc #Nested Closures ------------------------------------------------
 
 var nested_expr = fn () = fn (x: i32) -> i32 = x * 2
 
@@ -158,7 +158,7 @@ var nested_mixed = fn () -> fn(i32) -> i32 {
     return fn (x: i32) -> i32 = x + offset
 }
 
-// --- Doc §AMT and Lifetime Safety ----------------------------------------
+// --- Doc #AMT and Lifetime Safety ----------------------------------------
 
 // Capture by copy: closure outlives enclosing scope, safe
 fn make_safe_closure() -> fn() -> i32 {

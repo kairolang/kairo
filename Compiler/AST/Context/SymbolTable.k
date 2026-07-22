@@ -21,6 +21,7 @@
 import AST::Node::Base::*;
 import Token::TokenKind::*;
 import AST::Context::ASTContext::*;
+import Lexer::Immediate::*;
 
 /// \enum DeclNameKind
 /// \brief Discriminates the kind of a lookup key.
@@ -235,6 +236,38 @@ class SymbolTable {
 
     fn lookup_ident(self, imm: u32) -> *OverloadCell {
         return self.lookup(DeclName::ident(imm));
+    }
+
+    /// \brief Cross-TU boundary lookup (ImportResolution ONLY).
+    ///
+    /// \details Frozen tables are keyed by PER-TU imm indices (RESOLUTION.md
+    ///          hard invariant #2): a raw u32 from the importing TU is
+    ///          meaningless in the source TU. At the import boundary we spell
+    ///          the importing token and re-intern it against the SOURCE TU's
+    ///          imm table to obtain the source-local imm, then key the source
+    ///          frozen table with it. One string trip per imported name, at I
+    ///          time only the hot unqualified path (SymbolTable::lookup /
+    ///          NameLookup primitives) stays integer-keyed and is never touched
+    ///          by this.
+    ///
+    ///          The probe into the source imm table is NON-MUTATING
+    ///          (ImmediateTable::find_ident): a miss means the spelling was
+    ///          never interned in the source and is therefore provably absent
+    ///          from its symbol tables. Ordinary imports resolve here; identity
+    ///          imports, operators, and ctors do not route through this shim
+    ///          (operator keys are build-stable and compared cross-TU directly;
+    ///          ctors are context-relative).
+    ///
+    /// \param tbl       the SOURCE TU's frozen SymbolTable (the scope to search).
+    /// \param src_imms  the SOURCE TU's imm table (tcm->get_imm_table_for_fid).
+    /// \param spelling  the imported name as spelled in the importing TU.
+    /// \return the matching OverloadCell in \p tbl, or null (absent/foreign).
+    static fn lookup_foreign(tbl: *SymbolTable, src_imms: *ImmediateTable,
+                             spelling: string) -> *OverloadCell {
+        if (tbl == &null) || (src_imms == &null) { return &null; }
+        var src_imm = src_imms->find_ident(spelling);
+        if src_imm == static_cast::<u32>(-1) { return &null; }  // absent in source
+        return tbl->lookup_ident(src_imm);
     }
 
     fn has(self, name: DeclName) -> bool {

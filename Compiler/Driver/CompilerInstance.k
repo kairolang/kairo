@@ -1094,7 +1094,7 @@ fn FrontendAction::_sema() -> bool {
     // Phase I (ImportResolution) across every fid of this TU's graph. Run in
     // REVERSE tree order so leaf modules build their overlays before importers
     // fold re-exports (DAG order guarantees source-overlay completeness,
-    // RESOLUTION.md §2). Only phase I is implemented; run_to stops there, and
+    // RESOLUTION.md #2). Only phase I is implemented; run_to stops there, and
     // the N/T/... stubs are not reached.
     var n = self._fids.size();
     for var i: usize = 0; i < n; ++i {
