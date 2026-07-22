@@ -1466,6 +1466,53 @@ class ImmediateTable {
         );
     }
 
+    /// \brief NON-MUTATING identifier probe: index of \p data if already
+    ///        interned, else \c u32(-1). Never inserts, never grows the
+    ///        table safe against a FROZEN table read by other threads.
+    ///
+    /// \details The cross-TU import boundary (SymbolTable::lookup_foreign) uses
+    ///          this: a spelling from the importing TU is probed against the
+    ///          SOURCE TU's frozen imm table. A miss means the name was never
+    ///          interned in the source and is therefore provably absent from
+    ///          its symbol tables no insert is warranted or permitted. Mirrors
+    ///          intern_ident's open-addressed probe exactly, minus every write.
+    ///
+    /// \param data raw UTF-8 bytes (need not be NUL-terminated).
+    /// \param len  byte length.
+    /// \param hash folded 32-bit hash of those bytes (same hashing as intern).
+    fn find_ident(self, const data: *u8, len: usize, hash: u32) -> u32 {
+        if self.ident_mask == 0 { return static_cast::<u32>(-1); }
+
+        var mask = self.ident_mask;
+        var slot = hash & mask;
+
+        while true {
+            var b = &(self.ident_buckets[static_cast::<usize>(slot)]);
+            if b->idx == ((-1) as u32) { return static_cast::<u32>(-1); }
+            if (b->hash == hash) && self._ident_eq(b->idx, data, len) {
+                return b->idx;
+            }
+            slot = (slot + 1) & mask;
+        }
+        return static_cast::<u32>(-1);
+    }
+
+    /// \brief string-keyed convenience over find_ident (hashes for the caller).
+    ///        Returns \c u32(-1) on miss. NON-MUTATING.
+    ///
+    /// \details `string` is wchar-backed; identifiers were interned from UTF-8
+    ///          source bytes. Convert to a nstring (UTF-8) FIRST so the hash and
+    ///          byte-compare match what the lexer produced this mirrors
+    ///          intern_ident_copy exactly, minus the synth_names store (a probe
+    ///          needs no persistent copy). Cold path (import boundary only).
+    fn find_ident(self, s: string) -> u32 {
+        var ns = std::string_to_nstring(s);
+        var r  = reinterpret_cast::<std::ConstPtr::<u8>>(ns.raw());
+        var l  = ns.size();
+        var h  = compute_hash(r, l);
+        return self.find_ident(r, l, h);
+    }
+
     /// \brief interns an identifier spelling that has no backing source buffer.
     ///
     /// \details copies the bytes into table-owned storage (\c synth_names),
