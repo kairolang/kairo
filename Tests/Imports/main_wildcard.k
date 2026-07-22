@@ -1,9 +1,11 @@
-// wildcard: `id`/`Box` visible unqualified; bare `<` disambiguated via edge.
-// This comment sits directly above the import on purpose: it regression-tests
-// the fix for the comment-above-import S052E (orphaned-terminator) bug.
+// CASE 1 (wildcard) / 3 (priv fact) / 11: `import bar::*` brings every top-level
+// name UNQUALIFIED, non-pub included. Expect overlay keys: `id` (fn-set, pub),
+// `Box` (type, pub), `limit` (type, pub), and `secret` (fn-set, PRIV  the fact
+// N will later read to emit "exists but priv"). Bare `id<i32>`/`Box<i32>`
+// disambiguate as generic; `limit < 3` stays a comparison (negative control).
+
 import bar::*
 
-// `limit < 3` is the negative control (must stay a comparison).
 fn use_wildcard() -> i32 {
     var a = id<i32>(1)
     var c = Box<i32>(3)

@@ -250,6 +250,20 @@ class PPWalker
 
         if p2 == TokenKind::KwImport {
             // ffi "lang" import "hdr" (as name)? ;  -> consume + drop entirely
+            //
+            // DEFERRED (next task: clang header-parse integration). The real
+            // design routes ffi imports through a SINGLE clang parse at INDEX
+            // time whose ASTUnit is cached per header and reused three ways:
+            //   (1) index/PP: cheap name+scope walk -> GlobalDisambigTable, so
+            //       `<`-disambiguation sees header symbols during full parse;
+            //   (2) symbol build: translate clang decls -> Kairo FunctionDecl/
+            //       etc. nodes into the ffi anchor's table (the post-I
+            //       clang-extraction pass in RESOLUTION.md);
+            //   (3) backend: hand clang the cached ASTUnit instead of a cc1
+            //       `-include`, avoiding a reparse.
+            // The parser CANNOT own this: it runs after disambig decisions are
+            // made, too late for (1). Until that lands, ffi imports are dropped
+            // here and contribute nothing to lookup.
             self._src->next(); // ffi
             self._src->next(); // lang
             self._src->next(); // import

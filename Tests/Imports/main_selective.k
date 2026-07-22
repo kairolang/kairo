@@ -1,5 +1,8 @@
-// selective + item alias: `Boxx<i32>` must map back to bar's generic `Box`.
-// Comment directly above the import regression-tests the S052E fix.
+// CASE 1 (selective + item alias) / 11: `import bar::{id, Box as Boxx}` brings
+// both names UNQUALIFIED; `Box` aliased to `Boxx`. Expect: overlay keys `id`
+// (fn-set) and `Boxx` (type, resolved from source `Box`). Bare generic uses
+// disambiguate via the import edge.
+
 import bar::{id, Box as Boxx}
 
 fn use_selective() -> i32 {

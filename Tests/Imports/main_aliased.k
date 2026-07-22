@@ -1,5 +1,6 @@
-// aliased: handle rebound to `b`; qualified generic chain via the alias.
-// Comment directly above the import regression-tests the S052E fix.
+// CASE 1 (aliased): `import bar as b` rebinds the handle to `b`; original
+// name `bar` is unavailable. Expect: overlay key `b` -> 1 module target.
+
 import bar as b
 
 fn use_aliased() -> i32 {
