@@ -40,12 +40,16 @@ import Config::Invocation::*;
 ///        it instead of trusting the schedule ("one error, one home" only
 ///        works if phase order is enforced, not hoped for).
 ///
-///        P -> I -> N -> T -> checks -> lowerings -> M1 -> M2
+///        P -> I -> E -> N -> T -> checks -> lowerings -> M1 -> M2
 enum SemaPhase derives u8 {
     /// Parse done: AST built, dc_symbols frozen, out_of_line collected.
     Parsed = 0,
     /// Phase I done: import_overlay built; TU is self-contained.
     ImportsResolved,
+    /// Phase E done: surface normalization applied (requires-desugar; later
+    /// macro expansion + eval). Pure AST->AST; runs before N/T so name and
+    /// type resolution see canonical syntax. Needs nothing past Parsed.
+    Expanded,
     /// Phase N done: redecl chains linked, out_of_line attached, every
     /// non-dependent ident bound (resolved_decl set).
     NamesResolved,

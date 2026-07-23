@@ -1891,12 +1891,6 @@ class ASTParse
         self._sync_cursor();
     }
 
-    /// \brief consumes tokens until a member of `set` or EOF is encountered.
-    fn skip_until(self, set: SyncSet) -> SyncSet {
-        // TODO
-        return SyncSet::None;
-    }
-
     /// \brief checks and increments the recursion depth counter.
     fn enter_depth(self) -> bool {
         if self.depth >= self.max_depth {

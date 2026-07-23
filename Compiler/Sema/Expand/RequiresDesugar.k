@@ -26,7 +26,8 @@
 ///     type bodies via DeclContext. It intentionally does not subclass
 ///     ASTWriter/RAV: the edit is a field mutation, not a structural rewrite.
 ///
-///   Phase: LOWER (surface normalization; runs before ConstraintExtraction)
+///   Phase: EXPAND (surface normalization; runs before N/T and before
+///          ConstraintExtraction, which consumes the canonical requires clause)
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.

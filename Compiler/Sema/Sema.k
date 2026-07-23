@@ -73,6 +73,9 @@ class Sema {
         if !self._stage_imports()                 { return false; }
 
         if !self._gate(SemaPhase::ImportsResolved, target) { return self._done(); }
+        if !self._stage_expand()                  { return false; }
+
+        if !self._gate(SemaPhase::Expanded, target) { return self._done(); }
         if !self._stage_name_resolution()         { return false; }
 
         if !self._gate(SemaPhase::NamesResolved, target) { return self._done(); }
@@ -139,6 +142,24 @@ class Sema {
         return !self._hard_stop();
     }
 
+    /// Phase E. Surface normalization: pure AST->AST rewrites that must run
+    /// before N/T so name/type resolution see canonical syntax. PRE: imports
+    /// resolved. POST: inline generic bounds hoisted into requires_clause
+    /// (the inline lists are empty; requires_clause is the single source of
+    /// truth). These passes need nothing past Parsed structurally; they sit
+    /// after I only because the schedule is linear. Macro expansion and eval
+    /// lowering land here too when implemented.
+    priv fn _stage_expand(self) -> bool {
+        if self._already(SemaPhase::Expanded) { return true; }
+        self.sc.require_phase(SemaPhase::ImportsResolved);
+        // TODO(sema): MacroExpansion(&self.sc).run();
+        // TODO(sema): EvalLowering(&self.sc).run();  // extract eval fns -> dylib
+        var desugar = RequiresDesugar(self.sc.ctx);
+        desugar.run(self.sc.tu);
+        self.sc.advance_phase(SemaPhase::Expanded);
+        return !self._hard_stop();
+    }
+
     /// Phase N, two halves one pass. (a) decl validation over frozen
     /// cells: link Redeclarable chains, validate overload sets, group
     /// specializations, attach tu->out_of_line, populate sc.well_known.
@@ -146,7 +167,7 @@ class Sema {
     /// resolved_decl. Redefinition + unresolved-ident errors live here.
     priv fn _stage_name_resolution(self) -> bool {
         if self._already(SemaPhase::NamesResolved) { return true; }
-        self.sc.require_phase(SemaPhase::ImportsResolved);
+        self.sc.require_phase(SemaPhase::Expanded);
         // TODO(sema): NameResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::NamesResolved);
         return !self._hard_stop();
@@ -171,15 +192,12 @@ class Sema {
         if self._already(SemaPhase::Checked) { return true; }
         self.sc.require_phase(SemaPhase::TypesResolved);
 
-        // Constraint normalization + partition. Desugar first (pure AST rewrite:
-        // inline bounds -> requires as ConstraintExpr conjuncts), THEN extract
-        // (partition the canonical requires into conformance constraints vs
-        // value predicates). Order is load-bearing: extract reads the canonical
-        // form desugar produces. Both must precede definition-side checking,
-        // which consumes the ConstraintSet.
-        var desugar = RequiresDesugar(self.sc.ctx);
-        desugar.run(self.sc.tu);
-
+        // Constraint partition. Desugar already ran in the Expand phase (pure
+        // AST rewrite: inline bounds -> requires as ConstraintExpr conjuncts),
+        // so requires_clause is canonical here. Extract partitions it into
+        // conformance constraints vs value predicates. Extraction requires
+        // TypesResolved (it feeds the bound table + definition-side checking,
+        // which consume the ConstraintSet) — hence it lives here, not in Expand.
         var extract = ConstraintExtraction(&self.sc);
         extract.run();
         // TODO(sema): feed extract.sets into the bound table + definition-side check.
