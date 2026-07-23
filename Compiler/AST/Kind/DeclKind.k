@@ -49,9 +49,9 @@ enum DeclKind derives u8 {
     /// Owns its type, optional default expr, and binding shorthand.
     ParamDecl,
 
-    /// A generic parameter: `<T>`, `<T impl Foo>`, `<T: class>`,
-    /// `<const N: i32>`, `<...T>`. Carries bounds, kind constraint,
-    /// pack flag, and optional default.
+    /// A generic parameter: `<T>`, `<T impl Foo>`, `<T derives Base>`,
+    /// `<T: class>`, `<const N: i32>`, `<...T>`. Carries impl + derives
+    /// bounds (kept separate), kind constraint, pack flag, and optional default.
     GenericParamDecl,
 
     // -----------------------------------------------------------------------

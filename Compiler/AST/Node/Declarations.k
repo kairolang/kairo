@@ -179,10 +179,14 @@ struct InheritEdge {
 ///  <T> | <T impl Foo> | <T derives Base> | <T: class> | <const N: i32>
 ///  | <...T>
 ///
-///  Owned by a TemplateParams-carrying decl. `kind_constraint` is the
-///  `: class/struct/enum/union` kind bound; `bounds` holds impl/derives
-///  constraint types. `is_const_param` marks a value parameter (`const N: T`),
-///  whose type is `value_type`. `is_pack` marks `...T`.
+///  Owned by a TemplateParams-carrying decl. `kind_bound` is the
+///  `: class/struct/enum/union` kind bound. `impl_bounds` holds the `impl`
+///  (structural interface) constraints; `derives_bounds` holds the `derives`
+///  (nominal base-class / interface-inheritance) constraints. The two are kept
+///  physically separate like ClassDecl's implements/derives_list because
+///  they carry different resolution semantics (structural method-set vs nominal
+///  lineage + vtable dispatch). `is_const_param` marks a value parameter
+///  (`const N: T`), whose type is `value_type`. `is_pack` marks `...T`.
 ///
 enum GenericParamKindBound derives u8 {
     Any = 0,   ///< no `: kind` bound.
@@ -195,7 +199,8 @@ enum GenericParamKindBound derives u8 {
 class GenericParamDecl derives Decl {
     pub var name:           Token;                  ///< the parameter identifier (T, N, ...).
     pub var kind_bound:     GenericParamKindBound = GenericParamKindBound::Any;
-    pub var bounds:         FrozenList::<*Type>;    ///< impl/derives constraint types.
+    pub var impl_bounds:    FrozenList::<InheritEdge>;  ///< `impl` interface bounds (structural).
+    pub var derives_bounds: FrozenList::<InheritEdge>;  ///< `derives` base bounds (nominal, vtable).
     pub var is_pack:        bool = false;           ///< `...T` variadic pack.
     pub var is_const_param: bool = false;           ///< `const N: T` value parameter.
     pub var value_type:     *Type = &null;          ///< type of a const value param; null for type params.
@@ -332,6 +337,9 @@ class FunctionDecl
     pub var is_noreturn: bool = false;          ///< return type is `!`.
     pub var transfer:    TransferKind = TransferKind::NotTransfer; ///< @copy/@move on a transfer ctor.
     pub var qualifier:   *Expr = &null;         ///< out-of-line `Class::` path (ChainExpr); null otherwise.
+    pub var where_clause: *Expr = &null;        ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
+
+    fn has_where(self) -> bool { return self.where_clause != &null; }
 
     static fn create(
         ctx:    *ASTContext,
