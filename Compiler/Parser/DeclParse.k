@@ -634,7 +634,7 @@ class <T> DeclParse {
     /// \brief parses an optional generic parameter list into `out`.
     ///  Grammar:  '<' generic_param (',' generic_param)* '>'
     ///    generic_param := '...'? identifier (':' kind_bound)?
-    ///                     (('impl'|'derives') type (',' type)*)?
+    ///                     (('impl'|'derives') 'virtual'? vis? type)*
     ///                     ('=' type)?
     ///                   | 'const' identifier ':' type ('=' type)?
     ///
@@ -787,11 +787,15 @@ class <T> DeclParse {
             gp->kind_bound = self._parse_kind_bound(start);
         }
 
-        // optional impl/derives bounds
+        // optional impl/derives bounds. Both may appear (in either order) and
+        // each is routed to its own list so the impl (structural) vs derives
+        // (nominal, vtable) distinction survives into sema.
         if dyn()->check(TokenKind::KwImpl) || dyn()->check(TokenKind::KwDerives) {
-            var bounds: std::StackBuf::<*Type, 4>;
-            self._parse_param_bounds(&bounds);
-            gp->bounds.from_buf(bounds.data(), bounds.size(), dyn()->ctx);
+            var impl_edges:    std::StackBuf::<InheritEdge, 4>;
+            var derives_edges: std::StackBuf::<InheritEdge, 4>;
+            self._parse_param_bounds(&impl_edges, &derives_edges);
+            gp->impl_bounds.from_buf(impl_edges.data(), impl_edges.size(), dyn()->ctx);
+            gp->derives_bounds.from_buf(derives_edges.data(), derives_edges.size(), dyn()->ctx);
         }
 
         self._maybe_parse_generic_default(gp);
@@ -810,23 +814,47 @@ class <T> DeclParse {
         return GenericParamKindBound::Any;
     }
 
-    /// \brief parses one or more impl/derives bound types after a generic param.
-    ///  Grammar:  ('impl'|'derives') type (',' type)*  - but stops at the
-    ///  list-level ',' that separates generic params (we only greedily take
-    ///  additional bound types when they follow another impl/derives keyword).
-    priv fn _parse_param_bounds(self, out: *std::StackBuf::<*Type, 4>) {
+    /// \brief parses one or more impl/derives bound clauses after a generic
+    ///        param, routing each edge to the matching list.
+    ///  Grammar:  (('impl'|'derives') 'virtual'? visibility? type)+  - each
+    ///  clause is keyword-led. A bare `,` belongs to the generic param list, not
+    ///  the bound list, so we only continue on another impl/derives keyword.
+    ///  `impl` edges go to \p impl_out, `derives` edges to \p derives_out; the
+    ///  keyword that introduced the clause is what decides, preserving the
+    ///  structural-vs-nominal distinction.
+    priv fn _parse_param_bounds(
+        self,
+        impl_out:    *std::StackBuf::<InheritEdge, 4>,
+        derives_out: *std::StackBuf::<InheritEdge, 4>
+    ) {
         while true {
-            // consume `impl` or `derives`
-            if dyn()->check(TokenKind::KwImpl) || dyn()->check(TokenKind::KwDerives) {
-                dyn()->advance(T::SkipNL::After);
-            } else {
-                break;
+            var is_derives = dyn()->check(TokenKind::KwDerives);
+            var is_impl    = dyn()->check(TokenKind::KwImpl);
+            if (!is_derives) && (!is_impl) { break; }
+            dyn()->advance(T::SkipNL::After); // consume `impl` / `derives`
+
+            var e_start = dyn()->current_ptr()->range;
+            var edge = InheritEdge{};
+            edge.visibility = 0;
+            edge.is_virtual = false;
+
+            if dyn()->check(TokenKind::KwVirtual) {
+                edge.is_virtual = true;
+                dyn()->advance();
             }
+            if      dyn()->check(TokenKind::KwPub)  { edge.visibility = 3; dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwProt) { edge.visibility = 2; dyn()->advance(); }
+            else if dyn()->check(TokenKind::KwPriv) { edge.visibility = 1; dyn()->advance(); }
+
             var bty = dyn()->parse_type();
             if (bty == &null) || is_recovery(bty) {
                 break;
             }
-            out->push_back(bty);
+            edge.base  = bty;
+            edge.range = e_start | dyn()->prev().range;
+
+            if is_derives { derives_out->push_back(edge); }
+            else          { impl_out->push_back(edge); }
 
             // another bound only if another impl/derives follows (a bare `,`
             // belongs to the generic param list, not the bound list).
@@ -1150,6 +1178,16 @@ class <T> DeclParse {
             var req = dyn()->parse_expr();
             if (req != &null) && (!is_recovery(req)) {
                 fd->requires_clause = req;
+            }
+        }
+
+        // optional `where <expr>` runtime-dispatch guard (functions only).
+        // Comes after requires: `fn f(...) -> T requires <ct> where <rt> { }`.
+        if dyn()->check(TokenKind::KwWhere) {
+            dyn()->advance(T::SkipNL::After);
+            var wex = dyn()->parse_expr();
+            if (wex != &null) && (!is_recovery(wex)) {
+                fd->where_clause = wex;
             }
         }
 
@@ -1829,6 +1867,23 @@ class <T> DeclParse {
         }
     }
 
+    /// \brief rejects a `where` clause on a type declaration. `where` is
+    ///        runtime-conditional dispatch, which only free functions/methods
+    ///        support; type instantiation and interface conformance are
+    ///        compile-time only and must use `requires`. Consumes and discards
+    ///        the offending clause so parsing can recover into the body.
+    priv fn _reject_where_on_type(self, kind_word: string) {
+        if !dyn()->check(TokenKind::KwWhere) { return; }
+        var wh = dyn()->current_ptr()->range;
+        dyn()->diag->report(DiagID::S052E, wh.start,
+            f"'where' is not allowed on a {kind_word}; runtime-conditional "
+            "dispatch is only valid on functions. Use 'requires' for a "
+            "compile-time constraint instead"
+        ).first(wh).emit();
+        dyn()->advance(T::SkipNL::After); // consume `where`
+        var _discard = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral); // eat + drop the clause
+    }
+
     /// \brief parses the `derives ...` and `impl ...` clauses in either order,
     ///        filling the provided edge buffers. Either may be absent.
     priv fn _parse_class_heritage(
@@ -2138,6 +2193,7 @@ class <T> DeclParse {
             var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
             if (req != &null) && (!is_recovery(req)) { cd->requires_clause = req; }
         }
+        self._reject_where_on_type("class");
 
         // body, or a bodyless forward declaration (`class Foo`). A `{` opens the
         // definition; anything else leaves `cd` a forward declaration (a
@@ -2237,6 +2293,7 @@ class <T> DeclParse {
             var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
             if (req != &null) && (!is_recovery(req)) { sd->requires_clause = req; }
         }
+        self._reject_where_on_type("struct");
 
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(sd));
         var fields:  std::StackBuf::<*FieldDecl, 8>;
@@ -2382,6 +2439,7 @@ class <T> DeclParse {
             var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
             if (req != &null) && (!is_recovery(req)) { id->requires_clause = req; }
         }
+        self._reject_where_on_type("interface");
 
         // body: method signatures (bodies are a sema error; parser still
         // accepts a body for recovery via _parse_member_body's method path,
