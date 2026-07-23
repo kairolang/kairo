@@ -307,6 +307,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<ThreadExpr>(e)           { self._kw_operand("thread ", cast::<ThreadExpr>(e)->operand); return; }
         if isa::<EvalExpr>(e)             { self._kw_operand("eval ",   cast::<EvalExpr>(e)->operand);   return; }
         if isa::<UnsafeExpr>(e)           { self._kw_operand("unsafe ", cast::<UnsafeExpr>(e)->operand); return; }
+        if isa::<ConstraintExpr>(e)       { self._e_constraint(cast::<ConstraintExpr>(e)); return; }
         if isa::<SizeOfExpr>(e)           { self._builtin_type("sizeof",  cast::<SizeOfExpr>(e)->type_arg);  return; }
         if isa::<AlignOfExpr>(e)          { self._builtin_type("alignof", cast::<AlignOfExpr>(e)->type_arg); return; }
         if isa::<TypeOfExpr>(e)           { self._e_typeof(cast::<TypeOfExpr>(e)); return; }
@@ -373,6 +374,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Operator, self.tok(e->op_token));
         self.p.put(" ");
         self.src_expr(e->rhs);
+    }
+
+    fn _e_constraint(self, e: *ConstraintExpr) {
+        self.src_expr(e->lhs);
+        self.p.put(" ");
+        self.p.paint(Color::Keyword, self.tok(e->op_token));
+        self.p.put(" ");
+        self.src_type(e->rhs);
     }
 
     fn _e_assign(self, e: *AssignOperatorExpr) {
@@ -1014,6 +1023,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.src_expr(req);
     }
 
+    fn _where(self, wh: *Expr) {
+        if wh == &null { return; }
+        self.p.paint(Color::Keyword, " where ");
+        self.src_expr(wh);
+    }
+
     /// Renders the `<>` specialization introducer that precedes the name when a
     /// decl is a specialization (#68). Primary/Explicit/Partial all print the
     /// bare `<>` marker in source form; the distinction is on the arg pattern.
@@ -1175,6 +1190,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
 
         self._requires(fd->requires_clause);
+        self._where(fd->where_clause);
         self._fn_body(fd);
     }
 
@@ -1258,9 +1274,20 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             else if gp->kind_bound == GenericParamKindBound::Union  { self.p.paint(Color::Keyword, "union");  }
         }
 
-        for var i: usize = 0; i < gp->bounds.size(); ++i {
+        for var i: usize = 0; i < gp->derives_bounds.size(); ++i {
+            self.p.paint(Color::Keyword, " derives ");
+            var e = gp->derives_bounds.get(i);
+            if e->is_virtual { self.p.paint(Color::Keyword, "virtual "); }
+            self._vis(e->visibility);
+            self.src_type(e->base);
+        }
+
+        for var i: usize = 0; i < gp->impl_bounds.size(); ++i {
             self.p.paint(Color::Keyword, " impl ");
-            self.src_type(gp->bounds[i]);
+            var e = gp->impl_bounds.get(i);
+            if e->is_virtual { self.p.paint(Color::Keyword, "virtual "); }
+            self._vis(e->visibility);
+            self.src_type(e->base);
         }
 
         if gp->default_type != &null {
@@ -1958,6 +1985,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<UnsafeExpr>(e)           { self._dx_kw("UnsafeExpr", cast::<UnsafeExpr>(e)->operand, is_last); return; }
         if isa::<DeleteExpr>(e)           { self._dx_kw("DeleteExpr", cast::<DeleteExpr>(e)->operand, is_last); return; }
         if isa::<PackExpansionExpr>(e)    { self._dx_kw("PackExpansionExpr", cast::<PackExpansionExpr>(e)->operand, is_last); return; }
+        if isa::<ConstraintExpr>(e)       { self._dx_constraint(cast::<ConstraintExpr>(e), is_last); return; }
         if isa::<SizeOfExpr>(e)           { self._head("SizeOfExpr", is_last);  self._inline_type(cast::<SizeOfExpr>(e)->type_arg);  self.p.newline(); return; }
         if isa::<AlignOfExpr>(e)          { self._head("AlignOfExpr", is_last); self._inline_type(cast::<AlignOfExpr>(e)->type_arg); self.p.newline(); return; }
         if isa::<TypeOfExpr>(e)           { self._dx_kw("TypeOfExpr", cast::<TypeOfExpr>(e)->operand, is_last); return; }
@@ -2046,6 +2074,17 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         self._child_expr(e->lhs, false);
         self._child_expr(e->rhs, true);
+        self.p.leave();
+    }
+
+    fn _dx_constraint(self, e: *ConstraintExpr, is_last: bool) {
+        self._head("ConstraintExpr", is_last);
+        self.p.put(" ");
+        self.p.paint(Color::Keyword, self.tok(e->op_token));
+        self._inline_type(e->rhs);
+        self.p.newline();
+        self.p.enter(is_last);
+        self._child_expr(e->lhs, true);
         self.p.leave();
     }
 
@@ -2710,33 +2749,38 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         var has_generics = !fd->generic_params.is_empty();
         var has_params   = !fd->params.is_empty();
         var has_requires = (fd->requires_clause != &null);
+        var has_where    = (fd->where_clause != &null);
         var has_body     = (fd->body_kind == FnBodyKind::Block && (fd->body_block != &null))
                         || (fd->body_kind == FnBodyKind::Expr  && (fd->body_expr  != &null));
 
-        if (!has_attrs) && (!has_generics) && (!has_params) && (!has_requires) && (!has_body) { return; }
+        if (!has_attrs) && (!has_generics) && (!has_params) && (!has_requires) && (!has_where) && (!has_body) { return; }
 
         self.p.enter(is_last);
 
         if has_attrs {
-            self._dump_annotations(static_cast::<*Decl>(fd), !(has_generics || has_params || has_requires || has_body));
+            self._dump_annotations(static_cast::<*Decl>(fd), !(has_generics || has_params || has_requires || has_where || has_body));
         }
 
         if has_generics {
             for var i: usize = 0; i < fd->generic_params.size(); ++i {
-                var last_gen = (i == fd->generic_params.size() - 1) && (!has_params) && (!has_requires) && (!has_body);
+                var last_gen = (i == fd->generic_params.size() - 1) && (!has_params) && (!has_requires) && (!has_where) && (!has_body);
                 self._child_decl(static_cast::<*Decl>(fd->generic_params[i]), last_gen);
             }
         }
 
         if has_params {
             for var i: usize = 0; i < fd->params.size(); ++i {
-                var last_param = (i == fd->params.size() - 1) && (!has_requires) && (!has_body);
+                var last_param = (i == fd->params.size() - 1) && (!has_requires) && (!has_where) && (!has_body);
                 self._child_decl(static_cast::<*Decl>(fd->params[i]), last_param);
             }
         }
 
         if has_requires {
-            self._child_expr(fd->requires_clause, !has_body);
+            self._child_expr(fd->requires_clause, (!has_where) && (!has_body));
+        }
+
+        if has_where {
+            self._child_expr(fd->where_clause, !has_body);
         }
 
         if fd->body_kind == FnBodyKind::Block && (fd->body_block != &null) {
@@ -3227,6 +3271,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             case ExprKind::AwaitExpr                { return "AwaitExpr";                }
             case ExprKind::SpawnExpr                { return "SpawnExpr";                }
             case ExprKind::ThreadExpr               { return "ThreadExpr";               }
+            case ExprKind::ConstraintExpr           { return "ConstraintExpr";           }
             case ExprKind::SizeOfExpr               { return "SizeOfExpr";               }
             case ExprKind::AlignOfExpr              { return "AlignOfExpr";              }
             case ExprKind::TypeOfExpr               { return "TypeOfExpr";               }

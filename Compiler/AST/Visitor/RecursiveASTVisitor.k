@@ -429,6 +429,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::AwaitExpr                { return self.dyn()->traverse_await_expr(                 cast::<AwaitExpr>(e)                ); }
             case ExprKind::SpawnExpr                { return self.dyn()->traverse_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->traverse_thread_expr(                cast::<ThreadExpr>(e)               ); }
+            case ExprKind::ConstraintExpr           { return self.dyn()->traverse_constraint_expr(            cast::<ConstraintExpr>(e)           ); }
             case ExprKind::SizeOfExpr               { return self.dyn()->traverse_size_of_expr(               cast::<SizeOfExpr>(e)               ); }
             case ExprKind::AlignOfExpr              { return self.dyn()->traverse_align_of_expr(              cast::<AlignOfExpr>(e)              ); }
             case ExprKind::TypeOfExpr               { return self.dyn()->traverse_type_of_expr(               cast::<TypeOfExpr>(e)               ); }
@@ -730,6 +731,14 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    fn traverse_constraint_expr(self, n: *ConstraintExpr) -> *ConstraintExpr {
+        if self.dyn()->walkup_constraint_expr(n) == false { return n; }
+        if n->lhs != &null { n->lhs = self.dyn()->dispatch_expr(n->lhs); }
+        if self.stop { return n; }
+        if n->rhs != &null { n->rhs = self.dyn()->dispatch_type(n->rhs); }
+        return n;
+    }
+
     fn traverse_size_of_expr(self, n: *SizeOfExpr) -> *SizeOfExpr {
         if self.dyn()->walkup_size_of_expr(n) == false { return n; }
         if n->type_arg != &null { n->type_arg = self.dyn()->dispatch_type(n->type_arg); }
@@ -934,6 +943,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_thread_expr(n);
     }
 
+    fn walkup_constraint_expr(self, n: *ConstraintExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_constraint_expr(n);
+    }
+
     fn walkup_size_of_expr(self, n: *SizeOfExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_size_of_expr(n);
@@ -1009,6 +1023,7 @@ class <D> RecursiveASTVisitor {
     fn visit_await_expr(                  self, n: *AwaitExpr                ) -> bool { return true; }
     fn visit_spawn_expr(                  self, n: *SpawnExpr                ) -> bool { return true; }
     fn visit_thread_expr(                 self, n: *ThreadExpr               ) -> bool { return true; }
+    fn visit_constraint_expr(             self, n: *ConstraintExpr           ) -> bool { return true; }
     fn visit_size_of_expr(                self, n: *SizeOfExpr               ) -> bool { return true; }
     fn visit_align_of_expr(               self, n: *AlignOfExpr              ) -> bool { return true; }
     fn visit_type_of_expr(                self, n: *TypeOfExpr               ) -> bool { return true; }
@@ -1451,6 +1466,8 @@ class <D> RecursiveASTVisitor {
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
+        if self.stop { return n; }
+        if n->where_clause != &null { n->where_clause = self.dyn()->dispatch_expr(n->where_clause); }
         // params
         for var i: usize = 0; i < n->params.size(); i++ {
             if self.stop { break; }
@@ -1487,9 +1504,13 @@ class <D> RecursiveASTVisitor {
 
     fn traverse_generic_param_decl(self, n: *GenericParamDecl) -> *GenericParamDecl {
         if self.dyn()->walkup_generic_param_decl(n) == false { return n; }
-        for var i: usize = 0; i < n->bounds.size(); i++ {
+        for var i: usize = 0; i < n->impl_bounds.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_type(n->bounds.get(i));  // discard
+            self.dyn()->traverse_inherit_edge(n->impl_bounds.get(i));
+        }
+        for var i: usize = 0; i < n->derives_bounds.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->traverse_inherit_edge(n->derives_bounds.get(i));
         }
         if self.stop { return n; }
         if n->value_type   != &null { n->value_type   = self.dyn()->dispatch_type(n->value_type); }

@@ -606,6 +606,7 @@ class <D> ASTWriter {
             case ExprKind::AwaitExpr                { return self.dyn()->transform_await_expr(                 cast::<AwaitExpr>(e)                ); }
             case ExprKind::SpawnExpr                { return self.dyn()->transform_spawn_expr(                 cast::<SpawnExpr>(e)                ); }
             case ExprKind::ThreadExpr               { return self.dyn()->transform_thread_expr(                cast::<ThreadExpr>(e)               ); }
+            case ExprKind::ConstraintExpr           { return self.dyn()->transform_constraint_expr(            cast::<ConstraintExpr>(e)           ); }
             case ExprKind::SizeOfExpr               { return self.dyn()->transform_size_of_expr(               cast::<SizeOfExpr>(e)               ); }
             case ExprKind::AlignOfExpr              { return self.dyn()->transform_align_of_expr(              cast::<AlignOfExpr>(e)              ); }
             case ExprKind::TypeOfExpr               { return self.dyn()->transform_type_of_expr(               cast::<TypeOfExpr>(e)               ); }
@@ -814,6 +815,12 @@ class <D> ASTWriter {
 
     fn transform_thread_expr(self, n: *ThreadExpr) -> *Expr {
         if n->operand != &null { n->operand = self.dyn()->transform_expr(n->operand); }
+        return n;
+    }
+
+    fn transform_constraint_expr(self, n: *ConstraintExpr) -> *Expr {
+        if n->lhs != &null { n->lhs = self.dyn()->transform_expr(n->lhs); }
+        if n->rhs != &null { n->rhs = self.dyn()->transform_type(n->rhs); }
         return n;
     }
 
@@ -1104,6 +1111,7 @@ class <D> ASTWriter {
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->generic_params)));
         self.dyn()->rebuild_type_list(&(n->spec_args)); // specialization pattern (#68)
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
+        if n->where_clause    != &null { n->where_clause    = self.dyn()->transform_expr(n->where_clause); }
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->params)));
         if n->return_type != &null { n->return_type = self.dyn()->transform_type(n->return_type); }
         if n->qualifier   != &null { n->qualifier   = self.dyn()->transform_expr(n->qualifier); }
@@ -1131,7 +1139,14 @@ class <D> ASTWriter {
     }
 
     fn transform_generic_param_decl(self, n: *GenericParamDecl) -> vec::<*Decl> {
-        self.dyn()->rebuild_type_list(&(n->bounds));
+        for var i: usize = 0; i < n->impl_bounds.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->transform_inherit_edge(n->impl_bounds.get(i));
+        }
+        for var i: usize = 0; i < n->derives_bounds.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->transform_inherit_edge(n->derives_bounds.get(i));
+        }
         if n->value_type   != &null { n->value_type   = self.dyn()->transform_type(n->value_type); }
         if n->default_type != &null { n->default_type = self.dyn()->transform_type(n->default_type); }
         return self._one_decl(n);
