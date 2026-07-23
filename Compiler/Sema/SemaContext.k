@@ -29,7 +29,7 @@ import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Node::Base::*;
-import Sema::NameLookup::*;
+import Sema::Resolve::NameLookup::*;
 import Diagnostic::BufferedDiagSink::*;
 import Lexer::Immediate::*;
 import Config::Invocation::*;

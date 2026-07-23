@@ -123,7 +123,7 @@ import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
-import Sema::NullableTypeLowering::*;
+import Sema::Lower::NullableTypeLowering::*;
 import Sema::Sema::*;
 import Sema::SemaContext::*;
 import AST::Context::ImportOverlay::*;

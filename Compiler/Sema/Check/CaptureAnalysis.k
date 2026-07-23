@@ -26,7 +26,7 @@ class Derived derives Base {
 }
 
 fn <T derives Base> foo(a: T) requires sizeof T impl Foo {
-    a.base_method()   // (1) obviously legal — on the bound
+    a.base_method()   // (1) obviously legal on the bound
     a.speak()         // (2) which speak resolves? Base's or Derived's?
     a.derived_only()  // (3) legal or not? NOT on the bound
 }

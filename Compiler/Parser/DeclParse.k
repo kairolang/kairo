@@ -1875,7 +1875,7 @@ class <T> DeclParse {
     priv fn _reject_where_on_type(self, kind_word: string) {
         if !dyn()->check(TokenKind::KwWhere) { return; }
         var wh = dyn()->current_ptr()->range;
-        dyn()->diag->report(DiagID::S052E, wh.start,
+        dyn()->diag->report(DiagID::S045E, wh.start,
             f"'where' is not allowed on a {kind_word}; runtime-conditional "
             "dispatch is only valid on functions. Use 'requires' for a "
             "compile-time constraint instead"

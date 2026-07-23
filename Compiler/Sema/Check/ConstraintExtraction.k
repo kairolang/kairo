@@ -201,7 +201,7 @@ class ConstraintExtraction {
         if e->kind == ExprKind::ConstraintExpr {
             var c = cast::<ConstraintExpr>(e);
             if is_alias {
-                self.sc->diag->report(DiagID::SC001, e->range.start,
+                self.sc->diag->report(DiagID::SC001W, e->range.start,
                     "a conformance constraint is meaningless on a type alias; "
                     "an alias has no body to resolve members against. Move the "
                     "constraint to the aliased type or a using function"
