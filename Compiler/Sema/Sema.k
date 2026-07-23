@@ -20,13 +20,20 @@
 ///     if !sem.run() { /* diags already emitted */ }
 ///
 ///   Phase: DRIVER
+///
+///   Part of the Kairo Project, under the Apache License v2.0 with the
+///   Kairo Runtime Library Exception.
+///
+///   See: https://www.kairolang.org/LICENSE.txt
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
-import Sema::ImportResolution::*;
+import Sema::Resolve::ImportResolution::*;
+import Sema::Expand::RequiresDesugar::*;
+import Sema::Check::ConstraintExtraction::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
 
@@ -163,6 +170,20 @@ class Sema {
     priv fn _stage_checks(self) -> bool {
         if self._already(SemaPhase::Checked) { return true; }
         self.sc.require_phase(SemaPhase::TypesResolved);
+
+        // Constraint normalization + partition. Desugar first (pure AST rewrite:
+        // inline bounds -> requires as ConstraintExpr conjuncts), THEN extract
+        // (partition the canonical requires into conformance constraints vs
+        // value predicates). Order is load-bearing: extract reads the canonical
+        // form desugar produces. Both must precede definition-side checking,
+        // which consumes the ConstraintSet.
+        var desugar = RequiresDesugar(self.sc.ctx);
+        desugar.run(self.sc.tu);
+
+        var extract = ConstraintExtraction(&self.sc);
+        extract.run();
+        // TODO(sema): feed extract.sets into the bound table + definition-side check.
+
         // TODO(sema): OperatorSignatureCheck(&self.sc).run();
         // TODO(sema): ConformanceChecking(&self.sc).run();
         // TODO(sema): ConstChecking(&self.sc).run();

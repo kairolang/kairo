@@ -66,12 +66,8 @@ class ImportResolution {
         return true;
     }
 
-    // ------------------------------------------------------------------------
-    //  Per-import dispatch
-    // ------------------------------------------------------------------------
-
     priv fn _resolve_one(self, id: *ImportDecl, overlay: *ImportOverlay) {
-        // --- ffi: linkage already stamped by the parser -----------------------
+        // ffi: linkage already stamped by the parser
         // `ffi "c" import "h"` contributes nothing to lookup; `as z` binds an
         // anchor the future clang-extraction pass hangs decls off of.
         if id->has_ffi_linkage() {
@@ -81,7 +77,7 @@ class ImportResolution {
             return;
         }
 
-        // --- native: fid -> source TU ----------------------------------------
+        // native: fid -> source TU
         var fid = id->resolved_fid;
         if fid == 0 { return; }                 // unresolved; PP already errored.
         var src_tu = self._source_tu(fid);
@@ -101,10 +97,6 @@ class ImportResolution {
         }
         self._fold_plain(id, overlay, src_tu, fid);
     }
-
-    // ------------------------------------------------------------------------
-    //  Plain: bind ONE module-handle name (last segment or alias).
-    // ------------------------------------------------------------------------
 
     priv fn _fold_plain(self, id: *ImportDecl, overlay: *ImportOverlay,
                         src_tu: *TranslationUnit, fid: u32) {
@@ -131,11 +123,6 @@ class ImportResolution {
 
         self._add(overlay, handle_spelling, t);
     }
-
-    // ------------------------------------------------------------------------
-    //  Selective: per item, verify existence in the source, fold under
-    //  alias-or-name. Missing = R015 HERE (sole home).
-    // ------------------------------------------------------------------------
 
     priv fn _fold_selective(self, id: *ImportDecl, overlay: *ImportOverlay,
                             src_syms: *SymbolTable, src_imms: *ImmediateTable,
@@ -165,11 +152,6 @@ class ImportResolution {
         }
     }
 
-    // ------------------------------------------------------------------------
-    //  Wildcard: fold every entry of the source frozen table, non-pub too,
-    //  visibility carried (N emits "exists but priv/prot"; I never filters).
-    // ------------------------------------------------------------------------
-
     priv fn _fold_wildcard(self, id: *ImportDecl, overlay: *ImportOverlay,
                            src_syms: *SymbolTable, fid: u32) {
         self._fold_all_cells(id, overlay, src_syms, fid);
@@ -191,12 +173,6 @@ class ImportResolution {
         }
     }
 
-    // ------------------------------------------------------------------------
-    //  Fold one source cell under a visible name. Function-set targets union;
-    //  a non-function cell becomes a Type/Module target. Collisions handled by
-    //  _add + the merged view.
-    // ------------------------------------------------------------------------
-
     priv fn _fold_cell(self, id: *ImportDecl, overlay: *ImportOverlay,
                        visible: string, cell: *OverloadCell, fid: u32) {
         var t = OverlayTarget{};
@@ -214,10 +190,6 @@ class ImportResolution {
         self._add(overlay, visible, t);
     }
 
-    // ------------------------------------------------------------------------
-    //  ffi anchor: `ffi ... import "h" as z` binds z -> the ImportDecl node.
-    // ------------------------------------------------------------------------
-
     priv fn _bind_ffi_anchor(self, id: *ImportDecl, overlay: *ImportOverlay) {
         var name = self.sc->ctx->get_spelling(id->alias);
         if name.size() == 0 { return; }
@@ -228,10 +200,6 @@ class ImportResolution {
         t.vis    = self._edge_vis(id);
         self._add(overlay, name, t);
     }
-
-    // ------------------------------------------------------------------------
-    //  Overlay insertion + merged-view maintenance + ambiguity diagnosis.
-    // ------------------------------------------------------------------------
 
     /// Intern the visible name into THIS TU's imm space (overlay key), add the
     /// target, rebuild the merged candidate cell, and diagnose a fresh
@@ -280,10 +248,6 @@ class ImportResolution {
             }
         }
     }
-
-    // ------------------------------------------------------------------------
-    //  Small helpers
-    // ------------------------------------------------------------------------
 
     priv fn _source_tu(self, fid: u32) -> *TranslationUnit {
         var ctx = self.sc->g->get_context(fid);
