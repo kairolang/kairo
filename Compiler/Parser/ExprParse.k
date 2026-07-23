@@ -276,6 +276,31 @@ class <T> ExprParse {
                 continue;
             }
 
+            // -- type conformance constraint: `lhs impl/derives Type` --------
+            // The RHS is a TYPE, not an expression, so it is parsed with the
+            // type parser (this is what prevents `Foo` being misread as a
+            // named-initializer). Produces a bool-typed ConstraintExpr that
+            // sema partitions out of a requires conjunction.
+            if cur_kind == TokenKind::KwImpl || cur_kind == TokenKind::KwDerives {
+                var c_op = dyn()->current();
+                dyn()->advance(T::SkipNL::After); // consume `impl` / `derives`
+
+                var rty = dyn()->parse_type();
+                if (rty == &null) || is_recovery(rty) {
+                    dyn()->diag->report(DiagID::S052E, c_op.range.start,
+                        f"expected an interface or base type after '{token_kind_to_readable_string(c_op.kind)}\x27"
+                    ).first(c_op.range).emit();
+                    return lhs;
+                }
+
+                lhs = static_cast::<*Expr>(ConstraintExpr::create(
+                    dyn()->ctx,
+                    lhs->range | dyn()->prev().range,
+                    lhs, rty, c_op
+                ));
+                continue;
+            }
+
             // -- regular binary operators (left-associative) ---------
             var op_tok = dyn()->current();
             dyn()->advance(T::SkipNL::After); // consume operator
@@ -441,6 +466,12 @@ class <T> ExprParse {
             return Precedence::Comparison;
         }
 
+        // type conformance constraint (requires clauses): T impl Foo | T derives Base
+        if (k == TokenKind::KwImpl)
+        || (k == TokenKind::KwDerives) {
+            return Precedence::Comparison;
+        }
+
         // shift
         if (k == TokenKind::OpLessLess)
         || (k == TokenKind::OpGreaterGreater) {
@@ -528,6 +559,15 @@ class <T> ExprParse {
         if (k == TokenKind::OpComma)
         || (k == TokenKind::OpGreater)
         || (k == TokenKind::OpGreaterGreater) {
+            return false;
+        }
+
+        // `impl` / `derives` are constraint operators (bound/heritage/requires
+        // position), never value-expression continuations. Exclude them so the
+        // type parser's generic value-arg disambiguation is unaffected by their
+        // presence in the infix precedence table.
+        if (k == TokenKind::KwImpl)
+        || (k == TokenKind::KwDerives) {
             return false;
         }
 
