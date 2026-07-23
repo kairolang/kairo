@@ -244,6 +244,13 @@ enum ExprKind derives u8 {
     //  Intrinsic / builtin expressions  [31 .. 35]
     // -----------------------------------------------------------------------
 
+    /// Type conformance constraint: T impl Foo | T derives Base.
+    /// Node: ConstraintExpr: lhs type, op (impl/derives), rhs type. A bool-
+    /// typed compile-time predicate, valid only in requires clauses. Sema
+    /// partitions these out of a requires conjunction as conformance
+    /// constraints (feeding the bound table) vs value predicates.
+    ConstraintExpr,
+
     /// Size of a type in bytes: sizeof T | sizeof(T)
     /// Node: SizeOfExpr: type operand.
     SizeOfExpr,

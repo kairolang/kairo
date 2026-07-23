@@ -918,6 +918,57 @@ class ThreadExpr derives Expr {
 ///  SizeOfExpr
 ///  sizeof T | sizeof(T)
 ///
+///
+///  ConstraintExpr
+///  T impl Foo | T derives Base
+///
+///  A type conformance constraint used inside `requires` clauses. `lhs` is the
+///  constrained operand as parsed (a NamedIdentExpr / ChainExpr naming the
+///  generic param or type; sema resolves it to a type), `op_token` is `impl` or
+///  `derives`, `rhs` is the interface/base type. Bool-typed at compile time.
+///  Sema classifies these as conformance conjuncts (feeding the bound table)
+///  as opposed to value predicates like `sizeof T > 10`.
+///
+class ConstraintExpr derives Expr {
+    pub var lhs:      *Expr;   ///< the constrained operand (names a type).
+    pub var rhs:      *Type;   ///< the interface/base type.
+    pub var op_token: Token;   ///< KwImpl or KwDerives.
+
+    static fn create(
+        ctx:      *ASTContext,
+        range:    SourceRange,
+        lhs:      *Expr,
+        rhs:      *Type,
+        op_token: Token
+    ) -> *ConstraintExpr {
+        var node       = ctx->alloc::<ConstraintExpr>();
+        node->kind     = ExprKind::ConstraintExpr;
+        node->range    = range;
+        node->lhs      = lhs;
+        node->rhs      = rhs;
+        node->op_token = op_token;
+        node->init_annotations(&(ctx->nodes));;
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ConstraintExpr {
+        var node            = ctx->alloc::<ConstraintExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ConstraintExpr;
+        node->range         = range;
+        node->lhs           = &null;
+        node->rhs           = &null;
+        node->init_annotations(&(ctx->nodes));;
+        return node;
+    }
+
+    /// true if op is `derives` (nominal); false if `impl` (structural).
+    fn is_derives(self) -> bool { return self.op_token.kind == TokenKind::KwDerives; }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::ConstraintExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::ConstraintExpr; }
+}
+
 class SizeOfExpr derives Expr {
     pub var type_arg: *Type;
 
