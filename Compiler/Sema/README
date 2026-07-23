@@ -2,6 +2,40 @@
 
 DONT FORGET CLASS LIFECYCLE PASS
 
+Also add OOP vitural detor missing errors:
+really simple pass walk all clases that derive from a base, if the base has a non virtual destructor, and the derived class has a non trivial destructor, emit an error, stating base class does not have a virtual destructor, and derived class has a non trivial destructor, this is a memory leak waiting to happen.
+
+simple exmaple:
+```swift
+class Base {
+    fn op delete (self) { std::println("non trivial destructor") }
+}
+
+class Derived derives Base {
+    fn op delete (self) { std::println("derived non trivial destructor") }
+}
+
+{
+    var b = @create Derived();
+} // c++ would print "non trivial destructor" here
+```
+
+which just leaks memeory of the derived class we solve this by forcing:
+
+```kairo
+class Base {
+    virtual fn op delete (self) { std::println("non trivial destructor") }
+}
+
+class Derived derives Base {
+    override fn op delete (self) { std::println("derived non trivial destructor") }
+}
+
+{
+    var b = @create Derived();
+} // prints "derived non trivial destructor" and then "non trivial destructor" and no memory leak.
+
+```
 
 Notes:
 - Missing an important one on figuring out what an expr is (lvalue or rvalue or xvalue)
