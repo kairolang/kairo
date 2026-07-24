@@ -295,18 +295,23 @@ class <T> StmtParse {
                 // otherwise `eval expr` unary fall through to expr-stmt.
             }
 
-            // -- label! / jump! intrinsics --------------------------------
-            // surfaced as macro syntax `label!(name)` / `jump!(name)`. The lexer
-            // emits dedicated keyword-ish tokens for these; if instead they arrive
-            // as identifier `label` + `!`, the macro layer resolves them. We gate
-            // on the resolved kind here.
-            // case TokenKind::KwLabel { return self._parse_label_intrinsic(); }
-            // case TokenKind::KwJump  { return self._parse_jump_intrinsic(); }
+            // -- label! / jump! intrinsics: see the ident+`!` gate below the
+            // switch. The PP's _detect_invocation passes these through as raw
+            // tokens (parser intrinsics, not macros).
 
             // -- inline foreign block -------------------------------------
             case TokenKind::KwInline {
                 return self._parse_inline_block();
             }
+        }
+
+        // -- label! / jump! intrinsics:  ident '!' '(' ident ')' -------
+        // raw tokens: the PP deliberately does not treat unqualified
+        // label!/jump! as macro invocations.
+        if (k == TokenKind::LitIdentifier) && (dyn()->check_peek(TokenKind::OpExclaim)) {
+            var sp = dyn()->ctx->get_spelling(dyn()->current());
+            if sp == "label" { return self._parse_label_intrinsic(); }
+            if sp == "jump"  { return self._parse_jump_intrinsic(); }
         }
 
         // -- labeled loop:  ident ':' (while|for|loop) ----------------
