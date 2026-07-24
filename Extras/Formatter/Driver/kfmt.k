@@ -301,8 +301,58 @@ fn fmt_program(self, prog: *TranslationUnit) -> Doc {
 /// ----------------------------------------------------------------------
 
  
-fn render_doc(self, doc: Doc) -> string {
-    
+fn render_doc(self, doc: Doc, width: i32) -> string {
+    var out: string = "";
+    var col: i32 = 0;
+    self._render_node(doc, width, /*indent*/ 0, /*broken*/ false, &out, &col);
+    return out;
+}
+
+fn _render_node(self, doc: Doc, width: i32, indent: i32, broken: bool, out: *string, col: *i32, suffixes: *vec::<Doc> ){
+
+    switch doc.kind{
+        case DocKind::Text {
+            *out += doc.text;
+            *col += doc.text.length();
+        }
+        case DocKind::Concat {
+            for (var i : usize = 0; i< doc.children.size(); ++i){
+                self.render_node(doc.children[i], width, indent, broken, out, col, suffixes);
+            })
+        }
+        case DocKind::Line {
+            if broken { self._flush_and_newline(indent, out, col, suffixes); }
+            else      { *out += " "; *col += 1; }
+        }
+        case DocKind::SoftLine {
+            if broken { self._flush_and_newline(indent, out, col, suffixes); }
+        }
+        case DocKind::HardLine {
+            self._flush_and_newline(indent, out, col, suffixes);
+        }
+        case DocKind::Indent {
+            self._render_node(doc.children[0], width, indent + 1, broken, out, col, suffixes);
+        }
+        case DocKind::Group {
+            var child = doc.children[0];
+            var forced = self._contains_break_parent(child);
+            var will_break = forced || ((*col + self._measure_flat(child)) > width);
+            self._render_node(child, width, indent, will_break, out, col, suffixes);
+        }
+        case DocKind::IfBreak{
+            if broken { self._render_node(doc.children[0], width, indent, broken, out, col, suffixes); }
+            else      { self._render_node(doc.children[1], width, indent, broken, out, col, suffixes); }
+        }
+        case DocKind::LineSuffix {
+            suffixes->push_back(doc.children[0]);
+        }
+        case DocKind::BreakParent {
+            // no-op at render time; only matters to _contains_break_parent's scan
+        }
+        case DocKind::Align {
+            self._render_align(doc.rows, width, indent, out, col, suffixes);
+        }
+    }
 }
 
 
@@ -311,16 +361,61 @@ fn render_doc(self, doc: Doc) -> string {
 /// DRIVER
 /// ----------------------------------------------------------------------
 
-fn main() {
+fn format_one_file(path: libcxx::filesystem::path) -> bool {
+    var tu: *TranslationUnit = parse_file(path);
 
-    // Take in tu from somewhere
-    
-    if tu == null{
-        return "";
+    if tu == &null {
+        return false;
     }
 
-    var doc : Doc = fmt_program(tu);
-    var output = render_doc(doc);
+    var doc: Doc = fmt_program(tu->program);
+    var output: string = render(doc, 100);
 
+    var out = libcxx::ofstream(path, libcxx::ios::binary);
+    out << output;
+    out.flush();
 
+    return true;
+}
+
+fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
+    if argc != 2 {
+        std::print("Usage: kfmt <input_folder>/<input_file>");
+        return 1;
+    }
+
+    var target_path = argv[1];
+    var path = libcxx::filesystem::path(target_path);
+
+    if !libcxx::filesystem::exists(path) {
+        std::print(f"Error: path does not exist: {target_path}");
+        return 1;
+    }
+
+    var files_formatted: usize = 0;
+
+    if libcxx::filesystem::is_directory(path) {
+        for entry in libcxx::filesystem::recursive_directory_iterator(path) {
+            if entry.is_regular_file() && (entry.path().extension() == ".k") {
+                if !format_one_file(entry.path()) {
+                    std::print(f"Error: failed to format {entry.path().generic_string()}");
+                    return 1;
+                }
+                files_formatted += 1;
+            }
+        }
+    } else {
+        if path.extension() != ".k" {
+            std::print(f"Error: not a .k file: {target_path}");
+            return 1;
+        }
+        if !format_one_file(path) {
+            std::print(f"Error: failed to format {target_path}");
+            return 1;
+        }
+        files_formatted += 1;
+    }
+
+    std::print(f"Formatted {files_formatted} file(s)");
+    return 0;
 }
