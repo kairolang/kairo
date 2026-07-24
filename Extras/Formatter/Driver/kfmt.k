@@ -1,4 +1,4 @@
-/// --- The Kairo Project ----------------------------------- <filename> --- ///
+/// --- The Kairo Project ----------------------------------- Extras/Formatter/Driver/kfmt.k --- ///
 ///
 ///   <short description>
 ///
@@ -251,7 +251,7 @@ fn _ft_generic_param(self, ty: *GenericParamType) -> Doc {
 
 fn _ft_tuple(self, ty: *TupleType) -> Doc {
     var items = vec::<Doc>();
-    for var i: usize = 0; i < ty->elements.size(); ++i {
+    for (var i: usize = 0; i < ty->elements.size(); ++i) {
         if i > 0 { items.push_back(Doc::text(",")); items.push_back(Doc::line()); }
         items.push_back(self.fmt_type(ty->elements[i]));
     }
@@ -261,4 +261,66 @@ fn _ft_tuple(self, ty: *TupleType) -> Doc {
         Doc::group(Doc::concat(items)),
         Doc::text(")"),
     ]);
+}
+
+
+fn fmt_program(self, prog: *TranslationUnit) -> Doc {
+    var items = vec::<Doc>();
+    var n = prog->items.size();
+
+    var prev_end_line: i32 = -1;
+
+    for var i: usize = 0; i < n; ++i {
+        var item = prog->items.get(i);
+        if item == &null { continue; }
+
+        // Rule 3: blank-line preservation, capped at 4
+        if prev_end_line >= 0 {
+            var gap = self._blank_lines_before(prev_end_line, item->range.start.line);
+            for var b: usize = 0; b < gap; ++b { items.push_back(Doc::hardline()); }
+        }
+
+        switch item->get_kind() {
+            case TopLevelKind::Decl { items.push_back(self.fmt_decl(item->as_decl())); }
+            case TopLevelKind::Stmt { items.push_back(self.fmt_stmt(item->as_stmt())); }
+            case TopLevelKind::Expr { items.push_back(self.fmt_expr(item->as_expr())); }
+            default { items.push_back(Doc::text("<unknown-top-level>")); }
+        }
+
+        items.push_back(Doc::hardline());
+        prev_end_line = item->range.end.line;
+    }
+
+    return Doc::concat(items);
+}
+
+
+
+/// ----------------------------------------------------------------------
+/// RENDERER 
+/// ----------------------------------------------------------------------
+
+ 
+fn render_doc(self, doc: Doc) -> string {
+    
+}
+
+
+
+/// ----------------------------------------------------------------------
+/// DRIVER
+/// ----------------------------------------------------------------------
+
+fn main() {
+
+    // Take in tu from somewhere
+    
+    if tu == null{
+        return "";
+    }
+
+    var doc : Doc = fmt_program(tu);
+    var output = render_doc(doc);
+
+
 }
