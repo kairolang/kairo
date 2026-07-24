@@ -40,7 +40,7 @@ import Config::Invocation::*;
 ///        it instead of trusting the schedule ("one error, one home" only
 ///        works if phase order is enforced, not hoped for).
 ///
-///        P -> I -> E -> N -> T -> checks -> lowerings -> M1 -> M2
+///        P -> I -> E -> V -> N -> T -> checks -> lowerings -> M1 -> M2
 enum SemaPhase derives u8 {
     /// Parse done: AST built, dc_symbols frozen, out_of_line collected.
     Parsed = 0,
@@ -50,6 +50,10 @@ enum SemaPhase derives u8 {
     /// macro expansion + eval). Pure AST->AST; runs before N/T so name and
     /// type resolution see canonical syntax. Needs nothing past Parsed.
     Expanded,
+    /// Phase V done: structural verification over the expanded tree
+    /// (break/continue context, label sanity things that are plainly
+    /// illegal without needing names or types). Pure reads, no rewrites.
+    Verified,
     /// Phase N done: redecl chains linked, out_of_line attached, every
     /// non-dependent ident bound (resolved_decl set).
     NamesResolved,

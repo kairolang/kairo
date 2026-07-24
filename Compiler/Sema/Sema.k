@@ -33,6 +33,11 @@
 import Sema::SemaContext::*;
 import Sema::Resolve::ImportResolution::*;
 import Sema::Expand::RequiresDesugar::*;
+import Sema::Verify::LoopContextCheck::*;
+import Sema::Verify::ArmOrderCheck::*;
+import Sema::Verify::TerminatorCheck::*;
+import Sema::Verify::JumpLabelCheck::*;
+import Sema::Verify::PatternBindingCheck::*;
 import Sema::Check::ConstraintExtraction::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
@@ -76,6 +81,9 @@ class Sema {
         if !self._stage_expand()                  { return false; }
 
         if !self._gate(SemaPhase::Expanded, target) { return self._done(); }
+        if !self._stage_verify()                  { return false; }
+
+        if !self._gate(SemaPhase::Verified, target) { return self._done(); }
         if !self._stage_name_resolution()         { return false; }
 
         if !self._gate(SemaPhase::NamesResolved, target) { return self._done(); }
@@ -160,6 +168,25 @@ class Sema {
         return !self._hard_stop();
     }
 
+    /// Phase V. Structural verification over the expanded tree: rules
+    /// that are plainly illegal without names or types (break/continue
+    /// context, label sanity). Pure reads; poison-free these checks
+    /// are independent, so report all of them and keep going. Errors
+    /// here still hard-stop before N: a structurally illegal tree is
+    /// not worth resolving.
+    priv fn _stage_verify(self) -> bool {
+        if self._already(SemaPhase::Verified) { return true; }
+        self.sc.require_phase(SemaPhase::Expanded);
+        LoopContextCheck(&self.sc).run();
+        ArmOrderCheck(&self.sc).run();
+        TerminatorCheck(&self.sc).run();
+        JumpLabelCheck(&self.sc).run();
+        PatternBindingCheck(&self.sc).run();
+        // Future Verify passes append here, one visible list.
+        self.sc.advance_phase(SemaPhase::Verified);
+        return !self._hard_stop();
+    }
+
     /// Phase N, two halves one pass. (a) decl validation over frozen
     /// cells: link Redeclarable chains, validate overload sets, group
     /// specializations, attach tu->out_of_line, populate sc.well_known.
@@ -167,7 +194,7 @@ class Sema {
     /// resolved_decl. Redefinition + unresolved-ident errors live here.
     priv fn _stage_name_resolution(self) -> bool {
         if self._already(SemaPhase::NamesResolved) { return true; }
-        self.sc.require_phase(SemaPhase::Expanded);
+        self.sc.require_phase(SemaPhase::Verified);
         // TODO(sema): NameResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::NamesResolved);
         return !self._hard_stop();
@@ -197,7 +224,7 @@ class Sema {
         // so requires_clause is canonical here. Extract partitions it into
         // conformance constraints vs value predicates. Extraction requires
         // TypesResolved (it feeds the bound table + definition-side checking,
-        // which consume the ConstraintSet) — hence it lives here, not in Expand.
+        // which consume the ConstraintSet) hence it lives here, not in Expand.
         var extract = ConstraintExtraction(&self.sc);
         extract.run();
         // TODO(sema): feed extract.sets into the bound table + definition-side check.
