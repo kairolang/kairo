@@ -131,7 +131,7 @@ enum StorageClass derives u8 {
 /// (const/volatile/unsafe/eval/async/final/panic/inline). Stored as a bitset
 /// so a method can be e.g. `const inline`.
 enum FnModifier derives u16 {
-    None     = 0,
+    None       = 0,
     IsConst    = 1 << 0,
     IsVolatile = 1 << 1,
     IsUnsafe   = 1 << 2,

@@ -72,6 +72,7 @@ class LoopContextCheck derives RecursiveASTVisitor::<LoopContextCheck> {
         var tu = self.sc->tu;
         if tu == &null { return; }
         if tu->program == &null { return; }
+        
         var items = &(tu->program->items);
         for var i: usize = 0; i < items->size(); i++ {
             var item = *(items->get(i));
