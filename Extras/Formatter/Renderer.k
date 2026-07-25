@@ -30,7 +30,7 @@ fn _render_node(self, doc: Doc, width: i32, indent: i32, broken: bool, out: *str
         case DocKind::Concat {
             for (var i : usize = 0; i< doc.children.size(); ++i){
                 self.render_node(doc.children[i], width, indent, broken, out, col, suffixes);
-            })
+            }
         }
         case DocKind::Line {
             if broken { self._flush_and_newline(indent, out, col, suffixes); }
