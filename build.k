@@ -274,7 +274,8 @@ fn windows_sdk_paths(t: ref!(Target)) {
             
             if RegQueryValueExA(hkey, r"KitsRoot10", &null, &null,
               reinterpret_cast::<LPBYTE>(buf), &sz) == ERROR_SUCCESS {
-                sdk_lib_root = (kairo::std::nstring_to_string(buf)
+                sdk_lib_root = (kairo::std::nstring_to_string(inline "c++" { reinterpret_cast<unsigned char*>(buf) }
+                ))
                                 +  kairo::std::nstring_to_string(r"Lib"));
             }
 
