@@ -12,6 +12,8 @@
 /// ------------------------------------------------------------------------ ///
 
 
+class Doc;
+
 enum DocKind derives u8 {
     Text,
     Concat,
@@ -26,26 +28,28 @@ enum DocKind derives u8 {
     Align,
 }
 
-
-
 /// One row of an Align block: `key <sep> value`, e.g. `item1 = 67` or
 /// `var item1 : u32`. `key` is padded to the widest sibling key's flat
 /// width before `sep` is printed.
 class AlignRow {
-    pub var key:   Doc;
+    pub var key:   *Doc;
     pub var sep:   string;
-    pub var value: Doc;
+    pub var value: *Doc;
 
-    fn AlignRow(self, key: Doc, sep: string, value: Doc) {
+    fn AlignRow(self, key: *Doc, sep: string, value: *Doc) {
         self.key   = key;
         self.sep   = sep;
         self.value = value;
     }
 }
 
+
+
+
+
 class Doc {
     pub var kind:     DocKind;
-    pub var text:     string        = "";
+    pub var txt:     string        = "";
     pub var children: vec::<Doc>    = vec::<Doc>();
     pub var rows:      vec::<AlignRow> = vec::<AlignRow>();
 
@@ -58,7 +62,7 @@ class Doc {
     static fn text(s: string) -> Doc {
         var d = Doc{};
         d.kind = DocKind::Text;
-        d.text = s;
+        d.txt = s;
         return d;
     }
 
@@ -144,3 +148,4 @@ class Doc {
         return Doc::concat(vec::<Doc>());
     }
 }
+

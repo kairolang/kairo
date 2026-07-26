@@ -59,7 +59,7 @@ fn _render_node(self, doc: Doc, width: i32, indent: i32, broken: bool, out: *str
             suffixes->push_back(doc.children[0]);
         }
         case DocKind::BreakParent {
-            // no-op at render time; only matters to _contains_break_parent's scan
+            return 0;
         }
         case DocKind::Align {
             self._render_align(doc.rows, width, indent, out, col, suffixes);
