@@ -39,7 +39,7 @@ import AST::Context::DeclContext::*;
 
 class <D> RecursiveASTVisitor {
     var ctx: *ASTContext;
-    var stop: bool = false;
+    pub var stop: bool = false;
 
     fn dyn(self) -> *D {
         return static_cast::<*D>(&self);
@@ -113,7 +113,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_tuple_type(n) == false { return n; }
         for var i: usize = 0; i < n->elements.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_type(n->elements.get(i));  // discard return
+            self.dyn()->dispatch_type(*(n->elements.get(i)));  // discard return
         }
         return n;
     }
@@ -217,7 +217,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_function_pointer_type(n) == false { return n; }
         for var i: usize = 0; i < n->params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_type(n->params.get(i)); // discard return
+            self.dyn()->dispatch_type(*(n->params.get(i))); // discard return
         }
         if n->return_type != &null {               // null on unprototyped path
             n->return_type = self.dyn()->dispatch_type(n->return_type);
@@ -386,7 +386,7 @@ class <D> RecursiveASTVisitor {
     fn traverse_match_case(self, mc: *MatchCase) {
         for var i: usize = 0; i < mc->patterns.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_pattern(mc->patterns.get(i));  // discard
+            self.dyn()->dispatch_pattern(*(mc->patterns.get(i)));  // discard
         }
         if self.stop { return; }
         if mc->guard      != &null { self.dyn()->dispatch_expr(mc->guard); }
@@ -462,7 +462,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_string_literal_expr(n) == false { return n; }
         for var i: usize = 0; i < n->parts.size(); i++ {   // f"" interpolation exprs
             if self.stop { break; }
-            self.dyn()->dispatch_expr(n->parts.get(i));    // discard
+            self.dyn()->dispatch_expr(*(n->parts.get(i)));    // discard
         }
         return n;
     }
@@ -486,7 +486,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_list_literal_expr(n) == false { return n; }
         for var i: usize = 0; i < n->elements.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_expr(n->elements.get(i));  // discard
+            self.dyn()->dispatch_expr(*(n->elements.get(i)));  // discard
         }
         return n;
     }
@@ -495,7 +495,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_tuple_literal_expr(n) == false { return n; }
         for var i: usize = 0; i < n->elements.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_expr(n->elements.get(i));  // discard
+            self.dyn()->dispatch_expr(*(n->elements.get(i)));  // discard
         }
         return n;
     }
@@ -504,7 +504,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_set_literal_expr(n) == false { return n; }
         for var i: usize = 0; i < n->elements.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_expr(n->elements.get(i));  // discard
+            self.dyn()->dispatch_expr(*(n->elements.get(i)));  // discard
         }
         return n;
     }
@@ -573,7 +573,7 @@ class <D> RecursiveASTVisitor {
         }
         for var i: usize = 0; i < n->args.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_expr(n->args.get(i));  // discard
+            self.dyn()->dispatch_expr(*(n->args.get(i)));  // discard
         }
         return n;
     }
@@ -684,14 +684,14 @@ class <D> RecursiveASTVisitor {
 
         for var i: usize = 0; i < (n->generic_params.size()); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i)); // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i))); // discard
         }
 
         if self.stop { return n; }
 
         for var i: usize = 0; i < (n->params.size()); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->params.get(i)); // discard
+            self.dyn()->dispatch_decl(*(n->params.get(i))); // discard
         }
 
         if self.stop { return n; }
@@ -707,7 +707,7 @@ class <D> RecursiveASTVisitor {
         if self.stop { return n; }
 
         if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
-        if n->body_block  != &null { n->body_block = self.dyn()->dispatch_stmt(n->body_block); }
+        if n->body_block  != &null { n->body_block = self.dyn()->traverse_block(n->body_block); }
         if n->body_expr   != &null { n->body_expr  = self.dyn()->dispatch_expr(n->body_expr); }
         
         return n;
@@ -1078,7 +1078,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_compound_stmt(n) == false { return n; }
         for var i: usize = 0; i < n->body.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_stmt(n->body.get(i));  // discard
+            self.dyn()->dispatch_stmt(*(n->body.get(i)));  // discard
         }
         return n;
     }
@@ -1252,7 +1252,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_eval_block_stmt(n) == false { return n; }
         for var i: usize = 0; i < n->body.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->body.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->body.get(i)));  // discard
         }
         return n;
     }
@@ -1456,13 +1456,13 @@ class <D> RecursiveASTVisitor {
         // TemplateParams mixin children
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
         }
         if self.stop { return n; }
         // specialization argument pattern types (#68)
         for var i: usize = 0; i < n->spec_args.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_type(n->spec_args.get(i));  // discard
+            self.dyn()->dispatch_type(*(n->spec_args.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
@@ -1471,7 +1471,7 @@ class <D> RecursiveASTVisitor {
         // params
         for var i: usize = 0; i < n->params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->params.get(i));          // discard
+            self.dyn()->dispatch_decl(*(n->params.get(i)));          // discard
         }
         if self.stop { return n; }
         if n->return_type != &null { n->return_type = self.dyn()->dispatch_type(n->return_type); }
@@ -1535,13 +1535,13 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_struct_decl(n) == false { return n; }
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
         }
         if self.stop { return n; }
         // specialization argument pattern types (#68)
         for var i: usize = 0; i < n->spec_args.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_type(n->spec_args.get(i));  // discard
+            self.dyn()->dispatch_type(*(n->spec_args.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
@@ -1552,7 +1552,7 @@ class <D> RecursiveASTVisitor {
         // MEMBERS: flat fields + nested types (no methods in a struct body).
         for var i: usize = 0; i < n->fields.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->fields.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->fields.get(i)));  // discard
         }
         if self.stop { return n; }
         self.dyn()->_rav_dc_nested(static_cast::<*DeclContext>(n));
@@ -1563,13 +1563,13 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_class_decl(n) == false { return n; }
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
         }
         if self.stop { return n; }
         // specialization argument pattern types (#68)
         for var i: usize = 0; i < n->spec_args.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_type(n->spec_args.get(i));  // discard
+            self.dyn()->dispatch_type(*(n->spec_args.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
@@ -1586,11 +1586,11 @@ class <D> RecursiveASTVisitor {
         // dc_decls holds only nested types + vg-wrappers for a type body.
         for var i: usize = 0; i < n->fields.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->fields.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->fields.get(i)));  // discard
         }
         for var i: usize = 0; i < n->methods.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->methods.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->methods.get(i)));  // discard
         }
         if self.stop { return n; }
         self.dyn()->_rav_dc_nested(static_cast::<*DeclContext>(n));
@@ -1601,7 +1601,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_interface_decl(n) == false { return n; }
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
@@ -1611,7 +1611,7 @@ class <D> RecursiveASTVisitor {
         }
         for var i: usize = 0; i < n->methods.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->methods.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->methods.get(i)));  // discard
         }
         if self.stop { return n; }
         self.dyn()->_rav_dc_nested(static_cast::<*DeclContext>(n));
@@ -1622,7 +1622,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_extension_decl(n) == false { return n; }
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
@@ -1633,7 +1633,7 @@ class <D> RecursiveASTVisitor {
         }
         for var i: usize = 0; i < n->methods.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->methods.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->methods.get(i)));  // discard
         }
         if self.stop { return n; }
         self.dyn()->_rav_dc_nested(static_cast::<*DeclContext>(n));
@@ -1644,7 +1644,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_enum_decl(n) == false { return n; }
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
@@ -1653,7 +1653,7 @@ class <D> RecursiveASTVisitor {
         // and never calls add_decl, so dc_decls is empty for an enum.
         for var i: usize = 0; i < n->variants.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->variants.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->variants.get(i)));  // discard
         }
         return n;
     }
@@ -1662,19 +1662,19 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_union_decl(n) == false { return n; }
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
         }
         if self.stop { return n; }
         // specialization argument pattern types (#68)
         for var i: usize = 0; i < n->spec_args.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_type(n->spec_args.get(i));  // discard
+            self.dyn()->dispatch_type(*(n->spec_args.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
         for var i: usize = 0; i < n->fields.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->fields.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->fields.get(i)));  // discard
         }
         if self.stop { return n; }
         self.dyn()->_rav_dc_nested(static_cast::<*DeclContext>(n));
@@ -1686,7 +1686,7 @@ class <D> RecursiveASTVisitor {
         if n->discriminant != &null { n->discriminant = self.dyn()->dispatch_expr(n->discriminant); }
         for var i: usize = 0; i < n->payload.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->payload.get(i));         // discard
+            self.dyn()->dispatch_decl(*(n->payload.get(i)));         // discard
         }
         return n;
     }
@@ -1695,7 +1695,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_type_alias_decl(n) == false { return n; }
         for var i: usize = 0; i < n->generic_params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->generic_params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->generic_params.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->requires_clause != &null { n->requires_clause = self.dyn()->dispatch_expr(n->requires_clause); }
@@ -1708,7 +1708,7 @@ class <D> RecursiveASTVisitor {
         // Members live in the DeclContext (dc_decls), not a FrozenList field.
         for var i: usize = 0; i < n->dc_decls.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->dc_decls.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->dc_decls.get(i)));  // discard
         }
         return n;
     }
@@ -1725,7 +1725,7 @@ class <D> RecursiveASTVisitor {
         // Traverse each child declaration in the FFI block's body.
         for var i: usize = 0; i < n->body.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->body.get(i));  // discard return
+            self.dyn()->dispatch_decl(*(n->body.get(i)));  // discard return
         }
         return n;
     }
@@ -1734,7 +1734,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_visibility_group_decl(n) == false { return n; }
         for var i: usize = 0; i < n->members.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->members.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->members.get(i)));  // discard
         }
         return n;
     }
@@ -1743,7 +1743,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_eval_block_decl(n) == false { return n; }
         for var i: usize = 0; i < n->body.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->body.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->body.get(i)));  // discard
         }
         return n;
     }
@@ -1765,7 +1765,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_procedure_macro_decl(n) == false { return n; }
         for var i: usize = 0; i < n->params.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_decl(n->params.get(i));  // discard
+            self.dyn()->dispatch_decl(*(n->params.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->body != &null { n->body = self.dyn()->traverse_block(n->body); }
@@ -1946,7 +1946,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_tuple_destructure_pattern(n) == false { return n; }
         for var i: usize = 0; i < n->elements.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_pattern(n->elements.get(i));  // discard
+            self.dyn()->dispatch_pattern(*(n->elements.get(i)));  // discard
         }
         return n;
     }
@@ -1956,7 +1956,7 @@ class <D> RecursiveASTVisitor {
         if n->head != &null { n->head = self.dyn()->dispatch_expr(n->head); }  // null when dotted
         for var i: usize = 0; i < n->subpatterns.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_pattern(n->subpatterns.get(i));  // discard
+            self.dyn()->dispatch_pattern(*(n->subpatterns.get(i)));  // discard
         }
         return n;
     }
@@ -1966,7 +1966,7 @@ class <D> RecursiveASTVisitor {
         if n->head != &null { n->head = self.dyn()->dispatch_expr(n->head); }
         for var i: usize = 0; i < n->subpatterns.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_pattern(n->subpatterns.get(i));  // discard
+            self.dyn()->dispatch_pattern(*(n->subpatterns.get(i)));  // discard
         }
         return n;
     }
@@ -1975,7 +1975,7 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_alternation_pattern(n) == false { return n; }
         for var i: usize = 0; i < n->alternatives.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_pattern(n->alternatives.get(i));  // discard
+            self.dyn()->dispatch_pattern(*(n->alternatives.get(i)));  // discard
         }
         return n;
     }
@@ -1991,11 +1991,11 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->walkup_slice_pattern(n) == false { return n; }
         for var i: usize = 0; i < n->prefix.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_pattern(n->prefix.get(i));  // discard
+            self.dyn()->dispatch_pattern(*(n->prefix.get(i)));  // discard
         }
         for var i: usize = 0; i < n->suffix.size(); i++ {
             if self.stop { break; }
-            self.dyn()->dispatch_pattern(n->suffix.get(i));  // discard
+            self.dyn()->dispatch_pattern(*(n->suffix.get(i)));  // discard
         }
         if self.stop { return n; }
         if n->rest_binding != &null { n->rest_binding = self.dyn()->dispatch_pattern(n->rest_binding); }
