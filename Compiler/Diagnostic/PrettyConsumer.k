@@ -351,47 +351,60 @@ class PrettyDiagConsumer derives DiagConsumer {
 
         for var i: usize = 0; i < group.diags.size(); ++i {
             var diag = group.diags[i];
+            var dsev = diag->code.severity();
 
-            var loc_info = sm->get_line_col(diag->loc);
-            var span: CaretSpan;
-            span.start_col = loc_info.column;
-            span.end_col   = loc_info.column + 4;
-            span.code      = diag->code;
-            span.sev       = diag->code.severity();
-            span.style     = DiagLabel::Style::Primary;
+            var default_text = (f"{self.severity_color(dsev)}[{(diag->code) as string}]{RESET} ")
+                                if color else f"[{(diag->code) as string}] ";
+            default_text += diag->message;
 
-            var ltext: string;
-            var has_custom_text = false;
+            var emitted_any = false;
 
-            if diag->labels.size() > 0 {
-                var label    = diag->labels[0];
+            for var li: usize = 0; li < diag->labels.size(); ++li {
+                var label = diag->labels[li];
+                if label.range.is_invalid() { continue; }
+
                 var start_lc = sm->get_line_col(label.range.start);
                 var end_lc   = sm->get_line_col(label.range.end);
+                if start_lc.line != group.line_num { continue; }
 
-                if start_lc.line == group.line_num {
-                    span.start_col = start_lc.column;
-                    span.end_col   = end_lc.column;
-                    span.style     = label.style;
-                    if label.text.length() > 0 {
-                        ltext = label.text;
-                        has_custom_text = true;
-                    }
-                }
+                var span: CaretSpan;
+                span.start_col = start_lc.column;
+                span.end_col   = end_lc.column;
+                span.code      = diag->code;
+                span.sev       = dsev;
+                span.style     = label.style;
+
+                var ltext: string = label.text;
+                if (ltext.length() == 0) && (!emitted_any) { ltext = default_text; }
+                emitted_any = true;
+
+                if span.start_col > 0 { span.start_col -= 1; }
+                if span.end_col   > 0 { span.end_col   -= 1; }
+                if span.end_col <= span.start_col { span.end_col = span.start_col + 1; }
+                if span.start_col > line_text.length() { span.start_col = line_text.length(); }
+                if span.end_col   > line_text.length() { span.end_col   = line_text.length(); }
+
+                spans.push_back(span);
+                span_text.push_back(ltext);
             }
 
-            if !has_custom_text {
-                var code_prefix = (f"{self.severity_color(span.sev)}[{(diag->code) as string}]{RESET} ") if color else f"[{(diag->code) as string}] ";
-                ltext = code_prefix + diag->message;
+            if !emitted_any {
+                // no label on this line: fall back to the diag loc itself
+                var loc_info = sm->get_line_col(diag->loc);
+                var span: CaretSpan;
+                span.start_col = loc_info.column;
+                span.end_col   = loc_info.column + 1;   // was +4 — magic width
+                span.code      = diag->code;
+                span.sev       = dsev;
+                span.style     = DiagLabel::Style::Primary;
+                if span.start_col > 0 { span.start_col -= 1; }
+                if span.end_col   > 0 { span.end_col   -= 1; }
+                if span.end_col <= span.start_col { span.end_col = span.start_col + 1; }
+                if span.start_col > line_text.length() { span.start_col = line_text.length(); }
+                if span.end_col   > line_text.length() { span.end_col   = line_text.length(); }
+                spans.push_back(span);
+                span_text.push_back(default_text);
             }
-
-            if span.start_col > 0 { span.start_col -= 1; }
-            if span.end_col   > 0 { span.end_col   -= 1; }
-            if span.end_col <= span.start_col { span.end_col = span.start_col + 1; }
-            if span.start_col > line_text.length() { span.start_col = line_text.length(); }
-            if span.end_col   > line_text.length() { span.end_col   = line_text.length(); }
-
-            spans.push_back(span);
-            span_text.push_back(ltext);
         }
 
         // Sort spans (and their labels) by start column, left to right

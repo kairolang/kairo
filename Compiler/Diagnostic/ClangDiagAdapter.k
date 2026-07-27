@@ -12,6 +12,7 @@ ffi "c++" import "clang/Basic/Diagnostic.h";
 ffi "c++" import "clang/Basic/DiagnosticIDs.h";
 ffi "c++" import "clang/Basic/SourceManager.h";
 ffi "c++" import "llvm/ADT/SmallString.h";
+ffi "c++" import "clang/Lex/Lexer.h";
 
 import Location::SourceLocation::*;
 import Location::SourceRange::*;
@@ -26,9 +27,10 @@ import Diagnostic::ClangDiagLookup::*;
 /// the byte-identical serial/parallel guarantee.
 class ClangDiagAdapter derives clang::DiagnosticConsumer {
     pub var sink:       obs::<BufferedDiagSink>;
-    pub var ksm:        obs::<SourceManager>;   ///< Kairo SM, for span construction
-    pub var kfid:       FileID;                 ///< Kairo fid of the TU being compiled
-    pub var clang_kfid: clang::FileID;          ///< clang FileID of the injected .kro buffer
+    pub var ksm:        obs::<SourceManager>;              ///< Kairo SM, for span construction
+    pub var kfid:       FileID;                            ///< Kairo fid of the TU being compiled
+    pub var clang_kfid: clang::FileID;                     ///< clang FileID of the injected .kro buffer
+    priv var _lo: const_obs::<clang::LangOptions> = &null; ///< owned by the CI, valid for the action.
 
     /// Note-attachment state: clang emits notes as separate HandleDiagnostic
     /// calls (lvl == Note) immediately after their primary. We hold the
@@ -41,11 +43,12 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     // ------------------------------------------------------------------
 
     override fn BeginSourceFile(self, lo: cref::<clang::LangOptions>, pp: const_obs::<clang::Preprocessor>) {
-        // nothing stashed; all queries go through Info at handle time
+        self._lo = &lo;
     }
 
     override fn EndSourceFile(self) {
         self._flush_open();
+        self._lo = &null;
     }
 
     override fn HandleDiagnostic(self,
@@ -149,7 +152,13 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         // TODO(diag): exact token end via MeasureTokenLength once LangOptions
         // is stashed in BeginSourceFile.
         if cr.isTokenRange() {
-            end += 1;
+            var tlen: u32 = 1;
+            if self._lo != &null {
+                tlen = clang::Lexer::MeasureTokenLength(
+                    cr.getEnd(), info.getSourceManager(), *self._lo);
+                if tlen == 0 { tlen = 1; }
+            }
+            end += static_cast::<usize>(tlen);
         }
 
         if end <= start {
@@ -201,11 +210,18 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         for var i: u32 = 0; i < nr; ++i {
             var r = self._range_in_kfid(info.getRange(i), info);
             if r.is_valid() {
-                b->second(r);
+                b->highlight(r);
             }
         }
 
         var nf = info.getNumFixItHints();
+
+        for var i: u32 = 0; i < nf; ++i {
+            var h = info.getFixItHint(i);
+            if h.InsertFromRange.isValid() { return; }
+            if !self._range_in_kfid(h.RemoveRange, info).is_valid() { return; }
+        }
+
         for var i: u32 = 0; i < nf; ++i {
             var h = info.getFixItHint(i);
 
