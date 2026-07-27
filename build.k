@@ -351,7 +351,7 @@ fn common_flags(t: ref!(Target)) {
     // Stage 0 unconditionally adds -fsanitize=undefined,bounds,function in debug.
     // On Windows that pulls MSVC's compiler-rt which is incompatible with our
     // LLVM 19 toolchain. Cancel it here; clang takes the last -fsanitize wins.
-    if (really_is_debug()) && (platform() == "windows") {
+    if (really_is_debug()) {
         t.passthrough("-fno-sanitize=all");
     }
 
