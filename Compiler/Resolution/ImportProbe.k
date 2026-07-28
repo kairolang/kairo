@@ -76,6 +76,56 @@ enum ResolveError {
     CyclicImport,     ///< reserved
 }
 
+/// \enum ModuleOrigin
+/// \brief which candidate set produced a module resolution.
+enum ModuleOrigin derives u8 {
+    Root = 0,   ///< found by walking the search roots (cwd + -m/-I dirs).
+    Sibling,    ///< found in the IMPORTING file's own directory.
+}
+
+/// \class ModuleResolution
+/// \brief the result of a relative-aware module resolution.
+///
+/// \details `canonical` is the module's IDENTITY: the path segments from the
+///          owning search root down to the file, NOT the segments the import
+///          spelled. Two files never share a canonical path, and one file
+///          always has exactly one, no matter how it was reached. Codegen
+///          derives the C++ namespace path from this (CODEGEN.md 1: the
+///          bijection module-path <-> namespace-path is what makes mangling
+///          deterministic and ODR-safe), so it must never depend on the
+///          importer's spelling.
+///
+///          `ambiguous` means the name matched BOTH a sibling module and a
+///          root module: a hard error at the import site (R017E). The sibling
+///          is still returned so resolution does not cascade into a second
+///          "not found" for the same import.
+class ModuleResolution {
+    pub var found:      bool         = false;
+    pub var path:       Path;                        ///< the resolved file.
+    pub var canonical:  vec::<string>;               ///< identity segments from the search root.
+    pub var origin:     ModuleOrigin = ModuleOrigin::Root;
+    pub var ambiguous:  bool         = false;        ///< sibling AND root both matched.
+    pub var other_path: Path;                        ///< the losing (root) candidate, iff ambiguous.
+    pub var file_dir:   bool         = false;        ///< a file AND a directory matched the last segment.
+}
+
+/// \class ModuleNameCollision
+/// \brief two files in one directory claiming a single module identity.
+///
+/// \details Same class of fault as an ambiguous import, one layer down: the
+///          module name is derived from the filename, so `Foo.k`/`foo.k` (two
+///          files on Linux, ONE on default macOS/Windows) and `foo-bar.k`/
+///          `foo_bar.k` (both spell module `foo_bar`) are non-portable or
+///          outright ambiguous. Discovered during module discovery, once per
+///          directory; reported by the caller that owns a DiagEngine.
+class ModuleNameCollision {
+    pub var dir:       string;         ///< absolute directory that holds both.
+    pub var a:         string;         ///< first name, sorted order.
+    pub var b:         string;         ///< second name.
+    pub var ident:     string;         ///< the module identity they both claim.
+    pub var case_only: bool = false;   ///< true: differ only by case (portability).
+}
+
 /// \class ImportResolver
 /// \brief resolves qualified module paths and file names against a set of
 ///        indexed search roots
@@ -96,6 +146,18 @@ class ImportResolver {
     priv var _roots:           vec::<own::<SearchRoot>>; ///< priority-sorted search roots (index 0 = cwd)
     priv var _ext_cfg:         oot::<FileExtensions>;    ///< file extension classification config
     priv var _owns_ext_cfg:    bool;                     ///< true if destructor should free `_ext_cfg`
+
+    /// Transient roots for sibling-relative probing, keyed by absolute dir.
+    /// Owned; built lazily (SearchRoot construction is a couple of stats, the
+    /// walk is lazy) so importing files in N directories costs N of these.
+    priv var _sibling_roots:    map::<string, own::<SearchRoot>>;
+
+    /// Directories already swept for module-name collisions, and the findings
+    /// not yet drained. Reporting is deferred because discovery runs in the
+    /// DepScanner (no DiagEngine) before it runs in the PP walk (which has
+    /// one) - see take_collisions().
+    priv var _swept_dirs:       set::<string>;
+    priv var _collisions:       vec::<ModuleNameCollision>;
 
     /// \class Builder
     /// \brief fluent builder for constructing an `ImportResolver`
@@ -237,6 +299,13 @@ class ImportResolver {
         self._roots.clear();
         self._cache.clear();
 
+        for var it = self._sibling_roots.begin(); it != self._sibling_roots.end(); ++it {
+            if it->second != &null {
+                std::destroy(it->second);
+            }
+        }
+        self._sibling_roots.clear();
+
         if self._owns_ext_cfg && (self._ext_cfg != &null) {
             std::destroy(self._ext_cfg);
         }
@@ -354,6 +423,312 @@ class ImportResolver {
 
         Logger::debug(Logger::Stage::Preprocessor, f"ImportResolver::resolve_module_dir: not found segments={segments.size()}");
         return ResolveError::NotFound;
+    }
+
+    //  Relative-aware module resolution (THE home of import path semantics)
+    //
+    //  `import baz` inside `root/Foo/bar.k` means:
+    //    1. `Foo/baz.k`  - the importing file's OWN directory, first;
+    //    2. `root/baz.k` - the search roots, second;
+    //    3. if BOTH exist and they are different files: hard error, qualify.
+    //
+    //  Rule 3 is the whole point. Sibling-first without it is Python 2's
+    //  implicit relative import, which Python removed in 3 because adding
+    //  `root/baz.k` silently changed what `import baz` meant three directories
+    //  away. Erroring on the collision keeps the ergonomics and kills the
+    //  action-at-a-distance: the day the tree becomes ambiguous, you are told,
+    //  at the import that became ambiguous.
+    //
+    //  Module IDENTITY never comes from the spelling - see canonical_module_path.
+
+    /// \brief resolves a module path, probing the importing file's directory
+    ///        before the search roots.
+    /// \param segments  the path as written (e.g. ["baz"] or ["util","fmt"])
+    /// \param is_module true for `import module Foo` (directory modules only)
+    /// \param from_dir  the IMPORTING file's directory
+    /// \param has_from  false when there is no importing file (entry point)
+    /// \return a resolution carrying the file, its canonical identity, and
+    ///         whether the sibling/root candidates collided.
+    fn resolve_module_rel(self, segments: vec::<string>, is_module: bool,
+                          from_dir: Path, has_from: bool) -> ModuleResolution {
+        var out = ModuleResolution{};
+        if segments.size() == 0 { return out; }
+
+        var sib_hit  = false;
+        var sib_path: Path;
+
+        // 1. sibling candidate. Skipped when the importing file already lives
+        //    in a search root: the two probes would be the same probe.
+        if (has_from) && (!self._is_root_dir(from_dir)) {
+            var sib_root = self._sibling_root_for(from_dir);
+            if sib_root != &null {
+                var h = self._probe_root(sib_root, segments, is_module);
+                if h.found { sib_hit = true; sib_path = h.path; out.file_dir = h.file_dir; }
+            }
+        }
+
+        // 2. root candidate (priority order: cwd, then -m/-I dirs).
+        var root_hit  = false;
+        var root_path: Path;
+        var ri: usize = 0;
+        while (ri < self._roots.size()) && (!root_hit) {
+            var h = self._probe_root(self._roots[ri], segments, is_module);
+            if h.found {
+                root_hit  = true;
+                root_path = h.path;
+                if !sib_hit { out.file_dir = h.file_dir; }
+            }
+            ri += 1;
+        }
+
+        if (!sib_hit) && (!root_hit) { return out; }
+
+        if sib_hit {
+            out.found  = true;
+            out.path   = sib_path;
+            out.origin = ModuleOrigin::Sibling;
+            // 3. collision. Same file reached two ways is not a collision.
+            if root_hit && (root_path.full_path() != sib_path.full_path()) {
+                out.ambiguous  = true;
+                out.other_path = root_path;
+            }
+        } else {
+            out.found  = true;
+            out.path   = root_path;
+            out.origin = ModuleOrigin::Root;
+        }
+
+        out.canonical = self.canonical_module_path(out.path);
+        if out.canonical.size() == 0 {
+            // Resolved outside every search root (rare: an absolute -I sibling
+            // walk). Fall back to the written spelling rather than handing
+            // codegen an empty namespace path.
+            out.canonical = segments;
+        }
+        return out;
+    }
+
+    /// \brief the module IDENTITY of a file: its path segments relative to the
+    ///        deepest search root that contains it.
+    ///
+    /// \details This, not the import spelling, is what a file's module path
+    ///          means. `root/Foo/baz.k` is `Foo::baz` whether it was reached as
+    ///          `import Foo::baz` from the root or `import baz` from its
+    ///          sibling. `root/std/mem/module.k` is `std::mem` - the `module`
+    ///          leaf names the directory's entry point, not a segment.
+    ///          `-` maps to `_` per the filename policy (CODEGEN.md 2).
+    /// \return the segments, or empty if the file is under no search root.
+    fn canonical_module_path(self, file: Path) -> vec::<string> {
+        var out = vec::<string>();
+
+        var best_rel = "";
+        var best_len: usize = 0;
+        for var i: usize = 0; i < self._roots.size(); ++i {
+            var root = self._roots[i];
+            var rel  = self._relative_to(file, root->base_path);
+            if rel.size() == 0 { continue; }
+            // Deepest containing root wins, so a nested -I dir does not get
+            // shadowed by an outer one into a longer, wrong identity.
+            var base_len = root->base_path.full_path().size();
+            if (best_rel.size() == 0) || (base_len > best_len) {
+                best_rel = rel;
+                best_len = base_len;
+            }
+        }
+        if best_rel.size() == 0 { return out; }
+
+        var parts = self.split_path(best_rel);
+        if parts.size() == 0 { return out; }
+
+        // strip the extension off the leaf
+        var leaf     = parts[parts.size() - 1];
+        var dot_pos  = leaf.rfind(".");
+        if dot_pos != null { leaf = leaf.raw_string().substr(0, (*dot_pos)); }
+        parts[parts.size() - 1] = leaf;
+
+        // `Foo/module.k` IS module `Foo`; the leaf names the directory entry.
+        if (leaf == "module") && (parts.size() > 1) { parts.pop_back(); }
+
+        for var i: usize = 0; i < parts.size(); ++i {
+            out.push_back(self.module_ident(parts[i]));
+        }
+        return out;
+    }
+
+    /// \brief drains module-name collisions found during discovery.
+    ///
+    /// \details Discovery runs first in the DepScanner, which has no
+    ///          DiagEngine, so findings are queued here and drained by the PP
+    ///          walk (FileImportIndex), which does. Each directory is swept
+    ///          exactly once, so every collision is reported exactly once no
+    ///          matter how many imports pass through it.
+    fn take_collisions(self) -> vec::<ModuleNameCollision> {
+        var out = self._collisions;
+        self._collisions.clear();
+        return out;
+    }
+
+    /// \brief the module identity a filename claims: `-` folded to `_`.
+    ///
+    /// \details `foo-bar.k` names module `foo_bar` (CODEGEN.md 2): module path
+    ///          segments must be valid identifiers, and `-` is the one
+    ///          pragmatic exception rather than an escaping scheme that would
+    ///          leak into mangled names forever.
+    fn module_ident(self, name: string) -> string {
+        var out = name;
+        inline "c++" {
+            auto &r = out.raw_string();
+            for (size_t i = 0; i < r.size(); ++i) {
+                if (r[i] == WIDE_STR('-')) { r[i] = WIDE_STR('_'); }
+            }
+        }
+        return out;
+    }
+
+    // --- relative resolution internals ---------------------------------------
+
+    struct RootHit {
+        var found:    bool = false;
+        var path:     Path;
+        var file_dir: bool = false;   ///< a file AND a directory matched the leaf
+    }
+
+    /// One root, one probe. Mirrors resolve_module/resolve_module_dir for a
+    /// single root so sibling and root candidates are resolved by identical
+    /// rules. Sweeps the containing directory for name collisions on the way.
+    priv fn _probe_root(self, root: *SearchRoot, segments: vec::<string>,
+                        is_module: bool) -> RootHit {
+        var out = RootHit{};
+        if root == &null { return out; }
+
+        var node = root->root;
+        for var i: usize = 0; (i + 1) < segments.size(); ++i {
+            node = node->find_dir(segments[i]);
+            if node == &null { return out; }
+        }
+
+        var last = segments[segments.size() - 1];
+        self._sweep_dir(node);
+
+        if !is_module {
+            var file_node = node->find_by_stem_and_category(last, FileCategory::KairoSource);
+            if (file_node != &null) && (file_node->file_path) {
+                out.found    = true;
+                out.path     = *(file_node->file_path);
+                out.file_dir = (node->find_dir(last) != &null);
+                return out;
+            }
+        }
+
+        var dir_node = node->find_dir(last);
+        if dir_node != &null {
+            var mod_node = dir_node->find_by_stem_and_category("module", FileCategory::KairoSource);
+            if (mod_node != &null) && (mod_node->file_path) {
+                out.found = true;
+                out.path  = *(mod_node->file_path);
+                return out;
+            }
+        }
+        return out;
+    }
+
+    /// Get-or-create the transient SearchRoot for an importing file's dir.
+    priv fn _sibling_root_for(self, dir: Path) -> *SearchRoot {
+        var key = dir.full_path();
+        if self._sibling_roots.contains(key) { return self._sibling_roots[key]; }
+        if (!dir.exists()) || (!dir.is_directory()) { return &null; }
+
+        // priority u32(-1): never competes with a real root, and is only ever
+        // reached through resolve_module_rel.
+        var r = std::create::<SearchRoot>(dir, u32(-1), self._ext_cfg);
+        self._sibling_roots[key] = r;
+        return r;
+    }
+
+    priv fn _is_root_dir(self, dir: Path) -> bool {
+        var full = dir.full_path();
+        for var i: usize = 0; i < self._roots.size(); ++i {
+            if self._roots[i]->base_path.full_path() == full { return true; }
+        }
+        return false;
+    }
+
+    /// `file` relative to `base`, or "" when `file` is not under `base`.
+    priv fn _relative_to(self, file: Path, base: Path) -> string {
+        var rel = string();
+        inline "c++" {
+            auto r = file.path_data.lexically_relative(base.path_data);
+            if (!r.empty()) {
+                auto s = r.generic_wstring();
+                // "..", "../x", "" all mean: not contained.
+                if (s != WIDE_STR(".") &&
+                    !(s.size() >= 2 && s[0] == WIDE_STR('.') && s[1] == WIDE_STR('.'))) {
+                    rel = s;
+                }
+            }
+        }
+        return rel;
+    }
+
+    // --- module-name collision sweep (module discovery) ----------------------
+
+    /// One readdir per directory that actually hosts a resolved module, ever.
+    /// Two names claiming one module identity is the same fault as an ambiguous
+    /// import, one layer down, so it gets found in the same pass that resolves
+    /// the import. Directories nobody imports from are never scanned - the
+    /// lazy-probe design survives.
+    priv fn _sweep_dir(self, dir: *DirEntry) {
+        if (dir == &null) || (!dir->is_dir) { return; }
+        if !dir->fs_path { return; }
+
+        var key = (*(dir->fs_path)).full_path();
+        if self._swept_dirs.contains(key) { return; }
+        self._swept_dirs.insert(key);
+
+        dir->ensure_scanned();
+
+        // Sorted, so a collision is reported with the same pair ordering on
+        // every run (children is an unordered_map).
+        var names = vec::<string>();
+        for var it = dir->children.begin(); it != dir->children.end(); ++it {
+            var child = it->second;
+            if child == &null { continue; }
+            if child->name.size() == 0 { continue; }
+            if (!child->is_dir) && (child->category != FileCategory::KairoSource) { continue; }
+            names.push_back(child->name);
+        }
+        libcxx::sort(names.begin(), names.end());
+
+        var seen = map::<string, string>();   // identity -> first claimant
+        for var i: usize = 0; i < names.size(); ++i {
+            var raw   = names[i];
+            var ident = self._lower(self.module_ident(raw));
+            if !seen.contains(ident) { seen[ident] = raw; continue; }
+
+            var other = seen[ident];
+            if other == raw { continue; }     // a dir and its own module.k, etc.
+
+            var c = ModuleNameCollision{};
+            c.dir       = key;
+            c.a         = other;
+            c.b         = raw;
+            c.ident     = self.module_ident(other);
+            c.case_only = self._lower(other) == self._lower(raw);
+            self._collisions.push_back(c);
+        }
+    }
+
+    priv fn _lower(self, s: string) -> string {
+        var out = s;
+        inline "c++" {
+            auto &r = out.raw_string();
+            for (size_t i = 0; i < r.size(); ++i) {
+                if (r[i] >= WIDE_STR('A') && r[i] <= WIDE_STR('Z')) {
+                    r[i] = static_cast<::std::remove_reference_t<decltype(r[i])>>(r[i] + 32);
+                }
+            }
+        }
+        return out;
     }
 
     /// \brief resolves a kairo library (.hlib) by name
@@ -949,9 +1324,7 @@ fn Test() -> i32 {
 
     var suite = Assert("ImportResolver Tests");
 
-    // =========================================================================
     // KAIRO MODULE RESOLUTION
-    // =========================================================================
 
     suite.equal::<i32>("resolve_module std::io", 1, fn () -> i32 {
         var segments: vec::<string> = ["std", "io"];
@@ -1087,9 +1460,7 @@ fn Test() -> i32 {
         return 0;
     }, 10000);
 
-    // =========================================================================
     // C/C++ RESOLUTION
-    // =========================================================================
 
     suite.equal::<i32>("resolve c++ header with extension", 1, fn () -> i32 {
         var result = resolver->resolve_cxx_include("cpp/helper.hpp");
@@ -1136,9 +1507,7 @@ fn Test() -> i32 {
         return 0;
     }, 10000);
 
-    // =========================================================================
     // RANDOM FILES / NO EXTENSION
-    // =========================================================================
 
     suite.equal::<i32>("resolve json file", 1, fn () -> i32 {
         var segments: vec::<string> = ["Assets", "config.json"];
@@ -1194,9 +1563,7 @@ fn Test() -> i32 {
         return 0;
     }, 10000);
 
-    // =========================================================================
     // PATH RESOLUTION (for embed!, etc)
-    // =========================================================================
 
     suite.equal::<i32>("path_exists", 1, fn () -> i32 {
         if resolver->path_exists("std/io.k") {
@@ -1240,9 +1607,7 @@ fn Test() -> i32 {
         return 0;
     }, 10000);
 
-    // =========================================================================
     // INCLUDE PATH PRIORITY
-    // =========================================================================
 
     suite.equal::<i32>("cwd takes priority over include paths", 1, fn () -> i32 {
         var segments: vec::<string> = ["util"];
@@ -1272,9 +1637,7 @@ fn Test() -> i32 {
         return 0;
     }, 10000);
 
-    // =========================================================================
     // COLLECT BY CATEGORY
-    // =========================================================================
 
     suite.equal::<i32>("collect_all_by_category KairoSource", 1, fn () -> i32 {
         var all_hlx = resolver->collect_all_by_category(FileCategory::KairoSource);
@@ -1321,9 +1684,7 @@ fn Test() -> i32 {
         return 0;
     }, 10000);
 
-    // =========================================================================
     // CACHE BEHAVIOR
-    // =========================================================================
 
     suite.equal::<i32>("cache consistency", 1, fn () -> i32 {
         var segments: vec::<string> = ["std", "io"];
@@ -1356,9 +1717,7 @@ fn Test() -> i32 {
         return 0;
     }, 10000);
 
-    // =========================================================================
     // REBUILD
-    // =========================================================================
 
     suite.equal::<i32>("rebuild picks up new files", 1, fn () -> i32 {
         // add new file after indexing
@@ -1388,9 +1747,7 @@ fn Test() -> i32 {
         libcxx::filesystem::remove(new_file);
     }, 10000);
 
-    // =========================================================================
     // EDGE CASES
-    // =========================================================================
 
     suite.equal::<i32>("empty segments", 1, fn () -> i32 {
         var empty = vec::<string>();
