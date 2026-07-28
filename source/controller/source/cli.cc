@@ -75,6 +75,11 @@ DISCLAIMER: All of these options are subject to change in future versions of kai
                             "Extract and output doc-comments along with signatures in JSON format",
                             {"emit-doc"});
         args::Flag emit_deps(parser, "deps", "Output list of imported dependencies", {"deps"});
+        args::Flag index_file(parser,
+                              "index-file",
+                              "Parse only this file for indexing: no import expansion, no codegen, "
+                              "no linking. Implies --emit-ast --lsp-mode",
+                              {"index-file"});
 
         args::Group toolchain_group(
             parser, "Cross Compilation Toolchain Options", args::Group::Validators::AtMostOne);
@@ -208,6 +213,15 @@ https://www.kairolang.org/ for more information.
             this->emit_ir     = emit_ir;
             this->emit_doc    = emit_doc;
             this->emit_deps   = emit_deps;
+            this->index_file  = index_file;
+
+            // --index-file is a single-file AST dump for the indexer: it always
+            // wants the JSON on stdout and never wants codegen, so it implies
+            // the two flags that produce exactly that.
+            if (this->index_file) {
+                this->emit_ast = true;
+                this->lsp_mode = true;
+            }
 
             if (verbose && quiet) {
                 print_err(colors::fg16::red,

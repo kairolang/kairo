@@ -130,6 +130,7 @@ __CONTROLLER_CLI_BEGIN {
         bool emit_ir     = false;
         bool emit_doc    = false;
         bool emit_deps   = false;
+        bool index_file  = false;
 
         struct tool_chain {
             std::string target;
