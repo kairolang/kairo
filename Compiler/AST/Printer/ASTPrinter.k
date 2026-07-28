@@ -77,9 +77,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p   = Painter(opts);
     }
 
-    // ======================================================================
     //  SHARED HELPERS
-    // ======================================================================
 
     /// Resolve a token to its real source spelling. THE fix for the
     /// "identifier" corruption  always source text, never a kind word.
@@ -155,9 +153,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         else if v == 1 { self.p.paint(Color::Keyword, "priv "); }
     }
 
-    // ======================================================================
     //  TYPES  source-faithful  (UNCHANGED)
-    // ======================================================================
 
     fn _quals(self, ty: *Type) {
         type TQ = TypeQual::<Type>;
@@ -270,9 +266,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
     }
 
-    // ======================================================================
     //  EXPRESSIONS  source-faithful  (UNCHANGED)
-    // ======================================================================
 
     fn src_expr(self, e: *Expr) {
         if e == &null    { self.p.paint(Color::Error, "<error>"); return; }
@@ -624,9 +618,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.src_type(e->base);
     }
 
-    // ======================================================================
     //  PATTERNS  source-faithful  (UNCHANGED)
-    // ======================================================================
 
     fn src_pattern(self, pat: *Pattern) {
         if pat == &null    { self.p.paint(Color::Error, "<error>"); return; }
@@ -718,9 +710,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.paint(Color::Punct, "]");
     }
 
-    // ======================================================================
     //  BINDINGS  shared by destructure / for / context (source path)  (UNCHANGED)
-    // ======================================================================
 
     fn _src_binding(self, b: *Binding) {
         if b->is_explicit {
@@ -746,9 +736,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
     }
 
-    // ======================================================================
     //  STATEMENTS  source-faithful  (UNCHANGED)
-    // ======================================================================
 
     fn src_stmt(self, stmt: *Stmt) {
         if stmt == &null    { self.p.paint(Color::Error, "<error>"); return; }
@@ -972,9 +960,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         return "c++";
     }
 
-    // ======================================================================
     //  DECLARATIONS  source-faithful  (UNCHANGED)
-    // ======================================================================
 
     fn src_decl(self, decl: *Decl) {
         if decl == &null    { self.p.paint(Color::Error, "<error>"); return; }
@@ -1544,7 +1530,6 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
     }
 
-    // ======================================================================
     //  DEBUG TREE DUMP  (RAV-DRIVEN)
     //
     //  Entry points are the dump_* facades (dump_decl / dump_stmt / dump_expr
@@ -1557,7 +1542,6 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     //
     //  Leaf-ish nodes (literals, idents, plain types/patterns) append their
     //  source form inline instead of spawning child rows.
-    // ======================================================================
 
     /// Spine + colored node-kind tag. Caller appends attrs, then recurses.
     fn _head(self, kind: string, is_last: bool) {
@@ -1714,14 +1698,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         return decl->annotations.size() > 0;
     }
 
-    // ======================================================================
     //  RAV DISPATCHER OVERRIDES
     //
     //  These five are the entire RAV surface AstDumper overrides. Each reads
     //  _pending_last (set by the caller just before the dispatch call),
     //  renders the node, recurses on children with its own is_last logic, and
     //  returns the node unchanged (the dumper never rewrites the tree).
-    // ======================================================================
 
     /* OVERRIDE */ fn dispatch_type(self, ty: *Type) -> *Type {
         var is_last = self._pending_last;
@@ -1779,9 +1761,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.dyn()->dispatch_pattern(pat);
     }
 
-    // ======================================================================
     //  TYPE dump row
-    // ======================================================================
 
     fn dump_type_row(self, ty: *Type, is_last: bool) {
         if ty == &null    { self._head("<null-type>", is_last); self.p.paint(Color::Error, " <null>"); self.p.newline(); return; }
@@ -1929,9 +1909,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
     }
 
-    // ======================================================================
     //  EXPR dump row
-    // ======================================================================
 
     fn dump_expr_row(self, e: *Expr, is_last: bool) {
         if e == &null    { self._head("<null-expr>", is_last); self.p.paint(Color::Error, " <null>"); self.p.newline(); return; }
@@ -2388,9 +2366,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.newline();
     }
 
-    // ======================================================================
     //  PATTERN dump row
-    // ======================================================================
 
     fn dump_pattern_row(self, pat: *Pattern, is_last: bool) {
         if pat == &null    { self._head("<null-pat>", is_last); self.p.newline(); return; }
@@ -2402,9 +2378,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.newline();
     }
 
-    // ======================================================================
     //  STMT dump row
-    // ======================================================================
 
     fn dump_stmt_row(self, stmt: *Stmt, is_last: bool) {
         if stmt == &null    { self._head("<null-stmt>", is_last); self.p.newline(); return; }
@@ -2646,14 +2620,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.leave();
     }
 
-    // ======================================================================
     //  DECL dump row
     //
     //  Every aggregate now walks dc_decls (DeclContext) the COMPLETE
     //  source-ordered member list  instead of the fields/methods/variants
     //  projection caches that dropped nested types and VisibilityGroupDecl.
     //  Every decl row also renders written visibility + annotation child rows.
-    // ======================================================================
 
     fn dump_decl_row(self, decl: *Decl, is_last: bool) {
         if decl == &null    { self._head("<null-decl>", is_last); self.p.newline(); return; }
@@ -2856,7 +2828,6 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
 
     // -- aggregate dumps: walk dc_decls, not projection caches --------------
 
-    // ======================================================================
     //  AGGREGATE MEMBER DUMP  (parser-accurate)
     //
     //  Reality of the current parser (DeclParse.k), NOT the aspirational
@@ -2882,7 +2853,6 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     //  emitting. The per-member `pub`/`prot`/`priv` the parser stamped is
     //  more honest in a tree than a group wrapper, so the group node is
     //  intentionally not rendered as a container.
-    // ======================================================================
 
     /// Collect every real member of a type body into `out`, in source order.
     /// fields + methods (flat lists, include grouped members with visibility
@@ -3199,13 +3169,11 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.leave();
     }
 
-    // ======================================================================
     //  PUBLIC DUMP FACADES (entry points)
     //
     //  Each sets _pending_last and routes through the overridden dispatcher
     //  via self.dyn() so the CRTP contract holds. A top-level node defaults
     //  to is_last = true.
-    // ======================================================================
 
     fn dump_type(self, ty: *Type, is_last: bool) {
         self._pending_last = is_last;
@@ -3228,9 +3196,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.dyn()->dispatch_decl(decl);
     }
 
-    // ======================================================================
     //  NODE-KIND NAMES  (UNCHANGED)
-    // ======================================================================
 
     fn _expr_kind_name(self, e: *Expr) -> string { return self._expr_kind_name_of(e->kind); }
     fn _type_kind_name(self, ty: *Type) -> string { return self._type_kind_name_of(ty->kind); }
@@ -3386,9 +3352,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     }
 }
 
-// ==========================================================================
 //  PUBLIC FACADES  (UNCHANGED API; debug path now RAV-driven)
-// ==========================================================================
 
 class TypePrinter {
     static fn print(ty: *Type, ctx: *ASTContext) -> string {

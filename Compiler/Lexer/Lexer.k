@@ -2134,9 +2134,7 @@ class Lexer {
 
 //     var suite = Assert("Lexer Tests");
 
-//     // =========================================================================
 //     // HELPER: Create a lexer from string content
-//     // =========================================================================
 
 //     static var data: libcxx::string;
     
@@ -2154,9 +2152,7 @@ class Lexer {
 //         return (lexer, fid);
 //     };
 
-//     // =========================================================================
 //     // HELPER: Dump tokens for debugging
-//     // =========================================================================
     
 //     var dump_tokens = fn (tokens: *(TokenBuffer::<512>), expected_count: usize, text: string = "none provided") -> string {
 //         var ret = "";
@@ -2167,9 +2163,7 @@ class Lexer {
 //         return f"invalid token count\n\tgot tokens:\n{ret}";
 //     };
 
-//     // =========================================================================
 //     // HELPER: content token count
-//     // =========================================================================
 
 //     // the lexer appends a trailing TkEof to every stream; test expectations
 //     // count CONTENT tokens, so compare against this instead of size().
@@ -2181,9 +2175,7 @@ class Lexer {
 //         return n;
 //     };
 
-//     // =========================================================================
 //     // BASIC TOKENIZATION
-//     // =========================================================================
 
 //     suite.equal::<string>("lex empty file", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag(" ", sm, pool, &test_diag);
@@ -2348,9 +2340,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // OPERATORS AND PUNCTUATION
-//     // =========================================================================
 
 //     suite.equal::<string>("lex single-char operators", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("+ - * / % ^ | & ~ < > ! = ? @ : ; , .", sm, pool, &test_diag);
@@ -2602,9 +2592,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // INTEGER LITERALS
-//     // =========================================================================
 
 //     suite.equal::<string>("lex decimal integers", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("0 1 42 12345 999999", sm, pool, &test_diag);
@@ -3124,9 +3112,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // FLOAT LITERALS
-//     // =========================================================================
 
 //     suite.equal::<string>("lex decimal floats", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("0.0 1.5 3.14159 123.456", sm, pool, &test_diag);
@@ -3688,9 +3674,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // STRING LITERALS
-//     // =========================================================================
 
 //     suite.equal::<string>("lex simple string", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("\"hello world\"", sm, pool, &test_diag);
@@ -4004,9 +3988,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // CHAR LITERALS
-//     // =========================================================================
 
 //     suite.equal::<string>("lex simple char", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("'a' 'Z' '0\x27", sm, pool, &test_diag);
@@ -4062,9 +4044,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // COMMENTS
-//     // =========================================================================
 
 //     suite.equal::<string>("lex line comment", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("foo // this is a comment\nbar", sm, pool, &test_diag);
@@ -4218,9 +4198,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // BALANCE TRACKING
-//     // =========================================================================
 
 //     suite.equal::<string>("balance tracker - matched braces", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("{ { } }", sm, pool, &test_diag);
@@ -4400,9 +4378,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // EDGE CASES
-//     // =========================================================================
 
 //     suite.equal::<string>("lex unicode identifier", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("café αβγ 日本語", sm, pool, &test_diag);
@@ -4756,9 +4732,7 @@ class Lexer {
 //         return "pass";
 //     }, 1000);
 
-//     // =========================================================================
 //     // INTERNER CONSISTENCY
-//     // =========================================================================
 
 //     // pins the hash-consistency contract between the lexer's incremental hash
 //     // and compute_hash: a lexed 'foo' and a synthesized (intern_ident_copy)
@@ -4812,9 +4786,7 @@ class Lexer {
 //         return "pass";
 //     }, 10);
 
-//     // =========================================================================
 //     // ERROR CASES
-//     // =========================================================================
 
 //     suite.equal::<string>("error on invalid escape in string", "pass", fn () -> string {
 //         var res = create_lexer_from_string_with_diag("\"hello\\qworld\"", sm, pool, &test_diag);
@@ -4887,9 +4859,7 @@ class Lexer {
 //         return "pass";
 //     }, 10);
 
-//     // =========================================================================
 //     // PERFORMANCE TESTS
-//     // =========================================================================
 
 //     suite.equal::<string>("performance - lex realistic code", "pass", fn () -> string {
 //         var code = "fn factorial(n: i32) -> i32 {\n"
@@ -4949,9 +4919,7 @@ class Lexer {
 //         return "pass";
 //     }, 100);
 
-//     // =========================================================================
 //     // THROUGHPUT MEASUREMENT
-//     // =========================================================================
 
 //     fn measure_timer_overhead() -> i64 {
 //         const var iterations = 1000;
@@ -5007,7 +4975,6 @@ class Lexer {
 //     std::print(f"Throughput: {mb_per_s} MB/s\n");
 //     std::print(f"Tokens per lex: {bench_lexer->tokens()->size()}\n");
 
-//     // =========================================================================
 //     // Hot-loop throughput: one large contiguous buffer, lexed twice in a row.
 //     //
 //     // The suite above measures COLD lexes: tiny inputs, fresh lexer each time,
@@ -5019,7 +4986,6 @@ class Lexer {
 //     // MEMORY: TARGET bytes of narrow source + ~4x that in the wide staging
 //     // string + token slabs (~16B per ~4 source bytes) + imm data. At 1 GiB
 //     // target expect ~10 GiB peak. Dial HOT_TARGET down on small machines.
-//     // =========================================================================
 //     std::print("\n=== Hot-Loop Benchmark ===\n");
 
 //     const HOT_TARGET: usize = 1024 * 1024 * 1024; // 1 GiB of source

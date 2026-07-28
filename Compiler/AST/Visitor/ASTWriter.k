@@ -59,10 +59,6 @@ import Memory::ArenaList::*;
 import AST::Context::TranslationUnit::*;
 import AST::Node::Program::*;
 
-// ===========================================================================
-//  List infrastructure
-// ===========================================================================
-
 ///
 /// \class ListBuilder<T>
 /// \brief Accumulates elements and freezes them into a FrozenList<T>.
@@ -248,10 +244,6 @@ class <T> ListRewriter {
     }
 }
 
-// ===========================================================================
-//  ASTWriter
-// ===========================================================================
-
 class <D> ASTWriter {
     pub var ctx:  *ASTContext;
     pub var stop: bool = false;
@@ -259,8 +251,6 @@ class <D> ASTWriter {
     fn dyn(self) -> *D {
         return static_cast::<*D>(&self);
     }
-
-    // == Pass-facing list helpers ==========================================
 
     fn <T> list_builder(self) -> ListBuilder::<T> {
         return ListBuilder::<T>(self.ctx);
@@ -387,9 +377,6 @@ class <D> ASTWriter {
         return v;
     }
 
-    // == Shared compound-struct child walkers ==============================
-    // These mirror RAV's helpers but rebuild rather than discard.
-
     fn transform_match_case(self, mc: *MatchCase) {
         self.dyn()->rebuild_pattern_list(&(mc->patterns));
         if mc->guard != &null {
@@ -414,10 +401,6 @@ class <D> ASTWriter {
             a->ty = self.dyn()->transform_type(a->ty);
         }
     }
-
-    // ===========================================================================
-    //  TYPE FAMILY  (scalar return: *Type; null = delete)
-    // ===========================================================================
 
     fn transform_type(self, t: *Type) -> *Type {
         if t == &null { return &null; }
@@ -567,10 +550,6 @@ class <D> ASTWriter {
         n->replacement = self.dyn()->transform_type(n->replacement);
         return n;
     }
-
-    // ===========================================================================
-    //  EXPR FAMILY  (scalar return: *Expr; null = delete)
-    // ===========================================================================
 
     fn transform_expr(self, e: *Expr) -> *Expr {
         if e == &null { return &null; }
@@ -875,10 +854,6 @@ class <D> ASTWriter {
         if n->target_type != &null { n->target_type = self.dyn()->transform_type(n->target_type); }
         return n;
     }
-
-    // ===========================================================================
-    //  STMT FAMILY  (splice return: vec<*Stmt>; empty = delete)
-    // ===========================================================================
 
     fn transform_stmt(self, s: *Stmt) -> vec::<*Stmt> {
         if s == &null { return vec::<*Stmt>(); }
@@ -1347,7 +1322,6 @@ class <D> ASTWriter {
         return n;
     }
 
-    // == ENTRY POINTS ======================================================
 
     /// Drive the transform over a whole file. The top-level item list lives on
     /// the Program; rebuild it (splice-aware) and the imports/attrs lists.

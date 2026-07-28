@@ -47,77 +47,30 @@ class ClangFlagTranslator {
 
         // argv[0] = clang++ (caller may override to a full path)
         argv.push_back("clang++");
-
-        // -- profile preset (fires first, individual flags override) ----
         self._emit_profile(args, &argv);
-
-        // -- language standard ------------------------------------------
         self._emit_std(args, &argv);
-
-        // -- floating point ABI + semantics -----------------------------
         self._emit_fp(args, &argv);
-
-        // -- target triple + machine ------------------------------------
         self._emit_target(args, &argv);
-
-        // -- optimization (individual flags override profile baseline) --
         self._emit_opt(args, &argv);
-
-        // -- debug info -------------------------------------------------
         self._emit_debug(args, &argv);
-
-        // -- output -----------------------------------------------------
         self._emit_output(args, &argv);
-
-        // -- include paths ----------------------------------------------
         self._emit_includes(args, &argv);
-
-        // -- library paths + link libs ----------------------------------
         self._emit_link(args, &argv);
-
-        // -- defines ---------------------------------------------------
         self._emit_defines(args, &argv);
-
-        // -- feature flags (-f*) ---------------------------------------
         self._emit_features(args, &argv);
-
-        // -- sanitizers ------------------------------------------------
         self._emit_sanitizers(args, &argv);
-
-        // -- instrumentation -------------------------------------------
         self._emit_instrumentation_extras(args, &argv);
-
-        // -- LTO -------------------------------------------------------
         self._emit_lto(args, &argv);
-
-        // -- hardening -------------------------------------------------
         self._emit_hardening(args, &argv);
-
-        // -- warnings --------------------------------------------------
         self._emit_warnings(args, &argv);
-
-        // -- platform-specific -----------------------------------------
         self._emit_platform(args, &argv);
-
-        // -- WASM ------------------------------------------------------
         self._emit_wasm(args, &argv);
-
-        // -- reproducible builds ---------------------------------------
         self._emit_repro(args, &argv);
-
-        // -- raw passthroughs ------------------------------------------
         self._emit_passthrough(args, &argv);
-
-        // -- input file (always last) ----------------------------------
         argv.push_back(input_file);
 
         return argv;
     }
-
-    // =========================================================================
-    //  PROFILE PRESET
-    //  fires first so individual flag emitters can override
-    // =========================================================================
 
     priv fn _emit_profile(self, args: *ParsedArgs, argv: *vec::<string>) {
         var profile = args->get_string("profile");
@@ -126,13 +79,14 @@ class ClangFlagTranslator {
             argv->push_back("-O2");
             argv->push_back("-DNDEBUG");
             argv->push_back("-fstack-protector-strong");
-            argv->push_back("-fno-omit-frame-pointer");  // override later if user set --opt
+            argv->push_back("-fno-omit-frame-pointer");
+            // override later if user set --opt
         } else if profile == "min-size" {
             argv->push_back("-Oz");
             argv->push_back("-DNDEBUG");
             argv->push_back("-fstack-protector-strong");
         } else {
-            // debug (default)
+            // debug
             argv->push_back("-O0");
             argv->push_back("-g");
             argv->push_back("-fno-omit-frame-pointer");
@@ -142,14 +96,10 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
-    //  LANGUAGE STANDARD
-    // =========================================================================
-
     priv fn _emit_std(self, args: *ParsedArgs, argv: *vec::<string>) {
         var std_ver = args->get_string("cxx-std");
 
-        // default to c++26 (kairo's internal baseline)
+        // default to c++26
         if std_ver.empty() {
             std_ver = "c++26";
         }
@@ -245,10 +195,7 @@ class ClangFlagTranslator {
             argv->push_back("-mcmodel=kernel");
         }
     }
-
-    // =========================================================================
-    //  Floating point ABI
-    // ==========================================================================
+    
     priv fn _emit_fp(self, args: *ParsedArgs, argv: *vec::<string>) {
         // fp-model is the master switch for IEEE754 compliance
         var fp_model = args->get_string("fp-model");
@@ -288,10 +235,6 @@ class ClangFlagTranslator {
             argv->push_back("-fno-sanitize-recover=unsigned-integer-overflow");
         }
     }
-
-    // =========================================================================
-    //  TARGET TRIPLE + MACHINE
-    // =========================================================================
 
     priv fn _emit_target(self, args: *ParsedArgs, argv: *vec::<string>) {
         var target = args->get_string("target");
@@ -342,11 +285,6 @@ class ClangFlagTranslator {
             argv->push_back(f"--sysroot={sysroot}");
         }
     }
-
-    // =========================================================================
-    //  OPTIMISATION
-    //  individual flags can override the profile baseline
-    // =========================================================================
 
     priv fn _emit_opt(self, args: *ParsedArgs, argv: *vec::<string>) {
         // if user explicitly set --opt, it overrides profile
@@ -524,10 +462,6 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
-    //  DEBUG INFO
-    // =========================================================================
-
     priv fn _emit_debug(self, args: *ParsedArgs, argv: *vec::<string>) {
         if args->get_bool("no-debug-info") {
             argv->push_back("-g0");
@@ -563,10 +497,6 @@ class ClangFlagTranslator {
             argv->push_back("-gembed-source");
         }
     }
-
-    // =========================================================================
-    //  OUTPUT
-    // =========================================================================
 
     priv fn _emit_output(self, args: *ParsedArgs, argv: *vec::<string>) {
         var output = args->get_string("output");
@@ -649,10 +579,6 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
-    //  INCLUDE PATHS
-    // =========================================================================
-
     priv fn _emit_includes(self, args: *ParsedArgs, argv: *vec::<string>) {
         // --include-dirs -> -I
         if args->is_set("include-dirs") {
@@ -702,10 +628,6 @@ class ClangFlagTranslator {
             argv->push_back(wdir);
         }
     }
-
-    // =========================================================================
-    //  LIBRARY PATHS + LINK LIBS
-    // =========================================================================
 
     priv fn _emit_link(self, args: *ParsedArgs, argv: *vec::<string>) {
         if args->is_set("lib-dirs") {
@@ -810,10 +732,6 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
-    //  DEFINES + CFG
-    // =========================================================================
-
     priv fn _emit_defines(self, args: *ParsedArgs, argv: *vec::<string>) {
         if args->is_set("define") {
             var defs = args->get_list("define");
@@ -841,10 +759,6 @@ class ClangFlagTranslator {
             }
         }
     }
-
-    // =========================================================================
-    //  FEATURE FLAGS (-f*)
-    // =========================================================================
 
     priv fn _emit_features(self, args: *ParsedArgs, argv: *vec::<string>) {
         // implicit conversions -> -fno-implicit-conversions (clang extension)
@@ -891,7 +805,6 @@ class ClangFlagTranslator {
         // union-inference: kairo-only, not forwarded
         // verify-interfaces: kairo-only, not forwarded
         // const-checks: kairo-only, not forwarded
-        // track-macro-origins: kairo-only, not forwarded
 
         // overflow checks: --no-overflow -> -ftrapv (in all modes)
         if args->get_bool("no-overflow") {
@@ -906,10 +819,6 @@ class ClangFlagTranslator {
             }
         }
     }
-
-    // =========================================================================
-    //  SANITIZERS
-    // =========================================================================
 
     priv fn _emit_sanitizers(self, args: *ParsedArgs, argv: *vec::<string>) {
         var san_list: vec::<string>;
@@ -937,10 +846,6 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
-    //  INSTRUMENTATION
-    // =========================================================================
-
     priv fn _emit_instrumentation_extras(self, args: *ParsedArgs, argv: *vec::<string>) {
         if args->get_bool("instrument-functions") {
             argv->push_back("-finstrument-functions");
@@ -960,10 +865,6 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
-    //  LTO
-    // =========================================================================
-
     priv fn _emit_lto(self, args: *ParsedArgs, argv: *vec::<string>) {
         var lto = args->get_string("lto");
 
@@ -975,10 +876,6 @@ class ClangFlagTranslator {
             argv->push_back("-fno-lto");
         }
     }
-
-    // =========================================================================
-    //  HARDENING
-    // =========================================================================
 
     priv fn _emit_hardening(self, args: *ParsedArgs, argv: *vec::<string>) {
         var feat_sp = args->get_feature("stack-protector");
@@ -1009,10 +906,6 @@ class ClangFlagTranslator {
             argv->push_back("-cfguard");
         }
     }
-
-    // =========================================================================
-    //  WARNINGS + DIAGNOSTICS
-    // =========================================================================
 
     priv fn _emit_warnings(self, args: *ParsedArgs, argv: *vec::<string>) {
         if args->get_bool("Wall") {
@@ -1108,9 +1001,7 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
     //  PLATFORM-SPECIFIC
-    // =========================================================================
 
     priv fn _emit_platform(self, args: *ParsedArgs, argv: *vec::<string>) {
         // -- macOS / Darwin ------------------------------------------------
@@ -1226,9 +1117,7 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
     //  WASM / WASI
-    // =========================================================================
 
     priv fn _emit_wasm(self, args: *ParsedArgs, argv: *vec::<string>) {
         if !args->get_bool("wasi") {
@@ -1307,9 +1196,7 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
     //  REPRODUCIBLE BUILDS
-    // =========================================================================
 
     priv fn _emit_repro(self, args: *ParsedArgs, argv: *vec::<string>) {
         if args->get_bool("no-timestamps") {
@@ -1348,9 +1235,7 @@ class ClangFlagTranslator {
         }
     }
 
-    // =========================================================================
     //  RAW PASSTHROUGHS
-    // =========================================================================
 
     priv fn _emit_passthrough(self, args: *ParsedArgs, argv: *vec::<string>) {
         // --cxx-flags: raw flags forwarded verbatim to clang

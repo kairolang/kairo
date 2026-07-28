@@ -774,7 +774,6 @@ class PrettyDiagConsumer derives DiagConsumer {
             var line_col     = ( f"{BOLD}{WHITE}" ) if ( color ) else ( "" );
             var reset_col    = ( RESET            ) if ( color ) else ( "" );
 
-            var prefix_raw = f"{indent}{num_pad}{line_num_str} | ";
             var prefix_vis = f"{indent}{num_pad}{line_col}{line_num_str} {pipe} {reset_col}";
 
             // --- leading context window (same policy as render_group) ---------
@@ -799,7 +798,11 @@ class PrettyDiagConsumer derives DiagConsumer {
 
             out += prefix_vis + renderer.highlight_snippet(line_text) + NL;
 
-            var pad       = string(' ', prefix_raw.length());
+            // The caret row keeps the gutter rail, exactly like render_group's
+            // conn_gutter. Padding with a plain blank run the width of the
+            // line-number prefix leaves note carets floating with no '|'
+            // under the source line.
+            var pad       = f"{indent}{string(' ', left_pad)} {pipe} ";
             var start_col = start_lc.column;
             var end_col   = end_lc.column;
 
