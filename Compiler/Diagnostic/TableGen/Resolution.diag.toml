@@ -330,3 +330,65 @@ group = "import"
     alias one of the conflicting imports (`import Foo::{Bar as FooBar}`) or import them selectively so
     each visible name binds a single target.
     """
+
+[R017]
+brief = "ambiguous relative import"
+group = "import"
+
+    [R017.E]
+    explain = """
+    # ambiguous relative import
+
+    an unqualified import path matched BOTH a module in the importing file's own directory and a
+    module in a search root. unqualified imports resolve sibling-first, then root, so the sibling
+    would win silently - and the day someone adds or removes a file, the same import would start
+    naming a different module in a different directory.
+
+    ```kairo
+    // root/Foo/bar.k, with both root/Foo/baz.k and root/baz.k on disk
+    import baz;   // which one?
+    ```
+
+    ## how to fix
+
+    qualify the path so it names exactly one module (`import Foo::baz` for the sibling), or rename
+    one of the two files so the name is unambiguous across the tree.
+    """
+
+[R018]
+brief = "module filename collision"
+group = "import"
+
+    [R018.E]
+    explain = """
+    # two files claim one module name
+
+    a module's name comes from its filename, and `-` in a filename means `_` in the module name. two
+    files in one directory therefore collide when they differ only by that mapping: `foo-bar.k` and
+    `foo_bar.k` both name module `foo_bar`, so an import of it cannot say which file it means.
+
+    ## how to fix
+
+    rename one of the files. prefer `_` in new filenames; `-` is supported only as a pragmatic
+    spelling of the same module name.
+    """
+
+[R019]
+brief = "import depth limit exceeded"
+group = "import"
+
+    [R019.E]
+    explain = """
+    # import depth limit exceeded
+
+    the chain of `import` statements reachable from an entry file grew deeper than
+    `--cmax-import-depth` allows before the dependency graph finished scanning. this is almost
+    always an accidental import cycle that the cycle guard doesn't catch (each individual link is
+    a distinct file, so nothing repeats), or a project layout that fans out through many
+    indirection layers.
+
+    ## how to fix
+
+    check the reported file's own imports for an unintended long chain, or raise the limit with
+    `--cmax-import-depth=N` if the project genuinely needs deeper nesting.
+    """

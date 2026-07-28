@@ -28,3 +28,21 @@ group = "Uncategorized"
     explain = "This is placeholder diagnostics. (Error)"
     [P001.F]
     explain = "This is placeholder diagnostics. (Fatal)"
+[P002]
+brief = "module filenames differ only by case"
+group = "modules"
+
+    [P002.E]
+    explain = """
+    # module filenames differ only by case
+
+    two module files in one directory have names that differ only in case (`Foo.k` and `foo.k`).
+    these are two distinct files on a case-sensitive filesystem (typically Linux) and ONE file on a
+    case-insensitive one (the default on macOS and Windows), so the source tree does not mean the
+    same thing on every platform - and a module identity, which is what determines the emitted C++
+    namespace path, would differ between builds of the same code.
+
+    ## how to fix
+
+    rename one of the files so the two names differ by more than case.
+    """

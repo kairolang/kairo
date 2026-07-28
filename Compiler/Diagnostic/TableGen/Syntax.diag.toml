@@ -1446,3 +1446,40 @@ group = "ast"
     - a declaration that is not permitted inside an `ffi` block
     - a declaration that cannot be given foreign linkage
     """
+
+# -- Preprocessor streaming limits (S065-S066) --------------------------------
+
+[S065]
+brief = "preprocessor token budget exceeded"
+group = "preprocessor"
+
+    [S065.E]
+    explain = """
+    # token budget exceeded
+
+    the number of tokens pulled from a file's streaming lexer exceeded `--cmax-token-count`. this
+    guards against runaway input (an accidentally-concatenated file, a generator gone wrong) without
+    needing to know a file's size up front, since the preprocessor never buffers the whole file.
+
+    ## how to fix
+
+    check whether the file is the size you expect, or raise the limit with
+    `--cmax-token-count=N`. the default is `0` (unlimited).
+    """
+
+[S066]
+brief = "source file exceeds the configured size cap"
+group = "preprocessor"
+
+    [S066.E]
+    explain = """
+    # source file too large
+
+    a source file's size in bytes exceeded `--cmax-file-size-mb`, checked when the preprocessor
+    opens its stream, before any lexing happens.
+
+    ## how to fix
+
+    verify the file is the one you meant to compile, or raise the cap with
+    `--cmax-file-size-mb=N`. the default is 256 MB.
+    """
