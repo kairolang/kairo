@@ -389,6 +389,26 @@ class SourceManager {
     }
 
     ///
+    /// \brief returns the DIRECTORY holding a file, for relative import
+    ///        resolution (ImportResolver::resolve_module_rel).
+    /// \return the parent directory, or an empty Path when \p file_id is
+    ///         unknown (callers treat that as "no importing file").
+    ///
+    fn get_file_dir(self, file_id: FileID) -> Path {
+        var out = Path();
+        if (file_id >= self._files.size()) || (self._files[file_id] == &null) {
+            return out;
+        }
+
+        var full = self._files[file_id]->path;
+        inline "c++" {
+            auto parent = full.path_data.parent_path();
+            if (!parent.empty()) { out = Path(parent.generic_wstring(), false); }
+        }
+        return out;
+    }
+
+    ///
     /// \brief returns logical path for SourceLocation
     ///
     fn get_filename(self, loc: SourceLocation) -> string {
@@ -797,9 +817,7 @@ fn Test() -> i32 {
 
     var suite = Assert("SourceManager Multi-File Tests");
 
-    // =========================================================================
     // HELPERS
-    // =========================================================================
 
     static var data0: libcxx::string;
     static var data1: libcxx::string;
@@ -824,9 +842,7 @@ fn Test() -> i32 {
         file1_str.size()
     );
 
-    // =========================================================================
     // FILE REGISTRATION
-    // =========================================================================
 
     suite.equal::<string>("fid0 is 0", "pass", fn () -> string {
         if fid0 != 0 { return f"expected fid0=0, got {fid0}"; }
@@ -847,9 +863,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // =========================================================================
     // GET_LOC / RESOLVE ROUND-TRIP: FILE 0
-    // =========================================================================
 
     suite.equal::<string>("file0: get_loc(0) resolves to fid=0 offset=0", "pass", fn () -> string {
         var loc = sm->get_loc(fid0, 0);
@@ -876,9 +890,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // =========================================================================
     // GET_LOC / RESOLVE ROUND-TRIP: FILE 1
-    // =========================================================================
 
     suite.equal::<string>("file1: get_loc(0) resolves to fid=1 offset=0", "pass", fn () -> string {
         var loc = sm->get_loc(fid1, 0);
@@ -905,9 +917,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // =========================================================================
     // GET_TEXT: FILE 0
-    // =========================================================================
 
     suite.equal::<string>("file0: get_text [0,5] = 'hello\x27", "pass", fn () -> string {
         var text = sm->get_text(sm->get_range(fid0, 0, 5));
@@ -927,9 +937,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // =========================================================================
     // GET_TEXT: FILE 1
-    // =========================================================================
 
     suite.equal::<string>("file1: get_text [0,6] = 'module\x27", "pass", fn () -> string {
         var text = sm->get_text(sm->get_range(fid1, 0, 6));
@@ -949,9 +957,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // =========================================================================
     // GET_VIEW: BUFFER CORRECTNESS
-    // =========================================================================
 
     suite.equal::<string>("file0: get_view bytes match 'hello\x27", "pass", fn () -> string {
         var view = sm->get_view(sm->get_range(fid0, 0, 5));
@@ -974,9 +980,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // =========================================================================
     // CROSS-FILE ISOLATION
-    // =========================================================================
 
     suite.equal::<string>("file0 locations never resolve to file1", "pass", fn () -> string {
         for i in range::<usize>(0, file0_str.size()) {
@@ -1000,9 +1004,7 @@ fn Test() -> i32 {
         return "pass";
     });
 
-    // =========================================================================
     // GET_BUFFER
-    // =========================================================================
 
     suite.equal::<string>("get_buffer(fid0) returns correct size", "pass", fn () -> string {
         var buf = sm->get_buffer(fid0);
