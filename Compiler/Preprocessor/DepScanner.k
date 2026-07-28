@@ -16,6 +16,7 @@ import Token::TokenText::*;
 import Resolution::ImportProbe::*;
 import Location::SourceManager::*;
 import Resolution::ModulePath::*;
+import Support::FileIO::Path::*;
 import Preprocessor::TokenSource::*;
 import Preprocessor::StreamCursor::*;
 
@@ -40,6 +41,7 @@ class DepGraph {
     pub var in_degree: map::<u32, i32>;          ///< fid -> number of unprocessed deps
     pub var mod_paths: map::<u32, ModulePath>;   ///< fid -> its module path
     pub var all_fids:  set::<u32>;               ///< every fid in the graph
+    pub var depth_exceeded_path: string = "";    ///< "" = under budget; else first file that hit --cmax-import-depth
 
     fn add_node(self, fid: u32, path: ModulePath) {
         if !self.all_fids.contains(fid) {
@@ -76,30 +78,48 @@ class DepScanner {
     priv var _resolver:    obs::<ImportResolver>;
     priv var _sym_table:   obs::<PreprocessorSymbolTable>;
     priv var _visiting:    set::<u32>;   ///< cycle detection
+    priv var _max_depth:   i32 = 512;    ///< --cmax-import-depth; 0 = unlimited
 
     fn DepScanner(
         self,
         sm:        *SourceManager,
         tcm:       *TokenCacheManager,
         resolver:  *ImportResolver,
-        sym_table: *PreprocessorSymbolTable
+        sym_table: *PreprocessorSymbolTable,
+        max_import_depth: i32 = 512
     ) {
         self._sm        = sm;
         self._tcm       = tcm;
         self._resolver  = resolver;
         self._sym_table = sym_table;
+        self._max_depth = max_import_depth;
     }
 
     /// \brief entry point - builds the full dep graph rooted at entry_fid
     fn build_graph(self, entry_fid: u32, entry_path: ModulePath) -> DepGraph {
         var graph = DepGraph();
-        self.visit(entry_fid, entry_path, &graph);
+        self.visit(entry_fid, entry_path, &graph, 0);
         return graph;
     }
 
-    priv fn visit(self, fid: u32, mod_path: ModulePath, graph: *DepGraph) {
+    /// \brief folds an out-of-band dependency (--force-include) into the
+    ///        graph as if every TU implicitly imported it, at global scope.
+    ///        Its own import chain gets a fresh depth budget (depth 0) it
+    ///        does not inherit whatever depth the requesting TU is at.
+    fn add_root_dependency(self, fid: u32, graph: *DepGraph) {
+        self.visit(fid, ModulePath(), graph, 0);
+    }
+
+    priv fn visit(self, fid: u32, mod_path: ModulePath, graph: *DepGraph, depth: u32) {
         if graph->all_fids.contains(fid) { return; }
         if self._visiting.contains(fid)  { return; } // cycle
+
+        if (self._max_depth > 0) && (i32(depth) > self._max_depth) {
+            if graph->depth_exceeded_path.empty() {
+                graph->depth_exceeded_path = self._sm->get_filename(fid);
+            }
+            return;
+        }
 
         graph->add_node(fid, mod_path);
         self._visiting.insert(fid);
@@ -125,7 +145,7 @@ class DepScanner {
             if (k == TokenKind::KwPub) || (k == TokenKind::KwPriv) || (k == TokenKind::KwProt) {
                 if src.peek(1).kind == TokenKind::KwImport {
                     src.next(); // drop vis keyword
-                    self._scan_one_import(&cur, fid, graph);
+                    self._scan_one_import(&cur, fid, graph, depth);
                     continue;
                 }
                 src.next();
@@ -133,7 +153,7 @@ class DepScanner {
             }
 
             if k == TokenKind::KwImport {
-                self._scan_one_import(&cur, fid, graph);
+                self._scan_one_import(&cur, fid, graph, depth);
                 continue;
             }
 
@@ -173,7 +193,7 @@ class DepScanner {
     }
 
     /// drives the shared grammar, resolves, recurses, adds the edge.
-    priv fn _scan_one_import(self, cur: *StreamCursor, from_fid: u32, graph: *DepGraph) {
+    priv fn _scan_one_import(self, cur: *StreamCursor, from_fid: u32, graph: *DepGraph, depth: u32) {
         var spec = cur->parse_import_spec();
         if !spec.ok { return; }
 
@@ -191,23 +211,29 @@ class DepScanner {
         //   plain path: try full, then drop last (it may be a symbol, not a module)
         var dep = DepResult();
 
+        // Relative resolution is keyed on the IMPORTING file's directory, so
+        // the graph reaches the same files the PP walk will (FileImportIndex
+        // applies the identical rule through the same resolver entry point).
+        var from_dir = self._sm->get_file_dir(from_fid);
+        var has_dir  = from_dir.full_path().size() > 0;
+
         if spec.is_wildcard || (spec.items.size() > 0) {
-            dep = self.resolve_segments(segs, spec.is_module);
+            dep = self.resolve_segments(segs, spec.is_module, from_dir, has_dir);
         } else if spec.last_seg_is_macro {
             segs.pop_back();                       // last seg is the macro name
             if segs.size() == 0 { return; }
-            dep = self.resolve_segments(segs, spec.is_module);
+            dep = self.resolve_segments(segs, spec.is_module, from_dir, has_dir);
         } else {
-            dep = self.resolve_segments(segs, spec.is_module);
+            dep = self.resolve_segments(segs, spec.is_module, from_dir, has_dir);
             if dep.fid == 0 && segs.size() > 1 {
                 segs.pop_back();                   // last seg was a symbol
-                dep = self.resolve_segments(segs, spec.is_module);
+                dep = self.resolve_segments(segs, spec.is_module, from_dir, has_dir);
             }
         }
 
         if dep.fid == 0 { return; }   // unresolved: silent here; the PP walk errors
 
-        self.visit(dep.fid, dep.mod_path, graph);
+        self.visit(dep.fid, dep.mod_path, graph, depth + 1);
         graph->add_edge(from_fid, dep.fid);
     }
 
@@ -216,37 +242,30 @@ class DepScanner {
         var mod_path: ModulePath;
     }
 
-    priv fn resolve_segments(self, segments: vec::<string>, is_module: bool) -> DepResult {
+    /// \details `mod_path` is the resolution's CANONICAL identity (segments
+    ///          from the owning search root), never the written spelling.
+    ///          This path becomes the file's ASTContext::module_base and, from
+    ///          there, its C++ namespace path - so it must be a property of
+    ///          where the file lives, not of whoever imported it first.
+    ///          Ambiguity is not diagnosed here (no DiagEngine in the scanner);
+    ///          the PP walk re-resolves and owns that error.
+    priv fn resolve_segments(self, segments: vec::<string>, is_module: bool,
+                             from_dir: Path, has_from: bool) -> DepResult {
         var result = DepResult();
         result.fid = 0;
 
         if segments.size() == 0 { return result; }
 
-        var resolved: std::Expected::<Path, ResolveError>;
-        if is_module {
-            resolved = self._resolver->resolve_module_dir(segments);
-        } else {
-            resolved = self._resolver->resolve_module(segments);
+        var rr = self._resolver->resolve_module_rel(segments, is_module, from_dir, has_from);
+        if (!rr.found) && is_module {
+            rr = self._resolver->resolve_module_rel(segments, false, from_dir, has_from);
         }
+        if !rr.found { return result; }
 
-        if !resolved.check() {
-            if resolved.err() == ResolveError::AmbiguousModule {
-                var retry = self._resolver->resolve_module(segments);
-                if retry.check() {
-                    var fid = self._sm->load_file(*retry);
-                    if fid != 0 {
-                        result.fid = fid;
-                        result.mod_path = self.segments_to_module_path(segments);
-                    }
-                }
-            }
-            return result;
-        }
-
-        var fid = self._sm->load_file(*resolved);
+        var fid = self._sm->load_file(rr.path);
         if fid != 0 {
             result.fid      = fid;
-            result.mod_path = self.segments_to_module_path(segments);
+            result.mod_path = self.segments_to_module_path(rr.canonical);
         }
 
         return result;
