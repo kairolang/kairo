@@ -812,10 +812,6 @@ fn before_inline()
 inline "c++" { some_c_code(); }
 fn after_inline()
 
-// ============================================================
-// Macro + hoisting interaction tests
-// ============================================================
-
 // --- 1. Macro expanding to a single fn ---
 macro make_fn!(name) {
     fn name()
