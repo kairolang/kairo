@@ -160,18 +160,30 @@ __TOKEN_N::TokenList CompilationUnit::pre_process(__CONTROLLER_CLI_N::CLIArgs &p
         return {};
     }
 
-    if (!CORE_IMPORTED) { // 1 core import per file
-        CORE_IMPORTED = true;
+    // --index-file: emit this file's own declarations and nothing else.  Cross-file
+    // linking happens in the indexer, by name, so the closure is dead weight here.
+    // Both the forced core import and the recursive walk are skipped -- force_import
+    // runs a full build_unit + generate_cxir on core.k, which is the expensive half.
+    if (parsed_args.index_file) {
+        import_processor->disable_import_processing();
+        import_processor->strip_imports();
 
-        auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "core.k";
-        auto pos = tokens[0];
+        kairo::log_opt<LogLevel::Progress>(parsed_args.verbose,
+                                            "index-file: stripped imports, skipped closure");
+    } else {
+        if (!CORE_IMPORTED) { // 1 core import per file
+            CORE_IMPORTED = true;
 
-        import_processor->force_import(core, parsed_args);
-        // import_processor->insert_inline_cpp(tokens, {0, pos}, sanitize_string(core.generic_string()));
-    }
-    
-    while (import_processor->has_processable_import()) { // recursively process imports
-        import_processor->process();
+            auto core = __CONTROLLER_FS_N::get_exe().parent_path().parent_path() / "core" / "core.k";
+            auto pos = tokens[0];
+
+            import_processor->force_import(core, parsed_args);
+            // import_processor->insert_inline_cpp(tokens, {0, pos}, sanitize_string(core.generic_string()));
+        }
+
+        while (import_processor->has_processable_import()) { // recursively process imports
+            import_processor->process();
+        }
     }
 
     if (error::HAS_ERRORED) {

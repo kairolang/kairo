@@ -74,10 +74,22 @@ static void putln(const std::string &s) {
 
 enum class BuildMode { Debug, Release };
 enum class TargetType { Binary, Static, Shared };
-enum class Command { Build, Clean, Test, Deps, Index, Install };
+enum class Command { Build, Clean, Test, Deps, Index, Install, GetDrivers };
 
 static auto to_string(BuildMode m) -> std::string {
     return m == BuildMode::Debug ? "debug" : "release";
+}
+
+static auto to_string(TargetType t) -> std::string {
+    switch (t) {
+        case TargetType::Static:
+            return "static";
+        case TargetType::Shared:
+            return "shared";
+        case TargetType::Binary:
+            break;
+    }
+    return "binary";
 }
 
 static auto parse_target_type(std::string_view s) -> TargetType {
@@ -440,6 +452,9 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
     } else if (first == "index") {
         opts.command = Command::Index;
         ++i;
+    } else if (first == "drivers") {
+        opts.command = Command::GetDrivers;
+        ++i;
     } else if (first == "install") {
         opts.command = Command::Install;
         ++i;
@@ -466,6 +481,8 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
             opts.perf = true;
         else if (arg == "--compile-only")
             opts.compile_only = true;
+        else if (arg == "--get-drivers")
+            opts.command = Command::GetDrivers;
         else if (arg == "--jobs" || arg == "-j") {
             if (++i >= argc)
                 throw std::runtime_error("--jobs requires a value");
@@ -487,6 +504,7 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
                        "  test   <file.k>      Compile and run a test file\n"
                        "  deps   <file.k>      Print dependency tree for a file\n"
                        "  index                  Regenerate compile_commands.json only\n"
+                       "  drivers                Print the build graph's targets as JSON\n"
                        "  install [prefix]       Copy binaries to prefix/bin\n"
                        "\n"
                        "Options:\n"
@@ -499,7 +517,8 @@ static auto parse_cli(int argc, char *argv[]) -> CLIOptions {
                        "  --emit-ast             Pass --emit-ast to kairo\n"
                        "  --keep-going           Don't stop on first failure\n"
                        "  --perf                 (test) compile in release mode\n"
-                       "  --compile-only         (test) compile but don't run\n",
+                       "  --compile-only         (test) compile but don't run\n"
+                       "  --get-drivers          Alias for the 'drivers' command\n",
                        stdout);
             std::exit(0);
         } else if (!arg.starts_with("-"))
@@ -1086,6 +1105,38 @@ static auto execute_clean(const Config &cfg, const CLIOptions &opts) -> int {
     return 0;
 }
 
+/// Emit the build graph's targets as JSON on stdout, for tooling that needs to
+/// know what to index and with which flags.  All diagnostics go to stderr, so
+/// stdout is a single clean JSON document.
+///
+/// `includes` are reproduced verbatim from build.k, which means they may be
+/// relative -- kairo resolves relative -I against $PWD rather than the process
+/// cwd, so `root` is emitted alongside them and a consumer must set PWD to it.
+static auto execute_get_drivers(const Config &cfg) -> int {
+    auto root = fs::absolute(fs::current_path());
+
+    json drivers = json::array();
+    for (const auto &t : cfg.targets) {
+        json d;
+        d["name"]     = t.name;
+        d["kind"]     = to_string(t.kind);
+        d["entry"]    = fs::absolute(t.entry).string();
+        d["includes"] = t.includes;
+        d["defines"]  = t.defines;
+        drivers.push_back(std::move(d));
+    }
+
+    json doc;
+    doc["version"]  = 1;
+    doc["root"]     = root.string();
+    doc["compiler"] = cfg.build.compiler;
+    doc["mode"]     = to_string(cfg.build.mode);
+    doc["drivers"]  = std::move(drivers);
+
+    putln(doc.dump(2));
+    return 0;
+}
+
 static auto execute_index(const Config &cfg) -> int {
     _I_log::info("regenerating compile_commands.json");
     if (!generate_compile_commands(cfg, fs::current_path())) {
@@ -1332,6 +1383,8 @@ int main(int argc, char *argv[]) {
                 return execute_deps(cfg, opts, kairo);
             case Command::Index:
                 return execute_index(cfg);
+            case Command::GetDrivers:
+                return execute_get_drivers(cfg);
             case Command::Install:
                 return execute_install(cfg, opts);
         }
