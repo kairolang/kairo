@@ -23,6 +23,7 @@ import AST::Node::Declarations::*;
 import AST::Context::ASTContext::*;
 import Resolution::ImportProbe::*;
 import Resolution::ModulePath::*;
+import Support::FileIO::Path::*;
 import Location::SourceManager::*;
 import Preprocessor::MacroTable::*;
 import Preprocessor::PreprocessorSymbolTable::*;
@@ -49,6 +50,11 @@ class FileImportIndex {
     priv var _diag: obs::<DiagEngine>;
     priv var _fid:  u32;
 
+    /// This file's own directory: the FIRST place an unqualified import path
+    /// is looked for (see ImportResolver::resolve_module_rel).
+    priv var _dir:      Path;
+    priv var _has_dir:  bool = false;
+
     fn FileImportIndex(self, sym: *PreprocessorSymbolTable, sm: *SourceManager,
                        tcm: *TokenCacheManager, res: *ImportResolver,
                        tbl: *MacroTable, diag: *DiagEngine, fid: u32) {
@@ -59,6 +65,9 @@ class FileImportIndex {
         self._tbl  = tbl;
         self._diag = diag;
         self._fid  = fid;
+
+        self._dir     = sm->get_file_dir(fid);
+        self._has_dir = self._dir.full_path().size() > 0;
     }
 
     priv fn _spell(self, t: Token) -> string {
@@ -81,13 +90,13 @@ class FileImportIndex {
 
         // --- selective / wildcard / bare split ----------------------------
         if id->is_wildcard {
-            var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly);
+            var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly, id->range);
             if rr.found { self.wildcards.push_back(rr.source_scope); id->resolved_fid = rr.target_fid; return rr.target_fid; }
             else        { self._unresolved(id, segs); return 0; }
         }
 
         if id->has_items {
-            var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly);
+            var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly, id->range);
             if !rr.found { self._unresolved(id, segs); return 0; }
             // always record the module alias too (Foo::{...} still allows Foo::x)
             self.module_aliases[self._sym->intern(segs[segs.size() - 1])] = rr.full_scope;
@@ -122,7 +131,7 @@ class FileImportIndex {
             var base = vec::<string>();
             for var i: usize = 0; i + 1 < segs.size(); ++i { base.push_back(segs[i]); }
 
-            var rr = self._resolve(base, id->import_kind == ImportKind::ModuleOnly);
+            var rr = self._resolve(base, id->import_kind == ImportKind::ModuleOnly, id->range);
             if !rr.found { self._unresolved(id, segs); return 0; }
 
             var name_sym  = self._sym->intern(segs[segs.size() - 1]);
@@ -133,7 +142,7 @@ class FileImportIndex {
         }
 
         // plain `import Foo` / `import Foo::Bar` / `import Foo as m`
-        var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly);
+        var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly, id->range);
         if !rr.found { self._unresolved(id, segs); return 0; }
 
         var alias_key = (self._sym->intern(self._spell(id->alias)))
@@ -184,7 +193,14 @@ class FileImportIndex {
 
     /// greedy longest-prefix resolution behavior ported from
     /// ImportProcessor::resolve_module_greedy (that logic was correct).
-    priv fn _resolve(self, segs: vec::<string>, is_module: bool) -> ResolveOut {
+    ///
+    /// Path semantics live in ImportResolver::resolve_module_rel: this file's
+    /// own directory is probed before the search roots, and a name matching
+    /// both is a hard error (R017E) rather than a silent winner. The scopes
+    /// handed back are built on the resolution's CANONICAL segments, not on
+    /// the segments the import spelled, so a module's identity (and therefore
+    /// its C++ namespace path) is the same in every file that imports it.
+    priv fn _resolve(self, segs: vec::<string>, is_module: bool, at: SourceRange) -> ResolveOut {
         var out = ResolveOut();
         if segs.size() == 0 { return out; }
 
@@ -193,39 +209,80 @@ class FileImportIndex {
             var try_segs = vec::<string>();
             for var i: usize = 0; i < try_len; ++i { try_segs.push_back(segs[i]); }
 
-            var resolved: std::Expected::<Path, ResolveError>;
-            if is_module { resolved = self._res->resolve_module_dir(try_segs); }
-            else         { resolved = self._res->resolve_module(try_segs);     }
+            var rr = self._res->resolve_module_rel(try_segs, is_module,
+                                                   self._dir, self._has_dir);
 
-            var ok = resolved.check();
-            if (!ok) && (resolved.err() == ResolveError::AmbiguousModule) {
-                resolved = self._res->resolve_module(try_segs);
-                ok = resolved.check();
-                if ok {
+            // `import module Foo` with no Foo/module.k: fall back to a plain
+            // module resolution, matching the old AmbiguousModule retry.
+            if (!rr.found) && is_module {
+                rr = self._res->resolve_module_rel(try_segs, false,
+                                                   self._dir, self._has_dir);
+                if rr.found {
                     self._diag->report(DiagCode(DiagID::R005W),
                         f"ambiguous module '{self._join(try_segs)}': a file and a directory both exist; the file is used"
                     ).emit();
                 }
             }
 
-            if ok {
-                var fid = self._sm->load_file(*resolved);
+            if rr.found {
+                if rr.ambiguous {
+                    // Sibling and root both matched. Erroring here is what
+                    // keeps sibling-first from becoming Python 2's implicit
+                    // relative import, where adding a file at the root
+                    // silently changes what an import three levels down means.
+                    self._diag->report(DiagCode(DiagID::R017E), at.start,
+                        f"ambiguous import '{self._join(try_segs)}': it matches both '{rr.path.full_path()}' and '{rr.other_path.full_path()}'; qualify the path to say which one you mean"
+                    ).first(at).emit();
+                }
+
+                var fid = self._sm->load_file(rr.path);
                 if fid != 0 {
-                    out.found = true;
-                    out.source_scope = self._to_path(segs, 0, segs.size());
-                    out.full_scope   = self._to_path(segs, 0, try_len);
+                    // canonical ++ whatever the import spelled past the file:
+                    // for a root-relative import this is exactly the old
+                    // `segs`, so nothing changes for existing code.
+                    var src = rr.canonical;
+                    for var i: usize = try_len; i < segs.size(); ++i { src.push_back(segs[i]); }
+
+                    out.found        = true;
+                    out.source_scope = self._segs_to_path(src);
+                    out.full_scope   = self._segs_to_path(rr.canonical);
                     out.target_fid   = fid;
+                    self._drain_collisions();
                     return out;
                 }
             }
             try_len -= 1;
         }
+        self._drain_collisions();
         return out;
     }
 
-    priv fn _to_path(self, segs: vec::<string>, from: usize, to: usize) -> ModulePath {
+    /// Report module-name collisions discovered by the resolver's directory
+    /// sweep. Two files claiming one module identity is the same fault as an
+    /// ambiguous import, one layer down, so it is found in the same pass; the
+    /// resolver sweeps each directory once, so each collision is reported once
+    /// no matter how many imports walk through it.
+    priv fn _drain_collisions(self) {
+        var found = self._res->take_collisions();
+        for var i: usize = 0; i < found.size(); ++i {
+            var c = found[i];
+            if c.case_only {
+                self._diag->report(DiagCode(DiagID::P002E),
+                    f"'{c.a}' and '{c.b}' in '{c.dir}' differ only by case: they are two "
+                    "modules on Linux and one file on default macOS/Windows; rename one"
+                ).emit();
+            } else {
+                self._diag->report(DiagCode(DiagID::R018E),
+                    f"'{c.a}' and '{c.b}' in '{c.dir}' both name module '{c.ident}' "
+                    "('-' in a module filename means '_'); rename one"
+                ).emit();
+            }
+        }
+    }
+
+    priv fn _segs_to_path(self, segs: vec::<string>) -> ModulePath {
         var p = ModulePath();
-        for var i: usize = from; i < to; ++i {
+        for var i: usize = 0; i < segs.size(); ++i {
             var id = IdentifierToken();
             id.name  = self._sym->intern(segs[i]);
             id.token = &null;
