@@ -28,6 +28,17 @@ import Token::TokenBuffer::*;
 import Lexer::Lexer::*;
 import Location::SourceRange::*;
 import Preprocessor::PreprocessorSymbolTable::*; // SymbolID
+import Diagnostic::Engine::*;
+import Diagnostic::Registry::*;
+
+/// \struct InvokeHop
+/// \brief one active splice frame's contribution to a token's macro-origin
+///        chain: where that level was invoked, and which macro produced it.
+///        OUTERMOST-first order (see TokenSource::next_with_origin).
+struct InvokeHop {
+    var loc:  SourceRange;
+    var name: SymbolID;
+}
 
 class TokenSource {
     struct SpliceFrame {
@@ -37,6 +48,15 @@ class TokenSource {
         var macro_name: SymbolID;    ///< producer; identifies chain membership
         var invoke_loc: SourceRange;
         var serial:     u64 = 0;     ///< unique dynamic expansion instance
+
+        /// full origin chain THROUGH this frame (ancestors, outermost first,
+        /// then this frame's own hop last), captured once at push_splice time.
+        /// MUST be captured then, not read live off `_frames` later: a parent
+        /// frame commonly goes exhausted-and-gets-popped by an UNRELATED
+        /// _pop_dead()-triggering call (e.g. _expand's own depth() check)
+        /// before a token belonging to (deeper) child frames is ever emitted,
+        /// so by read time the parent may already be gone from the stack.
+        var chain:      vec::<InvokeHop>;
     }
 
     priv var _lexer:       obs::<Lexer>;
@@ -46,18 +66,41 @@ class TokenSource {
     priv var _eof_seen:    bool = false;   ///< lexer has emitted its TkEof
     priv var _ring_eof:    bool = false;   ///< TkEof sitting in the ring / consumed
 
+    priv var _diag:            obs::<DiagEngine> = &null; ///< null = no budget enforced (DAG scan pass)
+    priv var _max_token_count: i32  = 0;    ///< 0 = unlimited; --cmax-token-count
+    priv var _pulled_count:    usize = 0;   ///< frame-0 tokens pulled from the lexer
+    priv var _budget_reported: bool = false;
+
     fn TokenSource(self, lexer: *Lexer) {
         self._lexer = lexer;
         self._ring.reserve(4);
     }
 
+    /// \param max_token_count 0 = unlimited. \param diag used to report S065E once,
+    ///        past the cap; pass &null (the other ctor) to enforce nothing, as the
+    ///        DAG scanner's scan-only pass does its budget belongs to the real walk.
+    fn TokenSource(self, lexer: *Lexer, max_token_count: i32, diag: *DiagEngine) {
+        self._lexer           = lexer;
+        self._max_token_count = max_token_count;
+        self._diag            = diag;
+        self._ring.reserve(4);
+    }
+
     // --- frame stack (== expansion chain) --------------------------------
 
+    /// \param parent_chain the chain to inherit, captured by the CALLER at
+    ///        invocation-DETECTION time (InvocationInfo.parent_chain), not
+    ///        derived here from `self._frames`. By the time push_splice runs
+    ///        (end of _expand, after its own depth()/budget checks), an
+    ///        exhausted parent frame may already have been popped by one of
+    ///        THOSE checks reading self._frames here would silently lose it.
+    ///        See TokenSource::current_chain / PPWalker::_detect_invocation.
     fn push_splice(
         self,
         tokens: *(TokenBuffer::<512>),
         name: SymbolID,
-        loc: SourceRange
+        loc: SourceRange,
+        parent_chain: *vec::<InvokeHop>
     ) {
         self._next_serial += 1;
 
@@ -67,6 +110,19 @@ class TokenSource {
         f.macro_name = name;
         f.invoke_loc = loc;
         f.serial     = self._next_serial;
+
+        for var i: usize = 0; i < parent_chain->size(); ++i {
+            f.chain.push_back((*parent_chain)[i]);
+        }
+        // An invalid loc (e.g. _expand_buffer's synthetic argument-pre-expand
+        // frame) contributes no hop of its own but still passes the parent
+        // chain through transparently.
+        if loc.is_valid() {
+            var hop = InvokeHop();
+            hop.loc  = loc;
+            hop.name = name;
+            f.chain.push_back(hop);
+        }
 
         self._frames.push_back(f);
     }
@@ -116,6 +172,56 @@ class TokenSource {
         return SourceRange::invalid();
     }
 
+    /// \brief the chain a NEW push_splice, called right now, should inherit as
+    ///        its parent: the current top frame's own already-resolved chain,
+    ///        or empty if no frame is active.
+    ///
+    ///        Deliberately does NOT call _pop_dead() first: this is meant to
+    ///        be read at invocation-DETECTION time (PPWalker::_detect_invocation,
+    ///        into InvocationInfo.parent_chain), which runs before that
+    ///        invocation's own _expand has any chance to pop an
+    ///        exhausted-but-not-yet-popped parent frame via its depth()/budget
+    ///        checks. Reading `self._frames` directly at push_splice's OWN
+    ///        (later) call time would frequently be too late.
+    fn current_chain(self, out: *vec::<InvokeHop>) {
+        out->clear();
+        if self._frames.size() == 0 { return; }
+        var top = &self._frames.back();
+        for var i: usize = 0; i < top->chain.size(); ++i {
+            out->push_back(top->chain[i]);
+        }
+    }
+
+    /// \brief like next(), but ALSO returns the pulled token's full macro-origin
+    ///        chain (empty for a frame-0/non-macro token).
+    ///
+    ///        Reads the TOP frame's `chain` field, which push_splice already
+    ///        resolved in full at push time -- NOT a live walk of `_frames`.
+    ///        A live walk would be wrong: a parent frame routinely goes
+    ///        exhausted-and-gets-popped (via an unrelated _pop_dead()-triggering
+    ///        call, e.g. _expand's own depth() check) before a token belonging
+    ///        to a deeper child frame is ever pulled, so by the time this runs
+    ///        the parent may already be gone from `_frames` even though it's
+    ///        very much still part of this token's origin.
+    ///
+    ///        Order: OUTERMOST hop first (index 0), INNERMOST last -- the
+    ///        order PPWalker::_wrap_origin wants for building the expansion
+    ///        chain attach_macro_expansion_chain (ASTParse.k) later walks
+    ///        outward, ending on the true call site.
+    fn next_with_origin(self, out_chain: *vec::<InvokeHop>) -> Token {
+        out_chain->clear();
+        self._pop_dead();
+
+        if self._frames.size() > 0 {
+            var top = &self._frames.back();
+            for var i: usize = 0; i < top->chain.size(); ++i {
+                out_chain->push_back(top->chain[i]);
+            }
+        }
+
+        return self.next();
+    }
+
     // --- internal: keep the topmost frame live ---------------------------
 
     priv fn _pop_dead(self) {
@@ -129,6 +235,19 @@ class TokenSource {
     /// pull one lexer token into the ring; returns false at true exhaustion.
     priv fn _pull_into_ring(self) -> bool {
         if self._eof_seen { return false; }
+
+        if (self._max_token_count > 0) && (self._pulled_count >= usize(self._max_token_count)) {
+            if (!self._budget_reported) && (self._diag != &null) {
+                self._budget_reported = true;
+                self._diag->report(DiagID::S065E,
+                    f"preprocessor token budget exceeded (limit {self._max_token_count}); "
+                    "raise it with --cmax-token-count=N"
+                ).emit();
+            }
+            self._eof_seen = true;
+            return false;
+        }
+
         var t = Token();
         // CONTRACT: fn Lexer::next(out: *Token) -> bool
         //   emits exactly one TkEof, returns true for it, false thereafter.
@@ -136,6 +255,7 @@ class TokenSource {
             self._eof_seen = true;
             return false;
         }
+        self._pulled_count += 1;
         if t.kind == TokenKind::TkEof {
             self._eof_seen = true;
         }

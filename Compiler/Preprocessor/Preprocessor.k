@@ -24,6 +24,7 @@ import Token::TokenCacheManager::*;
 import Token::TokenText::*;
 import Token::TokenBuffer::*;
 import Resolution::ImportProbe::*;
+import Support::FileIO::Path::*;
 import Config::Preprocessor::*;
 import Macro::Sentinel::*;
 import Preprocessor::TokenSource::*;
@@ -47,10 +48,8 @@ struct PPResult {
     var fids: vec::<u32>;   ///< entry's transitive graph, sorted ascending.
 }
 
-// =========================================================================
 //  Per-fid walker. One instance per fid; the batch driver owns the shared
 //  MacroTable + resolver + contexts and runs walkers in wave order.
-// =========================================================================
 
 class PPWalker
   derives ImportGrammar::<PPWalker>,
@@ -105,7 +104,7 @@ class PPWalker
         self._opts    = opts;
         self._imm     = lexer->get_imm_tbl();
         self._out     = std::create::<TokenBuffer::<512>>();
-        self._src     = std::create::<TokenSource>(lexer);
+        self._src     = std::create::<TokenSource>(lexer, opts.max_token_count, diag);
         self._imports = std::create::<FileImportIndex>(sym, sm, tcm, resolver, macros, diag, fid);
         self._tracker = std::create::<ScopeTracker>(sym, sm, self._imm, tcm, module_base);
         self._sink    = self._out;
@@ -143,9 +142,7 @@ class PPWalker
         self._diag->report(DiagCode(code), r.start, msg).first(r).emit();
     }
 
-    // ======================================================================
     //  The walk
-    // ======================================================================
 
     fn run(self) -> bool {
         while !self._src->at_eof() {
@@ -194,18 +191,24 @@ class PPWalker
                 continue;
             }
 
-            self._emit(self._src->next());
+            var chain = vec::<InvokeHop>();
+            var next_tok = self._src->next_with_origin(&chain);
+            self._emit(next_tok, &chain);
         }
 
         self._finalize();
         return !self._diag->has_fatal();
     }
 
-    // ======================================================================
     //  Emission single choke point + disallow backstop
-    // ======================================================================
 
-    priv fn _emit(self, t: Token) {
+    /// \param chain the token's macro-origin chain, as captured atomically by
+    ///        TokenSource::next_with_origin at the moment it was pulled.
+    ///        &null (the default) for call sites that don't route through
+    ///        next_with_origin (ffi/vis-keyword passthrough, scope-tracked
+    ///        brace/module tokens, the poison sentinel): those tokens are
+    ///        never origin-wrapped, same as before this existed.
+    priv fn _emit(self, t: Token, chain: *vec::<InvokeHop> = &null) {
         if self._src->in_splice() {
             if (t.kind == TokenKind::KwImport) || (t.kind == TokenKind::KwMacro) {
                 // BACKSTOP (primary check is at def time). To lift the rule:
@@ -217,12 +220,69 @@ class PPWalker
                 return;
             }
         }
+
+        if (chain != &null) && (chain->size() > 0) {
+            self._wrap_origin(&t, chain);
+        }
+
         self._sink->append(t);
     }
 
-    // ======================================================================
+    /// \brief stamps `t` with a real macro-expansion origin: TkMacroExpand at
+    ///        the OUTERMOST invocation's position, `imm` pointing at a chain
+    ///        of MacroExpansionInfo records (one per active frame) that
+    ///        ASTParse::report_tok/attach_macro_expansion_chain already know
+    ///        how to walk back to the true definition-site identity.
+    ///
+    ///        No-op for a token that's already TkMacroExpand (a poison/builtin
+    ///        sentinel, or one wrapped by a deeper nested expansion already --
+    ///        re-wrapping would shadow the sentinel/chain it already carries).
+    ///
+    ///        `chain` is OUTERMOST-first (see next_with_origin). The FIRST
+    ///        record built here must be the one attach_macro_expansion_chain's
+    ///        walk reaches LAST (since it walks from `t.imm` outward), so this
+    ///        builds outermost-to-innermost, chaining each new record's
+    ///        original_kind/imm at the PREVIOUS one, and keeps the innermost
+    ///        (built last) as `t`'s new imm -- the walk then reports the
+    ///        closest cause first and the true call site last, terminating on
+    ///        the real original identity.
+    ///
+    ///        Applies uniformly to body-literal AND argument-substituted
+    ///        tokens alike (both flow through the same splice frame by the
+    ///        time _emit sees them) -- an argument token's reported position
+    ///        moves to the invocation site rather than staying at its own
+    ///        (usually adjacent) column. Accepted imprecision: distinguishing
+    ///        the two would need per-token provenance threaded out of
+    ///        _substitute_body, which isn't worth the complexity here.
+    priv fn _wrap_origin(self, t: *Token, chain: *vec::<InvokeHop>) {
+        if t->kind == TokenKind::TkMacroExpand { return; }
+
+        var cur_kind  = t->kind;
+        var cur_imm   = t->imm;
+        var def_range = t->range;
+
+        for var i: usize = 0; i < chain->size(); ++i {
+            var hop = (*chain)[i];
+
+            var idx  = self._imm->create::<Immediate::MacroExpansionInfo>();
+            var info = self._imm->get::<Immediate::MacroExpansionInfo>(idx);
+            info->invoke_range  = hop.loc;
+            info->def_range     = def_range;
+            info->original_kind = cur_kind;
+            info->original_imm  = cur_imm;
+            info->macro_name    = hop.name;
+            info->parent_idx    = u32(-1);
+
+            cur_kind = TokenKind::TkMacroExpand;
+            cur_imm  = idx;
+        }
+
+        t->kind  = TokenKind::TkMacroExpand;
+        t->imm   = cur_imm;
+        t->range = (*chain)[0].loc; // outermost invocation: the token's reportable position
+    }
+
     //  Scope tracking
-    // ======================================================================
     //  ScopeTracker consumes from a TokenSpan today. On the stream we feed it
     //  one token at a time via a 1-token shim. The tracker only needs the
     //  current token + the ability to look at i+1 for `module Foo {`; we give
@@ -239,9 +299,7 @@ class PPWalker
         return true;
     }
 
-    // ======================================================================
     //  FFI
-    // ======================================================================
 
     priv fn _handle_ffi(self) {
         // Decide form by lookahead BEFORE emitting anything.
@@ -285,9 +343,7 @@ class PPWalker
         // ffi-block interior as special, matching current behavior.
     }
 
-    // ======================================================================
     //  Imports
-    // ======================================================================
 
     priv fn _handle_import(self, default_vis: u8) {
         // visibility already consumed by caller when prefixed; default_vis
@@ -364,9 +420,7 @@ class PPWalker
         return VisibilityKind::None;
     }
 
-    // ======================================================================
     //  Macro definitions
-    // ======================================================================
 
     priv fn _handle_macro_def(self, vis: u8) {
         var kw = self._src->next(); // `macro`
@@ -511,9 +565,7 @@ class PPWalker
         // NOTHING emitted.
     }
 
-    // ======================================================================
     //  Invocation detection + expansion
-    // ======================================================================
     //  _detect_invocation: PORT of MacroExpander::detect_invocation, retargeted
     //  to peeks on _src. Pattern unchanged: ident (:: ident)* ! ( ... )?.
     //  Critical difference: it must NOT consume until `found` is certain, then
@@ -522,8 +574,12 @@ class PPWalker
     //  tokens (between balanced parens) into inv.arg_toks.
 
     struct InvocationInfo {
-        var qualified:    ModulePath;
-        var chain:        vec::<SymbolID>; ///< frame names live at detection
+        var qualified:     ModulePath;
+        var chain:         vec::<SymbolID>;  ///< frame names live at detection
+        var parent_chain:  vec::<InvokeHop>; ///< full origin chain live at detection;
+                                              ///  threaded into push_splice for
+                                              ///  THIS invocation's own result
+                                              ///  (see TokenSource::current_chain)
         var arg_toks:     vec::<Token>;    ///< raw tokens between ( ), balanced
         var name:         Token;
         var name_sym:     SymbolID    = 0;
@@ -539,6 +595,7 @@ class PPWalker
 
         result.origin_site = self._src->bottom_invoke_loc();
         self._src->snapshot_chain(&result.chain);
+        self._src->current_chain(&result.parent_chain);
 
         if self._src->peek(0).kind != TokenKind::LitIdentifier { return result; }
 
@@ -666,16 +723,22 @@ class PPWalker
 
     priv fn _expand(self, inv: InvocationInfo) {
         if self._opts.macro_debug {
+            // --cmacro-trace-depth caps how deep the log follows nested expansion;
+            // 0 (default) is unlimited, matching every other --cmax-* knob's convention.
+            var depth = self._src->depth();
+            var within_trace_depth = (self._opts.trace_depth <= 0) || (i32(depth) <= self._opts.trace_depth);
+
             var nm = self._sym_name(inv.name_sym);
-            if self._opts.macro_debug_filter.empty() || (nm == self._opts.macro_debug_filter) {
+            if within_trace_depth
+            && (self._opts.macro_debug_filter.empty() || (nm == self._opts.macro_debug_filter)) {
                 Logger::info(Logger::Stage::Preprocessor,
-                    f"[macro-debug] expand '{nm}!' depth={self._src->depth()} count={self._expansion_count}");
+                    f"[macro-debug] expand '{nm}!' depth={depth} count={self._expansion_count}");
             }
         }
 
         var b = self._try_builtin(&inv);
         if b != &null {
-            self._push_splice(b, inv.name_sym, inv.range);
+            self._push_splice(b, inv.name_sym, inv.range, &inv.parent_chain);
             return;
         }
 
@@ -754,12 +817,15 @@ class PPWalker
 
         //    push; the walk re-enters the spliced body next loop turn, and any
         //    nested invocations inside it are found by _detect_invocation again.
-        self._push_splice(bound, entry->name_sym, inv.range);
+        self._push_splice(bound, entry->name_sym, inv.range, &inv.parent_chain);
     }
 
-    priv fn _push_splice(self, buf: *(TokenBuffer::<512>), name: SymbolID, loc: SourceRange) {
+    priv fn _push_splice(
+        self, buf: *(TokenBuffer::<512>), name: SymbolID, loc: SourceRange,
+        parent_chain: *vec::<InvokeHop>
+    ) {
         self._splices.push_back(buf);       // own it for the run's lifetime
-        self._src->push_splice(buf, name, loc);
+        self._src->push_splice(buf, name, loc, parent_chain);
     }
 
     priv fn _buf_has_invocation(self, b: *(TokenBuffer::<512>)) -> bool {
@@ -772,20 +838,22 @@ class PPWalker
         return false;
     }
 
-    priv fn _expand_buffer(self, src_buf: *(TokenBuffer::<512>)) -> *(TokenBuffer::<512>) {
+    priv fn _expand_buffer(self, src_buf: *(TokenBuffer::<512>), parent_chain: *vec::<InvokeHop>) -> *(TokenBuffer::<512>) {
         var out   = std::create::<TokenBuffer::<512>>();
         var saved = self._sink;
         self._sink = out;
 
         var d0 = self._src->depth();
-        self._src->push_splice(src_buf, 0, SourceRange::invalid());
+        self._src->push_splice(src_buf, 0, SourceRange::invalid(), parent_chain);
 
         while self._src->depth() > d0 {
             var t = self._src->peek(0);
             if t.kind == TokenKind::TkEof { break; }
             var inv = self._detect_invocation();
             if inv.found { self._expand(inv); continue; }
-            self._emit(self._src->next());
+            var chain = vec::<InvokeHop>();
+            var next_tok = self._src->next_with_origin(&chain);
+            self._emit(next_tok, &chain);
         }
 
         self._sink = saved;
@@ -803,7 +871,7 @@ class PPWalker
 
         for var k: usize = 0; k < args.size(); ++k {
             if self._buf_has_invocation(args[k]) {
-                var ex = self._expand_buffer(args[k]);
+                var ex = self._expand_buffer(args[k], &inv->parent_chain);
                 std::destroy(args[k]);
                 args[k] = ex;
             }
@@ -1042,9 +1110,7 @@ class PPWalker
         return tok;
     }
 
-    // ======================================================================
     //  Builtins
-    // ======================================================================
 
     priv fn _try_builtin(
         self,
@@ -1128,9 +1194,7 @@ class PPWalker
             || (name == "label")       || (name == "jump");
     }
 
-    // ======================================================================
     //  Builtin helpers
-    // ======================================================================
 
     priv fn _builtin_report(
         self,
@@ -1279,7 +1343,7 @@ class PPWalker
 
         // 2. expand invocations within it, in caller context
         if self._buf_has_invocation(run) {
-            var ex = self._expand_buffer(run);
+            var ex = self._expand_buffer(run, &invoke->parent_chain);
             std::destroy(run);
             run = ex;
         }
@@ -1350,9 +1414,7 @@ class PPWalker
         return TokenText::spelling(*tok, self._tcm);
     }
 
-    // ======================================================================
     //  Source-location builtins
-    // ======================================================================
 
     priv fn _builtin_file(
         self,
@@ -1431,9 +1493,7 @@ class PPWalker
         return out;
     }
 
-    // ======================================================================
     //  Argument manipulation builtins
-    // ======================================================================
 
     priv fn _builtin_count(
         self,
@@ -1592,9 +1652,7 @@ class PPWalker
         return true;
     }
 
-    // ======================================================================
     //  Token transformation builtins
-    // ======================================================================
 
     /// `stringify!(tokens...)`
     ///
@@ -1788,9 +1846,7 @@ class PPWalker
         return out;
     }
 
-    // ======================================================================
     //  Macro visibility builtins
-    // ======================================================================
 
     priv fn _builtin_defined(
         self,
@@ -1830,9 +1886,7 @@ class PPWalker
         return out;
     }
 
-    // ======================================================================
     //  Deferred/sentinel builtins
-    // ======================================================================
 
     priv fn _builtin_todo(
         self,
@@ -2028,9 +2082,7 @@ class PPWalker
         // return out;
     }
 
-    // ======================================================================
     //  Diagnostic builtins
-    // ======================================================================
 
     priv fn _builtin_diag(
         self,
@@ -2066,9 +2118,7 @@ class PPWalker
         return out;
     }
 
-    // ======================================================================
     //  Resolution
-    // ======================================================================
 
     priv fn _resolve(self, inv: InvocationInfo) -> *MacroEntry {
         if inv.is_qualified {
@@ -2125,9 +2175,7 @@ class PPWalker
         }
     }
 
-    // ======================================================================
     //  Finalize
-    // ======================================================================
 
     priv fn _finalize(self) {
         // hand the produced buffer to the TCM as this fid's tokens.
@@ -2138,9 +2186,7 @@ class PPWalker
     }
 }
 
-// =========================================================================
 //  Batch driver replaces the old PreProcessor::preprocess phases
-// =========================================================================
 
 class PreProcessor {
     priv var _sym:      *PreprocessorSymbolTable;
@@ -2155,6 +2201,11 @@ class PreProcessor {
     priv var _opts:      PreprocessorOptions;
     priv var _walked:    set::<u32>;
     priv var _walked_mu: std::SharedMutex;     // wave tasks are parallel
+    priv var _define_storage: vec::<libcxx::string>; ///< -D value bytes; load_virtual
+                                                       ///  needs them stable for the
+                                                       ///  whole compile. reserved
+                                                       ///  up front so it never
+                                                       ///  reallocates after that.
 
     fn PreProcessor(self, sm: *SourceManager,       tcm:  *TokenCacheManager,
                     resolver: *ImportResolver,      pool: *ThreadPool, diag: *DiagEngine,
@@ -2170,6 +2221,92 @@ class PreProcessor {
         self._gscope   = gscope;
         self._opts     = opts;
         self._inv      = inv;
+        self._register_defines();
+    }
+
+    /// \brief pre-registers `-D NAME[=VALUE]` as parameterless, pub, global-scope
+    ///        macros before any file is walked. Runs once, from the constructor
+    ///        not from preprocess(), since preprocess() runs once per input file
+    ///        and a second registration attempt would just be silently dropped by
+    ///        MacroTable::register's duplicate check while still reallocating
+    ///        _define_storage (dangling every buffer load_virtual already handed
+    ///        out for the first pass).
+    ///
+    ///        Each value gets its own virtual file (SourceManager::load_virtual)
+    ///        so it goes through the SAME lex path a real macro body would,
+    ///        rather than hand-building tokens; that's also what gives the
+    ///        macro's tokens a real fid/ImmediateTable pair for later diagnostics.
+    ///        Bare `-D FOO` (no `=value`) expands to `1`, matching gcc/clang.
+    priv fn _register_defines(self) {
+        if self._opts.defines.size() == 0 { return; }
+        self._define_storage.reserve(self._opts.defines.size());
+
+        for var i: usize = 0; i < self._opts.defines.size(); ++i {
+            var raw = self._opts.defines[i];
+
+            var name:  string;
+            var value: string;
+            var eq = raw.raw_string().find('=');
+            if eq != string::npos {
+                name  = string(raw.raw_string().substr(0, eq));
+                value = string(raw.raw_string().substr(eq + 1));
+            } else {
+                name  = raw;
+                value = "1";
+            }
+            if name.empty() { continue; }
+
+            self._define_storage.push_back(libcxx::string(std::string_to_nstring(value)));
+            var stored = &(self._define_storage[self._define_storage.size() - 1]);
+
+            var fid = self._sm->load_virtual(
+                Path(f"<command-line>:{name}"),
+                reinterpret_cast::<std::ConstPtr::<u8>>(stored->data()),
+                value.size()
+            );
+
+            var lexer = self._tcm->open_stream(fid);
+            if lexer == &null { continue; }
+            var imm = lexer->get_imm_tbl();
+
+            var tcm_tokens    = std::create::<TokenBuffer::<512>>();
+            var macro_storage = std::create::<TokenBuffer::<512>>();
+            var src = TokenSource(lexer);
+            while !src.at_eof() {
+                var t = src.next();
+                if t.kind == TokenKind::TkEof { break; }
+                tcm_tokens->append(t);
+                macro_storage->append(t);
+            }
+            self._tcm->close_stream(fid, tcm_tokens);
+
+            var ctx = self._gscope->get_or_create_context(
+                fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, ModulePath());
+            var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+            if tu == &null {
+                tu = ctx->alloc_init::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
+                ctx->tu = reinterpret_cast::<*void>(tu);
+            }
+
+            var name_tok = Token();
+            name_tok.kind  = TokenKind::LitIdentifier;
+            name_tok.range = SourceRange::invalid();
+            name_tok.imm   = imm->intern_ident_copy(name);
+
+            var decl = MacroDecl::create(ctx, SourceRange::invalid(), name_tok);
+            decl->accepts_params = false;
+
+            var entry = std::create::<MacroEntry>();
+            entry->decl       = decl;
+            entry->storage    = macro_storage;
+            entry->body_len   = u32(macro_storage->size());
+            entry->name_sym   = self._sym->intern(name);
+            entry->scope      = ModulePath(); // global: visible from every TU
+            entry->source_fid = fid;
+            entry->visibility = 3;            // pub: MacroTable::find's cross-file check needs it
+
+            self._macros->register(entry);
+        }
     }
 
     fn op delete (self) {
@@ -2184,8 +2321,27 @@ class PreProcessor {
         var out = PPResult();
         self._resolver->wait_for_index();
 
-        var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._sym);
+        var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._sym, self._opts.max_import_depth);
         var graph   = scanner.build_graph(entry_fid, entry_path);
+
+        if !graph.depth_exceeded_path.empty() {
+            self._diag->report(DiagID::R019E,
+                f"import depth limit ({self._opts.max_import_depth}) exceeded at '{graph.depth_exceeded_path}'; raise it with --cmax-import-depth=N"
+            ).emit();
+        }
+
+        // --force-include: fold each file (and its own transitive imports) into
+        // the graph at global scope, as if this TU implicitly wrote
+        // `import <file>::*;` before its own first token. load_file() already
+        // reports U001F (fatal) on a missing/unreadable path, so a u32(-1)
+        // return needs no diagnostic of its own here just skip it.
+        for path_str: string in self._opts.force_includes {
+            var fi_fid = self._sm->load_file(Path(path_str));
+            if (fi_fid == u32(-1)) || (fi_fid == entry_fid) { continue; } // self-include: a no-op, not a self-edge
+
+            scanner.add_root_dependency(fi_fid, &graph);
+            graph.add_edge(entry_fid, fi_fid);
+        }
 
         var executor = WaveExecutor(self._pool);
         executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
@@ -2196,6 +2352,21 @@ class PreProcessor {
                 var wlock = std::UniqueLock(self._walked_mu);
                 if self._walked.contains(fid) { return; }
                 self._walked.insert(fid);
+            }
+
+            if self._opts.max_file_size_mb > 0 {
+                // compare exact bytes, not truncated MB: a 1.9MB file under a
+                // 1MB cap would otherwise round down to size_mb=1, and 1 > 1
+                // is false so the cap silently wouldn't fire until 2x over.
+                var size_bytes = self._sm->get_file_size(fid);
+                var max_bytes  = usize(self._opts.max_file_size_mb) * 1024 * 1024;
+                if size_bytes > max_bytes {
+                    var size_mb = size_bytes / (1024 * 1024); // display only
+                    self._diag->report(DiagID::S066E,
+                        f"'{self._sm->get_filename(fid)}' is {size_mb}MB, over the {self._opts.max_file_size_mb}MB cap; raise it with --cmax-file-size-mb=N"
+                    ).emit();
+                    return;
+                }
             }
 
             var lexer = self._tcm->open_stream(fid);
