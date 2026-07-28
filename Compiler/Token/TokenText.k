@@ -200,9 +200,9 @@ class TokenText {
             } case TokenKind::LitNull {
                 return create("null");
             } case TokenKind::OpLBrace {
-                return create("\x123");
+                return create("{");
             } case TokenKind::OpRBrace {
-                return create("\x125");
+                return create("}");
             } case TokenKind::OpLParen {
                 return create("(");
             } case TokenKind::OpRParen {

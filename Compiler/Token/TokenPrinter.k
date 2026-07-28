@@ -150,11 +150,12 @@ class TokenPrinter {
         if (tok->kind == TokenKind::TkMacroExpand)
         && (tok->imm < static_cast::<u32>(MacroSentinel::Threshold))
         && (tbl != &null) {
-            var info  = tbl->get::<Immediate::MacroExpansionInfo>(tok->imm);
-            kind      = info->original_kind;
-            imm       = info->original_imm;
-            tok_range = info->def_range;
-            is_macro  = true;
+            var u     = unwrap_expansion(*tok, self._tcm);
+            kind      = u.kind;
+            imm       = u.imm;
+            tok_range = u.def_range;
+            tbl       = u.tbl;
+            is_macro  = (u.depth > 0);
         }
 
         // -- gutter: [N] --
