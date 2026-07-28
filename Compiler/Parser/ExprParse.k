@@ -73,9 +73,7 @@ class <T> ExprParse {
         NoStructLiteral = 1 << 5, ///< disallow { ... } struct literal parsing
     }
 
-    // ========================================================================
     //  CRTP helper
-    // ========================================================================
 
     priv inline fn dyn(self) -> *T {
         return static_cast::<*T>(&self);
@@ -85,9 +83,7 @@ class <T> ExprParse {
         return static_cast::<*Expr>(ChainExpr::create_error(dyn()->ctx, range));
     }
 
-    // ========================================================================
     //  Sync / recovery
-    // ========================================================================
 
     priv inline fn _sync_expr(
         self,
@@ -143,9 +139,7 @@ class <T> ExprParse {
         }
     }
 
-    // ========================================================================
     //  Entry point
-    // ========================================================================
 
     /// \brief operator precedence levels for the Pratt parser.
     ///        higher number = tighter binding.
@@ -585,9 +579,7 @@ class <T> ExprParse {
         return self._infix_precedence(k) != Precedence::None;
     }
 
-    // ========================================================================
     //  Unary expressions
-    // ========================================================================
 
     /// \brief parses prefix unary operators then delegates to postfix.
     ///
@@ -753,9 +745,7 @@ class <T> ExprParse {
         return self._parse_postfix_expr(stop);
     }
 
-    // ========================================================================
     //  sizeof / alignof / typeof
-    // ========================================================================
 
     inline fn _parse_sizeof_expr(self) -> *Expr {
         var kw_range = dyn()->current_ptr()->range;
@@ -841,9 +831,7 @@ class <T> ExprParse {
         return TypeOfExpr::create(dyn()->ctx, kw_range | dyn()->prev().range, operand);
     }
 
-    // ========================================================================
     //  Postfix expression loop
-    // ========================================================================
 
     /// \brief parses a primary expression then loops consuming postfix ops.
     ///
@@ -1009,9 +997,7 @@ class <T> ExprParse {
         return base;
     }
 
-    // ========================================================================
     //  Chain step parsing
-    // ========================================================================
 
     /// \brief parses a single access step: separator + identifier + optional
     ///        generic args.
@@ -1262,9 +1248,7 @@ class <T> ExprParse {
         return ce;
     }
 
-    // ========================================================================
     //  Call expression
-    // ========================================================================
 
     /// \brief parses a function call: callee ( args )
     ///        supports named arguments: foo(x: 10, y: 20)
@@ -1450,9 +1434,7 @@ class <T> ExprParse {
             || k == TokenKind::TkEof;
     }
 
-    // ========================================================================
     //  Subscript expression
-    // ========================================================================
 
     /// \brief parses a subscript: base [ index ]
     ///
@@ -1497,9 +1479,7 @@ class <T> ExprParse {
         return SubscriptExpr::create(dyn()->ctx, base->range | end_range, base, index);
     }
 
-    // ========================================================================
     //  Type cast
-    // ========================================================================
 
     /// \brief speculatively parses `as Type` / `as unsafe *Type`.
     ///
@@ -1547,9 +1527,7 @@ class <T> ExprParse {
         );
     }
 
-    // ========================================================================
     //  Primary expression dispatch
-    // ========================================================================
 
     /// \brief dispatches the current token to the correct primary production.
     ///
@@ -1761,9 +1739,7 @@ class <T> ExprParse {
         return self._error_expr(cur_range);
     }
 
-    // ========================================================================
     //  Identifier expression (with optional generic args)
-    // ========================================================================
 
     /// \brief parses a bare identifier, optionally followed by generic args
     ///        if the hoisted scope indicates it's generic.
@@ -1837,9 +1813,7 @@ class <T> ExprParse {
         return nte;
     }
 
-    // ========================================================================
     //  Global root path: ::foo::bar
-    // ========================================================================
 
     inline fn _parse_global_root_expr(self) -> *Expr {
         var start_range = dyn()->current_ptr()->range;
@@ -1919,9 +1893,7 @@ class <T> ExprParse {
         return ce;
     }
 
-    // ========================================================================
     //  Parenthesized expression / tuple literal
-    // ========================================================================
 
     /// \brief parses (expr) or (expr, expr, ...)
     ///        single expr -> unwrapped (no GroupingExpr since CST not needed)
@@ -2018,9 +1990,7 @@ class <T> ExprParse {
         return tuple;
     }
 
-    // ========================================================================
     //  Array literal: [expr, expr, ...]
-    // ========================================================================
 
     inline fn _parse_list_literal(self) -> *Expr {
         var lsquare_range = dyn()->current_ptr()->range;
@@ -2079,9 +2049,7 @@ class <T> ExprParse {
         return ll;
     }
 
-    // ========================================================================
     // String literal
-    // ========================================================================
     
     priv fn _parse_string_literal(self, tok: Token) -> *Expr {
         // The token reaching here passed check(LitString), but _resolve_and_check
@@ -2185,9 +2153,7 @@ class <T> ExprParse {
         return static_cast::<*Expr>(node);
     }
 
-    // ========================================================================
     //  Brace expression: set/map literal or anon initializer
-    // ========================================================================
 
     /// \brief parses { ... } which could be:
     ///        - set literal:        {1, 2, 3}
@@ -2619,9 +2585,7 @@ class <T> ExprParse {
         }
     }
 
-    // ========================================================================
     // Expression-form branches
-    // ========================================================================
 
     /// \brief parses a single braced expression branch: '{' expr '}'
     /// \details shared by IfExpr and TryCatchExpr (and MatchExpr later). Exactly
@@ -3010,9 +2974,7 @@ class <T> ExprParse {
         }
     }
 
-    // ========================================================================
     //  Generic disambiguation helper
-    // ========================================================================
 
     /// \brief checks if a name refers to a generic type/function in hoisted scope.
     ///        used to disambiguate `<` as generic args vs comparison operator.

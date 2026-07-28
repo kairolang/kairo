@@ -1541,22 +1541,44 @@ class ASTParse
         var name = self.ctx->sm->get_text(invoke);
         var tail: string = " (in a macro expansion)";
         if (name.length() > 0) && (name.length() <= 64) {
-            tail = f" (in expansion of macro '{name}!')";
+            // invoke spans the WHOLE invocation (name, `!`, and any args), so
+            // name already reads e.g. "foo!" or "error!(\"yes\")" -- no extra
+            // '!' here, or a bare invocation renders as "foo!!" .
+            tail = f" (in expansion of macro '{name}')";
         }
 
-        var builder = self.diag->report(id, invoke.start, f"{msg}{tail}");
-        builder.first(invoke);
+        // The primary caret belongs on the DEFINITION site: the offending token
+        // as written inside the macro body. That is the one location the
+        // invocation-site chain notes can never show, and without it the
+        // primary and the chain's innermost note render the same span twice
+        // ("^^^^ expected type" then "^^^^ invoked here" on one line).
+        //
+        // Compiler-synthesized tokens (builtins, poison) carry the invocation
+        // range as their own def_range; there is no distinct body site to point
+        // at, so those keep the invocation as primary and drop the innermost
+        // note instead of repeating it.
+        var def     = info->def_range;
+        var use_def = def.is_valid() && (def.start.raw() != invoke.start.raw());
+        var primary = (def) if (use_def) else (invoke);
+
+        var builder = self.diag->report(id, primary.start, f"{msg}{tail}");
+        builder.first(primary);
 
         if invoke.start.raw() != self._last_exp_diag_loc {
             self._last_exp_diag_loc = invoke.start.raw();
-            self.attach_macro_expansion_chain(&builder, tok);
+            self.attach_macro_expansion_chain(&builder, tok, !use_def);
         }
 
         builder.emit();
     }
 
     /// \brief appends notes to a diagnostic builder showing the macro expansion history.
-    inline pub fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token) {
+    ///
+    /// \param skip_innermost drops the note for the FIRST record walked (the
+    ///        innermost invocation). Set by callers that already placed the
+    ///        primary caret on that same invocation range, so the backtrace
+    ///        starts one hop out instead of restating the primary.
+    inline pub fn attach_macro_expansion_chain(self, builder: *DiagBuilder, tok: *Token, skip_innermost: bool = false) {
         if tok == &null { return; }
         if self.imm == &null { return; }
         if static_cast::<u32>(tok->kind) != static_cast::<u32>(TokenKind::TkMacroExpand) { return; }
@@ -1585,10 +1607,14 @@ class ASTParse
 
             // Primary already sits on the failing token in the macro body; the chain
             // walks OUTWARD through invocation sites toward user code.
+            // invoke_range spans the WHOLE invocation (name, `!`, any args), so
+            // mname already reads e.g. "foo!" -- no extra '!' in the template.
             var mname = self.ctx->sm->get_text(info->invoke_range);
-            if (mname.length() > 0) && (mname.length() <= 64) {
+            if (depth == 0) && skip_innermost {
+                0; // caller's primary already sits on this exact range
+            } else if (mname.length() > 0) && (mname.length() <= 64) {
                 builder->note(info->invoke_range.start,
-                    f"in expansion of macro '{mname}!' invoked here"
+                    f"in expansion of macro '{mname}' invoked here"
                 ).child_first(info->invoke_range);
             } else {
                 builder->note(info->invoke_range.start,

@@ -57,9 +57,7 @@ class <T> DeclParse {
         Generics, ///< inside `< >` generic list: sync to `,` or `>`.
     }
 
-    // ========================================================================
     //  CRTP helpers
-    // ========================================================================
 
     priv inline fn dyn(self) -> *T {
         return static_cast::<*T>(&self);
@@ -100,9 +98,7 @@ class <T> DeclParse {
             || k == TokenKind::KwFinal;
     }
 
-    // ========================================================================
     //  Entry point
-    // ========================================================================
 
     /// \brief parses a single declaration.
     ///  Grammar (dispatch):
@@ -267,9 +263,7 @@ class <T> DeclParse {
         return m;
     }
 
-    // ========================================================================
     //  Visibility group   pub { decl* }
-    // ========================================================================
 
     /// \brief parses a visibility group at decl scope.
     ///  Grammar:  ('pub'|'priv'|'prot') '{' decl* '}'
@@ -453,9 +447,7 @@ class <T> DeclParse {
         owner->add_decl(static_cast::<*Decl>(vg));
     }
 
-    // ========================================================================
     //  Generic parameter list  <T, T impl Foo, const N: i32, ...T>
-    // ========================================================================
 
     /// \brief parses the leading generic/specialization introducer at a decl
     ///        head: either `<T, ...>` (type params) or `<>` (specialization
@@ -875,9 +867,7 @@ class <T> DeclParse {
         }
     }
 
-    // ========================================================================
     //  Function declaration
-    // ========================================================================
     
     /// \returns false if validation failed
     pub fn _parse_and_validate_op_spelling(self, out: *std::StackBuf::<Token, 2>) -> bool {
@@ -1693,9 +1683,7 @@ class <T> DeclParse {
         fd->body_kind = FnBodyKind::None;
     }
 
-    // ========================================================================
     //  Variable / field declaration
-    // ========================================================================
 
     /// \brief parses a var/const/static/eval binding as a VariableDecl.
     ///  Grammar:  ('var'|'const'|'static'|'eval') identifier (':' type)?
@@ -1822,9 +1810,7 @@ class <T> DeclParse {
         return fd;
     }
 
-    // ========================================================================
     //  Inheritance clauses:  derives <edges> | impl <edges>
-    // ========================================================================
 
     /// \brief parses an inheritance edge list following `derives` or `impl`.
     ///  Grammar:  ('derives'|'impl') ('virtual'? visibility? type)
@@ -1904,9 +1890,7 @@ class <T> DeclParse {
         }
     }
 
-    // ========================================================================
     //  Type-scope body  { fields, methods, nested types }
-    // ========================================================================
 
     /// \brief parses a braced member body into the given DeclContext owner,
     ///        collecting fields and methods into the supplied buffers.
@@ -2113,9 +2097,7 @@ class <T> DeclParse {
         return false;
     }
 
-    // ========================================================================
     //  Class
-    // ========================================================================
 
     /// \brief parses a class declaration.
     ///  Grammar:  'final'? 'class' generics? name (derives ...)? (impl ...)? body
@@ -2223,9 +2205,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(cd);
     }
 
-    // ========================================================================
     //  Struct
-    // ========================================================================
 
     /// \brief parses a struct declaration.
     ///  Grammar:  'struct' generics? name (impl ...)? body   (no methods in-body)
@@ -2308,9 +2288,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(sd);
     }
 
-    // ========================================================================
     //  Union
-    // ========================================================================
 
     /// \brief parses a union declaration.
     ///  Grammar:  'union' generics? name body   (fields only, no methods)
@@ -2379,9 +2357,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(ud);
     }
 
-    // ========================================================================
     //  Interface
-    // ========================================================================
 
     /// \brief parses an interface declaration.
     ///  Grammar:  'interface' generics? name (derives ...)? '{' sig* '}'
@@ -2457,9 +2433,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(id);
     }
 
-    // ========================================================================
     //  Extension
-    // ========================================================================
 
     /// \brief parses an extension declaration.
     ///  Grammar:  'extend' generics? type (impl ...)? '{' (method|static)* '}'
@@ -2511,9 +2485,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(ed);
     }
 
-    // ========================================================================
     //  Enum
-    // ========================================================================
 
     /// \brief parses an enum declaration.
     ///  Grammar:  'enum' generics? name ('derives' int_type)? '{' variant* '}'
@@ -2692,9 +2664,7 @@ class <T> DeclParse {
         return v;
     }
 
-    // ========================================================================
     //  Type alias
-    // ========================================================================
 
     /// \brief parses a type alias.
     ///  Grammar:  'type' generics? name '=' type
@@ -2752,9 +2722,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(ta);
     }
 
-    // ========================================================================
     //  Module
-    // ========================================================================
 
     /// \brief parses a module declaration.
     ///  Grammar:  'inline'? 'module' name? '{' decl* '}'
@@ -2825,9 +2793,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(md);
     }
 
-    // ========================================================================
     //  Test
-    // ========================================================================
 
     /// \brief parses a test declaration.
     ///  Grammar:  'test' string_literal block
@@ -2868,9 +2834,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(td);
     }
 
-    // ========================================================================
     //  Macro (token macro vs proc/attribute macro)
-    // ========================================================================
 
     /// \brief parses a macro declaration.
     ///  Grammar:  'macro' ( name '!' '(' params? ')' '{' raw '}'      (token macro)
@@ -3015,9 +2979,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(pm);
     }
 
-    // ========================================================================
     //  Import
-    // ========================================================================
 
     /// \brief parses an import declaration.
     ///  Grammar:
@@ -3083,9 +3045,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(id);
     }
 
-    // ========================================================================
     //  FFI
-    // ========================================================================
 
     /// \brief parses an ffi construct.
     ///  Grammar:
@@ -3266,9 +3226,7 @@ class <T> DeclParse {
         return false;
     }
 
-    // ========================================================================
     //  eval { decl* }  decl block
-    // ========================================================================
 
     /// \brief parses a decl-only eval block at namespace/type scope.
     ///  Grammar:  'eval' '{' decl* '}'
@@ -3312,9 +3270,7 @@ class <T> DeclParse {
         return static_cast::<*Decl>(eb);
     }
 
-    // ========================================================================
     //  Recovery
-    // ========================================================================
 
     /// \brief consumes tokens until a declaration boundary or stop delimiter.
     /// \details delimiter-aware (tracks ()/[]/{} and <> for generics). Stops
@@ -3377,9 +3333,7 @@ class <T> DeclParse {
         }
     }
 
-    // =========================================================================
     // Closures
-    // =========================================================================
 
     /// \brief Parses a complete closure signature with structured error recovery.
     pub fn _parse_closure_sig(self) -> (FrozenList::<*ParamDecl>, FrozenList::<*GenericParamDecl>, FrozenList::<ClosureExpr::Capture>, FnModifier, *Type, bool) {

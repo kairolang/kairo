@@ -48,9 +48,7 @@ class <T> StmtParse {
         Paren,    ///< sync to ) at depth 0 (for-loop clauses)
     }
 
-    // ========================================================================
     //  CRTP helpers
-    // ========================================================================
 
     priv inline fn dyn(self) -> *T {
         return static_cast::<*T>(&self);
@@ -66,9 +64,7 @@ class <T> StmtParse {
         }
     }
 
-    // ========================================================================
     //  Statement-boundary helpers
-    // ========================================================================
 
     /// \brief consumes the optional statement terminator (newline or `;`).
     /// \details statements are newline-terminated; an explicit `;` is also
@@ -102,9 +98,7 @@ class <T> StmtParse {
             || k == TokenKind::KwProt;
     }
 
-    // ========================================================================
     //  Block parsing
-    // ========================================================================
 
     /// \brief parses a brace-delimited statement sequence into a CompoundStmt.
     ///  Grammar:  '{' (stmt terminator?)* '}'
@@ -175,9 +169,7 @@ class <T> StmtParse {
         return block;
     }
 
-    // ========================================================================
     //  Top-level statement dispatch
-    // ========================================================================
 
     /// \brief parses a single statement.
     ///  Grammar (dispatch):
@@ -343,9 +335,7 @@ class <T> StmtParse {
         return self._parse_expr_or_context();
     }
 
-    // ========================================================================
     //  Expression statement  /  context binding
-    // ========================================================================
 
     /// \brief parses an expression statement, or a context binding if the
     ///        expression is followed by a dangling `as` (left unconsumed by
@@ -418,9 +408,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  Binding spec  (shared: destructuring decl, ranged-for, context binding)
-    // ========================================================================
 
     /// \brief parses a binding spec into `out`.
     ///  Grammar:  ('var'|'const') (binding | '(' binding (',' binding)* ')')
@@ -660,9 +648,7 @@ class <T> StmtParse {
         return result;
     }
 
-    // ========================================================================
     //  var / const  -> plain decl vs destructuring decl
-    // ========================================================================
 
     /// \brief routes a `var`/`const` lead-in to a destructuring decl or a plain
     ///        declaration.
@@ -780,9 +766,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  Declaration statement  (delegates to DeclParse)
-    // ========================================================================
 
     /// \brief wraps a declaration parsed by DeclParse in a DeclStmt.
     ///  Grammar:  decl
@@ -809,9 +793,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(ds);
     }
 
-    // ========================================================================
     //  Conditional
-    // ========================================================================
 
     /// \brief parses an if statement with else-if chaining.
     ///  Grammar:  'if' expr block ('else' 'if' expr block)* ('else' block)?
@@ -870,9 +852,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  While / Loop
-    // ========================================================================
 
     /// \brief parses a while loop.
     ///  Grammar:  'while' expr block
@@ -916,9 +896,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  For  (ranged and C-style)
-    // ========================================================================
 
     /// \brief parses a for loop, dispatching between ranged and C-style forms.
     ///  Grammar:  'for' binding_spec 'in' expr block          (ranged)
@@ -1059,9 +1037,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  Match
-    // ========================================================================
 
     /// \brief parses a match statement.
     ///  Grammar:  'match' expr '{' match_case* '}'
@@ -1220,9 +1196,7 @@ class <T> StmtParse {
         return dyn()->parse_pattern();
     }
 
-    // ========================================================================
     //  Jump / signal statements
-    // ========================================================================
 
     /// \brief parses a return statement.
     ///  Grammar:  'return' | 'return' expr
@@ -1366,9 +1340,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  Try / catch  (finally is separate)
-    // ========================================================================
 
     /// \brief parses a try/catch statement.
     ///  Grammar:  'try' block ('catch' catch_filter? block)+
@@ -1477,9 +1449,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  Unsafe / eval blocks
-    // ========================================================================
 
     /// \brief parses an unsafe block.
     ///  Grammar:  'unsafe' block
@@ -1553,9 +1523,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  label! / jump! intrinsics
-    // ========================================================================
 
     /// \brief parses a label intrinsic.
     ///  Grammar:  'label' '!' '(' identifier ')'
@@ -1645,9 +1613,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  Inline foreign block
-    // ========================================================================
 
     /// \brief parses an inline foreign block.
     ///  Grammar:  'inline' string_literal '{' <opaque> '}'
@@ -1791,9 +1757,7 @@ class <T> StmtParse {
         return FFILang::None;
     }
 
-    // ========================================================================
     //  Labeled loop
-    // ========================================================================
 
     /// \brief parses a labeled loop statement.
     ///  Grammar:  identifier ':' (while_stmt | ranged_for | indexed_for | loop_stmt)
@@ -1828,9 +1792,7 @@ class <T> StmtParse {
         return static_cast::<*Stmt>(node);
     }
 
-    // ========================================================================
     //  Recovery
-    // ========================================================================
 
     /// \brief consumes tokens until a statement boundary or a stop delimiter.
     /// \details delimiter-aware: tracks ()/[]/{} depth so it does not stop on a

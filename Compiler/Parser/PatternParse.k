@@ -59,9 +59,7 @@ class <T> PatternParse {
         return static_cast::<*Pattern>(WildcardPattern::create_error(dyn()->ctx, range));
     }
 
-    // ========================================================================
     //  Entry
-    // ========================================================================
 
     /// \brief parses a single pattern. Returns a recovery pattern (never null)
     ///        on failure so the surrounding match-arm structure keeps its shape.
@@ -132,9 +130,7 @@ class <T> PatternParse {
         return self._error_pattern(start);
     }
 
-    // ========================================================================
     //  Predicates
-    // ========================================================================
 
     priv fn _starts_literal(self, k: TokenKind) -> bool {
         return k == TokenKind::LitInt
@@ -163,9 +159,7 @@ class <T> PatternParse {
             || isa::<NullLiteralExpr>(e);
     }
 
-    // ========================================================================
     //  Binding   `var x` | `const x` | `var x: T`
-    // ========================================================================
 
     priv fn _parse_binding_pattern(self) -> *Pattern {
         var start    = dyn()->current_ptr()->range;
@@ -195,9 +189,7 @@ class <T> PatternParse {
             BindingPattern::create(dyn()->ctx, start | dyn()->prev().range, name, is_const, ty));
     }
 
-    // ========================================================================
     //  Tuple   `(p, p, ...)`
-    // ========================================================================
 
     priv fn _parse_tuple_pattern(self) -> *Pattern {
         var start = dyn()->current_ptr()->range;
@@ -246,9 +238,7 @@ class <T> PatternParse {
         return static_cast::<*Pattern>(node);
     }
 
-    // ========================================================================
     //  Slice   `[p, p, ..rest]` | `[p, .., p]` | `[.., p]` | `[p, p]`
-    // ========================================================================
 
     priv fn _parse_slice_pattern(self) -> *Pattern {
         var start = dyn()->current_ptr()->range;
@@ -316,9 +306,7 @@ class <T> PatternParse {
         return static_cast::<*Pattern>(node);
     }
 
-    // ========================================================================
     //  Dotted constructor   `.Variant` / `.Variant(...)`
-    // ========================================================================
 
     priv fn _parse_dotted_pattern(self) -> *Pattern {
         var start = dyn()->current_ptr()->range;
@@ -347,9 +335,7 @@ class <T> PatternParse {
         return static_cast::<*Pattern>(node);
     }
 
-    // ========================================================================
     //  Primary-led: literal value, range, or path constructor
-    // ========================================================================
 
     /// pattern led by something primary can parse: a literal or a path
     /// (`foo`, `A::B`, `Foo<T>`). parse_pattern_lead stops before postfix `(`
@@ -465,9 +451,7 @@ class <T> PatternParse {
         return dyn()->ctx->hoisted->lookup_tok(lead->name).is_type();
     }
 
-    // ========================================================================
     //  Constructor payload   `( p (, p)* ,? )`
-    // ========================================================================
 
     /// precondition: current is `(`. Consumes through the matching `)`.
     priv fn _parse_ctor_payload(self, out: *std::StackBuf::<*Pattern, 8>) {
@@ -507,9 +491,7 @@ class <T> PatternParse {
         }
     }
 
-    // ========================================================================
     //  Recovery
-    // ========================================================================
 
     priv fn _sync_pattern_in_parens(self) {
         var depth: i32 = 0;
