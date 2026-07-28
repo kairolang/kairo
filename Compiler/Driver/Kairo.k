@@ -91,12 +91,12 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
 
     // Global teardown runs after main() returns or on unwind.
     finally {
-        GlobalRecycler::shutdown_allocator_runtime();
         Logger::set_dump_path(
             (((std::get_exe_path()).parent_path()) / r"kairo.log").generic_wstring()
         );
         Logger::dump_to_file();
         Logger::shutdown();
+        GlobalRecycler::shutdown_allocator_runtime();
     }
 
     // Construction parses argv, builds a CompilerInvocation, and wires all
