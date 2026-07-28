@@ -106,8 +106,11 @@ import Diagnostic::BasicConsumer::*;
 import Location::SourceManager::*;
 import Support::TermRenderer::*;
 import Token::TokenCacheManager::*;
+import Token::TokenText::*;
+import Token::TokenKind::*;
 import Command::Command::*;
 import Command::FlagRegistry::*;
+import Codegen::Backend::*;
 import Config::Invocation::*;
 import Driver::BatchResult::*;
 import Driver::TUResult::*;
@@ -208,6 +211,7 @@ class FrontendAction {
     priv fn _sema(self)        -> bool;
     priv fn _codegen(self)     -> bool;
     priv fn _dump_tokens(self);
+    priv fn _dump_preprocessed_source(self);
     priv fn _dump_macros(self);
     priv fn _dump_imports(self);
     priv fn _dump_overlays(self);
@@ -426,9 +430,7 @@ class CompilerInstance {
         return result;
     }
 
-    // =========================================================================
     //  --print-targets
-    // =========================================================================
 
     /// Lists all targets registered in this LLVM build. Mirrors `llc -version`'s
     /// "Registered Targets" section.
@@ -463,9 +465,7 @@ class CompilerInstance {
         return 0;
     }
 
-    // =========================================================================
     //  --print-cpus
-    // =========================================================================
 
     /// Lists CPUs supported by the effective target. Uses --target if given,
     /// otherwise the host triple. Mirrors `llc -mtriple=X -mcpu=help`.
@@ -561,9 +561,7 @@ class CompilerInstance {
         return 0;
     }
 
-    // =========================================================================
     //  --print-target-info
-    // =========================================================================
 
     /// Prints triple, architecture, ABI, pointer width, endianness, object format,
     /// data layout, and default CPU for the effective target. Uses --target if
@@ -810,16 +808,19 @@ class CompilerInstance {
         for c in d.forbid_list { self._diag->set_policy(_diag_code_to_number(c), DiagAction::Forbid);  }
 
         // Logger was initialised at Trace in main(); quiet it down unless
-        // the user asked for verbose output.
+        // the user asked for verbose output. The stream level controls what is
+        // echoed to stderr live (default Error); --verbose turns the terminal
+        // into a running trace instead of something you read out of kairo.log
+        // after the fact.
         if !fe.verbose {
             Logger::set_level(Logger::Level::Warn);
+        } else {
+            Logger::set_stream_level(Logger::Level::Info);
         }
     }
 }
 
-// =========================================================================
 //  FrontendAction out-of-line definitions
-// =========================================================================
 
 /// Executes the full pipeline on the calling thread.
 ///
@@ -867,9 +868,7 @@ fn FrontendAction::run() {
         f"FrontendAction: done '{self.path.full_path()}' ({self.result.elapsed_ms:.2}ms)");
 }
 
-// =========================================================================
 //  Pipeline stages each returns true to continue, false to halt.
-// =========================================================================
 
 /// Emits a fatal diagnostic, marks the TU as failed, and returns false.
 fn FrontendAction::_fatal(msg: string) -> bool {
@@ -895,12 +894,6 @@ fn FrontendAction::_load() -> bool {
 /// inputs is preprocessed once. Its DAG visited-set does the dedup.
 fn FrontendAction::_preprocess() -> bool {
     self._stage = TUStage::Preprocessing;
-
-    var pp_opts = self._ci->invocation().pp;
-    if pp_opts.defines.size() > 0 {
-        Logger::warn(Logger::Stage::Preprocessor,
-            f"-D defines ({pp_opts.defines.size()}) not yet implemented; ignored");
-    }
 
     var pp_res = self._ci->pp()->preprocess(self._file_id, self.module_base);
     self._fids = pp_res.fids;
@@ -930,6 +923,7 @@ fn FrontendAction::_preprocess() -> bool {
     }
 
     var fe = self._ci->invocation().frontend;
+    if fe.dump_preprocessed { self._dump_preprocessed_source(); }
     if fe.print_tokens  { self._dump_tokens();  }
     if fe.print_macros  { self._dump_macros();  }
     if fe.print_imports { self._dump_imports(); }
@@ -1091,11 +1085,11 @@ fn FrontendAction::_sema() -> bool {
     if fe.print_sema     { std::print(f"-- sema: {self.path.full_path()} (not yet implemented) --"); }
     if fe.dump_type_info { std::print(f"-- type info: {self.path.full_path()} (not yet implemented) --"); }
 
-    // Phase I (ImportResolution) across every fid of this TU's graph. Run in
-    // REVERSE tree order so leaf modules build their overlays before importers
-    // fold re-exports (DAG order guarantees source-overlay completeness,
-    // RESOLUTION.md #2). Only phase I is implemented; run_to stops there, and
-    // the N/T/... stubs are not reached.
+    // Phases I -> E -> V (ImportResolution, Expand, Verify) across every fid
+    // of this TU's graph. Run in REVERSE tree order so leaf modules build
+    // their overlays before importers fold re-exports (DAG order guarantees
+    // source-overlay completeness, RESOLUTION.md #2). run_to stops at
+    // Verified; the N/T/... stubs are not reached.
     var n = self._fids.size();
     for var i: usize = 0; i < n; ++i {
         var fid = self._fids[n - 1 - i];
@@ -1104,7 +1098,7 @@ fn FrontendAction::_sema() -> bool {
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         if tu == &null { continue; }
         var sem = Sema(ctx, self._global_scope);
-        sem.run_to(SemaPhase::ImportsResolved);
+        sem.run_to(SemaPhase::Verified);
         ctx->diag_sink.drain_into(self._ci->diag());
     }
 
@@ -1114,10 +1108,6 @@ fn FrontendAction::_sema() -> bool {
     return true;
 }
 
-/// Codegen stage: currently a clang-diagnostic-adapter smoke test.
-/// Points clang's syntax-only frontend at the already-loaded Kairo buffer
-/// (parsed as C++) so it errors against real offsets in clang_kfid, proving
-/// the ClangDiagAdapter loc path end to end. Real codegen replaces this.
 fn FrontendAction::_codegen() -> bool {
     self._stage = TUStage::Codegen;
 
@@ -1128,41 +1118,34 @@ fn FrontendAction::_codegen() -> bool {
 
     var be = self._ci->backend();
     if (be == &null) || (!be->ready()) {
-        return self._fatal("clang backend not ready for diag selftest");
+        return self._fatal("clang backend not ready");
     }
 
     var kfid    = self._file_id;
     var sink    = BufferedDiagSink{};
     var adapter = be->begin_tu(&sink, kfid);
-    finally { be->end_tu(adapter); }
+    finally { std::print("before_end_tu"); be->end_tu(adapter); std::print("after_end_tu"); }
 
-    var ok: bool = false;
-    inline "c++" {
-        auto* ci   = be->ci();
-        auto  cfid = be->locmap()->clang_fid(kfid);
-        auto  ref  = ci->getSourceManager().getBufferOrFake(cfid);
-
-        auto& cfe = ci->getInvocation().getFrontendOpts();
-        cfe.Inputs.clear();
-        cfe.Inputs.push_back(clang::FrontendInputFile(
-            ref, clang::InputKind(clang::Language::CXX)));
-        cfe.ProgramAction = clang::frontend::ParseSyntaxOnly;
-        cfe.OutputFile = "";
-
-        clang::SyntaxOnlyAction act;
-        ok = ci->ExecuteAction(act);
+    var ctx = self._global_scope->get_context(self._file_id);
+    if ctx == &null {
+        return self._fatal("codegen: no ASTContext for main fid");
     }
 
+    var ksize = static_cast::<u32>(self._ci->sm()->get_file_size(self._file_id));
+    if ksize == 0 {
+        return self._fatal("codegen: zero-size main file");
+    }
+
+    var cg = CodegenBackend(be, kfid, &(ctx->nodes), ksize);
+    var ok = cg.run_m1("m1_hello.o", self.path.full_path(), adapter);
+
     sink.drain_into(self._ci->diag());
-    std::eprintln(f"[diag-selftest] errors={sink.error_count()} warnings={sink.warn_count()}");
 
     self._stage = TUStage::Done;
     return true;
 }
 
-// =========================================================================
 //  Post-stage dump helpers
-// =========================================================================
 
 fn FrontendAction::_dump_tokens() {
     var tokens = self._ci->tcm()->get_tokens(self._file_id);
@@ -1179,6 +1162,50 @@ fn FrontendAction::_dump_tokens() {
     );
 
     printer.print_stream(tokens, self.path.full_path());
+}
+
+/// \brief --dump-preprocessed: reconstruct macro-expanded source text from the
+///        finalized token buffer and print it to stdout. This is the ONLY
+///        stdout-emitting form of the preprocessor's output --preprocess alone
+///        stops the pipeline after preprocessing with no extra output, matching
+///        every other stops_at_* flag.
+///
+///        Spelling comes from TokenText::resolve() (the sole sanctioned text
+///        accessor  see Token/TokenText.k), which already unwraps macro
+///        expansion chains to their substituted identity. TkNewLine is
+///        special-cased to a real byte instead of resolve()'s escaped debug
+///        rendering (`"\\n"`), since this is meant to read back as source,
+///        not as a token dump.
+///
+///        The lexer doesn't emit TkWhitespace for ordinary inter-token gaps
+///        on a line (only newlines are real tokens - verified against
+///        --print-tokens output), so original spacing isn't recoverable from
+///        the buffer. A single space is inserted before every content token
+///        that isn't the first on its line instead; this over-spaces
+///        one-character punctuation ("( )" instead of "()") but stays
+///        readable, matching the eyeball-aid framing for this flag.
+fn FrontendAction::_dump_preprocessed_source() {
+    var tokens = self._ci->tcm()->get_tokens(self._file_id);
+    if tokens == &null {
+        std::print(f"-- preprocessed source: {self.path.full_path()} (none) --");
+        return;
+    }
+
+    var tcm = self._ci->tcm();
+    var out: string = "";
+    var at_line_start = true;
+    for var i: usize = 0; i < tokens->size(); ++i {
+        var tok = tokens->get(i);
+        if tok->kind == TokenKind::TkNewLine    { out += "\n"; at_line_start = true; continue; }
+        if tok->kind == TokenKind::TkWhitespace { continue; }
+        if tok->kind == TokenKind::TkEof        { continue; }
+        if tok->kind == TokenKind::TkFileStart  { continue; }
+        if tok->kind == TokenKind::TkFileEnd    { continue; }
+        if !at_line_start { out += " "; }
+        at_line_start = false;
+        out += TokenText::resolve(*tok, tcm).get_text();
+    }
+    std::print(out);
 }
 
 fn FrontendAction::_dump_macros() {
