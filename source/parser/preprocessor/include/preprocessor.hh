@@ -131,6 +131,24 @@ __PREPROCESSOR_BEGIN {
 
         void process();
         bool has_processable_import();
+
+        /// Permanently stop this processor from expanding imports.  Used by
+        /// --index-file, which wants one file's own declarations and nothing
+        /// from its closure.  Same mechanism the internal bail-out paths use.
+        void disable_import_processing() {
+            override_processable_imports = reinterpret_cast<void *>(0xFFF);
+        }
+
+        /// Delete every import statement from the token stream without resolving
+        /// any of them.
+        ///
+        /// Declining to *follow* imports is not enough on its own: the parser
+        /// never sees an `import` statement under normal compilation because
+        /// process() always deletes the tokens after expanding them.  Leaving
+        /// them in place makes Program::parse abort, so --index-file has to
+        /// remove the syntax even though it wants nothing from the target.
+        void strip_imports();
+
         void force_import(const std::filesystem::path &path, __CONTROLLER_CLI_N::CLIArgs args);
 
         void append(const std::filesystem::path                        &path,

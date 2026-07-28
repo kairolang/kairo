@@ -470,6 +470,117 @@ leave_loop_has_processable_import:
         return found_import;
     }
 
+    void ImportProcessor::strip_imports() {
+        /// Each removal invalidates the iterator, so -- like process() -- this
+        /// handles one statement per sweep and restarts until none are left.
+        ///
+        /// Two spellings have to be covered.  A bare `import ...;` (or
+        /// `import { ... }`), and the ffi form `ffi "c++" import "...";` /
+        /// `ffi "c++" { import ...; }`, where the span must start at the `ffi`
+        /// keyword -- deleting only the inner import leaves a dangling
+        /// `ffi "c++"` that the parser rejects.  An ffi block that does *not*
+        /// contain an import is real code and is left alone, matching the check
+        /// process() makes.
+        ///
+        /// TokenList::remove erases [start, end), so the span is closed one
+        /// token past the terminator to take the ';' or '}' with it.  Leaving
+        /// the ';' behind yields a stray empty ExprState in the AST.
+        bool removed_any = true;
+
+        while (removed_any) {
+            removed_any = false;
+
+            __TOKEN_N::TokenList::TokenListIter iter = tokens.begin();
+
+            while (iter.remaining_n() > 0) {
+                const auto kind = iter->token_kind();
+
+                if (kind != __TOKEN_N::tokens::KEYWORD_IMPORT &&
+                    kind != __TOKEN_N::tokens::KEYWORD_FFI) {
+                    iter.advance();
+                    continue;
+                }
+
+                Token start     = iter.current().get();
+                i32   offset    = 1;
+                bool  has_brace = false;
+
+                if (kind == __TOKEN_N::tokens::KEYWORD_FFI) {
+                    /// ffi "<lang>" ( '{' )? import ...
+                    if (!iter.peek(offset).has_value() ||
+                        iter.peek(offset)->get().token_kind() !=
+                            __TOKEN_N::tokens::LITERAL_STRING) {
+                        iter.advance();
+                        continue;
+                    }
+                    ++offset;  // the language string
+
+                    if (iter.peek(offset).has_value() &&
+                        iter.peek(offset)->get().token_kind() ==
+                            __TOKEN_N::tokens::PUNCTUATION_OPEN_BRACE) {
+                        has_brace = true;
+                        ++offset;
+                    }
+
+                    if (!iter.peek(offset).has_value() ||
+                        iter.peek(offset)->get().token_kind() !=
+                            __TOKEN_N::tokens::KEYWORD_IMPORT) {
+                        /// a genuine ffi block, not an import -- keep it.
+                        iter.advance();
+                        continue;
+                    }
+                } else {
+                    if (!iter.peek(offset).has_value() ||
+                        iter.peek(offset)->get().token_kind() ==
+                            __TOKEN_N::tokens::EOF_TOKEN) {
+                        /// malformed tail -- leave it for the parser to report
+                        /// against the real source.
+                        return;
+                    }
+
+                    if (iter.peek(offset)->get().token_kind() ==
+                        __TOKEN_N::tokens::PUNCTUATION_OPEN_BRACE) {
+                        has_brace = true;
+                        ++offset;
+                    }
+                }
+
+                const auto closer = has_brace ? __TOKEN_N::tokens::PUNCTUATION_CLOSE_BRACE
+                                              : __TOKEN_N::tokens::PUNCTUATION_SEMICOLON;
+
+                /// Stage 0 requires the terminator, so scanning for it is exact.
+                /// EOF only bounds the scan against a malformed file.
+                bool found_end = false;
+
+                while (iter.peek(offset).has_value()) {
+                    const auto k = iter.peek(offset)->get().token_kind();
+
+                    if (k == __TOKEN_N::tokens::EOF_TOKEN) {
+                        break;
+                    }
+
+                    if (k == closer) {
+                        found_end = true;
+                        ++offset;  // take the terminator with the span
+                        break;
+                    }
+
+                    ++offset;
+                }
+
+                if (!found_end || !iter.peek(offset).has_value()) {
+                    /// unterminated import -- malformed source.  Leave it alone
+                    /// and let the parser report against the real text.
+                    return;
+                }
+
+                tokens.remove(start, iter.peek(offset).value().get());
+                removed_any = true;
+                break;  // iterator is now stale; restart the sweep
+            }
+        }
+    }
+
     void ImportProcessor::process() {
         /// make an ast parser
         __TOKEN_N::TokenList::TokenListIter           iter = tokens.begin();
