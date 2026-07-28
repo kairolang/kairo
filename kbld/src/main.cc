@@ -561,6 +561,115 @@ static auto load_config(const fs::path    &script_src,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Invocation assembly
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The build-only half of an invocation: where the binary lands, which mode it
+/// is built in, and the CLI's emit flags.  Absent when assembling for analysis.
+struct BuildInvocation {
+    BuildMode         mode;
+    fs::path          output_dir;
+    fs::path          gen_dir;
+    const CLIOptions *opts;
+};
+
+/// True for the flags an analysis run still needs: -I, -L, -D, -W.
+///
+/// -Wl, is a linker flag wearing a -W costume, so it is excluded here.  So is
+/// lowercase -w: it silences every warning, and warnings are exactly what the
+/// analysis run exists to report.  The uppercase -W family (-Wno-*, -Werror=*)
+/// is kept, so analysis and build agree on which warnings matter.
+static auto keep_for_analysis(const std::string &arg) -> bool {
+    if (arg.starts_with("-Wl,"))
+        return false;
+    return arg.starts_with("-I") || arg.starts_with("-L") || arg.starts_with("-D") ||
+           arg.starts_with("-W");
+}
+
+/// The full kairo argument vector for `t`, in invocation order.
+///
+/// `for_analysis` drops link-only flags (-flto, -fuse-ld, -l*, -Wl,*, -o, and
+/// the generated _meta.cpp / registry.o inputs).  Those are meaningless under
+/// --emit-ir, which stops at -fsyntax-only, and some of them make clang error.
+/// Kept in both modes: -I, -L, -D, -W.
+///
+/// The `--` separator is included in the returned vector.  Everything after it
+/// is handed to clang verbatim; kairo does not parse it.
+///
+/// The kairo binary and the entry file are *not* included -- callers place
+/// those themselves, because compile_commands.json carries the file separately
+/// and non-entry .k files borrow a target's flags without borrowing its entry.
+///
+/// `inv` is required when `for_analysis` is false and ignored otherwise.
+static auto build_args_for(const Config          &cfg,
+                           const Target          &t,
+                           bool                   for_analysis,
+                           const BuildInvocation *inv = nullptr) -> std::vector<std::string> {
+    (void)cfg;
+    std::vector<std::string> args;
+
+    if (!for_analysis) {
+        auto out_bin = inv->output_dir / "bin" / t.name;
+        args.push_back("-o" + out_bin.string());
+    }
+
+    for (auto &inc : t.includes)
+        args.push_back("-I" + inc);
+    for (auto &link : t.links)
+        args.push_back("-L" + link);
+
+    if (!for_analysis) {
+        for (auto &lib : t.libs)
+            args.push_back("-l" + lib);
+
+        args.push_back((inv->mode == BuildMode::Debug) ? "--debug" : "--release");
+        if (inv->opts->verbose)
+            args.push_back("--verbose");
+        if (inv->opts->emit_ir)
+            args.push_back("--emit-ir");
+        if (inv->opts->emit_ast)
+            args.push_back("--emit-ast");
+    }
+
+    // collect passthrough items
+    std::vector<std::string> passthrough;
+    for (auto &def : t.defines)
+        passthrough.push_back("-D" + def);
+    for (auto &lf : t.ld_flags)
+        passthrough.push_back(lf);
+    for (auto &src : t.cxx_sources)
+        passthrough.push_back(src);
+
+    if (!for_analysis) {
+        // auto-inject metadata
+        auto meta_file = inv->gen_dir / (t.name + "_meta.cpp");
+        if (fs::exists(meta_file))
+            passthrough.push_back(meta_file.string());
+
+        // windows: inject .res if it was compiled
+        if (is_windows()) {
+            auto res_file = inv->gen_dir / (t.name + ".res");
+            if (fs::exists(res_file))
+                passthrough.push_back(res_file.string());
+        }
+    }
+
+    for (auto &pt : t.cxx_passthrough)
+        passthrough.push_back(pt);
+
+    if (for_analysis)
+        std::erase_if(passthrough, [](const std::string &a) { return !keep_for_analysis(a); });
+
+    if (!passthrough.empty()) {
+        args.push_back("--");
+        for (auto &pt : passthrough)
+            args.push_back(std::move(pt));
+    }
+
+    return args;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // compile_commands.json
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -637,11 +746,12 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(e));
     }
 
-    // Non-entry .k files — includes only
+    // Non-entry .k files — the first target's analysis flags, in full.  The
+    // post-`--` half matters: without it clang cannot find the LLVM headers the
+    // import closure pulls in, and aborts with a fatal before it ever reaches
+    // the file being analysed.
     for (auto &f : kro_non_entry) {
-        json args = json::array();
-        for (auto &inc : first.includes)
-            args.push_back("-I" + inc);
+        json args = build_args_for(cfg, first, /*for_analysis=*/true);
         json e;
         e["directory"] = cwd;
         e["arguments"] = std::move(args);
@@ -649,11 +759,9 @@ static auto generate_compile_commands(const Config &cfg, const fs::path &root) -
         entries.push_back(std::move(e));
     }
 
-    // Target entry .k files — each target's own includes
+    // Target entry .k files — each target's own analysis flags
     for (auto &t : cfg.targets) {
-        json args = json::array();
-        for (auto &inc : t.includes)
-            args.push_back("-I" + inc);
+        json args = build_args_for(cfg, t, /*for_analysis=*/true);
         json e;
         e["directory"] = cwd;
         e["arguments"] = std::move(args);
@@ -835,56 +943,12 @@ static auto build_command(const Target      &target,
                           const fs::path    &gen_dir,
                           const CLIOptions  &opts,
                           const std::string &kairo) -> std::string {
+    BuildInvocation inv{mode, output_dir, gen_dir, &opts};
+
     std::string cmd = kairo;
     cmd += " " + target.entry;
-
-    auto out_bin = output_dir / "bin" / target.name;
-    cmd += " -o" + out_bin.string();
-
-    for (auto &inc : target.includes)
-        cmd += " -I" + inc;
-    for (auto &link : target.links)
-        cmd += " -L" + link;
-    for (auto &lib : target.libs)
-        cmd += " -l" + lib;
-
-    cmd += (mode == BuildMode::Debug) ? " --debug" : " --release";
-    if (opts.verbose)
-        cmd += " --verbose";
-    if (opts.emit_ir)
-        cmd += " --emit-ir";
-    if (opts.emit_ast)
-        cmd += " --emit-ast";
-
-    // collect passthrough items
-    std::vector<std::string> passthrough;
-    for (auto &def : target.defines)
-        passthrough.push_back("-D" + def);
-    for (auto &lf : target.ld_flags)
-        passthrough.push_back(lf);
-    for (auto &src : target.cxx_sources)
-        passthrough.push_back(src);
-
-    // auto-inject metadata
-    auto meta_file = gen_dir / (target.name + "_meta.cpp");
-    if (fs::exists(meta_file))
-        passthrough.push_back(meta_file.string());
-
-    // windows: inject .res if it was compiled
-    if (is_windows()) {
-        auto res_file = gen_dir / (target.name + ".res");
-        if (fs::exists(res_file))
-            passthrough.push_back(res_file.string());
-    }
-
-    for (auto &pt : target.cxx_passthrough)
-        passthrough.push_back(pt);
-
-    if (!passthrough.empty()) {
-        cmd += " --";
-        for (auto &pt : passthrough)
-            cmd += " " + pt;
-    }
+    for (auto &a : build_args_for(cfg, target, /*for_analysis=*/false, &inv))
+        cmd += " " + a;
 
     return cmd;
 }
@@ -1112,6 +1176,9 @@ static auto execute_clean(const Config &cfg, const CLIOptions &opts) -> int {
 /// `includes` are reproduced verbatim from build.k, which means they may be
 /// relative -- kairo resolves relative -I against $PWD rather than the process
 /// cwd, so `root` is emitted alongside them and a consumer must set PWD to it.
+///
+/// `args` is the whole analysis invocation, `--` separator included; `includes`
+/// is a subset of it, kept for consumers that already read that key.
 static auto execute_get_drivers(const Config &cfg) -> int {
     auto root = fs::absolute(fs::current_path());
 
@@ -1123,6 +1190,7 @@ static auto execute_get_drivers(const Config &cfg) -> int {
         d["entry"]    = fs::absolute(t.entry).string();
         d["includes"] = t.includes;
         d["defines"]  = t.defines;
+        d["args"]     = build_args_for(cfg, t, /*for_analysis=*/true);
         drivers.push_back(std::move(d));
     }
 
