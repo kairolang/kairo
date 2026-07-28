@@ -9,19 +9,13 @@
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
-/// ------------------------------------------------------------------------ ///
+///
 
 
 import Command::Command::*;
-// =============================================================================
-//  KAIRO DRIVER FLAG TABLE  - the single place to add/remove flags
-// =============================================================================
 
 fn register_kairo_flags(cmd: *Command) {
-
-    // =========================================================================
     //  IDENTITY
-    // =========================================================================
 
     cmd->define::<FlagKind::Bool>  ("help",               "h", "help",               "show this help message and exit",                                          false);
     cmd->define::<FlagKind::Bool>  ("version",            "V", "version",             "print compiler version and exit",                                          false);
@@ -37,9 +31,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("print-stats",        "",  "print-stats",         "print per-phase compilation statistics after compilation",                  false);
     cmd->define::<FlagKind::String>("stats-file",         "",  "stats-file",          "write compilation statistics to this file instead of stderr",              "");
 
-    // =========================================================================
     //  INPUT
-    // =========================================================================
 
     cmd->define::<FlagKind::PathList> ("files",                "run --help to see usage");
     cmd->define::<FlagKind::StringList>("include-dirs",   "I", "include",             "add directory to module/header search path (repeatable)");
@@ -57,9 +49,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>     ("no-crt",          "",  "no-crt",              "do not link CRT startup objects (freestanding targets)",                   false);
     cmd->define::<FlagKind::Bool>     ("freestanding",    "",  "freestanding",        "assert freestanding environment: implies --no-stdlib --no-crt --no-prelude",false);
 
-    // =========================================================================
     //  OUTPUT
-    // =========================================================================
 
     cmd->define::<FlagKind::String>("output",         "o", "output",         "write primary output to this path",                                                 "");
     cmd->define::<FlagKind::String>("out-dir",        "",  "out-dir",        "write outputs to this directory with auto-named files",                             "");
@@ -67,8 +57,8 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("entry",          "",  "entry",          "override entry point symbol name (default: main)",                                  "main");
     cmd->define::<FlagKind::Bool>  ("compile-only",   "c", "compile-only",   "compile only, do not link (sugar for --emit obj)",                                  false);
     cmd->define::<FlagKind::Bool>  ("emit-asm",       "S", "emit-asm",       "emit assembly output (sugar for --emit asm)",                                       false);
-    cmd->define::<FlagKind::Bool>  ("preprocess",     "",  "preprocess",     "run preprocessor only and write result, then exit",                                 false);
-    cmd->define::<FlagKind::Bool>  ("dump-preprocessed","","dump-preprocessed","write full preprocessed source to file (like -E but saved, not stdout)",          false);
+    cmd->define::<FlagKind::Bool>  ("preprocess",     "",  "preprocess",     "run preprocessor only, then exit (no extra output)",                                false);
+    cmd->define::<FlagKind::Bool>  ("dump-preprocessed","","dump-preprocessed","run preprocessor only and print reconstructed macro-expanded source to stdout",   false);
     cmd->define::<FlagKind::Bool>  ("syntax-only",    "",  "syntax-only",    "stop after parsing and report only syntax errors, no sema or codegen",             false);
     cmd->define::<FlagKind::Bool>  ("type-check-only","",  "type-check-only","stop after type checking, no codegen or linking",                                   false);
     cmd->define::<FlagKind::Bool>  ("shared",         "",  "shared",         "produce a shared library (.so / .dylib / .dll)",                                    false);
@@ -76,9 +66,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("no-entry",       "",  "no-entry",       "no entry point: library / kernel / raw binary output",                              false);
     cmd->define::<FlagKind::Bool>  ("save-temps",     "",  "save-temps",     "keep all intermediate files (.ll, .bc, .o, .s)",                                    false);
 
-    // =========================================================================
     //  TARGET
-    // =========================================================================
 
     cmd->define::<FlagKind::String>("target",         "",  "target",         "target triple: arch-vendor-os-abi (e.g. x86_64-unknown-linux-gnu)",                 "");
     cmd->define::<FlagKind::String>("host",           "",  "host",           "host triple (defaults to native)",                                                  "");
@@ -92,9 +80,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("cxx-std",        "",  "cxx-std",        "C++ standard for interop: c++17|c++20|c++23 (default: c++20)",                     "c++20");
     cmd->define::<FlagKind::String>("cxx-abi",        "",  "cxx-abi",        "C++ ABI for interop: itanium|msvc (default: itanium)",                             "itanium");
 
-    // =========================================================================
     //  BUILD MODE
-    // =========================================================================
 
     cmd->define::<FlagKind::String>("profile",        "",  "profile",        "build profile: debug|release|min-size (sets mode defaults)",                       "debug");
     cmd->define::<FlagKind::String>("borrow-check",   "",  "borrow-check",   "borrow checker severity: warn|error|off (default: warn in debug, error in release)","");
@@ -103,9 +89,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("lto",            "",  "lto",            "link-time optimization: off|thin|full (default: off)",                             "off");
     cmd->define::<FlagKind::String>("panic-handler",  "",  "panic-handler",  "symbol name of a custom panic handler (for --no-stdlib targets)",                  "");
 
-    // =========================================================================
     //  OPTIMISATION
-    // =========================================================================
 
     cmd->define::<FlagKind::I32>  ("opt",             "O", "",               "optimization level: 0 (none), 1 (basic), 2 (standard), 3 (aggressive)",           0, 0, 3);
     cmd->define::<FlagKind::Bool> ("opt-size",        "",  "Os",             "optimise for binary size",                                                          false);
@@ -120,18 +104,14 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::StringList>("disable-llvm-pass","","disable-llvm-pass","disable a specific LLVM pass by name (repeatable)");
     cmd->define::<FlagKind::StringList>("mllvm",      "",  "mllvm",          "forward flags directly to LLVM's option processor (repeatable)");
 
-    // =========================================================================
     //  REPRODUCIBLE BUILDS
-    // =========================================================================
 
     cmd->define::<FlagKind::String>    ("source-date-epoch","","source-date-epoch","clamp all embedded timestamps to this Unix epoch value for reproducible output","");
     cmd->define::<FlagKind::StringList>("remap-path-prefix","","remap-path-prefix","old=new path prefix remapping applied everywhere: debug info, coverage, macros, errors (repeatable)");
     cmd->define::<FlagKind::StringList>("debug-prefix-map","", "debug-prefix-map", "old=new path remapping applied only to DWARF debug info (repeatable)");
     cmd->define::<FlagKind::Bool>      ("no-timestamps","",   "no-timestamps",    "strip all timestamps from output (implies --source-date-epoch=0)",              false);
 
-    // =========================================================================
     //  LANGUAGE SEMANTICS  (hard on/off switches)
-    // =========================================================================
 
     cmd->define::<FlagKind::String>("edition",        "",  "edition",        "language edition (e.g. 2025)",                                                      "2025");
     cmd->define::<FlagKind::Bool>  ("no-assert",      "",  "no-assert",      "disable assert{} block codegen",                                                    false);
@@ -148,25 +128,22 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("no-generics",    "",  "no-generics",    "disable generic instantiation (useful for analysing uninstantiated IR)",           false);
     cmd->define::<FlagKind::Bool>  ("no-fp",          "",  "no-fp",          "hard error on any floating-point operation (embedded targets with no FPU)",        false);
 
-    // =========================================================================
     //  LANGUAGE FEATURE TOGGLES  (-f{name} / -fno-{name})
     //  query: args.get_feature("name") -> -1 unset, 0 disabled, 1 enabled
     //  items marked (on) default to enabled when unset; driver must check -1 as on
-    // =========================================================================
 
-    // -- language correctness (on by default) ---------------------------------
+    // language correctness (on by default)
     cmd->define::<FlagKind::Feature>("verify-interfaces",  "verify all interface impl T declarations are fully satisfied (on)");
     cmd->define::<FlagKind::Feature>("const-checks",       "strict const correctness enforcement (on)");
     cmd->define::<FlagKind::Feature>("overflow-checks",    "integer overflow checking - on in debug, off in release by default");
     cmd->define::<FlagKind::Feature>("strict-null",        "treat nullable pointer dereference as a hard error");
     cmd->define::<FlagKind::Feature>("implicit-conv",      "allow implicit type conversions (on)");
     cmd->define::<FlagKind::Feature>("rtti",               "runtime type information (on)");
-    cmd->define::<FlagKind::Feature>("track-macro-origins","embed origin location for every expanded token for richer errors (on)");
     cmd->define::<FlagKind::Feature>("union-inference",    "union type inference: x = 1; x = \"s\" -> x: i32|string");
     cmd->define::<FlagKind::Feature>("exceptions",         "C++ style exception handling");
     cmd->define::<FlagKind::Feature>("unsafe",             "permit unsafe{} blocks");
 
-    // -- codegen / optimization (off by default unless noted) -----------------
+    // codegen / optimization (off by default unless noted) -----------------
     cmd->define::<FlagKind::Feature>("inline",             "function inlining (on)");
     cmd->define::<FlagKind::Feature>("force-inline",       "honour @force_inline() directives (on)");
     cmd->define::<FlagKind::Feature>("tail-call",          "tail call optimization");
@@ -180,7 +157,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("fast-math",          "aggressive floating-point optimisations (may break IEEE754 compliance)");
     cmd->define::<FlagKind::Feature>("export-all",         "export all top-level symbols by default");
 
-    // -- hardening -------------------------------------------------------------
+    // hardening
     cmd->define::<FlagKind::Feature>("stack-protector",    "stack canary insertion");
     cmd->define::<FlagKind::Feature>("pic",                "position-independent code");
     cmd->define::<FlagKind::Feature>("pie",                "position-independent executable");
@@ -188,7 +165,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("trap-unreachable",   "lower unreachable to a hardware trap instruction rather than UB");
     cmd->define::<FlagKind::Feature>("soft-float",         "software floating point ABI (for targets without FPU)");
 
-    // -- instrumentation -------------------------------------------------------
+    // instrumentation
     cmd->define::<FlagKind::Feature>("coverage",           "source-level coverage instrumentation");
     cmd->define::<FlagKind::Feature>("profile-generate",   "PGO instrumentation pass (generates .profraw)");
     cmd->define::<FlagKind::Feature>("sanitize-address",   "AddressSanitizer");
@@ -196,23 +173,23 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("sanitize-memory",    "MemorySanitizer");
     cmd->define::<FlagKind::Feature>("sanitize-ub",        "UndefinedBehaviourSanitizer");
 
-    // -- ELF/Linux specific ----------------------------------------------------
+    // ELF/Linux specific
     cmd->define::<FlagKind::Feature>("relro",              "mark relocations read-only after startup (ELF RELRO)");
     cmd->define::<FlagKind::Feature>("eh-frame-hdr",       "emit .eh_frame_hdr section (required for unwinding without frame pointers)");
     cmd->define::<FlagKind::Feature>("gc-sections",        "enable linker dead section elimination (--gc-sections)");
 
-    // -- macOS/Darwin specific -------------------------------------------------
+    // macOS/Darwin specific
     cmd->define::<FlagKind::Feature>("dead-strip",         "macOS linker dead stripping (Mach-O equivalent of gc-sections)");
     cmd->define::<FlagKind::Feature>("bitcode",            "embed LLVM bitcode in Mach-O output");
 
-    // -- Windows/PE specific ---------------------------------------------------
+    // Windows/PE specific
     cmd->define::<FlagKind::Feature>("high-entropy-va",    "enable 64-bit ASLR in PE output (HIGHENTROPYVA)");
     cmd->define::<FlagKind::Feature>("dynamicbase",        "enable ASLR in PE output (DYNAMICBASE, on by default on Windows)");
     cmd->define::<FlagKind::Feature>("nxcompat",           "mark PE binary as NX compatible (on by default on Windows)");
     cmd->define::<FlagKind::Feature>("guard-cf",           "enable Windows Control Flow Guard");
     cmd->define::<FlagKind::Feature>("tsaware",            "mark PE binary as terminal-server aware");
 
-    // -- WASM proposals --------------------------------------------------------
+    // WASM proposals
     cmd->define::<FlagKind::Feature>("wasm-bulk-memory",   "enable WASM bulk memory operations proposal");
     cmd->define::<FlagKind::Feature>("wasm-threads",       "enable WASM threads proposal (shared memory + atomics)");
     cmd->define::<FlagKind::Feature>("wasm-tail-calls",    "enable WASM tail calls proposal");
@@ -221,9 +198,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("wasm-reference-types","enable WASM reference types proposal");
     cmd->define::<FlagKind::Feature>("wasm-exceptions",    "enable WASM exception handling proposal");
 
-    // =========================================================================
     //  DEFINES & CONFIG FLAGS
-    // =========================================================================
 
     cmd->define::<FlagKind::StringList>("define",     "D", "",              "define a compile-time macro: -DNAME or -DNAME=VALUE (repeatable)");
     cmd->define::<FlagKind::StringList>("cfg",        "",  "cfg",           "set a named config flag for conditional compilation: --cfg name or --cfg name=value (repeatable)");
@@ -231,9 +206,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>    ("coverage-format","","coverage-format","coverage output format: lcov|gcov|llvm (default: llvm)",                         "llvm");
     cmd->define::<FlagKind::StringList>("coverage-prefix-map","","coverage-prefix-map","remap source paths in coverage output (repeatable)");
 
-    // =========================================================================
     //  WARNINGS & DIAGNOSTICS
-    // =========================================================================
 
     cmd->define::<FlagKind::Bool>      ("Wall",               "",  "Wall",               "enable the standard set of useful warnings",                           false);
     cmd->define::<FlagKind::Bool>      ("Wextra",             "",  "Wextra",             "enable extra warnings not covered by --Wall",                          false);
@@ -252,34 +225,26 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>      ("diag-show-context",  "",  "diag-show-context",  "print surrounding source lines in diagnostics (default: on)",          true);
     cmd->define::<FlagKind::Bool>      ("dump-type-info",     "",  "dump-type-info",     "dump inferred types for all expressions after sema",                   false);
 
-    // =========================================================================
     //  BCIR / AMT INTERNALS
-    // =========================================================================
 
     cmd->define::<FlagKind::Bool>  ("verify-bcir",    "",  "verify-bcir",    "run BCIR integrity verifier pass after borrow-check lowering",                     false);
     cmd->define::<FlagKind::Bool>  ("bcir-verbose",   "",  "bcir-verbose",   "verbose BCIR output with every AMT decision annotated",                            false);
     cmd->define::<FlagKind::Bool>  ("bcir-stats",     "",  "bcir-stats",     "print BCIR statistics: borrows tracked, AMT rewrites made, scopes poisoned",      false);
     cmd->define::<FlagKind::Bool>  ("print-regalloc", "",  "print-regalloc", "dump register allocation decisions from LLVM backend",                             false);
 
-    // =========================================================================
     //  INCREMENTAL COMPILATION
-    // =========================================================================
 
     cmd->define::<FlagKind::Bool>  ("incremental",      "",  "incremental",      "enable incremental compilation",                                               false);
     cmd->define::<FlagKind::String>("incremental-dir",  "",  "incremental-dir",  "directory for incremental compilation cache (default: .kairo-cache)",         ".kairo-cache");
     cmd->define::<FlagKind::Bool>  ("force-recompile",  "",  "force-recompile",  "ignore incremental cache and recompile everything",                            false);
 
-    // =========================================================================
     //  MODULE SYSTEM
-    // =========================================================================
 
     cmd->define::<FlagKind::String>("module-name",       "",  "module-name",       "override the module name for this compilation unit",                          "");
     cmd->define::<FlagKind::String>("module-cache-dir",  "",  "module-cache-dir",  "directory for compiled module artifacts (default: .kairo-modules)",          ".kairo-modules");
     cmd->define::<FlagKind::Bool>  ("no-module-cache",   "",  "no-module-cache",   "disable module caching entirely (always recompile imported modules)",         false);
 
-    // =========================================================================
     //  LINKING
-    // =========================================================================
 
     cmd->define::<FlagKind::StringList>("lib-dirs",       "L", "lib-dir",          "add directory to library search path (repeatable)");
     cmd->define::<FlagKind::StringList>("link-libs",      "l", "link",             "link against named library, optionally qualified: -l static:foo or -l dynamic:bar (repeatable)");
@@ -299,9 +264,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::StringList>("ld-flags",       "",  "ld-flags",         "raw flag passthrough to kld (repeatable)");
     cmd->define::<FlagKind::StringList>("cxx-flags",      "",  "cxx-flags",        "raw flag passthrough to clang for C++ interop compilation (repeatable)");
 
-    // =========================================================================
     //  PLATFORM: macOS / Darwin
-    // =========================================================================
 
     cmd->define::<FlagKind::String>    ("macos-version-min","","macos-version-min","minimum macOS deployment target (e.g. 14.0)",                                "");
     cmd->define::<FlagKind::String>    ("ios-version-min",  "","ios-version-min",  "minimum iOS deployment target (e.g. 17.0)",                                  "");
@@ -311,9 +274,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::StringList>("force-load",       "","force-load",       "force load an archive (all symbols, not just referenced, repeatable)");
     cmd->define::<FlagKind::I32>       ("headerpad",        "","headerpad",        "minimum padding in bytes for Mach-O load commands",                          0, 0, 65536);
 
-    // =========================================================================
     //  PLATFORM: Windows / PE-COFF
-    // =========================================================================
 
     cmd->define::<FlagKind::String>("subsystem",      "",  "subsystem",      "PE subsystem: console|windows|efi|native|posix (default: console)",               "console");
     cmd->define::<FlagKind::String>("pdb",            "",  "pdb",            "path for PDB debug info output (Windows)",                                          "");
@@ -326,9 +287,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::I32>   ("stack-size",     "",  "stack-size",     "override default stack size in PE header (bytes, 0 = linker default)",            0, 0, 2147483647);
     cmd->define::<FlagKind::I32>   ("heap-size",      "",  "heap-size",      "override default heap size in PE header (bytes, 0 = linker default)",             0, 0, 2147483647);
 
-    // =========================================================================
     //  PLATFORM: WASM / WASI
-    // =========================================================================
 
     cmd->define::<FlagKind::StringList>("wasm-export",       "",  "wasm-export",       "explicitly export a WASM symbol by name (repeatable)");
     cmd->define::<FlagKind::Bool>      ("wasm-import-memory","",  "wasm-import-memory","import linear memory from the host instead of defining it",              false);
@@ -339,17 +298,13 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>      ("wasi",              "",  "wasi",              "target WASI ABI (sets default imports/exports for WASI runtime)",        false);
     cmd->define::<FlagKind::String>    ("wasi-version",      "",  "wasi-version",      "WASI ABI version: preview1|preview2 (default: preview1)",               "preview1");
 
-    // =========================================================================
     //  PLATFORM: Embedded / Bare Metal
-    // =========================================================================
 
     cmd->define::<FlagKind::I32>  ("pic-level",       "",  "pic-level",      "PIC level for embedded targets: 0|1|2 (default: 0)",                              0, 0, 2);
     cmd->define::<FlagKind::Bool> ("no-stack-check",  "",  "no-stack-check", "disable stack overflow checking entirely (bare metal)",                            false);
     cmd->define::<FlagKind::I32>  ("fixed-stack-size","",  "fixed-stack-size","fix stack size at compile time in bytes (for static analysis, 0 = dynamic)",    0, 0, 2147483647);
 
-    // =========================================================================
     //  TESTING
-    // =========================================================================
 
     cmd->define::<FlagKind::Bool>  ("test",            "",  "test",           "compile and run all test{} blocks; exit 0 on pass",                              false);
     cmd->define::<FlagKind::Bool>  ("test-list",       "",  "test-list",      "list all test{} block names without running them",                               false);
@@ -360,9 +315,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::I32>   ("test-timeout",    "",  "test-timeout",   "per-test timeout in milliseconds (0 = no timeout)",                             0, 0, 3600000);
     cmd->define::<FlagKind::I32>   ("test-exit-code",  "",  "test-exit-code", "override exit code on test failure (default: 1)",                               1, 0, 255);
 
-    // =========================================================================
     //  OUTPUT VERBOSITY
-    // =========================================================================
 
     cmd->define::<FlagKind::Bool>  ("verbose",         "v", "verbose",        "print all subprocess invocations and internal pass activity",                    false);
     cmd->define::<FlagKind::Bool>  ("quiet",           "",  "quiet",          "suppress all output except errors",                                              false);
@@ -371,9 +324,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("time-passes",     "",  "time-passes",    "print per-pass timing breakdown after compilation",                              false);
     cmd->define::<FlagKind::String>("time-trace",      "",  "time-trace",     "emit Chrome-format trace JSON to this path for compilation profiling",           "");
 
-    // =========================================================================
     //  DEVELOPER / DUMP INTERNALS
-    // =========================================================================
 
     cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump LLVM IR before and after optimization passes",                            false);
     cmd->define::<FlagKind::Bool>  ("print-bcir",       "",  "print-bcir",       "dump BCIR before and after borrow-check lowering",                             false);
@@ -388,9 +339,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("macro-debug",      "",  "macro-debug",      "dump macro expansion trace (ExpansionContext output)",                         false);
     cmd->define::<FlagKind::String>("macro-debug-filter","",  "macro-debug-filter","limit macro trace to expansions of this macro name",                        "");
 
-    // =========================================================================
     //  COMPILER LIMITS  (--c prefix, query via get_cfg_*)
-    // =========================================================================
 
     //  macro system
     cmd->define_cfg::<FlagKind::I32>("max-macro-depth",           "maximum macro recursion depth",                                             128,     1,    65536);
@@ -444,7 +393,6 @@ fn register_kairo_flags(cmd: *Command) {
     //  source / lexer
     cmd->define_cfg::<FlagKind::I32>("max-file-size-mb",          "reject source files larger than this size in MB (0 = unlimited)",          256,     0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-token-count",           "reject token streams longer than this count per file (0 = unlimited)",     0,       0,    2147483647);
-    cmd->define_cfg::<FlagKind::I32>("max-string-length",         "maximum allowed string literal length in characters (0 = unlimited)",      0,       0,    2147483647);
 
     //  codegen
     cmd->define_cfg::<FlagKind::I32>("max-codegen-passes",        "maximum LLVM optimization passes to run (0 = pipeline default)",           0,       0,    1024);
@@ -498,7 +446,7 @@ fn register_kairo_flags(cmd: *Command) {
 }
 
 fn register_test_flags(cmd: *Command) {
-    // -- general --------------------------------------------------------------
+    // general
     //          Flag Type        Key             Short  Long           Description                                        Default
     cmd->define::<FlagKind::Bool>("help",       "h", "help",         "show this help and exit",                         false);
     cmd->define::<FlagKind::Bool>("version",      "",  "version",      "print compiler version and exit",                 false);
@@ -506,17 +454,17 @@ fn register_test_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>("quiet",        "",  "quiet",        "suppress all non-error output",                   false);
     cmd->define::<FlagKind::String>("explain",       "",  "explain",      "explain a diagnostic code (e.g. U003E)",          "");
 
-    // -- build -----------------------------------------------------------------
+    // build
     cmd->define::<FlagKind::String>("profile",       "",  "profile",      "build profile (debug|release|min-size)",          "debug");
 
-    // -- output ----------------------------------------------------------------
+    // output
     cmd->define::<FlagKind::String>("output",        "o", "output",       "output file path");
     cmd->define::<FlagKind::Bool>("compile-only",  "c", "compile-only", "compile only, do not link",                       false);
     cmd->define::<FlagKind::Bool>("emit-asm",      "S", "emit-asm",     "emit assembly output",                            false);
     cmd->define::<FlagKind::Bool>("preprocess",    "E", "preprocess",   "run preprocessor only",                           false);
     cmd->define::<FlagKind::String>("emit",          "",  "emit",         "emit IR type (ast|ir|llvm|asm|obj)",              "obj");
 
-    // -- include / link --------------------------------------------------------
+    // include / link
     cmd->define::<FlagKind::PathList>("include-dirs",  "I", "include",      "add directory to include search path");
     cmd->define::<FlagKind::PathList>("lib-dirs",      "L", "lib-dir",      "add directory to library search path");
     cmd->define::<FlagKind::PathList>("link-libs",     "l", "link",         "link against library");
@@ -525,7 +473,7 @@ fn register_test_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>("no-prelude",    "",  "no-prelude",   "disable implicit prelude",                        false);
     cmd->define::<FlagKind::Bool>("no-stdlib",     "",  "no-stdlib",    "disable standard library",                        false);
 
-    // -- target ----------------------------------------------------------------
+    // target
     cmd->define::<FlagKind::String>("target",        "",  "target",       "target triple (e.g. x86_64-unknown-linux-gnu)",   "");
     cmd->define::<FlagKind::String>("host",          "",  "host",         "host triple",                                     "");
     cmd->define::<FlagKind::String>("march",         "",  "march",        "target architecture",                             "");
@@ -533,21 +481,21 @@ fn register_test_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>("mabi",          "",  "mabi",         "target ABI",                                      "");
     cmd->define::<FlagKind::String>("mtune",         "",  "mtune",        "tune for CPU",                                    "");
 
-    // -- optimization ----------------------------------------------------------
+    // optimization
     cmd->define::<FlagKind::I32>("opt",           "O", "",             "optimization level",                              0, 0, 3);
     cmd->define::<FlagKind::Bool>("opt-size",      "",  "Os",           "optimise for size",                               false);
     cmd->define::<FlagKind::Bool>("opt-size-z",    "",  "Oz",           "aggressively optimise for size",                  false);
     cmd->define::<FlagKind::Bool>("debug",         "g", "",             "emit debug symbols",                              false);
     cmd->define::<FlagKind::Bool>("no-debug",      "",  "g0",           "strip debug symbols",                             false);
 
-    // -- warnings --------------------------------------------------------------
+    // warnings
     cmd->define::<FlagKind::Bool>("nowarn",        "w", "",             "suppress all warnings",                           false);
     cmd->define::<FlagKind::Bool>("wall",          "",  "Wall",         "enable common warnings",                          false);
     cmd->define::<FlagKind::Bool>("wextra",        "",  "Wextra",       "enable extra warnings",                           false);
     cmd->define::<FlagKind::Bool>("werror",        "",  "Werror",       "treat warnings as errors",                        false);
     cmd->define::<FlagKind::String>("diag-format",   "",  "fdiagnostics-format", "diagnostic format (pretty|json|clang)",    "pretty");
 
-    // -- language features  (-f{name} / -fno-{name}, query via get_feature) ----
+    // language features  (-f{name} / -fno-{name}, query via get_feature) ----
     cmd->define::<FlagKind::Feature>("unsafe",          "allow unsafe operations (-funsafe / -fno-unsafe)");
     cmd->define::<FlagKind::Feature>("exceptions",      "enable C++ style exceptions (-fexceptions / -fno-exceptions)");
     cmd->define::<FlagKind::Feature>("implicit-conv",   "allow implicit type conversions (-fimplicit-conversions / -fno-...)");
@@ -560,7 +508,7 @@ fn register_test_flags(cmd: *Command) {
     cmd->define::<FlagKind::Feature>("export",          "module export (-fexport / -fno-export)");
     cmd->define::<FlagKind::String>("std",             "",  "std", "language standard (e.g. kairo25)",  "");
 
-    // -- hardening -------------------------------------------------------------
+    // hardening
     cmd->define::<FlagKind::StringList>("sanitize",      "",  "fsanitize",             "enable sanitizer (address|thread|ub|...)");
     cmd->define::<FlagKind::Bool>("no-omit-fp",    "",  "fno-omit-frame-pointer","keep frame pointer",                     false);
     cmd->define::<FlagKind::Bool>("stack-prot",    "",  "fstack-protector",      "enable stack protector",                 false);
@@ -569,17 +517,17 @@ fn register_test_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>("fast-math",     "",  "ffast-math",            "enable fast-math optimisations",         false);
     cmd->define::<FlagKind::Bool>("no-rtti",       "",  "fno-rtti-data",         "disable RTTI data",                      false);
 
-    // -- pass-through ----------------------------------------------------------
+    // pass-through
     cmd->define::<FlagKind::StringList>("xcxx",          "",  "Xcxx",                  "pass flag directly to C++ backend");
     cmd->define::<FlagKind::StringList>("xlinker",       "",  "Xlinker",               "pass flag directly to linker");
 
-    // -- misc ------------------------------------------------------------------
+    // misc
     cmd->define::<FlagKind::Bool>("save-temps",    "",  "save-temps",            "keep intermediate files",                false);
     cmd->define::<FlagKind::Bool>("coverage",      "",  "coverage",              "enable coverage instrumentation",        false);
     cmd->define::<FlagKind::Bool>("dump-passes",   "",  "dump-passes",           "dump optimization passes",               false);
     cmd->define::<FlagKind::F64>("threshold",     "",  "threshold",             "inlining threshold",                     1.0, 0.0, 1.0);
 
-    // -- config flags  (--c{key}=value, query via get_cfg_*) ------------------
+    // config flags  (--c{key}=value, query via get_cfg_*) ------------------
     cmd->define_cfg::<FlagKind::I32>("max-recursion-depth",  "maximum macro recursion depth",           256,  1, 4096);
     cmd->define_cfg::<FlagKind::I32>("max-errors",           "stop after N errors (0 = unlimited)",     50,   0, 10000);
     cmd->define_cfg::<FlagKind::I32>("max-warnings",         "suppress warnings after N (0 = unlimited)",0,   0, 10000);
@@ -588,7 +536,7 @@ fn register_test_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::String>("error-format",         "error output format (pretty|json|clang)", "pretty");
     cmd->define_cfg::<FlagKind::Bool>("color",               "force colored output",                   true);
 
-    // -- positional files (must be last) --------------------------------------
+    // positional files (must be last)
     cmd->define::<FlagKind::PathList>("files", "or run command with --help to see usage");
 }
 
@@ -610,9 +558,7 @@ fn Test() -> i32 {
         return (d, libcxx::move(c));
     };
 
-    // =========================================================================
     //  BOOL FLAGS
-    // =========================================================================
 
     suite.equal::<string>("--verbose bool flag", "pass", fn () -> string {
         var r = cmd.parse_string("--verbose main.k");
@@ -639,9 +585,7 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    // =========================================================================
     //  STRING FLAGS
-    // =========================================================================
 
     suite.equal::<string>("--output=./bin/app", "pass", fn () -> string {
         var r = cmd.parse_string("--output=./bin/app main.k");
@@ -667,9 +611,7 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    // =========================================================================
     //  I32 WITH BOUNDS  (-O2, -O3, bounds violation)
-    // =========================================================================
 
     suite.equal::<string>("-O2 joined value", "pass", fn () -> string {
         var r = cmd.parse_string("-O2 main.k");
@@ -708,9 +650,7 @@ fn Test() -> i32 {
         std::destroy(d); return "pass";
     }, 1000);
 
-    // =========================================================================
     //  F64 WITH BOUNDS
-    // =========================================================================
 
     suite.equal::<string>("--threshold=0.5", "pass", fn () -> string {
         var r = cmd.parse_string("--threshold=0.5 main.k");
@@ -728,9 +668,7 @@ fn Test() -> i32 {
         std::destroy(d); return "pass";
     }, 1000);
 
-    // =========================================================================
     //  LIST FLAGS  (repeatable)
-    // =========================================================================
 
     suite.equal::<string>("-I repeatable list", "pass", fn () -> string {
         var r = cmd.parse_string("-I./include -I/usr/include main.k");
@@ -754,9 +692,7 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    // =========================================================================
     //  POSITIONAL FILES
-    // =========================================================================
 
     suite.equal::<string>("single file", "pass", fn () -> string {
         var r = cmd.parse_string("main.k");
@@ -779,9 +715,7 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    // =========================================================================
     //  END-OF-OPTIONS  (--)
-    // =========================================================================
 
     suite.equal::<string>("-- stops flag parsing", "pass", fn () -> string {
         var r = cmd.parse_string("--verbose -- --not-a-flag file.k");
@@ -790,9 +724,7 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    // =========================================================================
     //  WINDOWS /flag
-    // =========================================================================
 
     suite.equal::<string>("/Wall", "pass", fn () -> string {
         var r = cmd.parse_string("/Wall main.k");
@@ -806,9 +738,7 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    // =========================================================================
     //  REAL-WORLD INVOCATIONS
-    // =========================================================================
 
     suite.equal::<string>("release build", "pass", fn () -> string {
         var r = cmd.parse_string("-O3 -Wall -Wextra --output=./app --profile=release main.k util.k");
@@ -849,9 +779,7 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    // =========================================================================
     //  ERROR CASES
-    // =========================================================================
 
     suite.equal::<string>("unknown flag -> U002E, ok=false", "pass", fn () -> string {
         var pair = fresh();
@@ -904,11 +832,8 @@ fn Test() -> i32 {
         std::destroy(d); return "pass";
     }, 1000);
 
-    // // =========================================================================
     // //  HELP GENERATION  (smoke)
-    // =========================================================================
     //  FEATURE FLAGS  (-f{name} / -fno-{name}  ->  get_feature returns -1/0/1)
-    // =========================================================================
 
     suite.equal::<string>("-funsafe enables feature", "pass", fn () -> string {
         var r = cmd.parse_string("-funsafe main.k");
@@ -954,9 +879,7 @@ fn Test() -> i32 {
         return "pass";
     }, 1000);
 
-    // =========================================================================
     //  CONFIG FLAGS  (--c{key}=value  ->  get_cfg_*)
-    // =========================================================================
 
     suite.equal::<string>("--cmax-recursion-depth=128", "pass", fn () -> string {
         var r = cmd.parse_string("--cmax-recursion-depth=128 main.k");

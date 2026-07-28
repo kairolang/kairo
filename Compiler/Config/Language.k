@@ -41,7 +41,6 @@ class LangOptions {
     pub var strict_null:         i32 = -1;
     pub var implicit_conv:       i32 = -1;
     pub var rtti:                i32 = -1;
-    pub var track_macro_origins: i32 = -1;
     pub var union_inference:     i32 = -1;
     pub var exceptions:          i32 = -1;
     pub var unsafe_feature:      i32 = -1;
@@ -123,7 +122,6 @@ class LangOptions {
         (o.strict_null)         = (args.get_feature("strict-null"));
         (o.implicit_conv)       = (args.get_feature("implicit-conv"));
         (o.rtti)                = (args.get_feature("rtti"));
-        (o.track_macro_origins) = (args.get_feature("track-macro-origins"));
         (o.union_inference)     = (args.get_feature("union-inference"));
         (o.exceptions)          = (args.get_feature("exceptions"));
         (o.unsafe_feature)      = (args.get_feature("unsafe"));

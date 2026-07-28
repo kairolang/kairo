@@ -11,8 +11,8 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-/// Command - table-driven, two-level state-machine CLI argument parser
-/// ====================================================================
+/// Command
+/// =======
 ///
 /// Usage (matches rest of compiler)
 /// ---------------------------------
@@ -55,14 +55,9 @@ import Support::Assert::*;
 import Diagnostic::Engine::*;
 import Command::ParsedArgs::*;
 
-// =============================================================================
-//  COMMAND  - the parser; use like other compiler components
-// =============================================================================
-
 class Command {
-    
 
-    // -- compile-time long-single-dash prefix table -------------------------
+    // compile-time long-single-dash prefix table
     //
     // When argv[i] starts with "-X" and IS_LONG_FLAG[X] is true, the parser
     // collects the entire run of characters as one flag name, then splits for
@@ -92,7 +87,6 @@ class Command {
 
     var IS_LONG_FLAG: array::<bool, 256> = _build_long_flag_table();
 
-    // -- global state ------------------------------------------------------
 
     enum GlobalState derives u8 {
         Normal,     ///< nothing pending
@@ -100,13 +94,11 @@ class Command {
         PathsOnly,  ///< bare `--` seen; everything remaining is a file
     }
 
-    // -- members -----------------------------------------------------------
 
     priv var _args:  vec::<string>; ///< copy of argv for parsing (owned by Command)
     priv var _table: vec::<FlagDef>;
     priv var _diag:  obs::<DiagEngine>;
 
-    // -- constructor -------------------------------------------------------
 
     fn Command(self, argc: i32, argv: *(*kairo::std::Legacy::char), diag: *DiagEngine) {
         self._diag = diag;
@@ -123,14 +115,12 @@ class Command {
         self._table.reserve(64);
     }
 
-    // -- flag table builder ------------------------------------------------
 
     fn define(self, def: FlagDef) -> ref!(Command) {
         self._table.push_back(def);
         return self;
     }
 
-    // -- no-default variants ---------------------------------------------------
 
     fn <T: FlagKind> define(self, key: string, help: string) -> ref!(Command) {
         static_assert((T == FlagKind::PathList) || (T == FlagKind::Feature),
@@ -156,7 +146,6 @@ class Command {
         return self;
     }
 
-    // -- defaulted variants ----------------------------------------------------
 
     fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string, dfl: bool) -> ref!(Command) {
         static_assert(T == FlagKind::Bool, r"bool default requires FlagKind::Bool");
@@ -178,7 +167,6 @@ class Command {
         return self.define(FlagDef::f64_(key, short_, long_, help, dfl));
     }
 
-    // -- bounded variants ------------------------------------------------------
 
     fn <T: FlagKind> define(self, key: string, short_: string, long_: string, help: string, dfl: i32, min: i32, max: i32) -> ref!(Command) {
         static_assert(T == FlagKind::I32, r"i32 bounds requires FlagKind::I32");
@@ -190,14 +178,12 @@ class Command {
         return self.define(FlagDef::f64_b(key, short_, long_, help, dfl, min, max));
     }
 
-    // -- config: no-default ----------------------------------------------------
 
     fn <T: FlagKind> define_cfg(self, key: string, help: string) -> ref!(Command) {
         static_assert(T == FlagKind::String, r"only String can omit default in cfg");
         return self.define(FlagDef::cfg_str_(key, help));
     }
 
-    // -- config: defaulted -----------------------------------------------------
 
     fn <T: FlagKind> define_cfg(self, key: string, help: string, dfl: bool) -> ref!(Command) {
         static_assert(T == FlagKind::Bool, r"bool default requires FlagKind::Bool");
@@ -214,7 +200,6 @@ class Command {
         return self.define(FlagDef::cfg_i32_(key, help, dfl));
     }
 
-    // -- config: bounded -------------------------------------------------------
 
     fn <T: FlagKind> define_cfg(self, key: string, help: string, dfl: i32, min: i32, max: i32) -> ref!(Command) {
         static_assert(T == FlagKind::I32, r"i32 bounds requires FlagKind::I32");
@@ -226,7 +211,6 @@ class Command {
         return self.define(FlagDef::cfg_f64_b(key, help, dfl, min, max));
     }
 
-    // -- flag table lookup -------------------------------------------------
 
     /// linear scan by short, long, or key - fine for CLI-sized tables
     /// key fallback lets --opt=2 find a flag defined with long_=""
@@ -284,7 +268,6 @@ class Command {
         return &null;
     }
 
-    // -- numeric parsers ---------------------------------------------------
 
     priv fn _parse_i32(self, s: string, out: *i32) -> bool {
         var raw = s.raw_string();
@@ -327,7 +310,6 @@ class Command {
         return true;
     }
 
-    // -- value applicator --------------------------------------------------
 
     priv fn _apply(self, def: *FlagDef, raw: string, result: *ParsedArgs) {
         var cell = result->_cell(def->key);
@@ -394,10 +376,6 @@ class Command {
         cell->set_i32(1 if enable else 0);
     }
 
-    // =========================================================================
-    //  CORE STATE MACHINE  (operates on vec::<string>)
-    // =========================================================================
-
     priv fn _parse_impl(self, args: ref!(vec::<string>)) -> ParsedArgs {
         var result  = ParsedArgs();
         var gstate: GlobalState = GlobalState::Normal;
@@ -419,13 +397,11 @@ class Command {
             var elem  = args[i];
             var elen  = elem.length();
 
-            // -- PathsOnly: bare `--` was seen -----------------------------
             if gstate == GlobalState::PathsOnly {
                 result.files.push_back(elem);
                 i += 1; continue;
             }
 
-            // -- AwaitValue: last flag needs this element as its value ------
             if gstate == GlobalState::AwaitValue {
                 self._apply(pending, elem, &result);
                 gstate  = GlobalState::Normal;
@@ -435,7 +411,6 @@ class Command {
 
             if elen == 0 { i += 1; continue; }
 
-            // -- '-' prefix ------------------------------------------------
             if elem[0] == '-' {
 
                 // bare '-' -> stdin file (POSIX convention)
@@ -547,7 +522,6 @@ class Command {
                     }
                 }
 
-            // -- '/' prefix (Windows-style) ---------------------------------
             } else if elem[0] == '/' && _IS_WINDOWS {
                 if elen == 1 { i += 1; continue; }
 
@@ -610,7 +584,6 @@ class Command {
                     }
                 }
 
-            // -- positional file --------------------------------------------
             } else {
                 result.files.push_back(elem);
             }
@@ -626,7 +599,6 @@ class Command {
             result.ok = false;
         }
 
-        // -- post-parse: validate required fields -------------------------
         for var t: usize = 0; t < self._table.size(); ++t {
             var def = &(self._table[t]);
             if !def->default_.is_required { continue; }
@@ -650,10 +622,6 @@ class Command {
 
         return result;
     }
-
-    // =========================================================================
-    //  PUBLIC API
-    // =========================================================================
 
     /// \brief parse a vec::<string> as received from main's argv
     ///        args[0] is the program name and is skipped
@@ -690,14 +658,12 @@ class Command {
         return self._parse_impl(args);
     }
 
-    // -- help generator ----------------------------------------------------
 
     fn print_help(self) {
         var COL: usize = 36; // column where descriptions start
 
         var prog = ((self._args[0]) if (self._args.size() > 0) else ("prog"));
 
-        // -- usage line -----------------------------------------------------
         var usage: string = f"USAGE: {prog} [options]";
         for var t: usize = 0; t < self._table.size(); ++t {
             if self._table[t].kind == FlagKind::PathList {
@@ -709,7 +675,6 @@ class Command {
         std::print("");
         std::print("OPTIONS:");
 
-        // -- flag lines -----------------------------------------------------
         for var t: usize = 0; t < self._table.size(); ++t {
             var def = &(self._table[t]);
             if def->kind == FlagKind::PathList { continue; }
@@ -754,7 +719,6 @@ class Command {
                 }
             }
 
-            // -- rhs: description + default -----------------------------
             var rhs: string = def->help;
             if def->default_.is_required {
                 rhs += " (required)";
@@ -775,7 +739,6 @@ class Command {
                 }
             }
 
-            // -- emit: wrap if lhs is too long --------------------------
             if lhs.length() < COL {
                 while lhs.length() < COL { lhs += ' '; }
                 std::print(f"{lhs}{rhs}");
@@ -787,7 +750,6 @@ class Command {
             }
         }
 
-        // -- positional files -----------------------------------------------
         for var t: usize = 0; t < self._table.size(); ++t {
             var def = &(self._table[t]);
             if def->kind != FlagKind::PathList { continue; }

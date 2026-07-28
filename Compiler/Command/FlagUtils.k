@@ -11,10 +11,6 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-// =============================================================================
-//  FLAG KIND
-// =============================================================================
-
 enum FlagKind derives u8 {
     Bool,        ///< presence flag; no value             -v / --verbose
     String,      ///< arbitrary string value              --output=path
@@ -37,7 +33,6 @@ class FlagValue {
     priv var _f:  f64    = 0.0;
     priv var _sv: vec::<string>;
 
-    // -- factories ---------------------------------------------------------
 
     static fn required(k: FlagKind) -> FlagValue {
         var v = FlagValue(); v.kind = k; v.is_required = true; return v;
@@ -75,7 +70,6 @@ class FlagValue {
     /// -1 = unset, 0 = disabled (-fno-...), 1 = enabled (-f...)
     fn as_feature(self) -> i32 { return self._i; }
 
-    // -- accessors ---------------------------------------------------------
 
     fn as_bool(self)   -> bool                { return self._b;  }
     fn as_string(self) -> string              { return self._s;  }
@@ -83,7 +77,6 @@ class FlagValue {
     fn as_f64(self)    -> f64                 { return self._f;  }
     fn as_list(self)   -> ref!(vec::<string>) { return self._sv; }
 
-    // -- mutators (called by the parser) -----------------------------------
 
     fn set_bool(self, b: bool)     { self._b = b; self.is_set = true; }
     fn set_string(self, s: string) { self._s = s; self.is_set = true; }
@@ -91,10 +84,6 @@ class FlagValue {
     fn set_f64(self, f: f64)       { self._f = f; self.is_set = true; }
     fn push(self, s: string)       { self._sv.push_back(s); self.is_set = true; }
 }
-
-// =============================================================================
-//  FLAG DESCRIPTOR  - add one line here to add a flag, nothing else changes
-// =============================================================================
 
 class FlagDef {
     pub var key:        string;
@@ -204,7 +193,6 @@ class FlagDef {
         return d;
     }
 
-    // -- feature toggle  (-f{key} / -fno-{key}) ------------------------------
 
     /// \brief defines a language feature toggle parsed from -f{key} / -fno-{key}
     ///        query via ParsedArgs::get_feature(key) -> -1 (unset), 0 (off), 1 (on)
@@ -219,7 +207,6 @@ class FlagDef {
         return d;
     }
 
-    // -- config flags  (--c{key}=value) --------------------------------------
     //   keys are stored internally as "c:{key}" to avoid collisions with
     //   regular flags.  query via ParsedArgs::get_cfg_*(key).
 
@@ -262,7 +249,6 @@ class FlagDef {
         return d;
     }
 
-    // -- positional files -----------------------------------------------------
 
     /// positional file arguments (optional - zero or more)
     static fn files_opt(key: string, help: string) -> FlagDef {

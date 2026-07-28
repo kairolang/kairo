@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------------- Config/Frontend.k --- ///
+/// --- The Kairo Project
 ///
 ///   Frontend action selection, pipeline control, and testing options.
 ///
@@ -9,13 +9,9 @@
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
-/// ------------------------------------------------------------------------ ///
+///
 
 import Command::ParsedArgs::*;
-
-// =============================================================================
-//  FRONTEND ACTION
-// =============================================================================
 
 ///
 /// \brief Selects the highest-priority pipeline action.
@@ -38,33 +34,30 @@ enum FrontendActionKind derives u8 {
     TypeCheckOnly, ///< stop after semantic analysis        (--type-check-only)
 }
 
-// =============================================================================
-//  FRONTEND OPTIONS
-// =============================================================================
-
 class FrontendOptions {
-    // -- output ------------------------------------------------------------
+    // output
     pub var output:              string = "";
     pub var out_dir:             string = "";
     pub var entry:               string = "main";
     pub var emit:                string = "obj";
-    // -- verbosity / timing ------------------------------------------------
+    // verbosity / timing
     pub var time_trace:          string = "";
     pub var stats_file:          string = "";
-    // -- concurrency -------------------------------------------------------
+    // concurrency
     pub var thread_count:        i32    = 0; ///< 0 = hardware concurrency
     pub var max_threads:         i32    = 0; ///< 0 = no cap
     pub var max_expr_depth:      i32    = 512;
     pub var max_scope_depth:     i32    = 256;
-    // -- primary action ----------------------------------------------------
+    // primary action
     pub var action:              FrontendActionKind = FrontendActionKind::EmitObj;
-    // -- verbosity / timing ------------------------------------------------
+    // verbosity / timing
     pub var verbose:             bool   = false;
     pub var quiet:               bool   = false;
     pub var suppress:            bool   = false;
     pub var time_passes:         bool   = false;
     pub var print_stats:         bool   = false;
-    // -- post-stage dump flags (independent of primary action) -------------
+    // post-stage dump flags (independent of primary action)
+    pub var dump_preprocessed:   bool   = false; ///< --dump-preprocessed: print reconstructed source to stdout
     pub var print_tokens:        bool   = false;
     pub var print_macros:        bool   = false;
     pub var print_imports:       bool   = false;
@@ -77,32 +70,32 @@ class FrontendOptions {
     pub var dump_type_info:      bool   = false;
     pub var print_regalloc:      bool   = false;
     pub var print_pass_pipeline: bool   = false;
-    // -- verification passes -----------------------------------------------
+    // verification passes
     pub var verify_ir:           bool   = false;
     pub var verify_bcir:         bool   = false;
     pub var bcir_verbose:        bool   = false;
     pub var bcir_stats:          bool   = false;
-    // -- output ------------------------------------------------------------
+    // output
     pub var shared:              bool   = false;
     pub var static_:             bool   = false;
     pub var no_entry:            bool   = false;
     pub var dll:                 bool   = false;
     pub var save_temps:          bool   = false;
-    // -- parser / sema ------------------------------------------------------
+    // parser / sema
     pub var max_generic_instantiations: i32 = 0x7FFFFFFE;
     pub var max_tuple_arity:            i32 = 128;
 
-    // -- incremental compilation -------------------------------------------
+    // incremental compilation
     pub var incremental:         bool   = false;
     pub var incremental_dir:     string = ".kairo-cache";
     pub var force_recompile:     bool   = false;
 
-    // -- module system -----------------------------------------------------
+    // module system
     pub var module_name:         string = "";
     pub var module_cache_dir:    string = ".kairo-modules";
     pub var no_module_cache:     bool   = false;
 
-    // -- testing -----------------------------------------------------------
+    // testing
     pub var testing:             bool   = false;
     pub var test_list:           bool   = false;
     pub var test_filter:         string = "";
@@ -112,11 +105,11 @@ class FrontendOptions {
     pub var test_timeout:        i32    = 0;       ///< 0 = no timeout (ms)
     pub var test_exit_code:      i32    = 1;
 
-    // -- BCIR / AMT limits -------------------------------------------------
+    // BCIR / AMT limits
     pub var max_borrow_depth:          i32 = 512;
     pub var max_amt_smartptr_rewrites: i32 = 8192;  ///< 0 = unlimited
 
-    // -- helpers -----------------------------------------------------------
+    // helpers
 
     fn stops_at_preprocess(self) -> bool {
         return self.action == FrontendActionKind::Preprocess;
@@ -169,7 +162,8 @@ class FrontendOptions {
         (o.max_scope_depth) = args.get_cfg_i32("max-scope-depth");
         (o.max_threads)     = args.get_cfg_i32("max-threads");
 
-        // -- post-stage dump flags -----------------------------------------
+        // post-stage dump flags
+        (o.dump_preprocessed)   = args.get_bool("dump-preprocessed");
         (o.print_tokens)        = args.get_bool("print-tokens");
         (o.print_macros)        = args.get_bool("print-macros");
         (o.print_imports)       = args.get_bool("print-imports");
@@ -187,21 +181,21 @@ class FrontendOptions {
         (o.bcir_verbose)        = args.get_bool("bcir-verbose");
         (o.bcir_stats)          = args.get_bool("bcir-stats");
 
-        // -- parser / sema -------------------------------------------------
+        // parser / sema
         (o.max_generic_instantiations) = args.get_cfg_i32("max-generic-instantiations");
         (o.max_tuple_arity)            = args.get_cfg_i32("max-tuple-arity");
 
-        // -- incremental compilation ---------------------------------------
+        // incremental compilation
         (o.incremental)      = args.get_bool("incremental");
         (o.incremental_dir)  = args.get_string("incremental-dir");
         (o.force_recompile)  = args.get_bool("force-recompile");
 
-        // -- module system -------------------------------------------------
+        // module system
         (o.module_name)      = args.get_string("module-name");
         (o.module_cache_dir) = args.get_string("module-cache-dir");
         (o.no_module_cache)  = args.get_bool("no-module-cache");
 
-        // -- testing -------------------------------------------------------
+        // testing
         (o.testing)          = args.get_bool("test");
         (o.test_list)        = args.get_bool("test-list");
         (o.test_filter)      = args.get_string("test-filter");
@@ -211,11 +205,11 @@ class FrontendOptions {
         (o.test_timeout)     = args.get_i32("test-timeout");
         (o.test_exit_code)   = args.get_i32("test-exit-code");
 
-        // -- BCIR / AMT limits ---------------------------------------------
+        // BCIR / AMT limits
         (o.max_borrow_depth)          = args.get_cfg_i32("max-borrow-depth");
         (o.max_amt_smartptr_rewrites) = args.get_cfg_i32("max-amt-smartptr-rewrites");
 
-        // -- primary action: highest-priority flag wins --------------------
+        // primary action: highest-priority flag wins
         if (args.get_bool("preprocess")) || (args.get_bool("dump-preprocessed")) {
             o.action = FrontendActionKind::Preprocess;
         } else if args.get_bool("syntax-only") {

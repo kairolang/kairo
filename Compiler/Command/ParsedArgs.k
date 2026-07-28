@@ -11,15 +11,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-// =============================================================================
-//  PARSED ARGS  - the value the driver holds and passes as *ParsedArgs
-// =============================================================================
-
 import Command::FlagUtils::*;
 
 class ParsedArgs {
-    
-
     pub var files: vec::<string>; ///< positional file paths
     pub var ok:    bool = true;   ///< false if required fields missing / bounds violated
 

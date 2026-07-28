@@ -31,7 +31,8 @@ class PreprocessorOptions {
     // -- source limits -----------------------------------------------------
     pub var max_file_size_mb:   i32    = 256;       ///< --cmax-file-size-mb
     pub var max_token_count:    i32    = 0;         ///< --cmax-token-count; 0 = unlimited
-    pub var max_string_length:  i32    = 0;         ///< --cmax-string-length; 0 = unlimited
+    // max-string-length is a lexer concern (string literal length), not a PP one;
+    // no LexerOptions plumbing exists yet, so there's no flag for it here.
     // -- macro system limits -----------------------------------------------
     pub var max_depth:          i32    = 128;       ///< --cmax-macro-depth
     pub var max_expansions:     i32    = 65536;     ///< --cmax-macro-expansions; 0 = unlimited
@@ -43,8 +44,9 @@ class PreprocessorOptions {
     // -- debug / trace -----------------------------------------------------
     pub var macro_debug_filter: string = "";     ///< --macro-debug-filter
     pub var macro_debug:        bool   = false;  ///< --macro-debug
-    // -- feature toggles ---------------------------------------------------
-    pub var track_origins:      bool   = true;      ///< -ftrack-macro-origins (default on)
+    // macro origin tracking (TkMacroExpand + MacroExpansionInfo chain, so
+    // diagnostics can point at the invocation site as well as the definition)
+    // is unconditional now, not a toggle: PPWalker::_wrap_origin always runs.
 
     static fn from_args(args: ref!(ParsedArgs)) -> PreprocessorOptions {
         var o = PreprocessorOptions();
@@ -55,15 +57,10 @@ class PreprocessorOptions {
         (o.max_import_depth)   = args.get_cfg_i32("max-import-depth");
         (o.max_file_size_mb)   = args.get_cfg_i32("max-file-size-mb");
         (o.max_token_count)    = args.get_cfg_i32("max-token-count");
-        (o.max_string_length)  = args.get_cfg_i32("max-string-length");
         (o.macro_debug)        = args.get_bool("macro-debug");
         (o.macro_debug_filter) = args.get_string("macro-debug-filter");
         (o.prelude_path)       = args.get_string("prelude");
         (o.no_prelude)         = args.get_bool("no-prelude") || args.get_bool("freestanding");
-
-        // -ftrack-macro-origins is on by default; off only when explicitly -fno-
-        var feat = args.get_feature("track-macro-origins");
-        (o.track_origins) = (feat != 0); // -1 (unset) and 1 (on) both map to true
 
         for s: string in args.get_list("define")        { o.defines.push_back(s); }
         for s: string in args.get_list("force-include") { o.force_includes.push_back(s); }
