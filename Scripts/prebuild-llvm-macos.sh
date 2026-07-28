@@ -94,6 +94,15 @@ cmake \
     -B "$LLVM_BUILD" \
     -G Ninja \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_COMPILER=/opt/homebrew/Cellar/llvm/22.1.1/bin/clang \
+    -DCMAKE_CXX_COMPILER=/opt/homebrew/Cellar/llvm/22.1.1/bin/clang++ \
+    -DCMAKE_CXX_STANDARD=23 \
+    -DCMAKE_CXX_STANDARD_REQUIRED=ON \
+    -DCMAKE_CXX_FLAGS="-stdlib=libc++" \
+    -DCMAKE_SHARED_LINKER_FLAGS="-L/opt/homebrew/Cellar/llvm/22.1.1/lib/c++ -Wl,-rpath,/opt/homebrew/Cellar/llvm/22.1.1/lib/c++" \
+    -DCMAKE_EXE_LINKER_FLAGS="-L/opt/homebrew/Cellar/llvm/22.1.1/lib/c++ -Wl,-rpath,/opt/homebrew/Cellar/llvm/22.1.1/lib/c++" \
+    \
+    -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_COMPILER=clang \
     -DCMAKE_CXX_COMPILER=clang++ \
     -DLLVM_ENABLE_LIBCXX=ON \

@@ -33,17 +33,18 @@
 #define KLOG_HAS_SRCLOC 0
 #endif
 
+#if defined(_WIN32)
+#include <io.h>
+#define KLOG_ISATTY(fd) (_isatty(fd) != 0)
+#else
+#include <unistd.h>
+#define KLOG_ISATTY(fd) (::isatty(fd) != 0)
+#endif
+
 namespace kairo {
 class Logger {
   public:
-    enum class Level : uint8_t {
-        Trace,
-        Debug,
-        Info,
-        Warn,
-        Error,
-        Fatal
-    };
+    enum class Level : uint8_t { Trace, Debug, Info, Warn, Error, Fatal };
 
     enum class Stage : uint8_t {
         Driver,
@@ -93,6 +94,19 @@ class Logger {
 
     static void set_min_level(Level level) { get()->min_level_ = level; }
 
+    /// Entries at or above this level are written to stderr AS THEY HAPPEN, in
+    /// addition to being buffered for dump_to_file().
+    ///
+    /// The buffer-and-flush-at-teardown model alone loses everything when the
+    /// process dies abnormally (ICE, signal, terminate) - which is exactly when
+    /// the log is worth having - and shows nothing during a long compile. The
+    /// live echo covers both. `min_level_` is still the master gate: an entry
+    /// filtered out there is never recorded and so never streamed.
+    ///
+    /// Default is Error, so an internal failure always reaches the terminal
+    /// instead of sitting in a log file the user was never told about.
+    static void set_stream_level(Level level) { get()->stream_level_ = level; }
+
     static void set_dump_path(const string &path) { get()->dump_path_ = path; }
 
     static void enable_stage(Stage stage, bool enabled) {
@@ -128,6 +142,18 @@ class Logger {
 
         libcxx::lock_guard<libcxx::mutex> lock(mutex_);
         entries_.push_back(libcxx::move(e));
+
+        // Live echo, under the same lock so concurrent stages cannot interleave
+        // half-lines. Flushed immediately: the whole point is to survive a
+        // crash that never reaches the teardown dump.
+        if (static_cast<uint8_t>(level) >=
+            static_cast<uint8_t>(stream_level_)) {
+            libcxx::fputws(format_entry(entries_.back(), stream_color())
+                               .raw_string()
+                               .c_str(),
+                           stderr);
+            libcxx::fflush(stderr);
+        }
     }
 
     static void trace(Stage                         s,
@@ -200,7 +226,8 @@ class Logger {
     static void dump_to_stderr() {
         libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
         for (const auto &e : get()->entries_) {
-            libcxx::fputws(format_entry(e).raw_string().c_str(), stderr);
+            libcxx::fputws(format_entry(e, stream_color()).raw_string().c_str(),
+                           stderr);
         }
     }
 
@@ -228,7 +255,9 @@ class Logger {
         libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
         for (const auto &e : get()->entries_) {
             if (e.stage == stage) {
-                libcxx::fputws(format_entry(e).raw_string().c_str(), stderr);
+                libcxx::fputws(
+                    format_entry(e, stream_color()).raw_string().c_str(),
+                    stderr);
             }
         }
     }
@@ -237,7 +266,9 @@ class Logger {
         libcxx::lock_guard<libcxx::mutex> lock(get()->mutex_);
         for (const auto &e : get()->entries_) {
             if (static_cast<uint8_t>(e.level) >= static_cast<uint8_t>(min)) {
-                libcxx::fputws(format_entry(e).raw_string().c_str(), stderr);
+                libcxx::fputws(
+                    format_entry(e, stream_color()).raw_string().c_str(),
+                    stderr);
             }
         }
     }
@@ -276,7 +307,20 @@ class Logger {
         return m;
     }
 
-    [[nodiscard]] static string format_entry(const Entry &e, bool use_color = true) {
+    /// Colour is decided once: honour NO_COLOR, and never emit escapes into a
+    /// pipe or a file. The dump_to_file path passes false explicitly.
+    static bool stream_color() {
+        static const bool enabled = [] {
+            if (libcxx::getenv("NO_COLOR") != nullptr) {
+                return false;
+            }
+            return KLOG_ISATTY(fileno(stderr));
+        }();
+        return enabled;
+    }
+
+    [[nodiscard]] static string format_entry(const Entry &e,
+                                             bool         use_color = true) {
         auto        ts  = format_time(e.timestamp_ns);
         auto        tid = format_thread(e.thread_id);
         const auto *stg = stage_str(e.stage);
@@ -369,6 +413,7 @@ class Logger {
     vec<Entry>                                     entries_;
     libcxx::mutex                                  mutex_;
     Level                                          min_level_;
+    Level                                          stream_level_{Level::Error};
     libcxx::chrono::steady_clock::time_point       start_;
     array<bool, static_cast<size_t>(Stage::Count)> stage_enabled_{};
     string                                         dump_path_;
