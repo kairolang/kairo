@@ -20,7 +20,7 @@ fn render_doc(self, doc: Doc, width: i32) -> string {
     return out;
 }
 
-fn _render_node(self, doc: Doc, width: i32, indent: i32, broken: bool, out: *string, col: *i32, suffixes: *vec::<Doc> ){
+fn _render_node(self, doc: Doc, width: i32, indent: i32, broken: bool, out: *string, col: *i32, suffixes: *vec::<Doc> ) -> void {
 
     switch doc.kind{
         case DocKind::Text {
@@ -29,7 +29,7 @@ fn _render_node(self, doc: Doc, width: i32, indent: i32, broken: bool, out: *str
         }
         case DocKind::Concat {
             for (var i : usize = 0; i< doc.children.size(); ++i){
-                self.render_node(doc.children[i], width, indent, broken, out, col, suffixes);
+                self._render_node(doc.children[i], width, indent, broken, out, col, suffixes);
             }
         }
         case DocKind::Line {
@@ -59,7 +59,7 @@ fn _render_node(self, doc: Doc, width: i32, indent: i32, broken: bool, out: *str
             suffixes->push_back(doc.children[0]);
         }
         case DocKind::BreakParent {
-            return 0;
+            return;
         }
         case DocKind::Align {
             self._render_align(doc.rows, width, indent, out, col, suffixes);

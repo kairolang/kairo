@@ -11,14 +11,30 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import AST::Printer::PrintCore::*;
 import AST::Context::ASTContext::*;
+import AST::Context::DeclContext::*;
+import AST::ASTSupport::*;
+import AST::Context::TranslationUnit::*;
 import AST::Mixin::TypeQual::*;
+import AST::Mixin::Annotation::*;
+import AST::Visitor::RecursiveASTVisitor::*;
+import AST::Node::Base::*;
+import AST::Node::Program::*;
+import AST::Node::PrimaryExpressions::*;
+import AST::Node::Expressions::*;
+import AST::Node::Types::*;
+import AST::Node::Patterns::*;
+import AST::Node::Statements::*;
+import AST::Node::Declarations::*;
+import AST::Node::Casting::*;
+import AST::Kind::DeclKind::*;
+import AST::Kind::ExprKind::*;
+import AST::Kind::TypeKind::*;
+import AST::Kind::StmtKind::*;
 import AST::Kind::PatternKind::*;
 import Token::TokenKind::*;
-import AST::Node::Types::*;
-import AST::Kind::TypeKind::*;
-import AST::Node::Declarations::*;
+
+
 
 import Renderer::*;
 
