@@ -394,7 +394,7 @@ class <T> DeclParse {
                         members.push_back(static_cast::<*Decl>(fm));
                     }
                 } else {
-                    self._sync_decl(DeclSyncCtx::TypeBody);
+                    self._sync_decl_progress(DeclSyncCtx::TypeBody);
                 }
                 continue;
             }
@@ -416,7 +416,7 @@ class <T> DeclParse {
                     // counter bump) - see the stack-buffer-overflow it caused.
                     (*field_idx) += 1;
                 } else {
-                    self._sync_decl(DeclSyncCtx::TypeBody);
+                    self._sync_decl_progress(DeclSyncCtx::TypeBody);
                 }
                 continue;
             }
@@ -527,7 +527,7 @@ class <T> DeclParse {
         while !dyn()->is_eof() {
             var ty = dyn()->parse_type(false, false, true); // gen_arg = true
             if (ty == &null) || is_recovery(ty) {
-                self._sync_decl(DeclSyncCtx::Generics);
+                self._sync_decl_progress(DeclSyncCtx::Generics);
                 if dyn()->_pending_close_angle {
                     dyn()->_pending_close_angle = false;
                     dyn()->nl_pop();
@@ -659,7 +659,7 @@ class <T> DeclParse {
         while !dyn()->is_eof() {
             var gp = self._parse_one_generic_param(idx);
             if gp == &null {
-                self._sync_decl(DeclSyncCtx::Generics);
+                self._sync_decl_progress(DeclSyncCtx::Generics);
                 // honor a pending close-angle during recovery too
                 if dyn()->_pending_close_angle {
                     dyn()->_pending_close_angle = false;
@@ -1416,7 +1416,7 @@ class <T> DeclParse {
                     dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                         "expected '*' or identifier after 'const' in capture list"
                     );
-                    self._sync_decl(DeclSyncCtx::Params);
+                    self._sync_decl_progress(DeclSyncCtx::Params);
                 }
             }
 
@@ -1441,7 +1441,7 @@ class <T> DeclParse {
                     dyn()->diag->report(DiagID::S047E, star_range.start,
                         "expected capture name after '*\x27"
                     ).first(star_range).emit();
-                    self._sync_decl(DeclSyncCtx::Params);
+                    self._sync_decl_progress(DeclSyncCtx::Params);
                     // fall through to closing `|` check
                 } else {
                     var cname = dyn()->current();
@@ -1466,7 +1466,7 @@ class <T> DeclParse {
                 dyn()->diag->report(DiagID::S047E, p_start.start,
                     "expected capture name or '*' in capture list"
                 ).first(p_start).emit();
-                self._sync_decl(DeclSyncCtx::Params);
+                self._sync_decl_progress(DeclSyncCtx::Params);
             }
 
             // after first capture: comma continues, pipe or nothing closes
@@ -2027,7 +2027,7 @@ class <T> DeclParse {
                     dyn()->diag->report(DiagID::S048E, r.start,
                         "expected 'fn' after method modifiers"
                     ).first(r).emit();
-                    self._sync_decl(DeclSyncCtx::TypeBody);
+                    self._sync_decl_progress(DeclSyncCtx::TypeBody);
                 }
                 continue;
             }
@@ -2074,7 +2074,7 @@ class <T> DeclParse {
                     fields_out->push_back(f);
                     ++field_idx;
                 } else {
-                    self._sync_decl(DeclSyncCtx::TypeBody);
+                    self._sync_decl_progress(DeclSyncCtx::TypeBody);
                 }
                 continue;
             }
@@ -2567,7 +2567,7 @@ class <T> DeclParse {
 
             var v = self._parse_enum_variant(vidx);
             if v == &null {
-                self._sync_decl(DeclSyncCtx::TypeBody);
+                self._sync_decl_progress(DeclSyncCtx::TypeBody);
                 continue;
             }
             dyn()->apply_annotations_to_decl(static_cast::<*Decl>(v), &v_annot);
@@ -3329,6 +3329,17 @@ class <T> DeclParse {
                 }
             }
 
+            dyn()->advance();
+        }
+    }
+
+    /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
+    /// _sync_decl stops ON a boundary token without consuming it, which is
+    /// correct positioning but spins a caller that retries from the same spot.
+    priv fn _sync_decl_progress(self, ctx: DeclSyncCtx) {
+        var before = dyn()->current_ptr();
+        self._sync_decl(ctx);
+        if dyn()->current_ptr() == before {
             dyn()->advance();
         }
     }

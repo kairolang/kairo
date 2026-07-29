@@ -139,6 +139,22 @@ class <T> ExprParse {
         }
     }
 
+    /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
+    /// _sync_expr stops ON a boundary token without consuming it, which is
+    /// correct positioning but spins a caller that retries from the same spot.
+    priv fn _sync_expr_progress(
+        self,
+        ctx:             ExprSyncCtx,
+        paren_depth:     i32  = 0,
+        square_depth:    i32  = 0,
+        brace_depth:     i32  = 0,
+        stop_at_newline: bool = false
+    ) {
+        var before = dyn()->c_idx;
+        self._sync_expr(ctx, paren_depth, square_depth, brace_depth, stop_at_newline);
+        if dyn()->c_idx == before { dyn()->advance(); }
+    }
+
     //  Entry point
 
     /// \brief operator precedence levels for the Pratt parser.
@@ -1339,7 +1355,7 @@ class <T> ExprParse {
                     ).first(name_range).emit();
 
                     if self._is_decl_keyword(dyn()->current().kind) { return; }
-                    self._sync_expr(ExprSyncCtx::Comma, 1);
+                    self._sync_expr_progress(ExprSyncCtx::Comma, 1);
                 } else {
                     var name_expr = NamedIdentExpr::create(dyn()->ctx, name_range, name_tok);
                     var colon_tok = Token();
@@ -1366,14 +1382,10 @@ class <T> ExprParse {
 
                 if (arg == &null) || is_recovery(arg) {
                     if self._is_decl_keyword(dyn()->current().kind) { return; }
-                    self._sync_expr(ExprSyncCtx::Comma, 1);
+                    self._sync_expr_progress(ExprSyncCtx::Comma, 1);
 
-                    // after sync, if we landed on comma consume it and continue
-                    if dyn()->check(TokenKind::OpComma) {
-                        dyn()->advance(T::SkipNL::After);
-                        continue;
-                    }
-                    // if we landed on ) or a decl keyword, let the outer loop handle it
+                    // sync guarantees progress; let the outer loop handle
+                    // whatever we landed on
                     continue;
                 } else {
                     out->push_back(arg);
@@ -1967,7 +1979,7 @@ class <T> ExprParse {
             );
 
             if (elem == &null) || is_recovery(elem) {
-                self._sync_expr(ExprSyncCtx::Comma, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 1);
                 continue;
             }
 
@@ -2017,10 +2029,7 @@ class <T> ExprParse {
             );
 
             if (elem == &null) || is_recovery(elem) {
-                self._sync_expr(ExprSyncCtx::Comma, 0, 1);
-                if dyn()->check(TokenKind::OpComma) {
-                    dyn()->advance(T::SkipNL::After);
-                }
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 1);
                 continue;
             }
 
@@ -2219,7 +2228,7 @@ class <T> ExprParse {
             );
 
             if (elem == &null) || is_recovery(elem) {
-                self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 0, 1);
                 continue;
             }
 
@@ -2282,7 +2291,7 @@ class <T> ExprParse {
             );
 
             if key == &null {
-                self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 0, 1);
                 continue;
             }
 
@@ -2290,7 +2299,7 @@ class <T> ExprParse {
                 dyn()->diag->report(DiagID::S054E, key->range.start,
                     "expected ':' after key in map literal"
                 ).first(key->range).emit();
-                self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 0, 1);
                 continue;
             }
             dyn()->advance(T::SkipNL::After); // consume `:`
@@ -2303,7 +2312,7 @@ class <T> ExprParse {
             );
 
             if val == &null {
-                self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 0, 1);
                 continue;
             }
 
@@ -2340,7 +2349,7 @@ class <T> ExprParse {
                 dyn()->report_tok(DiagID::S054E, dyn()->current_ptr(),
                     "expected '.field: value' in anonymous initializer"
                 );
-                self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 0, 1);
                 if dyn()->check(TokenKind::OpComma) {
                     dyn()->advance(T::SkipNL::After);
                 }
@@ -2353,7 +2362,7 @@ class <T> ExprParse {
                 dyn()->report_tok(DiagID::S054E, dyn()->current_ptr(),
                     "expected field name after '.' in anonymous initializer"
                 );
-                self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 0, 1);
                 if dyn()->check(TokenKind::OpComma) {
                     dyn()->advance(T::SkipNL::After);
                 }
@@ -2368,7 +2377,7 @@ class <T> ExprParse {
                 dyn()->diag->report(DiagID::S054E, name_range.start,
                     "expected ':' after field name in anonymous initializer"
                 ).first(name_range).emit();
-                self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 0, 1);
                 if dyn()->check(TokenKind::OpComma) {
                     dyn()->advance(T::SkipNL::After);
                 }
@@ -2384,7 +2393,7 @@ class <T> ExprParse {
             );
 
             if value == &null {
-                self._sync_expr(ExprSyncCtx::Comma, 0, 0, 1);
+                self._sync_expr_progress(ExprSyncCtx::Comma, 0, 0, 1);
                 if dyn()->check(TokenKind::OpComma) {
                     dyn()->advance(T::SkipNL::After);
                 }

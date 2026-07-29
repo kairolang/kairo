@@ -1084,7 +1084,7 @@ class <T> StmtParse {
             var mc = self._parse_match_case();
             // a case with a null body indicates a failed parse; recover.
             if mc.body == &null {
-                self._sync_stmt(StmtSyncCtx::Block, 0);
+                self._sync_stmt_progress(StmtSyncCtx::Block, 0);
                 if dyn()->check(TokenKind::OpRBrace) { break; }
                 continue;
             }
@@ -1499,7 +1499,7 @@ class <T> StmtParse {
             if decl == &null {
                 dyn()->advance();
                 // decl parser stub / non-decl content: recover to a boundary.
-                self._sync_stmt(StmtSyncCtx::Block, 0);
+                self._sync_stmt_progress(StmtSyncCtx::Block, 0);
                 if dyn()->check(TokenKind::OpRBrace) { break; }
                 continue;
             }
@@ -1849,5 +1849,14 @@ class <T> StmtParse {
 
             dyn()->advance();
         }
+    }
+
+    /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
+    /// _sync_stmt stops ON a boundary token without consuming it, which is
+    /// correct positioning but spins a caller that retries from the same spot.
+    priv fn _sync_stmt_progress(self, ctx: StmtSyncCtx, paren_depth: i32) {
+        var before = dyn()->c_idx;
+        self._sync_stmt(ctx, paren_depth);
+        if dyn()->c_idx == before { dyn()->advance(); }
     }
 }

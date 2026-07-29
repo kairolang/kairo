@@ -226,6 +226,22 @@ class <T> TypeParse {
         }
     }
 
+    /// Sync, then guarantee the cursor moved. For use inside recovery LOOPS:
+    /// _sync_type stops ON a boundary token without consuming it, which is
+    /// correct positioning but spins a caller that retries from the same spot.
+    priv fn _sync_type_progress(
+        self,
+        ctx:             TypeSyncCtx,
+        paren_depth:     i32  = 0,
+        square_depth:    i32  = 0,
+        brace_depth:     i32  = 0,
+        stop_at_newline: bool = false
+    ) {
+        var before = dyn()->c_idx;
+        self._sync_type(ctx, paren_depth, square_depth, brace_depth, stop_at_newline);
+        if dyn()->c_idx == before { dyn()->advance(); }
+    }
+
     /// \brief performs a static downcast of `self` to the generic parser type
     ///        `T`.
     ///
@@ -581,7 +597,7 @@ class <T> TypeParse {
             var elem = self.parse_type(false, true);
             if (elem == &null) || is_recovery(elem) {
                 // no stop_at_newline we're mid-tuple, newlines are legal
-                self._sync_type(TypeSyncCtx::Comma, 1);
+                self._sync_type_progress(TypeSyncCtx::Comma, 1);
                 continue;
             }
 
@@ -1258,13 +1274,13 @@ class <T> TypeParse {
                     "unexpected '=' in function pointer type parameter list, default values are not allowed here"
                 );
 
-                self._sync_type(TypeSyncCtx::Paren, 1, 0, 0, true);
+                self._sync_type_progress(TypeSyncCtx::Paren, 1, 0, 0, true);
                 continue;
             }
 
             var param_ty = self.parse_type(false, true);
             if (param_ty == &null) || is_recovery(param_ty) {
-                self._sync_type(TypeSyncCtx::Paren, 1, 0, 0);
+                self._sync_type_progress(TypeSyncCtx::Paren, 1, 0, 0);
                 continue;
             }
             out->push_back(param_ty);
