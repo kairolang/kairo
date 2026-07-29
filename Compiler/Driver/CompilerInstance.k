@@ -856,9 +856,11 @@ fn FrontendAction::run() {
     if fe.stops_at_preprocess() { self._stage = TUStage::Done; return; }
 
     if !self._parse() { return; }
+    if self._ci->diag()->error_count() > 0 { self._stage = TUStage::Failed; return; }
     if fe.stops_at_parse() { self._stage = TUStage::Done; return; }
 
     if !self._sema() { return; }
+    if self._ci->diag()->error_count() > 0 { self._stage = TUStage::Failed; return; }
     if fe.stops_at_sema() { self._stage = TUStage::Done; return; }
 
     if !self._codegen() { return; }
@@ -987,14 +989,17 @@ fn FrontendAction::_parse() -> bool {
         for (size_t i = 0; i < N; ++i) {
             u32 fid = (*fids_p)[i];
             _ci->pool()->enqueue([gs, fid, done, i]() {
+                struct Publish {
+                    libcxx::atomic<bool>* d;
+                    ~Publish() { d->store(true, libcxx::memory_order_release); }
+                } pub{&done[i]};
+
                 auto* ctx = gs->get_context(fid);
                 if (ctx) {
                     ASTParse parser(ctx, nullptr, gs, ASTParse::ParseMode::Full);
                     auto* tu = parser.parse();
                     ctx->tu = reinterpret_cast<void*>(tu);
                 }
-                // publish AFTER sink fully written + tu set. release pairs with acquire
-                done[i].store(true, libcxx::memory_order_release);
             }, u8(6));
         }
 
@@ -1124,7 +1129,10 @@ fn FrontendAction::_codegen() -> bool {
     var kfid    = self._file_id;
     var sink    = BufferedDiagSink{};
     var adapter = be->begin_tu(&sink, kfid);
-    finally { std::print("before_end_tu"); be->end_tu(adapter); std::print("after_end_tu"); }
+    finally {
+        be->end_tu(adapter);
+        sink.drain_into(self._ci->diag());
+    }
 
     var ctx = self._global_scope->get_context(self._file_id);
     if ctx == &null {
@@ -1137,9 +1145,12 @@ fn FrontendAction::_codegen() -> bool {
     }
 
     var cg = CodegenBackend(be, kfid, &(ctx->nodes), ksize);
-    var ok = cg.run_m1("m1_hello.o", self.path.full_path(), adapter);
+    var ok = cg.run("m1_hello.o", self.path.full_path(), adapter);
 
-    sink.drain_into(self._ci->diag());
+    if !ok {
+        self._stage = TUStage::Failed;
+        return false;
+    }
 
     self._stage = TUStage::Done;
     return true;
@@ -1153,8 +1164,6 @@ fn FrontendAction::_dump_tokens() {
         std::print(f"-- token stream: {self.path.full_path()} (none) --");
         return;
     }
-
-    var imm_tbl = self._ci->tcm()->get_imm_table_for_fid(self._file_id);
 
     var printer = TokenPrinter(
         self._ci->tcm(),
