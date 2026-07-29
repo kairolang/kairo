@@ -393,7 +393,7 @@ class PrettyDiagConsumer derives DiagConsumer {
                 var loc_info = sm->get_line_col(diag->loc);
                 var span: CaretSpan;
                 span.start_col = loc_info.column;
-                span.end_col   = loc_info.column + 1;   // was +4 — magic width
+                span.end_col   = loc_info.column + 1;   // was +4 magic width
                 span.code      = diag->code;
                 span.sev       = dsev;
                 span.style     = DiagLabel::Style::Primary;

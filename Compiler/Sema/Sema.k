@@ -38,6 +38,7 @@ import Sema::Verify::ArmOrderCheck::*;
 import Sema::Verify::TerminatorCheck::*;
 import Sema::Verify::JumpLabelCheck::*;
 import Sema::Verify::PatternBindingCheck::*;
+import Sema::Verify::CxxNameCheck::*;
 import Sema::Check::ConstraintExtraction::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
@@ -182,6 +183,7 @@ class Sema {
         TerminatorCheck(&self.sc).run();
         JumpLabelCheck(&self.sc).run();
         PatternBindingCheck(&self.sc).run();
+        CxxNameCheck(&self.sc).run();
         // Future Verify passes append here, one visible list.
         self.sc.advance_phase(SemaPhase::Verified);
         return !self._hard_stop();
