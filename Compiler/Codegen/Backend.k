@@ -72,25 +72,26 @@ class CodegenBackend derives TokenFiller {
     /// EmitObj) inside the REAL shared-CI pipeline. Replaced by emitter
     /// dispatch at M2.
     override fn fill(self, sink: *TokenSink) -> bool {
-        sink->punct(clang::tok::kw_void,   0, 2);
-        sink->id_lit(r"man2", 4, 3, 4);
-        sink->punct(clang::tok::l_paren,   7, 1);
-        sink->punct(clang::tok::r_paren,   8, 1);
-        sink->punct(clang::tok::l_brace,  10, 1);
-        sink->punct(clang::tok::kw_return, 16, 6);
-        sink->num_lit(r"0", 1, 23);
-        sink->punct(clang::tok::semi,     23, 1);
-        sink->punct(clang::tok::r_brace,  25, 1);
-        sink->eof(26);
+        // fn main() -> i32 {\n    return 4_2\n}\n   (35 bytes)
+        // fn=0  main=3  (=7  )=8  ->=10  i32=13  {=17  return=23  4_2=30  }=34
+        var num_str = nstring(r"42");
+        sink->punct(clang::tok::kw_void,     0, 2);   // fn      -> int
+        sink->id_lit(r"main", 4,            3, 4);
+        sink->punct(clang::tok::l_paren,    7, 1);
+        sink->punct(clang::tok::r_paren,    8, 1);
+        sink->punct(clang::tok::l_brace,   17, 1);
+        sink->punct(clang::tok::kw_return, 23, 6);
+        sink->num_arena(num_str,           30, 3);   // 4_2 -> arena "42"
+        sink->punct(clang::tok::semi,      32, 1);   // synthesized; borrows last byte of 4_2
+        sink->punct(clang::tok::r_brace,   34, 1);
+        sink->eof(34);
         return true;
     }
 
-    fn run_m1(self, out_obj: string, kpath: string, adapter: *ClangDiagAdapter) -> bool {
-        std::ICE(self._be->ready(), "run_m1 before backend ready");
+    fn run(self, out_obj: string, kpath: string, adapter: *ClangDiagAdapter) -> bool {
+        std::ICE(self._be->ready(), "run before backend ready");
 
         var ci   = self._be->ci();
-        var cfid = self._be->locmap()->clang_fid(self._kfid);
-
         var cfe = &(ci->getInvocation().getFrontendOpts());
         var empty = llvm::MemoryBuffer::getMemBuffer(
             llvm::StringRef(r"", 0), r"<injected>", false);

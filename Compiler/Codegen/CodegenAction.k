@@ -6,7 +6,6 @@
 ///            1. base BeginSourceFileAction (sets up PP, sema plumbing)
 ///            2. construct TokenSink against the LIVE Preprocessor
 ///            3. filler->fill(sink)          tokens emitted (phase 1)
-///            4. seal_arena + createFileID   <kairo-literals> registered
 ///            5. patch_pending               divergent tokens get real
 ///                                             ExpansionLocs
 ///            6. drain_into_pp               EnterTokenStream
@@ -91,8 +90,7 @@ class KairoEmitAction derives clang::EmitObjAction {
 
         if self.sink->has_arena() {
             var view = self.sink->seal_arena();
-            var buf  = llvm::MemoryBuffer::getMemBuffer(
-                view, r"<kairo-literals>", false);
+            var buf  = llvm::MemoryBuffer::getMemBufferCopy(view, r"<kairo-literals>");
             var afid = csm->createFileID(libcxx::move(buf), clang::SrcMgr::C_User);
             self.sink->patch_pending(afid);
         }
