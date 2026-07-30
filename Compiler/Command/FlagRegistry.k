@@ -326,7 +326,7 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  DEVELOPER / DUMP INTERNALS
 
-    cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump LLVM IR before and after optimization passes",                            false);
+    cmd->define::<FlagKind::Bool>  ("print-cg",         "",  "print-cg",         "dump codegen tokens after sema, lower, and optimization passes",               false);
     cmd->define::<FlagKind::Bool>  ("print-bcir",       "",  "print-bcir",       "dump BCIR before and after borrow-check lowering",                             false);
     cmd->define::<FlagKind::String>("print-ast",        "",  "print-ast",        "AST dump format: tree|flat|canonical (default: tree)",                         "");
     cmd->define::<FlagKind::Bool>  ("print-sema",       "",  "print-sema",       "dump IR after semantic analysis",                                              false);
