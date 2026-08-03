@@ -1390,7 +1390,59 @@ class Lexer {
         self.lex_text_suffix(ctx);
         self.emit_fstring_exprs(ctx);
 
-        return self.make_text_token(ctx);
+        var head = self.make_text_token(ctx);
+        self.chain_adjacent_text(ctx);
+
+        return head;
+    }
+
+    /// \brief links an adjacent string literal onto this one via StringData::next.
+    ///
+    /// \details `"a" "b"`, including split across newlines, is one logical
+    ///          string. Each segment keeps its own imm entry - body range,
+    ///          prefix, suffix, f-string exprs - and the entries are linked
+    ///          head-to-tail through StringData::next, so a diagnostic can
+    ///          still blame the exact segment a byte came from rather than the
+    ///          fused whole. Only the head token reaches the parser.
+    ///
+    ///          lex_text recurses through this, so a run of any length links in
+    ///          a single pass: each call chains the one segment after it, and
+    ///          that segment chains the next.
+    ///
+    /// \note    Only `"` chains. A char literal is a single codepoint, and a
+    ///          prefixed continuation (`"a" r"b"`) is deliberately left alone
+    ///          because the segments would disagree about escape handling.
+    ///
+    /// \warning the cursor is restored when no adjacent literal follows. The
+    ///          newline after a lone string is a statement terminator and must
+    ///          survive this lookahead.
+    inline priv fn chain_adjacent_text(self, ctx: ref!(TextCtx)) {
+        if ctx.delim != 0x22 { return; }
+
+        var saved = self._cursor;
+
+        // inter-segment whitespace, newlines included
+        while !self.is_eof() {
+            var w = self.peek_char32();
+            if (w.chr == 0x20) || (w.chr == 0x09)
+            || (w.chr == 0x0a) || (w.chr == 0x0d) {
+                self.advance_cursor(w.len);
+                continue;
+            }
+            break;
+        }
+
+        if self.is_eof() || (self.peek_char32().chr != 0x22) {
+            self._cursor = saved;
+            return;
+        }
+
+        var seg = self.lex_text(self.get_source_location());
+        if seg.kind == TokenKind::LitString {
+            ctx.imm.get_next() = seg.imm;
+        } else {
+            self._cursor = saved;
+        }
     }
 
     inline priv fn init_text_ctx( self, start: SourceLocation, prefix: Token) -> TextCtx {
