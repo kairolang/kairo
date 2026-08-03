@@ -193,12 +193,35 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // TODO(N-b): push a LocalScope frame; declare params + self into
         //   it; move cur_dc if the function owns a table-bearing DC;
         //   call base traverse_function_decl; pop/restore both.
+        if n == &null { return n; }
+
+        self.locals.push_back(LocalScope{});
+        var frame_index = self.locals.size() - 1;
+
+        for (var i : usize = 0; i < n->params.size(); ++i) {
+            var param = n->params[i];
+            if p == &null { continue; }
+            self.locals.get(frame_index)->declare(param->name_imm, param);
+        }
+
+        var temp_dc=self.cur_dc;
+        self.cur_dc = static_cast::<*DeclContext>(n);
+
+        //TODO : parse rest
+
+
         return n; // TODO: replace with base call
     }
 
     fn traverse_block(self, b: *CompoundStmt) -> *CompoundStmt {
         // TODO(N-b): push LocalScope frame; base; pop.
-        return b; // TODO: replace with base call
+        if b == &null { return b; }
+
+        self.locals.push_back(LocalScope{});
+        var result = cast::<CompoundStmt>(self.dyn()->dispatch_stmt(b));
+        self.locals.pop_back();
+
+        return result;
     }
 
     // TODO(N-b): traverse_class_decl / struct_decl / enum_decl /
