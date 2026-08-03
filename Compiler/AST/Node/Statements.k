@@ -68,6 +68,7 @@ struct Binding {
     var is_explicit: bool;             ///< this element wrote its own var/const.
     var is_discard:  bool;             ///< `_` placeholder; name is null.
     var shorthand:   BindingShorthand; ///< *, unsafe *, ? shorthands.
+    var type_:       *Type = &null;    ///< explicit `: T` ascription; null if none.
     var range:       SourceRange;      ///< span of this binding element.
 }
 
