@@ -97,8 +97,8 @@ class CxxNameCheck derives RecursiveASTVisitor::<CxxNameCheck> {
     }
 
     /// Operators carry no user identifier   `op_token` is the spelling and
-    /// its C++ form is NamePolicy's, not the user's. Ctors share the type
-    /// name and are checked at the type decl.
+    /// its C++ form is synthesized by Lower/, not written by the user. Ctors
+    /// share the type name and are checked at the type decl.
     fn visit_function_decl(self, n: *FunctionDecl) -> bool {
         if n->is_operator { return true; }
         self._check(n->name, "function");
