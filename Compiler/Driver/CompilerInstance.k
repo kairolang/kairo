@@ -64,7 +64,7 @@
 ///   BatchResult::aborted, causing execute() to skip remaining input files.
 ///
 ///   Post-stage dump flags (print_tokens, print_macros, print_imports, print_ast,
-///   print_ir, print_bcir) are checked at each stage boundary and are orthogonal
+///   print_cg, print_bcir) are checked at each stage boundary and are orthogonal
 ///   to the stop-at flags they do not halt the pipeline.
 ///
 ///   Clang-style layer map
@@ -292,11 +292,10 @@ class CompilerInstance {
     /// Destroys all resources in reverse-construction order.
     fn op delete (self) {
         // backend first: its ClangLocMap borrows _sm, and its clang SM holds
-        // MemoryBufferRef views into _vfm's mmaps. Pool tasks touching it
-        // (startup/preload groups) must be drained before teardown.
+        // MemoryBufferRef views into _vfm's mmaps. The startup task must be
+        // drained before teardown.
         if self._backend != &null {
             self._pool->wait_group(CLANG_STARTUP_GROUP());
-            self._pool->wait_group(CLANG_PRELOAD_GROUP());
             std::destroy(self._backend);
             self._backend = &null;
         }
@@ -707,9 +706,9 @@ class CompilerInstance {
 
         // Shared clang backend: kick the expensive startup (invocation parse,
         // TargetInfo, FileManager/SourceManager) onto the pool NOW so it runs
-        // concurrently with lex/preprocess. startup() and preload() serialize
-        // on the backend's internal mutex, so this cannot race the per-TU
-        // preload tasks. Joined via CLANG_STARTUP_GROUP before codegen.
+        // concurrently with lex/preprocess. Joined via CLANG_STARTUP_GROUP
+        // before codegen. Kairo fids are NOT registered here   that happens in
+        // ClangLocMap::rebind(), inside the codegen action window.
         var bcfg = ClangBackendConfig{};
         (bcfg.triple) = self._effective_triple();
         (bcfg.wargs)  = _clang_wargs_from_policy(self._inv.diag);
@@ -913,16 +912,11 @@ fn FrontendAction::_preprocess() -> bool {
         return false;
     }
 
-    // All fids for this TU's dependency graph are now final: mirror them into
-    // the shared clang SM off-thread while parse runs. preload() is idempotent
-    // (maps only the unmapped tail) and self-runs startup if that task lost
-    // the race. Joined via CLANG_PRELOAD_GROUP before codegen touches clang.
-    if self._ci->backend() != &null {
-        inline "c++" {
-            auto* be = _ci->backend();
-            _ci->pool()->enqueue([be]() { be->preload(); }, CLANG_PRELOAD_GROUP());
-        }
-    }
+    // NOTE: no clang preload here. Kairo fids are mirrored into the clang SM
+    // by ClangLocMap::rebind(), inside the codegen action window   the only
+    // place a FileID survives FrontendAction::BeginSourceFile's
+    // clearIDTables(). Registering off-thread after preprocess produced a map
+    // that was stale from the first ExecuteAction onward.
 
     var fe = self._ci->invocation().frontend;
     if fe.dump_preprocessed { self._dump_preprocessed_source(); }
@@ -1116,10 +1110,7 @@ fn FrontendAction::_sema() -> bool {
 fn FrontendAction::_codegen() -> bool {
     self._stage = TUStage::Codegen;
 
-    // Backend must be fully started + this fid preloaded before touching
-    // clang's SM the ClangLocMap happens-before edge.
     self._ci->pool()->wait_group(CLANG_STARTUP_GROUP());
-    self._ci->pool()->wait_group(CLANG_PRELOAD_GROUP());
 
     var be = self._ci->backend();
     if (be == &null) || (!be->ready()) {
@@ -1129,23 +1120,31 @@ fn FrontendAction::_codegen() -> bool {
     var kfid    = self._file_id;
     var sink    = BufferedDiagSink{};
     var adapter = be->begin_tu(&sink, kfid);
-    finally {
-        be->end_tu(adapter);
-        sink.drain_into(self._ci->diag());
-    }
 
     var ctx = self._global_scope->get_context(self._file_id);
     if ctx == &null {
+        be->end_tu(adapter);
         return self._fatal("codegen: no ASTContext for main fid");
     }
 
     var ksize = static_cast::<u32>(self._ci->sm()->get_file_size(self._file_id));
     if ksize == 0 {
+        be->end_tu(adapter);
         return self._fatal("codegen: zero-size main file");
     }
 
-    var cg = CodegenBackend(be, kfid, &(ctx->nodes), ksize);
-    var ok = cg.run("m1_hello.o", self.path.full_path(), adapter);
+    var fe  = self._ci->invocation().frontend;
+    var out = fe.output;
+    if out.empty() { out = "a.o"; }
+
+    var cg = CodegenBackend(be, ctx, kfid, &(ctx->nodes), ksize);
+    cg.set_print_cg(fe.print_cg, self.path.full_path());
+    var ok = cg.run(out);
+
+    // end_tu FIRST: it flushes any builder still open in the adapter, so
+    // draining before it would silently drop the last diagnostic.
+    be->end_tu(adapter);
+    sink.drain_into(self._ci->diag());
 
     if !ok {
         self._stage = TUStage::Failed;
