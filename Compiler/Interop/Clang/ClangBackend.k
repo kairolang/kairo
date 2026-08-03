@@ -22,20 +22,29 @@
 ///      ThreadPool (group CLANG_STARTUP_GROUP) clang's expensive setup
 ///      (invocation parse, TargetInfo, FileManager/SourceManager) runs
 ///      concurrently with Kairo lex/preprocess.
-///   2. After each TU's preprocess, the driver enqueues preload() (group
-///      CLANG_PRELOAD_GROUP): every fid known by then gets a clang FileID
-///      created from the SAME mmap Kairo reads. Idempotent later TUs map
-///      only the tail.
-///   3. Codegen joins both groups, then wraps each TU in
-///      begin_tu() / end_tu(), which install/remove the ClangDiagAdapter
-///      as the DiagnosticsEngine client.
+///   2. Codegen joins that group, then wraps each TU in begin_tu() / end_tu(),
+///      which install/remove the ClangDiagAdapter as the DiagnosticsEngine
+///      client.
+///   3. Kairo fids enter the clang SM in exactly ONE place:
+///      ClangLocMap::rebind(), called from
+///      KairoEmitAction::BeginSourceFileAction. It has to be there, not on a
+///      pool task: FrontendAction::BeginSourceFile calls
+///      SourceManager::clearIDTables() on the SM-reuse path, so any FileID
+///      minted before ExecuteAction is dead by the time codegen runs.
+///
+///      There is no preload step. The old one registered from a pool task
+///      after preprocess and never re-registered, which meant every FileID it
+///      handed out was stale from the first ExecuteAction onward. Registering
+///      per action also removes the need for tail-tracking: rebind() rebuilds
+///      the whole block, so fids loaded since the last action are picked up
+///      for free.
 ///
 /// \par Threading
-///   startup() and preload() are serialized on an internal mutex; preload()
-///   self-heals by running startup first if its task won the race. Everything
-///   else (begin_tu/end_tu/ExecuteAction) is driver-thread only clang's
-///   Preprocessor/Sema are not shareable across concurrent parses. Parallel
-///   backend TUs later means one CompilerInstance per worker, not locks here.
+///   startup() is serialized on an internal mutex against itself. Everything
+///   else (begin_tu/end_tu/ExecuteAction/rebind) is driver-thread only
+///   clang's Preprocessor/Sema/SourceManager are not shareable across
+///   concurrent parses, and createFileID is not thread-safe. Parallel backend
+///   TUs later means one CompilerInstance per worker, not locks here.
 ///
 /// \par PP/Sema per TU
 ///   Only FileManager/SourceManager/TargetInfo persist. clang creates a
@@ -69,7 +78,6 @@ import Config::Diagnostic::*;
 /// ThreadPool group ids used by the driver for backend tasks.
 /// (5 = index, 6 = parse are taken by FrontendAction::_parse.)
 eval fn CLANG_STARTUP_GROUP() -> u8 { return 9;  }
-eval fn CLANG_PRELOAD_GROUP() -> u8 { return 10; }
 
 
 /// Extracts the numeric part of a diagnostic code string, used as the
@@ -182,7 +190,7 @@ class ClangBackend {
     /// stay valid for the duration of the call.
     priv var _owned: libcxx::deque::<libcxx::string>;
 
-    priv var _mu:      std::Mutex;   ///< serializes startup/preload
+    priv var _mu:      std::Mutex;   ///< serializes startup against itself
     priv var _started: bool = false;
     priv var _failed:  bool = false;
 
@@ -219,7 +227,10 @@ class ClangBackend {
 
     // --- State -------------------------------------------------------------
 
-    fn ready(self)  -> bool { return (self._started) && (!self._failed) && (self._locmap->ready()); }
+    /// Ready to RUN an action. Deliberately not gated on _locmap->ready():
+    /// the map is bound inside the action window by rebind(), so requiring it
+    /// here would be a chicken-and-egg deadlock on the very first TU.
+    fn ready(self)  -> bool { return (self._started) && (!self._failed); }
     fn failed(self) -> bool { return self._failed; }
 
     fn ci(self)     -> *clang::CompilerInstance { return self._ci; }
@@ -234,27 +245,11 @@ class ClangBackend {
 
     // --- Startup (pool task, group CLANG_STARTUP_GROUP) ---------------------
 
-    /// All of clang's expensive one-time setup. Idempotent; safe to race
-    /// with preload() both serialize on _mu.
+    /// All of clang's expensive one-time setup. Idempotent and mutex-guarded
+    /// against itself; no other task touches clang state off-thread.
     fn startup(self) {
         var lock = std::LockGuard(self._mu);
         self._startup_locked();
-    }
-
-    // --- Preload (pool task, group CLANG_PRELOAD_GROUP) ----------------------
-
-    /// Mirrors every currently-loaded Kairo fid into the shared clang SM.
-    /// Runs startup first if that task hasn't landed yet. Idempotent:
-    /// re-invocations map only fids loaded since the last call.
-    fn preload(self) {
-        var lock = std::LockGuard(self._mu);
-        self._startup_locked();
-
-        if !self._started {
-            return; // startup failed; codegen will see !ready() and skip
-        }
-
-        self._locmap->preload();
     }
 
     // --- Per-TU diagnostic wiring (driver thread only) -----------------------
@@ -262,14 +257,18 @@ class ClangBackend {
     /// Installs a fresh ClangDiagAdapter as the DiagnosticsEngine client for
     /// one TU's backend run. Counters are Reset() so pass/fail is per-TU.
     /// Returned adapter is owned by the CALLER via end_tu().
+    ///
+    /// The adapter is handed the locmap itself, not a snapshotted clang fid.
+    /// It is constructed BEFORE ExecuteAction, so any fid captured here would
+    /// be invalidated by clearIDTables before the first diagnostic arrives.
     fn begin_tu(self, sink: *BufferedDiagSink, kfid: FileID) -> *ClangDiagAdapter {
         std::ICE(self.ready(), "ClangBackend::begin_tu before ready()");
 
         var a = std::create::<ClangDiagAdapter>();
-        a->sink       = sink;
-        a->ksm        = self._ksm;
-        a->kfid       = kfid;
-        a->clang_kfid = self._locmap->clang_fid(kfid);
+        a->sink   = sink;
+        a->ksm    = self._ksm;
+        a->kfid   = kfid;
+        a->locmap = self._locmap;
 
         self._ci->getDiagnostics().Reset();
 
@@ -427,7 +426,10 @@ class ClangBackend {
         self._ci->createFileManager();
         self._ci->createSourceManager();
 
-        self._locmap->attach(&self._ci->getSourceManager());
+        // No locmap wiring here: ClangLocMap binds its SourceManager in
+        // rebind(), inside the action window. Binding at startup was only ever
+        // meaningful because registration also happened outside the window,
+        // and that is exactly what produced the stale-FileID bug.
         self._started = true;
 
         Logger::info(Logger::Stage::Driver,
