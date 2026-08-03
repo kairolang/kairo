@@ -206,6 +206,24 @@ class <T> ExprParse {
         while !dyn()->is_eof() {
             if self._should_stop(stop) { break; }
 
+            // -- newline continuation: an infix operator on the next line
+            //    continues the expression, but only when that operator cannot
+            //    also open a new statement. `is_unary_operator` covers exactly
+            //    the ambiguous set (+ - * & ~ ! ++ -- .. ...): after a newline
+            //    `* bar` is equally readable as a fresh statement dereferencing
+            //    `bar`, so those still terminate. Mirrors the member-access
+            //    rule in _parse_postfix_expr; nl_depth already suppresses this
+            //    inside brackets.
+            if (dyn()->nl_depth == 0) && ((dyn()->current().kind) == TokenKind::TkNewLine) {
+                var nk = dyn()->peek_past_nl_kind();
+                if (!is_unary_operator(nk))
+                && (self._infix_precedence(nk) != Precedence::None) {
+                    dyn()->advance(T::SkipNL::Only);
+                    continue;
+                }
+                break; // newline ends the expression
+            }
+
             var cur_kind = dyn()->current().kind;
             var prec = self._infix_precedence(cur_kind);
 
@@ -1286,8 +1304,13 @@ class <T> ExprParse {
             return ce;
         }
 
-        // parse argument list
+        // an argument list is bracket-delimited, so newlines inside it are not
+        // significant - `)` terminates it, not the line break. Suppression is
+        // scoped to the argument scan only: the closing `)` below is consumed
+        // outside it so a statement terminator after the call survives.
+        dyn()->nl_push();
         self._parse_call_args(&args, lparen_range);
+        dyn()->nl_pop();
 
         // expect closing `)`
         dyn()->advance(T::SkipNL::Only);
@@ -1717,6 +1740,18 @@ class <T> ExprParse {
             var rhs = self._parse_unary_expr(stop);
             var end_range = (rhs->range) if (rhs != &null) else op_range;
             return RangeExpr::create(dyn()->ctx, op_range | end_range, &null, rhs, is_inclusive);
+        }
+
+        // -- primitive conversion: u32(-1), usize(argc) ---------------
+        // A primitive type token is not a value, so it can only open an
+        // expression when it is immediately applied. Gating on the `(`
+        // keeps a bare `u32` in value position reporting "expected
+        // expression" instead of silently parsing as a name. Postfix
+        // then sees the `(` and builds the CallExpr.
+        if dyn()->check(fn(k: TokenKind) -> bool {
+            return is_annotation(k);
+        }) && ((dyn()->peek().kind) == TokenKind::OpLParen) {
+            return self._parse_ident_expr();
         }
 
         // -- identifier (including `self`) ---------------------------
@@ -2235,6 +2270,12 @@ class <T> ExprParse {
             elements.push_back(elem);
         }
 
+        // a `}` on its own line closes the literal. The element loop only skips
+        // newlines *after* a `,`, so a list without a trailing comma leaves the
+        // cursor on the newline. `}` is consumed outside suppression so the
+        // statement terminator after the literal survives.
+        dyn()->advance(T::SkipNL::Only);
+
         var end_range = dyn()->prev().range;
         if dyn()->check(TokenKind::OpRBrace) {
             end_range = dyn()->current_ptr()->range;
@@ -2322,6 +2363,10 @@ class <T> ExprParse {
             entry.range = key->range | val->range;
             entries.push_back(entry);
         }
+
+        // see _finish_set_literal: an entry list with no trailing comma leaves
+        // the cursor on the newline before `}`.
+        dyn()->advance(T::SkipNL::Only);
 
         var end_range = dyn()->prev().range;
         if dyn()->check(TokenKind::OpRBrace) {
@@ -2413,6 +2458,10 @@ class <T> ExprParse {
 
             break;
         }
+
+        // see _finish_set_literal: a field list with no trailing comma leaves
+        // the cursor on the newline before `}`.
+        dyn()->advance(T::SkipNL::Only);
 
         var end_range = dyn()->prev().range;
         if dyn()->check(TokenKind::OpRBrace) {

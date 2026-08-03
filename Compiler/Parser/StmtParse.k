@@ -645,6 +645,15 @@ class <T> StmtParse {
             result.range = start | id_range;
         }
 
+        // explicit type ascription: `for var p: Path in xs`. Optional - a
+        // binding without one is inferred from the iterable. `::` is a distinct
+        // token, so a qualified name never reaches here as a false positive.
+        if dyn()->check(TokenKind::OpColon) {
+            dyn()->advance(T::SkipNL::After); // consume `:`
+            result.type_ = dyn()->parse_type();
+            result.range = start | dyn()->prev().range;
+        }
+
         return result;
     }
 
@@ -829,6 +838,18 @@ class <T> StmtParse {
         var then_ = self.parse_compound();
 
         var else_: *Stmt = &null;
+
+        // `else` may sit on its own line after the then-branch's closing `}`:
+        //     if      c { ... }
+        //     else if d { ... }
+        // `else` cannot begin a statement, so a newline in front of it is never
+        // ambiguous with the start of a new one.
+        if (dyn()->nl_depth == 0) && ((dyn()->current().kind) == TokenKind::TkNewLine) {
+            if (dyn()->peek_past_nl_kind()) == TokenKind::KwElse {
+                dyn()->advance(T::SkipNL::Only);
+            }
+        }
+
         if dyn()->check(TokenKind::KwElse) {
             dyn()->advance(T::SkipNL::After); // consume `else`
 
