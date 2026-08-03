@@ -4,8 +4,14 @@
 ///          stream. Owns the phase-2 sequence, in order:
 ///
 ///            1. base BeginSourceFileAction (sets up PP, sema plumbing)
-///            2. construct TokenSink against the LIVE Preprocessor
-///            3. filler->fill(sink)          tokens emitted (phase 1)
+///            2. locmap->rebind               EVERY Kairo fid registered as
+///                                              one contiguous FileID block.
+///                                              The only registration site in
+///                                              the compiler; it lives here
+///                                              because clearIDTables killed
+///                                              anything minted earlier.
+///            3. construct TokenSink against the LIVE Preprocessor
+///            4. filler->fill(sink)          tokens emitted (phase 1)
 ///            5. patch_pending               divergent tokens get real
 ///                                             ExpansionLocs
 ///            6. drain_into_pp               EnterTokenStream
@@ -37,7 +43,8 @@ ffi "c++" import "llvm/Support/MemoryBuffer.h";
 
 import Codegen::TokenSink::*;
 import Memory::ArenaAllocator::*;
-import Diagnostic::ClangDiagAdapter::*;
+import Interop::Clang::ClangLocMap::*;
+import Location::SourceLocation::*;
 
 class TokenFiller {
     virtual fn fill(self, sink: *TokenSink) -> bool {
@@ -50,8 +57,8 @@ class TokenFiller {
 ///        stream. One instance per TU run, stack-scoped in Backend.
 class KairoEmitAction derives clang::EmitObjAction {
     pub var filler: obs::<TokenFiller>;          ///< wired by Backend pre-ExecuteAction
-    pub var kpath:   string;                     ///< path of the .k to register in-action
-    pub var adapter: obs::<ClangDiagAdapter>;    ///< fid fixup target; may be null
+    pub var locmap: obs::<ClangLocMap>;          ///< rebound in-action; THE registration point
+    pub var kfid:   FileID;                      ///< Kairo fid of the TU being emitted
     pub var ksize:  u32 = 0;                     ///< byte size of the Kairo file
     pub var arena:  obs::<ArenaAllocator>;       ///< donor for the sink's lists (TU node arena)
     pub var sink:   opt::<TokenSink> = &null;    ///< owned; alive past ExecuteAction (arena text!)
@@ -65,26 +72,39 @@ class KairoEmitAction derives clang::EmitObjAction {
         var pp  = &(ci.getPreprocessor());
         var csm = &(ci.getSourceManager());
 
+        // THE registration point   the only one in the compiler.
+        //
         // FileIDs minted before ExecuteAction are DEAD: FrontendAction::
         // BeginSourceFile calls SourceManager::clearIDTables() on the SM-reuse
-        // path, which resets NextLocalOffset and re-seeds the SLoc tables.
-        // The .k must be (re)registered HERE, inside the action window.
-        // FileManager::FileInfos survives clearIDTables, so this is a
-        // ContentCache hit, not a re-read.
-        var np   = std::string_to_nstring(self.kpath);
-        var fref = ci.getFileManager().getFileRef(
-            llvm::StringRef(np.raw(), np.size()), true);
-        if !fref { return false; }
-        var live_cfid = csm->createFileID(
-            *fref, clang::SourceLocation(), clang::SrcMgr::C_User);
+        // path, which resets NextLocalOffset and re-seeds the SLoc tables. So
+        // every Kairo fid is registered HERE, inside the action window, as one
+        // contiguous FileID block. FileManager::FileInfos survives
+        // clearIDTables, so this is ContentCache hits, not re-reads.
+        //
+        // rebind() maps ALL fids, not just this TU's. Kairo loads fids during
+        // index and parse (imports, and C++ headers it needs to query), so the
+        // set is only final after preprocess   and clang must be able to
+        // translate a loc in any of them, not just the one being emitted.
+        // Correctness here rests on the contiguity ICE inside rebind(), which
+        // is O(1) per fid and always on. The exhaustive round-trip lives in
+        // ClangLocMap's Test block, where the adversarial cases (clearIDTables
+        // mid-flight, post-block FileIDs, virtual fids) can actually be
+        // constructed   a user's source files will never produce them.
+        std::ICE(self.locmap != &null, "KairoEmitAction: no ClangLocMap wired");
+        if !self.locmap->rebind(&ci) { return false; }
 
-        // The diag adapter's fid comparison must use the LIVE id too, or
-        // _to_kairo_loc rejects every location and diags render loc-less.
-        if self.adapter != &null {
-            self.adapter->clang_kfid = live_cfid;
-        }
+        // This TU's fid is the block base plus its Kairo fid. Nothing here
+        // caches the clang FileID beyond this action   the map owns it.
+        var live_cfid = self.locmap->clang_fid_of(self.kfid);
+        if !live_cfid.isValid() { return false; }
 
-        self.sink = std::create::<TokenSink>(pp, csm, live_cfid, self.ksize, self.arena);
+        // kbase is the Kairo raw loc of byte 0 of this file. The sink derives
+        // its own delta from it and owns every location conversion from here
+        // on   there is exactly one place that arithmetic lives.
+        var kbase = self.locmap->kairo_base(self.kfid);
+
+        self.sink = std::create::<TokenSink>(
+            pp, csm, live_cfid, kbase, self.ksize, self.arena);
         self.filled = self.filler->fill(self.sink);
         if !self.filled { return false; }
 
