@@ -1253,6 +1253,15 @@ class <T> DeclParse {
         var lparen     = lparen_tok.range;
         dyn()->advance(T::SkipNL::After); // consume `(`
 
+        // a parameter list is bracket-delimited, so newlines inside it are
+        // never significant - the closing `)` is the terminator, not the line
+        // break. Suppress them for the whole list so signatures may wrap:
+        //     fn create(
+        //         ctx: *ASTContext,
+        //         range: SourceRange
+        //     ) -> *Expr
+        dyn()->nl_push();
+
         var variadic = false;
         var idx: u32 = 0;
 
@@ -1263,6 +1272,7 @@ class <T> DeclParse {
         var saw_unnamed = false;
 
         if dyn()->check(TokenKind::OpRParen) {
+            dyn()->nl_pop();
             dyn()->advance(); // consume `)`
             return false;
         }
@@ -1297,6 +1307,26 @@ class <T> DeclParse {
             // - a leading `*`/`[`/`(`, a scoped name, a bare type name - is a
             // type-only parameter, i.e. a forward-declaration signature
             // (`fn foo(i32, f64)`, the equivalent of C's `void foo(int, double)`).
+            // optional `const` on a parameter. Two shapes stay distinct:
+            //     const start: Source   -> named param, const binding
+            //     const Source          -> type-only param, const type
+            // Both open `const` + identifier, so the discriminator is the `:`
+            // two tokens along. Probe for the named shape; on a miss roll back
+            // so the `const` is left for parse_type to fold into the type.
+            var p_const = false;
+            if dyn()->check(TokenKind::KwConst) {
+                var probe = dyn()->tentative_begin();
+                dyn()->advance(); // consume `const`
+                if dyn()->check(TokenKind::LitIdentifier)
+                && dyn()->check_peek(TokenKind::OpColon)
+                && (!dyn()->check_peek(TokenKind::OpColonColon)) {
+                    dyn()->tentative_commit(probe);
+                    p_const = true;
+                } else {
+                    dyn()->tentative_rollback(probe);
+                }
+            }
+
             var is_named = dyn()->check(TokenKind::LitIdentifier)
                         && dyn()->check_peek(TokenKind::OpColon)
                         && (!dyn()->check_peek(TokenKind::OpColonColon));
@@ -1331,6 +1361,7 @@ class <T> DeclParse {
             }
 
             var pd = ParamDecl::create(dyn()->ctx, p_start | dyn()->prev().range, pname, pty, idx, !is_named);
+            pd->is_const = p_const;
 
             // default value
             if dyn()->check(TokenKind::OpEqual) {
@@ -1385,6 +1416,7 @@ class <T> DeclParse {
             );
         }
 
+        dyn()->nl_pop();
         return variadic;
     }
 
@@ -1878,6 +1910,18 @@ class <T> DeclParse {
         impl_out:    *std::StackBuf::<InheritEdge, 4>
     ) {
         while true {
+            // heritage clauses may sit on their own continuation line:
+            //     class StreamCursor
+            //       derives ImportGrammar<StreamCursor> { ... }
+            // neither keyword can begin a declaration, so a newline in front of
+            // them is never ambiguous with the start of a new one.
+            if (dyn()->nl_depth == 0) && ((dyn()->current().kind) == TokenKind::TkNewLine) {
+                var hk = dyn()->peek_past_nl_kind();
+                if (hk == TokenKind::KwDerives) || (hk == TokenKind::KwImpl) {
+                    dyn()->advance(T::SkipNL::Only);
+                }
+            }
+
             if dyn()->check(TokenKind::KwDerives) {
                 self._parse_inherit_edges(derives_out);
                 continue;
@@ -2040,6 +2084,21 @@ class <T> DeclParse {
             // with static fields and are left to the field/recovery paths, which
             // the progress guard above keeps bounded.)
             if (k == TokenKind::KwFn) && (!allow_methods) {
+                // operator declarations ARE permitted in struct/union bodies -
+                // only ordinary methods are not. `fn op == (self, other)` is a
+                // valid struct member, so peek past `fn` for the `op` keyword
+                // and take the normal method path when it is present.
+                if (dyn()->peek().kind) == TokenKind::KwOp {
+                    var op_lead = self._consume_leading_modifiers();
+                    var om = self._parse_function(&op_lead);
+                    if (om != &null) && isa::<FunctionDecl>(om) {
+                        var ofm = cast::<FunctionDecl>(om);
+                        dyn()->apply_annotations_to_decl(static_cast::<*Decl>(ofm), &m_annot);
+                        methods_out->push_back(ofm);
+                    }
+                    continue;
+                }
+
                 var mr   = dyn()->current_ptr()->range;
                 var lead = self._consume_leading_modifiers();
                 self._parse_function(&lead);
