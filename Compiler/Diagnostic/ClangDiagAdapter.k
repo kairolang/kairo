@@ -21,6 +21,7 @@ import Diagnostic::Registry::*;
 import Diagnostic::Engine::*;
 import Diagnostic::BufferedDiagSink::*;
 import Diagnostic::ClangDiagLookup::*;
+import Interop::Clang::ClangLocMap::*;
 
 /// One instance per bridged clang CompilerInstance (i.e. per TU).
 /// Thread-confined: writes only to this TU's BufferedDiagSink, preserving
@@ -29,7 +30,16 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     pub var sink:       obs::<BufferedDiagSink>;
     pub var ksm:        obs::<SourceManager>;              ///< Kairo SM, for span construction
     pub var kfid:       FileID;                            ///< Kairo fid of the TU being compiled
-    pub var clang_kfid: clang::FileID;                     ///< clang FileID of the injected .kro buffer
+
+    /// The live fid map. Asked per diagnostic, never snapshotted.
+    ///
+    /// This used to be a cached `clang_kfid: clang::FileID`, which was dead
+    /// the moment FrontendAction::BeginSourceFile called clearIDTables   and
+    /// worse, clang restarts its ID counter after that, so the stale value
+    /// would start matching whatever header happened to land on the same ID.
+    /// Every diagnostic in that header then rendered against this TU's Kairo
+    /// file at a bogus offset. Ask the map; it knows when it was last rebound.
+    pub var locmap:     obs::<ClangLocMap>;
     priv var _lo: const_obs::<clang::LangOptions> = &null; ///< owned by the CI, valid for the action.
 
     /// Note-attachment state: clang emits notes as separate HandleDiagnostic
@@ -106,8 +116,9 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
 
     /// clang loc -> Kairo SourceRange via EXPANSION loc (never spelling loc:
     /// arena literals spell in <kairo-literals>; expansion is the .kro span).
-    /// Offsets in clang_kfid ARE byte offsets in the Kairo file, so the
-    /// mapping is direct construction against ksm/kfid.
+    /// Offsets in this TU's clang FileID ARE byte offsets in the Kairo file
+    /// (same bytes, same buffer), so the mapping is direct construction
+    /// against ksm/kfid once the fid is confirmed.
     ///
     /// Returns SourceRange::invalid() for "none": blamed in a header/runtime
     /// include -> loc-less forward; policy layer classifies.
@@ -119,7 +130,7 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
         var dec = info.getSourceManager()
                       .getDecomposedExpansionLoc(info.getLocation());
 
-        if dec.first != self.clang_kfid {
+        if (self.locmap == &null) || (!self.locmap->is_kairo_fid(dec.first, self.kfid)) {
             return SourceRange::invalid();
         }
 
@@ -130,16 +141,17 @@ class ClangDiagAdapter derives clang::DiagnosticConsumer {
     }
 
     /// Translates one clang CharSourceRange into a Kairo SourceRange,
-    /// or invalid if either endpoint escapes clang_kfid.
+    /// or invalid if either endpoint escapes this TU's fid.
     priv fn _range_in_kfid(self, cr: cref::<clang::CharSourceRange>, info: cref::<clang::Diagnostic>) -> SourceRange {
-        if (!cr.isValid()) || (!info.hasSourceManager()) {
+        if (!cr.isValid()) || (!info.hasSourceManager()) || (self.locmap == &null) {
             return SourceRange::invalid();
         }
 
         var b = info.getSourceManager().getDecomposedExpansionLoc(cr.getBegin());
         var e = info.getSourceManager().getDecomposedExpansionLoc(cr.getEnd());
 
-        if (b.first != self.clang_kfid) || (e.first != self.clang_kfid) {
+        if (!self.locmap->is_kairo_fid(b.first, self.kfid))
+            || (!self.locmap->is_kairo_fid(e.first, self.kfid)) {
             return SourceRange::invalid();
         }
 
