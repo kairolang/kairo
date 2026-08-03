@@ -75,22 +75,6 @@ class LocalScope {
     // TODO(N): fn declare(imm, d)  -- push; caller already checked for
     //           same-frame redefinition (that's a diagnostic, owner: N).
     // TODO(N): fn find(imm) -> *Decl -- reverse linear scan, null on miss.
-    var names: vec::<u32>;
-    var decls: vec::<*Decl>;
-
-    fn declare(self, imm: u32, d: *Decl) {
-        self.names.push_back(imm);
-        self.decls.push_back(d);
-    }
-
-    fn find(self, imm:u32) -> *Decl {
-        for var i: usize = self.names.size(); i > 0; --i {
-            if self.names.get(i - 1) == imm {
-                return self.decls.get(i - 1);
-            }
-        }
-        return &null;
-    }
 }
 
 ///
@@ -148,7 +132,6 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         //      path).
         //   4. sc->well_known: resolve the WellKnownType names once
         //      (lookup in the root/prelude scope, store the *Decl).
-        
     }
 
     // === N(b): binding ====================================================
@@ -169,17 +152,6 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         //   on hit synthesize a SemaLookupResult around the single decl.
         // TODO(N-b): fall through to
         //   self.sc->lookup.unqualified(self.cur_dc, /* DeclName from imm */);
-        for (var i = self.locals.size(); i > 0; --i) {
-            var frame = self.locals.get(i - 1);
-            var d = frame.find(imm);
-            if d != &null {
-                var r = SemaLookupResult{};
-                r.cell = &OverloadCell;
-                r.cell->push_back(d);
-                r.found_in = self.cur_dc;
-                return r;
-            }
-        }
         return SemaLookupResult::not_found();
     }
 
@@ -243,8 +215,3 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     //   UnresolvedConstructorPattern that RESOLVES to a ctor gets
     //   rewritten by a later pass, N only annotates.
 }
-
-
-
-
-
