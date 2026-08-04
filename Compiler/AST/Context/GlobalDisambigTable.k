@@ -13,6 +13,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import AST::Context::ASTContext::*;
+import Driver::TUStage::*;   // standalone enum; no cycle
 import Resolution::ModulePath::*;
 
 /// Aggregates all file-level DisambigTable instances for cross-file lookup.
@@ -79,6 +80,37 @@ class GlobalDisambigTable {
         entry.mod_path = mod_path;
         self._by_fid.insert(libcxx::make_pair(fid, entry));
         return ctx;
+    }
+
+    /// \brief releases \p fid's artifacts at \p from and every later stage.
+    ///
+    /// \details Delegates to ASTContext::release_from, which runs registered
+    ///          destructors and resets the arenas at or after that stage. The
+    ///          context itself survives unless \p from is Preprocessing or
+    ///          earlier, in which case it is destroyed and the entry erased
+    ///          the PP is what created it.
+    ///
+    ///          Idempotent: releasing at or above an already-released level is
+    ///          a no-op, and an unknown fid returns false rather than faulting.
+    fn release_from(self, fid: u32, from: TUStage) -> bool {
+        var lock = std::LockGuard(self._mu);
+        var it = self._by_fid.find(fid);
+        if it == self._by_fid.end() { return false; }
+        if it->second.ctx == &null  { return false; }
+
+        it->second.ctx->release_from(from);
+
+        if from <= TUStage::Preprocessing {
+            std::destroy(it->second.ctx);
+            self._by_fid.erase(it);
+        } else if from <= TUStage::Parsing {
+            // hoisted lived in the context's index_alloc and release_from
+            // cleared the pointer; drop our cached copy so get_scope() cannot
+            // hand out a stale table.
+            it->second.hoisted = &null;
+        }
+
+        return true;
     }
 
     /// parse-time, step 1 of 2: claims \p fid for indexing.
