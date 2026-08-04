@@ -233,7 +233,7 @@ class ASTParse
         if (mode == ParseMode::Index) && (ctx->hoisted == &null) {
             // the index pass owns table allocation; must precede TU creation
             // below since the TU constructor captures ctx->hoisted.
-            ctx->hoisted = ctx->alloc_init::<DisambigTable>(ctx);
+            ctx->hoisted = ctx->alloc_init_index_cleanup::<DisambigTable>(ctx);
         }
 
         var existing = reinterpret_cast::<*TranslationUnit>(ctx->tu);
@@ -241,7 +241,7 @@ class ASTParse
             self.tu = existing;   // PP-built TU: imports/macros already in it
         } else {
             // ParseSource / test-harness path: no PP ran
-            self.tu = ctx->alloc_init::<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, g_scope);
+            self.tu = ctx->alloc_init_pp::<TranslationUnit>(ctx, ctx->fid, ctx->hoisted, g_scope);
             ctx->tu = reinterpret_cast::<*void>(self.tu);
         }
         self.scope.set_ctx(ctx);
@@ -360,7 +360,7 @@ class ASTParse
         // table can be null share an empty frozen table so qualified lookup
         // through the module is a clean miss, not a null deref.
         if self.tu->dc_symbols == &null {
-            var empty = self.ctx->alloc_init::<SymbolTable>();
+            var empty = self.ctx->alloc_init_cleanup::<SymbolTable>();
             empty->freeze();
             self.tu->set_symbols(empty);
         }
@@ -586,7 +586,7 @@ class ASTParse
     ///        for the freeze sweep at the end of _build_symbols.
     priv fn _symtab_for(self, dc: *DeclContext) -> *SymbolTable {
         if dc->dc_symbols == &null {
-            var t = self.ctx->alloc_init::<SymbolTable>();
+            var t = self.ctx->alloc_init_cleanup::<SymbolTable>();
             dc->set_symbols(t);
             self._sym_tables.push_back(t);
         }

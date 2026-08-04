@@ -191,7 +191,7 @@ class ScopeStack {
     /// \param dc    the declaration context that will own declarations in this scope.
     /// \return a pointer to the newly allocated and activated scope.
     fn push(self, kind: ScopeKind, dc: *DeclContext) -> *LexicalScope {
-        var s     = self.ctx->alloc_init::<LexicalScope>(kind, self._top, dc);
+        var s     = self.ctx->alloc_init_cleanup::<LexicalScope>(kind, self._top, dc);
         self._top = s;
         return s;
     }

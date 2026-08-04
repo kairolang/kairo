@@ -2284,7 +2284,7 @@ class PreProcessor {
                 fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, ModulePath());
             var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
             if tu == &null {
-                tu = ctx->alloc_init::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
+                tu = ctx->alloc_init_pp::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
                 ctx->tu = reinterpret_cast::<*void>(tu);
             }
 
@@ -2379,7 +2379,7 @@ class PreProcessor {
                 fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, mod_path);
             var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
             if tu == &null {
-                tu = ctx->alloc_init::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
+                tu = ctx->alloc_init_pp::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
                 ctx->tu = reinterpret_cast::<*void>(tu);
             }
 

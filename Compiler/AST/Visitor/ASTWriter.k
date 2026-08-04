@@ -72,7 +72,7 @@ class <T> ListBuilder {
     priv var _arena: *ArenaAllocator;
 
     fn ListBuilder(self, ctx: *ASTContext) {
-        self._arena = &(ctx->nodes);
+        self._arena = &(ctx->ast_alloc);
         self._buf.set_allocator(self._arena);
     }
 
@@ -124,7 +124,7 @@ class <T> ListRewriter {
 
     fn ListRewriter(self, source: *FrozenList::<T>, ctx: *ASTContext) {
         self._source = source;
-        self._arena  = &(ctx->nodes);
+        self._arena  = &(ctx->ast_alloc);
     }
 
     /// Swap the element at \p index for \p item.
@@ -266,7 +266,7 @@ class <D> ASTWriter {
 
     fn rebuild_stmt_list(self, old: *FrozenList::<*Stmt>) {
         var buf = ArenaList::<*Stmt>();
-        buf.set_allocator(&(self.ctx->nodes));
+        buf.set_allocator(&(self.ctx->ast_alloc));
         for var i: usize = 0; i < old->size(); i++ {
             if self.stop { buf.push(*(old->get(i))); continue; }
             var results = self.dyn()->transform_stmt(*(old->get(i)));
@@ -274,12 +274,12 @@ class <D> ASTWriter {
                 buf.push(results[j]);
             }
         }
-        old->from_list(&buf, &(self.ctx->nodes));
+        old->from_list(&buf, &(self.ctx->ast_alloc));
     }
 
     fn rebuild_decl_list(self, old: *FrozenList::<*Decl>) {
         var buf = ArenaList::<*Decl>();
-        buf.set_allocator(&(self.ctx->nodes));
+        buf.set_allocator(&(self.ctx->ast_alloc));
         for var i: usize = 0; i < old->size(); i++ {
             if self.stop { buf.push(*(old->get(i))); continue; }
             var results = self.dyn()->transform_decl(*(old->get(i)));
@@ -287,47 +287,47 @@ class <D> ASTWriter {
                 buf.push(results[j]);
             }
         }
-        old->from_list(&buf, &(self.ctx->nodes));
+        old->from_list(&buf, &(self.ctx->ast_alloc));
     }
 
     fn rebuild_expr_list(self, old: *FrozenList::<*Expr>) {
         var buf = ArenaList::<*Expr>();
-        buf.set_allocator(&(self.ctx->nodes));
+        buf.set_allocator(&(self.ctx->ast_alloc));
         for var i: usize = 0; i < old->size(); i++ {
             if self.stop { buf.push(*(old->get(i))); continue; }
             var r = self.dyn()->transform_expr(*(old->get(i)));
             if r != &null { buf.push(r); }
         }
-        old->from_list(&buf, &(self.ctx->nodes));
+        old->from_list(&buf, &(self.ctx->ast_alloc));
     }
 
     fn rebuild_type_list(self, old: *FrozenList::<*Type>) {
         var buf = ArenaList::<*Type>();
-        buf.set_allocator(&(self.ctx->nodes));
+        buf.set_allocator(&(self.ctx->ast_alloc));
         for var i: usize = 0; i < old->size(); i++ {
             if self.stop { buf.push(*(old->get(i))); continue; }
             var r = self.dyn()->transform_type(*(old->get(i)));
             if r != &null { buf.push(r); }
         }
-        old->from_list(&buf, &(self.ctx->nodes));
+        old->from_list(&buf, &(self.ctx->ast_alloc));
     }
 
     fn rebuild_pattern_list(self, old: *FrozenList::<*Pattern>) {
         var buf = ArenaList::<*Pattern>();
-        buf.set_allocator(&(self.ctx->nodes));
+        buf.set_allocator(&(self.ctx->ast_alloc));
         for var i: usize = 0; i < old->size(); i++ {
             if self.stop { buf.push(*(old->get(i))); continue; }
             var r = self.dyn()->transform_pattern(*(old->get(i)));
             if r != &null { buf.push(r); }
         }
-        old->from_list(&buf, &(self.ctx->nodes));
+        old->from_list(&buf, &(self.ctx->ast_alloc));
     }
 
     /// DeclContext::dc_decls is a live ArenaList, not a FrozenList. Rebuild it
     /// in place, splicing transform_decl results.
     fn rebuild_dc_decls(self, dc: *DeclContext) {
         var buf = ArenaList::<*Decl>();
-        buf.set_allocator(&(self.ctx->nodes));
+        buf.set_allocator(&(self.ctx->ast_alloc));
         for var i: usize = 0; i < dc->dc_decls.size(); i++ {
             var d = *(dc->dc_decls.get(i));
             if d == &null { continue; }
@@ -1338,7 +1338,7 @@ class <D> ASTWriter {
     /// matching family transform and re-wrapping the (splice-aware) results.
     fn rebuild_toplevel_items(self, items: *ArenaList::<TopLevelItem>) {
         var buf = ArenaList::<TopLevelItem>();
-        buf.set_allocator(&(self.ctx->nodes));
+        buf.set_allocator(&(self.ctx->ast_alloc));
         for var i: usize = 0; i < items->size(); i++ {
             var item = *(items->get(i));
             if self.stop { buf.push(item); continue; }
