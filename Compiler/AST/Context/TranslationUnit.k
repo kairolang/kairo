@@ -196,11 +196,11 @@ class TranslationUnit derives DeclContext {
         self.fid          = fid;
         self.scope        = scope;
         self.global_scope = g_scope;
-        self.imports.set_allocator(&(ctx->nodes), 16);
-        self.tu_attrs.set_allocator(&(ctx->nodes), 4);
-        self.body_ranges.set_allocator(&(ctx->nodes), 64);
-        self.out_of_line.set_allocator(&(ctx->nodes), 8);
+        self.imports.set_allocator(&(ctx->pp_alloc), 16);
+        self.tu_attrs.set_allocator(&(ctx->pp_alloc), 4);
+        self.body_ranges.set_allocator(&(ctx->pp_alloc), 64);
+        self.out_of_line.set_allocator(&(ctx->pp_alloc), 8);
         self.import_overlay = &null;
-        self.import_edges.set_allocator(&(ctx->nodes), 16);
+        self.import_edges.set_allocator(&(ctx->pp_alloc), 16);
     }
 }

@@ -15,6 +15,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Memory::ArenaList::*;
+import Driver::TUStage::*;   // standalone enum, no imports of its own; no cycle
 import Location::SourceManager::*;
 import Token::TokenCacheManager::*;
 import Lexer::Immediate::*;
@@ -46,8 +47,17 @@ class DisambigTable;
 class ASTContext {
     pub var source_path: Path;
     pub var module_base: ModulePath;
-    pub var nodes:       ArenaAllocator = ArenaAllocator(1024 * 1024); // arena for AST nodes, separate from strings to allow different lifetimes
-    pub var strings:     ArenaAllocator = ArenaAllocator(1024 * sizeof(string)); // separate arena for strings to allow interning
+    
+    /// This is the general allocators for the compiler pipeline.
+    /// One allocator per transiatve stage of the pipeline. Each allocator is reset when the stage is complete.
+    pub var string_alloc:  ArenaAllocator = ArenaAllocator(1024 * sizeof(string)); ///< interned strings; outlives every stage.
+    pub var pp_alloc:      ArenaAllocator = ArenaAllocator(64 * 1024);             ///< TU, ImportDecl, MacroDecl, import edges.
+    pub var index_alloc:   ArenaAllocator = ArenaAllocator(64 * 1024);             ///< DisambigTable/Node. Read CROSS-FID during parse,
+                                                                                   ///  so it outlives this fid's ast_alloc.
+    pub var ast_alloc:     ArenaAllocator = ArenaAllocator(1024 * 1024);           ///< Program + every Decl/Stmt/Expr/Type/Pattern.
+    pub var sema_alloc:    ArenaAllocator = ArenaAllocator();                      ///< lazy   nothing allocates here until Sema exists.
+    pub var codegen_alloc: ArenaAllocator = ArenaAllocator();                      ///< lazy   CodegenBackend's node storage.
+    pub var scratch_alloc: ArenaAllocator = ArenaAllocator();                      ///< lazy   For transient tooling buffers whose contents never become AST.
     pub var sm:          obs::<SourceManager>;
     pub var tcm:         obs::<TokenCacheManager>; // we can get the imm table from the tcm
     pub var diags:       obs::<DiagEngine>;
@@ -93,8 +103,12 @@ class ASTContext {
         return TokenSpan(token_buff);
     }
 
+    /// The unqualified alloc* family targets ast_alloc. That is the parse
+    /// stage, which is ~113 node create() functions and the overwhelming
+    /// majority of call sites, so it stays the default and they stay
+    /// untouched. Every OTHER stage names its arena explicitly below.
     fn <T> alloc(self) -> *T {
-        var mem: *void = self.nodes.alloc(sizeof(T), alignof(T));
+        var mem: *void = self.ast_alloc.alloc(sizeof(T), alignof(T));
         libcxx::memset(mem, 0, sizeof(T));
         return static_cast::<*T>(mem);
 
@@ -103,20 +117,28 @@ class ASTContext {
         //       initialized, use alloc_init<T>() instead.
     }
 
-    __inline_cpp("
-    template <typename T, typename ...Args>
-    T *alloc_init(Args &&...args) {
-        void *mem = this->nodes.alloc(sizeof(T), alignof(T));
-        return ::new (mem) T(libcxx::forward<Args>(args)...);
+    inline "c++" { // PORT(trivial)
+        private:
+        template <typename T, typename ...Args>
+        T *placement_new(void *mem, Args &&...args) {
+            return ::new (mem) T(libcxx::forward<Args>(args)...);
+        }
     }
-    ");
+
+    inline "c++" { // PORT(trivial)
+        template <typename T, typename ...Args>
+        T *alloc_init(Args &&...args) {
+            void *mem = this->ast_alloc.alloc(sizeof(T), alignof(T));
+            return ::new (mem) T(libcxx::forward<Args>(args)...);
+        }
+    }
 
     fn <T> alloc_array(self, n: usize) -> *T {
         if n == 0 {
             return &null;
         }
 
-        var mem: *void = self.nodes.alloc(sizeof(T) * n, alignof(T));
+        var mem: *void = self.ast_alloc.alloc(sizeof(T) * n, alignof(T));
         return static_cast::<*T>(mem);
     }
 
@@ -125,23 +147,192 @@ class ASTContext {
             return &null;
         }
 
-        var mem: *void = self.nodes.alloc(sizeof(T) * n, alignof(T));
+        var mem: *void = self.ast_alloc.alloc(sizeof(T) * n, alignof(T));
         libcxx::memset(mem, 0, sizeof(T) * n);
         return static_cast::<*T>(mem);
     }
 
-    fn mem_profile(self) -> (usize, usize, usize) {
-        var n = self.nodes.profile();
-        var s = self.strings.profile();
-        // (total bytes, total slabs, total alloc calls)
-        return (n.bytes_allocated + s.bytes_allocated,
-                n.slab_count + s.slab_count,
-                n.alloc_calls + s.alloc_calls);
+    // Arena reset frees the BLOCKS; it does not run destructors. Anything
+    // allocated into an arena whose type is not trivially destructible   it
+    // holds a vec, a libcxx::unordered_map, a string   leaks that heap
+    // storage on every reset unless its destructor runs first.
+    //
+    // Harmless when a context is built once and torn down once. Not harmless
+    // under incremental reparse, where the leak repeats per edit.
+    //
+    // Register such allocations via the *_cleanup helpers below and
+    // release_from() will run the destructor (placement dtor only   the
+    // storage itself still belongs to the arena) before resetting.
+
+    struct ArenaCleanup {
+        var obj: *void;
+        var run: fn(*void);
     }
 
+    priv var _cleanup_pp:    vec::<ArenaCleanup>;
+    priv var _cleanup_index: vec::<ArenaCleanup>;
+    priv var _cleanup_ast:   vec::<ArenaCleanup>;
+
+    priv fn _run_cleanups(self, list: *vec::<ArenaCleanup>) {
+        // reverse order: later allocations may reference earlier ones.
+        var n = list->size();
+        for var i: usize = 0; i < n; ++i {
+            var c = (*list)[(n - 1) - i];
+            if c.obj != &null { c.run(c.obj); }
+        }
+        list->clear();
+    }
+
+    inline "c++" { // PORT(trivial)
+        template <typename T, typename ...Args>
+        T *alloc_init_cleanup(Args &&...args) {
+            void *mem = this->ast_alloc.alloc(sizeof(T), alignof(T));
+            T *p = ::new (mem) T(libcxx::forward<Args>(args)...);
+            ArenaCleanup c;
+            c.obj = static_cast<void *>(p);
+            c.run = [](void *q) { static_cast<T *>(q)->~T(); };
+            this->_cleanup_ast.push_back(c);
+            return p;
+        }
+    }
+
+    inline "c++" { // PORT(trivial)
+        template <typename T, typename ...Args>
+        T *alloc_init_pp_cleanup(Args &&...args) {
+            void *mem = this->pp_alloc.alloc(sizeof(T), alignof(T));
+            T *p = ::new (mem) T(libcxx::forward<Args>(args)...);
+            ArenaCleanup c;
+            c.obj = static_cast<void *>(p);
+            c.run = [](void *q) { static_cast<T *>(q)->~T(); };
+            this->_cleanup_pp.push_back(c);
+            return p;
+        }
+    }
+
+    inline "c++" { // PORT(trivial)
+        template <typename T, typename ...Args>
+        T *alloc_init_index_cleanup(Args &&...args) {
+            void *mem = this->index_alloc.alloc(sizeof(T), alignof(T));
+            T *p = ::new (mem) T(libcxx::forward<Args>(args)...);
+            ArenaCleanup c;
+            c.obj = static_cast<void *>(p);
+            c.run = [](void *q) { static_cast<T *>(q)->~T(); };
+            this->_cleanup_index.push_back(c);
+            return p;
+        }
+    }
+
+    // --- Stage-qualified allocation --------------------------------------
+    //
+    // Callers outside the parse stage MUST use these. See the arena block
+    // above for why the choice is per-stage and not per-node-type.
+
+    fn <T> alloc_pp(self) -> *T {
+        var mem: *void = self.pp_alloc.alloc(sizeof(T), alignof(T));
+        libcxx::memset(mem, 0, sizeof(T));
+        return static_cast::<*T>(mem);
+    }
+
+    inline "c++" { // PORT(trivial)
+        template <typename T, typename ...Args>
+        T *alloc_init_pp(Args &&...args) {
+            void *mem = this->pp_alloc.alloc(sizeof(T), alignof(T));
+            return ::new (mem) T(libcxx::forward<Args>(args)...);
+        }
+    }
+
+    inline "c++" { // PORT(trivial)
+        template <typename T, typename ...Args>
+        T *alloc_init_index(Args &&...args) {
+            void *mem = this->index_alloc.alloc(sizeof(T), alignof(T));
+            return ::new (mem) T(libcxx::forward<Args>(args)...);
+        }
+    }
+
+    inline "c++" { // PORT(trivial)
+        template <typename T, typename ...Args>
+        T *alloc_init_scratch(Args &&...args) {
+            void *mem = this->scratch_alloc.alloc(sizeof(T), alignof(T));
+            return ::new (mem) T(libcxx::forward<Args>(args)...);
+        }
+    }
+
+    fn mem_profile(self) -> (usize, usize, usize) {
+        var pp  = self.pp_alloc.profile();
+        var ix  = self.index_alloc.profile();
+        var ast = self.ast_alloc.profile();
+        var sem = self.sema_alloc.profile();
+        var scr = self.scratch_alloc.profile();
+        var s   = self.string_alloc.profile();
+        // (total bytes, total slabs, total alloc calls)
+        return (pp.bytes_allocated + ix.bytes_allocated + ast.bytes_allocated
+                    + sem.bytes_allocated + scr.bytes_allocated + s.bytes_allocated,
+                pp.slab_count + ix.slab_count + ast.slab_count
+                    + sem.slab_count + scr.slab_count + s.slab_count,
+                pp.alloc_calls + ix.alloc_calls + ast.alloc_calls
+                    + sem.alloc_calls + scr.alloc_calls + s.alloc_calls);
+    }
+
+    /// Frees everything produced at \p from and every LATER stage.
+    ///
+    /// The cascade is not a convenience: AST nodes address identifiers by
+    /// `imm` index into the fid's ImmediateTable, so an AST that outlived its
+    /// tokens has unresolvable names. Later stages always die with earlier
+    /// ones.
+    ///
+    /// Idempotent   reset_fast() on an already-reset arena is a no-op, so
+    /// releasing at or above a level already released does nothing.
+    ///
+    /// index_alloc is deliberately NOT released at Parsing: the disambig
+    /// table is read cross-fid while DEPENDENT files parse. It is dropped
+    /// with the context.
+    fn release_from(self, from: TUStage) {
+        if from <= TUStage::Codegen {
+            self.codegen_alloc.reset_fast();
+        }
+
+        if from <= TUStage::Sema {
+            self.sema_alloc.reset_fast();
+        }
+
+        if from <= TUStage::Parsing {
+            self._run_cleanups(&(self._cleanup_ast));
+            self.ast_alloc.reset_fast();
+            self.scratch_alloc.reset_fast();
+            self.hoisted = &null;
+        }
+
+        if from <= TUStage::Preprocessing {
+            self._run_cleanups(&(self._cleanup_pp));
+            self._run_cleanups(&(self._cleanup_index));
+            self.pp_alloc.reset_fast();
+            self.index_alloc.reset_fast();
+            self.tu = &null;
+        }
+    }
+
+    /// Arena storage is reclaimed by each ArenaAllocator's own destructor, but
+    /// registered destructors are not   run them here or every context
+    /// teardown leaks the heap members of its non-trivial allocations.
+    fn op delete (self) {
+        self._run_cleanups(&(self._cleanup_ast));
+        self._run_cleanups(&(self._cleanup_index));
+        self._run_cleanups(&(self._cleanup_pp));
+    }
+
+    /// Drops the parsed AST and the disambig table, keeping the PP's work
+    /// (TU, imports, macro defs) so the file can be re-parsed in place.
+    ///
+    /// Before the arena split this was reset_fast() on the single shared
+    /// arena, which also freed the TranslationUnit and left ctx->tu dangling.
+    ///
+    /// Unlike release_from(Parsing) this DOES drop index_alloc: the file's
+    /// bytes changed, so the hoisted table has to be rebuilt from the new
+    /// token stream rather than kept for dependents. Callers holding a
+    /// cross-fid DisambigTable pointer must re-fetch after this.
     fn reset_for_reparse(self) {
-        self.nodes.reset_fast();
-        self.hoisted = &null;
+        self.release_from(TUStage::Parsing);
+        self.index_alloc.reset_fast();
     }
 
     fn make_token(self, range: SourceRange, kind: TokenKind, s: string) -> Token {
@@ -150,7 +341,7 @@ class ASTContext {
         tok = range;
         // token = lexer->intern_ident(s_p, length, h);
         // fn intern_ident(self, const data: *u8, len: usize, hash: u32) -> u32
-        var str = self.strings.alloc_init::<nstring>(std::string_to_nstring(s));
+        var str = self.string_alloc.alloc_init::<nstring>(std::string_to_nstring(s));
         if str == &null {
             self.diags->report(DiagID::I002F, range.start,
                 f"internal error: ASTContext::make_token failed to allocate string for token \x27{s}\x27"
@@ -295,9 +486,12 @@ class DisambigNode {
         self.children.reserve(8);
     }
 
-    fn op delete (self) {
-        // intentional leak arena reclaims all DisambigNode allocations at once
-    }
+    // NOTE: no op delete here. The arena reclaims the NODE STRUCT, but
+    // `entries` and `children` are libcxx::unordered_maps with heap buckets
+    // (and `entries` values are heap vecs on top of that). Their destructors
+    // must still run, so DisambigNode is allocated via
+    // alloc_init_index_cleanup() and torn down through ASTContext's cleanup
+    // registry. Defining a no-op op delete here would silently defeat that.
 
     /// Inserts \p entry under \p name. First declaration wins; duplicates ignored.
     /// Sema will catch redefinition errors with full source context.
@@ -311,7 +505,7 @@ class DisambigNode {
         if it != self.children.end() {
             return it->second;
         }
-        var child = ctx->alloc_init::<DisambigNode>();
+        var child = ctx->alloc_init_index_cleanup::<DisambigNode>();
         self.children.insert(libcxx::make_pair(name, child));
         return child;
     }
