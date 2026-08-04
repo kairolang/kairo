@@ -93,7 +93,7 @@ class DeclContext {
         self.dc_kind    = kind;
         self.dc_parent  = parent;
         self.dc_owner   = owner;
-        self.dc_decls.set_allocator(&(ctx->nodes));
+        self.dc_decls.set_allocator(&(ctx->ast_alloc));
         self.dc_scope   = &null;
         self.dc_symbols = &null;
     }

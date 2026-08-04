@@ -78,7 +78,7 @@ class Program {
     pub var fid:      usize; // file id assigned by SourceManager
 
     fn Program(self, fid: u32, ctx: *ASTContext) {
-        self.items.set_allocator(&(ctx->nodes)); // 256 is a reasonable default slab
+        self.items.set_allocator(&(ctx->ast_alloc)); // 256 is a reasonable default slab
         self.ctx      = ctx;
         self.fid      = fid;
     }

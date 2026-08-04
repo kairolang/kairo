@@ -88,8 +88,8 @@ class ChainType derives Type {
         var node   = ctx->alloc::<ChainType>();
         node->kind  = TypeKind::ChainType;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
-        node->init_spans(&(ctx->nodes));
+        node->init_annotations(&(ctx->ast_alloc));;
+        node->init_spans(&(ctx->ast_alloc));
         return node;
     }
 
@@ -103,8 +103,8 @@ class ChainType derives Type {
         node->kind          = TypeKind::RecoveryType;
         node->recovery_kind = TypeKind::ChainType;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
-        node->init_spans(&(ctx->nodes));
+        node->init_annotations(&(ctx->ast_alloc));;
+        node->init_spans(&(ctx->ast_alloc));
         return node;
     }
 
@@ -234,7 +234,7 @@ class NamedIdentExpr derives Expr {
         node->range = range;
         node->name  = name;
         node->ctx   = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -352,7 +352,7 @@ class ChainExpr derives Expr {
         node->range = range;
         node->base  = base;
         node->ctx   = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -366,7 +366,7 @@ class ChainExpr derives Expr {
         node->range = range;
         node->base  = &null;
         node->ctx   = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -380,7 +380,7 @@ class ChainExpr derives Expr {
         node->range         = range;
         node->base          = &null;
         node->ctx           = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -458,7 +458,7 @@ class IntegerLiteralExpr derives Expr {
         node->token = token;
         node->ctx   = ctx;
         node->imm   = ctx->get_imm_table()->get::<Immediate::IntData>(token.imm);
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -470,7 +470,7 @@ class IntegerLiteralExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::IntegerLiteralExpr;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -586,7 +586,7 @@ class FloatingLiteralExpr derives Expr {
         node->range = range;
         node->token = token;
         node->ctx   = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -599,7 +599,7 @@ class FloatingLiteralExpr derives Expr {
         node->recovery_kind = ExprKind::FloatingLiteralExpr;
         node->range         = range;
         node->ctx           = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -720,7 +720,7 @@ class StringLiteralExpr derives Expr {
         node->token       = token;
         node->string_kind = string_kind;
         node->ctx         = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -733,7 +733,7 @@ class StringLiteralExpr derives Expr {
         node->recovery_kind = ExprKind::StringLiteralExpr;
         node->range         = range;
         node->ctx           = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -831,7 +831,7 @@ class CharacterLiteralExpr derives Expr {
         node->range = range;
         node->token = token;
         node->ctx   = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -844,7 +844,7 @@ class CharacterLiteralExpr derives Expr {
         node->recovery_kind = ExprKind::CharacterLiteralExpr;
         node->range         = range;
         node->ctx           = ctx;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -927,7 +927,7 @@ class BooleanLiteralExpr derives Expr {
         node->kind  = ExprKind::BooleanLiteralExpr;
         node->range = range;
         node->value = value;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -939,7 +939,7 @@ class BooleanLiteralExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::BooleanLiteralExpr;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -968,7 +968,7 @@ class NullLiteralExpr derives Expr {
         node->kind   = ExprKind::NullLiteralExpr;
         node->range  = range;
         node->is_ref = is_ref;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -980,7 +980,7 @@ class NullLiteralExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::NullLiteralExpr;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -1007,7 +1007,7 @@ class CompoundStmt derives Stmt {
         var node   = ctx->alloc::<CompoundStmt>();
         node->kind  = StmtKind::CompoundStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -1016,7 +1016,7 @@ class CompoundStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::CompoundStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 

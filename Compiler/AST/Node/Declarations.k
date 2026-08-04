@@ -216,7 +216,7 @@ class GenericParamDecl derives Decl {
         var node   = ctx->alloc::<GenericParamDecl>();
         node->kind  = DeclKind::GenericParamDecl;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->name  = name;
         node->index = index;
         return node;
@@ -227,7 +227,7 @@ class GenericParamDecl derives Decl {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::GenericParamDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -267,7 +267,7 @@ class ParamDecl derives Decl {
         var node    = ctx->alloc::<ParamDecl>();
         node->kind   = DeclKind::ParamDecl;
         node->range  = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->name   = name;
         node->type_  = type_;
         node->index  = index;
@@ -280,7 +280,7 @@ class ParamDecl derives Decl {
         var node     = ctx->alloc::<ParamDecl>();
         node->kind    = DeclKind::ParamDecl;
         node->range   = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->name    = name;
         node->type_   = &null;
         node->is_self = true;
@@ -294,7 +294,7 @@ class ParamDecl derives Decl {
         node->recovery_kind = DeclKind::ParamDecl;
         node->range         = range;
         node->type_         = &null;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -351,7 +351,7 @@ class FunctionDecl
         node->kind   = DeclKind::FunctionDecl;
         node->range  = range;
         node->name   = name;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Function, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -362,7 +362,7 @@ class FunctionDecl
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::FunctionDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Function, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -431,7 +431,7 @@ class ClosureExpr derives Expr {
         node->body_block = &null;
         node->body_expr  = &null;
         node->return_type = &null;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -440,7 +440,7 @@ class ClosureExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::ClosureExpr;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -471,7 +471,7 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
         var node     = ctx->alloc::<VariableDecl>();
         node->kind    = DeclKind::VariableDecl;
         node->range   = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->name    = name;
         node->storage = storage;
         return node;
@@ -482,7 +482,7 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::VariableDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -527,7 +527,7 @@ class FieldDecl derives Decl {
         var node     = ctx->alloc::<FieldDecl>();
         node->kind    = DeclKind::FieldDecl;
         node->range   = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->name    = name;
         node->storage = storage;
         node->type_   = type_;
@@ -541,7 +541,7 @@ class FieldDecl derives Decl {
         node->recovery_kind = DeclKind::FieldDecl;
         node->range         = range;
         node->type_         = &null;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -584,7 +584,7 @@ class StructDecl
         node->kind  = DeclKind::StructDecl;
         node->range = range;
         node->name  = name;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Struct, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -595,7 +595,7 @@ class StructDecl
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::StructDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Struct, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -643,7 +643,7 @@ class ClassDecl
         node->kind  = DeclKind::ClassDecl;
         node->range = range;
         node->name  = name;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Class, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -654,7 +654,7 @@ class ClassDecl
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::ClassDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Class, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -697,7 +697,7 @@ class InterfaceDecl
         node->kind  = DeclKind::InterfaceDecl;
         node->range = range;
         node->name  = name;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Interface, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -708,7 +708,7 @@ class InterfaceDecl
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::InterfaceDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Interface, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -749,7 +749,7 @@ class ExtensionDecl
         node->kind   = DeclKind::ExtensionDecl;
         node->range  = range;
         node->target = target;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Extension, ctx, parent, static_cast::<*Decl>(node));
         return node;
     }
@@ -760,7 +760,7 @@ class ExtensionDecl
         node->recovery_kind = DeclKind::ExtensionDecl;
         node->range         = range;
         node->target        = &null;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Extension, ctx, &null, static_cast::<*Decl>(node));
         return node;
     }
@@ -796,7 +796,7 @@ class EnumVariantDecl derives Decl {
         var node    = ctx->alloc::<EnumVariantDecl>();
         node->kind   = DeclKind::EnumVariantDecl;
         node->range  = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->name   = name;
         node->index  = index;
         return node;
@@ -807,7 +807,7 @@ class EnumVariantDecl derives Decl {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::EnumVariantDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -851,7 +851,7 @@ class EnumDecl
         node->kind  = DeclKind::EnumDecl;
         node->range = range;
         node->name  = name;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Enum, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -862,7 +862,7 @@ class EnumDecl
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::EnumDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Enum, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -905,7 +905,7 @@ class UnionDecl
         node->kind  = DeclKind::UnionDecl;
         node->range = range;
         node->name  = name;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Union, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -916,7 +916,7 @@ class UnionDecl
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::UnionDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Union, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -950,7 +950,7 @@ class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl>, FFILinkage::<
         var node     = ctx->alloc::<TypeAliasDecl>();
         node->kind    = DeclKind::TypeAliasDecl;
         node->range   = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->name    = name;
         node->aliased = aliased;
         return node;
@@ -962,7 +962,7 @@ class TypeAliasDecl derives Decl, TemplateParams::<TypeAliasDecl>, FFILinkage::<
         node->recovery_kind = DeclKind::TypeAliasDecl;
         node->range         = range;
         node->aliased       = &null;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -991,7 +991,7 @@ class FFIBlockDecl derives Decl {
         node->kind       = DeclKind::FFIBlockDecl;
         node->range      = range;
         node->lang_token = lang;
-        node->init_annotations(&(ctx->nodes));
+        node->init_annotations(&(ctx->ast_alloc));
         return node;
     }
 
@@ -1000,7 +1000,7 @@ class FFIBlockDecl derives Decl {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::FFIBlockDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));
+        node->init_annotations(&(ctx->ast_alloc));
         return node;
     }
 
@@ -1050,7 +1050,7 @@ class ModuleDecl
         node->kind  = DeclKind::ModuleDecl;
         node->range = range;
         node->name  = name;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Module, ctx, parent, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -1061,7 +1061,7 @@ class ModuleDecl
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::ModuleDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Module, ctx, &null, static_cast::<*Decl>(node));
         node->init_redecl();
         return node;
@@ -1127,21 +1127,31 @@ class ImportDecl derives Decl, FFILinkage::<ImportDecl> {
     /// fallback (Full mode) and by Sema/ImportResolution. Never mutated after.
     pub var resolved_fid: u32 = 0;
 
+    /// ImportDecl and MacroDecl are PP-stage nodes: the preprocessor consumes
+    /// them out of the token stream into tu->imports / tu->macros, which live
+    /// in pp_alloc. Their storage MUST live there too   if they sat in
+    /// ast_alloc, release_from(Parsing) would free them while those
+    /// ArenaLists still pointed at them.
+    ///
+    /// DeclParse::_parse_import can also build an ImportDecl from the parse
+    /// stage (no-PP tooling mode). Keeping it in pp_alloc is still the safe
+    /// direction there: the node outlives the AST that references it, which
+    /// leaks until release(Preprocessing) rather than dangling.
     static fn create(ctx: *ASTContext, range: SourceRange, import_kind: ImportKind) -> *ImportDecl {
-        var node         = ctx->alloc::<ImportDecl>();
+        var node         = ctx->alloc_pp::<ImportDecl>();
         node->kind        = DeclKind::ImportDecl;
         node->range       = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->pp_alloc));;
         node->import_kind = import_kind;
         return node;
     }
 
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ImportDecl {
-        var node            = ctx->alloc::<ImportDecl>();
+        var node            = ctx->alloc_pp::<ImportDecl>();
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::ImportDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->pp_alloc));;
         return node;
     }
 
@@ -1170,7 +1180,7 @@ class VisibilityGroupDecl derives Decl {
         var node             = ctx->alloc::<VisibilityGroupDecl>();
         node->kind            = DeclKind::VisibilityGroupDecl;
         node->range           = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->group_visibility = vis;
         return node;
     }
@@ -1180,7 +1190,7 @@ class VisibilityGroupDecl derives Decl {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::VisibilityGroupDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -1204,7 +1214,7 @@ class EvalBlockDecl derives Decl {
         var node   = ctx->alloc::<EvalBlockDecl>();
         node->kind  = DeclKind::EvalBlockDecl;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -1213,7 +1223,7 @@ class EvalBlockDecl derives Decl {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::EvalBlockDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -1237,7 +1247,7 @@ class TestDecl derives Decl, DeclContext {
         var node   = ctx->alloc::<TestDecl>();
         node->kind  = DeclKind::TestDecl;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Function, ctx, parent, static_cast::<*Decl>(node));
         return node;
     }
@@ -1247,7 +1257,7 @@ class TestDecl derives Decl, DeclContext {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::TestDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Function, ctx, &null, static_cast::<*Decl>(node));
         return node;
     }
@@ -1286,20 +1296,20 @@ class MacroDecl derives Decl {
     pub var accepts_params: bool = false;              ///< `macro f!(x, y) { ... }` vs `macro f! { ... }`.
 
     static fn create(ctx: *ASTContext, range: SourceRange, name: Token) -> *MacroDecl {
-        var node   = ctx->alloc::<MacroDecl>();
+        var node   = ctx->alloc_pp::<MacroDecl>();
         node->kind  = DeclKind::MacroDecl;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->pp_alloc));;
         node->name  = name;
         return node;
     }
 
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *MacroDecl {
-        var node            = ctx->alloc::<MacroDecl>();
+        var node            = ctx->alloc_pp::<MacroDecl>();
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::MacroDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->pp_alloc));;
         return node;
     }
 
@@ -1329,7 +1339,7 @@ class ProcedureMacroDecl derives Decl, DeclContext {
         node->kind  = DeclKind::ProcedureMacroDecl;
         node->range = range;
         node->name  = name;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Function, ctx, parent, static_cast::<*Decl>(node));
         return node;
     }
@@ -1339,7 +1349,7 @@ class ProcedureMacroDecl derives Decl, DeclContext {
         node->kind          = DeclKind::RecoveryDecl;
         node->recovery_kind = DeclKind::ProcedureMacroDecl;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init_dc(DeclContextKind::Function, ctx, &null, static_cast::<*Decl>(node));
         return node;
     }

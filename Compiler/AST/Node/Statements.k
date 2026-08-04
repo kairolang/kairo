@@ -127,7 +127,7 @@ class ExpressionStmt derives Stmt {
         var node   = ctx->alloc::<ExpressionStmt>();
         node->kind  = StmtKind::ExpressionStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->expr  = expr;
         return node;
     }
@@ -137,7 +137,7 @@ class ExpressionStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::ExpressionStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -162,7 +162,7 @@ class DeclStmt derives Stmt {
         var node   = ctx->alloc::<DeclStmt>();
         node->kind  = StmtKind::DeclStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->decl  = decl;
         return node;
     }
@@ -172,7 +172,7 @@ class DeclStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::DeclStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -195,7 +195,7 @@ class ReturnStmt derives Stmt {
         var node   = ctx->alloc::<ReturnStmt>();
         node->kind  = StmtKind::ReturnStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->value = value;
         return node;
     }
@@ -205,7 +205,7 @@ class ReturnStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::ReturnStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -229,7 +229,7 @@ class BreakStmt derives Stmt {
         var node       = ctx->alloc::<BreakStmt>();
         node->kind      = StmtKind::BreakStmt;
         node->range     = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->has_label = has_label;
         node->label     = label;
         return node;
@@ -240,7 +240,7 @@ class BreakStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::BreakStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -264,7 +264,7 @@ class ContinueStmt derives Stmt {
         var node       = ctx->alloc::<ContinueStmt>();
         node->kind      = StmtKind::ContinueStmt;
         node->range     = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->has_label = has_label;
         node->label     = label;
         return node;
@@ -275,7 +275,7 @@ class ContinueStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::ContinueStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -300,7 +300,7 @@ class PanicStmt derives Stmt {
         var node     = ctx->alloc::<PanicStmt>();
         node->kind    = StmtKind::PanicStmt;
         node->range   = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->payload = payload;
         return node;
     }
@@ -310,7 +310,7 @@ class PanicStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::PanicStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -335,7 +335,7 @@ class YieldStmt derives Stmt {
         var node   = ctx->alloc::<YieldStmt>();
         node->kind  = StmtKind::YieldStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->value = value;
         return node;
     }
@@ -345,7 +345,7 @@ class YieldStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::YieldStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -372,7 +372,7 @@ class RuntimeAssertStmt derives Stmt {
         var node       = ctx->alloc::<RuntimeAssertStmt>();
         node->kind      = StmtKind::RuntimeAssertStmt;
         node->range     = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->condition = condition;
         node->message   = message;
         return node;
@@ -383,7 +383,7 @@ class RuntimeAssertStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::RuntimeAssertStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -410,7 +410,7 @@ class StaticAssertStmt derives Stmt {
         var node       = ctx->alloc::<StaticAssertStmt>();
         node->kind      = StmtKind::StaticAssertStmt;
         node->range     = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->condition = condition;
         node->message   = message;
         return node;
@@ -421,7 +421,7 @@ class StaticAssertStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::StaticAssertStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -447,7 +447,7 @@ class LabelIntrinsicStmt derives Stmt {
         var node   = ctx->alloc::<LabelIntrinsicStmt>();
         node->kind  = StmtKind::LabelIntrinsicStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->name  = name;
         return node;
     }
@@ -457,7 +457,7 @@ class LabelIntrinsicStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::LabelIntrinsicStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -483,7 +483,7 @@ class JumpIntrinsicStmt derives Stmt {
         var node    = ctx->alloc::<JumpIntrinsicStmt>();
         node->kind   = StmtKind::JumpIntrinsicStmt;
         node->range  = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->target = target;
         return node;
     }
@@ -493,7 +493,7 @@ class JumpIntrinsicStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::JumpIntrinsicStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -529,7 +529,7 @@ class ConditionalStmt derives Stmt {
         var node   = ctx->alloc::<ConditionalStmt>();
         node->kind  = StmtKind::ConditionalStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->cond  = cond;
         node->then_ = then_;
         node->else_ = else_;
@@ -541,7 +541,7 @@ class ConditionalStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::ConditionalStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -565,7 +565,7 @@ class WhileLoopStmt derives Stmt {
         var node   = ctx->alloc::<WhileLoopStmt>();
         node->kind  = StmtKind::WhileLoopStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->cond  = cond;
         node->body  = body;
         return node;
@@ -576,7 +576,7 @@ class WhileLoopStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::WhileLoopStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -601,7 +601,7 @@ class LoopStmt derives Stmt {
         var node   = ctx->alloc::<LoopStmt>();
         node->kind  = StmtKind::LoopStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->body  = body;
         return node;
     }
@@ -611,7 +611,7 @@ class LoopStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::LoopStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -648,7 +648,7 @@ class RangedForStmt derives Stmt {
         var node      = ctx->alloc::<RangedForStmt>();
         node->kind     = StmtKind::RangedForStmt;
         node->range    = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->iterable = iterable;
         node->body     = body;
         node->is_eval  = is_eval;
@@ -660,7 +660,7 @@ class RangedForStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::RangedForStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -699,7 +699,7 @@ class IndexedForStmt derives Stmt {
         var node     = ctx->alloc::<IndexedForStmt>();
         node->kind    = StmtKind::IndexedForStmt;
         node->range   = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->init    = init;
         node->cond    = cond;
         node->update  = update;
@@ -713,7 +713,7 @@ class IndexedForStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::IndexedForStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -742,7 +742,7 @@ class MatchStmt derives Stmt {
         var node       = ctx->alloc::<MatchStmt>();
         node->kind      = StmtKind::MatchStmt;
         node->range     = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->scrutinee = scrutinee;
         return node;
     }
@@ -752,7 +752,7 @@ class MatchStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::MatchStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -779,7 +779,7 @@ class LabeledStmt derives Stmt {
         var node   = ctx->alloc::<LabeledStmt>();
         node->kind  = StmtKind::LabeledStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->label = label;
         node->inner = inner;
         return node;
@@ -790,7 +790,7 @@ class LabeledStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::LabeledStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -819,7 +819,7 @@ class TryCatchStmt derives Stmt {
         var node      = ctx->alloc::<TryCatchStmt>();
         node->kind     = StmtKind::TryCatchStmt;
         node->range    = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->try_body = try_body;
         return node;
     }
@@ -829,7 +829,7 @@ class TryCatchStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::TryCatchStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -855,7 +855,7 @@ class FinallyStmt derives Stmt {
         var node   = ctx->alloc::<FinallyStmt>();
         node->kind  = StmtKind::FinallyStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->body  = body;
         return node;
     }
@@ -865,7 +865,7 @@ class FinallyStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::FinallyStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -890,7 +890,7 @@ class UnsafeBlockStmt derives Stmt {
         var node   = ctx->alloc::<UnsafeBlockStmt>();
         node->kind  = StmtKind::UnsafeBlockStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->body  = body;
         return node;
     }
@@ -900,7 +900,7 @@ class UnsafeBlockStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::UnsafeBlockStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -935,7 +935,7 @@ class ContextBindingStmt derives Stmt {
         var node   = ctx->alloc::<ContextBindingStmt>();
         node->kind  = StmtKind::ContextBindingStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->value = value;
         node->body  = body;
         return node;
@@ -946,7 +946,7 @@ class ContextBindingStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::ContextBindingStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -984,7 +984,7 @@ class DestructuringDeclStmt derives Stmt {
         var node             = ctx->alloc::<DestructuringDeclStmt>();
         node->kind            = StmtKind::DestructuringDeclStmt;
         node->range           = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->kind_           = destructure_kind;
         node->value           = value;
         node->leading_is_const = leading_is_const;
@@ -996,7 +996,7 @@ class DestructuringDeclStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::DestructuringDeclStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -1023,7 +1023,7 @@ class InlineBlockStmt derives Stmt {
         var node       = ctx->alloc::<InlineBlockStmt>();
         node->kind      = StmtKind::InlineBlockStmt;
         node->range     = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         node->lang      = lang;
         node->body_span = body_span;
         return node;
@@ -1034,7 +1034,7 @@ class InlineBlockStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::InlineBlockStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -1061,7 +1061,7 @@ class EvalBlockStmt derives Stmt {
         var node   = ctx->alloc::<EvalBlockStmt>();
         node->kind  = StmtKind::EvalBlockStmt;
         node->range = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
@@ -1070,7 +1070,7 @@ class EvalBlockStmt derives Stmt {
         node->kind          = StmtKind::RecoveryStmt;
         node->recovery_kind = StmtKind::EvalBlockStmt;
         node->range         = range;
-        node->init_annotations(&(ctx->nodes));;
+        node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
 
