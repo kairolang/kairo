@@ -274,9 +274,11 @@ fn windows_sdk_paths(t: ref!(Target)) {
             
             if RegQueryValueExA(hkey, r"KitsRoot10", &null, &null,
               reinterpret_cast::<LPBYTE>(buf), &sz) == ERROR_SUCCESS {
-                sdk_lib_root = (kairo::std::nstring_to_string(inline "c++" { reinterpret_cast<unsigned char*>(buf) }
-                ))
-                                +  kairo::std::nstring_to_string(r"Lib"));
+                sdk_lib_root = (
+                    kairo::std::nstring_to_string(
+                        inline "c++" { reinterpret_cast<unsigned char*>(buf) }
+                    )
+                ) + kairo::std::nstring_to_string(r"Lib");
             }
 
             RegCloseKey(hkey);
@@ -462,6 +464,7 @@ fn main() -> i32 {
     const KFMT_VERSION  : string = version_macro("kfmt",  "-0.1.0+dev");
     const KLD_VERSION   : string = version_macro("kld",   "-0.1.0+dev");
     const KALS_VERSION  : string = version_macro("kals",  "-0.1.0+dev");
+    const KWATCH_VERSION: string = version_macro("kwatch","-0.1.0+dev");
     const KPKG_VERSION  : string = version_macro("kpkg",  "-0.1.0+dev");
 
     var llvm_build = build_dir() + "/llvm";
@@ -490,6 +493,7 @@ fn main() -> i32 {
     p.target(llvm_tool("kfmt",  "Extras/Formatter/Driver/kfmt.k",         KFMT_VERSION,  kfmt_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kld",   "Linker/Driver/kld.k",                    KLD_VERSION,   kld_inc,      llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kals",  "Analyzer/Driver/kals.k",                 KALS_VERSION,  kals_inc,     llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kwatch","Compiler/Driver/KairoWatch.k",           KWATCH_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kpkg",  "Extras/PackageManager/Driver/kpkg.k",    KPKG_VERSION,  kpkg_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("katar", "Extras/KaTAR/KTCompress.k",              KAIRO_VERSION, katar_inc,    llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("clang-diag-identity", "Compiler/Driver/GenClangDiagIdentity.k", KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
