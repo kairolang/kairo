@@ -223,10 +223,15 @@ class FrontendAction {
 
 /// Shared resource hub for a single compilation.
 ///
-/// Constructed once per \c main() invocation. Owns all subsystems, parses the
-/// CLI, builds a \c CompilerInvocation, and drives \c FrontendAction execution
-/// via \c execute(). Destruction releases all resources in reverse-dependency
+/// Owns all subsystems and drives \c FrontendAction execution via
+/// \c execute(). Destruction releases all resources in reverse-dependency
 /// order.
+///
+/// Built either from argv (the driver's path) or from a \c CompilerInvocation
+/// the caller filled in (the tooling path). The invocation is an INPUT, not an
+/// output of construction: argv parsing lives in
+/// \c CompilerInvocation::from_args, and the argv constructor is a caller of
+/// it. Same split as clang's CreateFromArgs / setInvocation.
 class CompilerInstance {
     // --- Owned resources -------------------------------------------------
     //   Listed in construction order; destroyed in reverse.
@@ -244,36 +249,92 @@ class CompilerInstance {
     priv var _backend: *ClangBackend = &null; ///< shared clang backend; owned
 
     // --- CLI state -------------------------------------------------------
-    priv var _parsed: ParsedArgs;
+    //   The invocation IS the CLI state. Flag-level queries go through
+    //   _inv.args, which is empty (and answers "not asked" to everything) when
+    //   the instance was built from a hand-made invocation.
     priv var _inv:    CompilerInvocation;
 
     // --- Constructors ----------------------------------------------------
 
-    /// Constructs all subsystems, parses \p argv, and applies the resulting
-    /// invocation to live subsystems via \c _apply_invocation().
+    /// Constructs all subsystems from \p argv.
+    ///
+    /// A thin delegator: every line of argv handling lives in
+    /// \c CompilerInvocation::from_args, and this hands the result to the
+    /// invocation constructor below. Observable behaviour   including
+    /// \c args_ok()   is unchanged from when the parsing was inline here.
     ///
     /// Construction order rationale:
-    ///   - Pool first: SM and TCM hold a pointer to it.
     ///   - DiagEngine before consumers: consumers register into it.
-    ///   - SM before consumers: consumers need it for source context.
-    ///   - Command last: CLI parsing may emit diagnostics into the engine.
+    ///   - DiagEngine before parsing: CLI errors are reported into it.
+    ///   - Pool before SM/TCM: they hold a pointer to it.
+    ///   - SM before consumers are attached: they need it for source context.
     fn CompilerInstance(self, argc: i32, argv: *(*kairo::std::Legacy::char)) {
+        self._boot_diagnostics();
+
+        // Kept for print_help() alone   it needs the flag table and argv[0] for
+        // the USAGE line. It is never parsed; from_args below owns that, and
+        // parsing here as well would double-report every flag error.
+        self._cmd = std::create::<Command>(argc, argv, self._diag);
+        register_kairo_flags(self._cmd);
+
+        var inv = CompilerInvocation::from_args(argc, argv, self._diag);
+        self._adopt(&inv);
+    }
+
+    /// \brief constructs from a caller-built invocation. Reads no argv.
+    ///
+    /// \details The programmatic entry point. A tool that already knows its
+    ///          options fills a \c CompilerInvocation and passes it here rather
+    ///          than rendering the options back into flag strings for the CLI
+    ///          parser to re-read.
+    ///
+    /// \par OWNERSHIP: \p inv is COPIED.
+    ///      The instance holds its own \c CompilerInvocation, so \p inv may be
+    ///      a stack temporary and may be modified or destroyed the moment this
+    ///      returns. Copied rather than borrowed on purpose: the invocation is
+    ///      a handful of small value types with no non-copyable state, the copy
+    ///      happens once per compilation, and a borrowed one with no stated
+    ///      lifetime is a dangler waiting to happen. Read the live copy back
+    ///      through \c invocation(); mutations to \p inv afterwards are NOT
+    ///      seen.
+    ///
+    /// \par Diagnostics
+    ///      Do not depend on argv. The engine and its consumers are stood up
+    ///      here exactly as on the argv path, and \c _apply_invocation() maps
+    ///      the same policy fields onto them.
+    ///
+    /// \param inv  may be null, in which case \c args_ok() reports false and
+    ///             the instance is inert   the same shape as a failed CLI
+    ///             parse.
+    ///
+    /// \note \c print_help() is a no-op here: there is no flag table and no
+    ///       argv[0] to name in the USAGE line.
+    fn CompilerInstance(self, inv: *CompilerInvocation) {
+        self._boot_diagnostics();
+        self._cmd = &null;
+        self._adopt(inv);
+    }
+
+    /// Engine, file manager and the two consumers   everything needed before
+    /// an invocation exists, because building one may report flag errors.
+    priv fn _boot_diagnostics(self) {
         self._diag   = std::create::<DiagEngine>        ();
         self._vfm    = std::create::<VirtualFileManager>(self._diag);
         self._pretty = std::create::<PrettyDiagConsumer>();
         self._basic  = std::create::<BasicDiagConsumer> ();
         self._diag->add_consumer(self._pretty); // pretty is the default consumer
+    }
 
-        // no sm for now since we only want cli diags
-        self._cmd = std::create::<Command>(argc, argv, self._diag);
+    /// Takes ownership of \p inv (by copy) and stands up everything whose
+    /// construction depends on it. Shared tail of both constructors.
+    priv fn _adopt(self, inv: *CompilerInvocation) {
+        if inv != &null { self._inv    = *inv; }
+        else            { self._inv.ok = false; }
 
-        register_kairo_flags(self._cmd);
-        self._parsed = self._cmd->parse();
-
-        if self._parsed.ok {
-            self._inv = CompilerInvocation::from_args(self._parsed);
-            self._apply_invocation();
-        }
+        // Unusable invocation: leave subsystems at their defaults, exactly as
+        // the CLI path has always done for a failed parse. args_ok() is what
+        // the caller is expected to check before going further.
+        if self._inv.ok { self._apply_invocation(); }
 
         self._pool = std::create::<ThreadPool>(usize(
                     (llvm::hardware_concurrency().compute_thread_count())
@@ -338,21 +399,28 @@ class CompilerInstance {
     fn backend(self)      -> *ClangBackend            { return self._backend; }
     // --- CLI query helpers -----------------------------------------------
 
-    fn wants_help(self)    -> bool { return self._parsed.get_bool("help");               }
-    fn wants_version(self) -> bool { return self._parsed.get_bool("version");            }
-    fn wants_explain(self) -> bool { return !self._parsed.get_string("explain").empty(); }
-    fn args_ok(self)       -> bool { return self._parsed.ok;                             }
+    fn wants_help(self)    -> bool { return self._inv.args.get_bool("help");               }
+    fn wants_version(self) -> bool { return self._inv.args.get_bool("version");            }
+    fn wants_explain(self) -> bool { return !self._inv.args.get_string("explain").empty(); }
+
+    /// \brief whether this instance's invocation is usable.
+    ///
+    /// \details On the argv path this is exactly "did the flags parse". On the
+    ///          invocation path there are no flags to parse, so it reports
+    ///          whether the supplied invocation was usable   false for a null
+    ///          one, or for one a caller explicitly marked not-ok.
+    fn args_ok(self) -> bool { return self._inv.ok; }
 
     /// True when any info flag is present whose subsystem is not yet live.
     fn wants_info_query(self) -> bool {
-        return self._parsed.get_bool("print-targets")
-            || self._parsed.get_bool("print-cpus")
-            || self._parsed.get_bool("print-dirs")
-            || self._parsed.get_bool("print-clang-args")
-            || self._parsed.get_bool("print-ld-args")
-            || self._parsed.get_bool("print-target-info")
-            || self._parsed.get_bool("print-pass-pipeline")
-            || self._parsed.get_bool("print-cfg");
+        return self._inv.args.get_bool("print-targets")
+            || self._inv.args.get_bool("print-cpus")
+            || self._inv.args.get_bool("print-dirs")
+            || self._inv.args.get_bool("print-clang-args")
+            || self._inv.args.get_bool("print-ld-args")
+            || self._inv.args.get_bool("print-target-info")
+            || self._inv.args.get_bool("print-pass-pipeline")
+            || self._inv.args.get_bool("print-cfg");
     }
 
     // --- Identity actions ------------------------------------------------
@@ -366,7 +434,10 @@ class CompilerInstance {
         return std::nstring_to_string(triple.getTriple());
     }
 
+    /// No-op when the instance was built from an invocation: there is no flag
+    /// table to describe and no argv[0] to name in the USAGE line.
     fn print_help(self) {
+        if self._cmd == &null { return; }
         self._cmd->print_help();
     }
 
@@ -380,7 +451,7 @@ class CompilerInstance {
     /// Resolves and renders the long-form explanation for a diagnostic code.
     /// Returns 1 if the code is unknown.
     fn run_explain(self) -> i32 {
-        var code = self._parsed.get_string("explain");
+        var code = self._inv.args.get_string("explain");
 
         var first: usize = code.raw_string().find_first_not_of(" \t\n\r\f\v".raw());
         if !(string::npos == first) {
@@ -401,8 +472,12 @@ class CompilerInstance {
     }
 
     /// Returns the effective target triple: --target if given, else host triple.
+    ///
+    /// Reads the typed option rather than the raw flag so it works on the
+    /// invocation path too. TargetOptions::triple is set verbatim from
+    /// `--target`, so the argv path is unaffected.
     priv fn _effective_triple(self) -> string {
-        var t = self._parsed.get_string("target");
+        var t = self._inv.target.triple;
 
         if !t.empty() {
             return t;
@@ -667,20 +742,20 @@ class CompilerInstance {
     /// Handles info-query flags. Currently implements \c --print-cfg;
     /// all other flags are no-ops until their subsystems exist.
     fn run_info_query(self) -> i32 {
-        if self._parsed.get_bool("print-targets") {
+        if self._inv.args.get_bool("print-targets") {
             return self.print_targets();
         }
 
-        if self._parsed.get_bool("print-cpus") {
+        if self._inv.args.get_bool("print-cpus") {
             return self.print_cpus();
         }
 
-        if self._parsed.get_bool("print-target-info") {
+        if self._inv.args.get_bool("print-target-info") {
             return self.print_target_info();
         }
 
-        if self._parsed.get_bool("print-cfg") {
-            for s: string in self._parsed.get_list("cfg") { std::print(s); }
+        if self._inv.args.get_bool("print-cfg") {
+            for s: string in self._inv.args.get_list("cfg") { std::print(s); }
             return 0;
         }
         return 0;
