@@ -328,18 +328,18 @@ class CompilerInstance {
     /// Takes ownership of \p inv (by copy) and stands up everything whose
     /// construction depends on it. Shared tail of both constructors.
     priv fn _adopt(self, inv: *CompilerInvocation) {
-        if inv != &null { self._inv    = *inv; }
-        else            { self._inv.ok = false; }
+        if inv != &null { self.invocation()    = *inv; }
+        else            { self.invocation().ok = false; }
 
         // Unusable invocation: leave subsystems at their defaults, exactly as
         // the CLI path has always done for a failed parse. args_ok() is what
         // the caller is expected to check before going further.
-        if self._inv.ok { self._apply_invocation(); }
+        if self.invocation().ok { self._apply_invocation(); }
 
         self._pool = std::create::<ThreadPool>(usize(
                     (llvm::hardware_concurrency().compute_thread_count())
-            if   (self._inv.frontend.thread_count == 0)
-            else (self._inv.frontend.thread_count)
+            if   (self.invocation().frontend.thread_count == 0)
+            else (self.invocation().frontend.thread_count)
         ));
 
         self._sm      = std::create::<SourceManager>     (self._pool, self._vfm, self._diag);
@@ -399,9 +399,9 @@ class CompilerInstance {
     fn backend(self)      -> *ClangBackend            { return self._backend; }
     // --- CLI query helpers -----------------------------------------------
 
-    fn wants_help(self)    -> bool { return self._inv.args.get_bool("help");               }
-    fn wants_version(self) -> bool { return self._inv.args.get_bool("version");            }
-    fn wants_explain(self) -> bool { return !self._inv.args.get_string("explain").empty(); }
+    fn wants_help(self)    -> bool { return self.invocation().args.get_bool("help");               }
+    fn wants_version(self) -> bool { return self.invocation().args.get_bool("version");            }
+    fn wants_explain(self) -> bool { return !self.invocation().args.get_string("explain").empty(); }
 
     /// \brief whether this instance's invocation is usable.
     ///
@@ -409,18 +409,18 @@ class CompilerInstance {
     ///          invocation path there are no flags to parse, so it reports
     ///          whether the supplied invocation was usable   false for a null
     ///          one, or for one a caller explicitly marked not-ok.
-    fn args_ok(self) -> bool { return self._inv.ok; }
+    fn args_ok(self) -> bool { return self.invocation().ok; }
 
     /// True when any info flag is present whose subsystem is not yet live.
     fn wants_info_query(self) -> bool {
-        return self._inv.args.get_bool("print-targets")
-            || self._inv.args.get_bool("print-cpus")
-            || self._inv.args.get_bool("print-dirs")
-            || self._inv.args.get_bool("print-clang-args")
-            || self._inv.args.get_bool("print-ld-args")
-            || self._inv.args.get_bool("print-target-info")
-            || self._inv.args.get_bool("print-pass-pipeline")
-            || self._inv.args.get_bool("print-cfg");
+        return self.invocation().args.get_bool("print-targets")
+            || self.invocation().args.get_bool("print-cpus")
+            || self.invocation().args.get_bool("print-dirs")
+            || self.invocation().args.get_bool("print-clang-args")
+            || self.invocation().args.get_bool("print-ld-args")
+            || self.invocation().args.get_bool("print-target-info")
+            || self.invocation().args.get_bool("print-pass-pipeline")
+            || self.invocation().args.get_bool("print-cfg");
     }
 
     // --- Identity actions ------------------------------------------------
@@ -451,7 +451,7 @@ class CompilerInstance {
     /// Resolves and renders the long-form explanation for a diagnostic code.
     /// Returns 1 if the code is unknown.
     fn run_explain(self) -> i32 {
-        var code = self._inv.args.get_string("explain");
+        var code = self.invocation().args.get_string("explain");
 
         var first: usize = code.raw_string().find_first_not_of(" \t\n\r\f\v".raw());
         if !(string::npos == first) {
@@ -477,7 +477,7 @@ class CompilerInstance {
     /// invocation path too. TargetOptions::triple is set verbatim from
     /// `--target`, so the argv path is unaffected.
     priv fn _effective_triple(self) -> string {
-        var t = self._inv.target.triple;
+        var t = self.invocation().target.triple;
 
         if !t.empty() {
             return t;
@@ -742,27 +742,27 @@ class CompilerInstance {
     /// Handles info-query flags. Currently implements \c --print-cfg;
     /// all other flags are no-ops until their subsystems exist.
     fn run_info_query(self) -> i32 {
-        if self._inv.args.get_bool("print-targets") {
+        if self.invocation().args.get_bool("print-targets") {
             return self.print_targets();
         }
 
-        if self._inv.args.get_bool("print-cpus") {
+        if self.invocation().args.get_bool("print-cpus") {
             return self.print_cpus();
         }
 
-        if self._inv.args.get_bool("print-target-info") {
+        if self.invocation().args.get_bool("print-target-info") {
             return self.print_target_info();
         }
 
-        if self._inv.args.get_bool("print-cfg") {
-            for s: string in self._inv.args.get_list("cfg") { std::print(s); }
+        if self.invocation().args.get_bool("print-cfg") {
+            for s: string in self.invocation().args.get_list("cfg") { std::print(s); }
             return 0;
         }
         return 0;
     }
 
     fn flush_errors(self) {
-        if self._inv.diag.format == "basic" {
+        if self.invocation().diag.format == "basic" {
             self._basic->finalize_to_stderr();
         } else {
             self._pretty->finalize_to_stderr();
@@ -780,13 +780,13 @@ class CompilerInstance {
     ///          pass and described neither of the three things it builds.
     fn initialize(self, cwd: Path) {
         var rb = ImportResolver::Builder().cwd(cwd);
-        for dir: string in self._inv.include_dirs { rb.add_include(Path(dir)); }
-        for dir: string in self._inv.macro_paths  { rb.add_include(Path(dir)); }
+        for dir: string in self.invocation().include_dirs { rb.add_include(Path(dir)); }
+        for dir: string in self.invocation().macro_paths  { rb.add_include(Path(dir)); }
         self._imp = rb.create_ptr(self._pool);
 
         self._pp = std::create::<PreProcessor>(
             self._sm, self._tcm, self._imp, self._pool,
-            self._diag, self._g_scope, &self._inv, self._inv.pp);
+            self._diag, self._g_scope, &self.invocation(), self.invocation().pp);
 
         // Shared clang backend: kick the expensive startup (invocation parse,
         // TargetInfo, FileManager/SourceManager) onto the pool NOW so it runs
@@ -795,7 +795,7 @@ class CompilerInstance {
         // ClangLocMap::rebind(), inside the codegen action window.
         var bcfg = ClangBackendConfig{};
         (bcfg.triple) = self._effective_triple();
-        (bcfg.wargs)  = _clang_wargs_from_policy(self._inv.diag);
+        (bcfg.wargs)  = _clang_wargs_from_policy(self.invocation().diag);
         self._backend = std::create::<ClangBackend>(self._sm, bcfg);
 
         inline "c++" {
@@ -825,18 +825,18 @@ class CompilerInstance {
             ) / 1000.0;
         }
 
-        if self._inv.input_files.empty() {
+        if self.invocation().input_files.empty() {
             self._diag->report(DiagID::U001F, "no input files").emit();
             result.aborted = true;
             return result;
         }
 
         Logger::info(Logger::Stage::Driver,
-            f"CompilerInstance::execute: {self._inv.input_files.size()} file(s)");
+            f"CompilerInstance::execute: {self.invocation().input_files.size()} file(s)");
 
-        result.tu_results.reserve(self._inv.input_files.size());
+        result.tu_results.reserve(self.invocation().input_files.size());
 
-        for path_str: string in self._inv.input_files {
+        for path_str: string in self.invocation().input_files {
             if result.aborted { break; }
 
             var action = std::create::<FrontendAction>(
@@ -1163,8 +1163,8 @@ class CompilerInstance {
     /// the invocation is built. Fields whose subsystem does not yet exist are
     /// silently accepted stored in the invocation for future use.
     priv fn _apply_invocation(self) {
-        var d  = self._inv.diag;
-        var fe = self._inv.frontend;
+        var d  = self.invocation().diag;
+        var fe = self.invocation().frontend;
 
         if d.format == "basic" {
             self._diag->remove_consumer(self._pretty);
