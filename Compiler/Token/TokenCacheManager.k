@@ -176,6 +176,72 @@ class TokenCacheManager {
         self._slots.clear();
     }
 
+    /// \brief drops one fid's lex products: tokens, lexer, and imm table.
+    ///
+    /// \details The slot is reset IN PLACE, never erased   `_slots` is indexed
+    ///          by fid, so erasing would renumber every later file.
+    ///
+    ///          CALLER CONTRACT: every AST built from this fid must already be
+    ///          gone. Tokens address identifiers by `imm` index into this
+    ///          slot's ImmediateTable, so an AST outliving its imm table has
+    ///          unresolvable names   `tok()`/`istr()` would read freed memory.
+    ///          CompilerInstance::release enforces the ordering; do not call
+    ///          this directly out of order.
+    ///
+    /// \return false if the fid was never lexed (nothing to do).
+    fn release(self, fid: u32) -> bool {
+        var wlock = std::UniqueLock(self._lex_mu);
+
+        if (fid as usize) >= self._slots.size() { return false; }
+
+        var slot = &(self._slots[fid]);
+
+        // Streaming means a lexer task is still writing this slot. Tearing it
+        // down here would free the buffer under that thread.
+        if slot->state == SlotState::Streaming { return false; }
+
+        // Report whether there was ACTUALLY anything to drop. This used to
+        // return true for any non-Streaming slot, including one already at
+        // NotLexed holding nothing   which breaks the documented contract and
+        // silently breaks callers that drive a "repeat until a pass frees
+        // nothing" loop, since such a loop never sees a pass free nothing.
+        // release_all() survived it only because its worklist (all_fids())
+        // shrinks as contexts are erased; a caller iterating a fixed list
+        // spins forever.
+        var had = (slot->state  != SlotState::NotLexed)
+               || (slot->lexer  != &null)
+               || (slot->tokens != &null)
+               || (slot->imm    != &null);
+
+        if slot->lexer  != &null { std::destroy(slot->lexer);  slot->lexer  = &null; }
+        if slot->tokens != &null { std::destroy(slot->tokens); slot->tokens = &null; }
+        if slot->imm    != &null { std::destroy(slot->imm);    slot->imm    = &null; }
+
+        slot->state = SlotState::NotLexed;
+        return had;
+    }
+
+    /// Slots still holding lex products (tokens / imm table / lexer).
+    ///
+    /// Should be flat across a reparse loop: every pass releases what it lexed.
+    /// A climbing count means release is missing fids, and each one is a whole
+    /// token buffer plus identifier table.
+    fn live_slots(self) -> usize {
+        var rlock = std::SharedLock(self._lex_mu);
+        var n: usize = 0;
+        for slot: ref!(Slot) in _slots {
+            if slot.state != SlotState::NotLexed { n += 1; continue; }
+            if (slot.tokens != &null) || (slot.imm != &null) || (slot.lexer != &null) { n += 1; }
+        }
+        return n;
+    }
+
+    /// Total slots, i.e. the fid high-water mark.
+    fn slot_count(self) -> usize {
+        var rlock = std::SharedLock(self._lex_mu);
+        return self._slots.size();
+    }
+
     fn intern_ident(self, fid: u32, const data: *u8, len: usize, hash: u32) -> u32 {
         var tbl = self.get_imm_table_for_fid(fid);
         assert((tbl != &null) && r"intern_ident: no imm table for fid");

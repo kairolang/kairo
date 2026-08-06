@@ -2284,7 +2284,7 @@ class PreProcessor {
                 fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, ModulePath());
             var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
             if tu == &null {
-                tu = ctx->alloc_init_pp::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
+                tu = ctx->alloc_init_pp_cleanup::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
                 ctx->tu = reinterpret_cast::<*void>(tu);
             }
 
@@ -2317,6 +2317,132 @@ class PreProcessor {
     fn get_macro_table(self)  -> *MacroTable { return self._macros; }
     fn get_symbol_table(self) -> *PreprocessorSymbolTable { return self._sym; }
 
+    /// \brief drops \p fid from the walked set so a later preprocess() will
+    ///        walk it again.
+    ///
+    /// \details _walked is the DAG dedup: within one batch a fid shared by two
+    ///          inputs is preprocessed once. That is correct for a batch, where
+    ///          nothing is ever released, and WRONG the moment a fid's
+    ///          artifacts are torn down   the walk is what creates the
+    ///          ASTContext and the TranslationUnit, so a released-then-reparsed
+    ///          fid that is still marked walked comes back with no context at
+    ///          all and only the diagnostics its importers happened to raise.
+    ///
+    ///          This has been load-bearing in reverse: because release(Loading)
+    ///          also dropped the SourceManager entry, every reparse minted a
+    ///          BRAND NEW fid, which never matched _walked and so always
+    ///          re-walked. The fid leak was what made reparse appear to work.
+    ///          Keeping a fid stable across a release is only correct once the
+    ///          walked set is invalidated with it.
+    ///
+    /// \note ALSO drops this fid's macros. MacroEntry::decl is an obs<MacroDecl>
+    ///       into the fid's ASTContext, so entries must not outlive it. Leaving
+    ///       them is worse than a dangling read: register()'s duplicate check
+    ///       keeps the FIRST entry for a (scope, name) and destroys the later
+    ///       one, so the next walk's freshly-built macro is discarded in favour
+    ///       of the stale one and the table converges on all-dangling decls.
+    ///
+    /// \return false if \p fid was neither walked nor had macros.
+    fn forget(self, fid: u32) -> bool {
+        var dropped = self._macros->forget_fid(fid);
+
+        var wlock = std::UniqueLock(self._walked_mu);
+        if !self._walked.contains(fid) { return dropped > 0; }
+        self._walked.erase(fid);
+        return true;
+    }
+
+    /// Live macro entries across all fids. See MacroTable::size.
+    fn macro_count(self) -> usize { return self._macros->size(); }
+
+    /// \brief clears the whole walked set. For a full batch reset.
+    fn forget_all(self) {
+        var wlock = std::UniqueLock(self._walked_mu);
+        self._walked.clear();
+    }
+
+    /// \brief true if \p fid has already been walked in this batch.
+    fn has_walked(self, fid: u32) -> bool {
+        var rlock = std::SharedLock(self._walked_mu);
+        return self._walked.contains(fid);
+    }
+
+    /// \brief preprocesses exactly one fid: lex it, walk it, build its
+    ///        ASTContext and TranslationUnit.
+    ///
+    /// \details The unit of work the wave executor dispatches, factored out so
+    ///          a single file can be re-walked without re-walking the graph
+    ///          around it (see preprocess_one).
+    ///
+    /// \return false if the fid was already walked, too large, or would not lex.
+    priv fn _walk_one(self, fid: u32, mod_path: ModulePath) -> bool {
+        {
+            // claim-on-entry is safe ONLY because execute() runs input files
+            // sequentially. if FrontendActions ever parallelize, this needs a
+            // per-fid completion latch, not a claimed-set.
+            var wlock = std::UniqueLock(self._walked_mu);
+            if self._walked.contains(fid) { return false; }
+            self._walked.insert(fid);
+        }
+
+        if self._opts.max_file_size_mb > 0 {
+            // compare exact bytes, not truncated MB: a 1.9MB file under a
+            // 1MB cap would otherwise round down to size_mb=1, and 1 > 1
+            // is false so the cap silently wouldn't fire until 2x over.
+            var size_bytes = self._sm->get_file_size(fid);
+            var max_bytes  = usize(self._opts.max_file_size_mb) * 1024 * 1024;
+            if size_bytes > max_bytes {
+                var size_mb = size_bytes / (1024 * 1024); // display only
+                self._diag->report(DiagID::S066E,
+                    f"'{self._sm->get_filename(fid)}' is {size_mb}MB, over the {self._opts.max_file_size_mb}MB cap; raise it with --cmax-file-size-mb=N"
+                ).emit();
+                return false;
+            }
+        }
+
+        var lexer = self._tcm->open_stream(fid);
+        if lexer == &null {
+            Logger::error(Logger::Stage::Preprocessor, f"PP: stream open failed fid={fid}");
+            return false;
+        }
+
+        var ctx = self._gscope->get_or_create_context(
+            fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, mod_path);
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if tu == &null {
+            tu = ctx->alloc_init_pp_cleanup::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
+            ctx->tu = reinterpret_cast::<*void>(tu);
+        }
+
+        var walker = std::create::<PPWalker>(
+            fid, lexer, ctx, tu, self._macros, self._resolver,
+            self._sym, self._sm, self._tcm, self._diag, self._opts, mod_path);
+        finally { std::destroy(walker); }
+
+        walker->run();
+        return true;
+    }
+
+    /// \brief re-walks ONE fid, leaving the rest of the import graph alone.
+    ///
+    /// \details The single-file reparse path. No DepScanner, no wave executor,
+    ///          no graph: just this file's own lex + walk, against the macro
+    ///          and symbol tables the rest of the graph already populated.
+    ///
+    ///          DELIBERATELY PARTIAL. The imports of \p fid are NOT re-resolved
+    ///          or re-walked. If the edit added an import, the target is not
+    ///          pulled in and names from it will not resolve   report it rather
+    ///          than assume a full preprocess happened. Callers that need the
+    ///          graph re-examined must run preprocess() instead.
+    ///
+    /// \pre \p fid must have been forgotten first (CompilerInstance::invalidate
+    ///      does this), otherwise the walked-set check refuses and this is a
+    ///      no-op returning false.
+    fn preprocess_one(self, fid: u32, mod_path: ModulePath) -> bool {
+        self._resolver->wait_for_index();
+        return self._walk_one(fid, mod_path);
+    }
+
     fn preprocess(self, entry_fid: u32, entry_path: ModulePath) -> PPResult {
         var out = PPResult();
         self._resolver->wait_for_index();
@@ -2345,50 +2471,7 @@ class PreProcessor {
 
         var executor = WaveExecutor(self._pool);
         executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
-            {
-                // claim-on-entry is safe ONLY because execute() runs input files
-                // sequentially. if FrontendActions ever parallelize, this needs a
-                // per-fid completion latch, not a claimed-set.
-                var wlock = std::UniqueLock(self._walked_mu);
-                if self._walked.contains(fid) { return; }
-                self._walked.insert(fid);
-            }
-
-            if self._opts.max_file_size_mb > 0 {
-                // compare exact bytes, not truncated MB: a 1.9MB file under a
-                // 1MB cap would otherwise round down to size_mb=1, and 1 > 1
-                // is false so the cap silently wouldn't fire until 2x over.
-                var size_bytes = self._sm->get_file_size(fid);
-                var max_bytes  = usize(self._opts.max_file_size_mb) * 1024 * 1024;
-                if size_bytes > max_bytes {
-                    var size_mb = size_bytes / (1024 * 1024); // display only
-                    self._diag->report(DiagID::S066E,
-                        f"'{self._sm->get_filename(fid)}' is {size_mb}MB, over the {self._opts.max_file_size_mb}MB cap; raise it with --cmax-file-size-mb=N"
-                    ).emit();
-                    return;
-                }
-            }
-
-            var lexer = self._tcm->open_stream(fid);
-            if lexer == &null {
-                Logger::error(Logger::Stage::Preprocessor, f"PP: stream open failed fid={fid}");
-                return;
-            }
-
-            var ctx = self._gscope->get_or_create_context(
-                fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, mod_path);
-            var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
-            if tu == &null {
-                tu = ctx->alloc_init_pp::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);
-                ctx->tu = reinterpret_cast::<*void>(tu);
-            }
-
-            var walker = std::create::<PPWalker>(
-                fid, lexer, ctx, tu, self._macros, self._resolver,
-                self._sym, self._sm, self._tcm, self._diag, self._opts, mod_path);
-            finally { std::destroy(walker); }
-
-            walker->run();
+            self._walk_one(fid, mod_path);
         });
 
         out.ok = !self._diag->has_fatal();

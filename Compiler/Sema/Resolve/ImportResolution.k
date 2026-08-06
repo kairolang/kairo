@@ -51,7 +51,7 @@ class ImportResolution {
         var tu = self.sc->tu;
         if tu == &null { return true; }
 
-        var overlay = self.sc->ctx->alloc_init::<ImportOverlay>();
+        var overlay = self.sc->ctx->alloc_init_pp_cleanup::<ImportOverlay>();
         tu->import_overlay = overlay;
 
         for var i: usize = 0; i < tu->imports.size(); ++i {

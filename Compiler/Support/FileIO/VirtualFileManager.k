@@ -59,9 +59,27 @@ import Diagnostic::Engine::*;
 class VirtualFileManager {
     class Segment; ///< forward declaration of Segment class.
     
-    priv var _parents:       vec::<own::<MappedFileBuffer>> = vec::<own::<MappedFileBuffer>>();
     priv var _segments:      vec::<own::<Segment>>          = vec::<own::<Segment>>();
     priv var _page_table:    vec::<u32> = vec::<u32>(); ///< page index -> segment index, 0xFFFFFFFF = gap/invalid.
+
+    /// Canonical path -> fid. THE authority on file identity.
+    ///
+    /// This belongs here, at the layer that owns the mapping, and not in
+    /// SourceManager where it used to live as a linear scan over its _files
+    /// vector. That vector is indexed by fid and release() nulls entries in
+    /// place, so the scan skipped released files and re-registered them under
+    /// a BRAND NEW fid   the whole import graph was re-mmap'd and re-indexed
+    /// on every reparse, and the fid space, page table and line table grew
+    /// without bound.
+    ///
+    /// Identity outlives artifacts: releasing a file's tokens or AST must not
+    /// change what fid its path resolves to. Only evict() removes an entry.
+    ///
+    /// TODO: key on (dev, inode) rather than the path string, so a symlink and
+    ///       its target do not map to two fids over the same bytes. Needs stat
+    ///       plumbing through Path; the path key is correct for every case the
+    ///       compiler hits today because callers canonicalize first.
+    priv var _by_path:       map::<string, u32> = map::<string, u32>();
     priv var _diag:          obs::<DiagEngine>;
     priv var _global_offset: usize = 0;
     priv var _next_fid:      u32   = 0;
@@ -82,6 +100,30 @@ class VirtualFileManager {
         pub var size:   usize;            ///< segment size in bytes.
         pub var buffer: MappedFileBuffer; ///< mapped region buffer.
         pub var global_base: usize;  ///< cumulative offset in the global source space
+
+        /// The mapping this segment views. OWNED   a segment is the lifetime
+        /// of its mapping, so evict() and invalidate() can replace or drop one
+        /// file's bytes without touching any other. (Parents used to live in a
+        /// side vector correlated only by insertion order, which no per-file
+        /// operation could index into.)
+        ///
+        /// Null for virtual segments: register_virtual attaches a caller-owned
+        /// buffer, so there is nothing here to free or reload.
+        pub var parent: own::<MappedFileBuffer> = &null;
+
+        /// Bytes of global address space held at global_base, >= size.
+        ///
+        /// Reserved with slack so an edit that changes a file's length can be
+        /// re-mapped IN PLACE, keeping the same base. Without slack every save
+        /// would have to take a fresh range and abandon the old one, and the
+        /// 4GB space would drain at one file-length per keystroke.
+        pub var reserved: usize = 0;
+
+        /// Bumped on every invalidate. A SourceLocation is a raw offset into
+        /// the global space with no room for a tag, so this is what lets a
+        /// holder of a location captured before an edit find out that the
+        /// bytes under it have been replaced.
+        pub var generation: u32 = 0;
 
         ///
         /// \brief default constructor (invalid segment).
@@ -111,6 +153,12 @@ class VirtualFileManager {
         fn op delete (self) {
             if self.buffer.is_valid() {
                 self.buffer.close();
+            }
+            // Owned since the parent moved into the segment; null for virtual
+            // segments, where the bytes belong to the caller.
+            if self.parent != &null {
+                std::destroy(self.parent);
+                self.parent = &null;
             }
         }
 
@@ -179,6 +227,7 @@ class VirtualFileManager {
     /// \brief destructor; releases all mapped segments and parent buffers.
     ///
     fn op delete (self) {
+        // Each segment frees its own mapping; there is no side list any more.
         for seg: *Segment in _segments {
             if seg != &null {
                 std::destroy(seg);
@@ -186,14 +235,6 @@ class VirtualFileManager {
         }
 
         _segments.clear();
-
-        for p: *MappedFileBuffer in _parents {
-            if p != &null {
-                std::destroy(p);
-            }
-        }
-
-        _parents.clear();
     }
     
     ///
@@ -208,8 +249,16 @@ class VirtualFileManager {
     ///
     fn register_file(self, path: Path) -> u32 {
         var abs      = Path(path.full_path());
-        var parent   = std::create::<MappedFileBuffer>();
         var abs_full = abs.full_path();
+
+        // Idempotent by path. A second register of a file already mapped hands
+        // back the SAME fid rather than mapping it twice   see _by_path.
+        var hit = self._by_path.find(abs_full);
+        if hit != self._by_path.end() {
+            return hit->second;
+        }
+
+        var parent = std::create::<MappedFileBuffer>();
 
         parent->load(&abs_full);
 
@@ -222,11 +271,12 @@ class VirtualFileManager {
             return u32(-1);
         }
 
-        var total = parent->bytes().size();
+        var total    = parent->bytes().size();
+        var reserved = self._reserve_for(total);
 
         // projected end of this file in the global space, after alignment
         var aligned = (self._global_offset + 0xFFF) & (~usize(0xFFF));
-        if (total > 0xFFFFFFFF) || ((aligned + total + 1) > 0xFFFFFFFF) {
+        if (total > 0xFFFFFFFF) || ((aligned + reserved + 1) > 0xFFFFFFFF) {
             std::destroy(parent);
             self._diag->report(DiagID::I102F,
                 f"cannot load '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit"
@@ -244,17 +294,34 @@ class VirtualFileManager {
         var seg_fid = self._next_fid;
         self._next_fid += 1;
 
-        _parents.push_back(parent);
-
         var seg = std::create::<Segment>(seg_fid, abs, 0, total);
+        seg->parent   = parent;          // segment owns its mapping from here
+        seg->reserved = reserved;
+
         self._align_global_offset();
         seg->global_base = self._global_offset;
-        self._global_offset += (total + 1);
+        self._global_offset += reserved;
         seg->attach(parent, 0, total);
         _segments.push_back(seg);
-        self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, total);
 
+        // Map the whole RESERVED span, not just the current bytes: an edit that
+        // grows the file re-attaches in place, and the pages it grows into have
+        // to already resolve to this segment.
+        self._map_pages(static_cast::<u32>(self._segments.size() - 1), seg->global_base, reserved);
+
+        self._by_path[abs_full] = seg_fid;
         return seg_fid;
+    }
+
+    /// Address space to hold for a file of \p total bytes.
+    ///
+    /// 1.5x plus a 64KB floor, page-aligned. Slack is what makes an in-place
+    /// re-map possible on save; the floor covers small files, where a
+    /// proportional margin would be a few hundred bytes and every edit would
+    /// spill. Cheap: the whole compiler tree is a few MB against a 4GB space.
+    priv fn _reserve_for(self, total: usize) -> usize {
+        var want = total + (total >> 1) + (64 * 1024);
+        return (want + 0xFFF) & (~usize(0xFFF));
     }
 
     ///
@@ -294,6 +361,9 @@ class VirtualFileManager {
         if fid >= _segments.size() {
             return &null;
         }
+        if _segments[fid] == &null {   // retired by evict()
+            return &null;
+        }
 
         return &(_segments[fid]->buffer);
     }
@@ -313,6 +383,14 @@ class VirtualFileManager {
         }
 
         var s = _segments[fid];
+        if s == &null {   // retired by evict()
+            return {
+                .path:   Path("<evicted>", false),
+                .offset: 0,
+                .size:   0
+            };
+        }
+
         return {
             .path:   s->path,
             .offset: s->offset,
@@ -333,10 +411,15 @@ class VirtualFileManager {
         }
 
         var seg0 = _segments[base_fid];
+        if seg0 == &null {   // retired by evict()
+            return FileHandle{ data: &null, size: 0 };
+        }
+
         var total: usize = 0;
         var path = seg0->path.full_path();
 
         for seg: *Segment in _segments {
+            if seg == &null { continue; }
             if seg->path.full_path() == path {
                 total += seg->size;
             }
@@ -357,6 +440,7 @@ class VirtualFileManager {
     ///
     fn resolve_ptr(self, ptr: std::restrict_ptr::<u8>) -> SegmentResolve {
         for seg: *Segment in _segments {
+            if seg == &null { continue; }   // retired by evict()
             var base = seg->buffer.bytes().data();
             var end  = base + seg->size;
             
@@ -388,6 +472,10 @@ class VirtualFileManager {
         }
 
         var seg = self._segments[fid];
+        if seg == &null {
+            Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: fid={fid} was evicted");
+            std::ICE(f"VirtualFileManager: location requested for an evicted fid ({fid})");
+        }
 
         if off > seg->size {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: off={off} exceeds segment size={seg->size} for fid={fid}");
@@ -467,6 +555,7 @@ class VirtualFileManager {
         result += "  _segments:\n";
 
         for seg: *Segment in _segments {
+            if seg == &null { result += "    <evicted>\n"; continue; }
             result += f"    {*seg}\n";
         }
 
@@ -491,16 +580,140 @@ class VirtualFileManager {
         }
         _segments.clear();
 
-        for p: *MappedFileBuffer in _parents {
-            if p != &null {
-                std::destroy(p);
-            }
-        }
-        _parents.clear();
-
         self._next_fid = 0;
         self._page_table.clear();
+        self._by_path.clear();
         self._global_offset = 0;
+    }
+
+    /// \brief fid for an already-registered path, or u32(-1).
+    ///
+    /// \details Lookup only   never maps. For callers that want to know
+    ///          whether a file is known without loading it.
+    fn fid_for_path(self, path: Path) -> u32 {
+        var abs_full = Path(path.full_path()).full_path();
+        var hit = self._by_path.find(abs_full);
+        if hit == self._by_path.end() { return u32(-1); }
+        return hit->second;
+    }
+
+    /// Registered files. Distinct paths mapped, not passes run.
+    fn file_count(self) -> usize { return self._by_path.size(); }
+
+    /// \brief re-reads \p fid from disk, keeping its identity.
+    ///
+    /// \details The ONLY operation that legitimately changes a file's bytes.
+    ///          The fid, and with it every index keyed on it, survives   this
+    ///          is what makes a reparse cheap instead of a full re-registration
+    ///          of the import graph.
+    ///
+    ///          Re-maps IN PLACE while the new contents fit the reserved span,
+    ///          so the global base does not move and no address space is
+    ///          abandoned. A file that outgrows its reservation takes a fresh
+    ///          range at the end and leaves a hole   bounded by how often a
+    ///          file grows past 1.5x, not by how often it is saved.
+    ///
+    /// \warning Every SourceLocation into \p fid taken before this call now
+    ///          refers to replaced bytes. Check generation_of() to detect it.
+    ///
+    /// \return false if \p fid is unknown, virtual (caller owns the bytes), or
+    ///         could not be re-mapped   in which case the OLD mapping is left
+    ///         intact rather than leaving the segment with nothing.
+    fn invalidate(self, fid: u32) -> bool {
+        if fid >= self._segments.size() { return false; }
+
+        var seg = self._segments[fid];
+        if seg == &null         { return false; }
+        if seg->parent == &null { return false; }   // virtual: not ours to reload
+
+        var abs_full = seg->path.full_path();
+
+        // Load the replacement BEFORE dropping the old mapping: on a failed
+        // re-read (file deleted mid-edit, transient I/O error) the segment
+        // keeps working with stale-but-valid bytes.
+        var fresh = std::create::<MappedFileBuffer>();
+        fresh->load(&abs_full);
+        if !fresh->is_valid() {
+            std::destroy(fresh);
+            Logger::warn(Logger::Stage::Driver,
+                f"VirtualFileManager::invalidate: re-map failed for {abs_full}; keeping previous contents");
+            return false;
+        }
+
+        var total = fresh->bytes().size();
+
+        if total <= seg->reserved {
+            std::destroy(seg->parent);
+            seg->parent = fresh;
+            seg->size   = total;
+            seg->attach(fresh, 0, total);
+            seg->generation += 1;
+            Logger::debug(Logger::Stage::Driver,
+                f"VirtualFileManager::invalidate: fid={fid} re-mapped in place ({total}B of {seg->reserved}B reserved)");
+            return true;
+        }
+
+        // Outgrew its reservation. Take a new range; the old one becomes a hole.
+        var reserved = self._reserve_for(total);
+        var aligned  = (self._global_offset + 0xFFF) & (~usize(0xFFF));
+        if (total > 0xFFFFFFFF) || ((aligned + reserved + 1) > 0xFFFFFFFF) {
+            std::destroy(fresh);
+            self._diag->report(DiagID::I102F,
+                f"cannot re-map '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit"
+            ).emit();
+            return false;
+        }
+
+        self._unmap_pages(seg->global_base, seg->reserved);
+
+        self._align_global_offset();
+        seg->global_base = self._global_offset;
+        self._global_offset += reserved;
+        seg->reserved = reserved;
+
+        std::destroy(seg->parent);
+        seg->parent = fresh;
+        seg->size   = total;
+        seg->attach(fresh, 0, total);
+        seg->generation += 1;
+
+        self._map_pages(fid, seg->global_base, reserved);
+        Logger::debug(Logger::Stage::Driver,
+            f"VirtualFileManager::invalidate: fid={fid} outgrew reservation, rebased to {seg->global_base}");
+        return true;
+    }
+
+    /// \brief drops \p fid entirely: mapping, address range, and identity.
+    ///
+    /// \details The rare path   a deleted file, or reclaiming under memory
+    ///          pressure. NOT what a reparse does; a reparse invalidates.
+    ///
+    ///          The fid is retired, not recycled. _segments is indexed by fid
+    ///          so the slot has to stay, and handing the number out again would
+    ///          let a SourceLocation captured against the old file resolve
+    ///          silently into an unrelated one. Retiring costs a vector slot;
+    ///          recycling costs correctness.
+    ///
+    /// \return false if \p fid was not registered.
+    fn evict(self, fid: u32) -> bool {
+        if fid >= self._segments.size() { return false; }
+
+        var seg = self._segments[fid];
+        if seg == &null { return false; }
+
+        self._unmap_pages(seg->global_base, seg->reserved);
+        self._by_path.erase(seg->path.full_path());
+
+        std::destroy(seg);
+        self._segments[fid] = &null;   // retired, never reissued
+        return true;
+    }
+
+    /// Times \p fid has been invalidated. See Segment::generation.
+    fn generation_of(self, fid: u32) -> u32 {
+        if fid >= self._segments.size() { return 0; }
+        if self._segments[fid] == &null { return 0; }
+        return self._segments[fid]->generation;
     }
 
     ///
@@ -518,6 +731,25 @@ class VirtualFileManager {
     /// covered by any segment (alignment gaps) hold 0xFFFFFFFF and resolve
     /// as invalid.
     ///
+    /// \brief marks the pages spanned by [base, base + len) as unmapped.
+    ///
+    /// \details Inverse of _map_pages. Without this an evicted or rebased
+    ///          segment's pages keep resolving to its old index, so a stale
+    ///          SourceLocation reads a dead (or reused) segment instead of
+    ///          failing cleanly.
+    priv fn _unmap_pages(self, base: usize, len: usize) {
+        if len == 0 { return; }
+
+        var first_page = base >> 12;
+        var last_page  = (base + len) >> 12;
+
+        for p in range::<usize>(first_page, last_page + 1) {
+            if p < self._page_table.size() {
+                self._page_table[p] = u32(-1);
+            }
+        }
+    }
+
     priv fn _map_pages(self, seg_index: u32, base: usize, len: usize) {
         if len == 0 {
             return;

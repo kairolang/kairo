@@ -120,6 +120,53 @@ class MacroTable {
         // entry stays owned by _by_fid; it just stops resolving.
     }
 
+    /// Total live entries. Grows only if a reparse re-registers without the
+    /// matching forget_fid, so a reparse loop can watch it for exactly that.
+    fn size(self) -> usize {
+        var rlock = std::SharedLock(self._mu);
+        var n: usize = 0;
+        for fid_entry in self._by_fid { n += fid_entry.second.size(); }
+        return n;
+    }
+
+    /// \brief drops every macro defined by \p fid, from both indexes.
+    ///
+    /// \details MANDATORY before \p fid's ASTContext is destroyed. MacroEntry
+    ///          holds \c decl as an obs<MacroDecl> pointing into that context's
+    ///          arena, so an entry that outlives the context dangles   and
+    ///          register()'s duplicate check would then KEEP the stale entry
+    ///          and destroy the freshly-built replacement, so the table
+    ///          silently converges on all-dangling decls across reparses.
+    ///
+    /// \return number of entries dropped.
+    fn forget_fid(self, fid: u32) -> usize {
+        var wlock = std::UniqueLock(self._mu);
+
+        var it = self._by_fid.find(fid);
+        if it == self._by_fid.end() { return 0; }
+
+        var n: usize = 0;
+        for e in it->second {
+            if e == &null { continue; }
+
+            // Unpublish before destroying   _global holds a borrowed pointer
+            // and would otherwise resolve to freed memory.
+            var scope_it = self._global.find(e->scope);
+            if scope_it != self._global.end() {
+                var g = scope_it->second.find(e->name_sym);
+                if (g != scope_it->second.end()) && (g->second == e) {
+                    scope_it->second.erase(e->name_sym);
+                }
+            }
+
+            std::destroy(e);
+            n += 1;
+        }
+
+        self._by_fid.erase(it);
+        return n;
+    }
+
     fn clear(self) {
         var wlock = std::UniqueLock(self._mu);
         for fid_entry in self._by_fid {
