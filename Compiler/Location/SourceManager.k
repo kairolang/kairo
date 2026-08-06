@@ -142,17 +142,14 @@ class SourceManager {
     ///
     fn load_file(self, path: Path, skip_indexing: bool = false) -> FileID /* file_id */ {
         var lock = std::LockGuard(self._load_mu); // synchronize file loading
-
-        for i in range::<usize>(0, self._files.size()) {
-            var f = self._files[i];
-
-            if (f != &null) && (f->path.full_path() == path.full_path()) {
-                Logger::debug(
-                    Logger::Stage::Driver,
-                    f"SourceManager::load_file: cache hit for {path.full_path()}"
-                );
-                return static_cast::<FileID>(i);
-            }
+        var known = self._vfile_mgr->fid_for_path(path);
+        if known != static_cast::<FileID>(u32(-1)) {
+            Logger::debug(
+                Logger::Stage::Driver,
+                f"SourceManager::load_file: cache hit for {path.full_path()} fid={known}"
+            );
+            self._materialize(known, path);
+            return known;
         }
 
         if !path.exists() {
@@ -194,13 +191,8 @@ class SourceManager {
 
         _line_table.register_file(base_fid, size);
 
-        var buf  = _vfile_mgr->get_buffer(base_fid);
-        var file = std::create::<SourceFile>(path, buf, self._total_b);
-
-        /// FIXME: an overflow can occur here. (shouldn't ever happen)
-        self._total_b += file->size_bytes;
-        self._files.push_back(file);
-        Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={file->size_bytes}B total={self._total_b}B");
+        self._materialize(base_fid, path);
+        Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: loaded fid={base_fid} path={path.full_path()} size={size}B total={self._total_b}B");
         
         if skip_indexing {
             Logger::info(Logger::Stage::Driver, f"SourceManager::load_file: skipping line index for fid={base_fid} path={path.full_path()}");
@@ -218,6 +210,41 @@ class SourceManager {
     }
 
     ///
+    /// \brief ensures \c _files[fid] holds a live SourceFile for \p path.
+    ///
+    /// \details \c _files is INDEXED BY FID, so this writes at \p fid rather
+    ///          than appending   the old push_back only worked while fids were
+    ///          handed out in load order and never reused, which stopped being
+    ///          true once identity started outliving artifacts.
+    ///
+    ///          Idempotent: a fid that still has its entry is left alone, so
+    ///          this doubles as the cache-hit path. A fid whose entry was
+    ///          released gets a fresh SourceFile over the SAME mapping   the
+    ///          buffer belongs to the VirtualFileManager and did not go away.
+    ///
+    /// \note Caller must hold \c _load_mu.
+    priv fn _materialize(self, fid: FileID, path: Path) {
+        while self._files.size() <= (fid as usize) {
+            self._files.push_back(&null);
+        }
+
+        if self._files[fid] != &null { return; }
+
+        var buf = self._vfile_mgr->get_buffer(fid);
+        if (buf == &null) || (!buf->is_valid()) {
+            Logger::error(Logger::Stage::Driver,
+                f"SourceManager::_materialize: no buffer for fid={fid}");
+            return;
+        }
+
+        var file = std::create::<SourceFile>(path, buf, self._total_b);
+
+        /// FIXME: an overflow can occur here. (shouldn't ever happen)
+        self._total_b   += file->size_bytes;
+        self._files[fid] = file;
+    }
+
+    ///
     /// \brief loads a virtual (in-memory) file into the source space.
     ///
     /// \param fake_path logical path to assign to the virtual file.
@@ -230,20 +257,114 @@ class SourceManager {
     ///       remains valid for the lifetime of the virtual file.
     ///
     fn load_virtual(self, fake_path: Path, data: std::ConstPtr::<u8>, size: usize) -> FileID {
+        var lock = std::LockGuard(self._load_mu);
         var fid = _vfile_mgr->register_virtual(fake_path, data, size);
-        
+
         _line_table.register_file(fid, size);
-        
-        var buf  = _vfile_mgr->get_buffer(fid);
-        var file = std::create::<SourceFile>(fake_path, buf, self._total_b);
-        
-        self._total_b += file->size_bytes;
-        self._files.push_back(file);
+
+        self._materialize(fid, fake_path);
         Logger::info(Logger::Stage::Driver, f"SourceManager::load_virtual: registered fid={fid} path={fake_path.full_path()} size={size}B");
         
         self._line_table.build_index(fid, self._vfile_mgr);
         
         return fid;
+    }
+
+    ///
+    /// \brief drops one fid's loaded file: the SourceFile and its buffer view.
+    ///
+    /// \details Reset IN PLACE, never erased   `_files` is indexed by fid, so
+    ///          erasing would renumber every later file.
+    ///
+    ///          The line-table entry is deliberately NOT dropped.
+    ///          SourceLineTable publishes entries through an atomic table read
+    ///          concurrently by diagnostics, and per-entry teardown there needs
+    ///          its own quiescence protocol. Line indices are small next to the
+    ///          file buffer, which is what this reclaims. Revisit if line-table
+    ///          residency ever shows up in a profile.
+    ///
+    /// \return false if the fid was never loaded.
+    fn release(self, file_id: FileID) -> bool {
+        if (file_id as usize) >= self._files.size() { return false; }
+        if self._files[file_id] == &null            { return false; }
+
+        delete self._files[file_id];
+        self._files[file_id] = &null;
+        return true;
+    }
+
+    ///
+    /// \brief re-reads \p file_id from disk and rebuilds its line index.
+    ///
+    /// \details What a reparse of a CHANGED file does. Identity is kept: the
+    ///          fid, and every index keyed on it, survives, so only this file's
+    ///          bytes and line map are rebuilt   not the whole import graph.
+    ///
+    ///          Distinct from release(), which drops derived artifacts but
+    ///          leaves the bytes alone, and from evict(), which drops the file
+    ///          entirely. If the file did NOT change, none of the three is
+    ///          needed   that is the point of stable identity.
+    ///
+    /// \warning Invalidates every SourceLocation into this file, and any token
+    ///          or AST built from it. Callers must release those artifacts.
+    ///
+    /// \return false if unknown, virtual, or the re-read failed (previous
+    ///         contents are kept in that case).
+    ///
+    fn invalidate(self, file_id: FileID) -> bool {
+        var lock = std::LockGuard(self._load_mu);
+
+        if !self._vfile_mgr->invalidate(file_id) { return false; }
+
+        var path = Path();
+        if ((file_id as usize) < self._files.size()) && (self._files[file_id] != &null) {
+            path = self._files[file_id]->path;
+            delete self._files[file_id];
+            self._files[file_id] = &null;
+        } else {
+            path = Path(self._vfile_mgr->get_info(file_id).path.full_path());
+        }
+
+        self._materialize(file_id, path);
+        self._line_table.invalidate(file_id, self._vfile_mgr);
+        return true;
+    }
+
+    ///
+    /// \brief drops \p file_id completely: buffer, mapping, address range,
+    ///        line index, and path identity.
+    ///
+    /// \details The rare path   the file was deleted, or memory is being
+    ///          reclaimed. A reparse should call invalidate() instead; this
+    ///          retires the fid permanently and a later load of the same path
+    ///          gets a NEW one.
+    ///
+    /// \return false if \p file_id was not loaded.
+    ///
+    fn evict(self, file_id: FileID) -> bool {
+        var lock = std::LockGuard(self._load_mu);
+
+        if (file_id as usize) < self._files.size() {
+            if self._files[file_id] != &null {
+                delete self._files[file_id];
+                self._files[file_id] = &null;
+            }
+        }
+
+        self._line_table.drop_file(file_id);
+        return self._vfile_mgr->evict(file_id);
+    }
+
+    /// Live line-table entries. Flat once the graph is loaded.
+    fn line_table_files(self) -> usize { return self._line_table.file_count(); }
+
+    /// Distinct files mapped by the VirtualFileManager. Flat once loaded   a
+    /// climbing count means identity is being re-minted per pass.
+    fn mapped_files(self) -> usize { return self._vfile_mgr->file_count(); }
+
+    /// Times this file has been re-read. See VirtualFileManager::generation_of.
+    fn generation_of(self, file_id: FileID) -> u32 {
+        return self._vfile_mgr->generation_of(file_id);
     }
 
     ///

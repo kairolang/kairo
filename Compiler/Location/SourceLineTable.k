@@ -67,6 +67,7 @@ class SourceLineTable {
     //                                if not null
     priv var _file_count: std::Atomic::<u64>   = std::Atomic::<u64>(0);
     priv var _active:     std::Atomic::<bool>  = std::Atomic::<bool>(false);
+    priv var _builds:     std::Atomic::<u64>   = std::Atomic::<u64>(0);
 
     ///
     /// \class FileEntry
@@ -148,9 +149,7 @@ class SourceLineTable {
     ///
     fn shutdown(self) {
         /// wait for any active builds to finish
-        while self._active.load(std::MemoryOrder::acquire) {
-            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
-        }
+        self._drain_builds();
         
         var tbl = self._file_table.load(std::MemoryOrder::acquire);
         if tbl == &null { return; }
@@ -196,6 +195,91 @@ class SourceLineTable {
         Logger::debug(Logger::Stage::Driver, f"SourceLineTable::register_file: fid={fid} size={size}B total_files={self._file_count.load(std::MemoryOrder::relaxed)}");
     }
 
+    /// Live file entries. One per distinct file; flat once the graph is loaded.
+    fn file_count(self) -> usize {
+        return static_cast::<usize>(self._file_count.load(std::MemoryOrder::relaxed));
+    }
+
+    ///
+    /// \brief blocks until no background build is touching the table.
+    ///
+    /// \details The reclamation protocol, such as it is. Entries are published
+    ///          through atomics and read without a lock, so freeing one while a
+    ///          build is in flight is a use-after-free.
+    ///
+    ///          There is deliberately no RCU/hazard-pointer scheme here. Freeing
+    ///          a line index is a RARE event   a file actually changed on disk,
+    ///          or was deleted   and it happens between passes, when nothing is
+    ///          parsing. Draining is free at that point. This is the whole
+    ///          reason the line index belongs to file IDENTITY and not to a
+    ///          per-parse artifact: at per-pass frequency this would have to be
+    ///          a real reclamation protocol, which is exactly the cost the old
+    ///          "line entries are deliberately never dropped" note was avoiding.
+    priv fn _drain_builds(self) {
+        while self._builds.load(std::MemoryOrder::acquire) > 0 {
+            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
+        }
+    }
+
+    ///
+    /// \brief rebuilds \p fid's line index after its bytes changed.
+    ///
+    /// \details Keeps the entry (and therefore the fid) and swaps its contents.
+    ///          Re-reads the size from \p vfm, since an edit changes it.
+    ///
+    /// \return false if \p fid has no entry.
+    ///
+    fn invalidate(self, fid: u32, vfm: *VirtualFileManager) -> bool {
+        self._drain_builds();
+
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if tbl == &null       { return false; }
+        if fid >= tbl->size() { return false; }
+
+        var entry = (*tbl)[fid];
+        if entry == &null { return false; }
+
+        // Unpublish before freeing, so a reader that raced in sees "not ready"
+        // rather than a live pointer to a vector about to be deleted.
+        entry->ready.store(false, std::MemoryOrder::release);
+        entry->line_count.store(0, std::MemoryOrder::release);
+
+        var old = entry->lines.load(std::MemoryOrder::acquire);
+        entry->lines.store(&null, std::MemoryOrder::release);
+        if old != &null { delete old; }
+
+        entry->file_size = static_cast::<u32>(vfm->get_info(fid).size);
+
+        self.build_index(fid, vfm);
+        return true;
+    }
+
+    ///
+    /// \brief drops \p fid's entry entirely. Pairs with evict().
+    ///
+    /// \return false if \p fid had no entry.
+    ///
+    fn drop_file(self, fid: u32) -> bool {
+        self._drain_builds();
+
+        var tbl = self._file_table.load(std::MemoryOrder::acquire);
+        if tbl == &null       { return false; }
+        if fid >= tbl->size() { return false; }
+
+        var entry = (*tbl)[fid];
+        if entry == &null { return false; }
+
+        // Slot is nulled, not erased: the table is indexed by fid.
+        (*tbl)[fid] = &null;
+
+        var lines = entry->lines.load(std::MemoryOrder::acquire);
+        if lines != &null { delete lines; }
+        delete entry;
+
+        self._file_count.fetch_sub(1, std::MemoryOrder::relaxed);
+        return true;
+    }
+
     ///
     /// \brief builds the line index for a file using simd or scalar fallback.
     ///
@@ -205,6 +289,9 @@ class SourceLineTable {
     /// automatically falls back to scalar if no simd is available.
     ///
     fn build_index(self, fid: u32, vfm: *VirtualFileManager) {
+        self._builds.fetch_add(1, std::MemoryOrder::acq_rel);
+        finally { self._builds.fetch_sub(1, std::MemoryOrder::acq_rel); }
+
         var tbl = _file_table.load(std::MemoryOrder::acquire);
         if ((!tbl) || fid >= tbl->size()) {
             return;
@@ -606,9 +693,7 @@ class SourceLineTable {
     ///
     fn reset(self) {
         // wait for any active builds
-        while self._active.load(std::MemoryOrder::acquire) {
-            libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(50));
-        }
+        self._drain_builds();
         
         var tbl = self._file_table.load(std::MemoryOrder::acquire);
         if tbl != &null {
