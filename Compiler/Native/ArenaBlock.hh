@@ -61,6 +61,11 @@ struct alignas(64) ArenaBlock {
     size_t          high_water{};
     obs<ArenaBlock> next{};
 
+    /// \note Members are initialized in DECLARATION order, so `ptr` runs first
+    ///       and alloc_block has already rewritten `cap` to the block's TRUE
+    ///       capacity by the time `capacity(cap)` runs. Do not reorder the
+    ///       member declarations, and do not "simplify" this back to recording
+    ///       the requested size   see alloc_block below.
     explicit ArenaBlock(size_t cap) noexcept
         : ptr(alloc_block(cap))
         , capacity(cap) {
@@ -181,10 +186,20 @@ struct alignas(64) ArenaBlock {
     }
 
   private:
-    static std::Byte *alloc_block(size_t cap) noexcept {
+    /// \param cap IN/OUT. In: the requested size. Out: the capacity actually
+    ///        obtained, which is >= the request when the recycler satisfies it
+    ///        from a larger size class.
+    ///
+    /// The caller MUST adopt the out value. Recording the request instead means
+    /// the block is pushed back into a smaller bin on teardown, permanently
+    /// demoting it   large blocks drain away one pass at a time and every large
+    /// allocation mallocs fresh, which reads as an unbounded leak.
+    static std::Byte *alloc_block(size_t &cap) noexcept {
         cap = align_up(cap, 64);
 
-        if (auto *blk = GlobalRecycler::instance().pop(cap)) {
+        size_t got = 0;
+        if (auto *blk = GlobalRecycler::instance().pop(cap, got)) {
+            cap = got;
             return blk;
         }
 

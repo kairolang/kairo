@@ -197,6 +197,7 @@ class TranslationUnit derives DeclContext {
         self.scope        = scope;
         self.global_scope = g_scope;
         self.imports.set_allocator(&(ctx->pp_alloc), 16);
+        self.macros.set_allocator(&(ctx->pp_alloc), 16);
         self.tu_attrs.set_allocator(&(ctx->pp_alloc), 4);
         self.body_ranges.set_allocator(&(ctx->pp_alloc), 64);
         self.out_of_line.set_allocator(&(ctx->pp_alloc), 8);

@@ -1664,6 +1664,11 @@ class ImmediateTable {
             self.ident_descs = &null;
         }
 
+        if self.synth_names != &null {
+            std::destroy(self.synth_names);
+            self.synth_names = &null;
+        }
+
         Logger::debug(Logger::Stage::Lexer, "ImmediateTable::destroy(): destroyed all immediate literals and macro expansions");
     }
 
