@@ -201,6 +201,7 @@ class FrontendAction {
 
     fn stage(self)   -> TUStage { return self._stage;                  }
     fn file_id(self) -> u32     { return self._file_id;                }
+    fn fids(self)    -> vec::<u32> { return self._fids;                }
     fn ok(self)      -> bool    { return self._stage == TUStage::Done; }
     fn failed(self)  -> bool    { return self._stage == TUStage::Failed; }
 
@@ -333,6 +334,7 @@ class CompilerInstance {
     fn global_scope(self) -> *GlobalDisambigTable     { return self._g_scope; }
     fn invocation(self)   -> ref!(CompilerInvocation) { return self._inv;     }
     fn pp(self)           -> *PreProcessor            { return self._pp;      }
+    fn imp(self)          -> *ImportResolver          { return self._imp;     }
     fn backend(self)      -> *ClangBackend            { return self._backend; }
     // --- CLI query helpers -----------------------------------------------
 
@@ -694,7 +696,14 @@ class CompilerInstance {
 
     // --- Compilation pipeline --------------------------------------------
     // the step to index, and create the shared instance
-    fn index(self, cwd: Path) {
+    /// \brief wires the batch-scoped subsystems: ImportResolver, PreProcessor,
+    ///        and the shared ClangBackend.
+    ///
+    /// \details Must run before execute() or any Frontend/ parse entry point;
+    ///          execute() asserts on it. Named to match that assert   it was
+    ///          `index()`, which collided with the unrelated ASTParse Index
+    ///          pass and described neither of the three things it builds.
+    fn initialize(self, cwd: Path) {
         var rb = ImportResolver::Builder().cwd(cwd);
         for dir: string in self._inv.include_dirs { rb.add_include(Path(dir)); }
         for dir: string in self._inv.macro_paths  { rb.add_include(Path(dir)); }
@@ -779,7 +788,301 @@ class CompilerInstance {
         return result;
     }
 
-    // --- Private ---------------------------------------------------------
+    /// \brief frees everything \p fid produced at \p from and every LATER stage.
+    ///
+    /// \details The one entry point tools should use to reclaim a file. Batch
+    ///          compilation never needs it   the process exits   but anything
+    ///          that walks many files (kfmt over a tree) or re-processes one
+    ///          (LSP on edit) does, because nothing is otherwise reclaimed
+    ///          until the CompilerInstance dies.
+    ///
+    /// ORDERING. Artifacts are torn down newest-stage-first, because every
+    /// stage's output points into the stages before it:
+    ///
+    ///   Codegen/Sema/Parsing  -> ASTContext arenas   (via GlobalDisambigTable)
+    ///   Preprocessing         -> the ASTContext itself
+    ///   Lexing                -> TokenCacheManager slot (tokens + imm table)
+    ///   Loading               -> SourceManager file buffer
+    ///
+    /// The cascade is mandatory, not a convenience: AST nodes address
+    /// identifiers by `imm` index into the fid's ImmediateTable, so an AST that
+    /// outlived its tokens has unresolvable names. Releasing at Lexing
+    /// therefore MUST take the AST with it, and this ordering is what
+    /// guarantees it.
+    ///
+    /// \return false if nothing was released   unknown fid, or the guard below
+    ///         refused.
+    ///
+    /// \note REFUSES while another loaded file still imports \p fid.
+    ///       TranslationUnit::import_edges holds a *Decl into the imported
+    ///       file's arena, so releasing it out from under a live importer
+    ///       dangles those edges. Release leaves of the import graph first, or
+    ///       release the whole batch.
+    fn release(self, fid: u32, from: TUStage) -> bool {
+        if self._has_inbound_edges(fid) {
+            Logger::warn(Logger::Stage::Driver,
+                f"CompilerInstance::release: fid={fid} still imported by a live TU; refusing");
+            return false;
+        }
+
+        var did = self._g_scope->release_from(fid, from);
+
+        // The PP's walked-set has to die with the context, not with the fid.
+        // Preprocessing is what CREATES the ASTContext and TranslationUnit, so
+        // a fid still marked walked after its context is gone never gets them
+        // back   the next parse returns a null ctx. This was masked for as long
+        // as release(Loading) re-minted the fid on every pass; see
+        // PreProcessor::forget.
+        if from <= TUStage::Preprocessing {
+            if self._pp != &null { did = self._pp->forget(fid) || did; }
+        }
+
+        if from <= TUStage::Lexing {
+            if self._tcm != &null { did = self._tcm->release(fid) || did; }
+        }
+
+        if from <= TUStage::Loading {
+            if self._sm != &null { did = self._sm->release(fid) || did; }
+        }
+
+        Logger::info(Logger::Stage::Driver,
+            f"CompilerInstance::release: fid={fid} released={did}");
+        return did;
+    }
+
+    /// \brief re-reads \p fid from disk and drops everything derived from it.
+    ///
+    /// \details The edit path. Releases this fid's artifacts (AST, context,
+    ///          tokens, imm table, walked mark, macros), then re-maps the file
+    ///          so the next parse sees the new bytes.
+    ///
+    ///          Identity is KEPT: the fid, and every index keyed on it, is the
+    ///          same afterwards. That is what makes an edit cheap   the rest of
+    ///          the import graph keeps its mappings, line indices and (unless
+    ///          separately released) its parsed state.
+    ///
+    ///          Releases at Lexing rather than Loading on purpose: Loading
+    ///          would drop the SourceManager entry, and the file would come
+    ///          back under a new fid on the next load, which is the churn this
+    ///          whole path exists to avoid.
+    ///
+    /// \return false if \p fid is unknown, virtual, or could not be re-read.
+    fn invalidate(self, fid: u32) -> bool {
+        // Dependents FIRST, and this is not an optimization.
+        //
+        // Two independent reasons, either one fatal on its own:
+        //
+        //   1. release() REFUSES while another live TU imports this fid, because
+        //      TranslationUnit::import_edges holds a *Decl into this file's
+        //      arena. Releasing the importers is what clears that refusal.
+        //   2. An importer's AST is DERIVED from this file: import edges point
+        //      into its arena, and the parser resolved that file's generics and
+        //      types through this file's hoisted DisambigTable. Once these bytes
+        //      change, those ASTs describe text that no longer exists.
+        //
+        // Get this wrong and the failure is silent: the fid is stable, so the
+        // buffer swaps underneath artifacts that still index into it by offset,
+        // and every SourceRange into this file silently addresses different
+        // text. Stale-but-coherent is recoverable; this is not.
+        var dependents = self.transitive_importers(fid);
+
+        // Importers can import each other, so a single sweep can hit a file
+        // whose own importer has not gone yet and be refused. Repeat until a
+        // full pass frees nothing   same shape as release_all.
+        // Bounded by the worklist size: each sweep must free at least one more
+        // file or there is nothing left to unblock, and a dependency chain can
+        // be at most as long as the list. Belt-and-braces against a release()
+        // that over-reports progress   an unbounded "until no progress" loop
+        // over a FIXED list hangs outright if it ever does.
+        var sweeps: usize = 0;
+        var progress = true;
+        while progress && (sweeps <= dependents.size()) {
+            progress = false;
+            sweeps  += 1;
+            for d: u32 in dependents {
+                if self.release(d, TUStage::Lexing) { progress = true; }
+            }
+        }
+
+        // Only a REFUSAL aborts. release() returning false is ambiguous: it also
+        // means "nothing to release", which is the normal state for a file whose
+        // artifacts an earlier cascade already dropped   reparsing it again must
+        // still work. Ask the guard directly instead of reading it off the
+        // return value.
+        if self._has_inbound_edges(fid) {
+            // An importer we could not clear. Leave the bytes ALONE: a stale
+            // parse is correct-if-old, whereas re-mapping now would leave live
+            // artifacts describing replaced text.
+            var ndep = dependents.size();
+            Logger::warn(Logger::Stage::Driver,
+                f"CompilerInstance::invalidate: fid={fid} still imported after releasing {ndep} dependent(s); not re-mapping");
+            return false;
+        }
+
+        self.release(fid, TUStage::Lexing);
+
+        if self._sm == &null { return false; }
+        return self._sm->invalidate(fid);
+    }
+
+    /// \brief fids whose TU holds a resolved import edge directly into \p fid.
+    fn importers_of(self, fid: u32) -> vec::<u32> {
+        var out = vec::<u32>();
+
+        for other: u32 in self._g_scope->all_fids() {
+            if other == fid { continue; }
+
+            var octx = self._g_scope->get_context(other);
+            if octx == &null { continue; }
+
+            var otu = reinterpret_cast::<*TranslationUnit>(octx->tu);
+            if otu == &null { continue; }
+
+            for var i: usize = 0; i < otu->import_edges.size(); ++i {
+                var e = otu->import_edges.get(i);
+                if e == &null { continue; }
+                if e->target_fid == fid { out.push_back(other); break; }
+            }
+        }
+
+        return out;
+    }
+
+    /// \brief every fid that transitively imports \p fid, nearest first.
+    ///
+    /// \details The blast radius of changing \p fid's bytes. Transitive because
+    ///          the dependency is transitive: if C imports B and B imports A,
+    ///          C's AST was built against A's symbols through B.
+    ///
+    ///          Excludes \p fid itself. Cycle-safe   a fid already queued is
+    ///          not queued again, so an import cycle terminates.
+    fn transitive_importers(self, fid: u32) -> vec::<u32> {
+        var out  = vec::<u32>();
+        var seen = set::<u32>();
+        seen.insert(fid);
+
+        var frontier = vec::<u32>();
+        frontier.push_back(fid);
+
+        while !frontier.empty() {
+            var next = vec::<u32>();
+
+            for f: u32 in frontier {
+                for imp: u32 in self.importers_of(f) {
+                    if seen.contains(imp) { continue; }
+                    seen.insert(imp);
+                    out.push_back(imp);
+                    next.push_back(imp);
+                }
+            }
+
+            frontier = next;
+        }
+
+        return out;
+    }
+
+    /// \brief drops \p fid completely, identity included. See SourceManager::evict.
+    ///
+    /// \details For a deleted file or reclaiming memory   NOT for an edit. The
+    ///          fid is retired; loading the same path afterwards mints a new one.
+    fn evict(self, fid: u32) -> bool {
+        self.release(fid, TUStage::Lexing);
+
+        if self._sm == &null { return false; }
+        return self._sm->evict(fid);
+    }
+
+    /// \brief index-parses then full-parses a single \p fid, on this thread.
+    ///
+    /// \details The per-fid body of FrontendAction::_parse, without the fan-out.
+    ///          The batch path spreads these across the pool and runs an ordered
+    ///          diagnostic flusher behind them so a multi-file build reports in
+    ///          fid order; with one file there is nothing to order or overlap,
+    ///          and the caller drains the sink itself.
+    ///
+    /// \return false if \p fid has no context (not preprocessed).
+    fn parse_one(self, fid: u32) -> bool {
+        var ctx = self._g_scope->get_context(fid);
+        if ctx == &null { return false; }
+
+        var gs = self._g_scope;
+
+        // Index first: the full parse disambiguates against the hoisted
+        // table this builds. begin_index returns null if it is already
+        // indexed, which is the case a reparse must NOT hit   release
+        // cleared ctx->hoisted, so this rebuilds it.
+        var ictx = gs->begin_index(fid);
+        if ictx != &null {
+            var indexer = ASTParse(ictx, &null, gs, ASTParse::ParseMode::Index);
+            indexer.index();
+            gs->finish_index(fid);
+        }
+
+        var parser = ASTParse(ctx, &null, gs, ASTParse::ParseMode::Full);
+        var parsed_tu = parser.parse();
+        ctx->tu = reinterpret_cast::<*void>(parsed_tu);
+
+        var lowered_tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if lowered_tu != &null {
+            var pass = NullableTypeLowering{};
+            pass.ctx = ctx;
+            pass.run(lowered_tu);
+        }
+
+        return true;
+    }
+
+    /// \brief import edges of \p fid whose target has no live context.
+    ///
+    /// \details After a single-file reparse this counts imports the edit ADDED:
+    ///          preprocess_one does not resolve them, so their targets were
+    ///          never loaded. Non-zero means the unit is only partially
+    ///          resolved and a full parse_file() is needed to make it whole.
+    fn unresolved_import_count(self, fid: u32) -> usize {
+        var ctx = self._g_scope->get_context(fid);
+        if ctx == &null { return 0; }
+
+        var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if tu == &null { return 0; }
+
+        var n: usize = 0;
+        for var i: usize = 0; i < tu->import_edges.size(); ++i {
+            var e = tu->import_edges.get(i);
+            if e == &null { continue; }
+            if e->target_fid == u32(-1) { n += 1; continue; }
+            if self._g_scope->get_context(e->target_fid) == &null { n += 1; }
+        }
+        return n;
+    }
+
+    /// \brief true if any OTHER live context holds a resolved import edge into
+    ///        \p fid.
+    ///
+    /// \details Lives here rather than on GlobalDisambigTable because walking
+    ///          import_edges needs TranslationUnit, which that module cannot
+    ///          import without a cycle.
+    priv fn _has_inbound_edges(self, fid: u32) -> bool {
+        var fids = self._g_scope->all_fids();
+
+        for other: u32 in fids {
+            if other == fid { continue; }
+
+            var octx = self._g_scope->get_context(other);
+            if octx == &null { continue; }
+
+            var otu = reinterpret_cast::<*TranslationUnit>(octx->tu);
+            if otu == &null { continue; }
+
+            for var i: usize = 0; i < otu->import_edges.size(); ++i {
+                var e = otu->import_edges.get(i);
+                if e == &null { continue; }
+                if e->target_fid == fid { return true; }
+            }
+        }
+
+        return false;
+    }
 
     /// Maps invocation fields to live subsystem setters. Called once after
     /// the invocation is built. Fields whose subsystem does not yet exist are
@@ -1137,7 +1440,7 @@ fn FrontendAction::_codegen() -> bool {
     var out = fe.output;
     if out.empty() { out = "a.o"; }
 
-    var cg = CodegenBackend(be, ctx, kfid, &(ctx->nodes), ksize);
+    var cg = CodegenBackend(be, ctx, kfid, &(ctx->codegen_alloc), ksize);
     cg.set_print_cg(fe.print_cg, self.path.full_path());
     var ok = cg.run(out);
 
