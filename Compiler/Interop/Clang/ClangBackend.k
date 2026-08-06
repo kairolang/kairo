@@ -18,7 +18,7 @@
 ///        mmaps, and the per-TU diagnostic client is a ClangDiagAdapter.
 ///
 /// \par Lifecycle
-///   1. Driver constructs this in index() and enqueues startup() on the
+///   1. Driver constructs this in initialize() and enqueues startup() on the
 ///      ThreadPool (group CLANG_STARTUP_GROUP) clang's expensive setup
 ///      (invocation parse, TargetInfo, FileManager/SourceManager) runs
 ///      concurrently with Kairo lex/preprocess.

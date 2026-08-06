@@ -39,11 +39,13 @@
 ///   rejects them, which is exactly right: they have no Kairo counterpart.
 ///
 /// \par Why offsets still need a table
-///   Both systems lay files out as `base + byte_offset` and both advance by
-///   `size + 1` per file. The one divergence: VirtualFileManager 4 KB-aligns
-///   each global_base (that alignment is what makes Kairo's own resolve() a
-///   shift-and-index), clang packs. So the per-file delta varies and there is
-///   no closed form for the OFFSET side.
+///   Both systems lay files out as `base + byte_offset`. Clang packs, advancing
+///   by `size + 1`. VirtualFileManager does not: it 4 KB-aligns each
+///   global_base (that alignment is what makes Kairo's own resolve() a
+///   shift-and-index) and advances by a RESERVED span sized well above the
+///   file, so an edit that changes a file's length can be re-mapped in place
+///   without moving its base. So the per-file delta varies and there is no
+///   closed form for the OFFSET side.
 ///
 ///   That costs nothing. _sloc is a dense vec<u32> indexed by kairo fid
 ///   holding clang's raw SLoc base   4 bytes per file, L1-resident, and it
