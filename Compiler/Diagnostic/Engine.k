@@ -520,9 +520,38 @@ class DiagEngine derives DiagEngineVBase {
         var scope:    SourceRange;
     }
 
+    /// Serializes emit() and consumer registration.
+    ///
+    /// The engine is a process-wide sink reached from WORKER THREADS: the
+    /// lexer runs on the pool and reports straight to emit() (bad escape,
+    /// unterminated literal), so _all_diags, the counters and the consumer
+    /// list are all touched concurrently. Unsynchronized, a vec growth racing
+    /// a push_back relocates the buffer under another thread and double-frees
+    /// the elements it moved   observed as a malloc abort inside
+    /// ToolDiag::~ToolDiag during a reparse.
+    ///
+    /// Held across consumer dispatch, not just the bookkeeping, because a
+    /// consumer's own storage (ToolDiagConsumer::diags) is shared state too and
+    /// consumers are not individually locked. No consumer reports back into the
+    /// engine, so this cannot re-enter   keep it that way, this is a plain
+    /// non-recursive mutex.
+    priv var _mu:                 std::Mutex;
+
     priv var _poisoned:           vec::<PoisonEntry>;
     priv var _consumers:          vec::<obs::<DiagConsumer>>;
-    priv var _all_diags:          vec::<own::<Diagnostic>>; ///< Owns all emitted diagnostics.
+    /// Owns every DELIVERED diagnostic, so consumers can take a borrowed
+    /// *Diagnostic in handle() without a lifetime question.
+    ///
+    /// This is a deferred-free list, NOT a log: nothing reads it but the
+    /// destructor. So only diagnostics that actually reach a consumer belong
+    /// here   a suppressed one is destroyed at its suppression site instead
+    /// (the _suppress_depth path at the top of emit() always did this; the
+    /// other four paths used to push, which is why a reparse loop retained
+    /// ~26k diagnostics per pass while showing 64).
+    ///
+    /// Still unbounded within a run by design. A tool that reparses in a loop
+    /// must call clear_retained() between passes.
+    priv var _all_diags:          vec::<own::<Diagnostic>>;
     priv var _error_count:        u32  = 0;
     priv var _warn_count:         u32  = 0;
     priv var _note_count:         u32  = 0;
@@ -559,11 +588,34 @@ class DiagEngine derives DiagEngineVBase {
 
     /// Registers \p consumer to receive future diagnostics. Not owned.
     fn add_consumer(self, consumer: *DiagConsumer) {
+        var lock = std::LockGuard(self._mu);
         self._consumers.push_back(consumer);
+    }
+
+    /// \brief detaches every consumer and hands the list back to the caller.
+    ///
+    /// \details The tooling path needs the engine to stop PRINTING for the
+    ///          duration of a parse without losing the driver's own consumer
+    ///          setup. Snapshot with this, install a collector, restore with
+    ///          restore_consumers(). Consumers are non-owning observers here,
+    ///          so moving the list around frees nothing.
+    fn take_consumers(self) -> vec::<obs::<DiagConsumer>> {
+        var lock = std::LockGuard(self._mu);
+        var out = self._consumers;
+        self._consumers.clear();
+        return out;
+    }
+
+    /// \brief restores a list captured by take_consumers(), dropping whatever
+    ///        is currently attached.
+    fn restore_consumers(self, cs: vec::<obs::<DiagConsumer>>) {
+        var lock = std::LockGuard(self._mu);
+        self._consumers = cs;
     }
 
     /// Unregisters \p consumer. Linear scan; expects a small consumer count.
     fn remove_consumer(self, consumer: *DiagConsumer) {
+        var lock = std::LockGuard(self._mu);
         var j: usize = 0;
         for var i: usize = 0; i < self._consumers.size(); ++i {
             if self._consumers[i] != consumer {
@@ -664,6 +716,10 @@ class DiagEngine derives DiagEngineVBase {
     ///   2. \c -Werror  warnings are promoted to errors before limit checking.
     ///   3. Error limit errors and fatals beyond \c _error_limit are dropped.
     fn emit(self, diag: *Diagnostic) {
+        // Whole body, not just the push_back: every early-return path below
+        // also mutates _suppressed_count and _all_diags. See _mu.
+        var lock = std::LockGuard(self._mu);
+
         if self._suppress_depth > 0 {
             std::destroy(diag);
             return;
@@ -676,7 +732,7 @@ class DiagEngine derives DiagEngineVBase {
             if sev == DiagSeverity::Error || sev == DiagSeverity::Warning {
                 if self.is_poisoned(cat, diag->loc) {
                     self._suppressed_count += 1;
-                    self._all_diags.push_back(diag);
+                    std::destroy(diag);   // suppressed: never reaches a consumer
                     return;
                 }
             }
@@ -713,14 +769,14 @@ class DiagEngine derives DiagEngineVBase {
                 }
                 case DiagAction::Silence {
                     self._suppressed_count += 1;
-                    self._all_diags.push_back(diag);
+                    std::destroy(diag);   // suppressed: never reaches a consumer
                     return;
                 }
                 default {}
             }
         } else if self._suppress_all_warnings && sev == DiagSeverity::Warning {
             self._suppressed_count += 1;
-            self._all_diags.push_back(diag);
+            std::destroy(diag);   // suppressed: never reaches a consumer
             return;
         } else if sev == DiagSeverity::Warning && self._warnings_as_errors {
             diag->code = self._override_severity(diag->code, DiagSeverity::Error);
@@ -740,7 +796,7 @@ class DiagEngine derives DiagEngineVBase {
                 }
 
                 self._suppressed_count += 1;
-                self._all_diags.push_back(diag);
+                std::destroy(diag);   // over the error limit: nobody sees it
                 return;
             }
         }
@@ -818,6 +874,42 @@ class DiagEngine derives DiagEngineVBase {
     // --- Counters ------------------------------------------------------------
 
     fn has_errors(self) -> bool      { return self._error_count > 0;  }
+    /// Every Diagnostic the engine has ever taken ownership of, including
+    /// suppressed and poisoned ones. Never pruned, so this only ever grows
+    /// within a run   exposed so a reparse loop can see whether it is the
+    /// thing that is growing.
+    fn retained_diag_count(self) -> usize { return self._all_diags.size(); }
+
+    /// \brief frees every retained diagnostic and resets the counters.
+    ///
+    /// \details For a reparse loop: without this the engine accumulates one
+    ///          full run's diagnostics per pass forever. Counters go with them
+    ///          so error_count() keeps meaning "this pass", which is what the
+    ///          tooling path already assumes when it snapshots the counts
+    ///          around a parse.
+    ///
+    /// \warning Invalidates every *Diagnostic previously handed to a consumer.
+    ///          Safe because consumers copy what they need (see ToolDiag) and
+    ///          none retain the pointer   do not call it mid-emit.
+    fn clear_retained(self) {
+        var lock = std::LockGuard(self._mu);
+
+        for var i: usize = 0; i < self._all_diags.size(); ++i {
+            std::destroy(self._all_diags[i]);
+        }
+        self._all_diags.clear();
+
+        self._error_count      = 0;
+        self._warn_count       = 0;
+        self._note_count       = 0;
+        self._remark_count     = 0;
+        self._ignored_count    = 0;
+        self._verbose_count    = 0;
+        self._debug_count      = 0;
+        self._fatal_count      = 0;
+        self._suppressed_count = 0;
+    }
+
     fn has_fatal(self) -> bool       { return self._fatal_count > 0;  }
     fn error_count(self) -> u32      { return self._error_count;      }
     fn warn_count(self) -> u32       { return self._warn_count;       }

@@ -15,6 +15,10 @@ import Memory::ArenaList::*;
 import Location::SourceRange::*;
 import AST::ASTSupport::*;
 
+__inline_cpp("
+    #define Annotation_bit_for(T, x) Annotation<T>::_bit_for(x)
+");
+
 enum VisibilityKind derives u8 {
     None = 0, ///< No keyword written. Sema resolves to a default.
     Private,
@@ -162,7 +166,7 @@ class <T> Annotation {
     }
 
     const fn has_kind(self, kind: AnnotationKind) -> bool {
-        return (self.presence & __inline_cpp("Annotation<T>::_bit_for(kind)")) != 0;
+        return (self.presence & Annotation_bit_for(T, kind)) != 0;
     }
 
     // --- O(N) range / lookup queries -----------------------------------
@@ -223,7 +227,7 @@ class <T> Annotation {
         std::ICE(self.annotations.has_allocator(),
                  "Annotation::add_* called before init_annotations()");
         self.annotations.push(AnnotationEntry(kind, name, range));
-        self.presence |= __inline_cpp("Annotation<T>::_bit_for(kind)");
+        self.presence |= Annotation_bit_for(T, kind);
     }
 
     fn add_annotation(self, kind: AnnotationKind, name: u32,
@@ -233,7 +237,7 @@ class <T> Annotation {
         var e  = AnnotationEntry(kind, name, range);
         e.args = args;
         self.annotations.push(e);
-        self.presence |= __inline_cpp("Annotation<T>::_bit_for(kind)");
+        self.presence |= Annotation_bit_for(T, kind);
     }
 
     fn add_attribute(self, name: u32, range: SourceRange) {
