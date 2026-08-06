@@ -136,6 +136,10 @@ class ArenaAllocator {
         ++(self.stats.alloc_calls);
         (self.stats.bytes_allocated) += sz;
 
+        if (self.head) == (&null) {
+            return self.expand(sz, align);
+        }
+
         var p = (self.head)->try_alloc(sz, align);
         if (p != &null) {
             return p;
