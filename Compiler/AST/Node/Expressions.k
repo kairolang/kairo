@@ -1291,3 +1291,76 @@ class ImplicitBoundaryCastExpr derives Expr {
 
 //     return false;
 // }
+///
+///  ParenExpr
+///  ( expr )
+///
+///  Source-fidelity only. See ExprKind::ParenExpr.
+///
+class ParenExpr derives Expr {
+    pub var inner: *Expr;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, inner: *Expr) -> *ParenExpr {
+        var node      = ctx->alloc::<ParenExpr>();
+        node->kind    = ExprKind::ParenExpr;
+        node->range   = range;
+        node->inner   = inner;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *ParenExpr {
+        var node            = ctx->alloc::<ParenExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::ParenExpr;
+        node->range         = range;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    /// Strips any number of nested ParenExpr layers. What sema/codegen want
+    /// whenever a Verbatim-parsed tree reaches them.
+    fn strip(self) -> *Expr {
+        var e = self.inner;
+        while (e != &null) && isa::<ParenExpr>(e) { e = cast::<ParenExpr>(e)->inner; }
+        return e;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::ParenExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::ParenExpr; }
+}
+
+///
+///  VerbatimExpr
+///  an unmodelled source span, reproduced as written
+///
+///  Source-fidelity only. See ExprKind::VerbatimExpr.
+///
+class VerbatimExpr derives Expr {
+    /// The exact source span to reproduce. `range` (from Expr) covers the same
+    /// text; `span` is kept separate so a future lowering can rewrite `range`
+    /// without losing what to print.
+    pub var span: SourceRange;
+
+    static fn create(ctx: *ASTContext, range: SourceRange, span: SourceRange) -> *VerbatimExpr {
+        var node    = ctx->alloc::<VerbatimExpr>();
+        node->kind  = ExprKind::VerbatimExpr;
+        node->range = range;
+        node->span  = span;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn create_error(ctx: *ASTContext, range: SourceRange) -> *VerbatimExpr {
+        var node            = ctx->alloc::<VerbatimExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::VerbatimExpr;
+        node->range         = range;
+        node->span          = range;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool { return ptr->kind == ExprKind::VerbatimExpr; }
+    static fn expr_kind() -> ExprKind { return ExprKind::VerbatimExpr; }
+}

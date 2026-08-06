@@ -307,6 +307,33 @@ enum ExprKind derives u8 {
     ImplicitBoundaryCastExpr,
 
     // -----------------------------------------------------------------------
+    //  Source-fidelity  [40]
+    // -----------------------------------------------------------------------
+
+    /// Explicit parentheses: ( expr )
+    /// Node: ParenExpr: inner: *Expr
+    ///
+    /// Normally the parser DROPS parens   they only shape precedence, and the
+    /// resulting tree already encodes it. That is fine for compilation and
+    /// wrong for any tool that reproduces source: dropping them turns
+    /// `(a + b) * c` back into `a + b * c`. Emitted only in Verbatim parse
+    /// fidelity; Semantic mode still folds them away, so codegen never sees
+    /// one.
+    ParenExpr,
+
+    /// An unmodelled source span reproduced byte-for-byte.
+    /// Node: VerbatimExpr: span: SourceRange
+    ///
+    /// The escape hatch for Verbatim fidelity: a construct the AST cannot
+    /// represent (today, an UNEXPANDED macro invocation   `foo!(x)`   which
+    /// has no node because the PP normally expands it away). The formatter
+    /// prints SourceManager::get_text(span) unchanged, which is also the
+    /// correct behaviour: never reflow inside something you cannot parse.
+    ///
+    /// Never produced in Semantic fidelity. Reaching sema or codegen is an ICE.
+    VerbatimExpr,
+
+    // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
     ExprKindCount,
