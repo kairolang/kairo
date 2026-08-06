@@ -1,3 +1,8 @@
-note(DiagID::S048N, d->visibility_range().start,
-    "every member of this group already has the group's visibility; "
-    "move the declaration outside the group to give it different visibility")
+fn <T> step(ci: *CompilerInstance, path: Path, pass: usize) -> T? {
+}
+
+
+class Foo {
+    var x: i32
+    eval y = 10
+}
