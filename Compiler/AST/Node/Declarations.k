@@ -323,21 +323,21 @@ class FunctionDecl
           Redeclarable::<FunctionDecl>,
           TemplateParams::<FunctionDecl>,
           FFILinkage::<FunctionDecl> {
-    pub var name:        Token;                 ///< function name (or ctor = type name).
-    pub var params:      FrozenList::<*ParamDecl>;
-    pub var return_type: *Type = &null;         ///< null => void (or inferred for expr body).
-    pub var abi:         AbiKind   = AbiKind::None;
-    pub var modifiers:   FnModifier = FnModifier::None;
-    pub var body_kind:   FnBodyKind = FnBodyKind::None;
-    pub var body_block:  *CompoundStmt = &null; ///< when body_kind == Block.
-    pub var body_expr:   *Expr         = &null; ///< when body_kind == Expr.
-    pub var is_operator: bool = false;          ///< `fn op <x>`.
-    pub var op_token:    FrozenList::<Token>;   ///< the operator token when is_operator.
-    pub var is_variadic: bool = false;          ///< trailing `...name: T` pack param.
-    pub var is_noreturn: bool = false;          ///< return type is `!`.
-    pub var transfer:    TransferKind = TransferKind::NotTransfer; ///< @copy/@move on a transfer ctor.
-    pub var qualifier:   *Expr = &null;         ///< out-of-line `Class::` path (ChainExpr); null otherwise.
-    pub var where_clause: *Expr = &null;        ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
+    pub var name:          Token;                 ///< function name (or ctor = type name).
+    pub var params:        FrozenList::<*ParamDecl>;
+    pub var return_type:  *Type = &null;          ///< null => void (or inferred for expr body).
+    pub var abi:           AbiKind    = AbiKind::None;
+    pub var modifiers:     FnModifier = FnModifier::None;
+    pub var body_kind:     FnBodyKind = FnBodyKind::None;
+    pub var body_block:   *CompoundStmt = &null;  ///< when body_kind == Block.
+    pub var body_expr:    *Expr         = &null;  ///< when body_kind == Expr.
+    pub var is_operator:   bool = false;          ///< `fn op <x>`.
+    pub var op_token:      FrozenList::<Token>;   ///< the operator token when is_operator.
+    pub var is_variadic:   bool = false;          ///< trailing `...name: T` pack param.
+    pub var is_noreturn:   bool = false;          ///< return type is `!`.
+    pub var transfer:      TransferKind = TransferKind::NotTransfer; ///< @copy/@move on a transfer ctor.
+    pub var qualifier:    *Expr = &null;          ///< out-of-line `Class::` path (ChainExpr); null otherwise.
+    pub var where_clause: *Expr = &null;          ///< `where <expr>` runtime-dispatch guard; functions only, null otherwise.
 
     fn has_where(self) -> bool { return self.where_clause != &null; }
 

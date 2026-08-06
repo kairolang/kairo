@@ -51,7 +51,7 @@ import Codegen::CodegenContext::*;
 import Codegen::Printer::TokenStreamPrinter::*;
 
 // Backend is the ONLY file that imports emitters (see header).
-import Codegen::Emit::EmitDecls::*;
+import Codegen::Emit::EmitIR::*;
 
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
@@ -103,13 +103,13 @@ class CodegenBackend derives TokenFiller {
         // pretending a pass ran.
         cg.advance_phase(CodegenPhase::Planned);
 
-        var decls = EmitDecls(&cg);
+        var ir = EmitIR(&cg);
 
         var items = &(tu->program->items);
         for var i: usize = 0; i < items->size(); i++ {
             var item = *(items->get(i));
             switch item.kind {
-                case TopLevelKind::Decl { decls.emit(item.as_decl()); }
+                case TopLevelKind::Decl { ir.emit(item.as_decl()); }
                 default {
                     // Top-level stmts/exprs are not emittable C++ at M2.
                     std::ICE(false,
