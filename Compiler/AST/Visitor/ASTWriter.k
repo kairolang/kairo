@@ -595,6 +595,8 @@ class <D> ASTWriter {
             case ExprKind::PackExpansionExpr        { return self.dyn()->transform_pack_expansion_expr(        cast::<PackExpansionExpr>(e)        ); }
             case ExprKind::TypeCastExpr             { return self.dyn()->transform_type_cast_expr(             cast::<TypeCastExpr>(e)             ); }
             case ExprKind::ImplicitBoundaryCastExpr { return self.dyn()->transform_implicit_boundary_cast_expr(cast::<ImplicitBoundaryCastExpr>(e) ); }
+            case ExprKind::ParenExpr                { return self.dyn()->transform_paren_expr(                 cast::<ParenExpr>(e)                ); }
+            case ExprKind::VerbatimExpr             { return self.dyn()->transform_verbatim_expr(              cast::<VerbatimExpr>(e)             ); }
             case ExprKind::RecoveryExpr             { return e; }
             case ExprKind::ExprKindCount            {  std::ICE("ExprKindCount reached ASTWriter - bug"); return &null; }
         }
@@ -824,6 +826,18 @@ class <D> ASTWriter {
 
     fn transform_eval_expr(self, n: *EvalExpr) -> *Expr {
         if n->operand != &null { n->operand = self.dyn()->transform_expr(n->operand); }
+        return n;
+    }
+
+    fn transform_paren_expr(self, n: *ParenExpr) -> *Expr {
+        if n->inner != &null { n->inner = self.dyn()->transform_expr(n->inner); }
+        return n;
+    }
+
+    /// Opaque by construction: a VerbatimExpr is an unparsed source span, so
+    /// there is nothing inside for a rewrite pass to reach. Returned unchanged.
+    /// A lowering that wants to REPLACE it must do so from the parent.
+    fn transform_verbatim_expr(self, n: *VerbatimExpr) -> *Expr {
         return n;
     }
 

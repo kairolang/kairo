@@ -301,6 +301,25 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<ThreadExpr>(e)           { self._kw_operand("thread ", cast::<ThreadExpr>(e)->operand); return; }
         if isa::<EvalExpr>(e)             { self._kw_operand("eval ",   cast::<EvalExpr>(e)->operand);   return; }
         if isa::<UnsafeExpr>(e)           { self._kw_operand("unsafe ", cast::<UnsafeExpr>(e)->operand); return; }
+        if isa::<ParenExpr>(e) {
+            // Round-trip the parens. Dropping them here would print
+            // `(a + b) * c` as `a + b * c`   the exact bug ParenExpr exists
+            // to prevent.
+            self.p.paint(Color::Punct, "(");
+            self.src_expr(cast::<ParenExpr>(e)->inner);
+            self.p.paint(Color::Punct, ")");
+            return;
+        }
+        if isa::<VerbatimExpr>(e) {
+            // The span IS the rendering   that is what verbatim means.
+            var ve = cast::<VerbatimExpr>(e);
+            if (self.ctx != &null) && (self.ctx->sm != &null) {
+                self.p.paint(Color::Ident, self.ctx->sm->get_text(ve->span));
+            } else {
+                self.p.paint(Color::Dim, "<verbatim>");
+            }
+            return;
+        }
         if isa::<ConstraintExpr>(e)       { self._e_constraint(cast::<ConstraintExpr>(e)); return; }
         if isa::<SizeOfExpr>(e)           { self._builtin_type("sizeof",  cast::<SizeOfExpr>(e)->type_arg);  return; }
         if isa::<AlignOfExpr>(e)          { self._builtin_type("alignof", cast::<AlignOfExpr>(e)->type_arg); return; }
@@ -1961,6 +1980,16 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<ThreadExpr>(e)           { self._dx_kw("ThreadExpr", cast::<ThreadExpr>(e)->operand, is_last); return; }
         if isa::<EvalExpr>(e)             { self._dx_kw("EvalExpr",   cast::<EvalExpr>(e)->operand,   is_last); return; }
         if isa::<UnsafeExpr>(e)           { self._dx_kw("UnsafeExpr", cast::<UnsafeExpr>(e)->operand, is_last); return; }
+        if isa::<ParenExpr>(e)            { self._dx_kw("ParenExpr",  cast::<ParenExpr>(e)->inner,    is_last); return; }
+        if isa::<VerbatimExpr>(e) {
+            var ve = cast::<VerbatimExpr>(e);
+            self._head("VerbatimExpr", is_last);
+            if (self.ctx != &null) && (self.ctx->sm != &null) {
+                self.p.paint(Color::Literal, f" '{self.ctx->sm->get_text(ve->span)}\x27");
+            }
+            self.p.newline();
+            return;
+        }
         if isa::<DeleteExpr>(e)           { self._dx_kw("DeleteExpr", cast::<DeleteExpr>(e)->operand, is_last); return; }
         if isa::<PackExpansionExpr>(e)    { self._dx_kw("PackExpansionExpr", cast::<PackExpansionExpr>(e)->operand, is_last); return; }
         if isa::<ConstraintExpr>(e)       { self._dx_constraint(cast::<ConstraintExpr>(e), is_last); return; }
@@ -3243,6 +3272,8 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             case ExprKind::TypeOfExpr               { return "TypeOfExpr";               }
             case ExprKind::EvalExpr                 { return "EvalExpr";                 }
             case ExprKind::UnsafeExpr               { return "UnsafeExpr";               }
+            case ExprKind::ParenExpr                { return "ParenExpr";                }
+            case ExprKind::VerbatimExpr             { return "VerbatimExpr";             }
             case ExprKind::DeleteExpr               { return "DeleteExpr";               }
             case ExprKind::PackExpansionExpr        { return "PackExpansionExpr";        }
             case ExprKind::TypeCastExpr             { return "TypeCastExpr";             }

@@ -439,6 +439,8 @@ class <D> RecursiveASTVisitor {
             case ExprKind::PackExpansionExpr        { return self.dyn()->traverse_pack_expansion_expr(        cast::<PackExpansionExpr>(e)        ); }
             case ExprKind::TypeCastExpr             { return self.dyn()->traverse_type_cast_expr(             cast::<TypeCastExpr>(e)             ); }
             case ExprKind::ImplicitBoundaryCastExpr { return self.dyn()->traverse_implicit_boundary_cast_expr(cast::<ImplicitBoundaryCastExpr>(e) ); }
+            case ExprKind::ParenExpr                { return self.dyn()->traverse_paren_expr(                 cast::<ParenExpr>(e)                ); }
+            case ExprKind::VerbatimExpr             { return self.dyn()->traverse_verbatim_expr(              cast::<VerbatimExpr>(e)             ); }
             case ExprKind::RecoveryExpr             { self.dyn()->visit_expr(e); return e; }
             case ExprKind::ExprKindCount            {  std::ICE("ExprKindCount reached RAV in Stage 1 - driver bail failed"); return &null; }
         }
@@ -758,6 +760,18 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    fn traverse_paren_expr(self, n: *ParenExpr) -> *ParenExpr {
+        if self.dyn()->walkup_paren_expr(n) == false { return n; }
+        if n->inner != &null { n->inner = self.dyn()->dispatch_expr(n->inner); }
+        return n;
+    }
+
+    /// No children by construction   a VerbatimExpr is an unparsed span.
+    fn traverse_verbatim_expr(self, n: *VerbatimExpr) -> *VerbatimExpr {
+        if self.dyn()->walkup_verbatim_expr(n) == false { return n; }
+        return n;
+    }
+
     fn traverse_eval_expr(self, n: *EvalExpr) -> *EvalExpr {
         if self.dyn()->walkup_eval_expr(n) == false { return n; }
         if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
@@ -962,6 +976,19 @@ class <D> RecursiveASTVisitor {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_type_of_expr(n);
     }
+
+    fn walkup_paren_expr(self, n: *ParenExpr) -> bool {
+        if self.dyn()->visit_expr(static_cast::<*Expr>(n)) == false { return false; }
+        return self.dyn()->visit_paren_expr(n);
+    }
+
+    fn walkup_verbatim_expr(self, n: *VerbatimExpr) -> bool {
+        if self.dyn()->visit_expr(static_cast::<*Expr>(n)) == false { return false; }
+        return self.dyn()->visit_verbatim_expr(n);
+    }
+
+    fn visit_paren_expr(self, n: *ParenExpr) -> bool { return true; }
+    fn visit_verbatim_expr(self, n: *VerbatimExpr) -> bool { return true; }
 
     fn walkup_eval_expr(self, n: *EvalExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
