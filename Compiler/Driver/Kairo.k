@@ -29,6 +29,7 @@
 ///
 
 import Driver::CompilerInstance::*;
+import Tooling::ParseAPI::*;
 import AST::Visitor::ASTWriter::*;
 
 ffi "c++" import "llvm/Support/InitLLVM.h";
@@ -121,7 +122,8 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         return 1;
     }
 
-    ci->index(Path::cwd());
+    ci->initialize(Path::cwd());
+
 
     // --- Layer 3: execute the FrontendAction pipeline --------------------
     //

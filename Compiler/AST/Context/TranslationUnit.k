@@ -196,6 +196,9 @@ class TranslationUnit derives DeclContext {
         self.fid          = fid;
         self.scope        = scope;
         self.global_scope = g_scope;
+        // EVERY ArenaList below must name an arena. The default ctor eagerly
+        // builds a self-owned one, reclaimed only by ~ArenaList   `macros` was
+        // missing this call and leaked a block per TU per parse.
         self.imports.set_allocator(&(ctx->pp_alloc), 16);
         self.macros.set_allocator(&(ctx->pp_alloc), 16);
         self.tu_attrs.set_allocator(&(ctx->pp_alloc), 4);

@@ -53,12 +53,10 @@ not carry assumptions from one to the other.
   checking, monomorphization, all done Kairo-side), and a CodeGen that does
   NOT emit C++ source.
 
-BUILD STATE: complete through the parser. Lexer, preprocessor, and parser
-work. Everything downstream, Index, Import Resolution, Sema, CodeGen, the
-LLVM IR safety pass, and KLD linking, is designed but not yet implemented.
-The pipeline and stages described below are the intended architecture, not
-running code. Treat anything past Parse as a spec until the source says
-otherwise.
+BUILD STATE: complete through the Index, Import Resolution, parser. Lexer,
+preprocessor, and parser work. Everything downstream, Sema, CodeGen, the
+LLVM IR safety pass, and KLD linking, Sema, and Codegen is a work in progress,
+not yet implemented. The pipeline is designed and staged
 
 Stage 1 CodeGen constructs an in-memory clang::Token stream located into the
 original .k files, and Clang consumes it directly (via EnterTokenStream, or
