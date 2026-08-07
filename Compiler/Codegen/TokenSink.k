@@ -206,6 +206,8 @@ class TokenSink {
             case TokenKind::OpPipeEqual     { return clang::tok::pipeequal;      }
             case TokenKind::OpCaretEqual    { return clang::tok::caretequal;     }
 
+            // -- misc
+            case TokenKind::AtVoid          { return clang::tok::kw_void;        }
             default { return clang::tok::unknown; }
         }
     }
@@ -262,7 +264,7 @@ class TokenSink {
             "automatic C++ meaning   emit it deliberately (kw_auto, kw_return, "
             "...) or let Lower/ rewrite it into a name");
 
-        std::ICE(is_punctuator(t.kind) || is_operator(t.kind),
+        std::ICE(is_punctuator(t.kind) || is_operator(t.kind) || (t.kind == TokenKind::AtVoid),
             "TokenSink::create accepts identifiers, punctuators and operators "
             "only; literals go through synth (borrowed) or create_int/str "
             "(divergent)");

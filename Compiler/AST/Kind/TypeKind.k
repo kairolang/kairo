@@ -131,3 +131,31 @@ enum TypeKind derives u8 {
     /// -----------------------------------------------------------------------
     TypeKindCount,
 }
+
+fn to_string(t: TypeKind) -> string {
+    switch t {
+        case TypeKind::RecoveryType { return "RecoveryType"; }
+        case TypeKind::ChainType { return "ChainType"; }
+        case TypeKind::GenericParamType { return "GenericParamType"; }
+        case TypeKind::SubstGenericParamType { return "SubstGenericParamType"; }
+        case TypeKind::TypeOfType { return "TypeOfType"; }
+        case TypeKind::VariadicPackType { return "VariadicPackType"; }
+        case TypeKind::PackExpansionType { return "PackExpansionType"; }
+        case TypeKind::PointerType { return "PointerType"; }
+        case TypeKind::NullableType { return "NullableType"; }
+        case TypeKind::TupleType { return "TupleType"; }
+        case TypeKind::FixedArrayType { return "FixedArrayType"; }
+        case TypeKind::VectorType { return "VectorType"; }
+        case TypeKind::MapType { return "MapType"; }
+        case TypeKind::SetType { return "SetType"; }
+        case TypeKind::SelfType { return "SelfType"; }
+        case TypeKind::FunctionPointerType { return "FunctionPointerType"; }
+        case TypeKind::InferredType { return "InferredType"; }
+        case TypeKind::CXXLValueRefType { return "CXXLValueRefType"; }
+        case TypeKind::CXXRValueRefType { return "CXXRValueRefType"; }
+        case TypeKind::OpaqueFFIType { return "OpaqueFFIType"; }
+        case TypeKind::TypeExpr { return "TypeExpr"; }
+    }
+
+    return "UnknownTypeKind";
+}
