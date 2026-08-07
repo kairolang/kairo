@@ -84,12 +84,7 @@ class LocalScope {
     }
 
     fn find(self, imm:u32) -> *Decl {
-        for var i: usize = self.names.size(); i > 0; --i {
-            if self.names.get(i - 1) == imm {
-                return self.decls.get(i - 1);
-            }
-        }
-        return &null;
+        
     }
 }
 
@@ -170,15 +165,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // TODO(N-b): fall through to
         //   self.sc->lookup.unqualified(self.cur_dc, /* DeclName from imm */);
         for (var i = self.locals.size(); i > 0; --i) {
-            var frame = self.locals.get(i - 1);
-            var d = frame.find(imm);
-            if d != &null {
-                var r = SemaLookupResult{};
-                r.cell = &OverloadCell{};
-                r.cell->push_back(d);
-                r.found_in = self.cur_dc;
-                return r;
-            }
+            
         }
         return SemaLookupResult::not_found();
     }
@@ -199,9 +186,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var frame_index = self.locals.size() - 1;
 
         for (var i : usize = 0; i < n->params.size(); ++i) {
-            var param = n->params[i];
-            if p == &null { continue; }
-            self.locals.get(frame_index)->declare(param->name_imm, param);
+            
         }
 
         var temp_dc=self.cur_dc;

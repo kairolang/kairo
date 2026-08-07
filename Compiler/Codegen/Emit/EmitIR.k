@@ -121,6 +121,10 @@ import AST::Kind::ExprKind::*;
 import AST::Kind::TypeKind::*;
 import Location::SourceRange::*;
 
+__inline_cpp("
+#define sink this->_cg->sink
+");
+
 class EmitIR {
     priv var _cg: obs::<CodegenContext>;
 
@@ -166,7 +170,7 @@ class EmitIR {
         }
 
         if p->is_const {
-            self._cg->sink->kw_const(p->name);
+            sink->kw_const(p->name);
         }
 
         if p->type_ != &null {
@@ -177,11 +181,11 @@ class EmitIR {
         }
 
         if !p->unname {
-            self._cg->sink->create(p->name);
+            sink->create(p->name);
         }
 
         if p->default_val != &null {
-            self._cg->sink->synth_at_end(p->name.range, clang::tok::equal);
+            sink->synth_at_end(p->name.range, clang::tok::equal);
             self.emit(p->default_val);
         }
     }
@@ -196,7 +200,7 @@ class EmitIR {
             
             self._param_decl(*p);
             if i + 1 < pl.size() {
-                self._cg->sink->synth_at_end((*p)->name.range, clang::tok::comma);
+                sink->synth_at_end((*p)->name.range, clang::tok::comma);
             }
         }
     }
@@ -212,13 +216,12 @@ class EmitIR {
             "EmitIR: function with no return type reached codegen; Lower/ "
             "must materialize the explicit type node   codegen does not infer");
 
-        var sink = self._cg->sink;
-
         self.emit(n->return_type);
         sink->create(n->name);
         sink->synth_at_end(n->name.range, clang::tok::l_paren);
         self._param_list(n->params);
         sink->synth_at_end(n->name.range, clang::tok::r_paren);
+        sink->synth_at_end(n->name.range, clang::tok::semi);
     }
 
     /// `fn NAME(params) -> RET { body }`  ->  `RET NAME(params) { body }`
@@ -233,7 +236,10 @@ class EmitIR {
             "EmitIR: function with no return type reached codegen; Lower/ "
             "must materialize the explicit type node   codegen does not infer");
 
-        var sink = self._cg->sink;
+        if n->body_kind == FnBodyKind::None {
+            self._fn_fwd(n);
+            return;
+        }
 
         /* T  */ self.emit(n->return_type);
         /* i  */ sink->create(n->name);
@@ -260,7 +266,7 @@ class EmitIR {
             case StmtKind::ExpressionStmt {
                 var n = cast::<ExpressionStmt>(s);
                 self.emit(n->expr);
-                self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+                sink->synth_at_end(n->range, clang::tok::semi);
             }
             case StmtKind::DeclStmt {
                 self._decl(cast::<DeclStmt>(s));
@@ -275,13 +281,13 @@ class EmitIR {
     fn emit_block(self, n: *CompoundStmt) {
         std::ICE(n != &null, "EmitIR: null block reached codegen");
 
-        self._cg->sink->synth_at_start(n->range, clang::tok::l_brace);
+        sink->synth_at_start(n->range, clang::tok::l_brace);
 
         for var i: usize = 0; i < n->body.size(); ++i {
             self.emit(*(n->body.get(i)));
         }
 
-        self._cg->sink->synth_at_end(n->range, clang::tok::r_brace);
+        sink->synth_at_end(n->range, clang::tok::r_brace);
     }
 
     /// Statement-position declarations. Local variables are dispatched HERE,
@@ -308,7 +314,7 @@ class EmitIR {
             }
         }
 
-        self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+        sink->synth_at_end(n->range, clang::tok::semi);
     }
 
     /// `[const|static] TYPE name [= init]`   no trailing `;`, _decl adds it.
@@ -330,8 +336,6 @@ class EmitIR {
     priv fn _var_decl(self, n: *VariableDecl) {
         std::ICE(n->kind != DeclKind::RecoveryDecl,
             "EmitIR: poisoned VariableDecl reached codegen   sema gate failure");
-
-        var sink = self._cg->sink;
 
         // Storage class. `eval` is C++ constexpr; Kairo's `const` is a
         // binding-level immutability, which top-level const models closely
@@ -378,7 +382,7 @@ class EmitIR {
         // Correct only because Kairo spells it `return` too. See the TODO
         // above   with the token retained this is kw_return(n->kw_token) and
         // the span becomes a fact instead of an assumption.
-        self._cg->sink->synth(
+        sink->synth(
             SourceRange::from_bounds(n->range.start, u32(6)),
             clang::tok::kw_return);
 
@@ -386,7 +390,7 @@ class EmitIR {
             self.emit(n->value);
         }
 
-        self._cg->sink->synth_at_end(n->range, clang::tok::semi);
+        sink->synth_at_end(n->range, clang::tok::semi);
     }
 
     // ----------------------------------------------------------------- //
@@ -402,12 +406,12 @@ class EmitIR {
                 // satisfies the literal rule for free. A literal whose C++
                 // text differs from its source bytes is Lower/'s to
                 // canonicalize, and arrives here via create_int.
-                self._cg->sink->synth(
+                sink->synth(
                     cast::<IntegerLiteralExpr>(e)->token,
                     clang::tok::numeric_constant);
             }
             case ExprKind::NamedIdentExpr {
-                self._cg->sink->create(cast::<NamedIdentExpr>(e)->name);
+                sink->create(cast::<NamedIdentExpr>(e)->name);
             }
             case ExprKind::BinaryOperatorExpr {
                 self._binary(cast::<BinaryOperatorExpr>(e));
@@ -434,7 +438,7 @@ class EmitIR {
             std::ICE(false, "EmitIR: multi-part string literal reached codegen; Lower/ must concatenate it into a single literal");
         }
 
-        self._cg->sink->create_str(n->token, final_str);
+        sink->create_str(n->token, final_str);
     }
 
     /// `lhs op rhs`. The operator token is emitted through punct_kind, which
@@ -442,7 +446,7 @@ class EmitIR {
     /// operator in the tree and CodegenContext ICEs there, not here.
     priv fn _binary(self, n: *BinaryOperatorExpr) {
         self.emit(n->lhs);
-        self._cg->sink->create(n->op_token);
+        sink->create(n->op_token);
         self.emit(n->rhs);
     }
 
@@ -452,8 +456,6 @@ class EmitIR {
     /// against the last byte of the call. Every synthesized caret then sits
     /// inside the construct a C++ user would expect it to blame.
     priv fn _call(self, n: *CallExpr) {
-        var sink = self._cg->sink;
-
         self.emit(n->callee);
         sink->synth_at_end(n->callee->range, clang::tok::l_paren);
 
@@ -483,9 +485,10 @@ class EmitIR {
 
         switch t->kind {
             case TypeKind::ChainType { self._chain(cast::<ChainType>(t)); }
+            case TypeKind::PointerType { self._pointer(cast::<PointerType>(t)); }
             default {
                 std::ICE(false,
-                    "EmitIR: non-chain type reached codegen; Lower/ must "
+                    f"EmitIR: {to_string(t->kind)} type reached codegen; Lower/ must "
                     "reduce it to its codegen-shaped form");
             }
         }
@@ -510,7 +513,7 @@ class EmitIR {
                 "EmitIR: generic arguments in type position are M3");
 
             if seg->sep == ChainType::SegmentSeparator::ColonColon {
-                self._cg->sink->synth_at_start(
+                sink->synth_at_start(
                     seg->range, clang::tok::coloncolon);
             }
 
@@ -519,7 +522,16 @@ class EmitIR {
             // no automatic C++ meaning. Lower/ rewrites those into identifier
             // chains   `i32` is an alias to `int32_t` in the runtime   and
             // codegen emits whatever names it is handed.
-            self._cg->sink->create(seg->name->name);
+            sink->create(seg->name->name);
         }
     }
+
+    priv fn _pointer(self, n: *PointerType) {
+        self.emit(n->pointee);
+        sink->synth_at_end(n->range, clang::tok::star);
+    }
 }
+
+__inline_cpp("
+#undef sink
+");

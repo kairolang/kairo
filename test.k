@@ -1,8 +1,6 @@
-fn <T> step(ci: *CompilerInstance, path: Path, pass: usize) -> T? {
-}
+fn print(*char) -> void
 
-
-class Foo {
-    var x: i32
-    eval y = 10
+fn main() -> int {
+    print("Hello, world!\n")
+    return 28
 }
