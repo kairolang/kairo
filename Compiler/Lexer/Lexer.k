@@ -479,9 +479,20 @@ class Lexer {
         return self.file_data() + self._cursor;
     }
 
-    inline priv fn remaining_offset(self) -> usize {
-        if self._cursor >= self.file_size() { return 0; }
-        return self.file_size() - self._cursor - 1;
+    /// \brief bytes readable at the cursor, 0 at EOF.
+    ///
+    /// \details this is a READ LENGTH, not an index distance. handing it to
+    ///          decode_utf8 guarantees the decoder never touches a byte past
+    ///          file_size(). the previous remaining_offset() returned
+    ///          `size - cursor - 1` and every caller added 1 back "for the null
+    ///          terminator"   there is no null terminator. MemoryBuffer is a
+    ///          non-owning view over an mmap'd region of exactly size() bytes,
+    ///          so at cursor == size that +1 handed the decoder a length of 1
+    ///          over a pointer already at one-past-the-end.
+    inline priv fn remaining_bytes(self) -> usize {
+        const size: usize = self.file_size();
+        if self._cursor >= size { return 0; }
+        return size - self._cursor;
     }
 
     inline priv fn file_size(self) -> usize {
@@ -503,21 +514,32 @@ class Lexer {
         return self.cached_data;
     }
 
+    /// \brief moves the cursor forward, never past end-of-buffer.
+    ///
+    /// \details INVARIANT: 0 <= _cursor <= file_size(). Landing exactly ON
+    ///          file_size() is the EOF position and is legal   is_eof() reports
+    ///          true there, current_data() forms a one-past-the-end pointer that
+    ///          is never dereferenced, remaining_bytes() reports 0, and
+    ///          VirtualFileManager::get_loc accepts off == seg->size. Going PAST
+    ///          it is not legal: the scan loops in lex_name/scan_number_body/
+    ///          scan_text_body/lex_*_comment/lex_whitespace derive their `end`
+    ///          pointer from file_size() and run raw pointers against it, so an
+    ///          over-advanced cursor reads outside the mapping.
+    ///
+    /// \note the clamp restored here is NOT the one that was commented out. That
+    ///       one pinned the cursor to `file_size() - 1`, one byte SHORT of EOF,
+    ///       so is_eof() could never become true and every `while !is_eof()`
+    ///       scanner span forever on the last byte   which is why it was
+    ///       disabled. It also underflowed on an empty buffer, and it left
+    ///       _last_advanced holding the REQUESTED count rather than the distance
+    ///       actually travelled, desyncing retreat_cursor_to_last.
     inline priv fn advance_cursor(self, count: usize = 1) {
-        /// NOTE: removing the bounds check for now, since either the
-        ///       clamp or the (self._cursor + count) >= self.file_size() is
-        ///       bugged, we need to re-evaluate this logic later, however
-        ///       I fixed another issue in the VirtualFileManager that was
-        ///       preventing it from reading the last byte in a SourceFile
-        ///       see the commit "fe83937" for the fix.
+        const size: usize = self.file_size();
+        const room: usize = (size - self._cursor) if (self._cursor < size) else 0;
+        const step: usize = (count) if (count < room) else (room);
 
-        // if (self._cursor + count) >= self.file_size() {
-        //     self._cursor = self.file_size() - 1;
-        //     return;
-        // }
-
-        self._last_advanced = count;
-        self._cursor       += count;
+        self._last_advanced = static_cast::<isize>(step);
+        self._cursor       += step;
     }
 
     inline priv fn retreat_cursor(self, count: usize = 1) {
@@ -543,21 +565,31 @@ class Lexer {
     /// 1 would be the immediate next char
     inline priv fn peek_char32(self, offset: isize = 0) -> DecodeResult {
         var data: std::ConstPtr::<u8> = self.current_data();
-        var size: usize                = self.remaining_offset() + 1;
+        var size: usize               = self.remaining_bytes();
 
         if offset < 0 {
             data -= (-offset);
             size += static_cast::<usize>(-offset);
         } else {
-            data += static_cast::<usize>(offset);
-            size -= static_cast::<usize>(offset);
+            const fwd: usize = static_cast::<usize>(offset);
+
+            // `size - fwd` wraps on usize when the peek reaches past EOF, which
+            // handed the decoder a length near 2^64. peek_char32(2) on the last
+            // byte of a file (scan_text_body's triple-quote probe) does exactly
+            // that.
+            if fwd >= size {
+                return DecodeResult('\0', 0);
+            }
+
+            data += fwd;
+            size -= fwd;
         }
 
-        if (size <= 0) {
+        if size == 0 {
             return DecodeResult('\0', 0);
         }
 
-        return UTF8View::decode_utf8(data, size); // +1 for null terminator
+        return UTF8View::decode_utf8(data, size);
     }
 
     inline priv fn get_char32(self) -> DecodeResult {
@@ -578,7 +610,7 @@ class Lexer {
         res.fill(DecodeResult('\0', 0));
 
         var data: std::ConstPtr::<u8> = self.current_data();
-        var remain: usize = self.remaining_offset() + 1;
+        var remain: usize = self.remaining_bytes();
 
         if remain == 0 {
             return res;
