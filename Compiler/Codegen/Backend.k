@@ -112,8 +112,7 @@ class CodegenBackend derives TokenFiller {
                 case TopLevelKind::Decl { ir.emit(item.as_decl()); }
                 default {
                     // Top-level stmts/exprs are not emittable C++ at M2.
-                    std::ICE(false,
-                        "CodegenBackend: top-level statements are not "
+                    ICE_FAIL("CodegenBackend: top-level statements are not "
                         "supported at M2");
                 }
             }

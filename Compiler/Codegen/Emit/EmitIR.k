@@ -144,7 +144,7 @@ class EmitIR {
         switch d->kind {
             case DeclKind::FunctionDecl { self._fn(cast::<FunctionDecl>(d)); }
             default {
-                std::ICE(false, "EmitIR: decl kind not supported at M2");
+                ICE_FAIL("EmitIR: decl kind not supported at M2");
             }
         }
     }
@@ -165,7 +165,7 @@ class EmitIR {
         //     pub var unname:      bool = false;     ///< true for the `unnamed` parameter.
         
         if p->is_self {
-            std::ICE(false, "EmitIR::_param_decl: self param reached codegen");
+            ICE_FAIL("EmitIR::_param_decl: self param reached codegen");
             return;  // `self` is not emitted, it is a semantic placeholder only.
         }
 
@@ -176,7 +176,7 @@ class EmitIR {
         if p->type_ != &null {
             self.emit(p->type_);
         } else {
-            std::ICE(false, "EmitIR::_param_decl: parameter with no type reached codegen; Lower/ must materialize the explicit type node");
+            ICE_FAIL("EmitIR::_param_decl: parameter with no type reached codegen; Lower/ must materialize the explicit type node");
             return;
         }
 
@@ -194,7 +194,7 @@ class EmitIR {
         for var i: usize = 0; i < pl.size(); ++i {
             var p = pl.get(i);
             if p == &null {
-                std::ICE(false, "EmitIR::_param_list: null param reached codegen");
+                ICE_FAIL("EmitIR::_param_list: null param reached codegen");
                 continue;
             }
             
@@ -272,7 +272,7 @@ class EmitIR {
                 self._decl(cast::<DeclStmt>(s));
             }
             default {
-                std::ICE(false, "EmitIR: statement kind not supported at M2");
+                ICE_FAIL("EmitIR: statement kind not supported at M2");
             }
         }
     }
@@ -308,8 +308,7 @@ class EmitIR {
                 self._var_decl(cast::<VariableDecl>(n->decl));
             }
             default {
-                std::ICE(false,
-                    "EmitIR: only variable declarations are emittable in "
+                ICE_FAIL("EmitIR: only variable declarations are emittable in "
                     "statement position at M2");
             }
         }
@@ -423,7 +422,7 @@ class EmitIR {
                 self._string(cast::<StringLiteralExpr>(e));
             }
             default {
-                std::ICE(false, "EmitIR: expression kind not supported at M2");
+                ICE_FAIL("EmitIR: expression kind not supported at M2");
             }
         }
     }
@@ -435,7 +434,7 @@ class EmitIR {
         var final_str = std::string_to_nstring(n->get_spelling());
 
         if n->has_next() {
-            std::ICE(false, "EmitIR: multi-part string literal reached codegen; Lower/ must concatenate it into a single literal");
+            ICE_FAIL("EmitIR: multi-part string literal reached codegen; Lower/ must concatenate it into a single literal");
         }
 
         sink->create_str(n->token, final_str);
@@ -487,8 +486,7 @@ class EmitIR {
             case TypeKind::ChainType { self._chain(cast::<ChainType>(t)); }
             case TypeKind::PointerType { self._pointer(cast::<PointerType>(t)); }
             default {
-                std::ICE(false,
-                    f"EmitIR: {to_string(t->kind)} type reached codegen; Lower/ must "
+                ICE_FAIL(f"EmitIR: {to_string(t->kind)} type reached codegen; Lower/ must "
                     "reduce it to its codegen-shaped form");
             }
         }
