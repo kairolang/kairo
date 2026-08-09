@@ -662,6 +662,29 @@ class <T> ExprParse {
             );
         }
 
+        // -- prefix ... (pack expansion) -----------------------------
+        // `...args` is the same expansion as the postfix `args...`; both
+        // spellings build a PackExpansionExpr so downstream sees one node.
+        // The prefix form mirrors how a pack is *introduced* in a parameter
+        // list (`fn <...U> f(...args: U)`), which is why call sites reach
+        // for it.
+        if dyn()->check(TokenKind::OpEllipsis) {
+            var dots_range = cur_range;
+            dyn()->advance(T::SkipNL::After);
+            var operand = self._parse_unary_expr(stop);
+            if operand == &null {
+                dyn()->diag->report(DiagID::S052E, dots_range.start,
+                    "expected an expression after '...' to expand"
+                ).first(dots_range).emit();
+                return self._error_expr(dots_range);
+            }
+            return PackExpansionExpr::create(
+                dyn()->ctx,
+                dots_range | operand->range,
+                operand
+            );
+        }
+
         // -- keyword prefix: await -----------------------------------
         if dyn()->check(TokenKind::KwAwait) {
             var kw_range = cur_range;
@@ -995,6 +1018,27 @@ class <T> ExprParse {
                     dyn()->ctx,
                     base->range | ellipsis_range,
                     base
+                );
+                chain_start = base->range;
+                continue;
+            }
+
+            // -- postfix ? (has-value test) -------------------------
+            // `mem?` asks whether a nullable holds a value. Unambiguous: the
+            // related surface operators lex as their own tokens (`??`, `?.`,
+            // `?->`), and `?` carries no infix precedence, so a bare `?` here
+            // is always the postfix form. Sema desugars it to the storage
+            // primitive (`!is_null()`).
+            if dyn()->check(TokenKind::OpQuestion) {
+                base = self._flush_chain(base, &chain_steps, chain_start);
+                var q_tok = dyn()->current();
+                dyn()->advance();
+                base = UnaryOperatorExpr::create(
+                    dyn()->ctx,
+                    base->range | q_tok.range,
+                    base,
+                    q_tok,
+                    UnaryOperatorExpr::Fix::Postfix
                 );
                 chain_start = base->range;
                 continue;
@@ -2674,6 +2718,16 @@ class <T> ExprParse {
             return &null;
         }
 
+        // The branch value may be written on its own line:
+        //     if c {
+        //         expr
+        //     } else { ... }
+        // `parse_expr` stops at the newline that ends `expr`, so the closer is
+        // not the current token yet. Drop the trailing newlines before testing
+        // for `}`; a second *expression* still fails the check below, which is
+        // the rule we actually want to enforce.
+        dyn()->advance(T::SkipNL::Only);
+
         if !dyn()->check(TokenKind::OpRBrace) {
             dyn()->diag->report(DiagID::S054E, lbrace.start,
                 "expression-form branch allows exactly one expression; "
@@ -2972,6 +3026,11 @@ class <T> ExprParse {
             dyn()->advance();
             result.binding     = NamedIdentExpr::create(dyn()->ctx, id_range, *id_ptr);
             result.has_binding = true;
+            // The caught error is a declaration; see CatchArm::decl.
+            var cstor          = (StorageClass::Const) if (result.is_const)
+                                 else (StorageClass::Var);
+            result.decl        = static_cast::<*Decl>(
+                VariableDecl::create(dyn()->ctx, id_range, *id_ptr, cstor));
 
             // optional `: Type` filter (only meaningful with a binding)
             if dyn()->check(TokenKind::OpColon) {
