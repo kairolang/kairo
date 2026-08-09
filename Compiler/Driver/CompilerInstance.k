@@ -128,6 +128,7 @@ import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
 import Sema::Lower::NullableTypeLowering::*;
 import Sema::Sema::*;
+import Sema::SemaDump::*;
 import Sema::SemaContext::*;
 import AST::Context::ImportOverlay::*;
 import Interop::Clang::ClangBackend::*;
@@ -1455,18 +1456,30 @@ fn FrontendAction::_parse() -> bool {
     return true;
 }
 
-/// Semantic analysis stage not yet implemented.
+/// Semantic analysis stage: runs the pipeline to its current end (N) over
+/// every fid of this TU's graph, then honors the sema dump flags.
 fn FrontendAction::_sema() -> bool {
     self._stage = TUStage::Sema;
     var fe = self._ci->invocation().frontend;
-    if fe.print_sema     { std::print(f"-- sema: {self.path.full_path()} (not yet implemented) --"); }
     if fe.dump_type_info { std::print(f"-- type info: {self.path.full_path()} (not yet implemented) --"); }
 
-    // Phases I -> E -> V (ImportResolution, Expand, Verify) across every fid
-    // of this TU's graph. Run in REVERSE tree order so leaf modules build
-    // their overlays before importers fold re-exports (DAG order guarantees
-    // source-overlay completeness, RESOLUTION.md #2). run_to stops at
-    // Verified; the N/T/... stubs are not reached.
+    // --print-sema styling follows --print-ast, exactly like --print-symbols:
+    // 'tree' -> dump(), 'canonical' -> canonical(), otherwise flat diag rows.
+    var sema_opts: PrintOptions = PrintOptions::diag();
+    if fe.print_sema {
+        var ast_mode = fe.print_ast;
+        if      ast_mode == "tree"      { sema_opts = PrintOptions::dump();      }
+        else if ast_mode == "canonical" { sema_opts = PrintOptions::canonical(); }
+        sema_opts.color = !self._ci->invocation().diag.no_color;
+        std::print(f"-- sema: {self.path.full_path()} --");
+    }
+
+    // Phases I -> E -> V -> N (ImportResolution, Expand, Verify,
+    // NameResolution) across every fid of this TU's graph. Run in REVERSE
+    // tree order so leaf modules build their overlays before importers fold
+    // re-exports (DAG order guarantees source-overlay completeness,
+    // RESOLUTION.md #2). run_to stops at NamesResolved; the T/... stubs are
+    // not reached.
     var n = self._fids.size();
     for var i: usize = 0; i < n; ++i {
         var fid = self._fids[n - 1 - i];
@@ -1475,8 +1488,12 @@ fn FrontendAction::_sema() -> bool {
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         if tu == &null { continue; }
         var sem = Sema(ctx, self._global_scope);
-        sem.run_to(SemaPhase::Verified);
+        sem.run_to(SemaPhase::NamesResolved);
         ctx->diag_sink.drain_into(self._ci->diag());
+
+        // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
+        // live on this fid's SemaContext and die with `sem` at loop exit.
+        if fe.print_sema { SemaDump(&(sem.sc), sema_opts).run(); }
     }
 
     if fe.print_imports { self._dump_overlays(); }
