@@ -461,6 +461,7 @@ class VariableDecl derives Decl, FFILinkage::<VariableDecl> {
     pub var storage: StorageClass = StorageClass::Var;
     pub var type_:   *Type = &null;   ///< null => inferred from init.
     pub var init:    *Expr = &null;   ///< initializer; null for `var x: T` default-init.
+    pub var is_thread: bool = false;  ///< `static thread` thread_local storage.
 
     static fn create(
         ctx:     *ASTContext,
@@ -514,6 +515,7 @@ class FieldDecl derives Decl {
     pub var type_:      *Type = &null;   ///< field type; null only in recovery.
     pub var init:       *Expr = &null;   ///< at-decl default; null if none.
     pub var is_mutable: bool = false;    ///< `mutable var` escapes const-self.
+    pub var is_thread:  bool = false;    ///< `static thread` thread_local storage.
     pub var index:      u32 = 0;         ///< declaration order in the owning type.
 
     static fn create(
@@ -572,6 +574,9 @@ class StructDecl
           FFILinkage::<StructDecl> {
     pub var name:       Token;
     pub var fields:     FrozenList::<*FieldDecl>;
+    /// Constructors and operator overloads only - a struct body admits no
+    /// named methods (the parser rejects those); see _parse_member_body.
+    pub var methods:    FrozenList::<*FunctionDecl>;
     pub var implements: FrozenList::<InheritEdge>;   ///< `impl` interface list.
 
     static fn create(
@@ -892,8 +897,10 @@ class UnionDecl
           Redeclarable::<UnionDecl>,
           TemplateParams::<UnionDecl>,
           FFILinkage::<UnionDecl> {
-    pub var name:   Token;
-    pub var fields: FrozenList::<*FieldDecl>;
+    pub var name:    Token;
+    pub var fields:  FrozenList::<*FieldDecl>;
+    /// Constructors and operator overloads only - same rule as StructDecl.
+    pub var methods: FrozenList::<*FunctionDecl>;
 
     static fn create(
         ctx:    *ASTContext,
