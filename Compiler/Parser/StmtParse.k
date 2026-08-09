@@ -28,6 +28,7 @@
 
 import AST::Node::Base::*;
 import AST::Node::Statements::*;
+import AST::Node::Declarations::*;   // VariableDecl for binder decls (Binding::decl)
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Casting::*;
 import AST::CodeCompleteConsumer::*;
@@ -292,7 +293,18 @@ class <T> StmtParse {
             // tokens (parser intrinsics, not macros).
 
             // -- inline foreign block -------------------------------------
+            // `inline` fronts two unrelated things: the ffi block
+            // (`inline "c++" { ... }`) and the function modifier
+            // (`inline fn f()`). Only a lookahead to the `fn` head separates
+            // them, and the ffi block is the fallback.
             case TokenKind::KwInline {
+                if dyn()->_mods_lead_to_fn() {
+                    var d = dyn()->parse_decl(true);
+                    if d != &null {
+                        inline "c++" { if (dyn()->is_fatal_decl(d)) { return dyn()->template fatal_ptr<Stmt>(); } }
+                        return static_cast::<*Stmt>(DeclStmt::create(dyn()->ctx, d->range, d));
+                    }
+                }
                 return self._parse_inline_block();
             }
         }
@@ -653,6 +665,15 @@ class <T> StmtParse {
             result.type_ = dyn()->parse_type();
             result.range = start | dyn()->prev().range;
         }
+
+        // A binder IS a declaration, so give it a real one. Sema binds uses of
+        // the name to this decl (Binding::decl); without it, every `for x in
+        // xs` body that mentions `x` reported unresolved-ident. Built last so
+        // the range and the `: T` ascription are final.
+        var storage = (StorageClass::Const) if (result.is_const) else (StorageClass::Var);
+        var bvd     = VariableDecl::create(dyn()->ctx, result.range, *id_ptr, storage);
+        bvd->type_  = result.type_;
+        result.decl = static_cast::<*Decl>(bvd);
 
         return result;
     }
@@ -1426,6 +1447,9 @@ class <T> StmtParse {
             var id_range = id_ptr->range;
             dyn()->advance(); // consume identifier
             result.binding = NamedIdentExpr::create(dyn()->ctx, id_range, *id_ptr);
+            // The caught error is a declaration; see CatchArm::decl.
+            result.decl    = static_cast::<*Decl>(
+                VariableDecl::create(dyn()->ctx, id_range, *id_ptr, StorageClass::Var));
 
             // optional `: Type` filter
             if dyn()->check(TokenKind::OpColon) {
