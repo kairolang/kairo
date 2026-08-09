@@ -68,10 +68,10 @@ TLDR: Lang design, Compiler, and Architecture are 100% human. No AI-generated co
 
 We want to thank all our contributors pushing Kairo forward.
 
-<a href="https://www.star-history.com/?repos=kairolang%2Fkairo&type=timeline&legend=top-left">
+<a href="https://star-history.dera.page/#kairolang/kairo&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=kairolang/kairo&type=date&theme=dark&legend=top-left&sealed_token=RrrzUDpwMVZfmAhKTMoffR2pTPUXIYzucBvcqBCemCfJ8TIoWwRLM7JHP94oqYawcyH9SZDCYlqeBhoYtszRBUG5ml0dJVQHtszhdMCjZgQxejQ757s5W5jpfP-r17CFfLmcMOgY74-HVdWfBwk3NMqpRcNiwR0nabY7ZcdPFXidbe3cT4Nz1BeSzOd8" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=kairolang/kairo&type=date&legend=top-left&sealed_token=RrrzUDpwMVZfmAhKTMoffR2pTPUXIYzucBvcqBCemCfJ8TIoWwRLM7JHP94oqYawcyH9SZDCYlqeBhoYtszRBUG5ml0dJVQHtszhdMCjZgQxejQ757s5W5jpfP-r17CFfLmcMOgY74-HVdWfBwk3NMqpRcNiwR0nabY7ZcdPFXidbe3cT4Nz1BeSzOd8" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=kairolang/kairo&type=date&legend=top-left&sealed_token=RrrzUDpwMVZfmAhKTMoffR2pTPUXIYzucBvcqBCemCfJ8TIoWwRLM7JHP94oqYawcyH9SZDCYlqeBhoYtszRBUG5ml0dJVQHtszhdMCjZgQxejQ757s5W5jpfP-r17CFfLmcMOgY74-HVdWfBwk3NMqpRcNiwR0nabY7ZcdPFXidbe3cT4Nz1BeSzOd8" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=kairolang/kairo&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=kairolang/kairo&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=kairolang/kairo&type=date&legend=top-left" />
  </picture>
 </a>
