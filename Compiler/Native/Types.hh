@@ -1105,12 +1105,8 @@ inline void INTERNAL_ICE(bool condition, const string& msg, const ::std::source_
 ///          emits silently wrong object code. The macro is cheap enough that
 ///          there is nothing to buy by removing it.
 ///
-/// \note    verify Stage 0 does not hoist the string construction out of the
-///          branch during lowering. If the generated .cxx shows the temporary
-///          before the compare, this macro buys nothing and the lowering itself
-///          is the bug.
-#define ICE(cond, msg) \
-    do { if (!(cond)) [[unlikely]] { ::kairo::std::INTERNAL_ICE(msg); } } while (0)
+#define ICE_IF(cond, msg) \
+    do { if (cond) [[unlikely]] { ::kairo::std::INTERNAL_ICE(msg); } } while (0)
 
 /// \brief unconditional internal compiler error. never returns.
 /// \details for unreachable branches, unimplemented paths, and invariants that
