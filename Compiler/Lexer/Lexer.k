@@ -2409,6 +2409,31 @@ fn Test() -> i32 {
 
         return (lexer, fid);
     };
+
+    /// Narrow-bytes variant, for the hot-loop benchmark.
+    ///
+    /// `string` is wchar_t-backed, so staging a 1 GiB corpus as one costs 4 GiB
+    /// of wide buffer and then pays a 1 GiB wide->narrow conversion that lands
+    /// in profiles as string_to_nstring + wcslen. Neither has anything to do
+    /// with lexing   the lexer only ever sees the narrow bytes   but both were
+    /// being attributed to the lex run. Take the bytes already narrow.
+    var create_lexer_from_bytes = fn (bytes: mref!(libcxx::string), sm: *SourceManager, pool: *ThreadPool, diag: *DiagEngine) -> (*Lexer, u32) {
+        var temp_path = (libcxx::filesystem::temp_directory_path()) / (libcxx::filesystem::path(r"hlx_lexer_test.k"));
+        sm->reset();
+        data = std::Memory::move(bytes);
+
+        var path  = Path(temp_path.generic_wstring(), false);
+        var ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(data.data());
+        var fid   = sm->load_virtual(path, ptr, data.size());
+
+        if test_imm != &null { std::destroy(test_imm); }
+        test_imm = std::create::<ImmediateTable>();
+        test_imm->initialize(sm);
+
+        var lexer = std::create::<Lexer>(sm, pool, diag, test_imm);
+
+        return (lexer, fid);
+    };
     // HELPER: Dump tokens for debugging
     
     var dump_tokens = fn (tokens: *(TokenBuffer::<512>), expected_count: usize, text: string = "none provided") -> string {
@@ -5213,74 +5238,142 @@ fn Test() -> i32 {
 
     const HOT_TARGET: usize = 1024 * 1024 * 1024; // 1 GiB of source
 
-    // Seed is one realistic function body so token density and interner
-    // behavior match real code rather than a synthetic pattern.
-    var seed = string();
-    for var i: i32 = 0; i < 1000; ++i {
-        seed += f"fn test_func_{i}\n"
-        + "(a: i32, b: i32) -> i32 {\n"
-        + "    var result = a + b * 2;\n"
-        + "    if result > 100 {\n"
-        + "        return result - 50;\n"
-        + "    } else if result < 0 {\n"
-        + "        return 0;\n"
-        + "    }\n"
-        + "    return result;\n"
-        + "}\n";
-    }
+    // Two corpora, because one number was hiding the other.
+    //
+    //   A/dense  arithmetic function bodies. ~3.3 B/token, roughly twice as
+    //            operator-dense as real source. Kept because every prior
+    //            measurement is against it, but it over-weights lex_symbol and
+    //            under-weights the identifier, comment and string paths.
+    //
+    //   B/real   shaped like Stage 1 compiler source: doc comments, long
+    //            qualified identifiers, generics, ref!/obs::/own::, f-strings
+    //            with interpolation, switch/case. ~6-7 B/token.
+    //
+    // Seeds are built wide (f-strings are wide) but converted ONCE while still
+    // small; the 1 GiB replication is narrow. See create_lexer_from_bytes.
+    var build_seed = fn (real: bool) -> libcxx::string {
+        var wide = string();
 
-    // Linear appends into a pre-reserved buffer. Doubling would overshoot the
-    // target and force a realloc-copy of the whole buffer on the last append.
-    var hot_code = string();
-    hot_code.reserve(HOT_TARGET + seed.size());
-    while hot_code.size() < HOT_TARGET {
-        hot_code += seed;
-    }
+        for var i: i32 = 0; i < 1000; ++i {
+            if !real {
+                wide += f"fn test_func_{i}\n"
+                + "(a: i32, b: i32) -> i32 {\n"
+                + "    var result = a + b * 2;\n"
+                + "    if result > 100 {\n"
+                + "        return result - 50;\n"
+                + "    } else if result < 0 {\n"
+                + "        return 0;\n"
+                + "    }\n"
+                + "    return result;\n"
+                + "}\n";
+                continue;
+            }
 
-    var hot_res   = create_lexer_from_string_with_diag(hot_code, sm, pool, &test_diag);
-    var hot_lexer = libcxx::get::<0>(hot_res);
-    var hot_fid   = libcxx::get::<1>(hot_res);
-
-    finally { std::destroy(hot_lexer); }
-
-    var hot_size = hot_code.size();
-    std::print(f"buffer: {hot_size} bytes ({(hot_size as f64) / (1024.0 * 1024.0):.1} MiB)\n");
-
-    var run1_ns    = 0 as u64;
-    var run1_count = 0 as usize;
-
-    for var run: i32 = 1; run <= 2; ++run {
-        if !hot_lexer->open(hot_fid) {
-            std::print(f"run {run}: OPEN FAILED\n");
-            break;
+            wide += f"/// \\brief resolves declaration reference {i} against the scope chain\n"
+            + "/// \\param candidate_reference unresolved identifier expression to look up\n"
+            + "/// \\returns the resolved declaration, or null when lookup fails outright\n"
+            + f"inline priv fn resolve_declaration_reference_{i}(\n"
+            + "    self,\n"
+            + "    resolution_context:  ref!(NameResolutionContext),\n"
+            + "    candidate_reference: obs::<UnresolvedIdentifierExpr>\n"
+            + ") -> own::<ResolvedDeclaration> {\n"
+            + "    var enclosing_lexical_scope = resolution_context.scope_chain().innermost();\n"
+            + "\n"
+            + "    if enclosing_lexical_scope == &null {\n"
+            + "        self.diagnostic_engine->report(DiagCode(DiagID::R001E),\n"
+            + "            candidate_reference->range.start,\n"
+            + "            f\"unresolved identifier {candidate_reference} in this scope\")\n"
+            + "            .first(candidate_reference->range).emit();\n"
+            + "        return &null;\n"
+            + "    }\n"
+            + "\n"
+            + "    var depth = enclosing_lexical_scope->depth() + 1;\n"
+            + "    if (depth > 0) && (depth < 64) && !candidate_reference->is_synthetic {\n"
+            + "        resolution_context.record(candidate_reference, depth * 2 - 1);\n"
+            + "    }\n"
+            + "\n"
+            + "    switch candidate_reference->lookup_kind {\n"
+            + "        case LookupKind::Ordinary {\n"
+            + "            return enclosing_lexical_scope->lookup_ordinary::<ResolvedDeclaration>(\n"
+            + "                candidate_reference->qualified_name);\n"
+            + "        } case LookupKind::Qualified {\n"
+            + "            return enclosing_lexical_scope->lookup_qualified::<ResolvedDeclaration>(\n"
+            + "                candidate_reference->qualified_name);\n"
+            + "        } default {\n"
+            + "            return &null;\n"
+            + "        }\n"
+            + "    }\n"
+            + "}\n"
+            + "\n";
         }
 
-        var t     = Timer("hot lex");
-        var tok   = Token();
-        var count = 0 as usize;
-        while hot_lexer->next(&tok) { ++count; }
-        var ns = t.elapsed_ns();
+        return libcxx::string(std::string_to_nstring(wide));
+    };
 
-        hot_lexer->close();
+    for var corpus: i32 = 0; corpus < 2; ++corpus {
+        var label = ("A/dense") if (corpus == 0) else ("B/real ");
+        var seed  = build_seed(corpus != 0);
 
-        var label        = ("cold") if (run == 1) else ("hot ");
-        var mbps         = ((hot_size as f64) / (ns as f64)) * 1000.0;
-        var ns_per_token = (ns as f64) / (count as f64);
-        var bytes_per_token = (hot_size as f64) / (count as f64);
+        // Linear appends into a pre-reserved buffer. Doubling would overshoot
+        // the target and force a realloc-copy of the whole buffer on the last
+        // append.
+        var hot_code = libcxx::string();
+        hot_code.reserve(HOT_TARGET + seed.size());
+        while hot_code.size() < HOT_TARGET {
+            hot_code += seed;
+        }
 
-        std::print(f"run {run} ({label}): {ns} ns, {mbps:.1} MB/s, {count} tokens, {ns_per_token:.2} ns/token, {bytes_per_token:.1} B/token\n");
+        var hot_size  = hot_code.size();
+        var hot_res   = create_lexer_from_bytes(std::Memory::move(hot_code), sm, pool, &test_diag);
+        var hot_lexer = libcxx::get::<0>(hot_res);
+        var hot_fid   = libcxx::get::<1>(hot_res);
 
-        if run == 1 {
-            run1_ns    = ns;
-            run1_count = count;
-        } else {
-            var speedup = (run1_ns as f64) / (ns as f64);
-            std::print(f"hot/cold speedup: {speedup:.2}x\n");
+        std::print(f"\n[{label}] buffer: {hot_size} bytes ({(hot_size as f64) / (1024.0 * 1024.0):.1} MiB)\n");
 
-            if count != run1_count {
-                std::print(f"MISMATCH: run1 {run1_count} tokens, run2 {count} tokens -- open() is not restoring state from close()\n");
+        var run1_ns    = 0 as u64;
+        var run1_count = 0 as usize;
+
+        for var run: i32 = 1; run <= 2; ++run {
+            // Run 2 must not append into run 1's immediates. Without this the
+            // table carries every literal from run 1 into run 2, so run 2
+            // measures a different allocator state than run 1 and peak RSS
+            // reports twice the real per-pass cost.
+            hot_lexer->get_imm_tbl()->reset();
+
+            if !hot_lexer->open(hot_fid) {
+                std::print(f"[{label}] run {run}: OPEN FAILED\n");
+                break;
+            }
+
+            var t     = Timer("hot lex");
+            var tok   = Token();
+            var count = 0 as usize;
+            while hot_lexer->next(&tok) { ++count; }
+            var ns = t.elapsed_ns();
+
+            hot_lexer->close();
+
+            var run_label       = ("cold") if (run == 1) else ("hot ");
+            var mbps            = ((hot_size as f64) / (ns as f64)) * 1000.0;
+            var ns_per_token    = (ns as f64) / (count as f64);
+            var bytes_per_token = (hot_size as f64) / (count as f64);
+
+            std::print(f"[{label}] run {run} ({run_label}): {ns} ns, {mbps:.1} MB/s, {count} tokens, {ns_per_token:.2} ns/token, {bytes_per_token:.1} B/token\n");
+
+            if run == 1 {
+                run1_ns    = ns;
+                run1_count = count;
+            } else {
+                var speedup = (run1_ns as f64) / (ns as f64);
+                std::print(f"[{label}] hot/cold speedup: {speedup:.2}x\n");
+
+                if count != run1_count {
+                    std::print(f"[{label}] MISMATCH: run1 {run1_count} tokens, run2 {count} tokens -- open() is not restoring state from close()\n");
+                }
             }
         }
+
+        std::destroy(hot_lexer);
     }
 
     return 0;
