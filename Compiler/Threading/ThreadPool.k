@@ -65,6 +65,25 @@ class ThreadPool {
     priv var _active:       std::Atomic::<bool>              = std::Atomic::<bool>(true);
     priv var _live_workers: std::Atomic::<usize>             = std::Atomic::<usize>(0);
 
+    /// Idle workers PARK here rather than spinning.
+    ///
+    /// A worker with nothing to do used to alternate _thread_pause() and
+    /// cthread_yield() forever. On a serial workload that is every worker
+    /// burning a core for the whole run - measured at 4 x 16,984 samples
+    /// against the main thread's 16,984 on the 1 GiB lex benchmark, i.e. 80%
+    /// of all samples doing nothing. On an M-series package that is stolen
+    /// thermal budget, so it does not merely waste cores, it downclocks the
+    /// one core that is working and contaminates every measurement taken.
+    ///
+    /// _queued is the number of tasks pushed but not yet claimed. It is the
+    /// park predicate, and it is a separate counter from _groups: _groups[g]
+    /// counts tasks not yet FINISHED (what wait_group waits on), which stays
+    /// positive while a task runs and would keep every worker awake for the
+    /// duration of the last task.
+    priv var _queued: std::Atomic::<i64> = std::Atomic::<i64>(0);
+    priv var _mu:     std::Mutex;
+    priv var _cv:     std::ConditionVariable;
+
     ///
     /// \brief Constructs and initializes a thread pool.
     ///
@@ -219,16 +238,44 @@ class ThreadPool {
         task._group = group;
 
         // push takes ref, task stays valid across failed attempts
-        if self._queues[qid]->push(task) { return; }
+        if self._queues[qid]->push(task) { self.signal_one(); return; }
 
         var alt = (qid + 1) % self._count;
-        if self._queues[alt]->push(task) { return; }
+        if self._queues[alt]->push(task) { self.signal_one(); return; }
 
         Logger::warn(Logger::Stage::ThreadPool, f"ThreadPool::enqueue: qid={qid} full, spinning (group={group})");
 
         while !self._queues[qid]->push(task) {
             _thread_pause();
         }
+
+        self.signal_one();
+    }
+
+    /// \brief publishes one queued task and wakes a parked worker.
+    ///
+    /// \details The empty lock/unlock is load-bearing, not a leftover. A
+    ///          worker evaluates its park predicate while holding _mu, so
+    ///          without this the sequence
+    ///
+    ///            worker: locks _mu, reads _queued == 0, decides to park
+    ///            producer: _queued 0 -> 1, notify (nobody is waiting yet)
+    ///            worker: waits
+    ///
+    ///          loses the wakeup and the task sits in the queue until the next
+    ///          unrelated push. Taking _mu after the increment orders this
+    ///          against the worker's check: either the worker has not looked
+    ///          yet and will see _queued > 0, or it is already in wait() and
+    ///          the notify reaches it. notify_one is deliberately called
+    ///          OUTSIDE the lock so the woken worker does not immediately
+    ///          block on a mutex the producer still holds.
+    inline priv fn signal_one(self) {
+        self._queued.fetch_add(1, std::MemoryOrder::release);
+
+        self._mu.lock();
+        self._mu.unlock();
+
+        self._cv.notify_one();
     }
 
     ///
@@ -295,13 +342,25 @@ class ThreadPool {
         }
 
         Logger::info(Logger::Stage::ThreadPool, f"ThreadPool::shutdown: joining {self._count} workers total_pending={self.get_total_pending_tasks()}");
-        
+
+        // _active is already false. Wake everyone that is parked, or they
+        // never observe it and the join below spins forever. Under _mu so the
+        // store to _active cannot land between a worker's predicate check and
+        // its wait().
+        self._mu.lock();
+        self._mu.unlock();
+        self._cv.notify_all();
+
         inline "c++" {
             while (get_total_pending_tasks() > 0) {
                 libcxx::this_thread::sleep_for(libcxx::chrono::microseconds(100));
             }
         }
 
+        // One notify_all is enough: a worker always re-checks _active while
+        // holding _mu before it waits, so a worker still running a task at the
+        // broadcast will see the flag on its next trip round and exit without
+        // ever parking again.
         while self._live_workers.load(std::MemoryOrder::acquire) > 0 {
             _thread_pause();
         }
@@ -329,8 +388,7 @@ class ThreadPool {
     /// \note This function runs indefinitely until `_active` is set to false.
     ///
     fn worker_loop(self, id: usize) {
-        var task:  Task;
-        var spins: u32 = 0;
+        var task: Task;
         var q = self._queues[id];
         var rng_state: u64 = (id + 1) * 0x9e3779b97f4a7c15;
 
@@ -342,13 +400,12 @@ class ThreadPool {
             return static_cast::<usize>(((*state) * 0x2545f4914f6cdd1d) >> 32);
         }
 
-        while self._active.load(std::MemoryOrder::acquire) {
+        while true {
             if q->pop(&task) {
+                self._queued.fetch_sub(1, std::MemoryOrder::acquire);
                 task._fn();
 
                 self._groups[task._group].fetch_sub(1, std::MemoryOrder::release);
-                spins = 0;
-
                 continue;
             }
 
@@ -365,13 +422,13 @@ class ThreadPool {
 
                 for var n: usize = 0; n < BATCH; ++n {
                     if self._queues[target]->steal(&task) {
+                        self._queued.fetch_sub(1, std::MemoryOrder::acquire);
                         task._fn();
                         self._groups[task._group].fetch_sub(
                             1, std::MemoryOrder::release
                         );
 
                         found = true;
-                        spins = 0;
 
                         break;
                     }
@@ -380,18 +437,29 @@ class ThreadPool {
                 if found { break; }
             }
 
-            if !found {
-                if spins < 2000 {
-                    _thread_pause();
-                    ++spins;
-                } else {
-                    inline "c++" {
-                        libcxx::this_thread::yield();
-                    }
-                    
-                    spins = 0;
-                }
+            if found { continue; }
+
+            // Nothing to run. Park.
+            var lock = std::UniqueLock::<std::Mutex>(self._mu);
+
+            // Re-check under _mu, which is what closes the race against
+            // signal_one: a task published between the failed steal above and
+            // this line is visible here, and one published after this line
+            // cannot complete its lock/unlock until wait() has released _mu.
+            if self._queued.load(std::MemoryOrder::acquire) > 0 {
+                continue;
             }
+
+            // Exit only with the queues drained. Testing _active as the loop
+            // condition let a worker leave with tasks still queued, after
+            // which shutdown()'s drain of get_total_pending_tasks() could
+            // never reach zero.
+            if !self._active.load(std::MemoryOrder::acquire) {
+                break;
+            }
+
+            // A spurious wakeup just re-runs pop/steal, which is correct.
+            self._cv.wait(lock);
         }
 
         self._live_workers.fetch_sub(1, std::MemoryOrder::release);
