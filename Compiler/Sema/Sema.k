@@ -32,6 +32,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::ImportResolution::*;
+import Sema::Resolve::NameResolution::*;
 import Sema::Expand::RequiresDesugar::*;
 import Sema::Verify::LoopContextCheck::*;
 import Sema::Verify::ArmOrderCheck::*;
@@ -197,7 +198,7 @@ class Sema {
     priv fn _stage_name_resolution(self) -> bool {
         if self._already(SemaPhase::NamesResolved) { return true; }
         self.sc.require_phase(SemaPhase::Verified);
-        // TODO(sema): NameResolution(&self.sc).run();
+        NameResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::NamesResolved);
         return !self._hard_stop();
     }

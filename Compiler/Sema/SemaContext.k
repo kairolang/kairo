@@ -122,11 +122,29 @@ class SemaOptions {
 ///        exists. Today builtins ride through ChainType; TypeResolution
 ///        resolves them by keyword, not by table lookup.
 enum WellKnownType derives u8 {
-    Future = 0,    ///< async effect desugar target: Future<T>.
-    Generator,     ///< yield effect desugar target: Generator<T>.
-    Ordering,      ///< <=> result type.
-    Steppable,     ///< range operator interface (.. / ..=).
-    PanicPayload,  ///< panic effect tagged-union payload.
+    Future = 0, ///< spawn foo() desugar type: Future<T>.
+    Range,      ///< 1..2 | 1..=2 desugar type: Range(a, b, t/f).
+    Yield,      ///< yield T desugar target: Yield<T>.
+    Ordering,   ///< <=> builtin value type: Ordering::Less | Equal | Greater.
+    Null,       ///< T? desugar type: Null<T>.
+    Panic,      ///< fn () panic -> T desugar type: Panic<T>.
+
+    String,  ///< ""     builtin value type: string.
+    Vector,  ///< [T]    builtin value type: vector.
+    Slice,   ///< [T;]   builtin value type: slice.
+    Array,   ///< [T; N] builtin value type: array.
+    HashMap, ///< {K: V} builtin value type: hashmap.
+    HashSet, ///< {T}    builtin value type: hashset.
+
+    BigInt,   ///< 3.0e+100 builtin value type: BigInt.
+    BigFloat, ///< 1.2e+100 builtin value type: BigFloat.
+
+    // i8 - i512
+    I8, I16, I32, I64, I128, I256, I512,
+    // u8 - u512
+    U8, U16, U32, U64, U128, U256, U512,
+    // f8 - f512
+    F8, F16, F32, F64, F128, F256,
 
     COUNT,         ///< keep last.
 }
