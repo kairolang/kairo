@@ -2167,7 +2167,7 @@ class Lexer {
     }
 
     fn get_imm_tbl(self) -> *ImmediateTable {
-        std::ICE(self._imm_tbl != &null, "lexer has no imm table owner must supply one");
+        ICE_IF(self._imm_tbl == &null, "lexer has no imm table owner must supply one");
         return self._imm_tbl;
     }
 

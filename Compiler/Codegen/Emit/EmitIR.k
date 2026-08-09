@@ -137,8 +137,8 @@ class EmitIR {
     // ----------------------------------------------------------------- //
 
     fn emit(self, d: *Decl) {
-        std::ICE(d != &null, "EmitIR: null decl reached codegen");
-        std::ICE(d->kind != DeclKind::RecoveryDecl,
+        ICE_IF(d == &null, "EmitIR: null decl reached codegen");
+        ICE_IF(d->kind == DeclKind::RecoveryDecl,
             "EmitIR: poisoned node reached codegen   sema gate failure");
 
         switch d->kind {
@@ -206,13 +206,13 @@ class EmitIR {
     }
 
     priv fn _fn_fwd(self, n: *FunctionDecl) {
-        std::ICE(!n->is_operator,
+        ICE_IF(n->is_operator,
             "EmitIR: operator decl reached codegen; Lower/ must rewrite it "
             "into a plain FunctionDecl carrying its C++ name");
-        std::ICE(n->generic_params.is_empty(),
+        ICE_IF(!n->generic_params.is_empty(),
             "EmitIR: generic function reached codegen; Lower/ must "
             "monomorphize or emit the template form");
-        std::ICE(n->return_type != &null,
+        ICE_IF(n->return_type == &null,
             "EmitIR: function with no return type reached codegen; Lower/ "
             "must materialize the explicit type node   codegen does not infer");
 
@@ -226,13 +226,13 @@ class EmitIR {
 
     /// `fn NAME(params) -> RET { body }`  ->  `RET NAME(params) { body }`
     priv fn _fn(self, n: *FunctionDecl) {
-        std::ICE(!n->is_operator,
+        ICE_IF(n->is_operator,
             "EmitIR: operator decl reached codegen; Lower/ must rewrite it "
             "into a plain FunctionDecl carrying its C++ name");
-        std::ICE(n->generic_params.is_empty(),
+        ICE_IF(!n->generic_params.is_empty(),
             "EmitIR: generic function reached codegen; Lower/ must "
             "monomorphize or emit the template form");
-        std::ICE(n->return_type != &null,
+        ICE_IF(n->return_type == &null,
             "EmitIR: function with no return type reached codegen; Lower/ "
             "must materialize the explicit type node   codegen does not infer");
 
@@ -254,7 +254,7 @@ class EmitIR {
     // ----------------------------------------------------------------- //
 
     fn emit(self, s: *Stmt) {
-        std::ICE(s != &null, "EmitIR: null stmt reached codegen");
+        ICE_IF(s == &null, "EmitIR: null stmt reached codegen");
 
         switch s->kind {
             case StmtKind::CompoundStmt {
@@ -279,7 +279,7 @@ class EmitIR {
 
     /// `{ ... }`.
     fn emit_block(self, n: *CompoundStmt) {
-        std::ICE(n != &null, "EmitIR: null block reached codegen");
+        ICE_IF(n == &null, "EmitIR: null block reached codegen");
 
         sink->synth_at_start(n->range, clang::tok::l_brace);
 
@@ -301,7 +301,7 @@ class EmitIR {
     ///
     /// They share a spelling today. They are not the same emission.
     priv fn _decl(self, n: *DeclStmt) {
-        std::ICE(n->decl != &null, "EmitIR: DeclStmt with no decl");
+        ICE_IF(n->decl == &null, "EmitIR: DeclStmt with no decl");
 
         switch n->decl->kind {
             case DeclKind::VariableDecl {
@@ -333,7 +333,7 @@ class EmitIR {
     ///   are. Acceptable only because M2's goal is proving the token stream
     ///   and the caret pipeline, not running the output.
     priv fn _var_decl(self, n: *VariableDecl) {
-        std::ICE(n->kind != DeclKind::RecoveryDecl,
+        ICE_IF(n->kind == DeclKind::RecoveryDecl,
             "EmitIR: poisoned VariableDecl reached codegen   sema gate failure");
 
         // Storage class. `eval` is C++ constexpr; Kairo's `const` is a
@@ -397,7 +397,7 @@ class EmitIR {
     // ----------------------------------------------------------------- //
 
     fn emit(self, e: *Expr) {
-        std::ICE(e != &null, "EmitIR: null expr reached codegen");
+        ICE_IF(e == &null, "EmitIR: null expr reached codegen");
 
         switch e->kind {
             case ExprKind::IntegerLiteralExpr {
@@ -428,7 +428,7 @@ class EmitIR {
     }
 
     priv fn _string(self, n: *StringLiteralExpr) {
-        std::ICE(n->kind != ExprKind::RecoveryExpr,
+        ICE_IF(n->kind == ExprKind::RecoveryExpr,
             "EmitIR: poisoned StringLiteralExpr reached codegen   sema gate failure");
 
         var final_str = std::string_to_nstring(n->get_spelling());
@@ -480,7 +480,7 @@ class EmitIR {
     /// reduces them to their codegen-shaped form. A kind landing in the
     /// default arm is a missing lowering, not a missing emitter case.
     fn emit(self, t: *Type) {
-        std::ICE(t != &null, "EmitIR: null type reached codegen");
+        ICE_IF(t == &null, "EmitIR: null type reached codegen");
 
         switch t->kind {
             case TypeKind::ChainType { self._chain(cast::<ChainType>(t)); }
@@ -499,15 +499,15 @@ class EmitIR {
     /// The `::` borrows the FIRST byte of the segment's range, which covers
     /// the separator, so the caret lands on the separator itself.
     priv fn _chain(self, n: *ChainType) {
-        std::ICE(!n->segments.is_empty(),
+        ICE_IF(n->segments.is_empty(),
             "EmitIR: chain type with no segments reached codegen");
 
         for var i: usize = 0; i < n->segments.size(); ++i {
             var seg = n->segments.get(i);
 
-            std::ICE(seg->name != &null,
+            ICE_IF(seg->name == &null,
                 "EmitIR: chain segment with no identifier reached codegen");
-            std::ICE(seg->generic_args.is_empty(),
+            ICE_IF(!seg->generic_args.is_empty(),
                 "EmitIR: generic arguments in type position are M3");
 
             if seg->sep == ChainType::SegmentSeparator::ColonColon {

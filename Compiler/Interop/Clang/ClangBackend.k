@@ -262,7 +262,7 @@ class ClangBackend {
     /// It is constructed BEFORE ExecuteAction, so any fid captured here would
     /// be invalidated by clearIDTables before the first diagnostic arrives.
     fn begin_tu(self, sink: *BufferedDiagSink, kfid: FileID) -> *ClangDiagAdapter {
-        std::ICE(self.ready(), "ClangBackend::begin_tu before ready()");
+        ICE_IF(!self.ready(), "ClangBackend::begin_tu before ready()");
 
         var a = std::create::<ClangDiagAdapter>();
         a->sink   = sink;

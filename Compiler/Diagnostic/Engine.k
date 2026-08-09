@@ -481,7 +481,7 @@ class DiagBuilder {
             // implicit emit-at-scope-exit collides with suppression scopes
             // (TentativeGuard) and hides the mistake. Debug aborts; release
             // frees the orphan to avoid a leak, dropping the diagnostic.
-             std::ICE("DiagBuilder dropped without emit()");
+             ICE_FAIL("DiagBuilder dropped without emit()");
             if self._diag != &null {
                 std::destroy(self._diag);
             }

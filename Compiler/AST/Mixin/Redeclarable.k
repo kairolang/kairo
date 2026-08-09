@@ -152,7 +152,7 @@ class <T> Redeclarable {
     /// (redefinition is a sema error, caught with full context there; here
     /// we only guard the AST invariant in debug).
     fn mark_definition(self) {
-        std::ICE(!self.has_definition(), "Redeclarable: two definitions in one chain");
+        ICE_IF(self.has_definition(), "Redeclarable: two definitions in one chain");
         self.is_this_definition = true;
     }
 }

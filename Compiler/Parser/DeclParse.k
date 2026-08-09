@@ -17,7 +17,7 @@
 ///     (TypeParse), parse_expr (ExprParse), parse_compound (StmtParse), etc.
 ///
 ///     Several productions are intentionally stubbed pending design sign-off;
-///     each is marked with ` std::ICE("...")` so it is greppable:
+///     each is marked with ` ICE_FAIL("...")` so it is greppable:
 ///       - _parse_import          (7+ import forms; owner will fill in)
 ///       - _parse_ffi             (ffi "lang" { } and ffi "lang" import ...)
 ///       - _parse_proc_macro_body (compile-time AST macro bodies)

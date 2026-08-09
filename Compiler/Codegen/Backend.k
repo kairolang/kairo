@@ -132,7 +132,7 @@ class CodegenBackend derives TokenFiller {
     /// and asks it per diagnostic, so there is no fid to fix up after
     /// registration   which is what the old adapter argument was for.
     fn run(self, out_obj: string) -> bool {
-        std::ICE(self._be->ready(), "CodegenBackend::run before backend ready");
+        ICE_IF(!self._be->ready(), "CodegenBackend::run before backend ready");
 
         var ci = self._be->ci();
 

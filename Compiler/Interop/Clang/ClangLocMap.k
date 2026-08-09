@@ -161,7 +161,7 @@ class ClangLocMap {
     ///         NOT ready, so every subsequent query returns invalid rather
     ///         than a plausible-looking wrong answer.
     fn rebind(self, ci: *clang::CompilerInstance) -> bool {
-        std::ICE(ci != &null, "ClangLocMap::rebind with no CompilerInstance");
+        ICE_IF(ci == &null, "ClangLocMap::rebind with no CompilerInstance");
 
         self._ready = false;
         self._sloc.clear();
@@ -194,9 +194,8 @@ class ClangLocMap {
                 // The whole design in one assert. If clang allocated a FileID
                 // between two of ours, the arithmetic below is silently wrong
                 // for every location for the rest of the run.
-                std::ICE(
-                    cfid.getHashValue()
-                        == self._cfid0.getHashValue() + static_cast::<u32>(i),
+                ICE_IF(
+                    cfid.getHashValue() != (self._cfid0.getHashValue() + static_cast::<u32>(i)),
                     "ClangLocMap: clang allocated a FileID inside the Kairo "
                     "block; the contiguity invariant is broken and fid "
                     "arithmetic is invalid");
@@ -251,7 +250,7 @@ class ClangLocMap {
     /// One resolve, one table index, one add. No getComposedLoc: a file loc's
     /// raw encoding IS its file's SLoc base plus the byte offset.
     fn to_clang(self, loc: SourceLocation) -> clang::SourceLocation {
-        std::ICE(self._ready, "ClangLocMap::to_clang before rebind()");
+        ICE_IF(!self._ready, "ClangLocMap::to_clang before rebind()");
 
         if !loc.is_valid() {
             return clang::SourceLocation();
@@ -293,7 +292,7 @@ class ClangLocMap {
     /// block   headers, predefines, scratch buffers. The caller's policy layer
     /// classifies those, typically as a loc-less forward.
     fn to_kairo(self, cloc: clang::SourceLocation) -> SourceLocation {
-        std::ICE(self._ready, "ClangLocMap::to_kairo before rebind()");
+        ICE_IF(!self._ready, "ClangLocMap::to_kairo before rebind()");
 
         if cloc.isInvalid() {
             return SourceLocation::invalid();
@@ -399,7 +398,7 @@ class ClangLocMap {
     /// Signed, and negative for every fid past the first (Kairo's bases climb
     /// in 4 KB steps, clang's pack).
     fn delta(self, kfid: FileID) -> i64 {
-        std::ICE(static_cast::<usize>(kfid) < self._n,
+        ICE_IF(static_cast::<usize>(kfid) >= self._n,
             "ClangLocMap::delta on an unmapped fid");
         return static_cast::<i64>(self._sloc[kfid])
              - static_cast::<i64>(self.kairo_base(kfid));

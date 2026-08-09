@@ -73,7 +73,7 @@ class <D> RecursiveASTVisitor {
             case TypeKind::FunctionPointerType   { return self.dyn()->traverse_function_pointer_type(    cast::<FunctionPointerType>(e)    ); }
             case TypeKind::SubstGenericParamType { return self.dyn()->traverse_subst_generic_param_type( cast::<SubstGenericParamType>(e)  ); }
             case TypeKind::RecoveryType          { self.dyn()->visit_type(e); return e; }
-            case TypeKind::TypeKindCount         {  std::ICE("TypeKind::TypeKindCount reached RAV - this is a bug"); return &null; }
+            case TypeKind::TypeKindCount         {  ICE_FAIL("TypeKind::TypeKindCount reached RAV - this is a bug"); return &null; }
         }
 
         return e;
@@ -442,7 +442,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::ParenExpr                { return self.dyn()->traverse_paren_expr(                 cast::<ParenExpr>(e)                ); }
             case ExprKind::VerbatimExpr             { return self.dyn()->traverse_verbatim_expr(              cast::<VerbatimExpr>(e)             ); }
             case ExprKind::RecoveryExpr             { self.dyn()->visit_expr(e); return e; }
-            case ExprKind::ExprKindCount            {  std::ICE("ExprKindCount reached RAV in Stage 1 - driver bail failed"); return &null; }
+            case ExprKind::ExprKindCount            {  ICE_FAIL("ExprKindCount reached RAV in Stage 1 - driver bail failed"); return &null; }
         }
         return e;
     }
@@ -1093,7 +1093,7 @@ class <D> RecursiveASTVisitor {
             case StmtKind::InlineBlockStmt       { return self.dyn()->traverse_inline_block_stmt(      cast::<InlineBlockStmt>(s)       ); }
             case StmtKind::EvalBlockStmt         { return self.dyn()->traverse_eval_block_stmt(        cast::<EvalBlockStmt>(s)         ); }
             case StmtKind::RecoveryStmt          { self.dyn()->visit_stmt(s); return s; }
-            case StmtKind::StmtKindCount         {  std::ICE("StmtKindCount reached RAV in Stage 1 - this is a bug"); return &null; }
+            case StmtKind::StmtKindCount         {  ICE_FAIL("StmtKindCount reached RAV in Stage 1 - this is a bug"); return &null; }
         }
         return s;
     }
@@ -1470,7 +1470,7 @@ class <D> RecursiveASTVisitor {
             case DeclKind::ProcedureMacroDecl  { return self.dyn()->traverse_procedure_macro_decl( cast::<ProcedureMacroDecl>(d)  ); }
             case DeclKind::FFIBlockDecl        { return self.dyn()->traverse_ffi_block_decl(       cast::<FFIBlockDecl>(d)        ); }
             case DeclKind::RecoveryDecl        { self.dyn()->visit_decl(d); return d; }
-            case DeclKind::DeclKindCount       {  std::ICE("DeclKindCount reached RAV in Stage 1 - this is a bug"); return &null; }
+            case DeclKind::DeclKindCount       {  ICE_FAIL("DeclKindCount reached RAV in Stage 1 - this is a bug"); return &null; }
         }
         return d;
     }
@@ -1943,7 +1943,7 @@ class <D> RecursiveASTVisitor {
             case PatternKind::RangePattern                 { return self.dyn()->traverse_range_pattern(                 cast::<RangePattern>(p)                 ); }
             case PatternKind::SlicePattern                 { return self.dyn()->traverse_slice_pattern(                 cast::<SlicePattern>(p)                 ); }
             case PatternKind::RecoveryPattern              { self.dyn()->visit_pattern(p); return p; }
-            case PatternKind::PatternKindCount             {  std::ICE("PatternKindCount reached RAV in Stage 1 - this is a bug"); return &null; }
+            case PatternKind::PatternKindCount             {  ICE_FAIL("PatternKindCount reached RAV in Stage 1 - this is a bug"); return &null; }
         }
         return p;
     }

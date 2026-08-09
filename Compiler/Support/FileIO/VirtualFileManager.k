@@ -468,25 +468,25 @@ class VirtualFileManager {
     fn get_loc(self, fid: u32, off: usize) -> SourceLocation {
         if fid >= self._segments.size() {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: invalid fid={fid} off={off} seg_count={self._segments.size()}");
-            std::ICE(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})");
+            ICE_FAIL(f"VirtualFileManager: Invalid fid/offset pair (fid: {fid}, off: {off})");
         }
 
         var seg = self._segments[fid];
         if seg == &null {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: fid={fid} was evicted");
-            std::ICE(f"VirtualFileManager: location requested for an evicted fid ({fid})");
+            ICE_FAIL(f"VirtualFileManager: location requested for an evicted fid ({fid})");
         }
 
         if off > seg->size {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: off={off} exceeds segment size={seg->size} for fid={fid}");
-            std::ICE(f"VirtualFileManager: Offset out of segment bounds (fid: {fid}, off: {off})");
+            ICE_FAIL(f"VirtualFileManager: Offset out of segment bounds (fid: {fid}, off: {off})");
         }
 
         var raw = seg->global_base + off + 1;
 
         if raw > 0xFFFFFFFF {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: global source space exceeded 4GB (raw={raw})");
-            std::ICE("VirtualFileManager: SourceLocation address space exhausted (4GB u32 cap)");
+            ICE_FAIL("VirtualFileManager: SourceLocation address space exhausted (4GB u32 cap)");
         }
 
         return SourceLocation::from_raw(static_cast::<u32>(raw));

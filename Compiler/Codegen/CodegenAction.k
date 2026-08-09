@@ -90,7 +90,7 @@ class KairoEmitAction derives clang::EmitObjAction {
         // ClangLocMap's Test block, where the adversarial cases (clearIDTables
         // mid-flight, post-block FileIDs, virtual fids) can actually be
         // constructed   a user's source files will never produce them.
-        std::ICE(self.locmap != &null, "KairoEmitAction: no ClangLocMap wired");
+        ICE_IF(self.locmap == &null, "KairoEmitAction: no ClangLocMap wired");
         if !self.locmap->rebind(&ci) { return false; }
 
         // This TU's fid is the block base plus its Kairo fid. Nothing here

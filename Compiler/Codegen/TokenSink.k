@@ -221,7 +221,7 @@ class TokenSink {
     /// synthesized node whose lowered-from range was never stamped): ICE,
     /// never clamp.
     priv fn _loc(self, raw: u32) -> clang::SourceLocation {
-        std::ICE((raw >= self._kbase) && (raw < self._kbase + self._ksize),
+        ICE_IF((raw < self._kbase) || (raw >= self._kbase + self._ksize),
             f"TokenSink: raw loc {raw} is outside this TU's file [{self._kbase}, {self._kbase + self._ksize}); a synthesized node must carry its lowered-from range");
         return clang::SourceLocation::getFromRawEncoding(
             static_cast::<u32>(static_cast::<i64>(raw) + self._delta));
@@ -230,14 +230,14 @@ class TokenSink {
     /// File-relative byte offset of a raw Kairo loc. Needed only where clang
     /// wants an offset rather than a location (buffer reads, pending records).
     priv fn _off(self, raw: u32) -> u32 {
-        std::ICE(raw >= self._kbase, "TokenSink: raw loc precedes this file");
+        ICE_IF(raw < self._kbase, "TokenSink: raw loc precedes this file");
         return raw - self._kbase;
     }
 
     priv fn _bytes(self, raw: u32, len: u32) -> llvm::StringRef {
         var buf = self._csm->getBufferData(self._cfid);
         var off = self._off(raw);
-        std::ICE(static_cast::<usize>(off) + static_cast::<usize>(len) <= buf.size(),
+        ICE_IF(static_cast::<usize>(off) + static_cast::<usize>(len) > buf.size(),
             f"TokenSink: span [{off}, {len}) is past end of the Kairo buffer");
         return buf.substr(static_cast::<usize>(off), static_cast::<usize>(len));
     }
@@ -259,18 +259,18 @@ class TokenSink {
             return self._ident(raw, len);
         }
 
-        std::ICE(!is_keyword(t.kind),
+        ICE_IF(is_keyword(t.kind),
             "TokenSink::create on a keyword token; a Kairo keyword has no "
             "automatic C++ meaning   emit it deliberately (kw_auto, kw_return, "
             "...) or let Lower/ rewrite it into a name");
 
-        std::ICE(is_punctuator(t.kind) || is_operator(t.kind) || (t.kind == TokenKind::AtVoid),
+        ICE_IF(!is_punctuator(t.kind) && !is_operator(t.kind) && (t.kind != TokenKind::AtVoid),
             "TokenSink::create accepts identifiers, punctuators and operators "
             "only; literals go through synth (borrowed) or create_int/str "
             "(divergent)");
 
         var k = self.conv_kind(t.kind);
-        std::ICE(k != clang::tok::unknown,
+        ICE_IF(k == clang::tok::unknown,
             "TokenSink::create: no clang punctuator for this Kairo token kind; "
             "a Lower/ pass left an unlowered Kairo-only operator in the tree");
 
@@ -430,7 +430,7 @@ class TokenSink {
     }
 
     priv fn _intern(self, s: ref!(nstring)) -> u32 {
-        std::ICE(!self._sealed, "TokenSink: intern after arena registration");
+        ICE_IF(self._sealed, "TokenSink: intern after arena registration");
         var key = libcxx::string(s.raw_string());
         var it = self._dedup.find(key);
         if it != self._dedup.end() { return it->second; }
@@ -476,7 +476,7 @@ class TokenSink {
     /// buffer exists as \p afid. Spelling loc in the arena, expansion range on
     /// the original .kro bytes.
     fn patch_pending(self, afid: clang::FileID) {
-        std::ICE(self._sealed || self._pending.empty(),
+        ICE_IF((!self._sealed) && (!self._pending.empty()),
             "TokenSink: patch_pending before seal_arena");
         for var i: usize = 0; i < self._pending.size(); ++i {
             var p = self._pending.get(i);
@@ -497,10 +497,10 @@ class TokenSink {
     /// into the preprocessor. The copy is REQUIRED: EnterTokenStream takes
     /// ownership and deletes the array   never hand it arena memory.
     fn drain_into_pp(self) {
-        std::ICE(self._pending.empty() || self._sealed,
+        ICE_IF((!self._pending.empty()) && (!self._sealed),
             "TokenSink: drain with unpatched pending tokens");
         var n = self._tokens.size();
-        std::ICE(n > 0, "TokenSink: drain on empty stream");
+        ICE_IF(n <= 0, "TokenSink: drain on empty stream");
 
         var arr = libcxx::make_unique::<std::Legacy::array::<clang::Token>>(n);
         for (var i: usize = 0; i < n; ++i) {

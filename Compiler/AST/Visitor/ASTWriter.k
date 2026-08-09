@@ -350,7 +350,7 @@ class <D> ASTWriter {
         if s == &null { return &null; }
         var results = self.dyn()->transform_stmt(s);
         if results.size() == 0 { return &null; }
-        std::ICE(results.size() == 1,
+        ICE_IF(results.size() != 1,
                  "transform produced multiple stmts in a scalar slot");
         return results[0];
     }
@@ -359,7 +359,7 @@ class <D> ASTWriter {
         if d == &null { return &null; }
         var results = self.dyn()->transform_decl(d);
         if results.size() == 0 { return &null; }
-        std::ICE(results.size() == 1,
+        ICE_IF(results.size() != 1,
                  "transform produced multiple decls in a scalar slot");
         return results[0];
     }
@@ -428,7 +428,7 @@ class <D> ASTWriter {
             case TypeKind::FunctionPointerType   { return self.dyn()->transform_function_pointer_type(    cast::<FunctionPointerType>(t)   ); }
             case TypeKind::SubstGenericParamType { return self.dyn()->transform_subst_generic_param_type( cast::<SubstGenericParamType>(t) ); }
             case TypeKind::RecoveryType          { return t; }
-            case TypeKind::TypeKindCount         {  std::ICE("TypeKindCount reached ASTWriter - bug"); return &null; }
+            case TypeKind::TypeKindCount         {  ICE_FAIL("TypeKindCount reached ASTWriter - bug"); return &null; }
         }
         return t;
     }
@@ -598,7 +598,7 @@ class <D> ASTWriter {
             case ExprKind::ParenExpr                { return self.dyn()->transform_paren_expr(                 cast::<ParenExpr>(e)                ); }
             case ExprKind::VerbatimExpr             { return self.dyn()->transform_verbatim_expr(              cast::<VerbatimExpr>(e)             ); }
             case ExprKind::RecoveryExpr             { return e; }
-            case ExprKind::ExprKindCount            {  std::ICE("ExprKindCount reached ASTWriter - bug"); return &null; }
+            case ExprKind::ExprKindCount            {  ICE_FAIL("ExprKindCount reached ASTWriter - bug"); return &null; }
         }
         return e;
     }
@@ -901,7 +901,7 @@ class <D> ASTWriter {
             case StmtKind::InlineBlockStmt       { return self.dyn()->transform_inline_block_stmt(      cast::<InlineBlockStmt>(s)       ); }
             case StmtKind::EvalBlockStmt         { return self.dyn()->transform_eval_block_stmt(        cast::<EvalBlockStmt>(s)         ); }
             case StmtKind::RecoveryStmt          { return self._one_stmt(s); }
-            case StmtKind::StmtKindCount         {  std::ICE("StmtKindCount reached ASTWriter - bug"); return vec::<*Stmt>(); }
+            case StmtKind::StmtKindCount         {  ICE_FAIL("StmtKindCount reached ASTWriter - bug"); return vec::<*Stmt>(); }
         }
         return self._one_stmt(s);
     }
@@ -1091,7 +1091,7 @@ class <D> ASTWriter {
             case DeclKind::ProcedureMacroDecl  { return self.dyn()->transform_procedure_macro_decl( cast::<ProcedureMacroDecl>(d)  ); }
             case DeclKind::FFIBlockDecl        { return self.dyn()->transform_ffi_block_decl(       cast::<FFIBlockDecl>(d)        ); }
             case DeclKind::RecoveryDecl        { return self._one_decl(d); }
-            case DeclKind::DeclKindCount       {  std::ICE("DeclKindCount reached ASTWriter - bug"); return vec::<*Decl>(); }
+            case DeclKind::DeclKindCount       {  ICE_FAIL("DeclKindCount reached ASTWriter - bug"); return vec::<*Decl>(); }
         }
         return self._one_decl(d);
     }
@@ -1282,7 +1282,7 @@ class <D> ASTWriter {
             case PatternKind::RangePattern                 { return self.dyn()->transform_range_pattern(                 cast::<RangePattern>(p)                 ); }
             case PatternKind::SlicePattern                 { return self.dyn()->transform_slice_pattern(                 cast::<SlicePattern>(p)                 ); }
             case PatternKind::RecoveryPattern              { return p; }
-            case PatternKind::PatternKindCount             {  std::ICE("PatternKindCount reached ASTWriter - bug"); return &null; }
+            case PatternKind::PatternKindCount             {  ICE_FAIL("PatternKindCount reached ASTWriter - bug"); return &null; }
         }
         return p;
     }
