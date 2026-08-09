@@ -1057,8 +1057,10 @@ class StackBuf {
     const T &operator[](uint32_t i) const { return _data[i]; }
 };
 
-inline void ICE(bool condition, const string& msg, const ::std::source_location location = ::std::source_location::current()) {
-    if (condition) { return; }
+/// \brief prints the ICE banner and aborts. shared by both overloads.
+/// \details not for direct use   go through KAIRO_ICE / KAIRO_ICE_FAIL so the
+///          message stays out of the hot path (see the macros below).
+[[noreturn]] inline void ice_abort(const string& msg, const ::std::source_location& location) {
     std::eprintln("Kairo Internal Compiler Error: ", msg);
     std::eprintln("This is a bug in the Kairo compiler.");
     std::eprintln("Location: ", location.file_name(), ":", location.line(), ":", location.column());
@@ -1066,14 +1068,56 @@ inline void ICE(bool condition, const string& msg, const ::std::source_location 
     libcxx::abort();
 }
 
-inline void ICE(const string& msg, const ::std::source_location location = ::std::source_location::current()) {
-    std::eprintln("Kairo Internal Compiler Error: ", msg);
-    std::eprintln("This is a bug in the Kairo compiler.");
-    std::eprintln("Location: ", location.file_name(), ":", location.line(), ":", location.column());
-    std::eprintln("Please report it: https://github.com/kairolang/kairo/issues, with the generated log files and a minimal reproduction if possible.");
-    libcxx::abort();
+/// \brief asserts a compiler invariant; aborts with \p msg if it does not hold.
+///
+/// \details NOT [[noreturn]]   this returns on the success path, which is the
+///          common one. Marking it noreturn would be a promise the function
+///          breaks on every passing call.
+///
+/// \warning prefer the KAIRO_ICE macro. Calling this directly constructs \p msg
+///          before the predicate is tested, and Stage 0 lowers every "..." to
+///          string(L"..."), so a literal here costs a wcslen + malloc + free on
+///          EVERY call including the ones that pass. That cost is invisible at
+///          one call per file and ruinous at one per token; it was ~115ns/token
+///          in the lexer before the macro landed.
+inline void INTERNAL_ICE(bool condition, const string& msg, const ::std::source_location location = ::std::source_location::current()) {
+    if (condition) [[likely]] { return; }
+    ice_abort(msg, location);
 }
 
+/// \brief unconditional internal compiler error. never returns.
+/// \details for unreachable branches and invariants with no boolean form.
+///          Being [[noreturn]] lets callers omit a trailing return and silences
+///          "non-void function does not return a value" in switch defaults.
+[[noreturn]] inline void INTERNAL_ICE(const string& msg, const ::std::source_location location = ::std::source_location::current()) {
+    ice_abort(msg, location);
+}
+
+/// \brief guards a compiler invariant. aborts with \p msg if \p cond is false.
+///
+/// \details the message expression lives inside the branch body, so Stage 0's
+///          string(L"") lowering only materializes on the failing path. The
+///          success path is a compare and a predicted-not-taken branch, nothing
+///          more   no allocation, no wcslen, no temporary.
+///
+///          Deliberately NOT compiled out under NDEBUG. An INTERNAL_ICE means a compiler
+///          invariant is already broken; running past it in a release build
+///          emits silently wrong object code. The macro is cheap enough that
+///          there is nothing to buy by removing it.
+///
+/// \note    verify Stage 0 does not hoist the string construction out of the
+///          branch during lowering. If the generated .cxx shows the temporary
+///          before the compare, this macro buys nothing and the lowering itself
+///          is the bug.
+#define ICE(cond, msg) \
+    do { if (!(cond)) [[unlikely]] { ::kairo::std::INTERNAL_ICE(msg); } } while (0)
+
+/// \brief unconditional internal compiler error. never returns.
+/// \details for unreachable branches, unimplemented paths, and invariants that
+///          have no boolean form. Resolves to the [[noreturn]] overload, so it
+///          satisfies the compiler in a non-void function without a dummy return.
+#define ICE_FAIL(msg) \
+    do { ::kairo::std::INTERNAL_ICE(msg); } while (0)
 ///
 /// \note
 /// This header may be expanded to include additional abstractions or
