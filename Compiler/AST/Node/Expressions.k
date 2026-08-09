@@ -721,6 +721,9 @@ class TryCatchExpr derives Expr {
         var filter:      *Type;           ///< null for a default (untyped) arm.
         var body:        *Expr;           ///< single-expression branch value.
         var range:       SourceRange;
+        /// Declaration introduced by `binding`; see Statements.k Binding::decl.
+        /// Null when !has_binding.
+        var decl:        *Decl = &null;   ///< always a VariableDecl; see Binding::decl.
     }
 
     pub var try_expr:   *Expr;

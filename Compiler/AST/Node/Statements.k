@@ -70,6 +70,22 @@ struct Binding {
     var shorthand:   BindingShorthand; ///< *, unsafe *, ? shorthands.
     var type_:       *Type = &null;    ///< explicit `: T` ascription; null if none.
     var range:       SourceRange;      ///< span of this binding element.
+
+    /// The DECLARATION this binder introduces (`for x in xs` declares `x`).
+    /// Synthesized by the parser alongside `name`, null for a discard.
+    /// Typed *Decl (always a VariableDecl) to dodge a stage0 import cycle, the
+    /// same dodge TranslationUnit::out_of_line uses; downcast at use.
+    ///
+    /// A binder is a declaration, so uses of it must have something to bind
+    /// to: NameResolution pushes this decl onto its lexical stack and writes
+    /// it into each use's `resolved_decl`. Without it every `for` body that
+    /// mentions its loop variable reported unresolved-ident. TypeResolution
+    /// later hangs the inferred element type here.
+    ///
+    /// NOT in any symbol table and NOT reachable from dc_decls: locals are
+    /// excluded from tables by design, and the RAV does not dispatch it
+    /// (which would double-declare it).
+    var decl:        *Decl = &null;
 }
 
 ///
@@ -85,6 +101,9 @@ struct CatchArm {
     var binding: *NamedIdentExpr; ///< bound error name; null if unbound.
     var body:    *CompoundStmt;
     var range:   SourceRange;
+    /// Declaration introduced by `binding`; see Binding::decl. Null when the
+    /// arm binds no name.
+    var decl:    *Decl = &null;
 }
 
 ///

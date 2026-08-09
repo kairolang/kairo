@@ -85,6 +85,12 @@ class BindingPattern derives Pattern {
     pub var is_const: bool  = false;
     pub var type_:    *Type = &null;   ///< explicit `: T` ascription; null if none.
 
+    /// The DECLARATION this pattern introduces (`case var n` declares `n`).
+    /// Filled by PatternParse so the binder always has a Decl for uses in the
+    /// arm body to bind to; see Statements.k Binding::decl for the rationale.
+    /// Not in any symbol table (locals are excluded by design).
+    pub var decl:     *Decl = &null;   ///< always a VariableDecl; see Binding::decl.
+
     static fn create(
         ctx:      *ASTContext,
         range:    SourceRange,
@@ -99,6 +105,8 @@ class BindingPattern derives Pattern {
         node->is_const = is_const;
         node->type_    = type_;
         node->init_annotations(&(ctx->ast_alloc));;
+        // `decl` is filled by PatternParse (which can see Declarations.k);
+        // this file must not import it.
         return node;
     }
     static fn create_error(ctx: *ASTContext, range: SourceRange) -> *BindingPattern {
