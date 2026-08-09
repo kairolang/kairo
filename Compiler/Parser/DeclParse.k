@@ -95,7 +95,11 @@ class <T> DeclParse {
             || k == TokenKind::KwProt
             || k == TokenKind::KwOverride
             || k == TokenKind::KwVirtual
-            || k == TokenKind::KwFinal;
+            || k == TokenKind::KwFinal
+            // `inline fn f()` is a decl; `inline "c++" { }` is not. Both lead
+            // with `inline`, so admit it here and let _dispatch_decl return
+            // null for the ffi form - every caller already falls back.
+            || k == TokenKind::KwInline;
     }
 
     //  Entry point
@@ -229,22 +233,98 @@ class <T> DeclParse {
         var abi:      AbiKind;
         var is_final: bool;
         var any:      bool;     ///< true if any modifier was consumed.
+        var fn_mods:  FnModifier;  ///< leading `inline`/`eval`, folded into fd->modifiers.
         var range:    SourceRange;
     }
 
-    /// \brief consumes static/virtual/override/final appearing before a decl
-    ///        keyword. These bind to fn/class productions downstream.
-    priv fn _consume_leading_modifiers(self) -> LeadMods {
+    /// \brief if the next non-newline token is \p kind, consume any newlines in
+    ///        front of it and return true; otherwise leave the cursor exactly
+    ///        where it was.
+    ///
+    /// \details a decl head may wrap onto a continuation line -
+    ///              struct <P> Foo<P>
+    ///                requires is_ptr<P>() { ... }
+    ///          - but a newline also *terminates* a bodyless decl, so the
+    ///          newlines can only be eaten once we know a continuation keyword
+    ///          follows. Peek first, commit second.
+    priv fn _peek_past_nl(self, kind: TokenKind) -> bool {
+        if dyn()->check(kind) { return true; }
+        if !dyn()->check(TokenKind::TkNewLine) { return false; }
+
+        var save = dyn()->c_idx;
+        dyn()->advance(T::SkipNL::Only);
+        if dyn()->check(kind) { return true; }
+        dyn()->_restore_cursor(save);
+        return false;
+    }
+
+    /// \brief true if the modifier run starting at the current token leads to a
+    ///        `fn` declaration head.
+    ///
+    /// \details `static`, `inline` and `eval` are each ambiguous on their own:
+    ///
+    ///            static fn f()      -> abi modifier    | static X: T   -> binding
+    ///            inline fn f()      -> fn modifier     | inline "c++"  -> ffi block
+    ///            eval fn f()        -> fn modifier     | eval N: u8    -> binding
+    ///                                                  | eval { ... }  -> eval block
+    ///
+    ///          Only a lookahead past the whole modifier run can tell them
+    ///          apart, so both `_consume_leading_modifiers` and the type-body
+    ///          member dispatch ask this before claiming the keyword. The
+    ///          tentative guard rolls the cursor back unconditionally.
+    /// \param require_decl_head when true (decl/statement scope) the `fn` must
+    ///        also be a decl head, so `eval fn (x) { }` stays a closure
+    ///        expression. Type bodies pass false: a `fn` there is always a
+    ///        member, and insisting on a well-formed head would push a
+    ///        malformed one down the field path for three confused diagnostics
+    ///        instead of one good one.
+    pub fn _mods_lead_to_fn(self, require_decl_head: bool = true) -> bool {
+        inline "c++" { using ASTTentativeGuard = typename T::TentativeGuard; }
+        var t = ASTTentativeGuard(dyn());
+
+        while !dyn()->is_eof() {
+            var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
+            if (k == TokenKind::KwStatic) || (k == TokenKind::KwVirtual)
+            || (k == TokenKind::KwOverride) || (k == TokenKind::KwFinal)
+            || (k == TokenKind::KwInline) || (k == TokenKind::KwEval) {
+                dyn()->advance(T::SkipNL::After);
+                continue;
+            }
+            if k != TokenKind::KwFn { return false; }
+            if !require_decl_head { return true; }
+            // A closure literal (`eval fn (x) { }`) is an expression, not a
+            // decl: claiming `eval` there would strand the closure in
+            // _parse_function. Only a real decl head counts.
+            return self._fn_is_decl_head();
+        }
+        return false;
+        // guard dtor rolls back unconditionally (never commit)
+    }
+
+    /// \brief consumes static/virtual/override/final/inline/eval appearing
+    ///        before a decl keyword. These bind to fn/class productions
+    ///        downstream.
+    ///
+    /// \details `virtual`, `override` and `final` are unambiguous leads and are
+    ///          always claimed (`final` also fronts a class). `static`,
+    ///          `inline` and `eval` are claimed only when a `fn` head follows -
+    ///          otherwise they belong to a binding, an ffi block or an eval
+    ///          block, each of which owns its own production and needs to see
+    ///          its keyword still on the cursor.
+    priv fn _consume_leading_modifiers(self, require_decl_head: bool = true) -> LeadMods {
         var m = LeadMods{};
         m.abi      = AbiKind::None;
         m.is_final = false;
         m.any      = false;
+        m.fn_mods  = FnModifier::None;
 
         var start = dyn()->current_ptr()->range;
         m.range   = start;
 
+        var to_fn = self._mods_lead_to_fn(require_decl_head);
+
         while true {
-            if dyn()->check(TokenKind::KwStatic) {
+            if dyn()->check(TokenKind::KwStatic) && to_fn {
                 m.abi = AbiKind::Static; m.any = true; dyn()->advance(); continue;
             }
             if dyn()->check(TokenKind::KwVirtual) {
@@ -255,6 +335,12 @@ class <T> DeclParse {
             }
             if dyn()->check(TokenKind::KwFinal) {
                 m.is_final = true; m.any = true; dyn()->advance(); continue;
+            }
+            if dyn()->check(TokenKind::KwInline) && to_fn {
+                m.fn_mods |= FnModifier::IsInline; m.any = true; dyn()->advance(); continue;
+            }
+            if dyn()->check(TokenKind::KwEval) && to_fn {
+                m.fn_mods |= FnModifier::IsEval; m.any = true; dyn()->advance(); continue;
             }
             break;
         }
@@ -334,6 +420,7 @@ class <T> DeclParse {
     priv fn _parse_member_vis_group(
         self,
         owner:         *DeclContext,
+        owner_name:     Token,
         fields_out:    *std::StackBuf::<*FieldDecl, 8>,
         methods_out:   *std::StackBuf::<*FunctionDecl, 8>,
         allow_methods: bool,
@@ -376,25 +463,39 @@ class <T> DeclParse {
             }
             var k = dyn()->resolve_kind_deep(dyn()->current_ptr());
 
-            var is_method_lead = (k == TokenKind::KwFn)
-                              || (k == TokenKind::KwStatic)
-                              || (k == TokenKind::KwVirtual)
-                              || (k == TokenKind::KwOverride)
-                              || (k == TokenKind::KwFinal);
+            var is_method_lead = self._mods_lead_to_fn(false);
 
-            if is_method_lead && allow_methods {
-                var lead = self._consume_leading_modifiers();
-                if dyn()->check(TokenKind::KwFn) {
-                    var m = self._parse_function(&lead);
-                    if (m != &null) && isa::<FunctionDecl>(m) {
-                        var fm = cast::<FunctionDecl>(m);
-                        dyn()->apply_annotations_to_decl(static_cast::<*Decl>(fm), &m_annot);
-                        fm->set_visibility(vis_kind, start);
-                        methods_out->push_back(fm);
-                        members.push_back(static_cast::<*Decl>(fm));
-                    }
-                } else {
+            if is_method_lead {
+                var mr   = dyn()->current_ptr()->range;
+                var lead = self._consume_leading_modifiers(false);
+                if !dyn()->check(TokenKind::KwFn) {
                     self._sync_decl_progress(DeclSyncCtx::TypeBody);
+                    continue;
+                }
+                var m = self._parse_function(&lead);
+                if (m != &null) && isa::<FunctionDecl>(m) {
+                    var fm = cast::<FunctionDecl>(m);
+                    // struct/union bodies: constructors and operators only.
+                    if (!allow_methods)
+                    && (!fm->is_operator)
+                    && (!self._is_ctor_of(fm, owner_name)) {
+                        dyn()->diag->report(DiagID::S048E, mr.start,
+                            "a struct or union body cannot contain a named function; "
+                            "only fields, nested types, constructors, and operator "
+                            "overloads are permitted"
+                        ).first(mr)
+                         // No location: same span as the error, so a second
+                         // caret is noise. Plain text reads better.
+                         .note(DiagID::S048N,
+                            "move it into an 'extend' block on this type, or declare "
+                            "the type as a 'class' if it needs methods"
+                         ).emit();
+                        continue;
+                    }
+                    dyn()->apply_annotations_to_decl(static_cast::<*Decl>(fm), &m_annot);
+                    fm->set_visibility(vis_kind, start);
+                    methods_out->push_back(fm);
+                    members.push_back(static_cast::<*Decl>(fm));
                 }
                 continue;
             }
@@ -593,22 +694,41 @@ class <T> DeclParse {
     ///                           declared type.)
     ///
     ///            any arg is a *structured* type (`[T]`, `*T`, `(A, B)`, a path
-    ///            with its own generic args like `Vec<T>`)
-    ///              -> Partial  (a structured pattern is never a primary
-    ///                           re-declaration; it is a partial specialization.
-    ///                           `fn` rejects this enforced by the caller.)
+    ///            with its own generic args like `Vec<T>`), AND the head bound
+    ///            type parameters that the pattern can refer to
+    ///              -> Partial  (`<P> Box<*P>`: `P` is free, so this is a
+    ///                           pattern. `fn` rejects Partial - see below.)
     ///
-    ///          The Primary/Explicit split is intentionally left to sema: it is
-    ///          a name-resolution fact (does the single ident resolve to a type
-    ///          variable of the primary, or to a concrete type?), not a
-    ///          syntactic one. Returning Primary here is the conservative
-    ///          "not-structured" bucket; sema downgrades to Explicit as needed.
-    fn _classify_spec(self, spec_args: *std::StackBuf::<*Type, 4>) -> SpecKind {
+    ///          Structure alone does NOT make a specialization partial. What
+    ///          makes it partial is a free type variable in the pattern, and a
+    ///          `<>` head binds none - so `<> Box<*i32>` is a *full*
+    ///          specialization that merely happens to name a structured type.
+    ///          This mirrors C++, which rejects `template <class T> bool f<T*>()`
+    ///          as a function-template partial specialization but accepts
+    ///          `template <> bool f<int*>()`. Collapsing the two would reject
+    ///          the legal one.
+    ///
+    ///          The Primary/Explicit split for the all-simple-idents case is
+    ///          intentionally left to sema: it is a name-resolution fact (does
+    ///          the ident resolve to a type variable of the primary, or to a
+    ///          concrete type?), not a syntactic one.
+    ///
+    /// \param head_has_params true when the decl head bound type parameters
+    ///        (`<P> Name<...>`); false for the `<> Name<...>` marker.
+    fn _classify_spec(
+        self,
+        spec_args:       *std::StackBuf::<*Type, 4>,
+        head_has_params:  bool
+    ) -> SpecKind {
         if spec_args->is_empty() { return SpecKind::Explicit; }
+
+        // `<>` binds nothing, so no argument can be a pattern variable: this is
+        // a full specialization regardless of how structured the args are.
+        if !head_has_params { return SpecKind::Explicit; }
 
         for var i: usize = 0; i < spec_args->size(); ++i {
             if !self._is_simple_ident_type((*spec_args)[i]) {
-                return SpecKind::Partial; // structured arg -> partial spec
+                return SpecKind::Partial; // free var in a structured pattern
             }
         }
         return SpecKind::Primary; // all simple idents; sema refines vs Explicit
@@ -1024,6 +1144,9 @@ class <T> DeclParse {
         if lead->is_final {
             fd->modifiers |= FnModifier::IsFinal;
         }
+        // leading `inline` / `eval` land in the same bitset as their trailing
+        // spellings (`fn f() const inline`), so downstream sees one form.
+        fd->modifiers |= lead->fn_mods;
 
         // optional generics or specialization introducer:
         //   `fn <T> name(...)`  -> type params
@@ -1031,6 +1154,7 @@ class <T> DeclParse {
         var fn_intro: SpecKind = SpecKind::None;
         var gparams: std::StackBuf::<*GenericParamDecl, 2>;
         self._parse_generic_or_spec_intro(&gparams, &fn_intro);
+        var has_generics = !gparams.is_empty();
         fd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
 
         // name | `op <operator>` | qualified `Class::method`
@@ -1066,19 +1190,30 @@ class <T> DeclParse {
 
             // specialization argument pattern: `name<i32>`, `name<[T]>`.
             // Only meaningful when a `<>` introducer preceded the name.
-            if (fn_intro != SpecKind::None) && dyn()->check(TokenKind::OpLess) {
+            if ((fn_intro != SpecKind::None) || has_generics) && dyn()->check(TokenKind::OpLess) {
                 var sargs: std::StackBuf::<*Type, 4>;
                 self._parse_spec_args(&sargs);
                 fd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
 
-                var kind = self._classify_spec(&sargs);
-                // Functions accept primary + explicit only; partial (structured
-                // pattern) is a class/struct/union feature. See issue #68.
+                var kind = self._classify_spec(&sargs, has_generics);
+                // Functions accept primary + explicit only; partial (a pattern
+                // over the head's own type variables) is a class/struct/union
+                // feature. See issue #68. Note a `<>` head can never land here:
+                // it binds no variables, so `fn <> f<*i32>()` is a FULL
+                // specialization and is accepted, matching C++.
                 if kind == SpecKind::Partial {
                     dyn()->diag->report(DiagID::S049E, fd->name.range.start,
                         "partial specialization is not allowed on functions; "
                         "only classes, structs, and unions may be partially specialized"
-                    ).first(fd->name.range).emit();
+                    ).first(fd->name.range)
+                     // FIXME(diag-table): placeholder id - S049N is not in the
+                     // registry yet; wants its own note code next to S049E.
+                     // No location: the note would point at the same span as the
+                     // error, so a second caret is noise. Plain text reads better.
+                     .note(DiagID::S045N,
+                        "overload the function on the pattern instead, or move the "
+                        "pattern onto a struct and partially specialize that"
+                     ).emit();
                     kind = SpecKind::Explicit; // best-effort recovery
                 }
                 fd->spec_kind = kind;
@@ -1163,7 +1298,7 @@ class <T> DeclParse {
         }
 
         // optional `requires <expr>` constraint
-        if dyn()->check(TokenKind::KwRequires) {
+        if self._peek_past_nl(TokenKind::KwRequires) {
             dyn()->advance(T::SkipNL::After);
             var req = dyn()->parse_expr();
             if (req != &null) && (!is_recovery(req)) {
@@ -1733,6 +1868,23 @@ class <T> DeclParse {
         else if dyn()->check(TokenKind::KwEval)   { storage = StorageClass::Eval;   }
         dyn()->advance(); // consume the storage keyword
 
+        // `static thread X: T` - thread_local storage duration.
+        var is_thread = false;
+        if dyn()->check(TokenKind::KwThread) {
+            var thread_range = dyn()->current_ptr()->range;
+            dyn()->advance();
+            if storage != StorageClass::Static {
+                // FIXME(diag-table): placeholder id. This is a storage-class
+                // combination error; it wants its own code, not S046 ("expected
+                // identifier or name in declaration").
+                dyn()->diag->report(DiagID::S045E, thread_range.start,
+                    "'thread' requires 'static'; thread-local storage has static "
+                    "storage duration"
+                ).first(thread_range).emit();
+            }
+            is_thread = true;
+        }
+
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected a name after the binding keyword"
@@ -1744,6 +1896,7 @@ class <T> DeclParse {
         dyn()->advance();
 
         var vd = VariableDecl::create(dyn()->ctx, start, name, storage);
+        vd->is_thread = is_thread;
 
         // index mode: the name is all the table needs; skip type and init
         // (the init is an expression parsing it here would query the
@@ -1811,6 +1964,22 @@ class <T> DeclParse {
         }
         dyn()->advance(); // consume storage keyword
 
+        // `static thread x: T` - thread_local storage duration.
+        var is_thread = false;
+        if dyn()->check(TokenKind::KwThread) {
+            var thread_range = dyn()->current_ptr()->range;
+            dyn()->advance();
+            if storage != StorageClass::Static {
+                // FIXME(diag-table): placeholder id - same storage-class rule as
+                // the binding path in _parse_var_decl; wants the same new code.
+                dyn()->diag->report(DiagID::S045E, thread_range.start,
+                    "'thread' requires 'static'; thread-local storage has static "
+                    "storage duration"
+                ).first(thread_range).emit();
+            }
+            is_thread = true;
+        }
+
         if !dyn()->check(TokenKind::LitIdentifier) {
             dyn()->diag->report(DiagID::S048E, start.start,
                 "expected field name"
@@ -1829,6 +1998,7 @@ class <T> DeclParse {
 
         var fd = FieldDecl::create(dyn()->ctx, start, name, storage, fty, idx);
         fd->is_mutable = is_mutable;
+        fd->is_thread  = is_thread;
 
         if dyn()->check(TokenKind::OpEqual) {
             dyn()->advance(T::SkipNL::After); // consume `=`
@@ -1989,9 +2159,27 @@ class <T> DeclParse {
         }
     }
 
+    /// \brief true if `fd` names the type it is declared in, i.e. it is a
+    ///        constructor rather than a named method.
+    ///
+    /// \details identifiers are interned per file, so the enclosing type's name
+    ///          and a ctor's name share an imm - the same test the symbol
+    ///          indexer uses to key a decl as DeclName::ctor().
+    priv fn _is_ctor_of(self, fd: *FunctionDecl, owner_name: Token) -> bool {
+        if fd->is_operator { return false; }
+        var fn_imm    = dyn()->ctx->get_ident_imm(fd->name);
+        var owner_imm = dyn()->ctx->get_ident_imm(owner_name);
+        if (fn_imm == u32(-1)) || (owner_imm == u32(-1)) { return false; }
+        return fn_imm == owner_imm;
+    }
+
+    /// \param owner_name the enclosing type's name, used to tell a constructor
+    ///        from a named method in bodies that forbid the latter. Pass an
+    ///        empty Token where the distinction does not apply (extensions).
     priv fn _parse_member_body(
         self,
         owner:        *DeclContext,
+        owner_name:    Token,
         fields_out:   *std::StackBuf::<*FieldDecl, 8>,
         methods_out:  *std::StackBuf::<*FunctionDecl, 8>,
         allow_methods: bool
@@ -2045,20 +2233,18 @@ class <T> DeclParse {
                         "apply them to individual members instead"
                     );
                 }
-                self._parse_member_vis_group(owner, fields_out, methods_out,
+                self._parse_member_vis_group(owner, owner_name, fields_out, methods_out,
                                              allow_methods, &field_idx);
                 continue;
             }
 
-            // method (only in classes / interfaces)
-            var is_method_lead = (k == TokenKind::KwFn)
-                              || (k == TokenKind::KwStatic)
-                              || (k == TokenKind::KwVirtual)
-                              || (k == TokenKind::KwOverride)
-                              || (k == TokenKind::KwFinal);
+            // method lead: `fn`, possibly behind static/virtual/override/final/
+            // inline/eval. The lookahead is what separates `static fn f()` from
+            // the `static x: T` field that shares its keyword.
+            var is_method_lead = self._mods_lead_to_fn(false);
 
             if is_method_lead && allow_methods {
-                var lead = self._consume_leading_modifiers();
+                var lead = self._consume_leading_modifiers(false);
                 if dyn()->check(TokenKind::KwFn) {
                     var m = self._parse_function(&lead);
                     if (m != &null) && isa::<FunctionDecl>(m) {
@@ -2076,36 +2262,34 @@ class <T> DeclParse {
                 continue;
             }
 
-            // a method where methods are not allowed (struct/union body). Parse
-            // and discard it so the tokens are consumed - a bare `fn` would
-            // otherwise fall through to the unknown-member path, whose
-            // `_sync_decl` stops on `fn` without consuming it, spinning forever.
-            // (Only `fn` is handled here; `static`/`virtual` leads stay ambiguous
-            // with static fields and are left to the field/recovery paths, which
-            // the progress guard above keeps bounded.)
-            if (k == TokenKind::KwFn) && (!allow_methods) {
-                // operator declarations ARE permitted in struct/union bodies -
-                // only ordinary methods are not. `fn op == (self, other)` is a
-                // valid struct member, so peek past `fn` for the `op` keyword
-                // and take the normal method path when it is present.
-                if (dyn()->peek().kind) == TokenKind::KwOp {
-                    var op_lead = self._consume_leading_modifiers();
-                    var om = self._parse_function(&op_lead);
-                    if (om != &null) && isa::<FunctionDecl>(om) {
-                        var ofm = cast::<FunctionDecl>(om);
-                        dyn()->apply_annotations_to_decl(static_cast::<*Decl>(ofm), &m_annot);
-                        methods_out->push_back(ofm);
-                    }
-                    continue;
-                }
-
+            // Function member in a struct/union body. These bodies admit
+            // constructors and operator overloads but no *named* functions, so
+            // the member is always parsed in full - dropping tokens would
+            // desync the body and turn one bad member into a cascade - and only
+            // the named-function case is rejected, for exactly one diagnostic.
+            if is_method_lead {
                 var mr   = dyn()->current_ptr()->range;
-                var lead = self._consume_leading_modifiers();
-                self._parse_function(&lead);
-                dyn()->diag->report(DiagID::S048E, mr.start,
-                    "methods are not allowed in a struct or union body; only "
-                    "fields and nested types are permitted"
-                ).first(mr).emit();
+                var lead = self._consume_leading_modifiers(false);
+                var m    = self._parse_function(&lead);
+                if (m != &null) && isa::<FunctionDecl>(m) {
+                    var fm = cast::<FunctionDecl>(m);
+                    if fm->is_operator || self._is_ctor_of(fm, owner_name) {
+                        dyn()->apply_annotations_to_decl(static_cast::<*Decl>(fm), &m_annot);
+                        methods_out->push_back(fm);
+                    } else {
+                        dyn()->diag->report(DiagID::S048E, mr.start,
+                            "a struct or union body cannot contain a named function; "
+                            "only fields, nested types, constructors, and operator "
+                            "overloads are permitted"
+                        ).first(mr)
+                         // No location: same span as the error, so a second
+                         // caret is noise. Plain text reads better.
+                         .note(DiagID::S048N,
+                            "move it into an 'extend' block on this type, or declare "
+                            "the type as a 'class' if it needs methods"
+                         ).emit();
+                    }
+                }
                 continue;
             }
 
@@ -2197,11 +2381,11 @@ class <T> DeclParse {
 
         // specialization argument pattern after the name: `Box<T>`, `Box<[T]>`.
         // classes/structs/unions accept primary, explicit, and partial. (#68)
-        if (cls_intro != SpecKind::None) && dyn()->check(TokenKind::OpLess) {
+        if ((cls_intro != SpecKind::None) || has_generics) && dyn()->check(TokenKind::OpLess) {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             cd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            cd->spec_kind = self._classify_spec(&sargs);
+            cd->spec_kind = self._classify_spec(&sargs, has_generics);
         } else if cls_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "
@@ -2229,7 +2413,7 @@ class <T> DeclParse {
         cd->implements.from_buf(ilist.data(), ilist.size(), dyn()->ctx);
 
         // optional requires
-        if dyn()->check(TokenKind::KwRequires) {
+        if self._peek_past_nl(TokenKind::KwRequires) {
             dyn()->advance(T::SkipNL::After);
             var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
             if (req != &null) && (!is_recovery(req)) { cd->requires_clause = req; }
@@ -2243,7 +2427,7 @@ class <T> DeclParse {
             dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(cd));
             var fields:  std::StackBuf::<*FieldDecl, 8>;
             var methods: std::StackBuf::<*FunctionDecl, 8>;
-            self._parse_member_body(static_cast::<*DeclContext>(cd), &fields, &methods, true);
+            self._parse_member_body(static_cast::<*DeclContext>(cd), name, &fields, &methods, true);
             cd->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
             cd->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
 
@@ -2297,12 +2481,18 @@ class <T> DeclParse {
             sd->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
 
-        // specialization argument pattern (#68).
-        if (struct_intro != SpecKind::None) && dyn()->check(TokenKind::OpLess) {
+        // Specialization argument pattern (#68). Two heads reach it:
+        //   `<> Name<i32>`  - the explicit/full specialization marker.
+        //   `<P> Name<*P>`  - a PARTIAL specialization: the param list binds
+        //                     the pattern variables, the post-name args give
+        //                     the pattern. Without the second form SpecKind::
+        //                     Partial would be unreachable from the grammar.
+        // A bare `Name<i32>` with neither head is still not a specialization.
+        if ((struct_intro != SpecKind::None) || has_generics) && dyn()->check(TokenKind::OpLess) {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             sd->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            sd->spec_kind = self._classify_spec(&sargs);
+            sd->spec_kind = self._classify_spec(&sargs, has_generics);
         } else if struct_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "
@@ -2327,7 +2517,7 @@ class <T> DeclParse {
         }
         sd->implements.from_buf(ilist.data(), ilist.size(), dyn()->ctx);
 
-        if dyn()->check(TokenKind::KwRequires) {
+        if self._peek_past_nl(TokenKind::KwRequires) {
             dyn()->advance(T::SkipNL::After);
             var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
             if (req != &null) && (!is_recovery(req)) { sd->requires_clause = req; }
@@ -2336,9 +2526,10 @@ class <T> DeclParse {
 
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(sd));
         var fields:  std::StackBuf::<*FieldDecl, 8>;
-        var methods: std::StackBuf::<*FunctionDecl, 8>; // unused for structs
-        self._parse_member_body(static_cast::<*DeclContext>(sd), &fields, &methods, false);
+        var methods: std::StackBuf::<*FunctionDecl, 8>; // ctors + operators only
+        self._parse_member_body(static_cast::<*DeclContext>(sd), name, &fields, &methods, false);
         sd->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
+        sd->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
 
         sd->mark_definition();
         sd->range = start | dyn()->prev().range;
@@ -2380,12 +2571,18 @@ class <T> DeclParse {
             ud->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
 
-        // specialization argument pattern (#68).
-        if (union_intro != SpecKind::None) && dyn()->check(TokenKind::OpLess) {
+        // Specialization argument pattern (#68). Two heads reach it:
+        //   `<> Name<i32>`  - the explicit/full specialization marker.
+        //   `<P> Name<*P>`  - a PARTIAL specialization: the param list binds
+        //                     the pattern variables, the post-name args give
+        //                     the pattern. Without the second form SpecKind::
+        //                     Partial would be unreachable from the grammar.
+        // A bare `Name<i32>` with neither head is still not a specialization.
+        if ((union_intro != SpecKind::None) || has_generics) && dyn()->check(TokenKind::OpLess) {
             var sargs: std::StackBuf::<*Type, 4>;
             self._parse_spec_args(&sargs);
             ud->spec_args.from_buf(sargs.data(), sargs.size(), dyn()->ctx);
-            ud->spec_kind = self._classify_spec(&sargs);
+            ud->spec_kind = self._classify_spec(&sargs, has_generics);
         } else if union_intro != SpecKind::None {
             dyn()->diag->report(DiagID::S049E, name.range.start,
                 "expected specialization arguments '<...>' after the name "
@@ -2405,9 +2602,10 @@ class <T> DeclParse {
 
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(ud));
         var fields:  std::StackBuf::<*FieldDecl, 8>;
-        var methods: std::StackBuf::<*FunctionDecl, 8>; // unused
-        self._parse_member_body(static_cast::<*DeclContext>(ud), &fields, &methods, false);
+        var methods: std::StackBuf::<*FunctionDecl, 8>; // ctors + operators only
+        self._parse_member_body(static_cast::<*DeclContext>(ud), name, &fields, &methods, false);
         ud->fields.from_buf(fields.data(), fields.size(), dyn()->ctx);
+        ud->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
 
         ud->mark_definition();
         ud->range = start | dyn()->prev().range;
@@ -2469,7 +2667,7 @@ class <T> DeclParse {
         }
         id->derives_list.from_buf(dlist.data(), dlist.size(), dyn()->ctx);
 
-        if dyn()->check(TokenKind::KwRequires) {
+        if self._peek_past_nl(TokenKind::KwRequires) {
             dyn()->advance(T::SkipNL::After);
             var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
             if (req != &null) && (!is_recovery(req)) { id->requires_clause = req; }
@@ -2482,7 +2680,7 @@ class <T> DeclParse {
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(id));
         var fields:  std::StackBuf::<*FieldDecl, 8>;   // sema rejects fields in interfaces
         var methods: std::StackBuf::<*FunctionDecl, 8>;
-        self._parse_member_body(static_cast::<*DeclContext>(id), &fields, &methods, true);
+        self._parse_member_body(static_cast::<*DeclContext>(id), name, &fields, &methods, true);
         id->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
 
         id->mark_definition();
@@ -2504,12 +2702,15 @@ class <T> DeclParse {
         }
         dyn()->advance(T::SkipNL::After); // consume `extend`
 
+        // `extend <T> Foo` introduces type params; `extend <> Foo<bool>` is the
+        // full-specialization marker, exactly as on struct/class/fn. Unlike
+        // those, the specialization arguments live in the *target type*
+        // (`Foo<bool>`) rather than after a name, so there is no separate
+        // _parse_spec_args step here.
         var gparams: std::StackBuf::<*GenericParamDecl, 2>;
-        var has_generics = false;
-        if dyn()->check(TokenKind::OpLess) {
-            self._parse_generic_params(&gparams);
-            has_generics = true;
-        }
+        var ext_intro: SpecKind = SpecKind::None;
+        self._parse_generic_or_spec_intro(&gparams, &ext_intro);
+        var has_generics = !gparams.is_empty();
 
         var target = dyn()->parse_type();
         if (target == &null) || is_recovery(target) {
@@ -2525,6 +2726,7 @@ class <T> DeclParse {
         if has_generics {
             ed->generic_params.from_buf(gparams.data(), gparams.size(), dyn()->ctx);
         }
+        ed->spec_kind = ext_intro;
 
         var ilist: std::StackBuf::<InheritEdge, 4>;
         while dyn()->check(TokenKind::KwImpl) {
@@ -2532,10 +2734,20 @@ class <T> DeclParse {
         }
         ed->implements.from_buf(ilist.data(), ilist.size(), dyn()->ctx);
 
+        // A specialized extension is constrained the same way its type is:
+        //   extend <P> NS<P> requires is_ptr<P>() { ... }
+        // Without this the clause parsed as a stray expression and took the
+        // whole body down with it.
+        if self._peek_past_nl(TokenKind::KwRequires) {
+            dyn()->advance(T::SkipNL::After);
+            var req = dyn()->parse_expr(T::ExprStopKind::NoStructLiteral);
+            if (req != &null) && (!is_recovery(req)) { ed->requires_clause = req; }
+        }
+
         dyn()->enter_scope(ScopeKind::Block, static_cast::<*DeclContext>(ed));
         var fields:  std::StackBuf::<*FieldDecl, 8>;   // not valid in extends; sema rejects
         var methods: std::StackBuf::<*FunctionDecl, 8>;
-        self._parse_member_body(static_cast::<*DeclContext>(ed), &fields, &methods, true);
+        self._parse_member_body(static_cast::<*DeclContext>(ed), Token(), &fields, &methods, true);
         ed->methods.from_buf(methods.data(), methods.size(), dyn()->ctx);
 
         ed->range = start | dyn()->prev().range;
