@@ -41,6 +41,7 @@
 
 import AST::Node::Base::*;
 import AST::Node::Patterns::*;
+import AST::Node::Declarations::*;   // VariableDecl for BindingPattern::decl
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Casting::*;
 import AST::Context::ASTContext::*;
@@ -185,8 +186,16 @@ class <T> PatternParse {
             }
         }
 
-        return static_cast::<*Pattern>(
-            BindingPattern::create(dyn()->ctx, start | dyn()->prev().range, name, is_const, ty));
+        var bp = BindingPattern::create(dyn()->ctx, start | dyn()->prev().range,
+                                        name, is_const, ty);
+        // A binder IS a declaration; give uses in the arm body something to
+        // bind to (BindingPattern::decl). Patterns.k cannot construct this
+        // itself without importing Declarations.k.
+        var storage = (StorageClass::Const) if (is_const) else (StorageClass::Var);
+        var vd      = VariableDecl::create(dyn()->ctx, bp->range, name, storage);
+        vd->type_   = ty;
+        bp->decl    = static_cast::<*Decl>(vd);
+        return static_cast::<*Pattern>(bp);
     }
 
     //  Tuple   `(p, p, ...)`

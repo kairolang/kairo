@@ -566,13 +566,36 @@ class ASTParse
                 var item = prog->items.get(i);
                 if item == &null { continue; }
                 if item->get_kind() != TopLevelKind::Stmt { continue; }
-                
+
                 var s = item->as_stmt();
-                if (s == &null) || (!isa::<DeclStmt>(s)) { continue; }
-                
-                var ds = cast::<DeclStmt>(s);
-                if ds->decl != &null {
-                    self._index_symbol_decl(ds->decl, tu_dc, tu_dc, u32(-1));
+                if s == &null { continue; }
+
+                if isa::<DeclStmt>(s) {
+                    var ds = cast::<DeclStmt>(s);
+                    if ds->decl != &null {
+                        self._index_symbol_decl(ds->decl, tu_dc, tu_dc, u32(-1));
+                    }
+                    continue;
+                }
+
+                // `var (a, b) = t` at file scope. A destructuring decl declares
+                // into its ENCLOSING scope (it is a decl statement, not a scope
+                // of its own), so at top level its binders belong in the TU
+                // table exactly like a plain `var`. Without this they were
+                // findable from nowhere: sema's lexical stack only covers
+                // executable scopes, and file scope has none.
+                //
+                // Ranged-for / context bindings are deliberately NOT swept
+                // here: those bind only inside their own body, which IS an
+                // executable scope, so sema's lexical stack owns them.
+                if isa::<DestructuringDeclStmt>(s) {
+                    var dd = cast::<DestructuringDeclStmt>(s);
+                    for var b: usize = 0; b < dd->bindings.size(); ++b {
+                        var bind = dd->bindings[b];
+                        if bind.is_discard { continue; }
+                        if bind.decl == &null { continue; }
+                        self._index_symbol_decl(bind.decl, tu_dc, tu_dc, u32(-1));
+                    }
                 }
             }
         }
@@ -667,10 +690,15 @@ class ASTParse
 
             var dc    = static_cast::<*DeclContext>(n);
             var owner = self.ctx->get_ident_imm(n->name);
-            // struct: fields + nested types only (methods are rejected at parse).
+            // struct: fields + nested types, plus the ctors/operators the body
+            // does admit (named methods are rejected at parse).
             for var mi: usize = 0; mi < n->fields.size(); ++mi {
                 var fd = n->fields[mi];
                 if fd != &null { self._index_symbol_decl(static_cast::<*Decl>(fd), dc, dc, owner); }
+            }
+            for var mi: usize = 0; mi < n->methods.size(); ++mi {
+                var md = n->methods[mi];
+                if md != &null { self._index_symbol_decl(static_cast::<*Decl>(md), dc, dc, owner); }
             }
             self._collect_symbols(dc, dc, owner);
 
@@ -681,10 +709,15 @@ class ASTParse
 
             var dc    = static_cast::<*DeclContext>(n);
             var owner = self.ctx->get_ident_imm(n->name);
-            // union: fields + nested types only.
+            // union: fields + nested types, plus ctors/operators - same rule as
+            // struct.
             for var mi: usize = 0; mi < n->fields.size(); ++mi {
                 var fd = n->fields[mi];
                 if fd != &null { self._index_symbol_decl(static_cast::<*Decl>(fd), dc, dc, owner); }
+            }
+            for var mi: usize = 0; mi < n->methods.size(); ++mi {
+                var md = n->methods[mi];
+                if md != &null { self._index_symbol_decl(static_cast::<*Decl>(md), dc, dc, owner); }
             }
             self._collect_symbols(dc, dc, owner);
 
