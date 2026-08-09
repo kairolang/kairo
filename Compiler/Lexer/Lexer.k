@@ -1272,7 +1272,7 @@ class Lexer {
                 imm->prefix = SourceRange::from_bounds(ctx.prefix_start, ctx.prefix_end);
             }
 
-            imm->evaluate(self._sm);
+            imm->evaluate(self._sm, self.get_imm_tbl());
         } else {
             var imm = self.get_imm::<Immediate::IntData>(imm_idx);
 
@@ -1294,7 +1294,7 @@ class Lexer {
                 imm->suffix = ctx.suffix.range;
             }
 
-            imm->evaluate(self._sm);
+            imm->evaluate(self._sm, self.get_imm_tbl());
         }
 
         self._last_kind = LastTokenKind::Number;
@@ -2879,7 +2879,7 @@ fn Test() -> i32 {
             }
             
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             const base_10: u8 = __inline_cpp("(uint8_t)10");
             if imm->base != base_10 {
@@ -2927,7 +2927,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}";
             }
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             const base_16: u8 = __inline_cpp("(uint8_t)16");
             if imm->base != base_16 {
@@ -2975,7 +2975,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}";
             }
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             const base_2: u8 = __inline_cpp("(uint8_t)2");
             if imm->base != base_2 {
@@ -3019,7 +3019,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}";
             }
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             const base_8: u8 = __inline_cpp("(uint8_t)8");
             if imm->base != base_8 {
@@ -3069,7 +3069,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected LitInt, got {token_kind_to_readable_string(tokens->get(i)->kind)}";
             }
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             if imm->base != expected_bases[i] {
                 return f"token {i}: expected base {expected_bases[i]}, got base {imm->base}";
@@ -3127,7 +3127,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected has_suffix flag (bit3) to be set, flags={imm->flags}";
             }
             
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             if imm->value_lo != expected_values[i] {
                 return f"token {i}: expected value {expected_values[i]}, got {imm->value_lo}";
@@ -3166,7 +3166,7 @@ fn Test() -> i32 {
         }
         
         var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
-        imm->evaluate(sm);
+        imm->evaluate(sm, lexer->get_imm_tbl());
         
         const u64_max: u64 = __inline_cpp("(uint64_t)0xFFFFFFFFFFFFFFFFULL");
         if imm->value_lo != u64_max {
@@ -3205,7 +3205,7 @@ fn Test() -> i32 {
         }
         
         var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
-        imm->evaluate(sm);
+        imm->evaluate(sm, lexer->get_imm_tbl());
         
         const zero_u64: u64 = __inline_cpp("(uint64_t)0");
         const one_u64: u64 = __inline_cpp("(uint64_t)1");
@@ -3244,7 +3244,7 @@ fn Test() -> i32 {
         }
         
         var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
-        imm->evaluate(sm);
+        imm->evaluate(sm, lexer->get_imm_tbl());
         
         const u64_max: u64 = __inline_cpp("(uint64_t)0xFFFFFFFFFFFFFFFFULL");
         if imm->value_lo != u64_max {
@@ -3282,7 +3282,7 @@ fn Test() -> i32 {
         }
         
         var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
-        imm->evaluate(sm);
+        imm->evaluate(sm, lexer->get_imm_tbl());
         
         // should have is_big flag set
         const is_big_flag: u8 = __inline_cpp("(uint8_t)0b00000100");
@@ -3355,7 +3355,7 @@ fn Test() -> i32 {
         
         for var i: usize = 0; i < expected_count; ++i {
             var imm = lexer->get_imm::<Immediate::IntData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             if imm->bits != expected_bits[i] {
                 return f"token {i}: expected bits {expected_bits[i]}, got {imm->bits}";
@@ -3398,7 +3398,7 @@ fn Test() -> i32 {
             }
             
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             const base_10: u8 = __inline_cpp("(uint8_t)10");
             if imm->base != base_10 {
@@ -3454,7 +3454,7 @@ fn Test() -> i32 {
             }
             
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
@@ -3505,7 +3505,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected has_exponent flag (bit0) to be set, flags={imm->flags}";
             }
             
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             // relative comparison for large values
             var expected = static_cast::<f80>(expected_values[i]);
@@ -3558,7 +3558,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected is_hex_float flag (bit2) to be set, flags={imm->flags}";
             }
             
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             const base_16: u8 = __inline_cpp("(uint8_t)16");
             if imm->base != base_16 {
@@ -3604,7 +3604,7 @@ fn Test() -> i32 {
         
         for var i: usize = 0; i < expected_count; ++i {
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
@@ -3658,7 +3658,7 @@ fn Test() -> i32 {
                 return f"token {i}: expected has_suffix flag (bit4) to be set, flags={imm->flags}";
             }
             
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             if imm->bits != expected_bits[i] {
                 return f"token {i}: expected bits {expected_bits[i]}, got {imm->bits}";
@@ -3701,7 +3701,7 @@ fn Test() -> i32 {
         
         for var i: usize = 0; i < 3; ++i {
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
-            imm->evaluate(sm); // removing evaluation step only adds 1MB/s to perf
+            imm->evaluate(sm, lexer->get_imm_tbl()); // removing evaluation step only adds 1MB/s to perf
             
             // use relative comparison for very large numbers
             var expected = static_cast::<f80>(expected_values[i]);
@@ -3748,7 +3748,7 @@ fn Test() -> i32 {
         
         // verify the float value
         var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(3)->imm);
-        imm->evaluate(sm); // removing evaluation step only adds 1MB/s to perf
+        imm->evaluate(sm, lexer->get_imm_tbl()); // removing evaluation step only adds 1MB/s to perf
         
         const expected_val: f80 = __inline_cpp("(long double)0.5");
         var diff = imm->value_ieee - expected_val;
@@ -3790,7 +3790,7 @@ fn Test() -> i32 {
         
         for var i: usize = 0; i < expected_count; ++i {
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             var diff = imm->value_ieee - static_cast::<f80>(expected_values[i]);
             const zero_f80: f80 = __inline_cpp("(long double)0.0");
@@ -3850,21 +3850,21 @@ fn Test() -> i32 {
         
         // verify values
         var int0 = lexer->get_imm::<Immediate::IntData>(tokens->get(0)->imm);
-        int0->evaluate(sm);
+        int0->evaluate(sm, lexer->get_imm_tbl());
         const zero_u64: u64 = __inline_cpp("(uint64_t)0");
         if int0->value_lo != zero_u64 {
             return f"token 0: expected value 0, got {int0->value_lo}";
         }
         
         var int2 = lexer->get_imm::<Immediate::IntData>(tokens->get(2)->imm);
-        int2->evaluate(sm);
+        int2->evaluate(sm, lexer->get_imm_tbl());
         const ten_u64: u64 = __inline_cpp("(uint64_t)10");
         if int2->value_lo != ten_u64 {
             return f"token 2: expected value 10, got {int2->value_lo}";
         }
         
         var float3 = lexer->get_imm::<Immediate::FloatData>(tokens->get(3)->imm);
-        float3->evaluate(sm);
+        float3->evaluate(sm, lexer->get_imm_tbl());
         const expected_float: f80 = __inline_cpp("(long double)0.5");
         var diff = float3->value_ieee - expected_float;
         const zero_f80: f80 = __inline_cpp("(long double)0.0");
@@ -3902,7 +3902,7 @@ fn Test() -> i32 {
             }
             
             var imm = lexer->get_imm::<Immediate::FloatData>(tokens->get(i)->imm);
-            imm->evaluate(sm);
+            imm->evaluate(sm, lexer->get_imm_tbl());
             
             const zero_u: usize = __inline_cpp("(size_t)0");
             const one_u: usize = __inline_cpp("(size_t)1");

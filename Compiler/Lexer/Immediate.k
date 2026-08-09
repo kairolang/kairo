@@ -400,6 +400,12 @@ class BigFloat {
     }
 }
 
+/// Forward decl breaks the ImmediateTable <-> literal-sheet cycle: the table
+/// stores complete IntData/FloatData/CharData/StringData, and evaluate() takes
+/// the table back. Only pointer uses appear before the definition; the two
+/// evaluate() bodies are defined out-of-line at the bottom of this file.
+class ImmediateTable;
+
 module Immediate {
     static var DIGIT_TABLE: array::<u8, 128> = __inline_cpp("{
         0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // 0-7
@@ -514,171 +520,19 @@ module Immediate {
         //   bit 3: has_suffix
         //   bit 4: has_prefix
 
-        priv var _evaluation_status_cb: fn (bool);
-
-        fn IntData(self, parsing_status_cb: fn (bool)) {
+        fn IntData(self) {
             self.value_lo = 0;
             self.value_hi = 0;
             self.bits     = 0;
             self.base     = 10;
             self.flags    = 0;
-            self._evaluation_status_cb = parsing_status_cb;
         }
 
-        fn evaluate(self, sm: *SourceManager) {
-            self._evaluation_status_cb(true);
-
-            // reset values
-            self.value_lo = 0;
-            self.value_hi = 0;
-
-            if self.big != &null {
-                std::destroy(self.big);
-                self.big = &null;
-            }
-
-            // clear is_big flag, preserve others
-            self.flags &= ~(0b00000100 as u8);
-
-            var body_text = sm->get_text(self.body);
-            var body_len  = body_text.length();
-
-            if body_len == 0 {
-                self._evaluation_status_cb(false);
-                return;
-            }
-
-            var data     = body_text.raw();
-            var base_u64 = static_cast::<u64>(self.base);
-
-            // phase 1: try to fit in 64 bits
-            var overflow_hi: u64 = 0;
-            var overflowed: bool = false;
-            var idx: usize = 0;
-
-            while idx < body_len {
-                var c = data[idx];
-                ++idx;
-
-                // skip underscores
-                if c == '_' { continue; }
-
-                var digit = get_digit_value(c, self.base);
-                if digit == 0xFF { continue; }
-
-                if Int128::mul_add_64(self.value_lo, base_u64, static_cast::<u64>(digit), overflow_hi) {
-                    overflowed = true;
-                    break;
-                }
-            }
-
-            if !overflowed {
-                // fits in 64 bits
-                self.value_hi = 0;
-            } else {
-                // phase 2: try to fit in 128 bits
-                self.value_lo = 0;
-                self.value_hi = 0;
-
-                var in_128: bool = true;
-                idx = 0;
-
-                while idx < body_len {
-                    var c = data[idx];
-                    ++idx;
-
-                    if c == '_' { continue; }
-
-                    var digit = get_digit_value(c, self.base);
-                    if digit == 0xFF { continue; }
-
-                    if Int128::mul_add_128(self.value_lo, self.value_hi, base_u64, static_cast::<u64>(digit)) {
-                        in_128 = false;
-                        break;
-                    }
-                }
-
-                if !in_128 {
-                    // phase 3: use BigInt
-                    self.flags |= 0b00000100; // set is_big flag
-
-                    self.big = std::create::<BigInt>(256);
-                    idx = 0;
-
-                    while idx < body_len {
-                        var c = data[idx];
-                        ++idx;
-
-                        if c == '_' { continue; }
-
-                        var digit = get_digit_value(c, self.base);
-                        if digit == 0xFF { continue; }
-
-                        self.big->mul_add(base_u64, static_cast::<u64>(digit));
-                    }
-
-                    // copy lo/hi from BigInt for convenience
-                    self.value_lo = self.big->lo64();
-                    self.value_hi = self.big->hi64();
-                }
-            }
-
-            // parse suffix to determine bit width and signedness
-            if (self.flags & 0b00001000) != 0 { // has_suffix
-                var suffix_text = sm->get_text(self.suffix);
-                var is_unsigned: bool = false;
-                var suffix_bits = parse_int_suffix(suffix_text, is_unsigned);
-
-                if suffix_bits > 0 {
-                    self.bits = suffix_bits;
-                    if is_unsigned {
-                        self.flags |= 0b00000001; // set unsigned flag
-                    } else {
-                        self.flags &= ~(0b00000001 as u8); // clear unsigned flag
-                    }
-                }
-            }
-
-            // infer minimum bit width if no suffix
-            if self.bits == 0 {
-                if self.big != &null {
-                    var actual_bits = self.big->bit_width();
-                    // round up to next power of 2
-                    if actual_bits <= 128 {
-                        self.bits = 128;
-                    } else if actual_bits <= 256 {
-                        self.bits = 256;
-                    } else if actual_bits <= 512 {
-                        self.bits = 512;
-                    } else if actual_bits <= 1024 {
-                        self.bits = 1024;
-                    } else {
-                        self.bits = static_cast::<u16>((actual_bits + 63) & ~63);
-                    }
-                } else if self.value_hi != 0 {
-                    self.bits = 128;
-                } else {
-                    // calculate actual bit width needed for value_lo
-                    if self.value_lo == 0 {
-                        self.bits = 8;
-                    } else {
-                        var bit_width: usize = 64 - static_cast::<usize>(libcxx::countl_zero(self.value_lo));
-                        
-                        if bit_width <= 8 {
-                            self.bits = 8;
-                        } else if bit_width <= 16 {
-                            self.bits = 16;
-                        } else if bit_width <= 32 {
-                            self.bits = 32;
-                        } else {
-                            self.bits = 64;
-                        }
-                    }
-                }
-            }
-
-            self._evaluation_status_cb(false);
-        }
+        /// \brief decodes the literal text into value_lo/value_hi/big.
+        /// \param tbl the owning table, whose in-flight counter brackets the run.
+        /// \note defined out-of-line at the bottom of this file, where
+        ///       ImmediateTable is complete.
+        fn evaluate(self, sm: *SourceManager, tbl: *ImmediateTable);
 
         fn to_string(self, sm: *SourceManager) -> string {
             var body_str   = sm->get_text(self.body);
@@ -714,269 +568,17 @@ module Immediate {
         pub var value_ieee: f80 = 0.0;
         pub var big_float:  *BigFloat = &null;
 
-        priv var _evaluation_status_cb: fn (bool);
-
-        fn FloatData(self, parsing_status_cb: fn (bool)) {
+        fn FloatData(self) {
             self.bits  = 0;
             self.base  = 10;
             self.flags = 0;
-            self._evaluation_status_cb = parsing_status_cb;
         }
 
-        fn evaluate(self, sm: *SourceManager) {
-            self._evaluation_status_cb(true);
-
-            self.value_ieee = 0.0;
-
-            if self.big_float != &null {
-                std::destroy(self.big_float);
-                self.big_float = &null;
-            }
-
-            // clear use_bigfloat flag, preserve others
-            self.flags &= ~(0b00001000 as u8);
-
-            var body_text = sm->get_text(self.body);
-            var body_len  = body_text.length();
-
-            if body_len == 0 {
-                self._evaluation_status_cb(false);
-                return;
-            }
-
-            var data   = body_text.raw();
-            var is_hex = (self.flags & 0b00000100) != 0;
-
-            // parsing state
-            var integer_part:     u64  = 0;
-            var frac_numerator:   u64  = 0;
-            var frac_digits:      i32  = 0;
-            var exp_value:        i64  = 0;
-            var exp_negative:     bool = false;
-            var has_integer:      bool = false;
-            var has_fraction:     bool = false;
-            var integer_overflow: bool = false;
-            var frac_overflow:    bool = false;
-
-            var idx: usize = 0;
-            var base_u64 = static_cast::<u64>(self.base);
-
-            // parse integer part
-            while idx < body_len {
-                var c = data[idx];
-
-                if c == '_' {
-                    ++idx;
-                    continue;
-                }
-
-                if c == '.' {
-                    ++idx;
-                    break;
-                }
-
-                // check for exponent start
-                if is_hex {
-                    if c == 'p' || c == 'P' { break; }
-                } else {
-                    if c == 'e' || c == 'E' { break; }
-                }
-
-                var digit = get_digit_value(c, self.base);
-                if digit == 0xFF { break; }
-
-                has_integer = true;
-
-                if !integer_overflow {
-                    var old = integer_part;
-                    integer_part = integer_part * base_u64 + static_cast::<u64>(digit);
-                    if integer_part < old {
-                        integer_overflow = true;
-                    }
-                }
-
-                ++idx;
-            }
-
-            // check if we just consumed a dot
-            var consumed_dot = (idx > 0) && (data[idx - 1] == '.');
-
-            // parse fractional part
-            if consumed_dot {
-                while idx < body_len {
-                    var c = data[idx];
-
-                    if c == '_' {
-                        ++idx;
-                        continue;
-                    }
-
-                    // check for exponent start
-                    if is_hex {
-                        if c == 'p' || c == 'P' { break; }
-                    } else {
-                        if c == 'e' || c == 'E' { break; }
-                    }
-
-                    var digit = get_digit_value(c, self.base);
-                    if digit == 0xFF { break; }
-
-                    has_fraction = true;
-
-                    if !frac_overflow {
-                        var old = frac_numerator;
-                        frac_numerator = frac_numerator * base_u64 + static_cast::<u64>(digit);
-                        if frac_numerator < old {
-                            frac_overflow = true;
-                        } else {
-                            ++frac_digits;
-                        }
-                    }
-
-                    ++idx;
-                }
-            }
-
-            // parse exponent
-            if idx < body_len {
-                var c = data[idx];
-                var is_exp_char = false;
-
-                if is_hex {
-                    is_exp_char = (c == 'p' || c == 'P');
-                } else {
-                    is_exp_char = (c == 'e' || c == 'E');
-                }
-
-                if is_exp_char {
-                    ++idx;
-
-                    // check for sign
-                    if idx < body_len {
-                        if data[idx] == '-' {
-                            exp_negative = true;
-                            ++idx;
-                        } else if data[idx] == '+' {
-                            ++idx;
-                        }
-                    }
-
-                    // parse exponent digits (always base 10, but allow underscores)
-                    while idx < body_len {
-                        var ec = data[idx];
-
-                        // skip underscores in exponent
-                        if ec == '_' {
-                            ++idx;
-                            continue;
-                        }
-
-                        if ec < '0' || ec > '9' { break; }
-
-                        exp_value = exp_value * 10 + static_cast::<i64>(ec - '0');
-                        ++idx;
-                    }
-
-                    if exp_negative {
-                        exp_value = -exp_value;
-                    }
-                }
-            }
-
-            // determine if we need BigFloat
-            // thresholds: f80 max exponent is ~4932 (base 10) or ~16383 (base 2)
-            var needs_big = integer_overflow || frac_overflow;
-
-            if !needs_big {
-                if is_hex {
-                    needs_big = (exp_value > 16383) || (exp_value < -16494);
-                } else {
-                    needs_big = (exp_value > 4932) || (exp_value < -4951);
-                }
-            }
-
-            if needs_big {
-                self.flags |= 0b00001000; // set use_bigfloat flag
-                self.big_float = std::create::<BigFloat>();
-                self.big_float->is_hex = is_hex;
-                self.big_float->exponent = exp_value;
-
-                // reparse integer part into BigInt mantissa
-                self.big_float->mantissa = BigInt(512);
-                idx = 0;
-
-                var frac_start: usize = 0;
-                var parsing_frac: bool = false;
-
-                while idx < body_len {
-                    var c = data[idx];
-
-                    if c == '_' {
-                        ++idx;
-                        continue;
-                    }
-
-                    if c == '.' {
-                        ++idx;
-                        frac_start = idx;
-                        parsing_frac = true;
-                        continue;
-                    }
-
-                    if is_hex {
-                        if c == 'p' || c == 'P' { break; }
-                    } else {
-                        if c == 'e' || c == 'E' { break; }
-                    }
-
-                    var digit = get_digit_value(c, self.base);
-                    if digit == 0xFF { break; }
-
-                    self.big_float->mantissa.mul_add(base_u64, static_cast::<u64>(digit));
-
-                    if parsing_frac {
-                        // adjust exponent for fractional digits
-                        if is_hex {
-                            self.big_float->exponent -= 4; // each hex digit = 4 bits
-                        } else {
-                            // for decimal, we track separately and convert later
-                        }
-                    }
-
-                    ++idx;
-                }
-
-                // also compute f80 approximation for convenience
-                self.value_ieee = self.compute_f80_approx(
-                    integer_part, frac_numerator, frac_digits,
-                    exp_value, is_hex, base_u64,
-                    integer_overflow, frac_overflow
-                );
-            } else {
-                // compute f80 value directly
-                self.value_ieee = self.compute_f80(
-                    integer_part, frac_numerator, frac_digits,
-                    exp_value, is_hex, base_u64
-                );
-            }
-
-            // parse suffix
-            if (self.flags & 0b00010000) != 0 { // has_suffix
-                var suffix_text = sm->get_text(self.suffix);
-                var suffix_bits = parse_float_suffix(suffix_text);
-
-                if suffix_bits > 0 {
-                    self.bits = suffix_bits;
-                }
-            }
-
-            // default to f64 if no suffix
-            if self.bits == 0 {
-                self.bits = 64;
-            }
-
-            self._evaluation_status_cb(false);
-        }
+        /// \brief decodes the literal text into value_ieee / big_float.
+        /// \param tbl the owning table, whose in-flight counter brackets the run.
+        /// \note defined out-of-line at the bottom of this file, where
+        ///       ImmediateTable is complete.
+        fn evaluate(self, sm: *SourceManager, tbl: *ImmediateTable);
 
         /// \brief computes f80 value from parsed components
         /// \details used when value fits in extended precision
@@ -1148,10 +750,7 @@ module Immediate {
         pub var owned_ptr: std::ConstPtr::<u8> = &null;
         pub var owned_len: u32 = 0;
 
-        priv var _evaluation_status_cb: fn (bool);
-
-        fn StringData(self, parsing_status_cb: fn (bool)) {
-            self._evaluation_status_cb = parsing_status_cb;
+        fn StringData(self) {
             self.next = u32(-1);
         }
 
@@ -1181,10 +780,7 @@ module Immediate {
         pub var prefix_kind: TextPrefixKind;
         pub var next:        u32; // for chained strings, contains the next imm string idx
 
-        priv var _evaluation_status_cb: fn (bool);
-
-        fn CharData(self, parsing_status_cb: fn (bool)) {
-            self._evaluation_status_cb = parsing_status_cb;
+        fn CharData(self) {
             self.next = u32(-1);
         }
 
@@ -1261,7 +857,16 @@ class ImmediateTable {
     var ident_mask:        u32 = 0;                                    ///< bucket capacity - 1 (power of two); 0 = uninitialized
     var ident_live:        u32 = 0;                                    ///< number of occupied buckets (load factor)
     var source_manager:    obs::<SourceManager> = &null;
-    var is_evaluating:     std::Atomic::<bool>  = false;
+
+    /// \brief number of evaluate() calls currently in flight against this table.
+    ///
+    /// \details A COUNTER, not a flag. The predecessor was a bool that every
+    ///          immediate set on entry and cleared on exit, which is wrong the
+    ///          moment two evaluations overlap: the first one to finish clears
+    ///          the flag while the second is still running, and
+    ///          wait_for_evaluation returns early on live data. A counter only
+    ///          reads zero when nothing is in flight.
+    priv var _evaluating: std::Atomic::<u32> = 0;
 
     fn initialize(self, sm: *SourceManager) {
         self.source_manager   = sm;
@@ -1291,8 +896,16 @@ class ImmediateTable {
         Logger::debug(Logger::Stage::Lexer, "ImmediateTable::reset: cleared all immediate literals and macro expansions");
     }
 
-    fn set_parsing_status(self, is_evaluating: bool) {
-        self.is_evaluating.store(is_evaluating, std::MemoryOrder::seq_cst);
+    /// \brief marks one evaluate() as entered. Pairs with end_evaluation().
+    fn begin_evaluation(self) {
+        self._evaluating.fetch_add(1, std::MemoryOrder::relaxed);
+    }
+
+    /// \brief marks one evaluate() as finished.
+    /// \note release, so a waiter that observes zero also observes every write
+    ///       the evaluation made to its immediate.
+    fn end_evaluation(self) {
+        self._evaluating.fetch_sub(1, std::MemoryOrder::release);
     }
 
     fn <T> create(self) -> u32 {
@@ -1302,9 +915,7 @@ class ImmediateTable {
                     f"ImmediateTable::create<IntData>: overflow at {MAX_IMMEDIATES}"));
             }
 
-            self.int_literals->push(Immediate::IntData(
-                fn (s: bool) { set_parsing_status(s); }
-            ));
+            self.int_literals->push(Immediate::IntData());
             return static_cast::<u32>((self.int_literals->size()) - 1);
 
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::FloatData>") {
@@ -1313,9 +924,7 @@ class ImmediateTable {
                     f"ImmediateTable::create<FloatData>: overflow at {MAX_IMMEDIATES}"));
             }
 
-            self.float_literals->push(Immediate::FloatData(
-                fn (s: bool) { set_parsing_status(s); }
-            ));
+            self.float_literals->push(Immediate::FloatData());
             return static_cast::<u32>((self.float_literals->size()) - 1);
 
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::CharData>") {
@@ -1324,9 +933,7 @@ class ImmediateTable {
                     f"ImmediateTable::create<CharData>: overflow at {MAX_IMMEDIATES}"));
             }
 
-            self.char_literals->push(Immediate::CharData(
-                fn (s: bool) { set_parsing_status(s); }
-            ));
+            self.char_literals->push(Immediate::CharData());
             return static_cast::<u32>((self.char_literals->size()) - 1);
 
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::StringData>") {
@@ -1335,9 +942,7 @@ class ImmediateTable {
                     f"ImmediateTable::create<StringData>: overflow at {MAX_IMMEDIATES}"));
             }
 
-            self.string_literals->push(Immediate::StringData(
-                fn (s: bool) { set_parsing_status(s); }
-            ));
+            self.string_literals->push(Immediate::StringData());
             return static_cast::<u32>((self.string_literals->size()) - 1);
 
         } else if __inline_cpp("std::Meta::is_same_as<T, Immediate::MacroExpansionInfo>") {
@@ -1678,7 +1283,416 @@ class ImmediateTable {
 
     fn wait_for_evaluation(self) {
         std::sleep_while(fn () -> bool {
-            return self.is_evaluating.load(std::MemoryOrder::seq_cst);
+            return self._evaluating.load(std::MemoryOrder::acquire) != 0;
         });
     }
+}
+fn Immediate::IntData::evaluate(sm: *SourceManager, tbl: *ImmediateTable) {
+    tbl->begin_evaluation();
+
+    // reset values
+    self.value_lo = 0;
+    self.value_hi = 0;
+
+    if self.big != &null {
+        std::destroy(self.big);
+        self.big = &null;
+    }
+
+    // clear is_big flag, preserve others
+    self.flags &= ~(0b00000100 as u8);
+
+    var body_text = sm->get_text(self.body);
+    var body_len  = body_text.length();
+
+    if body_len == 0 {
+        tbl->end_evaluation();
+        return;
+    }
+
+    var data     = body_text.raw();
+    var base_u64 = static_cast::<u64>(self.base);
+
+    // phase 1: try to fit in 64 bits
+    var overflow_hi: u64 = 0;
+    var overflowed: bool = false;
+    var idx: usize = 0;
+
+    while idx < body_len {
+        var c = data[idx];
+        ++idx;
+
+        // skip underscores
+        if c == '_' { continue; }
+
+        var digit = get_digit_value(c, self.base);
+        if digit == 0xFF { continue; }
+
+        if Int128::mul_add_64(self.value_lo, base_u64, static_cast::<u64>(digit), overflow_hi) {
+            overflowed = true;
+            break;
+        }
+    }
+
+    if !overflowed {
+        // fits in 64 bits
+        self.value_hi = 0;
+    } else {
+        // phase 2: try to fit in 128 bits
+        self.value_lo = 0;
+        self.value_hi = 0;
+
+        var in_128: bool = true;
+        idx = 0;
+
+        while idx < body_len {
+            var c = data[idx];
+            ++idx;
+
+            if c == '_' { continue; }
+
+            var digit = get_digit_value(c, self.base);
+            if digit == 0xFF { continue; }
+
+            if Int128::mul_add_128(self.value_lo, self.value_hi, base_u64, static_cast::<u64>(digit)) {
+                in_128 = false;
+                break;
+            }
+        }
+
+        if !in_128 {
+            // phase 3: use BigInt
+            self.flags |= 0b00000100; // set is_big flag
+
+            self.big = std::create::<BigInt>(256);
+            idx = 0;
+
+            while idx < body_len {
+                var c = data[idx];
+                ++idx;
+
+                if c == '_' { continue; }
+
+                var digit = get_digit_value(c, self.base);
+                if digit == 0xFF { continue; }
+
+                self.big->mul_add(base_u64, static_cast::<u64>(digit));
+            }
+
+            // copy lo/hi from BigInt for convenience
+            self.value_lo = self.big->lo64();
+            self.value_hi = self.big->hi64();
+        }
+    }
+
+    // parse suffix to determine bit width and signedness
+    if (self.flags & 0b00001000) != 0 { // has_suffix
+        var suffix_text = sm->get_text(self.suffix);
+        var is_unsigned: bool = false;
+        var suffix_bits = parse_int_suffix(suffix_text, is_unsigned);
+
+        if suffix_bits > 0 {
+            self.bits = suffix_bits;
+            if is_unsigned {
+                self.flags |= 0b00000001; // set unsigned flag
+            } else {
+                self.flags &= ~(0b00000001 as u8); // clear unsigned flag
+            }
+        }
+    }
+
+    // infer minimum bit width if no suffix
+    if self.bits == 0 {
+        if self.big != &null {
+            var actual_bits = self.big->bit_width();
+            // round up to next power of 2
+            if actual_bits <= 128 {
+                self.bits = 128;
+            } else if actual_bits <= 256 {
+                self.bits = 256;
+            } else if actual_bits <= 512 {
+                self.bits = 512;
+            } else if actual_bits <= 1024 {
+                self.bits = 1024;
+            } else {
+                self.bits = static_cast::<u16>((actual_bits + 63) & ~63);
+            }
+        } else if self.value_hi != 0 {
+            self.bits = 128;
+        } else {
+            // calculate actual bit width needed for value_lo
+            if self.value_lo == 0 {
+                self.bits = 8;
+            } else {
+                var bit_width: usize = 64 - static_cast::<usize>(libcxx::countl_zero(self.value_lo));
+                
+                if bit_width <= 8 {
+                    self.bits = 8;
+                } else if bit_width <= 16 {
+                    self.bits = 16;
+                } else if bit_width <= 32 {
+                    self.bits = 32;
+                } else {
+                    self.bits = 64;
+                }
+            }
+        }
+    }
+
+    tbl->end_evaluation();
+}
+
+fn Immediate::FloatData::evaluate(sm: *SourceManager, tbl: *ImmediateTable) {
+    tbl->begin_evaluation();
+
+    self.value_ieee = 0.0;
+
+    if self.big_float != &null {
+        std::destroy(self.big_float);
+        self.big_float = &null;
+    }
+
+    // clear use_bigfloat flag, preserve others
+    self.flags &= ~(0b00001000 as u8);
+
+    var body_text = sm->get_text(self.body);
+    var body_len  = body_text.length();
+
+    if body_len == 0 {
+        tbl->end_evaluation();
+        return;
+    }
+
+    var data   = body_text.raw();
+    var is_hex = (self.flags & 0b00000100) != 0;
+
+    // parsing state
+    var integer_part:     u64  = 0;
+    var frac_numerator:   u64  = 0;
+    var frac_digits:      i32  = 0;
+    var exp_value:        i64  = 0;
+    var exp_negative:     bool = false;
+    var has_integer:      bool = false;
+    var has_fraction:     bool = false;
+    var integer_overflow: bool = false;
+    var frac_overflow:    bool = false;
+
+    var idx: usize = 0;
+    var base_u64 = static_cast::<u64>(self.base);
+
+    // parse integer part
+    while idx < body_len {
+        var c = data[idx];
+
+        if c == '_' {
+            ++idx;
+            continue;
+        }
+
+        if c == '.' {
+            ++idx;
+            break;
+        }
+
+        // check for exponent start
+        if is_hex {
+            if c == 'p' || c == 'P' { break; }
+        } else {
+            if c == 'e' || c == 'E' { break; }
+        }
+
+        var digit = get_digit_value(c, self.base);
+        if digit == 0xFF { break; }
+
+        has_integer = true;
+
+        if !integer_overflow {
+            var old = integer_part;
+            integer_part = integer_part * base_u64 + static_cast::<u64>(digit);
+            if integer_part < old {
+                integer_overflow = true;
+            }
+        }
+
+        ++idx;
+    }
+
+    // check if we just consumed a dot
+    var consumed_dot = (idx > 0) && (data[idx - 1] == '.');
+
+    // parse fractional part
+    if consumed_dot {
+        while idx < body_len {
+            var c = data[idx];
+
+            if c == '_' {
+                ++idx;
+                continue;
+            }
+
+            // check for exponent start
+            if is_hex {
+                if c == 'p' || c == 'P' { break; }
+            } else {
+                if c == 'e' || c == 'E' { break; }
+            }
+
+            var digit = get_digit_value(c, self.base);
+            if digit == 0xFF { break; }
+
+            has_fraction = true;
+
+            if !frac_overflow {
+                var old = frac_numerator;
+                frac_numerator = frac_numerator * base_u64 + static_cast::<u64>(digit);
+                if frac_numerator < old {
+                    frac_overflow = true;
+                } else {
+                    ++frac_digits;
+                }
+            }
+
+            ++idx;
+        }
+    }
+
+    // parse exponent
+    if idx < body_len {
+        var c = data[idx];
+        var is_exp_char = false;
+
+        if is_hex {
+            is_exp_char = (c == 'p' || c == 'P');
+        } else {
+            is_exp_char = (c == 'e' || c == 'E');
+        }
+
+        if is_exp_char {
+            ++idx;
+
+            // check for sign
+            if idx < body_len {
+                if data[idx] == '-' {
+                    exp_negative = true;
+                    ++idx;
+                } else if data[idx] == '+' {
+                    ++idx;
+                }
+            }
+
+            // parse exponent digits (always base 10, but allow underscores)
+            while idx < body_len {
+                var ec = data[idx];
+
+                // skip underscores in exponent
+                if ec == '_' {
+                    ++idx;
+                    continue;
+                }
+
+                if ec < '0' || ec > '9' { break; }
+
+                exp_value = exp_value * 10 + static_cast::<i64>(ec - '0');
+                ++idx;
+            }
+
+            if exp_negative {
+                exp_value = -exp_value;
+            }
+        }
+    }
+
+    // determine if we need BigFloat
+    // thresholds: f80 max exponent is ~4932 (base 10) or ~16383 (base 2)
+    var needs_big = integer_overflow || frac_overflow;
+
+    if !needs_big {
+        if is_hex {
+            needs_big = (exp_value > 16383) || (exp_value < -16494);
+        } else {
+            needs_big = (exp_value > 4932) || (exp_value < -4951);
+        }
+    }
+
+    if needs_big {
+        self.flags |= 0b00001000; // set use_bigfloat flag
+        self.big_float = std::create::<BigFloat>();
+        self.big_float->is_hex = is_hex;
+        self.big_float->exponent = exp_value;
+
+        // reparse integer part into BigInt mantissa
+        self.big_float->mantissa = BigInt(512);
+        idx = 0;
+
+        var frac_start: usize = 0;
+        var parsing_frac: bool = false;
+
+        while idx < body_len {
+            var c = data[idx];
+
+            if c == '_' {
+                ++idx;
+                continue;
+            }
+
+            if c == '.' {
+                ++idx;
+                frac_start = idx;
+                parsing_frac = true;
+                continue;
+            }
+
+            if is_hex {
+                if c == 'p' || c == 'P' { break; }
+            } else {
+                if c == 'e' || c == 'E' { break; }
+            }
+
+            var digit = get_digit_value(c, self.base);
+            if digit == 0xFF { break; }
+
+            self.big_float->mantissa.mul_add(base_u64, static_cast::<u64>(digit));
+
+            if parsing_frac {
+                // adjust exponent for fractional digits
+                if is_hex {
+                    self.big_float->exponent -= 4; // each hex digit = 4 bits
+                } else {
+                    // for decimal, we track separately and convert later
+                }
+            }
+
+            ++idx;
+        }
+
+        // also compute f80 approximation for convenience
+        self.value_ieee = self.compute_f80_approx(
+            integer_part, frac_numerator, frac_digits,
+            exp_value, is_hex, base_u64,
+            integer_overflow, frac_overflow
+        );
+    } else {
+        // compute f80 value directly
+        self.value_ieee = self.compute_f80(
+            integer_part, frac_numerator, frac_digits,
+            exp_value, is_hex, base_u64
+        );
+    }
+
+    // parse suffix
+    if (self.flags & 0b00010000) != 0 { // has_suffix
+        var suffix_text = sm->get_text(self.suffix);
+        var suffix_bits = parse_float_suffix(suffix_text);
+
+        if suffix_bits > 0 {
+            self.bits = suffix_bits;
+        }
+    }
+
+    // default to f64 if no suffix
+    if self.bits == 0 {
+        self.bits = 64;
+    }
+
+    tbl->end_evaluation();
 }
