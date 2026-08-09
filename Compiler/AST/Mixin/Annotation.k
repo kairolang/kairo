@@ -117,6 +117,19 @@ class AnnotationEntry {
     pub var range: SourceRange    = SourceRange::invalid();
     pub var args:  FrozenList::<*void>; // Expr always, we need to check
 
+    /// The declaration this attribute's NAME refers to, when it refers to one
+    /// at all. Written by NameResolution N(b); null otherwise.
+    ///
+    /// Most attributes (`@inline`, `@deprecated`) are compiler builtins with
+    /// no declaration anywhere, so a null here is the NORMAL case and is never
+    /// diagnosed. It is non-null for user-defined attribute macros, which are
+    /// ordinary decls (ProcedureMacroDecl) reached by ordinary lookup   that
+    /// is what makes jump-to-def work on `@my_macro`.
+    ///
+    /// Argument expressions in `args` are NOT resolved by N: attribute
+    /// argument folding is a later concern, names only here.
+    pub var resolved_decl: *void = &null;  ///< *Decl; *void dodges the stage0 cycle.
+
     fn AnnotationEntry(self) { }
 
     fn AnnotationEntry(self, k: AnnotationKind, n: u32, r: SourceRange) {

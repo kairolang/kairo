@@ -181,4 +181,4 @@ class Token { // size=16B, align=4
     fn readable_kind(self) -> string {
         return token_kind_to_readable_string(self.kind);
     }
-} //Token end
+}
