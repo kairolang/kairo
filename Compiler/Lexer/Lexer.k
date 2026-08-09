@@ -542,6 +542,33 @@ class Lexer {
         self._cursor       += step;
     }
 
+    /// \brief writes a raw-pointer scan back into the member cursor.
+    ///
+    /// \details the scan loops keep the position in a local `const u8*` so the
+    ///          compiler can hold it in a register; this is how that position
+    ///          re-enters the object. \p base is the buffer origin the scan was
+    ///          derived from and \p step is the byte length of the LAST
+    ///          character the loop consumed, which is exactly what
+    ///          advance_cursor would have left in _last_advanced. A \p step of 0
+    ///          means the loop consumed nothing, so _last_advanced is left
+    ///          alone and still describes the advance that entered the loop.
+    ///
+    /// \warning must be called before ANY helper that reads _cursor
+    ///          (get_source_location, create_source_range, peek_char32, a
+    ///          diagnostic, or a nested scanner), not merely before returning.
+    inline priv fn commit_cursor(
+        self,
+        const base: std::ConstPtr::<u8>,
+        const pos:  std::ConstPtr::<u8>,
+        const step: usize
+    ) {
+        if step != 0 {
+            self._last_advanced = static_cast::<isize>(step);
+        }
+
+        self._cursor = static_cast::<usize>(pos - base);
+    }
+
     inline priv fn retreat_cursor(self, count: usize = 1) {
         if count > self._cursor {
             self._cursor = 0;
@@ -902,8 +929,17 @@ class Lexer {
         var length:  usize     = 0;
         var keyword: bool      = true;
 
-        var first = self.peek_char32(); // read first char
-        var s_p   = self.current_data();
+        // buffer bounds are loop invariants; _cursor lives in `p` for the whole
+        // scan so the per-character cost is a decode and a pointer bump, with no
+        // member load-modify-store and no file_size()/file_data() call.
+        const base: std::ConstPtr::<u8> = self.file_data();
+        const end:  std::ConstPtr::<u8> = base + self.file_size();
+
+        var p:    std::ConstPtr::<u8> = base + self._cursor;
+        var step: usize               = 0;
+
+        var s_p   = p;
+        var first = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
 
         if self.is_valid_name(first) == 0 {
             self.advance_cursor(first.len);
@@ -912,14 +948,15 @@ class Lexer {
 
         hash.mix(first.chr);
         length += first.len;
-        self.advance_cursor(first.len);
+        p      += first.len;
+        step    = first.len;
 
         if first.len > 1 {
             keyword = false;
         }
 
-        while !self.is_eof() {
-            var d = self.peek_char32();
+        while p < end {
+            var d = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
             if self.is_valid_name(d) == 0 {
                 break; // finished
             }
@@ -939,9 +976,14 @@ class Lexer {
             }
 
             hash.mix(d.chr);
-            self.advance_cursor(d.len);
+            p      += d.len;
+            step    = d.len;
             length += d.len;
         }
+
+        // everything past this point (create_source_range, peek_char32,
+        // get_source_location, lex_text) reads _cursor.
+        self.commit_cursor(base, p, step);
 
         if length > MAX_KEYWORD_LENGTH {
             keyword = false;
@@ -1075,80 +1117,107 @@ class Lexer {
         return ctx;
     }
     
+    /// \details scans at most 16 characters per call and reports whether the
+    ///          caller should come back for more, same contract as before. The
+    ///          batched peek_char32::<16> it used to open with is gone: the
+    ///          cursor now lives in a local pointer for the whole call, so
+    ///          decoding one character at a time costs less than staging
+    ///          sixteen DecodeResults and then re-walking them through
+    ///          advance_cursor.
     inline priv fn scan_number_body(self, ctx: ref!(NumberCtx)) -> bool {
-        var chars = self.peek_char32::<16>();
+        const base: std::ConstPtr::<u8> = self.file_data();
+        const end:  std::ConstPtr::<u8> = base + self.file_size();
+
+        var p:    std::ConstPtr::<u8> = base + self._cursor;
+        var step: usize               = 0;
 
         for var i: usize = 0; i < 16; ++i {
-            var d = chars[i];
+            if p >= end {
+                // EOF used to arrive as a zero-filled DecodeResult that fell
+                // through every test below to `return false`. Say it directly.
+                self.commit_cursor(base, p, step);
+                return false;
+            }
+
+            var d = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
             var c = normalize_char32(d.chr);
 
             if ctx.has_exponent {
                 if ctx.allows_sign_next && (c == '+' || c == '-') {
-                    self.advance_cursor(d.len);
+                    p += d.len; step = d.len;
                     ctx.allows_sign_next = false;
                     ctx.last             = NumberCtx::LastWasState::Exponent;
                     continue;
                 }
 
                 if !(Lexer::is_decimal_digit(c)) {
+                    self.commit_cursor(base, p, step);
                     return false;
                 }
 
-                self.advance_cursor(d.len);
+                p += d.len; step = d.len;
                 ctx.last = NumberCtx::LastWasState::Digit;
                 continue;
             }
 
             if c == '_' {
                 if ctx.last != NumberCtx::LastWasState::Digit {
+                    self.commit_cursor(base, p, step);
                     return false;
                 }
                 ctx.last = NumberCtx::LastWasState::Underscore;
-                self.advance_cursor(d.len);
+                p += d.len; step = d.len;
                 continue;
             }
 
             if Lexer::is_base_digit(c, ctx.base) {
                 ctx.last = NumberCtx::LastWasState::Digit;
-                self.advance_cursor(d.len);
+                p += d.len; step = d.len;
                 continue;
             }
 
             if c == '.' && ctx.base != 2 && ctx.base != 8 {
-                // check for range operator
-                var next = self.peek_char32(1);
-                if next.len == 1 && next.chr == '.' {
+                // check for range operator. this was peek_char32(1), a
+                // one-BYTE lookahead   'c' is '.' here so one byte is one
+                // character and `p + d.len` is the same position.
+                var q = p + d.len;
+                if (q < end) && (q[0] == '.') {
+                    self.commit_cursor(base, p, step);
                     return false; // range operator, stop here
                 }
-                
+
                 if ctx.has_decimal
                 || ctx.last == NumberCtx::LastWasState::Dot
                 || ctx.last == NumberCtx::LastWasState::Underscore {
+                    self.commit_cursor(base, p, step);
                     return false;
                 }
 
                 ctx.has_decimal = true;
                 ctx.last        = NumberCtx::LastWasState::Dot;
-                self.advance_cursor(d.len);
+                p += d.len; step = d.len;
                 continue;
             }
 
             if Lexer::is_exponent_char(c, ctx.base) {
                 if ctx.has_exponent
                 || ctx.last == NumberCtx::LastWasState::Underscore {
+                    self.commit_cursor(base, p, step);
                     return false;
                 }
 
                 ctx.has_exponent     = true;
                 ctx.allows_sign_next = true;
                 ctx.last             = NumberCtx::LastWasState::Exponent;
-                self.advance_cursor(d.len);
+                p += d.len; step = d.len;
                 continue;
             }
 
+            self.commit_cursor(base, p, step);
             return false;
         }
 
+        self.commit_cursor(base, p, step);
         return true; // we are not done yet
     }
 
@@ -1368,13 +1437,21 @@ class Lexer {
             is_doc = (c3.len == 1) && ((c3.chr == '/') || (c3.chr == '<'));
         }
 
-        while !self.is_eof() {
-            var d = self.peek_char32();
+        const base: std::ConstPtr::<u8> = self.file_data();
+        const end:  std::ConstPtr::<u8> = base + self.file_size();
+
+        var p:    std::ConstPtr::<u8> = base + self._cursor;
+        var step: usize               = 0;
+
+        while p < end {
+            var d = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
             if d.len == 0 || d.chr == 0x0A || d.chr == 0x0D {
                 break;
             }
-            self.advance_cursor(d.len);
+            p += d.len; step = d.len;
         }
+
+        self.commit_cursor(base, p, step); // create_source_range reads _cursor
 
         var token = Token();
         token = TokenKind::AtComment;
@@ -1392,22 +1469,35 @@ class Lexer {
             is_doc = (c3.len == 1) && (c3.chr == '*');
         }
         
-        while (!self.is_eof()) && (nest_depth > 0) {
-            var chars = self.peek_char32::<2>();
-            
-            if (chars[0].chr == '*') && (chars[1].chr == '/') {
+        const base: std::ConstPtr::<u8> = self.file_data();
+        const end:  std::ConstPtr::<u8> = base + self.file_size();
+
+        var p:    std::ConstPtr::<u8> = base + self._cursor;
+        var step: usize               = 0;
+
+        while (p < end) && (nest_depth > 0) {
+            var c0 = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+
+            // the nesting markers are ASCII pairs, so only the raw byte after
+            // c0 matters   no need to decode it as a character.
+            var q  = p + c0.len;
+            var b1 = (q[0]) if (q < end) else (0 as u8);
+
+            if (c0.chr == '*') && (b1 == '/') {
                 nest_depth -= 1;
-                self.advance_cursor(2);
+                p += 2; step = 2;
                 continue;
             }
-            if (chars[0].chr == '/') && (chars[1].chr == '*') {
+            if (c0.chr == '/') && (b1 == '*') {
                 nest_depth += 1;
-                self.advance_cursor(2);
+                p += 2; step = 2;
                 continue;
             }
-            
-            self.advance_cursor(chars[0].len);
+
+            p += c0.len; step = c0.len;
         }
+
+        self.commit_cursor(base, p, step); // both exits below read _cursor
 
         if nest_depth > 0 {
             Logger::warn(Logger::Stage::Lexer, f"Lexer::lex_block_comment: unterminated block comment fid={self._fid}");
@@ -1554,99 +1644,46 @@ class Lexer {
         return ctx;
     }
 
+    /// \details split into a raw-pointer fast path for literal content and a
+    ///          cursor-backed slow path (scan_text_special) for the five bytes
+    ///          that can do something other than "advance one character".
+    ///          Everything interesting in a string literal   diagnostics,
+    ///          f-string expression offsets, the escape scanner   reads
+    ///          _cursor, so the cursor is committed before the slow path runs
+    ///          and the scan pointer is re-derived from it afterwards.
     inline priv fn scan_text_body(self, ctx: ref!(TextCtx)) {
-        while !self.is_eof() {
-            var d = self.peek_char32();
+        const base: std::ConstPtr::<u8> = self.file_data();
+        const end:  std::ConstPtr::<u8> = base + self.file_size();
 
-            if ctx.in_format_depth > 0 {
-                self.scan_format_expr(ctx, d);
+        var p:    std::ConstPtr::<u8> = base + self._cursor;
+        var step: usize               = 0;
+
+        while p < end {
+            var d = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+
+            // fast path: plain content. a multibyte codepoint is always > 0x7f
+            // and can never equal one of these, so the test is exact.
+            if (ctx.in_format_depth == 0)
+            && (d.chr != 0x22) && (d.chr != 0x27)
+            && (d.chr != 0x7b) && (d.chr != 0x7d)
+            && (d.chr != 0x5c) {
+                p += d.len; step = d.len;
                 continue;
             }
 
-            switch d.chr {
-                case 0x22: case 0x27 {
-                    if d.chr == ctx.delim {
-                        if ctx.is_triple {
-                            // need three in a row to close
-                            var q2 = self.peek_char32(1);
-                            var q3 = self.peek_char32(2);
-                            if (q2.chr == ctx.delim) && (q3.chr == ctx.delim) {
-                                ctx.body_end = self.get_source_location();
-                                self.advance_cursor(d.len + q2.len + q3.len); // consume all three
-                                return;
-                            }
-                            // fewer than three: this quote is content
-                            self.advance_cursor(d.len);
-                        } else {
-                            ctx.body_end = self.get_source_location();
-                            self.advance_cursor(d.len);
-                            return;
-                        }
-                    } else {
-                        self.advance_cursor(d.len); // a different quote char, content
-                    }
-                }
+            self.commit_cursor(base, p, step);
+            step = 0;
 
-                case 0x7b { // {
-                    if ctx.is_format {
-                        ctx.in_format_depth = 1;
-                        ctx.terminators.push(self.get_source_location());
-                        self.advance_cursor(d.len);
-
-                        ctx.fstring_specs.push_back(TextCtx::FormatSpec{
-                            start: self._cursor,
-                            end:   0
-                        });
-                        continue;
-                    }
-
-                    self.advance_cursor(d.len);
-                }
-
-                case 0x7d { // } - this is only called if our format depth is 0
-                    if ctx.is_format {
-                        ctx.has_error = true;
-                        var _r016 = SourceRange::from_bounds(
-                            self.get_source_location(),
-                            self.get_source_location(self._cursor + d.len)
-                        );
-                        self._diag->report(DiagCode(DiagID::S016E), _r016.start,
-                            "unmatched '}' in format string literal; use '\\\\}' for a literal brace")
-                            .first(_r016).emit();
-                    }
-
-                    self.advance_cursor(d.len);
-                }
-
-                case 0x5c { // backslash (raw-aware branch the only 0x5c case)
-                    if ctx.is_raw {
-                        var nxt = self.peek_char32(1);
-                        // in a triple-quoted raw string a lone " is content, not a terminator,
-                        // so \" does not end the string and must not warn.
-                        if (!ctx.is_triple) && (nxt.chr == ctx.delim) {
-                            var _r = SourceRange::from_bounds(
-                                self.get_source_location(),
-                                self.get_source_location(self._cursor + d.len + nxt.len)
-                            );
-                            self._diag->report(DiagCode(DiagID::S017W), _r.start,
-                                "backslash doesn't escape in raw string literal; the quote ends the string here")
-                                .first(_r).emit(); // TODO: add a clean fix message too
-                        }
-                        self.advance_cursor(d.len); // backslash only, always literal in raw
-                    } else {
-                        var esc_start = self.get_source_location();
-                        self.advance_cursor(d.len);
-                        if !self.is_valid_escape(esc_start, ctx.is_raw, ctx.is_format) {
-                            ctx.has_error = true;
-                        }
-                    }
-                }
-
-                default {
-                    self.advance_cursor(d.len);
-                }
+            if !self.scan_text_special(ctx, d) {
+                return; // closing delimiter consumed
             }
+
+            // the slow path moved the cursor itself (possibly by a lot, as with
+            // is_valid_escape or a nested f-string expression).
+            p = base + self._cursor;
         }
+
+        self.commit_cursor(base, p, step);
 
         ctx.has_error = true;
         var _r012 = SourceRange::from_bounds(ctx.start, self.get_source_location());
@@ -1655,6 +1692,107 @@ class Lexer {
                 if (ctx.is_triple)
             else ("unterminated string literal; add a closing '\x22' to end the string"))
             .first(_r012).emit();
+    }
+
+    /// \brief handles the one character scan_text_body's fast path refused.
+    ///
+    /// \details every branch here needs a live _cursor, so the caller commits
+    ///          before calling and re-reads _cursor after. Advances through
+    ///          advance_cursor exactly as the inlined switch used to.
+    ///
+    /// \returns false once the closing delimiter has been consumed and the
+    ///          literal is complete; true to keep scanning.
+    inline priv fn scan_text_special(self, ctx: ref!(TextCtx), d: DecodeResult) -> bool {
+        if ctx.in_format_depth > 0 {
+            self.scan_format_expr(ctx, d);
+            return true;
+        }
+
+        switch d.chr {
+            case 0x22: case 0x27 {
+                if d.chr == ctx.delim {
+                    if ctx.is_triple {
+                        // need three in a row to close
+                        var q2 = self.peek_char32(1);
+                        var q3 = self.peek_char32(2);
+                        if (q2.chr == ctx.delim) && (q3.chr == ctx.delim) {
+                            ctx.body_end = self.get_source_location();
+                            self.advance_cursor(d.len + q2.len + q3.len); // consume all three
+                            return false;
+                        }
+                        // fewer than three: this quote is content
+                        self.advance_cursor(d.len);
+                    } else {
+                        ctx.body_end = self.get_source_location();
+                        self.advance_cursor(d.len);
+                        return false;
+                    }
+                } else {
+                    self.advance_cursor(d.len); // a different quote char, content
+                }
+            }
+
+            case 0x7b { // {
+                if ctx.is_format {
+                    ctx.in_format_depth = 1;
+                    ctx.terminators.push(self.get_source_location());
+                    self.advance_cursor(d.len);
+
+                    ctx.fstring_specs.push_back(TextCtx::FormatSpec{
+                        start: self._cursor,
+                        end:   0
+                    });
+                    return true;
+                }
+
+                self.advance_cursor(d.len);
+            }
+
+            case 0x7d { // } - this is only called if our format depth is 0
+                if ctx.is_format {
+                    ctx.has_error = true;
+                    var _r016 = SourceRange::from_bounds(
+                        self.get_source_location(),
+                        self.get_source_location(self._cursor + d.len)
+                    );
+                    self._diag->report(DiagCode(DiagID::S016E), _r016.start,
+                        "unmatched '}' in format string literal; use '\\\\}' for a literal brace")
+                        .first(_r016).emit();
+                }
+
+                self.advance_cursor(d.len);
+            }
+
+            case 0x5c { // backslash (raw-aware branch the only 0x5c case)
+                if ctx.is_raw {
+                    var nxt = self.peek_char32(1);
+                    // in a triple-quoted raw string a lone " is content, not a terminator,
+                    // so \" does not end the string and must not warn.
+                    if (!ctx.is_triple) && (nxt.chr == ctx.delim) {
+                        var _r = SourceRange::from_bounds(
+                            self.get_source_location(),
+                            self.get_source_location(self._cursor + d.len + nxt.len)
+                        );
+                        self._diag->report(DiagCode(DiagID::S017W), _r.start,
+                            "backslash doesn't escape in raw string literal; the quote ends the string here")
+                            .first(_r).emit(); // TODO: add a clean fix message too
+                    }
+                    self.advance_cursor(d.len); // backslash only, always literal in raw
+                } else {
+                    var esc_start = self.get_source_location();
+                    self.advance_cursor(d.len);
+                    if !self.is_valid_escape(esc_start, ctx.is_raw, ctx.is_format) {
+                        ctx.has_error = true;
+                    }
+                }
+            }
+
+            default {
+                self.advance_cursor(d.len);
+            }
+        }
+
+        return true;
     }
 
     inline priv fn scan_format_expr(self, ctx: ref!(TextCtx), d: DecodeResult) {
@@ -1804,11 +1942,17 @@ class Lexer {
             }
         }
 
-        self.advance_cursor(first_len);
+        const base: std::ConstPtr::<u8> = self.file_data();
+        const end:  std::ConstPtr::<u8> = base + self.file_size();
 
-        while !self.is_eof() {
-            var current_char = self.peek_char32();
-            var c: char32  = normalize_char32(current_char.chr);
+        // the first character was already classified by get_token; charge it to
+        // the run here rather than paying a member round-trip for it.
+        var p:    std::ConstPtr::<u8> = base + self._cursor + first_len;
+        var step: usize               = first_len;
+
+        while p < end {
+            var current_char = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+            var c: char32    = normalize_char32(current_char.chr);
 
             switch self.classify(c) {
                 case CharClass::Whitespace {
@@ -1819,15 +1963,18 @@ class Lexer {
                     token = TokenKind::TkNewLine;
                     ++nl_count;
                 } default {
+                    // the run ends BEFORE this character; it is not consumed.
+                    self.commit_cursor(base, p, step);
                     token     = self.create_source_range(start);
                     token.imm = nl_count;
                     return token;
                 }
             }
 
-            self.advance_cursor(current_char.len);
+            p += current_char.len; step = current_char.len;
         }
 
+        self.commit_cursor(base, p, step);
         token     = self.create_source_range(start);
         token.imm = nl_count;
         return token;
