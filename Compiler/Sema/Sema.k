@@ -43,6 +43,7 @@ import Sema::Verify::CxxNameCheck::*;
 import Sema::Check::ConstraintExtraction::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
+import Support::TimeReport::*;
 
 // Pass imports land here as each pass becomes real, e.g.:
 //   import Sema::NameResolution::*;
@@ -146,6 +147,7 @@ class Sema {
     /// contained. Import-existence errors live here, nowhere else.
     priv fn _stage_imports(self) -> bool {
         if self._already(SemaPhase::ImportsResolved) { return true; }
+        var _t = TimeRegion("I-imports");
         self.sc.require_phase(SemaPhase::Parsed);
         ImportResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::ImportsResolved);
@@ -161,6 +163,7 @@ class Sema {
     /// lowering land here too when implemented.
     priv fn _stage_expand(self) -> bool {
         if self._already(SemaPhase::Expanded) { return true; }
+        var _t = TimeRegion("E-expand");
         self.sc.require_phase(SemaPhase::ImportsResolved);
         // TODO(sema): MacroExpansion(&self.sc).run();
         // TODO(sema): EvalLowering(&self.sc).run();  // extract eval fns -> dylib
@@ -178,13 +181,17 @@ class Sema {
     /// not worth resolving.
     priv fn _stage_verify(self) -> bool {
         if self._already(SemaPhase::Verified) { return true; }
+        var _t = TimeRegion("V-verify");
         self.sc.require_phase(SemaPhase::Expanded);
-        LoopContextCheck(&self.sc).run();
-        ArmOrderCheck(&self.sc).run();
-        TerminatorCheck(&self.sc).run();
-        JumpLabelCheck(&self.sc).run();
-        PatternBindingCheck(&self.sc).run();
-        CxxNameCheck(&self.sc).run();
+
+        // Per pass, not one number for the stage. Six independent full-tree
+        // walks: the whole question here is which of them is worth fusing.
+        { var _p = TimeRegion("LoopContext");     LoopContextCheck(&self.sc).run();     }
+        { var _p = TimeRegion("ArmOrder");        ArmOrderCheck(&self.sc).run();        }
+        { var _p = TimeRegion("Terminator");      TerminatorCheck(&self.sc).run();      }
+        { var _p = TimeRegion("JumpLabel");       JumpLabelCheck(&self.sc).run();       }
+        { var _p = TimeRegion("PatternBinding");  PatternBindingCheck(&self.sc).run();  }
+        { var _p = TimeRegion("CxxName");         CxxNameCheck(&self.sc).run();         }
         // Future Verify passes append here, one visible list.
         self.sc.advance_phase(SemaPhase::Verified);
         return !self._hard_stop();
@@ -197,6 +204,7 @@ class Sema {
     /// resolved_decl. Redefinition + unresolved-ident errors live here.
     priv fn _stage_name_resolution(self) -> bool {
         if self._already(SemaPhase::NamesResolved) { return true; }
+        var _t = TimeRegion("N-names");
         self.sc.require_phase(SemaPhase::Verified);
         NameResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::NamesResolved);
@@ -208,6 +216,7 @@ class Sema {
     /// unknown-type-name errors live here.
     priv fn _stage_type_resolution(self) -> bool {
         if self._already(SemaPhase::TypesResolved) { return true; }
+        var _t = TimeRegion("T-types");
         self.sc.require_phase(SemaPhase::NamesResolved);
         // TODO(sema): TypeResolution(&self.sc).run();
         self.sc.advance_phase(SemaPhase::TypesResolved);
@@ -220,6 +229,7 @@ class Sema {
     /// compile.
     priv fn _stage_checks(self) -> bool {
         if self._already(SemaPhase::Checked) { return true; }
+        var _t = TimeRegion("C-checks");
         self.sc.require_phase(SemaPhase::TypesResolved);
 
         // Constraint partition. Desugar already ran in the Expand phase (pure
@@ -244,6 +254,7 @@ class Sema {
     /// not in comments scattered across pass files.
     priv fn _stage_lowerings(self) -> bool {
         if self._already(SemaPhase::Lowered) { return true; }
+        var _t = TimeRegion("L-lowerings");
         self.sc.require_phase(SemaPhase::Checked);
         // TODO(sema): ExtensionLowering(&self.sc).run();     // folds extends
         // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit
@@ -261,6 +272,7 @@ class Sema {
     /// M1: monomorphization usage collection (parallel-safe).
     priv fn _stage_mono_collect(self) -> bool {
         if self._already(SemaPhase::MonoCollected) { return true; }
+        var _t = TimeRegion("M1-collect");
         self.sc.require_phase(SemaPhase::Lowered);
         // TODO(sema): Monomorphization::collect(&self.sc);
         self.sc.advance_phase(SemaPhase::MonoCollected);
@@ -271,6 +283,7 @@ class Sema {
     /// stage allowed to touch cross-TU mutable state.
     priv fn _stage_mono_instantiate(self) -> bool {
         if self._already(SemaPhase::Complete) { return true; }
+        var _t = TimeRegion("M2-instantiate");
         self.sc.require_phase(SemaPhase::MonoCollected);
         // TODO(sema): Monomorphization::instantiate(&self.sc);
         // TODO(sema): DependentResolution(&self.sc).run();

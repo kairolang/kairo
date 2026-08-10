@@ -17,6 +17,7 @@ import Resolution::ImportProbe::*;
 import Location::SourceManager::*;
 import Resolution::ModulePath::*;
 import Support::FileIO::Path::*;
+import Support::TimeReport::*;
 import Preprocessor::TokenSource::*;
 import Preprocessor::StreamCursor::*;
 
@@ -97,6 +98,8 @@ class DepScanner {
 
     /// \brief entry point - builds the full dep graph rooted at entry_fid
     fn build_graph(self, entry_fid: u32, entry_path: ModulePath) -> DepGraph {
+        var _t = TimeRegion("DepScan");
+
         var graph = DepGraph();
         self.visit(entry_fid, entry_path, &graph, 0);
         return graph;
@@ -159,6 +162,23 @@ class DepScanner {
 
             src.next(); // everything else: skip
         }
+
+        // PERF: this loop runs to EOF, so every file is FULLY tokenized here
+        // and fully tokenized again by the walk   two complete lexes of the
+        // same bytes, confirmed by DepScan.Lex and Walk.Lex reporting
+        // identical call counts under --time-passes. The scan's tokens are
+        // then discarded (open_scan_stream deliberately never touches _slots).
+        //
+        // Two ways out, neither taken here because both are decisions, not
+        // cleanups:
+        //   1. Stop at the first token that cannot begin an import. Costs
+        //      nothing, but only legal if the grammar pins imports to the file
+        //      prologue   which it currently does not, since PPWalker handles
+        //      `import` anywhere in its main loop.
+        //   2. Keep the scan's TokenBuffer + ImmediateTable and have the walk
+        //      read from it instead of re-lexing. Needs the walk's macro
+        //      expansion to write into a separate output buffer rather than
+        //      assuming it owns the input stream.
     }
 
     priv fn _skip_ffi_stream(self, src: *TokenSource) {

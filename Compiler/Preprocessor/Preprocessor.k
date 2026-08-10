@@ -25,6 +25,7 @@ import Token::TokenText::*;
 import Token::TokenBuffer::*;
 import Resolution::ImportProbe::*;
 import Support::FileIO::Path::*;
+import Support::TimeReport::*;
 import Config::Preprocessor::*;
 import Macro::Sentinel::*;
 import Preprocessor::TokenSource::*;
@@ -76,6 +77,18 @@ class PPWalker
     priv var _fid:               u32 = u32(-1); //< invalid sentinel
     priv var _expansion_count:   i32 = 0;
     priv var _unique_counter:    u32 = 0;
+
+    // --- Pass timing (--time-passes) --------------------------------------
+    //
+    //   Handles resolved once in run(), null when timing is off   which is
+    //   what makes the sampled scopes below cost a single null check on the
+    //   per-token path. Counters are per-walker, hence per-file and per-thread;
+    //   a shared counter would put a contended cache line in the token loop,
+    //   which is the exact cost sampling exists to avoid.
+    priv var _t_detect: *kairo::KTimeRecord = &null;
+    priv var _t_emit:   *kairo::KTimeRecord = &null;
+    priv var _c_detect: u32 = 0;
+    priv var _c_emit:   u32 = 0;
 
     fn PPWalker(
         self,
@@ -145,6 +158,14 @@ class PPWalker
     //  The walk
 
     fn run(self) -> bool {
+        // Resolved once per file, under the Walk region the wave opened. The
+        // per-token scopes below check these for null before anything else, so
+        // leaving them null when timing is off makes the instrumentation free.
+        if time_enabled() {
+            self._t_detect = time_region("Detect");
+            self._t_emit   = time_region("Emit");
+        }
+
         while !self._src->at_eof() {
             var t = self._src->peek(0);
             var k = t.kind;
@@ -185,8 +206,14 @@ class PPWalker
             if self._track_scope(t, ModuleVisibility::Public) { continue; }
 
             // invocation?
+            //
+            // Timed INSIDE _detect_invocation, not around this call: hoisting
+            // the result out of a timing block would copy an InvocationInfo
+            // (three vectors) on every token. Pessimizing the preprocessor to
+            // measure the preprocessor is a bad trade.
             var inv = self._detect_invocation();
             if inv.found {
+                var _tx = TimeRegion("Expand");
                 self._expand(inv);
                 continue;
             }
@@ -196,7 +223,10 @@ class PPWalker
             self._emit(next_tok, &chain);
         }
 
-        self._finalize();
+        {
+            var _tf = TimeRegion("Finalize");
+            self._finalize();
+        }
         return !self._diag->has_fatal();
     }
 
@@ -209,6 +239,10 @@ class PPWalker
     ///        brace/module tokens, the poison sentinel): those tokens are
     ///        never origin-wrapped, same as before this existed.
     priv fn _emit(self, t: Token, chain: *vec::<InvokeHop> = &null) {
+        // Sampled, same reasoning as _detect_invocation: the single choke
+        // point every token passes through.
+        var _t = TimeSampled(self._t_emit, 64, &self._c_emit);
+
         if self._src->in_splice() {
             if (t.kind == TokenKind::KwImport) || (t.kind == TokenKind::KwMacro) {
                 // BACKSTOP (primary check is at def time). To lift the rule:
@@ -346,6 +380,8 @@ class PPWalker
     //  Imports
 
     priv fn _handle_import(self, default_vis: u8) {
+        var _t = TimeRegion("Import");
+
         // visibility already consumed by caller when prefixed; default_vis
         // carries priv(1) unless caller saw pub/prot/priv.
         var vis = default_vis;
@@ -423,6 +459,8 @@ class PPWalker
     //  Macro definitions
 
     priv fn _handle_macro_def(self, vis: u8) {
+        var _t = TimeRegion("MacroDef");
+
         var kw = self._src->next(); // `macro`
 
         // proc macro `macro @name` copy through, not ours
@@ -591,6 +629,11 @@ class PPWalker
     }
 
     priv fn _detect_invocation(self) -> InvocationInfo {
+        // Sampled: runs on EVERY token and almost always answers no, so it is
+        // both hot and a plausible bottleneck   exactly the case an unsampled
+        // scope cannot measure without becoming the cost it is measuring.
+        var _t = TimeSampled(self._t_detect, 64, &self._c_detect);
+
         var result = InvocationInfo();
 
         result.origin_site = self._src->bottom_invoke_loc();
@@ -2400,7 +2443,16 @@ class PreProcessor {
             }
         }
 
-        var lexer = self._tcm->open_stream(fid);
+        // Slot setup plus contention on TokenCacheManager::_lex_mu, which
+        // every file in the wave serializes through. If this is anything but
+        // noise, the wave is queueing on that one mutex and widening the pool
+        // will not help. NOT lex time   see Lexer::next, which bills "Lex".
+        var lexer: *Lexer = &null;
+        {
+            var _tl = TimeRegion("Open");
+            lexer = self._tcm->open_stream(fid);
+        }
+
         if lexer == &null {
             Logger::error(Logger::Stage::Preprocessor, f"PP: stream open failed fid={fid}");
             return false;
@@ -2445,8 +2497,19 @@ class PreProcessor {
 
     fn preprocess(self, entry_fid: u32, entry_path: ModulePath) -> PPResult {
         var out = PPResult();
-        self._resolver->wait_for_index();
 
+        // Separate region: the resolver index is built on the pool at
+        // initialize() to overlap with this. Time spent here is time the
+        // overlap failed to hide.
+        {
+            var _tw = TimeRegion("ResolverIndexWait");
+            self._resolver->wait_for_index();
+        }
+
+        // Timed inside DepScanner::build_graph, not wrapped here: hoisting the
+        // graph out of a timing block would cost a default-construct plus a
+        // copy-assign of five maps on every TU, and pessimizing the compiler
+        // to measure the compiler is a bad trade.
         var scanner = DepScanner(self._sm, self._tcm, self._resolver, self._sym, self._opts.max_import_depth);
         var graph   = scanner.build_graph(entry_fid, entry_path);
 
@@ -2470,9 +2533,21 @@ class PreProcessor {
         }
 
         var executor = WaveExecutor(self._pool);
-        executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
-            self._walk_one(fid, mod_path);
-        });
+        {
+            // One region, not a Wave/walk pair. The driver's time here is the
+            // wave's LATENCY (dispatch + dependency stalls); each worker bills
+            // its file's walk as WORK to the same record. par is then exactly
+            // the parallelism the import DAG allowed   which is the only thing
+            // anyone wants to know about a wave scheduler.
+            var _te  = TimeRegion("Walk");
+            var wrec = _te.record();
+
+            executor.run(&graph, fn(fid: u32, mod_path: ModulePath) {
+                var _tw = TimeWorker(wrec);
+                _tw.units(u64(self._sm->get_file_size(fid)), r"B");
+                self._walk_one(fid, mod_path);
+            });
+        }
 
         out.ok = !self._diag->has_fatal();
         out.fids.reserve(graph.all_fids.size());

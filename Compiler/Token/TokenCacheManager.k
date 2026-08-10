@@ -12,6 +12,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Lexer::Lexer::*;
+import Support::TimeReport::*;
 
 ///
 /// \class TokenCacheManager
@@ -68,6 +69,13 @@ class TokenCacheManager {
         var imm = std::create::<ImmediateTable>();
         imm->initialize(self._sm);
         var lexer = std::create::<Lexer>(self._sm, self._pool, self._diag, imm);
+
+        // Bound explicitly, under the caller's region (DepScan), so this scan
+        // lex does not merge with the walk's lex into a single row. They are
+        // two full tokenizations of the same bytes and the report has to say
+        // so   see the comment on open_scan_stream above.
+        if time_enabled() { lexer->bind_time_region(time_region("Lex")); }
+
         if !lexer->open(fid) {
             std::destroy(lexer);
             std::destroy(imm);
