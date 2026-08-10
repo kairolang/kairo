@@ -589,6 +589,48 @@ class Lexer {
 
     ///========= LEXER INTERNALS ==========///
 
+    /// \brief decodes the character at \p p, without a call for ASCII.
+    ///
+    /// \details decode_utf8_lut already has this exact test three instructions
+    ///          in, so this is not a cheaper CHECK - it removes the call needed
+    ///          to reach it. UTF8View::decode_utf8 lives behind an FFI header
+    ///          and does not inline into the lexer: `sample` shows it as its
+    ///          own frame on the hot path. Real source is >95% ASCII, so this
+    ///          keeps the overwhelmingly common character entirely inside the
+    ///          caller's scan loop.
+    ///
+    /// \param avail bytes readable at \p p. Zero is EOF and yields len 0, which
+    ///        is what every scan loop breaks on.
+    inline static fn decode_at(const p: std::ConstPtr::<u8>, const avail: usize) -> DecodeResult {
+        if avail == 0 {
+            return DecodeResult('\0', 0);
+        }
+
+        if p[0] < 0x80 {
+            return DecodeResult(static_cast::<char32>(p[0]), 1);
+        }
+
+        return UTF8View::decode_utf8(p, avail);
+    }
+
+    /// \brief byte length of the character ending immediately before \p q.
+    ///
+    /// \details Only for the raw-byte scanners (the comment bodies), which
+    ///          never learn a character length because they never decode. Walk
+    ///          back over UTF-8 continuation bytes once, at loop exit, so
+    ///          commit_cursor can still record the same _last_advanced a
+    ///          decoding loop would have.
+    inline static fn char_len_before(const base: std::ConstPtr::<u8>, const q: std::ConstPtr::<u8>) -> usize {
+        if q <= base { return 0; }
+
+        var r = q - 1;
+        while (r > base) && ((r[0] & 0xC0) == 0x80) {
+            r -= 1;
+        }
+
+        return static_cast::<usize>(q - r);
+    }
+
     /// 1 would be the immediate next char
     inline priv fn peek_char32(self, offset: isize = 0) -> DecodeResult {
         var data: std::ConstPtr::<u8> = self.current_data();
@@ -616,7 +658,7 @@ class Lexer {
             return DecodeResult('\0', 0);
         }
 
-        return UTF8View::decode_utf8(data, size);
+        return Lexer::decode_at(data, size);
     }
 
     inline priv fn get_char32(self) -> DecodeResult {
@@ -648,7 +690,7 @@ class Lexer {
 
         if (max_unicode_len != 1) {
             while (out_i < N) && (consumed < remain) {
-                var d = UTF8View::decode_utf8(data + consumed, remain - consumed);
+                var d = Lexer::decode_at(data + consumed, remain - consumed);
                 if d.len == 0 { break; }
 
                 res[out_i] = d;
@@ -843,7 +885,7 @@ class Lexer {
         }
 
         while (out_i < N) && (consumed < remain) {
-            var d = UTF8View::decode_utf8(data + consumed, remain - consumed);
+            var d = Lexer::decode_at(data + consumed, remain - consumed);
             if d.len == 0 { break; }
 
             res[out_i] = d;
@@ -939,7 +981,7 @@ class Lexer {
         var step: usize               = 0;
 
         var s_p   = p;
-        var first = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+        var first = Lexer::decode_at(p, static_cast::<usize>(end - p));
 
         if self.is_valid_name(first) == 0 {
             self.advance_cursor(first.len);
@@ -956,7 +998,7 @@ class Lexer {
         }
 
         while p < end {
-            var d = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+            var d = Lexer::decode_at(p, static_cast::<usize>(end - p));
             if self.is_valid_name(d) == 0 {
                 break; // finished
             }
@@ -1139,7 +1181,7 @@ class Lexer {
                 return false;
             }
 
-            var d = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+            var d = Lexer::decode_at(p, static_cast::<usize>(end - p));
             var c = normalize_char32(d.chr);
 
             if ctx.has_exponent {
@@ -1443,13 +1485,21 @@ class Lexer {
         var p:    std::ConstPtr::<u8> = base + self._cursor;
         var step: usize               = 0;
 
+        // A comment body needs no decoding at all: UTF-8 is self-synchronising,
+        // so no byte of a multibyte sequence is ever < 0x80 and none of them can
+        // be mistaken for the 0x0A/0x0D that ends the run. Scan raw bytes.
+        var scan_start = p;
+
         while p < end {
-            var d = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
-            if d.len == 0 || d.chr == 0x0A || d.chr == 0x0D {
+            if (p[0] == 0x0A) || (p[0] == 0x0D) {
                 break;
             }
-            p += d.len; step = d.len;
+            p += 1;
         }
+
+        // The loop never learned a character length, so recover the last one
+        // rather than reporting 1 and desyncing _last_advanced.
+        step = Lexer::char_len_before(scan_start, p);
 
         self.commit_cursor(base, p, step); // create_source_range reads _cursor
 
@@ -1475,27 +1525,30 @@ class Lexer {
         var p:    std::ConstPtr::<u8> = base + self._cursor;
         var step: usize               = 0;
 
+        // Same as lex_line_comment: the body needs no decoding. Both nesting
+        // markers are ASCII pairs, and no byte of a multibyte sequence can be
+        // '*' or '/', so a raw byte scan finds exactly the same delimiters.
+        var scan_start = p;
+
         while (p < end) && (nest_depth > 0) {
-            var c0 = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+            var b0 = p[0];
+            var b1 = (p[1]) if ((p + 1) < end) else (0 as u8);
 
-            // the nesting markers are ASCII pairs, so only the raw byte after
-            // c0 matters   no need to decode it as a character.
-            var q  = p + c0.len;
-            var b1 = (q[0]) if (q < end) else (0 as u8);
-
-            if (c0.chr == '*') && (b1 == '/') {
+            if (b0 == '*') && (b1 == '/') {
                 nest_depth -= 1;
-                p += 2; step = 2;
+                p += 2;
                 continue;
             }
-            if (c0.chr == '/') && (b1 == '*') {
+            if (b0 == '/') && (b1 == '*') {
                 nest_depth += 1;
-                p += 2; step = 2;
+                p += 2;
                 continue;
             }
 
-            p += c0.len; step = c0.len;
+            p += 1;
         }
+
+        step = Lexer::char_len_before(scan_start, p);
 
         self.commit_cursor(base, p, step); // both exits below read _cursor
 
@@ -1659,7 +1712,7 @@ class Lexer {
         var step: usize               = 0;
 
         while p < end {
-            var d = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+            var d = Lexer::decode_at(p, static_cast::<usize>(end - p));
 
             // fast path: plain content. a multibyte codepoint is always > 0x7f
             // and can never equal one of these, so the test is exact.
@@ -1951,7 +2004,7 @@ class Lexer {
         var step: usize               = first_len;
 
         while p < end {
-            var current_char = UTF8View::decode_utf8(p, static_cast::<usize>(end - p));
+            var current_char = Lexer::decode_at(p, static_cast::<usize>(end - p));
             var c: char32    = normalize_char32(current_char.chr);
 
             switch self.classify(c) {

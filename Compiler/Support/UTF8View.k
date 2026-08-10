@@ -85,11 +85,11 @@ class UTF8View {
     /// \note
     /// invalid sequences return `{0xFFFD, 0}` to indicate replacement.
     ///
+    /// \note the `remaining == 0` guard that used to sit here was a duplicate:
+    ///       decode_utf8_lut opens with exactly that test and returns exactly
+    ///       that value. It cost a redundant branch on every character, and it
+    ///       kept this wrapper from being a pure forwarder.
     static fn decode_utf8(const ptr: *u8, remaining: usize) -> DecodeResult {
-        if remaining == 0 {
-            return (0xFFFD as char32_t, 0 as u8);
-        }
-
         return decode_utf8_lut(ptr, remaining);
     }
 
