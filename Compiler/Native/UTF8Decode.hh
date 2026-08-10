@@ -112,7 +112,7 @@ alignas(64) static constexpr u8 Utf8LengthTable[256] = {
 static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
 #if defined(_x86_64_simd)
     const __m128i mask = _mm_set1_epi8(static_cast<char>(0x80));
-    while (p + 16 <= end) {
+    while (end - p >= 16) {
         __m128i v = _mm_loadu_si128(reinterpret_cast<const __m128i *>(p));
         if (_mm_movemask_epi8(v) != 0)
             break;
@@ -120,7 +120,7 @@ static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
     }
 #elif defined(_aarch64_simd)
     const uint8x16_t mask = vdupq_n_u8(0x80);
-    while (p + 16 <= end) {
+    while (end - p >= 16) {
         uint8x16_t v    = vld1q_u8(p);
         uint8x16_t high = vandq_u8(v, mask);
 
@@ -131,10 +131,6 @@ static inline const u8 *skip_ascii_simd(const u8 *p, const u8 *end) noexcept {
         p += 16;
     }
 #endif
-    if (p > end) {
-        p = end;
-    }
-
     return p;
 }
 
@@ -235,22 +231,6 @@ static inline DecodeResult decode_utf8_lut(const u8 *s,
 /// fast path uses simd to skip ascii, then falls back to table-based
 /// decoding for multibyte sequences.
 ///
-/// \param p   pointer to current byte.
-/// \param end pointer to end of buffer.
-/// \param out result container for decoded character.
-/// \return pointer to next byte after the decoded character.
-///
-inline const u8 * decode_block(const u8 *p, const u8 *end, DecodeResult &out) noexcept {
-    const u8 *ascii_end = skip_ascii_simd(p, end);
-
-    if (ascii_end != p) {
-        out = {.chr = *p, .len = 1};
-        return p + 1;
-    }
-
-    out = decode_utf8_lut(p, static_cast<usize>(end - p));
-    return p + out.len;
-}
 }  // namespace kairo
 
 #endif  // __KAIRO_TOOLCHAIN_CORE_UTF8_DECODE_HH__
