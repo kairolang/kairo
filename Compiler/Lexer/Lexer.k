@@ -668,12 +668,6 @@ class Lexer {
         return result;
     }
 
-    inline priv fn <const N: usize> get_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
-        var res = self.peek_char32::<N>(max_unicode_len);
-        self.advance_cursor(res.size());
-        return res;
-    }
-
     inline priv fn <const N: usize> peek_char32(self, const max_unicode_len: u8 = 4) -> array::<DecodeResult, N> {
         var res = array::<DecodeResult, N>();
         res.fill(DecodeResult('\0', 0));
