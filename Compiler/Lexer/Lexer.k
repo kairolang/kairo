@@ -2051,38 +2051,22 @@ class Lexer {
         return token;
     }
 
+    /// \details switch over MACRO_UNICODE_OPERATOR_CHAR_CASES replaced by the
+    ///          ASCII_LEX_FLAGS table it is now generated from. Same set, one
+    ///          load and a mask.
     inline static fn is_valid_symbol(c: DecodeResult) -> bool {
-        if (c.len == 0) || (c.len > 1) || (c.chr > 127) || (c.chr == '\0') {
-            return false;
-        }
-
-        switch (c.chr) {
-            case MACRO_UNICODE_OPERATOR_CHAR_CASES {
-                return true;
-            } default {
-                return false;
-            }
-        }
+        return is_operator_char(c.chr, c.len);
     }
 
-    inline static fn is_valid_name(c: DecodeResult) -> u8 { /// 0 = false
-                                                            /// 1 = keyword
-                                                            /// 2 = identifier
-        if (c.len == 0) || (c.chr == '\0') {
-            return 0;
-        }
-
-        if (c.len > 1) || (c.chr == '#') {
-            return 2;
-        }
-
-        switch (c.chr) {
-            case MACRO_UNICODE_KEYWORD_CASES {
-                return 1;
-            } default {
-                return 0;
-            }
-        }
+    /// \brief classifies a character for identifier/keyword scanning.
+    /// \returns 0 not a name character, 1 keyword-safe ASCII, 2 identifier-only.
+    ///
+    /// \details the 63-case switch over MACRO_UNICODE_KEYWORD_CASES is now the
+    ///          ASCII_LEX_FLAGS table generated from that same macro. This is
+    ///          called once per character by lex_name's scan loop, and the old
+    ///          body was far too large to inline into it.
+    inline static fn is_valid_name(c: DecodeResult) -> u8 {
+        return name_char_kind(c.chr, c.len);
     }
     
     inline inline priv fn is_valid_escape(self, start: SourceLocation, is_byte: bool, is_format: bool) -> bool {

@@ -124,6 +124,66 @@ alignas(64) static constexpr array<CharClass, 128> ASCII_CLASS = [] {
     return t;
 }();
 
+/// Per-byte lexical flag table for the ASCII range.
+///
+/// is_valid_name and is_valid_symbol were switches over the two case-list
+/// macros above. Those sets are sparse, so they lower to compare chains or a
+/// bounds-checked jump table - 1,969 and 588 self samples respectively on the
+/// 1 GiB benchmark - and the bodies were far too big to inline into the scan
+/// loops that call them once per character. A load and a mask is a couple of
+/// instructions and inlines.
+///
+/// Built FROM the macros rather than from a transcribed character list, so the
+/// table cannot drift from the switches that define the sets. The switch runs
+/// at constexpr time; nothing here survives to runtime but the bytes.
+enum LexCharFlag : u8 {
+    LEX_NAME = 1u << 0, ///< in MACRO_UNICODE_KEYWORD_CASES  ([A-Za-z0-9_])
+    LEX_OP   = 1u << 1, ///< in MACRO_UNICODE_OPERATOR_CHAR_CASES
+};
+
+alignas(64) static constexpr array<u8, 128> ASCII_LEX_FLAGS = [] {
+    array<u8, 128> t{};
+    t.fill(0);
+
+    for (u32 i = 0; i < 128; ++i) {
+        switch (static_cast<char32_t>(i)) {
+            case MACRO_UNICODE_KEYWORD_CASES: t[i] |= LEX_NAME; break;
+            default: break;
+        }
+
+        switch (static_cast<char32_t>(i)) {
+            case MACRO_UNICODE_OPERATOR_CHAR_CASES: t[i] |= LEX_OP; break;
+            default: break;
+        }
+    }
+
+    return t;
+}();
+
+/// \brief classifies a character for identifier/keyword scanning.
+/// \returns 0 not a name character, 1 keyword-safe ASCII, 2 identifier-only.
+inline u8 name_char_kind(char32_t c, u8 len) noexcept {
+    if (len == 0 || c == U'\0') {
+        return 0;
+    }
+
+    // len == 1 means the codepoint came from a single byte, so it is ASCII.
+    if (len > 1 || c == U'#') {
+        return 2;
+    }
+
+    return (ASCII_LEX_FLAGS[c] & LEX_NAME) ? u8(1) : u8(0);
+}
+
+/// \brief true when \p c is one of the operator/punctuation characters.
+inline bool is_operator_char(char32_t c, u8 len) noexcept {
+    if (len != 1 || c == U'\0' || c > 127) {
+        return false;
+    }
+
+    return (ASCII_LEX_FLAGS[c] & LEX_OP) != 0;
+}
+
 /// Unicode Range Table
 struct UnicodeRange {
     char32_t  start;
