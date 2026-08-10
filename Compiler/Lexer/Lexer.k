@@ -73,6 +73,8 @@ class Lexer {
     var _last_token    :  usize = 0;
     var _end_pos       :  usize = 0;
     var _fid           :  u32   = 0;
+    var _loc_base      :  u32   = 0; ///< raw SourceLocation of offset 0 in _fid;
+                                     ///  see get_source_location.
     var _err_base      :  u32   = 0; ///< shared-DiagEngine error count at lex() entry;
                                      ///  error_count() reports the per-run delta.
     var _last_kind     :  LastTokenKind = LastTokenKind::None;
@@ -362,6 +364,21 @@ class Lexer {
             return false;
         }
 
+        // Cache the fid's base once. get_source_location is called at least
+        // once per token and sometimes several times, and all get_loc does with
+        // a valid fid is `segment.global_base + off + 1` behind four checks and
+        // two cross-object calls (SourceManager -> VirtualFileManager).
+        self._loc_base = self._sm->get_loc(fid, 0).raw();
+
+        // The one check that is not a function of the cached base: get_loc ICEs
+        // when a location leaves the 4 GB SourceLocation space. Bound the whole
+        // file here rather than testing every token.
+        ICE_IF(
+            (static_cast::<u64>(self._loc_base) + static_cast::<u64>(self.file_size()))
+                > 0xFFFFFFFF,
+            "Lexer::open: file does not fit the 4GB SourceLocation address space"
+        );
+
         self._err_base = self._diag->error_count();
         self._state    = StreamState::Streaming;
         return true;
@@ -420,6 +437,7 @@ class Lexer {
         sub._file_buffer  = self._file_buffer;
         sub.cached_data   = self.cached_data;
         sub._cursor       = start;
+        sub._loc_base     = self._loc_base;
         sub._end_pos      = end;
         sub._state        = StreamState::Streaming;
 
@@ -891,14 +909,20 @@ class Lexer {
     }
 
 
+    /// \brief position -> SourceLocation, without the SourceManager round trip.
+    ///
+    /// \details Identical to _sm->get_loc(_fid, pos) for any pos this lexer can
+    ///          produce. get_loc's four guards are all invariants here rather
+    ///          than per-token questions: the fid is valid and un-evicted for
+    ///          the life of the stream (open() would have failed), pos <=
+    ///          file_size() is the advance_cursor invariant, and the 4 GB cap
+    ///          is checked once for the whole file in open().
     inline priv fn get_source_location(self) -> SourceLocation {
-        // self._cursor can never be over or equal to file size
-        return self._sm->get_loc(self._fid, self._cursor);
+        return SourceLocation::from_raw(self._loc_base + static_cast::<u32>(self._cursor));
     }
 
     inline priv fn get_source_location(self, pos: usize) -> SourceLocation {
-        // self._cursor can never be over or equal to file size
-        return self._sm->get_loc(self._fid, pos);
+        return SourceLocation::from_raw(self._loc_base + static_cast::<u32>(pos));
     }
 
     inline priv fn get_source_range(self) -> SourceRange {
