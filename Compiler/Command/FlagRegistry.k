@@ -322,7 +322,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("suppress",        "",  "suppress",       "route all output to stderr, nothing to stdout",                                  false);
     cmd->define::<FlagKind::I32>   ("threads",         "",  "threads",        "parallelism for multi-file compilation (0 = logical CPU count)",                0, 0, 1024);
     cmd->define::<FlagKind::Bool>  ("time-passes",     "",  "time-passes",    "print per-pass timing breakdown after compilation",                              false);
-    cmd->define::<FlagKind::String>("time-trace",      "",  "time-trace",     "emit Chrome-format trace JSON to this path for compilation profiling",           "");
+    cmd->define::<FlagKind::String>("time-trace",      "",  "time-trace",     "emit Chrome-format trace JSON here (implies --time-passes)", "");
 
     //  DEVELOPER / DUMP INTERNALS
 
