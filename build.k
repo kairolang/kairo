@@ -495,6 +495,7 @@ fn main() -> i32 {
     p.target(llvm_tool("kals",  "Analyzer/Driver/kals.k",                 KALS_VERSION,  kals_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kwatch","Compiler/Driver/KairoWatch.k",           KWATCH_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kparse","Compiler/Tooling/ParseOnceTest.k",       KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
+    p.target(llvm_tool("kparsebench","Compiler/Tooling/ParseThroughputTest.k", KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("kpkg",  "Extras/PackageManager/Driver/kpkg.k",    KPKG_VERSION,  kpkg_inc,     llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("katar", "Extras/KaTAR/KTCompress.k",              KAIRO_VERSION, katar_inc,    llvm_src, llvm_build, out_lib));
     p.target(llvm_tool("clang-diag-identity", "Compiler/Driver/GenClangDiagIdentity.k", KAIRO_VERSION, compiler_inc, llvm_src, llvm_build, out_lib));
