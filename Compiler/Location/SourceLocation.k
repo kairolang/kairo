@@ -41,9 +41,12 @@ class SourceLocation {
     ///
     /// \brief default constructor, initializes to invalid.
     ///
-    fn SourceLocation(self) {
-        self.id = 0;
-    }
+    /// \note defaulted, not written out. `id` already has its initialiser
+    ///       above, so a user-provided body only stops the type being
+    ///       trivially constructible - which stops from_raw and every
+    ///       aggregate holding one (SourceRange, Token) from folding their
+    ///       zero-init away.
+    default fn SourceLocation(self);
 
     ///
     /// \brief constructs from a raw 32-bit value.

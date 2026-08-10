@@ -38,15 +38,25 @@ import Location::SourceLocation::*;
 ///
 
 class SourceRange {
-    pub var start: SourceLocation; ///< inclusive start of the range
-    pub var end:   SourceLocation; ///< exclusive end of the range.
+    pub var start: SourceLocation = SourceLocation(); ///< inclusive start
+    pub var end:   SourceLocation = SourceLocation(); ///< exclusive end
 
     ///
     /// \brief default constructor, initializes to invalid range.
     ///
-    fn SourceRange(self) {
-        self.start = SourceLocation();
-        self.end   = SourceLocation();
+    default fn SourceRange(self);
+
+    ///
+    /// \brief constructs a range directly from its two bounds.
+    ///
+    /// \details Every factory below used to default-construct - zeroing both
+    ///          endpoints - and then immediately overwrite them. That showed up
+    ///          as SourceRange::SourceRange() at 13.7% of main-thread self time
+    ///          on the 1 GiB lex benchmark, because the lexer builds a range
+    ///          for every single token and the constructor was not inlining.
+    fn SourceRange(self, start: SourceLocation, stop: SourceLocation) {
+        self.start = start;
+        self.end   = stop;
     }
 
     ///
@@ -57,11 +67,7 @@ class SourceRange {
     /// \return range covering [start, stop).
     ///
     static fn from_bounds(start: SourceLocation, stop: SourceLocation) -> SourceRange {
-        var range   = SourceRange();
-        range.start = start;
-        range.end   = stop;
-
-        return range;
+        return SourceRange(start, stop);
     }
 
     ///
@@ -72,11 +78,7 @@ class SourceRange {
     /// \return range covering [start, start+len).
     ///
     static fn from_bounds(start: SourceLocation, len: u32) -> SourceRange {
-        var range   = SourceRange();
-        range.start = start;
-        range.end   = start.with_offset(static_cast::<i64>(len));
-
-        return range;
+        return SourceRange(start, start.with_offset(static_cast::<i64>(len)));
     }
 
     ///
@@ -86,11 +88,7 @@ class SourceRange {
     /// \return range covering [loc, loc+1).
     ///
     static fn single(loc: SourceLocation) -> SourceRange {
-        var range   = SourceRange();
-        range.start = loc;
-        range.end   = loc.with_offset(1);
-
-        return range;
+        return SourceRange(loc, loc.with_offset(1));
     }
 
     ///
@@ -170,11 +168,10 @@ class SourceRange {
             return self;
         }
 
-        var range   = SourceRange();
-        range.start = (self.start) if (self.start < other.start) else (other.start);
-        range.end   = (self.end)   if (self.end   > other.end)   else (other.end);
-        
-        return range;
+        return SourceRange(
+            (self.start) if (self.start < other.start) else (other.start),
+            (self.end)   if (self.end   > other.end)   else (other.end)
+        );
     }
 
     ///
@@ -229,10 +226,7 @@ class SourceRange {
     /// \return expanded range.
     ///
     const fn expand(self, n: usize) -> SourceRange {
-        var range   = SourceRange();
-        range.start = self.start.retreat(n);
-        range.end   = self.end.advance(n);
-        return range;
+        return SourceRange(self.start.retreat(n), self.end.advance(n));
     }
 
     ///
@@ -242,15 +236,10 @@ class SourceRange {
     /// \return shrunk range (or empty if too small).
     ///
     const fn shrink(self, n: usize) -> SourceRange {
-        var range   = SourceRange();
-        range.start = self.start.advance(n);
-        range.end   = self.end.retreat(n);
-        
-        if range.start > range.end {
-            range.end = range.start;
-        }
-        
-        return range;
+        var lo = self.start.advance(n);
+        var hi = self.end.retreat(n);
+
+        return SourceRange(lo, (hi) if (lo <= hi) else (lo));
     }
 
     ///
@@ -264,11 +253,10 @@ class SourceRange {
             return SourceRange(); // invalid
         }
         
-        var range   = SourceRange();
-        range.start = (self.start) if (self.start > other.start) else (other.start);
-        range.end   = (self.end)   if (self.end < other.end)     else (other.end);
-        
-        return range;
+        return SourceRange(
+            (self.start) if (self.start > other.start) else (other.start),
+            (self.end)   if (self.end < other.end)     else (other.end)
+        );
     }
 
     ///
