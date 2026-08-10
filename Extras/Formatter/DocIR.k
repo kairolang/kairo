@@ -73,6 +73,34 @@ class Doc {
         return d;
     }
 
+    /// Fixed-arity concat helpers. Kairo has no braced-init conversion to
+    /// `vec::<Doc>`, so the formatter would otherwise spell out a
+    /// push_back sequence for every two-or-three piece type rendering.
+
+    static fn concat2(a: Doc, b: Doc) -> Doc {
+        var xs = vec::<Doc>();
+        xs.push_back(a);
+        xs.push_back(b);
+        return Doc::concat(xs);
+    }
+
+    static fn concat3(a: Doc, b: Doc, c: Doc) -> Doc {
+        var xs = vec::<Doc>();
+        xs.push_back(a);
+        xs.push_back(b);
+        xs.push_back(c);
+        return Doc::concat(xs);
+    }
+
+    static fn concat4(a: Doc, b: Doc, c: Doc, d: Doc) -> Doc {
+        var xs = vec::<Doc>();
+        xs.push_back(a);
+        xs.push_back(b);
+        xs.push_back(c);
+        xs.push_back(d);
+        return Doc::concat(xs);
+    }
+
     static fn line() -> Doc {
         var d = Doc{};
         d.kind = DocKind::Line;
@@ -141,7 +169,7 @@ class Doc {
 
     /// for "did this sub-piece produce nothing" checks (e.g. fmt_quals with no flags set) without every caller having to special-case an empty vec.
     fn is_empty(self) -> bool {
-        return (self.kind == DocKind::Concat) && self.children.is_empty();
+        return (self.kind == DocKind::Concat) && self.children.empty();
     }
 
     static fn nothing() -> Doc {
