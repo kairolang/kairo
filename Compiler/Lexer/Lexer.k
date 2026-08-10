@@ -71,7 +71,11 @@ class Lexer {
     var _diag          :  obs::<DiagEngine>   = &null;
     var _cursor        :  usize = 0; // last pos is always file_size - 1
     var _last_token    :  usize = 0;
-    var _end_pos       :  usize = 0;
+    var _size          :  usize = 0; ///< effective end of the stream: the
+                                     ///  sub-range for a lex_slice sub-lexer,
+                                     ///  else the whole buffer. Replaces the
+                                     ///  old _end_pos, which existed only to be
+                                     ///  branched on inside file_size().
     var _fid           :  u32   = 0;
     var _loc_base      :  u32   = 0; ///< raw SourceLocation of offset 0 in _fid;
                                      ///  see get_source_location.
@@ -347,7 +351,7 @@ class Lexer {
 
         self._fid         = fid;
         self._cursor      = 0;
-        self._end_pos     = 0;
+        self._size        = 0;
         self.cached_data  = &null;
         self._eof_sent    = false;
         self._last_kind   = LastTokenKind::None;
@@ -438,7 +442,7 @@ class Lexer {
         sub.cached_data   = self.cached_data;
         sub._cursor       = start;
         sub._loc_base     = self._loc_base;
-        sub._end_pos      = end;
+        sub._size         = static_cast::<usize>(end);
         sub._state        = StreamState::Streaming;
 
         var tokens = std::create::<TokenBuffer::<N>>();
@@ -483,7 +487,16 @@ class Lexer {
         }
 
         self._file_buffer = *buffer;
-        self.cached_data  = &null;   // invalidate the memo
+
+        // Resolve the buffer's data pointer and size ONCE per stream. Both were
+        // recomputed per call behind a branch - file_data through a null-check
+        // and a lazy memo, file_size through a sub-range test and a call into
+        // MemoryBuffer - and both are on the per-token path via is_eof() and
+        // peek_char32. They were 1,522 + 721 samples, 13% of main-thread self
+        // time, after the scan loops stopped calling them per character.
+        self.cached_data  = self._file_buffer.data();
+        self._size        = self._file_buffer.size();
+
         return true;
     }
 
@@ -513,22 +526,13 @@ class Lexer {
         return size - self._cursor;
     }
 
+    /// \note plain member reads. Set once by load_file (whole buffer) or by
+    ///       lex_slice (the sub-range), the only two ways a stream begins.
     inline priv fn file_size(self) -> usize {
-        if self._end_pos > 0 {
-            return self._end_pos;
-        }
-
-        return self._file_buffer.size();
+        return self._size;
     }
 
     inline priv fn file_data(self) -> std::ConstPtr::<u8> {
-        if self.cached_data == &null {
-            if !self._file_buffer.is_valid() {
-                return &null;
-            }
-            self.cached_data = self._file_buffer.data();
-        }
-
         return self.cached_data;
     }
 
