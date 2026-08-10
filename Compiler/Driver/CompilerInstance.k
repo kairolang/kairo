@@ -105,6 +105,7 @@ import Diagnostic::PrettyConsumer::*;
 import Diagnostic::BasicConsumer::*;
 import Location::SourceManager::*;
 import Support::TermRenderer::*;
+import Support::TimeReport::*;
 import Token::TokenCacheManager::*;
 import Token::TokenText::*;
 import Token::TokenKind::*;
@@ -148,6 +149,7 @@ ffi "c++" import "llvm/Target/TargetMachine.h";
 ffi "c++" import "llvm/Target/TargetOptions.h";
 ffi "c++" import "llvm/Support/CodeGen.h";
 ffi "c++" import "clang/Frontend/FrontendActions.h";
+ffi "c++" import "Native/KTimeReport.hh";
 
 class CompilerInstance; // forward breaks the CI <-> FrontendAction cycle
 
@@ -342,6 +344,8 @@ class CompilerInstance {
             if   (self.invocation().frontend.thread_count == 0)
             else (self.invocation().frontend.thread_count)
         ));
+
+        time_set_pool_size(i32(self._pool->get_thread_count()));
 
         self._sm      = std::create::<SourceManager>     (self._pool, self._vfm, self._diag);
         self._tcm     = std::create::<TokenCacheManager> (self._sm, self._pool, self._diag);
@@ -780,10 +784,13 @@ class CompilerInstance {
     ///          `index()`, which collided with the unrelated ASTParse Index
     ///          pass and described neither of the three things it builds.
     fn initialize(self, cwd: Path) {
-        var rb = ImportResolver::Builder().cwd(cwd);
-        for dir: string in self.invocation().include_dirs { rb.add_include(Path(dir)); }
-        for dir: string in self.invocation().macro_paths  { rb.add_include(Path(dir)); }
-        self._imp = rb.create_ptr(self._pool);
+        {
+            var _t = TimeRegion("ImportIndex");
+            var rb = ImportResolver::Builder().cwd(cwd);
+            for dir: string in self.invocation().include_dirs { rb.add_include(Path(dir)); }
+            for dir: string in self.invocation().macro_paths  { rb.add_include(Path(dir)); }
+            self._imp = rb.create_ptr(self._pool);
+        }
 
         self._pp = std::create::<PreProcessor>(
             self._sm, self._tcm, self._imp, self._pool,
@@ -800,8 +807,12 @@ class CompilerInstance {
         self._backend = std::create::<ClangBackend>(self._sm, bcfg);
 
         inline "c++" {
-            auto* be = _backend;
-            _pool->enqueue([be]() { be->startup(); }, CLANG_STARTUP_GROUP());
+            auto* be  = _backend;
+            auto* rec = ::kairo::TimeReport::region("ClangStartup");
+            _pool->enqueue([be, rec]() {
+                KTIME_WORKER(rec);
+                be->startup();
+            }, CLANG_STARTUP_GROUP());
         }
     }
 
@@ -836,6 +847,8 @@ class CompilerInstance {
             f"CompilerInstance::execute: {self.invocation().input_files.size()} file(s)");
 
         result.tu_results.reserve(self.invocation().input_files.size());
+
+        var _t_frontend = TimeRegion("Frontend");
 
         for path_str: string in self.invocation().input_files {
             if result.aborted { break; }
@@ -1260,6 +1273,8 @@ fn FrontendAction::_fatal(msg: string) -> bool {
 
 /// Registers the source file with \c SourceManager and obtains a file ID.
 fn FrontendAction::_load() -> bool {
+    var _t = TimeRegion("Load");
+
     self._stage   = TUStage::Loading;
     self._file_id = self._ci->sm()->load_file(self.path);
     if self._file_id == u32(-1) {
@@ -1273,6 +1288,8 @@ fn FrontendAction::_load() -> bool {
 /// each fid exactly once across all input files, so a fid shared by two
 /// inputs is preprocessed once. Its DAG visited-set does the dedup.
 fn FrontendAction::_preprocess() -> bool {
+    var _t = TimeRegion("Preprocess");
+
     self._stage = TUStage::Preprocessing;
 
     var pp_res = self._ci->pp()->preprocess(self._file_id, self.module_base);
@@ -1306,6 +1323,8 @@ fn FrontendAction::_preprocess() -> bool {
 }
 
 fn FrontendAction::_parse() -> bool {
+    var _t = TimeRegion("Parse");
+
     self._stage = TUStage::Parsing;
 
     var fids = self._fids;  // tree order, fids[0] == main
@@ -1313,75 +1332,93 @@ fn FrontendAction::_parse() -> bool {
     // index phase: Index-mode ASTParse over each fid (same grammar as the
     // full parse, shallow materialization). Replaces the old ASTIndex
     // token-level pre-pass.
-    for fid: u32 in fids {
-        inline "c++" {
-            auto captured_fid  = fid;
-            auto captured_self = this;
-            _ci->pool()->enqueue([captured_fid, captured_self]() {
-                auto* gs  = captured_self->_global_scope;
-                auto* ctx = gs->begin_index(captured_fid);
-                if (ctx) {
-                    ASTParse indexer(ctx, nullptr, gs, ASTParse::ParseMode::Index);
-                    indexer.index();
-                    gs->finish_index(captured_fid);
-                }
-            }, u8(5));
+
+    {
+        var _ti = TimeRegion("Index");
+
+        for fid: u32 in fids {
+            inline "c++" {
+                auto  captured_fid  = fid;
+                auto  captured_self = this;
+                auto* captured_rec  = ::kairo::TimeReport::current();
+                _ci->pool()->enqueue([captured_fid, captured_self, captured_rec]() {
+                    KTIME_WORKER(captured_rec);
+                    auto* gs  = captured_self->_global_scope;
+                    auto* ctx = gs->begin_index(captured_fid);
+                    if (ctx) {
+                        ASTParse indexer(ctx, nullptr, gs, ASTParse::ParseMode::Index);
+                        indexer.index();
+                        gs->finish_index(captured_fid);
+                    }
+                }, u8(5));
+            }
         }
+        self._ci->pool()->wait_group(u8(5));
     }
-    self._ci->pool()->wait_group(u8(5));
 
     // parallel parse + low-water-mark flush
-    inline "c++" {
-        const size_t N = fids.size();
+    {
+        var _tp = TimeRegion("Full");
+        inline "c++" {
+            const size_t N = fids.size();
+            auto* time_rec  = ::kairo::TimeReport::current();
+            auto* time_sm   = _ci->sm();
+            auto* time_flush = ::kairo::TimeReport::region_under(time_rec, "DiagFlush");
+            ::kairo::TimeReport::mark_idle(time_flush);
 
-        // done[i] published (release) by the parse task for fids[i];
-        // read (acquire) by the flusher. heap so the flusher thread can hold it.
-        auto* done = new libcxx::atomic<bool>[N];
-        for (size_t i = 0; i < N; ++i) done[i].store(false, libcxx::memory_order_relaxed);
+            // done[i] published (release) by the parse task for fids[i];
+            // read (acquire) by the flusher. heap so the flusher thread can hold it.
+            auto* done = new libcxx::atomic<bool>[N];
+            for (size_t i = 0; i < N; ++i) done[i].store(false, libcxx::memory_order_relaxed);
 
-        auto* engine = _ci->diag();
-        auto* fids_p = &fids;
-        auto* gs     = _global_scope;
+            auto* engine = _ci->diag();
+            auto* fids_p = &fids;
+            auto* gs     = _global_scope;
 
-        // flusher: drains contiguous done-prefix in fid order, single-threaded.
-        libcxx::thread flusher([=]() {
-            size_t cursor = 0;
-            while (cursor < N) {
-                if (done[cursor].load(libcxx::memory_order_acquire)) {
-                    u32 fid = (*fids_p)[cursor];
+            // flusher: drains contiguous done-prefix in fid order, single-threaded.
+            libcxx::thread flusher([=]() {
+                KTIME_ROOT(time_rec);
+                KTIME_REC(time_flush);
+                size_t cursor = 0;
+                while (cursor < N) {
+                    if (done[cursor].load(libcxx::memory_order_acquire)) {
+                        u32 fid = (*fids_p)[cursor];
+                        auto* ctx = gs->get_context(fid);
+                        if (ctx) ctx->diag_sink.drain_into(engine);
+                        ++cursor;
+                    } else {
+                        libcxx::this_thread::yield();
+                    }
+                }
+            });
+
+
+            for (size_t i = 0; i < N; ++i) {
+                u32 fid = (*fids_p)[i];
+                _ci->pool()->enqueue([gs, fid, done, i, time_rec, time_sm]() {
+                    ::kairo::TimeReport::Worker _kt(time_rec);
+
+                    struct Publish {
+                        libcxx::atomic<bool>* d;
+                        ~Publish() { d->store(true, libcxx::memory_order_release); }
+                    } pub{&done[i]};
+
                     auto* ctx = gs->get_context(fid);
-                    if (ctx) ctx->diag_sink.drain_into(engine);
-                    ++cursor;
-                } else {
-                    libcxx::this_thread::yield();
-                }
+                    if (ctx) {
+                        ASTParse parser(ctx, nullptr, gs, ASTParse::ParseMode::Full);
+                        auto* tu = parser.parse();
+                        ctx->tu = reinterpret_cast<void*>(tu);
+                        if (time_sm) { _kt.units(time_sm->get_file_size(fid), "B"); }
+                    }
+                }, u8(6));
             }
-        });
 
-        // enqueue parse tasks. each publishes done[i] LAST.
-        for (size_t i = 0; i < N; ++i) {
-            u32 fid = (*fids_p)[i];
-            _ci->pool()->enqueue([gs, fid, done, i]() {
-                struct Publish {
-                    libcxx::atomic<bool>* d;
-                    ~Publish() { d->store(true, libcxx::memory_order_release); }
-                } pub{&done[i]};
-
-                auto* ctx = gs->get_context(fid);
-                if (ctx) {
-                    ASTParse parser(ctx, nullptr, gs, ASTParse::ParseMode::Full);
-                    auto* tu = parser.parse();
-                    ctx->tu = reinterpret_cast<void*>(tu);
-                }
-            }, u8(6));
+            _ci->pool()->wait_group(u8(6));  // all parses done => all done[i] set
+            flusher.join();                  // flusher drains tail, exits
+            delete[] done;
         }
-
-        _ci->pool()->wait_group(u8(6));  // all parses done => all done[i] set
-        flusher.join();                  // flusher drains tail, exits
-        delete[] done;
     }
 
-    // NullableTypeLowering: lower T? -> std::Nullable<T> per fid
     for fid in fids {
         var lower_ctx = self._global_scope->get_context(fid);
         if lower_ctx == &null { continue; }
@@ -1459,6 +1496,8 @@ fn FrontendAction::_parse() -> bool {
 /// Semantic analysis stage: runs the pipeline to its current end (N) over
 /// every fid of this TU's graph, then honors the sema dump flags.
 fn FrontendAction::_sema() -> bool {
+    var _t = TimeRegion("Sema");
+
     self._stage = TUStage::Sema;
     var fe = self._ci->invocation().frontend;
     if fe.dump_type_info { std::print(f"-- type info: {self.path.full_path()} (not yet implemented) --"); }
@@ -1503,9 +1542,15 @@ fn FrontendAction::_sema() -> bool {
 }
 
 fn FrontendAction::_codegen() -> bool {
+    var _t = TimeRegion("Codegen");
+
     self._stage = TUStage::Codegen;
 
-    self._ci->pool()->wait_group(CLANG_STARTUP_GROUP());
+
+    {
+        var _tw = TimeRegion("ClangStartupWait");
+        self._ci->pool()->wait_group(CLANG_STARTUP_GROUP());
+    }
 
     var be = self._ci->backend();
     if (be == &null) || (!be->ready()) {
@@ -1534,7 +1579,12 @@ fn FrontendAction::_codegen() -> bool {
 
     var cg = CodegenBackend(be, ctx, kfid, &(ctx->codegen_alloc), ksize);
     cg.set_print_cg(fe.print_cg, self.path.full_path());
-    var ok = cg.run(out);
+
+    var ok = false;
+    {
+        var _tr = TimeRegion("Emit");
+        ok = cg.run(out);
+    }
 
     // end_tu FIRST: it flushes any builder still open in the adapter, so
     // draining before it would silently drop the last diagnostic.

@@ -29,9 +29,11 @@
 ///
 
 import Driver::CompilerInstance::*;
+import Support::TimeReport::*;
 import Tooling::ParseAPI::*;
 import AST::Visitor::ASTWriter::*;
 
+ffi "c++" import "Native/KTimeReport.hh";  // strcmp/strncmp for _scan_timing_flags
 ffi "c++" import "llvm/Support/InitLLVM.h";
 ffi "c++" import "llvm/Support/Locale.h";
 ffi "c++" import "llvm/MC/TargetRegistry.h";
@@ -86,11 +88,69 @@ fn init_runtime(argc: i32, argv: *(*kairo::std::Legacy::char)) {
     }
 }
 
-fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
-    Logger::init(Logger::Level::Trace);
-    init_runtime(argc, argv);
+/// \brief raw argv scan for the timing switches, before any option machinery
+///        exists.
+///
+/// \details The timer has to be armed before \c CompilerInstance is
+///          constructed   that constructor spawns the whole ThreadPool and
+///          wires every subsystem, and it is not cheap. But the flags are not
+///          parsed until that same constructor runs, so the ordinary path
+///          cannot answer "is timing on" early enough. Hence a hand scan.
+///
+///          This decides ONLY whether to arm, and whether tracing is wanted.
+///          The trace PATH still comes from the real parse afterwards; this is
+///          deliberately not a second command-line parser.
+///
+/// \param trace_out set when any form of --time-trace is present.
+/// \return true if timing should be armed.
+fn _scan_timing_flags(
+    argc:      i32,
+    argv:      *(*kairo::std::Legacy::char),
+    trace_out: *bool
+) -> bool {
+    var on = false;
+    (*trace_out) = false;
 
-    // Global teardown runs after main() returns or on unwind.
+    inline "c++" {
+        for (int i = 1; i < argc; ++i) {
+            const char *a = argv[i];
+            if (a == nullptr) { continue; }
+            if (::strcmp(a, "--time-passes") == 0) { on = true; continue; }
+            if (::strncmp(a, "--time-trace", 12) == 0) {
+                // --time-trace, --time-trace=PATH, --time-trace PATH
+                on = true;
+                *trace_out = true;
+                continue;
+            }
+        }
+    }
+
+    return on;
+}
+
+fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
+    var want_tt = false;
+    var want_tp = _scan_timing_flags(argc, argv, &want_tt);
+    if want_tp { time_enable(true, want_tt); }
+
+    var ci: *CompilerInstance = &null;
+
+    {
+        var _t_startup = TimeRegion("Startup");
+
+        {
+            var _t_rt = TimeRegion("Runtime");
+            Logger::init(Logger::Level::Trace);
+            init_runtime(argc, argv);
+        }
+
+        {
+            var _t_inst = TimeRegion("Instance");
+            ci = std::create::<CompilerInstance>(argc, argv);
+        }
+    }
+
+
     finally {
         Logger::set_dump_path(
             (((std::get_exe_path()).parent_path()) / r"kairo.log").generic_wstring()
@@ -100,9 +160,6 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         GlobalRecycler::shutdown_allocator_runtime();
     }
 
-    // Construction parses argv, builds a CompilerInvocation, and wires all
-    // shared resources (DiagEngine, SourceManager, TCM, ThreadPool, ...).
-    var ci = std::create::<CompilerInstance>(argc, argv);
     finally { std::destroy(ci); }
 
     // --- Identity: help / version / explain ------------------------------
@@ -122,8 +179,17 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
         return 1;
     }
 
-    ci->initialize(Path::cwd());
+    var fe_time = ci->invocation().frontend;
+    if fe_time.time_passes || !fe_time.time_trace.empty() {
+        want_tp = true;
+        want_tt = want_tt || !fe_time.time_trace.empty();
+        time_enable(true, want_tt);
+    }
 
+    {
+        var _t_init = TimeRegion("Initialize");
+        ci->initialize(Path::cwd());
+    }
 
     // --- Layer 3: execute the FrontendAction pipeline --------------------
     //
@@ -131,6 +197,19 @@ fn main(argc: i32, argv: *(*kairo::std::Legacy::char)) -> i32 {
     // FrontendOptions::stops_at_* helpers gate each pipeline stage.
     var result = ci->execute();
     ci->flush_errors();
+
+    if want_tp {
+        time_finish();
+        time_print();
+
+        if want_tt {
+            if time_write_trace(fe_time.time_trace) {
+                std::eprintln(f"time trace written to '{fe_time.time_trace}\x27");
+            } else {
+                std::eprintln(f"error: cannot write time trace to '{fe_time.time_trace}\x27");
+            }
+        }
+    }
 
     if ci->invocation().frontend.verbose {
         std::eprintln(f"compilation: {result.summary()}");
