@@ -571,7 +571,7 @@ class ClangFlagTranslator {
         // time trace
         var time_trace = args->get_string("time-trace");
         if !time_trace.empty() {
-            argv->push_back(f"-ftime-trace={time_trace}");
+            argv->push_back(f"-ftime-trace={time_trace}.clang.json");
         }
 
         if args->get_bool("time-passes") {

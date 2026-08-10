@@ -22,6 +22,7 @@ import Lexer::OctalParser::*;
 
 import Location::SourceManager::*;
 import Support::Timer::*;
+import Support::TimeReport::*;
 import Support::Assert::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
@@ -87,6 +88,26 @@ class Lexer {
     // ideally this should be gated to test runner only but fine for now stage2 problems
     // PORT(stage2)
     var _test_buff: opt::<TokenBuffer::<512>> = &null;
+
+    // --- Pass timing (--time-passes) --------------------------------------
+    //
+    //   Lexing is STREAMING: the preprocessor pulls one token at a time and
+    //   the Lexer produces it on demand, so lex time is interleaved with PP
+    //   time and cannot be bracketed from outside. It has to be measured here,
+    //   in next(), which is the only place it happens.
+    //
+    //   Sampled, because it must be. Two clock_gettime calls per token is
+    //   ~50ns through the vDSO on aarch64 against a tokenizer step of roughly
+    //   20ns   the instrument would be two thirds of the reading. At stride 64
+    //   it is ~1ns amortized and the aggregate is accurate to well under the
+    //   resolution anyone acts on.
+    //
+    //   _t_lex is null when timing is off, which is the first thing TimeSampled
+    //   checks, so the disabled path is one null test. The counter is per-Lexer
+    //   and therefore per-file and per-thread   a shared one would put a
+    //   contended cache line in the token loop.
+    var _t_lex      : *kairo::KTimeRecord = &null;
+    var _lex_sample : u32 = 0;
 
     const PFX_FORMAT: u8 = 1 << 0;
     const PFX_RAW:    u8 = 1 << 1;
@@ -342,6 +363,16 @@ class Lexer {
         return self.create_unrecognized_token(start);
     }
 
+    /// \brief places this Lexer's "Lex" timing row explicitly.
+    ///
+    /// \details Call BEFORE open(), which otherwise picks a default position.
+    ///          Needed because a Lexer can be driven by two unrelated passes:
+    ///          the DepScanner's import scan and the preprocessor's walk. They
+    ///          tokenize the same bytes for different reasons and have to show
+    ///          up as separate rows, or the fact that the work happens twice
+    ///          is invisible.
+    fn bind_time_region(self, rec: *kairo::KTimeRecord) { self._t_lex = rec; }
+
     /// \brief begin streaming a fid. imm table live immediately after this returns.
     fn open(self, fid: u32) -> bool {
         if self._state != StreamState::Closed {
@@ -385,6 +416,21 @@ class Lexer {
 
         self._err_base = self._diag->error_count();
         self._state    = StreamState::Streaming;
+
+        // Only if the caller has not already placed us. open_scan_stream binds
+        // its own record (see bind_time_region) because the DepScanner's lex
+        // and the walk's lex are two different passes over the same bytes and
+        // must not collapse into one row.
+        //
+        // BESIDE, not under, for the default path: open() runs inside the PP's
+        // "Open" region (TokenCacheManager::open_stream), but lex time is not
+        // part of opening a stream   it belongs next to it, under the walk.
+        // Resolving here rather than lazily in next() keeps the per-token path
+        // down to a null check.
+        if time_enabled() && (self._t_lex == &null) {
+            self._t_lex = time_region_beside("Lex");
+        }
+
         return true;
     }
 
@@ -392,6 +438,8 @@ class Lexer {
     /// \details never blocks. lex errors emit TkError inline + diagnostics; stream continues.
     fn next(self, out: *Token) -> bool {
         if self._state != StreamState::Streaming { return false; }
+
+        var _t = TimeSampled(self._t_lex, 64, &self._lex_sample);
 
         while !self.is_eof() {
             var decode = self.peek_char32();
