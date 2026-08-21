@@ -4,16 +4,19 @@
 // kairo::
 // core::
 // std::
-// ...:: // this is the layer where things like crypo, math, and other things that are not part of the standard library but are useful for kairo programs will go
+// ...:: // this is the layer where things like crypto, math, time, etc... and other things that are not part of the standard library but are useful for kairo programs will go
 
-//===----------------------------------------------------------------------===//
-//===----------------------------------------------------------------------===//
-//===----------------------------------------------------------------------===//
-//===----------------------------------------------------------------------===//
-//===----------------------------------------------------------------------===//
-//===----------------------------------------------------------------------===//
-//===----------------------------------------------------------------------===//
-//===----------------------------------------------------------------------===//
+/*
+The line between std core kairo and ... is clear:
+core, this is the lowest layer of the standard library, it contains the most basic building blocks of the language, such as types, functions, and macros, basic allocators, and other things that are needed to build the other layers of the standard library. It is the foundation upon which the other layers are built.
+std, this is the layer that contains the standard library, what can be std and not:
+- if it is integral to the language, take `[u8]` that desuagrs to the known type of `std::Vec<u8>`, it has to be std, not collections::Vec.
+- if it is useful for most programs, it has to be std.
+the above must be satisfied to be a part of the std layer, take time, its useful for most programs, but it is not integral to the language, in the sense, that you can make a program without it, so it is not std.
+something like mutex, it is useful for most programs, and it is integral to the language, in the sense that you cant make a program without it, so it is std. Yes a user can reimplemnt mutex, but it is not trivial to do so, since it lowers to the OS level. not langauge abstractions.
+
+*/
+
 //===----------------------------------------------------------------------===//
 
 eval if defined!(__unix__) {
@@ -54,30 +57,19 @@ fn __builtin_has_scoped_alloc() -> bool
 fn <T> __builtin_is_trivial_destruct() -> bool
 fn <T> __builtin_is_trivial_construct() -> bool
 fn <T> __builtin_is_trivial_copy() -> bool
-fn <N: usize> __builtin_crash(msg: const [char; N], exit_code: i32) -> !
-fn <N: usize> __builtin_signal(msg: const [char; N], signal: SIGNAL) -> !
+fn <const N: usize> __builtin_crash(msg: const [char; N], exit_code: i32) -> !
+fn <const N: usize> __builtin_signal(msg: const [char; N], signal: SIGNAL) -> !
 fn __builtin_max_align() -> usize
 fn __builtin_global_allocator() -> *core::Allocator
 fn __builtin_scoped_allocator() -> *core::ScopedAllocator
 
-                     // avoids monomorphization of this function rather inlines
-@kairo::InlineSource // it into the caller as source code not llvm ir
-fn <T> op sizeof () -> usize {
-    return __builtin_sizeof(T)
-}
-
-@kairo::InlineSource
-fn <T> op alignof () -> usize {
-    return __builtin_alignof(T)
-}
-
 module core {
     // core layer is the lowest layer of the standard library, it contains the most basic building blocks of the language, such as types, functions, and macros. It is the foundation upon which the other layers are built.
     virtual interface Allocator {
-        @kairo::Crashes
+        @Crashes
         fn alloc(self, size: usize, align: usize) -> *void
         fn try_alloc(self, size: usize, align: usize) -> *void?
-        @kairo::Crashes
+        @Crashes
         fn realloc(self, ptr: *void, old_size: usize, new_size: usize, align: usize) -> bool
         fn try_realloc(self, ptr: *void, old_size: usize, new_size: usize, align: usize) -> bool
         fn free(self, ptr: *void, size: usize)
@@ -144,26 +136,26 @@ module core {
 }
 
 module std {
-    @kairo::InlineSource
+    @InlineSource
     fn <T, ...U> create(...args: U) -> *T {
         eval if __builtin_has_scoped_alloc() {
             var mem = __builtin_scoped_allocator().alloc(
                 __builtin_size_of<T>(),
                 __builtin_align_of<T>()
             )
-            __builtin_construct_at<T>(mem, ...args)
+            __builtin_construct_at<T>(mem, args...)
             return mem as *T
         } else {
             var mem = __builtin_global_allocator().alloc(
                 __builtin_size_of<T>(),
                 __builtin_align_of<T>()
             )
-            __builtin_construct_at<T>(mem, ...args)
+            __builtin_construct_at<T>(mem, args...)
             return mem as *T
         }
     }
 
-    @kairo::InlineSource
+    @InlineSource
     fn <T, ...U> try_create(...args: U) -> *T? {
         eval if __builtin_has_scoped_alloc() {
             var mem = __builtin_scoped_allocator().try_alloc(
@@ -171,7 +163,7 @@ module std {
                 __builtin_align_of<T>()
             )
             if !mem? { return null }
-            __builtin_construct_at<T>(mem, ...args)
+            __builtin_construct_at<T>(mem, args...)
             return mem as *T
         } else {
             var mem = __builtin_global_allocator().try_alloc(
@@ -179,12 +171,12 @@ module std {
                 __builtin_align_of<T>()
             )
             if !mem? { return null }
-            __builtin_construct_at<T>(mem, ...args)
+            __builtin_construct_at<T>(mem, args...)
             return mem as *T
         }
     }
 
-    @kairo::InlineSource
+    @InlineSource
     fn <T> destroy(obj: *T) {
         __builtin_destruct_at<T>(obj)
         eval if __builtin_has_scoped_alloc() {
@@ -194,7 +186,7 @@ module std {
         }
     }
 
-    @kairo::InlineSource
+    @InlineSource
     fn <T> alloc(count: usize) -> *T {
         eval if __builtin_has_scoped_alloc() {
             return __builtin_scoped_allocator().alloc(
@@ -209,7 +201,7 @@ module std {
         }
     }
 
-    @kairo::InlineSource
+    @InlineSource
     fn <T> try_alloc(count: usize) -> *T? {
         eval if __builtin_has_scoped_alloc() {
             var mem = __builtin_scoped_allocator().try_alloc(
@@ -490,3 +482,102 @@ if foo.data? {
     foo.change_data() // we do a fast pass if change_data is not const, we error on auto deref agian
     std::println(f"Data is now: {foo.data}") // error: cannot use a nullable value without checking
 }
+
+
+static thread __ALLOC_PTR: fn (usize, usize) -> *void
+static thread __FREE_PTR: fn (*void, usize)
+static thread __REALLOC_PTR: fn (*void, usize, usize) -> *void
+static thread __ALIGNED_ALLOC_PTR: fn (usize, usize) -> *void
+static thread __ALIGNED_FREE_PTR: fn (*void, usize)
+static thread __IN_SCOPED_CONTEXT: bool = false;
+
+/* scoped allcators in sepficic do something intresting whith this contxt tkae: */
+
+@set_scoped_allocator(ArenaAllocator)
+fn work_with_arena() {
+    var my_vec: [Foo];
+    my_vec.reserve(100); // This will use the ArenaAllocator
+}
+
+
+fn work_with_arena() {
+    var __ORIGINAL_ALLOC_PTR         = __ALLOC_PTR
+    var __ORIGINAL_FREE_PTR          = __FREE_PTR
+    var __ORIGINAL_REALLOC_PTR       = __REALLOC_PTR
+    var __ORIGINAL_ALIGNED_ALLOC_PTR = __ALIGNED_ALLOC_PTR
+    var __ORIGINAL_ALIGNED_FREE_PTR  = __ALIGNED_FREE_PTR
+    var __ORIGINAL_IN_SCOPED_CONTEXT = __IN_SCOPED_CONTEXT
+    var SCOPED_ALLOCATOR = ArenaAllocator(); // this can safely sit on the stack of this function since all callers are in the same scope
+    __ALLOC_PTR         = SCOPED_ALLOCATOR.alloc
+    __FREE_PTR          = SCOPED_ALLOCATOR.free
+    __REALLOC_PTR       = SCOPED_ALLOCATOR.realloc;
+    __ALIGNED_ALLOC_PTR = SCOPED_ALLOCATOR.aligned_alloc
+    __ALIGNED_FREE_PTR  = SCOPED_ALLOCATOR.aligned_free
+    __IN_SCOPED_CONTEXT = true
+
+    var my_vec: [Foo];
+    my_vec.reserve(100); // std::create will use the pointer anyways so this is fine
+
+    // end of scope we release and resotre the original allocators
+    __ALLOC_PTR         = __ORIGINAL_ALLOC_PTR
+    __FREE_PTR          = __ORIGINAL_FREE_PTR
+    __REALLOC_PTR       = __ORIGINAL_REALLOC_PTR
+    __ALIGNED_ALLOC_PTR = __ORIGINAL_ALIGNED_ALLOC_PTR
+    __ALIGNED_FREE_PTR  = __ORIGINAL_ALIGNED_FREE_PTR
+    __IN_SCOPED_CONTEXT = __ORIGINAL_IN_SCOPED_CONTEXT
+    delete SCOPED_ALLOCATOR // calls cleanup
+}
+
+@InlineSource
+fn <T, ...U> create(...args: U) -> *T {
+    eval if __builtin_has_scoped_alloc() {
+        var mem = __builtin_scoped_allocator().alloc(
+            __builtin_size_of<T>(),
+            __builtin_align_of<T>()
+        )
+        __builtin_construct_at<T>(mem, ...args)
+        return mem as *T
+    } else {
+        var mem = __builtin_global_allocator().alloc(
+            __builtin_size_of<T>(),
+            __builtin_align_of<T>()
+        )
+        __builtin_construct_at<T>(mem, ...args)
+        return mem as *T
+    }
+}
+
+// using it like:
+var x = std::create<Foo>(10);
+
+// would anyways expand in first pass - source inlining
+
+var x = fn <T, ...U> (...args: U) -> *T {
+    eval if __builtin_has_scoped_alloc() {
+        var mem = __builtin_scoped_allocator().alloc(
+            __builtin_size_of<T>(),
+            __builtin_align_of<T>()
+        )
+        __builtin_construct_at<T>(mem, ...args)
+        return mem as *T
+    } else {
+        var mem = __builtin_global_allocator().alloc(
+            __builtin_size_of<T>(),
+            __builtin_align_of<T>()
+        )
+        __builtin_construct_at<T>(mem, ...args)
+        return mem as *T
+    }
+}<Foo>(10) // IIFE
+
+// then further boil down to:
+var x = __builtin_construct_at(
+    LibcAllocator::alloc(__builtin_size_of<Foo>(), __builtin_align_of<Foo>()),
+    10
+) as *Foo
+// finally resoliving the remaining builtins after type resolve and name resolve is done
+// leaving somehting like:
+var x = __builtin_construct_at( // this stays cuz then it becomes a clean placement allocation
+    LibcAllocator::alloc(64, 8),
+    10
+) as *Foo
