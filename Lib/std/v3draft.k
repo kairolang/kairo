@@ -106,6 +106,49 @@ enum MemoryOrder derives u8 {
     SeqCst,
 }
 
+struct StringRef {
+    priv var __d: const *u8 // not char since a char is u32 and here we are
+                            // getting whats in .text section of the elf/bin
+    priv var __l: usize
+
+  pub {
+    fn StringRef(self, _s: const *u8, _l: usize? = null) {
+        // if null _s must be null termed, _l limit is 65,536
+        self.__d = _s
+        
+        if _l? {
+            self.__l = _l
+        } else {
+            self.__l = StringRef::length(_s);
+        }
+    }
+
+    static fn length(_s: const *u8) -> usize {
+        eval  ALIGN       = sizeof usize
+        eval  ONES        = (-1 as usize) / u8::max
+        eval  HIGHS       = (ONES * (u8::max / 2+1))
+        macro HASZERO!(x) { (x-ONES & ~x & HIGHS) }
+        
+        var   a: const *u8 = _s
+        const w: *usize
+    
+        for ; (s as unsafe *usize) % ALIGN; ++s {
+            if (!*s) {
+                return s - a
+            }
+        }
+
+        for w = (s as const *void); !HASZERO!(*w); ++w { }
+        s = w as const *void
+
+        for ; *s; ++s { }
+	    return s - a
+    }
+
+    fn length(self) -> usize { return self.__l }
+  }
+}
+
 //===----------------------------------------------------------------------===//
 //  INTRINSICS                                                        PARTIAL
 //===----------------------------------------------------------------------===//
@@ -116,7 +159,7 @@ enum MemoryOrder derives u8 {
 //              LLVM intrinsic directly.
 //
 //  The ones marked OWN NOW have no Clang equivalent, so Stage 1 must
-//  implement them itself. Those are the interesting ones.
+//  implement them itself.
 //
 
 //  -- memory: raw allocation ------------------------------------------------
@@ -176,19 +219,19 @@ fn <T> __builtin_offset_of(field: FieldRef) -> usize
 //  constructor are indistinguishable from any call site — same expression,
 //  same result, different codegen contract. There is no probe.
 //
-eval fn <T>    __builtin_is_trivially_copyable() -> bool
-eval fn <T>    __builtin_is_trivially_destructible() -> bool
+eval fn <T>       __builtin_is_trivially_copyable() -> bool
+eval fn <T>       __builtin_is_trivially_destructible() -> bool
 eval fn <T, ...A> __builtin_is_trivially_constructible() -> bool
-eval fn <T, U> __builtin_is_trivially_assignable() -> bool
-eval fn <T>    __builtin_is_standard_layout() -> bool
-eval fn <T>    __builtin_is_aggregate() -> bool
-eval fn <T>    __builtin_is_empty() -> bool
-eval fn <T>    __builtin_is_polymorphic() -> bool
-eval fn <T>    __builtin_is_abstract() -> bool
-eval fn <T>    __builtin_is_final() -> bool
-eval fn <B, D> __builtin_is_base_of() -> bool
-eval fn <E>    __builtin_underlying_type() -> Type
-eval fn <T>    __builtin_has_virtual_destructor() -> bool
+eval fn <T, U>    __builtin_is_trivially_assignable() -> bool
+eval fn <T>       __builtin_is_standard_layout() -> bool
+eval fn <T>       __builtin_is_aggregate() -> bool
+eval fn <T>       __builtin_is_empty() -> bool
+eval fn <T>       __builtin_is_polymorphic() -> bool
+eval fn <T>       __builtin_is_abstract() -> bool
+eval fn <T>       __builtin_is_final() -> bool
+eval fn <B, D>    __builtin_is_base_of() -> bool
+eval fn <E>       __builtin_underlying_type() -> Type
+eval fn <T>       __builtin_has_virtual_destructor() -> bool
 //
 //  NOTE  is_base_of is NOT is_convertible<D*, B*>. The latter lies on private
 //        and ambiguous bases. It needs the real inheritance graph including
@@ -322,10 +365,10 @@ eval fn <T> __builtin_atomic_is_lock_free() -> bool
 //  BiLine, BiColumn, BiFunction, BiModule token kinds, so the surface syntax
 //  exists — these are the lowering targets.
 //
-fn __builtin_source_file() -> StrRef
+fn __builtin_source_file() -> const *u8
 fn __builtin_source_line() -> u32
 fn __builtin_source_column() -> u32
-fn __builtin_source_function() -> StrRef
+fn __builtin_source_function() -> const *u8
 
 //===----------------------------------------------------------------------===//
 //  core::                                                             PARTIAL
@@ -824,11 +867,14 @@ module std {
 //    (c) `[const T;]` — const on the element type. Most precise, least
 //        familiar.
 //
+//   a - POINTER CAN BE DEREFED AND CHANGED, BUT U CANT DO slice[1] = 20, *slice[1] = 20 // fully valid since uve consted the slice itself not what it holds
+//   c - now, slice[1] = 20 is valid, *slice[1] = 20 is not valid
+//
 //  This is a type-system decision, not a library one, and every function that
 //  takes a view depends on it. SETTLE THIS FIRST.
 //
-    struct <T> Slice {
-        priv var data: unsafe *T
+    struct <T> Slice
+        priv var data: *T
         priv var len:  usize
 
         // TODO: len, is_empty, op [], first, last
@@ -1077,3 +1123,271 @@ module std {
 //                     No future/promise — nothing in the compiler used them.
 
 }
+
+
+
+// i need to figure out a better way then tempaltes for panic sets...
+
+class RuntimeError
+class FooError
+class IOError
+
+fn bar() panic -> i32 {
+    panic RuntimeError("eror happen")
+}
+
+fn foo() panic /* RuntimeError, FooError */ -> string {
+    var y = bar()
+    panic FooError("oh no")
+}
+
+fn baz() {
+    var x = foo(); // baz iis not marked panic either handle or propgate
+     
+    // handling looks like:
+    
+    try var x = foo() {
+        // x is usable here
+        x+=1
+        some(x)
+    } catch var e: RuntimeError {
+        // handle
+    } catch var e: FooError {
+        // handle
+    }
+
+    // or 
+    try {
+        var x = foo()
+        x+=1
+        some(x)
+    } catch var e: RuntimeError {
+        // handle
+    } catch var e: FooError {
+        // handle
+    } // more combies 
+}
+
+
+// but what the fuck is lowering for this.... 
+// maybe apporach:
+try {
+    var x = foo()
+    x+=1
+    bar()
+    some(x)
+} catch var e: RuntimeError {
+    // handle
+} catch var e: FooError {
+    // handle
+}
+
+
+//furst whats foos ret? 
+// Panickable<T> // but how do we reprsent the full union list... honstly we cant
+// Panicable<T, RuntimeError, FooError>
+
+// nw the try block:
+// most optimal path without dups
+
+var x = foo()
+x+=1
+bar()
+some(x)
+return x
+
+var __internal_state: TypeErasuredPanicState // always null unless error is present
+
+var x = fn ()|*|{
+    var __r = foo() // even if foo is void
+    if !__r.has_error() {
+        return __r
+    }
+
+    match __r.__err {
+        case .RuntimeError(var e) {
+            __internal_state = TypeErasuredPanicState(e) // we need to copy over e since its unsafe outside this scope
+            __intreisc_gend_jmp_RuntimeError(e)
+        }
+
+        case .FooError(var e) {
+            __internal_state = TypeErasuredPanicState(e)
+            __intreisc_gend_jmp_FooError(e)
+        }
+    }
+}()
+
+x+=1
+fn ()|*|{
+    const __r = bar()
+    if !__r.has_error() {
+        return __r
+    }
+
+    match __r.__err {
+        case .RuntimeError(var e) {
+            __internal_state = TypeErasuredPanicState(e)
+            __intreisc_gend_jmp_RuntimeError(e)
+        }
+
+        case .FooError(var e) {
+            __internal_state = TypeErasuredPanicState(e)
+            __intreisc_gend_jmp_FooError(e)
+        }
+    }
+}()
+
+some(x)
+
+__intreisc_gend_jmp_RuntimeError:
+    var e = *__internal_state.get<RuntimeError>()
+    // handleable now
+__intreisc_gend_jmp_FooError:
+    var e = *__internal_state.get<FooError>()
+    // handleable now
+
+
+so now the full lowering example:
+
+```
+
+class RuntimeError
+class FooError
+class IOError
+
+fn bar() panic -> i32 {
+    panic RuntimeError("eror happen")
+}
+
+fn foo() panic /* RuntimeError, FooError */ -> string {
+    var y = bar()
+    panic FooError("oh no")
+}
+
+fn baz() {
+    var x = foo(); // baz iis not marked panic either handle or propgate
+
+    try {
+        var x = foo()
+        x+=1
+        some(x)
+    } catch var e: RuntimeError {
+        // handle
+    } catch var e: FooError {
+        // handle
+    } default {
+        // anything else that slipped
+    }
+}
+```
+
+becomes
+
+```
+
+/* WELL KNOWN TYPE */
+class TypeErasuredPanicState {
+    var __e: unsafe *void = &null
+    var __s: usize
+    var __a: isize
+
+    fn <T> TypeErasuredPanicState(self, e: *T)
+      requires __builtin_is_trivially_assignable<T, T>() {
+        // we copy and construct
+        self.__s = sizeof T
+        self.__a = alignof T
+
+        var tmp = __builtin_alloc_align(self.__s, self.__a)
+        if !tmp {
+            __builtin_signal("alloc failed for error frame", SIGNAL::SIGABRT)
+        }
+
+        *tmp = *e // all errors must be copy or moveable compiler then handles constructor
+    }
+
+    fn op delete(self) {
+        __builtin_free(self.__e as unsafe *u8)
+        self.__s = 0
+        self.__a = 0
+    }
+
+    fn <T> get(self) -> unsafe *T {
+        return self.__e as unsafe *T
+    }
+}
+
+class RuntimeError
+class FooError
+class IOError
+
+fn bar() -> Panic<i32, RuntimeError> {
+    return RuntimeError("eror happen")
+}
+
+fn foo() -> Panic<string, RuntimeError, FooError> {
+    var y = bar()
+    return FooError("oh no")
+}
+
+fn baz() {
+    var __internal_state: TypeErasuredPanicState // always null unless error is present
+
+    var x = fn ()|*|{
+        var __r = foo()
+        if !__r.has_error() {
+            return __r
+        }
+
+        match __r.__err {
+            case .RuntimeError(var e) {
+                *__internal_state = TypeErasuredPanicState(e) // we need to copy over e since its unsafe outside this scope
+                jmp!(__intreisc_gend_jmp_RuntimeError)
+            }
+
+            case .FooError(var e) {
+                *__internal_state = TypeErasuredPanicState(e)
+                jmp!(__intreisc_gend_jmp_FooError)
+            }
+
+            default {
+                jmp!(__intreisc_gend_jmp_default)
+            }
+        }
+    }()
+
+    x+=1
+
+    fn ()|*|{
+        const __r = bar()
+        if !__r.has_error() {
+            return __r
+        }
+
+        match __r.__err {
+            case .RuntimeError(var e) { // the case is broken but what to do for now this is general shape
+                *__internal_state = TypeErasuredPanicState(e)
+                jmp!(__intreisc_gend_jmp_RuntimeError)
+            }
+
+            default {
+                jmp!(__intreisc_gend_jmp_default)
+            }
+        }
+    }()
+
+    some(x)
+
+    label!(__intreisc_gend_jmp_RuntimeError)
+        var e = *__internal_state.get<RuntimeError>()
+        // handleable now
+    label!(__intreisc_gend_jmp_FooError)
+        var e = *__internal_state.get<FooError>()
+        // handleable now
+    label!(__intreisc_gend_jmp_default)
+        // anything else
+}
+
+
+// 4 trival cases to handle cleanly - lowering path divergance
+// 1. return foo() where baz() has a try who returns foo() this approach works for that
+// 2. 
