@@ -269,6 +269,184 @@ class Command {
     }
 
 
+
+    /// classic two-row Levenshtein; only ever runs on a failed lookup, so the
+    /// O(n*m) over a CLI-sized table is free in practice
+    priv fn _edit_distance(self, a: string, b: string) -> usize {
+        var n = a.length();
+        var m = b.length();
+        if n == 0 { return m; }
+        if m == 0 { return n; }
+
+        var prev: vec::<usize>;
+        var cur:  vec::<usize>;
+        prev.resize(m + 1, usize(0));
+        cur.resize(m + 1, usize(0));
+
+        for var j: usize = 0; j <= m; ++j { prev[j] = j; }
+
+        for var i: usize = 1; i <= n; ++i {
+            cur[0] = i;
+            for var j: usize = 1; j <= m; ++j {
+                var cost: usize = (usize(0) if a[i - 1] == b[j - 1] else usize(1));
+                var best = prev[j] + 1;                        // deletion
+                var ins  = cur[j - 1] + 1;                     // insertion
+                var sub  = prev[j - 1] + cost;                 // substitution
+                if ins < best { best = ins; }
+                if sub < best { best = sub; }
+                cur[j] = best;
+            }
+            for var j: usize = 0; j <= m; ++j { prev[j] = cur[j]; }
+        }
+        return prev[m];
+    }
+
+    /// every spelling a user could legally type, as it would appear on the
+    /// command line (prefix included)
+    priv fn _spellings(self, out_names: *vec::<string>, out_disp: *vec::<string>) {
+        for var i: usize = 0; i < self._table.size(); ++i {
+            var def = &(self._table[i]);
+            if def->kind == FlagKind::PathList { continue; }
+
+            if def->kind == FlagKind::Feature {
+                out_names->push_back(f"f{def->key}");
+                out_disp->push_back(f"-f{def->key}");
+                out_names->push_back(f"fno-{def->key}");
+                out_disp->push_back(f"-fno-{def->key}");
+                continue;
+            }
+
+            // config flags are stored as key = "c:{name}" and typed as --c{name}
+            if (def->key.length() > 2) && (def->key.raw_string().substr(0, 2) == "c:".raw_string()) {
+                var bare = def->key.raw_string().substr(2);
+                out_names->push_back(f"c{bare}");
+                out_disp->push_back(f"--c{bare}");
+                continue;
+            }
+
+            if def->long_.length() > 0 {
+                out_names->push_back(def->long_);
+                out_disp->push_back(f"--{def->long_}");
+            } else if def->key.length() > 0 {
+                out_names->push_back(def->key);
+                out_disp->push_back(f"--{def->key}");
+            }
+
+            // single-letter shorts are never useful suggestions - too many
+            // of them sit one edit apart from each other
+            if def->short_.length() > 1 {
+                out_names->push_back(def->short_);
+                out_disp->push_back(f"-{def->short_}");
+            }
+        }
+    }
+
+    /// nearest known flag to an unrecognised name, or "" if nothing is close
+    /// enough to be worth printing. `name` is the bare text the user typed,
+    /// without its '-' / '--' / '/' prefix.
+    /// score sentinel: "no relationship at all"
+    priv fn _no_match(self) -> usize { return usize(9999); }
+
+    /// split a flag name on '-' into its words, dropping empties
+    priv fn _split_words(self, s: string, out: *vec::<string>) {
+        var raw = s.raw_string();
+        var n   = s.length();
+        var b: usize = 0;
+        for var i: usize = 0; i <= n; ++i {
+            if (i == n) || (raw[i] == '-') {
+                if i > b { out->push_back(raw.substr(b, i - b)); }
+                b = i + 1;
+            }
+        }
+    }
+
+    priv fn _starts_with(self, hay: string, pre: string) -> bool {
+        if pre.length() > hay.length() { return false; }
+        return hay.raw_string().substr(0, pre.length()) == pre.raw_string();
+    }
+
+    /// how close is `cand` to what the user typed? lower is better,
+    /// _no_match() means "do not suggest this". three independent routes:
+    ///   - prefix:  --type-check   -> --type-check-only  (truncated flag)
+    ///   - words:   --typse-check  -> --type-check-only  (typo in one word)
+    ///   - edits:   --sytanx-only  -> --syntax-only      (typo anywhere)
+    priv fn _score(self, name: string, cand: string) -> usize {
+        var best = self._no_match();
+
+        // route 1: one is a prefix of the other. a truncated flag is the most
+        // common "wrong flag" there is, so it outranks everything else.
+        if self._starts_with(cand, name) { return usize(0); }
+        if self._starts_with(name, cand) { best = usize(1); }
+
+        // route 2: word-by-word. every word the user typed must line up with
+        // some word of the candidate; extra candidate words are free.
+        var nw: vec::<string>;
+        var cw: vec::<string>;
+        self._split_words(name, &nw);
+        self._split_words(cand, &cw);
+
+        if (nw.size() > 0) && (cw.size() > 0) {
+            var total: usize = 0;
+            var ok: bool     = true;
+
+            for var i: usize = 0; i < nw.size(); ++i {
+                // tolerance per word, by that word's length
+                var tol: usize = 2;
+                if nw[i].length() <= 3      { tol = 0; }
+                else if nw[i].length() <= 6 { tol = 1; }
+
+                var wbest = self._no_match();
+                for var j: usize = 0; j < cw.size(); ++j {
+                    var d = self._edit_distance(nw[i], cw[j]);
+                    if d < wbest { wbest = d; }
+                }
+                if wbest > tol { ok = false; break; }
+                total += wbest;
+            }
+
+            // +1 so an exact prefix always wins over a word-level match
+            if ok && ((total + 1) < best) { best = total + 1; }
+        }
+
+        // route 3: plain edit distance over the whole name
+        var limit: usize = 3;
+        if name.length() <= 3      { limit = 1; }
+        else if name.length() <= 7 { limit = 2; }
+
+        var d = self._edit_distance(name, cand);
+        if (d <= limit) && (d < best) { best = d; }
+
+        return best;
+    }
+
+    /// nearest known flag to an unrecognised name, or "" if nothing is close
+    /// enough to be worth printing. `name` is the bare text the user typed,
+    /// without its '-' / '--' / '/' prefix.
+    priv fn _suggest(self, name: string) -> string {
+        if name.length() < 2 { return ""; } // a one-char typo has no unique fix
+
+        var names: vec::<string>;
+        var disp:  vec::<string>;
+        self._spellings(&names, &disp);
+
+        var best: usize   = names.size(); // sentinel: nothing found
+        var best_s: usize = self._no_match();
+
+        for var i: usize = 0; i < names.size(); ++i {
+            var sc = self._score(name, names[i]);
+            if sc >= self._no_match() { continue; }
+            // ties go to the shorter flag - it is the less surprising guess
+            if (sc < best_s) || ((sc == best_s) && (best < names.size()) && (names[i].length() < names[best].length())) {
+                best_s = sc;
+                best   = i;
+            }
+        }
+
+        if best >= names.size() { return ""; }
+        return disp[best];
+    }
+
+
     priv fn _parse_i32(self, s: string, out: *i32) -> bool {
         var raw = s.raw_string();
         var ptr: *char = raw.data();
@@ -433,9 +611,11 @@ class Command {
                     }
 
                     if def == &null {
-                        self._diag->report(DiagCode(DiagID::U002E),
-                            f"unknown flag '--{name}'; run '--help' to see available options")
-                            .emit();
+                        var hint = self._suggest(name);
+                        var msg  = (f"unknown flag '--{name}'; did you mean '{hint}\x27; run '--help' to see available options")
+                                   if (hint.length() > 0) else
+                                   (f"unknown flag '--{name}'; run '--help' to see available options");
+                        self._diag->report(DiagCode(DiagID::U002E), msg).emit();
                         result.ok = false;
                         i += 1; continue;
                     }
@@ -474,9 +654,11 @@ class Command {
                     }
 
                     if def == &null {
-                        self._diag->report(DiagCode(DiagID::U002E),
-                            f"unknown flag '-{name}'; run '--help' to see available options")
-                            .emit();
+                        var hint = self._suggest(name);
+                        var msg  = (f"unknown flag '-{name}'; did you mean '{hint}\x27; run '--help' to see available options")
+                                   if (hint.length() > 0) else
+                                   (f"unknown flag '-{name}'; run '--help' to see available options");
+                        self._diag->report(DiagCode(DiagID::U002E), msg).emit();
                         result.ok = false;
                         i += 1; continue;
                     }
@@ -541,9 +723,11 @@ class Command {
                     var def     = self._find_split(name, &joined);
 
                     if def == &null {
-                        self._diag->report(DiagCode(DiagID::U002E),
-                            f"unknown flag '/{name}'; run '--help' to see available options")
-                            .emit();
+                        var hint = self._suggest(name);
+                        var msg  = (f"unknown flag '/{name}'; did you mean '{hint}\x27; run '--help' to see available options")
+                                   if (hint.length() > 0) else
+                                   (f"unknown flag '/{name}'; run '--help' to see available options");
+                        self._diag->report(DiagCode(DiagID::U002E), msg).emit();
                         result.ok = false;
                     } else if j < elen {
                         self._apply(def, elem.raw_string().substr(j + 1), &result);
