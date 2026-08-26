@@ -16,6 +16,7 @@ import Location::SourceManager::*;
 import Token::TokenBuffer::*;
 import Memory::ArenaList::*;
 import Support::EvalHash::*;
+import Support::Limits::*;
 
 /// TODO: change suffixes to Tokens itself rather then SourceRange since we
 ///       don't want to reparse and a Token is smaller (32 bytes vs 64 bytes)
@@ -61,9 +62,9 @@ module Int128 {
 
         } else {
             // manual 32-bit multiplication fallback
-            var a0: u64 = val & 0xFFFFFFFF;
+            var a0: u64 = val & U32_MAX;
             var a1: u64 = val >> 32;
-            var b0: u64 = factor & 0xFFFFFFFF;
+            var b0: u64 = factor & U32_MAX;
             var b1: u64 = factor >> 32;
 
             var p00: u64 = a0 * b0;
@@ -71,15 +72,15 @@ module Int128 {
             var p10: u64 = a1 * b0;
             var p11: u64 = a1 * b1;
 
-            var r0: u64 = p00 & 0xFFFFFFFF;
+            var r0: u64 = p00 & U32_MAX;
             var c:  u64 = p00 >> 32;
 
-            c += (p01 & 0xFFFFFFFF) + (p10 & 0xFFFFFFFF);
-            var r1: u64 = c & 0xFFFFFFFF;
+            c += (p01 & U32_MAX) + (p10 & U32_MAX);
+            var r1: u64 = c & U32_MAX;
             c >>= 32;
 
-            c += (p01 >> 32) + (p10 >> 32) + (p11 & 0xFFFFFFFF);
-            var r2: u64 = c & 0xFFFFFFFF;
+            c += (p01 >> 32) + (p10 >> 32) + (p11 & U32_MAX);
+            var r2: u64 = c & U32_MAX;
             c >>= 32;
 
             c += (p11 >> 32);
@@ -111,6 +112,7 @@ module Int128 {
             var mul_lo: u64;
             var mul_hi: u64;
             var carry: u8;
+            var addend_carry: u8;
 
             // step 1: multiply lo * factor -> 128-bit result
             __inline_cpp("
@@ -123,8 +125,16 @@ module Int128 {
             ");
 
             // step 3: propagate carry to mul_hi
+            //
+            // The carry OUT of this add is kept in its own variable. It used to
+            // reuse `carry`, which step 5 then overwrote, so a carry out of
+            // mul_hi here was silently discarded. Unreachable for the only
+            // caller -- digit accumulation passes factor <= 16, which bounds
+            // mul_hi at 15, so it can never be all-ones and can never carry out
+            // -- but the signature accepts any u64 factor and the discard was a
+            // real hole for any other use.
             __inline_cpp("
-                carry = _addcarry_u64(carry, mul_hi, 0, &mul_hi);
+                addend_carry = _addcarry_u64(carry, mul_hi, 0, &mul_hi);
             ");
 
             // step 4: multiply hi * factor
@@ -136,10 +146,14 @@ module Int128 {
             ");
 
             // step 5: add hi_mul_lo to mul_hi, check overflow
+            //
+            // Three ways to leave 128 bits: the addend carried out of the high
+            // limb (step 3), this add carried out, or hi * factor did not fit
+            // 64 bits to begin with.
             var overflow: bool;
             __inline_cpp("
                 carry = _addcarry_u64(0, mul_hi, hi_mul_lo, &mul_hi);
-                overflow = (carry != 0) || (hi_mul_hi != 0);
+                overflow = (carry != 0) || (hi_mul_hi != 0) || (addend_carry != 0);
             ");
 
             lo = mul_lo;
@@ -151,15 +165,36 @@ module Int128 {
             var result_hi: u64;
             var overflow: bool;
 
+            // The overflow test has to cover BOTH steps. Testing only
+            // `val > max_safe` before the multiply misses the case where the
+            // product fits exactly and the addend is what pushes it over: at
+            // `val == max_safe` the product is the largest representable
+            // multiple of factor, so any non-zero addend wraps.
+            //
+            // That is not a corner case here, it is the 2^128 boundary. The
+            // final digit of 2^128 in base 10 arrives with val == max_safe and
+            // addend == 6, so the wrap went undetected, is_big was never set,
+            // the BigInt phase was skipped, and the literal became 0. Because
+            // the wrap always happens on the last digit, the wrong value was
+            // always a single digit -- 2^128 read as 0, 2^128+1 as 1.
             __inline_cpp("
                 unsigned __int128 val = ((unsigned __int128)hi << 64) | lo;
                 unsigned __int128 factor_128 = (unsigned __int128)factor;
-                
-                // check for overflow before multiply
-                unsigned __int128 max_safe = ~(unsigned __int128)0 / factor_128;
+                unsigned __int128 all_ones = ~(unsigned __int128)0;
+
+                // step 1: does the multiply alone overflow?
+                unsigned __int128 max_safe = all_ones / factor_128;
                 overflow = (val > max_safe);
-                
-                unsigned __int128 prod = val * factor_128 + (unsigned __int128)addend;
+
+                // step 2: does adding the addend overflow? Checked against the
+                // headroom left after the multiply rather than by inspecting
+                // the sum, so it is a real test even when step 1 already wrapped.
+                unsigned __int128 prod = val * factor_128;
+                if (prod > all_ones - (unsigned __int128)addend) {
+                    overflow = true;
+                }
+
+                prod += (unsigned __int128)addend;
                 result_lo = (uint64_t)prod;
                 result_hi = (uint64_t)(prod >> 64);
             ");
@@ -171,12 +206,12 @@ module Int128 {
         } else {
             // manual fallback: split into 32-bit chunks
             // 128-bit value as (a3:a2:a1:a0) where each is 32-bit
-            var a0: u64 = lo & 0xFFFFFFFF;
+            var a0: u64 = lo & U32_MAX;
             var a1: u64 = lo >> 32;
-            var a2: u64 = hi & 0xFFFFFFFF;
+            var a2: u64 = hi & U32_MAX;
             var a3: u64 = hi >> 32;
 
-            var b0: u64 = factor & 0xFFFFFFFF;
+            var b0: u64 = factor & U32_MAX;
             var b1: u64 = factor >> 32;
 
             // partial products for lower 128 bits
@@ -190,19 +225,19 @@ module Int128 {
             var p31: u64 = a3 * b1; // overflow indicator
 
             // accumulate
-            var r0: u64 = p00 & 0xFFFFFFFF;
+            var r0: u64 = p00 & U32_MAX;
             var c:  u64 = p00 >> 32;
 
-            c += (p01 & 0xFFFFFFFF) + (p10 & 0xFFFFFFFF);
-            var r1: u64 = c & 0xFFFFFFFF;
+            c += (p01 & U32_MAX) + (p10 & U32_MAX);
+            var r1: u64 = c & U32_MAX;
             c >>= 32;
 
-            c += (p01 >> 32) + (p10 >> 32) + (p11 & 0xFFFFFFFF) + (p20 & 0xFFFFFFFF);
-            var r2: u64 = c & 0xFFFFFFFF;
+            c += (p01 >> 32) + (p10 >> 32) + (p11 & U32_MAX) + (p20 & U32_MAX);
+            var r2: u64 = c & U32_MAX;
             c >>= 32;
 
-            c += (p11 >> 32) + (p20 >> 32) + (p21 & 0xFFFFFFFF) + (p30 & 0xFFFFFFFF);
-            var r3: u64 = c & 0xFFFFFFFF;
+            c += (p11 >> 32) + (p20 >> 32) + (p21 & U32_MAX) + (p30 & U32_MAX);
+            var r3: u64 = c & U32_MAX;
             c >>= 32;
 
             // overflow detection
@@ -262,9 +297,9 @@ module Int128 {
 
         } else {
             // manual multiplication
-            var a0: u64 = limb & 0xFFFFFFFF;
+            var a0: u64 = limb & U32_MAX;
             var a1: u64 = limb >> 32;
-            var b0: u64 = factor & 0xFFFFFFFF;
+            var b0: u64 = factor & U32_MAX;
             var b1: u64 = factor >> 32;
 
             var p00: u64 = a0 * b0;
@@ -272,15 +307,15 @@ module Int128 {
             var p10: u64 = a1 * b0;
             var p11: u64 = a1 * b1;
 
-            var r0: u64 = p00 & 0xFFFFFFFF;
+            var r0: u64 = p00 & U32_MAX;
             var c:  u64 = p00 >> 32;
 
-            c += (p01 & 0xFFFFFFFF) + (p10 & 0xFFFFFFFF);
-            var r1: u64 = c & 0xFFFFFFFF;
+            c += (p01 & U32_MAX) + (p10 & U32_MAX);
+            var r1: u64 = c & U32_MAX;
             c >>= 32;
 
-            c += (p01 >> 32) + (p10 >> 32) + (p11 & 0xFFFFFFFF);
-            var r2: u64 = c & 0xFFFFFFFF;
+            c += (p01 >> 32) + (p10 >> 32) + (p11 & U32_MAX);
+            var r2: u64 = c & U32_MAX;
             c >>= 32;
 
             c += (p11 >> 32);
@@ -495,7 +530,7 @@ module Immediate {
             var c = data[idx];
             if c < '0' || c > '9' { return 0; }
             bits = bits * 10 + static_cast::<u64>(c - '0');
-            if bits > 0xFFFFFFFF { return 0; }
+            if bits > U32_MAX { return 0; }
         }
 
         return static_cast::<u32>(bits);

@@ -21,6 +21,7 @@ import Lexer::HexParser::*;
 import Lexer::OctalParser::*;
 
 import Location::SourceManager::*;
+import Support::Limits::*;
 import Support::Timer::*;
 import Support::TimeReport::*;
 import Support::Assert::*;
@@ -88,6 +89,12 @@ class Lexer {
     // ideally this should be gated to test runner only but fine for now stage2 problems
     // PORT(stage2)
     var _test_buff: opt::<TokenBuffer::<512>> = &null;
+
+    /// \brief kind of the most recent symbol token, when `_last_kind == Symbol`.
+    ///        `_last_kind` collapses `)` `]` `+` `,` into one bucket, but the
+    ///        `.`-is-member-access test needs to tell a closing bracket from an
+    ///        operator. Written once per symbol token; not read in any scan loop.
+    var _last_sym: TokenKind = TokenKind::TkError;
 
     // --- Pass timing (--time-passes) --------------------------------------
     //
@@ -268,6 +275,10 @@ class Lexer {
         var last: LastWasState;
         var allows_sign_next: bool;
 
+        /// true when this number sits immediately after a member-access
+        /// separator, i.e. it is a tuple index. Such a number must NOT swallow
+        /// a following `.`: `t.0.1` is two indices, not `t` `.` `0.1`.
+        var is_tuple_index: bool;
     }
     
     /// \brief checks if character is a valid digit in the given base
@@ -410,7 +421,7 @@ class Lexer {
         // file here rather than testing every token.
         ICE_IF(
             (static_cast::<u64>(self._loc_base) + static_cast::<u64>(self.file_size()))
-                > 0xFFFFFFFF,
+                > U32_MAX,
             "Lexer::open: file does not fit the 4GB SourceLocation address space"
         );
 
@@ -1197,6 +1208,24 @@ class Lexer {
         ctx.number_start = start;
         ctx.last         = NumberCtx::LastWasState::None;
 
+        // Tuple-index position: the previous token is a member-access separator
+        // AND this number is glued to it. `_last_sym` names which separator, so
+        // adjacency reduces to "the byte before us is that separator's last
+        // byte" — `.` for `.`/`?.`, `>` for `->`/`?->`. A gap (`t. 0.5`) leaves
+        // the number an ordinary float and lets the parser own the complaint.
+        ctx.is_tuple_index = false;
+        if (!is_dot)
+        && (self._last_kind == LastTokenKind::Symbol)
+        && ((self._last_sym == TokenKind::OpDot)
+         || (self._last_sym == TokenKind::OpArrow)
+         || (self._last_sym == TokenKind::OpQuestionDot)
+         || (self._last_sym == TokenKind::OpQuestionArrow))
+        && (self._cursor > 0) {
+            const src: std::ConstPtr::<u8> = self.file_data();
+            var prev_byte = src[self._cursor - 1];
+            ctx.is_tuple_index = (prev_byte == '.') || (prev_byte == '>');
+        }
+
         var chars = self.peek_char32::<2>();
 
         if (!is_dot) && (chars[0].len == 1)
@@ -1289,18 +1318,34 @@ class Lexer {
             }
 
             if c == '.' && ctx.base != 2 && ctx.base != 8 {
-                // check for range operator. this was peek_char32(1), a
-                // one-BYTE lookahead   'c' is '.' here so one byte is one
-                // character and `p + d.len` is the same position.
                 var q = p + d.len;
                 if (q < end) && (q[0] == '.') {
                     self.commit_cursor(base, p, step);
                     return false; // range operator, stop here
                 }
 
-                if ctx.has_decimal
-                || ctx.last == NumberCtx::LastWasState::Dot
-                || ctx.last == NumberCtx::LastWasState::Underscore {
+                // A decimal point must be followed by a base digit. Without this `1.`
+                // lexes as 1.0, which (a) makes `1.foo()` unreachable and (b) is
+                // ambiguous with `1 . <tuple-index>` now that `.N` is member access.
+                // Raw byte compare is safe: digits are ASCII and no continuation byte
+                // of a multibyte sequence is < 0x80 — same reasoning as the `..` check
+                // directly above.
+                if (q >= end) || !Lexer::is_base_digit(normalize_char32(q[0]), ctx.base) {
+                    self.commit_cursor(base, p, step);
+                    return false;
+                }
+
+                // A tuple index is an ordinal, never a fraction. Stopping here
+                // is what makes the second `.` of `t.0.1` its own separator
+                // instead of fusing `0.1` into one float.
+                if ctx.is_tuple_index {
+                    self.commit_cursor(base, p, step);
+                    return false;
+                }
+
+                if (ctx.has_decimal)
+                || (ctx.last == NumberCtx::LastWasState::Dot)
+                || (ctx.last == NumberCtx::LastWasState::Underscore) {
                     self.commit_cursor(base, p, step);
                     return false;
                 }
@@ -1413,6 +1458,31 @@ class Lexer {
         return tok;
     }
 
+    /// \brief true when the previous token can terminate a postfix chain, which
+    ///        makes a following `.` a member-access operator rather than the
+    ///        leading dot of a float literal.
+    ///
+    /// \details `t.0` must lex as `t` `.` `0`, but `x = .5` must still lex `.5`
+    ///          as a float. Only what came before the dot distinguishes them.
+    ///          `Name` covers identifiers and keywords alike — deliberately, so
+    ///          `self.0` works. A keyword followed by `.` + digit (`return.5`)
+    ///          is a parse error under either reading, so the conflation costs
+    ///          nothing but the wording of a diagnostic nobody will hit.
+    ///          `Text` is a string/char literal, which likewise ends a postfix
+    ///          chain (`"ab".len()`).
+    inline priv fn _prev_can_end_postfix(self) -> bool {
+        switch self._last_kind {
+            case LastTokenKind::Name   { return true; }
+            case LastTokenKind::Text   { return true; }
+            case LastTokenKind::Number { return true; }
+            case LastTokenKind::Symbol {
+                return (self._last_sym == TokenKind::OpRParen)
+                    || (self._last_sym == TokenKind::OpRSquare);
+            }
+            default: return false;
+        }
+    }
+
     inline priv fn lex_symbol(self, start: SourceLocation) -> Token {
         const CHARS: array::<DecodeResult, 4> = self.peek_char32::<4>(1);
         const C1: DecodeResult = CHARS[0];
@@ -1425,8 +1495,14 @@ class Lexer {
             return create_unrecognized_token(start);
         }
 
+        // A `.` followed by a digit is a leading-dot float ONLY in value position.
+        // After an identifier, a number, `)`, `]`, or `self`, it is member access:
+        // `t.0`, `(a, b).1`, `arr[i].0`. Falling through lets the normal symbol
+        // path emit OpDot and the digits lex as their own LitInt.
         if (C1.chr == '.') && (C2.len == 1) && (C2.chr >= '0') && (C2.chr <= '9') {
-            return self.lex_number(start, true);
+            if !self._prev_can_end_postfix() {
+                return self.lex_number(start, true);
+            }
         }
 
         var hash1 = HashState();
@@ -1538,6 +1614,7 @@ class Lexer {
         token = static_cast::<TokenKind>(hash);
         token = self.create_source_range(start);
         self._last_kind = LastTokenKind::Symbol;
+        self._last_sym  = static_cast::<TokenKind>(hash);
         return token;
     }
 
