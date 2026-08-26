@@ -139,10 +139,6 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         else if k == AK::ColonColon        { self.p.paint(Color::Operator, "::");   }
         else if k == AK::QuestionDot       { self.p.paint(Color::Operator, "?.");   }
         else if k == AK::QuestionArrow     { self.p.paint(Color::Operator, "?->");  }
-        else if k == AK::DotStar           { self.p.paint(Color::Operator, ".*");   }
-        else if k == AK::ArrowStar         { self.p.paint(Color::Operator, "->*");  }
-        else if k == AK::QuestionDotStar   { self.p.paint(Color::Operator, "?.*");  }
-        else if k == AK::QuestionArrowStar { self.p.paint(Color::Operator, "?->*"); }
     }
 
     /// `pub `/`prot `/`priv ` prefix from the numeric visibility code
@@ -344,11 +340,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         for var i: usize = 0; i < e->steps.size(); ++i {
             var s = e->steps.get(i);
             self._access_op(s->access_kind);
-            if s->is_operator {
+            if s->is_operator() {
                 self.p.paint(Color::Keyword, "op");
                 for var j: usize = 0; j < s->op_tokens.size(); ++j {
                     self.p.paint(Color::Operator, self.tok(s->op_tokens[j]));
                 }
+            } else if s->is_tuple_index() {
+                // the separator is already out; the ordinal completes it (`.0`).
+                self.p.paint(Color::Literal, f"{s->index}");
             } else if s->name != &null {
                 self.p.paint(Color::Ident, self.tok(s->name->name));
             } else {
@@ -2024,11 +2023,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self._head("Step", last);
             self.p.put(" ");
             self._access_op(s->access_kind);
-            if s->is_operator {
+            if s->is_operator() {
                 self.p.paint(Color::Keyword, "op");
                 for var j: usize = 0; j < s->op_tokens.size(); ++j {
                     self.p.paint(Color::Operator, self.tok(s->op_tokens[j]));
                 }
+            } else if s->is_tuple_index() {
+                self.p.paint(Color::Literal, f"{s->index}");
+                self._dim(" tuple-index");
             } else if s->name != &null {
                 self.p.paint(Color::Ident, self.tok(s->name->name));
             } else {

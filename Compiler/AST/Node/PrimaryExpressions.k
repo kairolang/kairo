@@ -281,57 +281,81 @@ class NamedIdentExpr derives Expr {
 class ChainExpr derives Expr {
     /// \enum AccessKind
     /// \brief the separator/operator for an access step.
+    ///
+    /// \note the pointer-to-member family (`.*` `->*` `?.*` `?->*`) is NOT
+    ///       here. Those are binary operators at their own precedence level
+    ///       (Precedence::PtrToMember), not access separators: they take a
+    ///       full cast-expression on the right, not an id-expression, so they
+    ///       lower to BinaryOperatorExpr and never reach a Step.
     enum AccessKind derives u8 {
         Dot,               ///< `.`
         Arrow,             ///< `->`
         ColonColon,        ///< `::`
         QuestionDot,       ///< `?.`
         QuestionArrow,     ///< `?->`
-        DotStar,           ///< `.*`
-        ArrowStar,         ///< `->*`
-        QuestionDotStar,   ///< `?.*`
-        QuestionArrowStar, ///< `?->*`
     }
 
-    /// \struct Step
+    /// \enum StepTarget
+    /// \brief what this step names. `access_kind` is the separator; this is
+    ///        the thing on the right of it.
+    enum StepTarget derives u8 {
+        Name,        ///< an identifier — `name` is set
+        Operator,    ///< an overloaded operator — `op_tokens` is set
+        TupleIndex,  ///< a tuple element ordinal — `index` is set
+    }
+
+    /// \class Step
     /// \brief a single access operation in the chain.
-    struct Step {
-        /// the identifier being accessed. null when `is_operator` (the step
-        /// refers to an overloaded operator, e.g. `Foo::op+` / `a->op[]`).
-        var name:          *NamedIdentExpr;
+    class Step {
+        /// the identifier being accessed. set only when `target` is `Name`;
+        /// null for an operator step (`Foo::op+` / `a->op[]`) and for a tuple
+        /// index (`t.0`), neither of which names an identifier.
+        pub var name:          *NamedIdentExpr;
 
-        /// true when this step names an overloaded operator (`op <spelling>`)
-        /// instead of an identifier. mirrors FunctionDecl::is_operator.
-        var is_operator:   bool = false;
+        /// what this step names. selects which of `name` / `op_tokens` /
+        /// `index` carries the target; never says anything about the separator.
+        pub var target:        StepTarget = StepTarget::Name;
 
-        /// the operator spelling tokens when `is_operator`. up to two tokens
-        /// (e.g. `[` `]`, `l` `++`). empty otherwise. mirrors
+        /// the operator spelling tokens when `target` is `Operator`. up to two
+        /// tokens (e.g. `[` `]`, `l` `++`). empty otherwise. mirrors
         /// FunctionDecl::op_token.
-        var op_tokens:     FrozenList::<Token>;
+        pub var op_tokens:     FrozenList::<Token>;
 
         /// generic arguments on this step, e.g. `bar::<i32, bool>`.
         /// empty if no generic args. reuses GenericArg from ChainType.
-        var generic_args:  FrozenList::<ChainType::GenericArg>;
+        pub var generic_args:  FrozenList::<ChainType::GenericArg>;
 
         /// source range covering the separator and the identifier.
-        var range:         SourceRange;
+        pub var range:         SourceRange;
 
         /// the access operator used to reach this step.
-        var access_kind:   AccessKind;
+        pub var access_kind:   AccessKind;
+
+        /// tuple element ordinal when `target` is `TupleIndex`. meaningless
+        /// otherwise.
+        pub var index: u32 = 0;
 
         /// resolved type of this step's result. set by sema, null before.
-        var resolved_type: *Type;
+        pub var resolved_type: *Type;
 
         /// resolved declaration this step refers to. set by sema, null before.
-        var resolved_decl: *Decl;
+        pub var resolved_decl: *Decl;
 
         /// deferred overload set for this step: points INTO the frozen
         /// SymbolTable when overload resolution needs type info to pick.
         /// Same three-state contract as NamedIdentExpr::candidate_cell.
-        var candidate_cell: *OverloadCell = &null;
+        pub var candidate_cell: *OverloadCell = &null;
 
         /// true if sema resolved this as a UFCS call (extension method).
-        var is_ufcs:       bool = false;
+        pub var is_ufcs:       bool = false;
+
+        fn is_operator(self) -> bool {
+            return self.target == StepTarget::Operator;
+        }
+
+        fn is_tuple_index(self) -> bool {
+            return self.target == StepTarget::TupleIndex;
+        }
     }
 
     /// the root expression of the chain. any primary expression.
@@ -401,9 +425,7 @@ class ChainExpr derives Expr {
     fn has_optional_chaining(self) -> bool {
         return self.steps.any(fn(s: *Step) -> bool {
             return (s->access_kind == AccessKind::QuestionDot)
-                || (s->access_kind == AccessKind::QuestionArrow)
-                || (s->access_kind == AccessKind::QuestionDotStar)
-                || (s->access_kind == AccessKind::QuestionArrowStar);
+                || (s->access_kind == AccessKind::QuestionArrow);
         });
     }
 
