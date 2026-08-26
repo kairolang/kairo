@@ -1,0 +1,151 @@
+Numeric Conformance
+===================
+
+WHAT THIS IS
+
+Executable conformance programs, one per numeric concern. Each is a complete
+Kairo program with a `main` that returns 0 when every check in it passes, or the
+number of the FIRST check that failed. Nothing here is a lit test and nothing
+here uses FileCheck; the assertion is the program's own arithmetic, so the same
+file is a valid test the day stage 1 can emit a binary, with no harness to port.
+
+    <kairo> Tests/NumericConformance/integer_32bit_band.k -o /tmp/t && /tmp/t
+    echo $?          # 0 = pass, N = check N failed
+
+Every check is numbered, and the number is its return code. A run that prints
+`14` means check 14 failed and checks 1-13 passed; go to the comment above
+check 14, which says what value was expected, why that value and not another,
+and what a wrong answer implies about which part of the compiler is broken.
+
+
+WHY THIS DIRECTORY EXISTS
+
+A parser that mis-nests an expression produces a syntax error someone notices.
+A compiler that mis-evaluates a number produces a program that runs, returns the
+wrong answer, and blames the user. That failure mode is silent by construction,
+so it has to be caught by assertion rather than by use.
+
+The motivation is not hypothetical. The stage-0 compiler that builds stage 1 has
+two confirmed numeric bugs, both silent, neither diagnosed, both shipped:
+
+  1. THE 32-BIT BAND. An integer literal needing exactly 32 bits is typed
+     *signed* 32-bit rather than promoted, so `0xFFFFFFFF` evaluates to `-1`.
+     Every `v > 0xFFFFFFFF` range check against a 64-bit value is dead code, and
+     every `v & 0xFFFFFFFF` mask is a no-op returning `v` unchanged.
+
+  2. UNARY MINUS PRECEDENCE. Prefix `-` binds looser than a binary operator when
+     folded: `-127 - 1` evaluates to `-126` and `-10 + 5` to `-15`. The wrong
+     value propagates into runtime code.
+
+Both were found by accident while chasing an unrelated parser bug. Neither would
+have survived one assertion of the form "this expression has this value", which
+is the entire content of this directory.
+
+See Compiler/Support/Limits.k for the workarounds those bugs force on the
+compiler's own sources, and for the rule that stops them being reintroduced.
+
+
+RUNNING THEM
+
+    ./run.sh /path/to/kairo
+
+Runs every program and prints one line each. Exits non-zero if anything failed.
+With no argument it uses whatever `kairo` is on PATH, which is stage 0.
+
+Stage 0 compiles and runs these right now, and it FAILS five of them. That is
+the point of recording its results: it proves the checks bite rather than
+passing vacuously. Per-file detail is at the top of each file under
+`STAGE 0 TODAY:`.
+
+    bitwise_and_shifts.k                     ok
+    conversions_and_narrowing.k              ok
+    division_and_modulo.k                    ok
+    float_basics.k                           FAIL  check 13
+    float_exponent_notation.k                FAIL  check 3
+    integer_128bit_range.k                   ok
+    integer_32bit_band.k                     FAIL  check 3
+    integer_literal_losslessness.k           skip  (see below)
+    integer_width_boundaries.k               FAIL  check 9
+    overflow_and_wraparound.k                ok
+    unary_minus_precedence.k                 FAIL  check 1
+
+Those five failures are four distinct stage-0 bugs, not four opinions:
+
+    integer_32bit_band.k  }  the 32-bit band, bug 1 above. width_boundaries
+    integer_width_...k    }  fails at the same bug one check earlier.
+    unary_minus_...k         unary minus precedence, bug 2 above.
+    float_exponent_...k      an exponent-form float literal with no `.` reads
+                             as 0 (`1e-16`, `5e-1`), or crashes the produced
+                             binary (`1e16`). With a fractional part it is
+                             correct. Stage 1's lexer already handles all of
+                             these correctly -- verified, this file is here to
+                             hold that in place.
+    float_basics.k           a narrowing cast to f32 is a no-op; f32 is
+                             silently f64.
+
+DO NOT "fix" a file to make stage 0 pass. Those five files are correct and
+stage 0 is wrong.
+
+When stage 1 can emit a binary, run all of them against it. Any file stage 0
+passes and stage 1 fails is a stage-1 regression. Any file both fail is a bug
+stage 1 inherited. The stage-0 column is a baseline, never a target -- the goal
+is all ok, which stage 0 cannot reach.
+
+integer_literal_losslessness.k is skipped under stage 0, not failed. Stage 0
+rejects any literal at or above 2^64 outright, which is correct for stage 0's
+own 64-bit world and wrong for Kairo's. It is a stage-1 test; run.sh recognises
+the `REQUIRES: literals-above-64-bit` marker in its header and reports skip.
+
+THERE IS NO "LITERAL TOO LARGE" DIAGNOSTIC, AND THERE SHOULD NOT BE ONE. Kairo
+has fixed widths from 8 to 512 bits and arbitrary-precision bigints, so whether
+a literal fits depends on the type it is used at: 2^200 is an error at i64, fine
+at i256, and always fine at a bigint. The lexer sees the digits before any of
+that is decided, so any bound it enforces is a guess. Its contract is capture,
+not judgement -- escalate 64 -> 128 -> BigInt and hand sema something it can
+range-check. Range enforcement belongs to whoever assigns the type, which means
+sema, once literal typing exists. Do not add the check to the lexer.
+
+These are not lit tests and lit does not collect them -- see lit.local.cfg.
+
+
+WHAT DOES NOT WORK UNDER STAGE 1 YET
+
+Nothing here executes under stage 1 today; there is no codegen. Two further gaps
+are worth knowing before you try, so a parser limitation is not mistaken for a
+broken test:
+
+  - stage 1 does not parse `static_cast::<T>(...)` yet, for ANY T, including
+    u64. Several files here use it where a narrowing or a reinterpretation is
+    the thing being tested and there is no other way to write it, so they will
+    not parse until that lands.
+  - integer_literal_losslessness.k was written without `static_cast` on purpose
+    and parses cleanly under stage 1 right now. It is the one file that can be
+    checked end to end the moment codegen exists.
+
+Until then the lexer can be checked directly with --print-tokens, which is where
+both stage-0 literal bugs and the stage-1 escalation bug were actually found.
+
+
+WHEN A CHECK FAILS AND YOU THINK THE CHECK IS WRONG
+
+Some checks encode a language decision rather than a mathematical fact -- the
+sign of `%` on negative operands, whether signed overflow wraps or traps,
+whether `>>` on a signed value is arithmetic. Those are marked `DECISION:` in
+the file. If one fails, the question is not "which value is correct" but "which
+rule did Kairo choose"; fix the check to match the decision and write the
+decision down somewhere it can be cited. Everything not marked `DECISION:` is
+arithmetic and the check is right.
+
+
+CONVENTIONS
+
+  - `fn main() -> i32`, returns 0 or the failing check number. Check numbers are
+    unique per file and never renumbered, so an old failure report stays
+    readable; add new checks at the end.
+  - Comparisons are written `if <actual> != <expected> { return N; }` so the
+    check reads in the same direction as the comment above it.
+  - Boolean checks are written `if (<expr>) != true { return N; }` rather than
+    with `!`, because stage 0 parses `!a && !b` as `!(a && !b)`; avoiding `!`
+    entirely keeps these files honest under both compilers.
+  - Values that cannot be spelled as a literal without triggering bug 1 or 2 are
+    built from small literals in-file, and the comment says why.
