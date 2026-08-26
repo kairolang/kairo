@@ -14,7 +14,7 @@
 ///   SPDX-License-Identifier: Apache-2.0 WITH KAIRO-RUNTIME-EXCEPTION
 ///   Copyright (c) 2026 Dhruvan Kartik
 ///
-/// ----------------------------------------------------------------- ///
+/// ------------------------------------------------------------------------ ///
 
 class CoalesceLowering {
     // TODO: implement CoalesceLowering

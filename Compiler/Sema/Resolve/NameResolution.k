@@ -506,8 +506,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             var name = e.name.describe(self.sc->ctx);
             self.sc->diag->report(DiagID::R001E, defs[1]->range.start,
                 f"redefinition of '{name}\x27"
-            ).first(defs[1]->range).emit();
-            self.sc->diag->report(DiagID::R001N, defs[0]->range.start,
+            ).first(defs[1]->range).note(DiagID::R001N, defs[0]->range.start,
                 f"previous definition of '{name}' is here"
             ).first(defs[0]->range).emit();
             for var i: usize = 1; i < defs.size(); ++i { defs[i]->poison(); }

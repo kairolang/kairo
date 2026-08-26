@@ -1,4 +1,107 @@
-to run these tests use the lit test runner with the following command:
-  llvm-lit -v Tests/Regression/
+Kairo Tests
+===========
 
-from the kairo/ folder as you cwd.
+Run everything from the repo root:
+
+    lit Tests -s
+
+`lit`, not `llvm-lit` -- the LLVM-branded wrapper is not installed here, and
+`python3 -m lit` does not work either (lit is a package, not a runnable module).
+Install it with `pip install lit` if the command is missing. FileCheck is also
+required and is found on PATH as `FileCheck` or `filecheck`; pass
+`--param filecheck=/abs/path` if it lives somewhere unusual.
+
+Add `-v` to see the output of failing tests, or `-a` to see it for every test.
+
+
+WHICH COMPILER GETS TESTED
+
+These test STAGE 1, the self-hosted compiler built from Compiler/**/*.k -- the
+thing you are editing. lit resolves it in this order:
+
+    --param kairo=/abs/path        explicit, always wins
+    KAIRO_BIN=/abs/path            environment
+    build/*/release/bin/kairo      default
+
+Note the default is the RELEASE path only. The fast edit/test loop builds with
+`kbld kairo --debug`, which lands in build/<triple>/debug/bin/kairo and will NOT
+be found. Testing a debug build therefore means saying so:
+
+    KAIRO_BIN=$PWD/build/arm64-apple-macosx/debug/bin/kairo lit Tests -s
+
+lit deliberately REFUSES to fall back to PATH. A bare `kairo` on PATH is stage
+0, the prebuilt C++ transpiler that acts as the build driver -- it will answer,
+lack the flags these tests use, and quietly test the wrong compiler. A missing
+binary is a loud error here rather than a silent pass.
+
+THE DEFAULT PATH IS OFTEN STALE. Nothing rebuilds build/*/release/bin/kairo
+unless you ask for a release build, so a bare `lit Tests` will happily test a
+binary from weeks ago and report results that have nothing to do with your
+working tree. That staleness is sometimes deliberate -- an old release binary is
+the A/B baseline for judging whether current sources changed parser behaviour --
+which is all the more reason not to hit it by accident. If you just built, name
+your binary.
+
+
+READING THE RESULTS
+
+The suite does not currently go green, and is not expected to. A fresh debug
+build of the current tree gives:
+
+    Total Discovered Tests: 250
+      Passed           : 118
+      Expectedly Failed:   1
+      Unresolved       :  77
+      Failed           :  54
+
+A bare `lit Tests` against the stale release binary gives 107 passed / 65 failed
+instead. Neither number is wrong; they are different compilers. Always know
+which one you ran before quoting a figure.
+
+The 54 failures are unimplemented language features -- alignof, closures,
+f-string interpolation and similar -- not regressions. Before concluding that a
+change broke something, get the failure LIST before and after and diff them; the
+count alone is not informative, and neither is any individual failure without
+that baseline.
+
+All 77 UNRESOLVED are files with no RUN line: support files that other tests
+import, and fixtures never converted to lit. lit reports them rather than
+skipping them. They are noise, not breakage.
+
+
+LAYOUT
+
+    Parser/       parser and expression tests, the bulk of the suite
+    Sema/         name resolution
+    Imports/      module and FFI import cases, several multi-file
+    PP/           preprocessor
+    Codegen/      code emission; stage 1 cannot emit a binary yet, so these
+                  currently pin the emitted token stream instead
+    Clang/        clang interop
+    HelloWorld/   end-to-end fixtures
+    Bugs/         reduced reproducers
+    Manual/       run by hand, not by lit
+
+    NumericConformance/
+                  NOT lit tests. Self-checking Kairo programs that assert their
+                  own arithmetic and report via exit code, so they stay valid
+                  the day stage 1 can emit a binary. A lit.local.cfg keeps lit
+                  from collecting them. Run with:
+
+                      ./Tests/NumericConformance/run.sh <path-to-kairo>
+
+                  See Tests/NumericConformance/README -- it explains what those
+                  programs cover and why numeric bugs get their own directory.
+
+
+ADDING A TEST
+
+Copy the RUN lines from a neighbouring file in the same directory; the shapes in
+use are `--print-ast=tree`, `--print-tokens` and `--syntax-only`, each piped to
+FileCheck. `%kairo` expands to the resolved binary plus `--error-format=basic`,
+`%s` to the test file, `%t` to a scratch path.
+
+Tests whose expected behaviour is not implemented yet get `// XFAIL: *` and a
+comment saying what the CHECK lines describe and when to remove the marker --
+see Parser/ExprParse/fstring_interpolation_unimplemented.k for the pattern. An
+XFAIL that starts XPASSing means the feature landed.
