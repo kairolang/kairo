@@ -14,6 +14,7 @@
 ffi "c++" import "Native/Types.hh";
 
 import Support::FileIO::Path::*;
+import Support::Limits::*;
 import Memory::MappedFileBuffer::*;
 import Memory::MemoryBuffer::*;
 import Location::SourceLocation::*;
@@ -276,7 +277,7 @@ class VirtualFileManager {
 
         // projected end of this file in the global space, after alignment
         var aligned = (self._global_offset + 0xFFF) & (~usize(0xFFF));
-        if (total > 0xFFFFFFFF) || ((aligned + reserved + 1) > 0xFFFFFFFF) {
+        if (total > U32_MAX) || ((aligned + reserved + 1) > U32_MAX) {
             std::destroy(parent);
             self._diag->report(DiagID::I102F,
                 f"cannot load '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit"
@@ -284,7 +285,7 @@ class VirtualFileManager {
             return u32(-1);
         }
 
-        if total > 0xFFFFFFFF {
+        if total > U32_MAX {
             std::destroy(parent);
             self._diag->report(DiagID::I102F,
                 f"'{abs_full}' is {total}B; source files are limited to 4GB").emit();
@@ -484,7 +485,7 @@ class VirtualFileManager {
 
         var raw = seg->global_base + off + 1;
 
-        if raw > 0xFFFFFFFF {
+        if raw > U32_MAX {
             Logger::fatal(Logger::Stage::Driver, f"VirtualFileManager::get_loc: global source space exceeded 4GB (raw={raw})");
             ICE_FAIL("VirtualFileManager: SourceLocation address space exhausted (4GB u32 cap)");
         }
@@ -656,7 +657,7 @@ class VirtualFileManager {
         // Outgrew its reservation. Take a new range; the old one becomes a hole.
         var reserved = self._reserve_for(total);
         var aligned  = (self._global_offset + 0xFFF) & (~usize(0xFFF));
-        if (total > 0xFFFFFFFF) || ((aligned + reserved + 1) > 0xFFFFFFFF) {
+        if (total > U32_MAX) || ((aligned + reserved + 1) > U32_MAX) {
             std::destroy(fresh);
             self._diag->report(DiagID::I102F,
                 f"cannot re-map '{abs_full}' ({total}B): total source size would exceed the 4GB address space limit"

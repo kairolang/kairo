@@ -88,9 +88,9 @@ class DirEntry {
         var child_path: Path;
         inline "c++" {
             auto cand = (*fs_path).path_data /
-                        ::std::filesystem::path(name.raw_string());
-            ::std::error_code ec;
-            if (::std::filesystem::is_directory(cand, ec)) {
+                        libcxx::filesystem::path(name.raw_string());
+            libcxx::error_code ec;
+            if (libcxx::filesystem::is_directory(cand, ec)) {
                 found = true;
                 child_path = Path(cand.generic_wstring(), false);
             }
@@ -120,9 +120,9 @@ class DirEntry {
         var full_path: Path;
         inline "c++" {
             auto cand = (*fs_path).path_data /
-                        ::std::filesystem::path(fname.raw_string());
-            ::std::error_code ec;
-            if (::std::filesystem::is_regular_file(cand, ec)) {
+                        libcxx::filesystem::path(fname.raw_string());
+            libcxx::error_code ec;
+            if (libcxx::filesystem::is_regular_file(cand, ec)) {
                 found = true;
                 full_path = Path(cand.generic_wstring(), false);
             }
@@ -144,15 +144,15 @@ class DirEntry {
         if !self.fs_path { return; }
 
         inline "c++" {
-            ::std::error_code ec;
-            if (!::std::filesystem::is_directory((*fs_path).path_data, ec)) return;
-            ::std::filesystem::directory_iterator it((*fs_path).path_data, ec), end;
+            libcxx::error_code ec;
+            if (!libcxx::filesystem::is_directory((*fs_path).path_data, ec)) return;
+            libcxx::filesystem::directory_iterator it((*fs_path).path_data, ec), end;
             for (; (!ec) && it != end; it.increment(ec)) {
                 auto& entry = *it;
                 auto name_raw = entry.path().filename().generic_wstring();
                 if (name_raw.starts_with(WIDE_STR('.'))) continue;
 
-                ::std::error_code ec2;
+                libcxx::error_code ec2;
                 if (entry.is_directory(ec2)) {
                     if (children.find(name_raw) == children.end()) {
                         auto* c = std::create<DirEntry>(name_raw, true);
