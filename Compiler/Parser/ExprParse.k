@@ -34,6 +34,7 @@ import AST::Context::GlobalDisambigTable::*;
 import Diagnostic::Engine::*;
 import Diagnostic::Registry::*;
 import Location::SourceRange::*;
+import Support::Limits::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Macro::Sentinel::*;
@@ -160,23 +161,24 @@ class <T> ExprParse {
     /// \brief operator precedence levels for the Pratt parser.
     ///        higher number = tighter binding.
     enum Precedence derives u8 {
-        None       = 0,
-        Assign     = 1,   // = += -= *= /= %= &= |= ^= <<= >>=
-        Coalesce   = 2,   // ?? (right-assoc, lower than ||)
-        Range      = 3,   // .. ..=
-        Or         = 4,   // || or
-        And        = 5,   // && and
-        BitOr      = 6,   // | bitor
-        BitXor     = 7,   // ^ xor
-        BitAnd     = 8,   // & bitand
-        Equality   = 9,   // == != ===
-        Comparison = 10,  // < > <= >= <=>
-        Shift      = 11,  // << >>
-        Add        = 12,  // + -
-        Multiply   = 13,  // * / %
-        Power      = 14,  // ^^
-        Prefix     = 15,  // unary (not used in table, just for reference)
-        Postfix    = 16,  // call, subscript, access (not used in table)
+        None        = 0,
+        Assign      = 1,   // = += -= *= /= %= &= |= ^= <<= >>=
+        Coalesce    = 2,   // ?? (right-assoc, lower than ||)
+        Range       = 3,   // .. ..=
+        Or          = 4,   // || or
+        And         = 5,   // && and
+        BitOr       = 6,   // | bitor
+        BitXor      = 7,   // ^ xor
+        BitAnd      = 8,   // & bitand
+        Equality    = 9,   // == != ===
+        Comparison  = 10,  // < > <= >= <=>
+        Shift       = 11,  // << >>
+        Add         = 12,  // + -
+        Multiply    = 13,  // * / %
+        Power       = 14,  // ^^
+        PtrToMember = 15,  // .* ->* ?.* ?->*
+        Prefix      = 16,  // unary (not used in table, just for reference)
+        Postfix     = 17,  // call, subscript, access (not used in table)
     }
 
     fn parse_expr(self, stop: ExprStopKind = ExprStopKind::Default) -> *Expr {
@@ -522,6 +524,21 @@ class <T> ExprParse {
         // exponentiation
         if k == TokenKind::OpCaretCaret {
             return Precedence::Power;
+        }
+
+        // pointer-to-member: binds tighter than every other binary operator,
+        // looser than unary. `a.*p * b` is `(a.*p) * b`; `a.*p ^^ 2` is
+        // `(a.*p) ^^ 2`; `!a.*p` is `(!a).*p`, matching C++.
+        //
+        // NOT an access separator   `.`/`->` take an id-expression, while
+        // `.*`/`->*` take a full cast-expression on the right (the C++
+        // pm-expression level), which is exactly what the generic binary path
+        // below already produces via _parse_unary_expr.
+        if (k == TokenKind::OpDotStar)
+        || (k == TokenKind::OpArrowStar)
+        || (k == TokenKind::OpQuestionDotStar)
+        || (k == TokenKind::OpQuestionArrowStar) {
+            return Precedence::PtrToMember;
         }
 
         return Precedence::None;
@@ -944,11 +961,13 @@ class <T> ExprParse {
             || dyn()->check(TokenKind::OpQuestionDot)
             || dyn()->check(TokenKind::OpQuestionArrow) {
                 var step = self._parse_access_step();
-                if (step.name != &null) || step.is_operator {
+                // well-formed under any target: an Operator/TupleIndex step
+                // carries no `name`, so `name != null` alone is not the test.
+                if (step.target != ChainExpr::StepTarget::Name) || (step.name != &null) {
                     chain_steps.push_back(step);
                     continue;
                 }
-                // recovery: step parse failed, break out
+                // recovery: named step failed to produce a name, break out
                 break;
             }
 
@@ -1084,13 +1103,14 @@ class <T> ExprParse {
     inline fn _parse_access_step(self) -> ChainExpr::Step {
         var result = ChainExpr::Step{};
         result.name          = &null;
-        result.is_operator   = false;
+        result.target        = ChainExpr::StepTarget::Name;
         result.access_kind   = ChainExpr::AccessKind::Dot;
         result.resolved_type = &null;
         result.resolved_decl = &null;
         result.is_ufcs       = false;
 
         var sep_range = dyn()->current_ptr()->range;
+        var sep_kind  = dyn()->resolve_kind_deep(dyn()->current_ptr());
 
         // determine access kind from separator token
         if      dyn()->check(TokenKind::OpDot)           { result.access_kind = ChainExpr::AccessKind::Dot;           }
@@ -1116,7 +1136,7 @@ class <T> ExprParse {
         if dyn()->check(TokenKind::KwOp) {
             var op_start = dyn()->current_ptr()->range;
             dyn()->advance(); // consume `op`
-            result.is_operator = true;
+            result.target = ChainExpr::StepTarget::Operator;
 
             // `<<` after `op` is ambiguous: the shift operator, or the `<`
             // operator followed by a generic-args opener (`(k.op<)<i32>(..)`).
@@ -1141,12 +1161,74 @@ class <T> ExprParse {
             return result;
         }
 
+        // -- tuple index: `.0`, `t->0`, `t?.0`, `t?->0` -------------------
+        // Only the *target* differs from a named step; the separator is
+        // whatever it was and stays in access_kind. `::` is excluded   a
+        // tuple element is a member, never a scope-qualified name.
+        if dyn()->check(TokenKind::LitInt)
+        && (result.access_kind != ChainExpr::AccessKind::ColonColon) {
+            var idx_tok   = dyn()->resolve_deep(dyn()->current_ptr());
+            var idx_range = idx_tok.range;
+
+            // Adjacency. `t.0` is an index; `t. 0` is not. Whitespace here is
+            // always a mistake, and permitting it makes macro-expanded synthetic
+            // locations unanswerable.
+            //
+            // Across a newline this is NOT an index at all: the separator's
+            // `SkipNL::After` advance looked past the line break, so for
+            //
+            //     1.
+            //     2
+            //
+            // the integer it landed on belongs to the next statement. Falling
+            // through to the identifier path is what makes that report the
+            // honest "expected identifier or tuple index after '.'" instead of
+            // inventing a whitespace rule about two different lines.
+            if idx_range.start != sep_range.end {
+                if !dyn()->ctx->sm->is_multiline(sep_range | idx_range) {
+                    dyn()->diag->report(DiagID::S054E, sep_range.start,
+                        "no whitespace allowed between the access operator and a tuple index"
+                    ).first(sep_range | idx_range).emit();
+                    // Consume it. Left in place, the postfix loop breaks on the
+                    // failed step and the STATEMENT loop re-parses this same
+                    // integer as a statement of its own.
+                    dyn()->advance();
+                    return result; // target stays Name, name null; caller recovers
+                }
+            } else {
+                var idx_val: u32 = 0;
+                var too_large    = false;
+                if !self._read_tuple_index(idx_tok, &idx_val, &too_large) {
+                    if too_large {
+                        // Name the offending value. Truncating it silently is
+                        // the one outcome worse than any message here.
+                        var spelling = dyn()->ctx->sm->get_text(idx_range);
+                        dyn()->diag->report(DiagID::S054E, idx_range.start,
+                            f"tuple index {spelling} is too large; the largest addressable element is 4294967295"
+                        ).first(idx_range).emit();
+                    } else {
+                        dyn()->diag->report(DiagID::S054E, idx_range.start,
+                            "tuple index must be a plain decimal integer with no prefix, suffix, digit separator, or leading zero"
+                        ).first(idx_range).emit();
+                    }
+                    dyn()->advance(); // same: do not leave it for the stmt loop
+                    return result;
+                }
+
+                dyn()->advance(); // consume the index
+                result.target = ChainExpr::StepTarget::TupleIndex;
+                result.index  = idx_val;
+                result.range  = sep_range | idx_range;
+                return result;    // no generic args on a tuple index
+            }
+        }
+
         // expect identifier
         if !dyn()->check(fn(k: TokenKind) -> bool {
             return EXPR_IDENT_TBL.contains(k);
         }) {
             dyn()->diag->report(DiagID::S054E, sep_range.start,
-                f"expected identifier after '{token_kind_to_readable_string(dyn()->resolve_kind_deep(dyn()->current_ptr()))}' in access expression"
+                f"expected identifier or tuple index after '{token_kind_to_readable_string(sep_kind)}' in access expression"
             ).first(sep_range).emit();
             return result; // name stays null
         }
@@ -1181,6 +1263,74 @@ class <T> ExprParse {
         }
 
         return result;
+    }
+
+    /// \brief validates a LitInt as a tuple index and extracts its value.
+    ///
+    /// \details rejects anything that isn't a plain decimal ordinal: `t.0x1`,
+    ///          `t.1u8`, `t.1_0`, `t.01`. Each is a typo with a plausible wrong
+    ///          reading, so silently accepting one is worse than erroring.
+    ///          Reads the flags the lexer already computed in `finalize_number`
+    ///          rather than reclassifying the token.
+    ///
+    /// \param tok       the macro-resolved LitInt token (imm indexes the imm table).
+    /// \param out       receives the ordinal on success; untouched on failure.
+    /// \param too_large set only when the failure is "does not fit u32", so the
+    ///                  caller can name the value instead of talking about
+    ///                  prefixes and separators. Never cleared here   the
+    ///                  caller initialises it.
+    /// \returns false if the token is not a valid tuple index.
+    priv fn _read_tuple_index(self, tok: Token, out: *u32, too_large: *bool) -> bool {
+        var imm_tbl = dyn()->ctx->get_imm_table();
+        if imm_tbl == &null { return false; }
+
+        // `imm_tbl` is dependent inside this CRTP mixin, so the member template
+        // needs an explicit `template` keyword   not expressible in Kairo yet.
+        inline "c++" {
+            auto *idata = imm_tbl->template get<Immediate::IntData>(tok.imm);
+        }
+        if idata == &null { return false; }
+
+        // bit4 = has_prefix (0x/0b/0o), bit3 = has_suffix
+        if (static_cast::<u8>(idata->flags) & 0b00011000) != 0 { return false; }
+        if idata->base != 10 { return false; }
+
+        var text = dyn()->ctx->sm->get_text(idata->body);
+        var len  = text.length();
+        if len == 0 { return false; }
+
+        var data = text.raw();
+
+        // leading zero, unless the index is exactly `0`
+        if (len > 1) && (data[0] == '0') { return false; }
+
+        // The bound is `U32_MAX`, not a literal: stage 0 types `0xFFFFFFFF` as
+        // signed 32-bit, i.e. -1, so `if v > 0xFFFFFFFF` is dead code. That is
+        // exactly how `t.4294967296` used to truncate to `t.0` with no
+        // diagnostic. See Support/Limits.k.
+
+        // Validate every character before deciding the value is merely too big:
+        // `t.1_0` is a malformed index, not a large one. Accumulation stops at
+        // the first overflow so `v` itself can never wrap, however long the
+        // digit run is.
+        var v: u64        = 0;
+        var overflowed    = false;
+        for var i: usize = 0; i < len; ++i {
+            var c = data[i];
+            if (c < '0') || (c > '9') { return false; } // catches `_`
+            if !overflowed {
+                v = (v * 10) + static_cast::<u64>(c - '0');
+                if v > U32_MAX { overflowed = true; }
+            }
+        }
+
+        if overflowed {
+            (*too_large) = true;
+            return false;
+        }
+
+        (*out) = static_cast::<u32>(v);
+        return true;
     }
 
     inline fn _try_step_generic_args(
