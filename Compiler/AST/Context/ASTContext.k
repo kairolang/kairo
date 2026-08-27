@@ -58,16 +58,16 @@ class ASTContext {
     pub var sema_alloc:    ArenaAllocator = ArenaAllocator();                      ///< lazy   nothing allocates here until Sema exists.
     pub var codegen_alloc: ArenaAllocator = ArenaAllocator();                      ///< lazy   CodegenBackend's node storage.
     pub var scratch_alloc: ArenaAllocator = ArenaAllocator();                      ///< lazy   For transient tooling buffers whose contents never become AST.
-    pub var sm:          obs::<SourceManager>;
-    pub var tcm:         obs::<TokenCacheManager>; // we can get the imm table from the tcm
-    pub var diags:       obs::<DiagEngine>;
-    pub var diag_sink:   BufferedDiagSink;
-    pub var resolver:    obs::<ImportResolver>;
-    pub var hoisted:     obs::<DisambigTable>;
-    pub var ci:          obs::<CompilerInvocation>;
-    pub var tu:          obs::<void /* TranslationUnit */> = &null; // stage0 limit with fwd decls, hence void,
-                                                                    // but replace with TranslationUnit once stage1 is self-hosting
-    pub var fid:         u32; // needed to get the right lexer
+    pub var diag_sink:     BufferedDiagSink;
+    pub var sm:            obs::<SourceManager>              = &null;
+    pub var tcm:           obs::<TokenCacheManager>          = &null; // we can get the imm table from the tcm
+    pub var diags:         obs::<DiagEngine>                 = &null;
+    pub var resolver:      obs::<ImportResolver>             = &null;
+    pub var hoisted:       obs::<DisambigTable>              = &null;
+    pub var ci:            obs::<CompilerInvocation>         = &null;
+    pub var tu:            obs::<void /* TranslationUnit */> = &null; // stage0 limit with fwd decls, hence void ptr,
+                                                                      // but replace with TranslationUnit once stage1 is self-hosting
+    pub var fid:           u32; // needed to get the right lexer
 
     fn ASTContext(
         self,
