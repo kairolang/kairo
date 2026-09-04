@@ -59,6 +59,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::ResolutionTrace::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -134,6 +135,24 @@ class LocalScope {
 }
 
 ///
+/// \class ShadowHit
+/// \brief What a binding HID: the decl the next lookup source out would have
+///        answered with, and which source that was. Computed ONLY when the
+///        trace is on   it costs a second lookup per binding, and nothing in
+///        the compiler's behavior depends on the answer.
+///
+class ShadowHit {
+    pub var decl:     *Decl        = &null;
+    pub var via:      TraceVia     = TraceVia::None;
+    pub var frame:    usize        = usize(-1);
+    pub var found_in: *DeclContext = &null;
+
+    fn ShadowHit(self) { }
+
+    fn found(self) -> bool { return self.decl != &null; }
+}
+
+///
 /// \class NameHit
 /// \brief One `_resolve_name` outcome. Deliberately NOT a
 ///        SemaLookupResult: a local binding has no OverloadCell to point
@@ -153,17 +172,25 @@ class NameHit {
     pub var via_overlay: bool          = false;
     pub var from_local:  bool          = false;
 
+    /// Provenance, for the `--print-sema` trace ONLY. Binding policy never
+    /// reads these: they record WHICH source answered so a reader can see it,
+    /// and a pass that branched on them would change behavior under the flag
+    /// that exists to explain it.
+    pub var frame:    usize        = usize(-1); ///< answering frame (from_local).
+    pub var found_in: *DeclContext = &null;     ///< answering scope (table hit).
+
     fn NameHit(self) { }
 
     static fn miss() -> NameHit {
         return NameHit{};
     }
 
-    static fn local(d: *Decl) -> NameHit {
+    static fn local(d: *Decl, frame: usize) -> NameHit {
         var h = NameHit{};
         h.found      = true;
         h.decl       = d;
         h.from_local = true;
+        h.frame      = frame;
         return h;
     }
 }
@@ -384,8 +411,22 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             }
         }
 
+        // A TYPE body's dc_decls holds nested type decls PLUS the
+        // VisibilityGroupDecl wrappers, and a wrapper's members are pointers
+        // back into fields/methods and back into dc_decls itself (see
+        // DeclParse::_parse_member_vis_group). Descending through the wrapper
+        // there would validate every grouped nested type's scope a second
+        // time and emit each of its diagnostics twice. Same rule as
+        // ASTParse::_collect_symbols / RecursiveASTVisitor::_rav_dc_nested.
+        //
+        // At MODULE/TU scope the wrapper is the ONLY container its members
+        // live in, so it is walked through (in _descend) normally.
+        var type_body = dc->is_type_scope();
         for var i: usize = 0; i < dc->dc_decls.size(); ++i {
-            self._descend(*(dc->dc_decls.get(i)));
+            var d = *(dc->dc_decls.get(i));
+            if d == &null { continue; }
+            if type_body && isa::<VisibilityGroupDecl>(d) { continue; }
+            self._descend(d);
         }
     }
 
@@ -443,6 +484,20 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         for var i: usize = 0; i < n; ++i {
             var d = e.cell->get(i);
             if d == &null { continue; }
+
+            // Identity guard, NOT a name-based dedup: a cell may legitimately
+            // hold many DIFFERENT decls under one name (overloads, fwd+def),
+            // but the SAME *Decl twice is always a walk bug upstream, and
+            // judging it here would report a decl as a redefinition of
+            // itself   or, for functions, hand T an overload set with two
+            // identical candidates. Cells are 1-3 entries, so the linear
+            // scan is cheaper than any set.
+            var seen = false;
+            for var j: usize = 0; j < group.size(); ++j {
+                if group[j] == d { seen = true; break; }
+            }
+            if seen { continue; }
+
             group.push_back(d);
             if !isa::<FunctionDecl>(d) { all_fn = false; }
             if k0 == DeclKind::DeclKindCount { k0 = d->kind; }
@@ -676,6 +731,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// per TU would fire on every file that never mentions async.
     priv fn _resolve_well_known(self, tu: *TranslationUnit) {
         var root = static_cast::<*DeclContext>(tu);
+        
         self._bind_well_known(root, WellKnownType::Future,   "Future");
         self._bind_well_known(root, WellKnownType::Range,    "Range");
         self._bind_well_known(root, WellKnownType::Yield,    "Yield");
@@ -751,10 +807,11 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
         var n = self.locals.size();
         for var i: usize = 0; i < n; ++i {
-            var frame = &(self.locals[(n - 1) - i]);
+            var fi    = (n - 1) - i;
+            var frame = &(self.locals[fi]);
             var idx = frame->index_of(imm);
             if idx != usize(-1) {
-                return NameHit::local(frame->decls[idx]);
+                return NameHit::local(frame->decls[idx], fi);
             }
         }
 
@@ -764,6 +821,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var h = NameHit{};
         h.found       = true;
         h.via_overlay = r.via_overlay;
+        h.found_in    = r.found_in;
 
         if r.single() {
             h.decl = self._representative(r.first());
@@ -845,6 +903,8 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // top-level local colliding with a param is a redefinition, not
         // silent shadowing.
         self.locals.push_back(LocalScope{});
+        self.sc->trace.open_scope(TraceScopeKind::Function, static_cast::<*Decl>(n),
+                                  n->range, self.cur_dc);
         for var i: usize = 0; i < n->generic_params.size(); ++i {
             var gp = n->generic_params[i];
             if gp == &null { continue; }
@@ -859,6 +919,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._suppress_next_block_frame = true;
         var out = RecursiveASTVisitor_NameResolution::traverse_function_decl(n);
 
+        self.sc->trace.close_scope();
         self.locals.pop_back();
         self.cur_dc = saved_dc;
         self._suppress_next_block_frame = saved_suppress;
@@ -871,6 +932,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var saved_suppress = self._suppress_next_block_frame;
 
         self.locals.push_back(LocalScope{});
+        self.sc->trace.open_scope(TraceScopeKind::Closure, &null, n->range, self.cur_dc);
         for var i: usize = 0; i < n->generic_params.size(); ++i {
             var gp = n->generic_params[i];
             if gp == &null { continue; }
@@ -885,6 +947,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._suppress_next_block_frame = true;
         var out = RecursiveASTVisitor_NameResolution::traverse_closure_expr(n);
 
+        self.sc->trace.close_scope();
         self.locals.pop_back();
         self._suppress_next_block_frame = saved_suppress;
         return out;
@@ -899,9 +962,15 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var push = !self._suppress_next_block_frame;
         self._suppress_next_block_frame = false;
 
-        if push { self.locals.push_back(LocalScope{}); }
+        if push {
+            self.locals.push_back(LocalScope{});
+            self.sc->trace.open_scope(TraceScopeKind::Block, &null, n->range, self.cur_dc);
+        }
         var out = RecursiveASTVisitor_NameResolution::traverse_compound_stmt(n);
-        if push { self.locals.pop_back(); }
+        if push {
+            self.sc->trace.close_scope();
+            self.locals.pop_back();
+        }
 
         return out;
     }
@@ -1025,7 +1094,74 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             if d != &null { d->poison(); }
         }
 
+        // Recorded BEFORE the push, so the search sees the world this name is
+        // about to hide rather than itself.
+        var sh = self._shadowed_below(imm, self.locals.size() - 1);
+        self.sc->trace.declare(imm, d, at, sh.decl, sh.via, sh.found_in);
+
         frame->declare(imm, d);
+    }
+
+    // --- shadowing (trace-only) --------------------------------------------
+
+    /// What a binding introduced in frame \p from_frame hides: the outer
+    /// lexical frames innermost-first, then the DC chain and overlay   the
+    /// same order _resolve_name searches, resumed one step further out.
+    ///
+    /// Pass usize(-1) for \p from_frame to skip the lexical frames entirely
+    /// (a name that bound through a TABLE hides no local by definition; the
+    /// local would have won).
+    ///
+    /// Returns nothing when the trace is off: this is a whole extra lookup
+    /// per binding and it buys the compiler nothing.
+    priv fn _shadowed_below(self, imm: u32, from_frame: usize) -> ShadowHit {
+        var out = ShadowHit{};
+        if !self.sc->trace.enabled { return out; }
+        if imm == u32(-1) { return out; }
+
+        if (from_frame != usize(-1)) && (from_frame <= self.locals.size()) {
+            for var i: usize = 0; i < from_frame; ++i {
+                var fi    = (from_frame - 1) - i;
+                var frame = &(self.locals[fi]);
+                var idx   = frame->index_of(imm);
+                if idx != usize(-1) {
+                    out.decl  = frame->decls[idx];
+                    out.via   = TraceVia::Local;
+                    out.frame = fi;
+                    return out;
+                }
+            }
+        }
+
+        return self._shadowed_from_dc(imm, self.cur_dc);
+    }
+
+    /// The table/overlay half of the same question, starting the DC walk at
+    /// \p from. Used on its own to answer "what did this FIELD hide?" by
+    /// resuming from the answering scope's parent.
+    priv fn _shadowed_from_dc(self, imm: u32, from: *DeclContext) -> ShadowHit {
+        var out = ShadowHit{};
+        if !self.sc->trace.enabled { return out; }
+        if imm == u32(-1) { return out; }
+
+        var r = self.sc->lookup.unqualified(from, DeclName::ident(imm));
+        if !r.found() { return out; }
+        out.decl     = r.first();
+        out.via      = (TraceVia::Overlay) if (r.via_overlay) else (TraceVia::Scope);
+        out.found_in = r.found_in;
+        return out;
+    }
+
+    /// What the name at a USE site hid. A local hit resumes below its frame;
+    /// a table hit resumes at the answering scope's PARENT (so a field
+    /// shadowing a file-scope var is visible); an overlay hit is already the
+    /// last source, so it hides nothing.
+    priv fn _shadowed_at_use(self, imm: u32, h: NameHit) -> ShadowHit {
+        if !self.sc->trace.enabled { return ShadowHit{}; }
+        if h.from_local { return self._shadowed_below(imm, h.frame); }
+        if h.via_overlay { return ShadowHit{}; }
+        if h.found_in == &null { return ShadowHit{}; }
+        return self._shadowed_from_dc(imm, h.found_in->dc_parent);
     }
 
     // --- statement-level binders -------------------------------------------
@@ -1047,9 +1183,11 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if n->iterable != &null { n->iterable = self.dyn()->dispatch_expr(n->iterable); }
 
         self.locals.push_back(LocalScope{});
+        self.sc->trace.open_scope(TraceScopeKind::ForBody, &null, n->range, self.cur_dc);
         self._declare_bindings(&(n->bindings));
         self._suppress_next_block_frame = true;
         n->body = self.dyn()->traverse_block(n->body);
+        self.sc->trace.close_scope();
         self.locals.pop_back();
         return n;
     }
@@ -1061,9 +1199,11 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if n->value != &null { n->value = self.dyn()->dispatch_expr(n->value); }
 
         self.locals.push_back(LocalScope{});
+        self.sc->trace.open_scope(TraceScopeKind::ContextBinding, &null, n->range, self.cur_dc);
         self._declare_bindings(&(n->bindings));
         self._suppress_next_block_frame = true;
         n->body = self.dyn()->traverse_block(n->body);
+        self.sc->trace.close_scope();
         self.locals.pop_back();
         return n;
     }
@@ -1090,9 +1230,11 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             var arm = n->arms.get(i);
             if arm->filter != &null { self.dyn()->dispatch_type(arm->filter); }
             self.locals.push_back(LocalScope{});
+            self.sc->trace.open_scope(TraceScopeKind::CatchArm, &null, arm->range, self.cur_dc);
             self._declare_binder_decl(arm->decl);
             self._suppress_next_block_frame = true;
             if arm->body != &null { self.dyn()->dispatch_stmt(arm->body); }
+            self.sc->trace.close_scope();
             self.locals.pop_back();
         }
         return n;
@@ -1108,8 +1250,10 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             var arm = n->catch_arms.get(i);
             if arm->filter != &null { self.dyn()->dispatch_type(arm->filter); }
             self.locals.push_back(LocalScope{});
+            self.sc->trace.open_scope(TraceScopeKind::CatchArm, &null, arm->range, self.cur_dc);
             self._declare_binder_decl(arm->decl);
             if arm->body != &null { self.dyn()->dispatch_expr(arm->body); }
+            self.sc->trace.close_scope();
             self.locals.pop_back();
         }
         return n;
@@ -1121,6 +1265,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if mc == &null { return; }
 
         self.locals.push_back(LocalScope{});
+        self.sc->trace.open_scope(TraceScopeKind::MatchArm, &null, mc->range, self.cur_dc);
         for var i: usize = 0; i < mc->patterns.size(); ++i {
             if self.stop { break; }
             var pat = *(mc->patterns.get(i));
@@ -1135,6 +1280,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             }
             if mc->expression != &null { self.dyn()->dispatch_expr(mc->expression); }
         }
+        self.sc->trace.close_scope();
         self.locals.pop_back();
     }
 
@@ -1254,6 +1400,9 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
                 f"use of undeclared identifier '{nm}\x27"
             ).first(n->range).emit();
             n->poison();                      // both slots stay null; T skips.
+            self.sc->trace.use_site(imm, n->range, &null, TraceVia::Miss,
+                                    &null, usize(-1), 0, true,
+                                    &null, TraceVia::None, &null);
             return true;
         }
 
@@ -1267,6 +1416,9 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
                 f"'{nm}' is imported but is declared private in its module"
             ).first(n->range).emit();
             n->poison();
+            self.sc->trace.use_site(imm, n->range, h.decl, TraceVia::Overlay,
+                                    &null, usize(-1), 0, true,
+                                    &null, TraceVia::None, &null);
             return true;
         }
 
@@ -1275,6 +1427,15 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         } else {
             n->candidate_cell = h.cell;      // alias into the frozen cell.
         }
+
+        var sh = self._shadowed_at_use(imm, h);
+        var via = TraceVia::Scope;
+        if      h.from_local  { via = TraceVia::Local;   }
+        else if h.via_overlay { via = TraceVia::Overlay; }
+        var ncand: usize = 0;
+        if h.cell != &null { ncand = h.cell->size(); }
+        self.sc->trace.use_site(imm, n->range, h.decl, via, h.found_in, h.frame,
+                                ncand, false, sh.decl, sh.via, sh.found_in);
         return true;
     }
 

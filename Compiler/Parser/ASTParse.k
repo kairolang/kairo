@@ -651,10 +651,26 @@ class ASTParse
     ///        \p table_dc's table. \p owner_name_imm is the imm of the
     ///        enclosing TYPE's name when table_dc is a type scope (ctor
     ///        detection), u32(-1) otherwise.
+    ///
+    /// \details a TYPE body's dc_decls holds nested type decls PLUS the
+    ///          VisibilityGroupDecl wrappers, and a wrapper's `members` are
+    ///          pointers back into the type's fields/methods lists and back
+    ///          into dc_decls (see DeclParse::_parse_member_vis_group, which
+    ///          pushes each grouped member into BOTH). Indexing the wrapper
+    ///          there would append every grouped member a second time and
+    ///          hand N a cell that redefines a decl against itself, so the
+    ///          wrapper is skipped   the same rule RecursiveASTVisitor::
+    ///          _rav_dc_nested and ASTPrinter::_collect_type_members follow.
+    ///
+    ///          At MODULE/TU scope the wrapper IS the only container (a
+    ///          top-level `pub { ... }` never projects its members anywhere
+    ///          else), so there it is walked through normally.
     priv fn _collect_symbols(self, walk_dc: *DeclContext, table_dc: *DeclContext, owner_name_imm: u32) {
+        var type_body = walk_dc->is_type_scope();
         for var i: usize = 0; i < walk_dc->dc_decls.size(); ++i {
             var d = *(walk_dc->dc_decls.get(i));
             if d == &null { continue; }
+            if type_body && isa::<VisibilityGroupDecl>(d) { continue; }
             self._index_symbol_decl(d, walk_dc, table_dc, owner_name_imm);
         }
     }
@@ -768,9 +784,22 @@ class ASTParse
             // extension members key in the extension's OWN table. Folding
             // into the target type (and rewriting semantic_dc) is sema's
             // job the parser cannot resolve the target here.
+            //
+            // Methods live in the typed `methods` list, NOT in dc_decls
+            // (only nested types are add_decl'd), so they are routed back
+            // through _index_symbol_decl exactly like class methods -
+            // otherwise an ungrouped `extend` method is in no table at all
+            // and qualified lookup through the extension finds nothing.
+            // owner_name_imm stays -1: an extension body has no name of its
+            // own, so `fn Foo(self)` inside `extend Foo` is a named method
+            // here, not a ctor (ctors belong to the type's own body).
             var n  = cast::<ExtensionDecl>(d);
             var dc = static_cast::<*DeclContext>(n);
-            
+
+            for var mi: usize = 0; mi < n->methods.size(); ++mi {
+                var md = n->methods[mi];
+                if md != &null { self._index_symbol_decl(static_cast::<*Decl>(md), dc, dc, u32(-1)); }
+            }
             self._collect_symbols(dc, dc, u32(-1));
             return;
         } if isa::<FunctionDecl>(d) {
