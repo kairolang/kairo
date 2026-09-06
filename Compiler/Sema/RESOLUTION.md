@@ -327,7 +327,17 @@ canonicalizes it, so member lookup cannot walk bases before types resolve.
 5. Dependent = deferred, not failed. Anything rooted in a type param is
    marked and skipped by N/T; M2 owns it. N/T must never error on a
    dependent name.
-6. One writer per fact. resolved_decl/candidate_cell: written by N,
+6. Tracing never changes behavior. `sc->trace` (ResolutionTrace.k) is N's
+   decision log for `--print-sema`: which source answered each name, and
+   what each binding shadowed. It is WRITE-ONLY for the compiler   only
+   SemaDump reads it. A pass that consults the trace is a pass whose
+   behavior changes under the flag that exists to explain it, and the
+   shadow lookups it drives are skipped entirely when the flag is off.
+   This is also why N walks chain STEPS: `traverse_chain_expr` records a
+   Member row per step and resolves nothing, so a dump can tell "deferred
+   to T" apart from "never seen". Both leave `resolved_decl` null on the
+   AST; only the trace distinguishes them.
+7. One writer per fact. resolved_decl/candidate_cell: written by N,
    cell->decl promoted by inference, nobody else. needs_using: written by
    MemberLookup, read by UsingDeclSynthesis, nobody else. A fact recomputed
    in two places drifts a fact recorded once and read does not. When a

@@ -142,9 +142,6 @@ ffi "c++" import "llvm/TargetParser/Triple.h";
 ffi "c++" import "llvm/MC/TargetRegistry.h";
 ffi "c++" import "llvm/MC/MCSubtargetInfo.h";
 ffi "c++" import "llvm/Support/TargetSelect.h";
-ffi "c++" import "llvm/Support/raw_ostream.h";
-ffi "c++" import "llvm/TargetParser/Triple.h";
-ffi "c++" import "llvm/TargetParser/Host.h";
 ffi "c++" import "llvm/Target/TargetMachine.h";
 ffi "c++" import "llvm/Target/TargetOptions.h";
 ffi "c++" import "llvm/Support/CodeGen.h";
@@ -575,13 +572,13 @@ class CompilerInstance {
             libcxx::nullopt
         );
 
+        finally {
+            delete TM;
+        }
+
         if TM == &null {
             self._diag->report(DiagID::U001F, f"failed to create TargetMachine for '{string(triple.raw())}\x27").emit();
             return 1;
-        }
-
-        finally {
-            delete TM;
         }
 
         var STI: *llvm::MCSubtargetInfo = const_cast::<*llvm::MCSubtargetInfo>(TM->getMCSubtargetInfo());
