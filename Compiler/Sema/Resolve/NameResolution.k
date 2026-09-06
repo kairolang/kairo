@@ -749,28 +749,28 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_well_known(root, WellKnownType::BigInt,   "int");
         self._bind_well_known(root, WellKnownType::BigFloat, "float");
 
-        self._bind_well_known(root, WellKnownType::I8,   "i8");
-        self._bind_well_known(root, WellKnownType::I16,  "i16");
-        self._bind_well_known(root, WellKnownType::I32,  "i32");
-        self._bind_well_known(root, WellKnownType::I64,  "i64");
-        self._bind_well_known(root, WellKnownType::I128, "i128");
-        self._bind_well_known(root, WellKnownType::I256, "i256");
-        self._bind_well_known(root, WellKnownType::I512, "i512");
+        // self._bind_well_known(root, WellKnownType::I8,   "i8");
+        // self._bind_well_known(root, WellKnownType::I16,  "i16");
+        // self._bind_well_known(root, WellKnownType::I32,  "i32");
+        // self._bind_well_known(root, WellKnownType::I64,  "i64");
+        // self._bind_well_known(root, WellKnownType::I128, "i128");
+        // self._bind_well_known(root, WellKnownType::I256, "i256");
+        // self._bind_well_known(root, WellKnownType::I512, "i512");
         
-        self._bind_well_known(root, WellKnownType::U8,   "u8");
-        self._bind_well_known(root, WellKnownType::U16,  "u16");
-        self._bind_well_known(root, WellKnownType::U32,  "u32");
-        self._bind_well_known(root, WellKnownType::U64,  "u64");
-        self._bind_well_known(root, WellKnownType::U128, "u128");
-        self._bind_well_known(root, WellKnownType::U256, "u256");
-        self._bind_well_known(root, WellKnownType::U512, "u512");
+        // self._bind_well_known(root, WellKnownType::U8,   "u8");
+        // self._bind_well_known(root, WellKnownType::U16,  "u16");
+        // self._bind_well_known(root, WellKnownType::U32,  "u32");
+        // self._bind_well_known(root, WellKnownType::U64,  "u64");
+        // self._bind_well_known(root, WellKnownType::U128, "u128");
+        // self._bind_well_known(root, WellKnownType::U256, "u256");
+        // self._bind_well_known(root, WellKnownType::U512, "u512");
         
-        self._bind_well_known(root, WellKnownType::F8,   "f8");
-        self._bind_well_known(root, WellKnownType::F16,  "f16");
-        self._bind_well_known(root, WellKnownType::F32,  "f32");
-        self._bind_well_known(root, WellKnownType::F64,  "f64");
-        self._bind_well_known(root, WellKnownType::F128, "f128");
-        self._bind_well_known(root, WellKnownType::F256, "f256");
+        // self._bind_well_known(root, WellKnownType::F8,   "f8");
+        // self._bind_well_known(root, WellKnownType::F16,  "f16");
+        // self._bind_well_known(root, WellKnownType::F32,  "f32");
+        // self._bind_well_known(root, WellKnownType::F64,  "f64");
+        // self._bind_well_known(root, WellKnownType::F128, "f128");
+        // self._bind_well_known(root, WellKnownType::F256, "f256");
     }
 
     priv fn _bind_well_known(self, root: *DeclContext, k: WellKnownType, spelling: string) {
