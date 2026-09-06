@@ -72,6 +72,9 @@ class MemberLookup {
     /// canonical non-record type -> extensions targeting it.
     priv var _ext_by_type: libcxx::unordered_map::<u64, vec::<*ExtensionDecl>>;
     priv var _indexed: bool = false;
+    /// This TU's spelling of the name the current lookup() is walking. See
+    /// in_scope: a foreign scope's table cannot be probed with our imm.
+    priv var _cur_spelling: string = "";
 
     fn MemberLookup(self) {
         self.sc = &null;
@@ -162,6 +165,11 @@ class MemberLookup {
         if c == &null { return false; }
         var before = out->size();
 
+        // Spelled once per lookup, not once per scope: the walk can cross into
+        // several TUs (a base class in one file, an extension in another) and
+        // each of their tables is keyed by its own imms.
+        self._cur_spelling = self._spell(name);
+
         if isa::<RecordType>(c) {
             var seen = set::<u64>();
             self._walk_record(cast::<RecordType>(c)->decl, name, out, &seen);
@@ -183,11 +191,25 @@ class MemberLookup {
     /// the name is re-interned into that TU's imm space and probed there.
     fn in_scope(self, dc: *DeclContext, name: DeclName, spelling: string) -> *OverloadCell {
         if dc == &null { return &null; }
+        // Only IDENTIFIER payloads are per-TU. Operator and ctor keys are
+        // built from TokenKinds, which are stable across the build.
+        if name.kind != DeclNameKind::Identifier { return dc->lookup_symbol(name); }
+        if spelling.size() == 0 { return dc->lookup_symbol(name); }
         var tu = NameLookup::tu_of(dc);
         if (tu == &null) || (tu == self.sc->tu) { return dc->lookup_symbol(name); }
         var imms = self.sc->ctx->tcm->get_imm_table_for_fid(tu->fid);
         if imms == &null { return &null; }
         return SymbolTable::lookup_foreign(dc->dc_symbols, imms, spelling);
+    }
+
+    /// This TU's spelling of an identifier DeclName, for re-interning into a
+    /// foreign scope's imm space. Empty for a non-identifier key, which needs
+    /// no translation.
+    priv fn _spell(self, name: DeclName) -> string {
+        if name.kind != DeclNameKind::Identifier { return ""; }
+        var imms = self.sc->ctx->get_imm_table();
+        if imms == &null { return ""; }
+        return imms->get_ident(name.payload);
     }
 
     /// The names a module RE-EXPORTS, for a `mod::name` step that missed in
@@ -236,7 +258,7 @@ class MemberLookup {
         // 1. own table.
         var dc = NameLookup::context_of(d);
         if dc != &null {
-            var cell = dc->lookup_symbol(name);
+            var cell = self.in_scope(dc, name, self._cur_spelling);
             if cell != &null { self._append_cell(cell, out); }
         }
 
@@ -284,7 +306,7 @@ class MemberLookup {
         for var i: usize = 0; i < exts->size(); ++i {
             var e = (*exts)[i];
             var dc = static_cast::<*DeclContext>(e);
-            var cell = dc->lookup_symbol(name);
+            var cell = self.in_scope(dc, name, self._cur_spelling);
             if cell != &null { self._append_cell(cell, out); }
         }
     }

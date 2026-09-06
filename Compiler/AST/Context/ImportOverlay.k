@@ -81,10 +81,16 @@ class OverlayEntry {
         self.targets.push_back(t);
     }
 
-    /// Number of NON-function targets held. Two or more is the ambiguous-import
-    /// condition (diagnosed in I). Used by I to decide, and by dumps.
+    /// Number of DISTINCT non-function entities held. Two or more is the
+    /// ambiguous-import condition (diagnosed in I). Used by I to decide, and
+    /// by dumps.
+    ///
+    /// Distinct by decl identity, not target count: `import foo::MyClass`
+    /// alongside `import foo::*` folds the same ClassDecl twice, and naming
+    /// one entity by two routes is not an ambiguity -- there is nothing for a
+    /// reader to choose between.
     fn non_function_count(self) -> usize {
-        var n: usize = 0;
+        var seen = vec::<obs::<Decl>>();
         for var i: usize = 0; i < self.targets.size(); ++i {
             // A module handle and an ffi anchor name a SCOPE, not an entity:
             // two files reopening `module util` are one namespace, and two
@@ -93,9 +99,15 @@ class OverlayEntry {
             var k = self.targets[i].kind;
             if (k == OverlayTargetKind::FunctionSet) || (k == OverlayTargetKind::ModuleHandle)
             || (k == OverlayTargetKind::FfiAnchor) { continue; }
-            n += 1;
+            var d = self.targets[i].decl;
+            if d == &null { continue; }
+            var dup = false;
+            for var j: usize = 0; j < seen.size(); ++j {
+                if seen[j] == d { dup = true; break; }
+            }
+            if !dup { seen.push_back(d); }
         }
-        return n;
+        return seen.size();
     }
 
     fn is_ambiguous(self) -> bool { return self.non_function_count() >= 2; }

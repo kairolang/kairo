@@ -1,0 +1,230 @@
+Reference --print-sema snapshot for main.k. NOT checked by lit (the
+FileCheck lines in main.k are the assertions); this is here so a diff
+shows at a glance what a change to phase I / N / CB did to the whole
+dump, not just to the lines someone thought to assert.
+
+Regenerate from the repo root with:
+  kairo Tests/Sema/imports_all_forms/main.k --type-check-only --print-sema \
+    2>/dev/null | sed "s|$PWD/||g" > Tests/Sema/imports_all_forms/main.sema.golden
+
+--------------------------------------------------------------------------
+-- sema: Tests/Sema/imports_all_forms/main.k --
+===== SEMA fid 5: Tests/Sema/imports_all_forms/u2.k =====
+phase: TypesResolved
+-- lang items (well_known) --
+  (none bound: no prelude in scope for this TU   expected, not an error)
+-- scope symbol tables (what each scope declares) --
+  <tu>   [1 name(s)]
+    util        -> module util @ 8:5
+  <tu>::util   [1 name(s)]
+    two         -> fn two @ 9:9
+-- multi-decl names (overload sets / redecl chains) --
+-- out-of-line definitions --
+  (none)
+-- lexical scopes (declarations & shadowing) --
+  fn util::two  @ 9:9
+-- name bindings --
+  (no identifier uses)
+-- types --
+  1 type node(s): 1 canonical, 0 dependent, 0 errored
+-- summary --
+  0 bound, 0 deferred (overload sets), 0 unresolved
+
+===== SEMA fid 4: Tests/Sema/imports_all_forms/u1.k =====
+phase: TypesResolved
+-- lang items (well_known) --
+  (none bound: no prelude in scope for this TU   expected, not an error)
+-- scope symbol tables (what each scope declares) --
+  <tu>   [1 name(s)]
+    util        -> module util @ 7:5
+  <tu>::util   [1 name(s)]
+    one         -> fn one @ 8:9
+-- multi-decl names (overload sets / redecl chains) --
+-- out-of-line definitions --
+  (none)
+-- lexical scopes (declarations & shadowing) --
+  fn util::one  @ 8:9
+-- name bindings --
+  (no identifier uses)
+-- types --
+  1 type node(s): 1 canonical, 0 dependent, 0 errored
+-- summary --
+  0 bound, 0 deferred (overload sets), 0 unresolved
+
+===== SEMA fid 3: Tests/Sema/imports_all_forms/baz.k =====
+phase: TypesResolved
+-- lang items (well_known) --
+  (none bound: no prelude in scope for this TU   expected, not an error)
+-- scope symbol tables (what each scope declares) --
+  <tu>   [1 name(s)]
+    h           -> fn h @ 8:5
+-- multi-decl names (overload sets / redecl chains) --
+-- out-of-line definitions --
+  (none)
+-- lexical scopes (declarations & shadowing) --
+  fn h  @ 8:5
+-- name bindings --
+  (no identifier uses)
+-- types --
+  1 type node(s): 1 canonical, 0 dependent, 0 errored
+-- summary --
+  0 bound, 0 deferred (overload sets), 0 unresolved
+
+===== SEMA fid 2: Tests/Sema/imports_all_forms/bar.k =====
+phase: TypesResolved
+-- lang items (well_known) --
+  (none bound: no prelude in scope for this TU   expected, not an error)
+-- scope symbol tables (what each scope declares) --
+  <tu>   [1 name(s)]
+    f           -> fn f @ 8:5
+-- multi-decl names (overload sets / redecl chains) --
+-- out-of-line definitions --
+  (none)
+-- lexical scopes (declarations & shadowing) --
+  fn f  @ 8:5
+-- name bindings --
+  (no identifier uses)
+-- types --
+  1 type node(s): 1 canonical, 0 dependent, 0 errored
+-- summary --
+  0 bound, 0 deferred (overload sets), 0 unresolved
+
+===== SEMA fid 1: Tests/Sema/imports_all_forms/foo.k =====
+phase: TypesResolved
+-- lang items (well_known) --
+  (none bound: no prelude in scope for this TU   expected, not an error)
+-- scope symbol tables (what each scope declares) --
+  <tu>   [3 name(s)]
+    add         -> fn add @ 11:5
+    MyClass     -> class MyClass @ 13:5
+    inner       -> module inner @ 17:5
+  <tu>::MyClass   [1 name(s)]
+    v           -> field v @ 14:11
+  <tu>::inner   [1 name(s)]
+    g           -> fn g @ 18:9
+-- multi-decl names (overload sets / redecl chains) --
+-- out-of-line definitions --
+  (none)
+-- lexical scopes (declarations & shadowing) --
+  fn add  @ 11:5
+    declare a           = param a @ 11:12
+    declare b           = param b @ 11:20
+    use     a           @ 11:44    -> param a @ 11:12  [local frame 0]
+    use     b           @ 11:48    -> param b @ 11:20  [local frame 0]
+  fn inner::g  @ 18:9
+-- name bindings --
+  <tu>::add
+    a           @ 11:44    -> param a @ 11:12  [local frame 0]
+    b           @ 11:48    -> param b @ 11:20  [local frame 0]
+-- types --
+  5 type node(s): 5 canonical, 0 dependent, 0 errored
+-- summary --
+  2 bound, 0 deferred (overload sets), 0 unresolved
+
+===== SEMA fid 0: Tests/Sema/imports_all_forms/main.k =====
+phase: TypesResolved   (2 sema error(s))
+-- lang items (well_known) --
+  (none bound: no prelude in scope for this TU   expected, not an error)
+-- scope symbol tables (what each scope declares) --
+  <tu>   [1 name(s)]
+    use_all     -> fn use_all @ 36:1
+-- multi-decl names (overload sets / redecl chains) --
+-- out-of-line definitions --
+  (none)
+-- lexical scopes (declarations & shadowing) --
+  fn use_all  @ 36:1
+    declare m           = var m @ 38:5
+    use     cstd        @ 42:5     -> import @ 34:1  [import overlay]
+    member  ::printf    @ 42:11    <foreign: resolved by clang   ffi header>
+    use     foo         @ 44:14    -> module foo @ 1:1  [import overlay]
+    member  ::add       @ 44:19    -> fn add @ 11:5
+    declare a1          = var a1 @ 44:5
+    use     fmod        @ 45:14    -> module foo @ 1:1  [import overlay]
+    member  ::add       @ 45:20    -> fn add @ 11:5
+    declare a2          = var a2 @ 45:5
+    use     my_add      @ 46:14    -> fn add @ 11:5  [import overlay]
+    declare a3          = var a3 @ 46:5
+    use     plus        @ 47:14    -> fn add @ 11:5  [import overlay]
+    declare a4          = var a4 @ 47:5
+    use     inner       @ 48:14    -> module inner @ 17:5  [import overlay]
+    member  ::g         @ 48:21    -> fn g @ 18:9  [member of inner]
+    declare a5          = var a5 @ 48:5
+    use     add         @ 49:14    -> fn add @ 11:5  [import overlay]
+    declare a6          = var a6 @ 49:5
+    use     foo         @ 50:14    -> module foo @ 1:1  [import overlay]
+    member  ::f         @ 50:19    -> fn f @ 8:5
+    declare a7          = var a7 @ 50:5
+    use     util        @ 51:14    -> 2 candidate(s), deferred to overload resolution  [import overlay]
+    member  ::one       @ 51:20    -> fn one @ 8:9  [member of util]
+    declare a8          = var a8 @ 51:5
+    use     util        @ 52:14    -> 2 candidate(s), deferred to overload resolution  [import overlay]
+    member  ::two       @ 52:20    -> fn two @ 9:9  [member of util]
+    declare a9          = var a9 @ 52:5
+    use     m           @ 53:15    -> var m @ 38:5  [local frame 0]
+    member  .v          @ 53:17    -> field v @ 14:11  [member of MyClass]
+    declare a10         = var a10 @ 53:5
+    use     foo         @ 56:14    -> module foo @ 1:1  [import overlay]
+    member  ::h         @ 56:19    <UNRESOLVED>  (diagnosed)
+    declare e1          = var e1 @ 56:5
+    use     foo         @ 57:14    -> module foo @ 1:1  [import overlay]
+    member  ::addd      @ 57:19    <UNRESOLVED>  (diagnosed)
+    declare e2          = var e2 @ 57:5
+    use     a1          @ 59:12    -> var a1 @ 44:5  [local frame 0]
+    use     a2          @ 59:17    -> var a2 @ 45:5  [local frame 0]
+    use     a3          @ 59:22    -> var a3 @ 46:5  [local frame 0]
+    use     a4          @ 59:27    -> var a4 @ 47:5  [local frame 0]
+    use     a5          @ 59:32    -> var a5 @ 48:5  [local frame 0]
+    use     a6          @ 59:37    -> var a6 @ 49:5  [local frame 0]
+    use     a7          @ 59:42    -> var a7 @ 50:5  [local frame 0]
+    use     a8          @ 59:47    -> var a8 @ 51:5  [local frame 0]
+    use     a9          @ 59:52    -> var a9 @ 52:5  [local frame 0]
+    use     a10         @ 59:57    -> var a10 @ 53:5  [local frame 0]
+    use     e1          @ 59:63    -> var e1 @ 56:5  [local frame 0]
+    use     e2          @ 59:68    -> var e2 @ 57:5  [local frame 0]
+-- name bindings --
+  <tu>::use_all
+    cstd        @ 42:5     -> import @ 34:1  [import overlay]
+    ::printf    @ 42:11    <open: inference or M2>
+    foo         @ 44:14    -> module foo @ 1:1  [import overlay]
+    ::add       @ 44:19    -> fn add @ 11:5
+    fmod        @ 45:14    -> module foo @ 1:1  [import overlay]
+    ::add       @ 45:20    -> fn add @ 11:5
+    my_add      @ 46:14    -> fn add @ 11:5  [import overlay]
+    plus        @ 47:14    -> fn add @ 11:5  [import overlay]
+    inner       @ 48:14    -> module inner @ 17:5  [import overlay]
+    ::g         @ 48:21    -> fn g @ 18:9
+    add         @ 49:14    -> fn add @ 11:5  [import overlay]
+    foo         @ 50:14    -> module foo @ 1:1  [import overlay]
+    ::f         @ 50:19    -> fn f @ 8:5
+    util        @ 51:14    -> 2 candidate(s), awaiting overload resolution  [import overlay]
+        - module util @ 7:5
+        - module util @ 8:5
+    ::one       @ 51:20    -> fn one @ 8:9
+    util        @ 52:14    -> 2 candidate(s), awaiting overload resolution  [import overlay]
+        - module util @ 7:5
+        - module util @ 8:5
+    ::two       @ 52:20    -> fn two @ 9:9
+    m           @ 53:15    -> var m @ 38:5  [local frame 0]
+    .v          @ 53:17    -> field v @ 14:11
+    foo         @ 56:14    -> module foo @ 1:1  [import overlay]
+    ::h         @ 56:19    <UNRESOLVED>  (diagnosed)
+    foo         @ 57:14    -> module foo @ 1:1  [import overlay]
+    ::addd      @ 57:19    <UNRESOLVED>  (diagnosed)
+    a1          @ 59:12    -> var a1 @ 44:5  [local frame 0]
+    a2          @ 59:17    -> var a2 @ 45:5  [local frame 0]
+    a3          @ 59:22    -> var a3 @ 46:5  [local frame 0]
+    a4          @ 59:27    -> var a4 @ 47:5  [local frame 0]
+    a5          @ 59:32    -> var a5 @ 48:5  [local frame 0]
+    a6          @ 59:37    -> var a6 @ 49:5  [local frame 0]
+    a7          @ 59:42    -> var a7 @ 50:5  [local frame 0]
+    a8          @ 59:47    -> var a8 @ 51:5  [local frame 0]
+    a9          @ 59:52    -> var a9 @ 52:5  [local frame 0]
+    a10         @ 59:57    -> var a10 @ 53:5  [local frame 0]
+    e1          @ 59:63    -> var e1 @ 56:5  [local frame 0]
+    e2          @ 59:68    -> var e2 @ 57:5  [local frame 0]
+-- types --
+  2 type node(s): 2 canonical, 0 dependent, 0 errored
+-- summary --
+  23 bound, 2 deferred (overload sets), 0 unresolved
+  10 chain step(s): 7 bound, 0 overload sets, 1 open, 2 unresolved
+
