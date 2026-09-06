@@ -91,7 +91,12 @@ class FileImportIndex {
         // --- selective / wildcard / bare split ----------------------------
         if id->is_wildcard {
             var rr = self._resolve(segs, id->import_kind == ImportKind::ModuleOnly, id->range);
-            if rr.found { self.wildcards.push_back(rr.source_scope); id->resolved_fid = rr.target_fid; return rr.target_fid; }
+            if rr.found {
+                self.wildcards.push_back(rr.source_scope);
+                id->resolved_fid    = rr.target_fid;
+                id->file_seg_count  = static_cast::<u32>(rr.seg_count);
+                return rr.target_fid;
+            }
             else        { self._unresolved(id, segs); return 0; }
         }
 
@@ -100,7 +105,8 @@ class FileImportIndex {
             if !rr.found { self._unresolved(id, segs); return 0; }
             // always record the module alias too (Foo::{...} still allows Foo::x)
             self.module_aliases[self._sym->intern(segs[segs.size() - 1])] = rr.full_scope;
-            id->resolved_fid = rr.target_fid;
+            id->resolved_fid   = rr.target_fid;
+            id->file_seg_count = static_cast::<u32>(rr.seg_count);
 
             for var i: usize = 0; i < id->items.size(); ++i {
                 var it =id->items[i];
@@ -137,7 +143,8 @@ class FileImportIndex {
             var name_sym  = self._sym->intern(segs[segs.size() - 1]);
             var alias_sym = (self._sym->intern(self._spell(id->alias))) if (id->has_alias) else (name_sym);
             self._record_named(rr.source_scope, name_sym, alias_sym, id->range);
-            id->resolved_fid = rr.target_fid;
+            id->resolved_fid   = rr.target_fid;
+            id->file_seg_count = static_cast::<u32>(rr.seg_count);
             return rr.target_fid;
         }
 
@@ -149,7 +156,8 @@ class FileImportIndex {
             if (id->has_alias)
             else (self._sym->intern(segs[segs.size() - 1]));
         self.module_aliases[alias_key] = rr.full_scope;
-        id->resolved_fid = rr.target_fid;
+        id->resolved_fid   = rr.target_fid;
+        id->file_seg_count = static_cast::<u32>(rr.seg_count);
         return rr.target_fid;
     }
 
@@ -189,6 +197,7 @@ class FileImportIndex {
         var source_scope: ModulePath;  ///< scope to look up the imported symbol in
         var full_scope:   ModulePath;  ///< module alias target (source + resolved prefix)
         var target_fid:   u32 = 0;     ///< source-module fid (the file the import points at)
+        var seg_count:    usize = 0;   ///< leading segments consumed to reach that file
     }
 
     /// greedy longest-prefix resolution behavior ported from
@@ -247,6 +256,7 @@ class FileImportIndex {
                     out.source_scope = self._segs_to_path(src);
                     out.full_scope   = self._segs_to_path(rr.canonical);
                     out.target_fid   = fid;
+                    out.seg_count    = try_len;
                     self._drain_collisions();
                     return out;
                 }

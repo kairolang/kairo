@@ -28,14 +28,18 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
+import Sema::Resolve::NameLookup::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
 import AST::Context::ImportOverlay::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
+import Token::Token::*;
 import Token::TokenText::*;
+import Location::SourceRange::*;
 import Diagnostic::Registry::*;
 
 class ImportResolution {
@@ -87,6 +91,14 @@ class ImportResolution {
         var src_imms = self.sc->ctx->tcm->get_imm_table_for_fid(fid);
         if src_imms == &null { return; }
 
+        // A symbol path (`import foo::MyClass`): the leading file_seg_count
+        // segments named the FILE; the rest is a path INSIDE it.
+        if (id->file_seg_count > 0)
+        && (static_cast::<usize>(id->file_seg_count) < id->path_segments.size()) {
+            self._fold_symbol_path(id, overlay, src_tu, src_syms, src_imms, fid);
+            return;
+        }
+
         if id->is_wildcard {
             self._fold_wildcard(id, overlay, src_syms, fid);
             return;
@@ -118,10 +130,110 @@ class ImportResolution {
         t.kind    = OverlayTargetKind::ModuleHandle;
         t.decl    = mod;                            // real *Decl (ModuleDecl), no reinterpret.
         t.origin  = static_cast::<*Decl>(id);       // ImportDecl derives Decl (valid upcast).
-        t.vis     = self._edge_vis(id);
+        // `vis` is the ACCESS fact N reads, not the edge's pub/prot. A file
+        // you imported is a scope you may name; whether the edge re-exports
+        // it is a separate question, answered from `origin` in the re-export
+        // fold. Recording the edge here made every plain `import foo` report
+        // "'foo' is imported but is declared private in its module".
+        t.vis     = OverlayVisibility::Public;
         t.src_fid = fid;
 
         self._add(overlay, handle_spelling, t);
+    }
+
+    /// IMPORTS.md §4.1. Walk `path_segments[file_seg_count ..]` inside the
+    /// already-resolved source file and fold the cell the last segment names.
+    ///
+    /// Aliases are NOT expanded here: expansion is T's job and T has not run
+    /// for this TU, so an alias as an INTERMEDIATE segment is an error.
+    priv fn _fold_symbol_path(self, id: *ImportDecl, overlay: *ImportOverlay,
+                              src_tu: *TranslationUnit, src_syms: *SymbolTable,
+                              src_imms: *ImmediateTable, fid: u32) {
+        var start = static_cast::<usize>(id->file_seg_count);
+        if start == 0 { return; }
+        if start > id->path_segments.size() { return; }
+
+        var prev_name = self.sc->ctx->get_spelling(id->path_segments[start - 1]);
+        var first     = true;
+        var last_name = prev_name;
+        var cell: *OverloadCell = &null;
+
+        for var i: usize = start; i < id->path_segments.size(); ++i {
+            var tok  = id->path_segments[i];
+            var name = self.sc->ctx->get_spelling(tok);
+            cell = self._walk_segment(cell, prev_name, first, src_syms, src_imms,
+                                      name, tok.range);
+            if cell == &null { return; }
+            prev_name = name;
+            last_name = name;
+            first     = false;
+        }
+
+        var visible = last_name;
+        if id->has_alias { visible = self.sc->ctx->get_spelling(id->alias); }
+        if visible.size() == 0 { return; }
+        self._fold_cell(id, overlay, visible, cell, fid);
+    }
+
+    /// One segment of a symbol path inside an already-resolved source file.
+    ///
+    ///   prev == null   -> `name` is looked up in the file's top-level table
+    ///   prev != null   -> `name` is looked up in the scope prev's first decl
+    ///                     owns, through its redecl canonical
+    ///
+    /// Returns null after reporting. R015E is the sole home for every miss
+    /// on this path (IMPORTS.md §4.1).
+    priv fn _walk_segment(self, prev: *OverloadCell, prev_name: string,
+                          prev_is_module: bool, src_syms: *SymbolTable,
+                          src_imms: *ImmediateTable, name: string,
+                          at: SourceRange) -> *OverloadCell {
+        var disp = (f"module '{prev_name}\x27") if (prev_is_module) else (f"'{prev_name}\x27");
+        var syms = src_syms;
+
+        if prev != &null {
+            var d = prev->get(0);
+            if d == &null { return &null; }
+            if isa::<TypeAliasDecl>(d) {
+                // FIXME(diag-table)
+                self.sc->diag->report(DiagID::R015E, at.start,
+                    f"cannot import through a type alias '{prev_name}\x27"
+                ).first(at).emit();
+                return &null;
+            }
+            var dc = NameLookup::context_of(self._scope_canonical(d));
+            if dc == &null {
+                // FIXME(diag-table)
+                self.sc->diag->report(DiagID::R015E, at.start,
+                    f"{disp} is not a scope; '{name}' cannot be imported through it"
+                ).first(at).emit();
+                return &null;
+            }
+            syms = dc->dc_symbols;
+        }
+
+        var cell = SymbolTable::lookup_foreign(syms, src_imms, name);
+        if cell == &null {
+            // FIXME(diag-table)
+            self.sc->diag->report(DiagID::R015E, at.start,
+                f"'{name}' is not declared in {disp}"
+            ).first(at).emit();
+            return &null;
+        }
+        return cell;
+    }
+
+    /// The redecl canonical of a scope-owning decl; the decl itself otherwise.
+    /// A fwd decl and its definition are one scope, and only the canonical
+    /// carries the table.
+    priv fn _scope_canonical(self, d: *Decl) -> *Decl {
+        if d == &null { return &null; }
+        if isa::<ClassDecl>(d)     { return static_cast::<*Decl>(cast::<ClassDecl>(d)->canonical_decl());     }
+        if isa::<StructDecl>(d)    { return static_cast::<*Decl>(cast::<StructDecl>(d)->canonical_decl());    }
+        if isa::<UnionDecl>(d)     { return static_cast::<*Decl>(cast::<UnionDecl>(d)->canonical_decl());     }
+        if isa::<InterfaceDecl>(d) { return static_cast::<*Decl>(cast::<InterfaceDecl>(d)->canonical_decl()); }
+        if isa::<EnumDecl>(d)      { return static_cast::<*Decl>(cast::<EnumDecl>(d)->canonical_decl());      }
+        if isa::<ModuleDecl>(d)    { return static_cast::<*Decl>(cast::<ModuleDecl>(d)->canonical_decl());    }
+        return d;
     }
 
     priv fn _fold_selective(self, id: *ImportDecl, overlay: *ImportOverlay,
@@ -136,18 +248,26 @@ class ImportResolution {
             if it.sub_path.size() == 0 { continue; }
 
             var orig_tok    = it.sub_path[it.sub_path.size() - 1];
-            var orig_name   = self.sc->ctx->get_spelling(orig_tok);
             var visible_tok = orig_tok;
             if it.has_alias { visible_tok = it.alias; }
             var visible     = self.sc->ctx->get_spelling(visible_tok);
 
-            var cell = SymbolTable::lookup_foreign(src_syms, src_imms, orig_name);
-            if cell == &null {
-                self.sc->diag->report(DiagID::R015E, it.range.start,
-                    f"'{orig_name}' is not declared in the imported module"
-                ).first(it.range).emit();
-                continue;
+            // A multi-segment item (`import foo::{x::Y}`) walks exactly the
+            // same way a symbol-path import does; a single-segment item is
+            // that walk with one step.
+            var prev_name = self._module_display_name(id);
+            var first     = true;
+            var cell: *OverloadCell = &null;
+            for var s: usize = 0; s < it.sub_path.size(); ++s {
+                var tok = it.sub_path[s];
+                var nm  = self.sc->ctx->get_spelling(tok);
+                cell = self._walk_segment(cell, prev_name, first, src_syms, src_imms,
+                                          nm, tok.range);
+                if cell == &null { break; }
+                prev_name = nm;
+                first     = false;
             }
+            if cell == &null { continue; }
             self._fold_cell(id, overlay, visible, cell, fid);
         }
     }
@@ -197,7 +317,8 @@ class ImportResolution {
         t.kind   = OverlayTargetKind::FfiAnchor;
         t.decl   = static_cast::<*Decl>(id);
         t.origin = static_cast::<*Decl>(id);
-        t.vis    = self._edge_vis(id);
+        t.vis    = OverlayVisibility::Public;   // a scope you named; see _fold_plain.
+
         self._add(overlay, name, t);
     }
 
@@ -240,10 +361,12 @@ class ImportResolution {
                     var d = t.cell->get(k);
                     if d != &null { entry->merged.append(d); }
                 }
-            } else if t.kind == OverlayTargetKind::Type {
-                // Only real Decl targets are lookup candidates. ModuleHandle
-                // (opaque TU) and FfiAnchor (the ImportDecl node) are NOT
-                // overload candidates and must never enter the merged cell.
+            } else if (t.kind == OverlayTargetKind::Type)
+                   || (t.kind == OverlayTargetKind::ModuleHandle)
+                   || (t.kind == OverlayTargetKind::FfiAnchor) {
+                // A module handle is a real ModuleDecl; an ffi anchor is the
+                // ImportDecl. Both are legitimate lookup answers (a name
+                // denoting a scope).
                 if t.decl != &null { entry->merged.append(t.decl); }
             }
         }
@@ -253,6 +376,15 @@ class ImportResolution {
         var ctx = self.sc->g->get_context(fid);
         if ctx == &null { return &null; }
         return reinterpret_cast::<*TranslationUnit>(ctx->tu);
+    }
+
+    /// The FILE the import resolved to, spelled for a diagnostic: the last
+    /// segment the PP consumed to reach it.
+    priv fn _module_display_name(self, id: *ImportDecl) -> string {
+        var n = static_cast::<usize>(id->file_seg_count);
+        if (n == 0) || (n > id->path_segments.size()) { n = id->path_segments.size(); }
+        if n == 0 { return "the imported module"; }
+        return self.sc->ctx->get_spelling(id->path_segments[n - 1]);
     }
 
     /// The name a plain/aliased import binds: alias if present, else last seg.

@@ -1134,6 +1134,12 @@ class ImportDecl derives Decl, FFILinkage::<ImportDecl> {
     /// fallback (Full mode) and by Sema/ImportResolution. Never mutated after.
     pub var resolved_fid: u32 = 0;
 
+    /// How many leading path_segments name the FILE that resolved to
+    /// resolved_fid. Segments past this are a symbol path INSIDE that file.
+    /// Written by the PP next to resolved_fid. Equals path_segments.size()
+    /// for a plain module import; 0 = unresolved / ffi.
+    pub var file_seg_count: u32 = 0;
+
     /// ImportDecl and MacroDecl are PP-stage nodes: the preprocessor consumes
     /// them out of the token stream into tu->imports / tu->macros, which live
     /// in pp_alloc. Their storage MUST live there too   if they sat in

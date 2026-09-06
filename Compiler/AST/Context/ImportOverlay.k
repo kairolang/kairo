@@ -86,7 +86,14 @@ class OverlayEntry {
     fn non_function_count(self) -> usize {
         var n: usize = 0;
         for var i: usize = 0; i < self.targets.size(); ++i {
-            if self.targets[i].kind != OverlayTargetKind::FunctionSet { n += 1; }
+            // A module handle and an ffi anchor name a SCOPE, not an entity:
+            // two files reopening `module util` are one namespace, and two
+            // ffi headers under one alias are one foreign scope. Neither is
+            // an ambiguity (IMPORTS.md §4.3).
+            var k = self.targets[i].kind;
+            if (k == OverlayTargetKind::FunctionSet) || (k == OverlayTargetKind::ModuleHandle)
+            || (k == OverlayTargetKind::FfiAnchor) { continue; }
+            n += 1;
         }
         return n;
     }
