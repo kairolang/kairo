@@ -1,12 +1,12 @@
-// CASE 7 (XFAIL): re-export. main imports foo_reexport, which does
-// `pub import bar::*`. Because that edge is PUBLIC, bar's names SHOULD surface
-// in main's overlay attributed to the foo_reexport edge.
+// CASE 7: re-export. main imports foo_reexport, which does
+// `pub import bar::*`. That edge is PUBLIC, so bar's names are part of
+// foo_reexport's surface and must be reachable through it.
 //
-// EXPECTED-FAIL until re-export folding is implemented: ImportResolution
-// currently folds only a source's OWN frozen decls, not its pub/prot overlay
-// entries. So today bar's names will be ABSENT from main's overlay and
-// `foo_reexport::id` resolution through the re-export will NOT work. When the
-// re-export fold lands, `id`/`Box` appear in main's overlay via foo_reexport.
+// A re-exported name lives in foo_reexport's OVERLAY, never in its symbol
+// table, and a plain `import foo_reexport` binds its ModuleDecl -- whose
+// shared table IS that symbol table. So the module step consults the source
+// overlay after missing in the table (MemberLookup::reexport_lookup), and
+// accepts a hit only when the origin import is pub/prot. IMPORTS.md §4.4.
 
 import foo_reexport
 

@@ -133,10 +133,10 @@ The pass that hits the cycle owns the message.
 
 ```
 P:  parse (per TU, parallel)            -> AST + frozen SymbolTables     [DONE]
-I:  ImportResolution (DAG order)        -> import_overlay built          [DONE, see IMPORTS.md §4]
+I:  ImportResolution (DAG order)        -> import_overlay built          [DONE]
 E:  Expand (requires-desugar, macros)   -> canonical syntax              [PARTIAL: desugar only]
 V:  Verify (structural checks)          -> pure reads                    [DONE]
-N:  NameResolution (per TU, parallel)   -> every HEAD bound              [DONE, one bug]
+N:  NameResolution (per TU, parallel)   -> every HEAD bound              [DONE]
 T:  TypeResolution (per TU, DAG order)  -> every Type node canonical     [DONE]
     ChainBinding (same stage, after T)  -> every decidable STEP bound    [DONE]
 C:  checks                              -> shape/conformance/access      [MISSING]
@@ -159,7 +159,7 @@ only. Do not change the loop order.
 POST: every DC has a frozen table; `out_of_line` collected.
 INVARIANT: frozen tables are never mutated again by ANY later phase.
 
-### 2.2 I ImportResolution [DONE, defects listed in IMPORTS.md §4]
+### 2.2 I ImportResolution [DONE, IMPORTS.md §4]
 
 The decided contract from the previous revision of this doc stands
 unchanged and is now maintained in IMPORTS.md §2.3 and §4. Summary:
@@ -209,13 +209,28 @@ value/iterable is resolved in the OUTER scope first, so `for x in x`
 names an outer `x`. Attribute names bind when a decl exists, silently
 otherwise. Import-access ("exists but private") is emitted here.
 
-    [BROKEN] A CLASS's generic params are not declared into N's lexical
-    stack (only a function's are). `T` in EXPRESSION position inside a
-    method of `class <T> Foo` a `requires T impl X` on the class, a
-    `ConstraintExpr` lhs, `T::CONST` reports undeclared. Fix: every
-    type-scope `traverse_*` in N pushes `n->generic_params` into a frame
-    exactly as `traverse_function_decl` does. Struct, union, interface,
-    enum, extension, alias too.
+    [DONE] A type scope's generic params are in the lexical stack.
+    `traverse_class_decl` and its struct/union/interface/enum/extension/
+    alias siblings push a locals frame holding `n->generic_params`
+    (`_open_type_generics` / `_close_type_generics`), exactly as
+    `traverse_function_decl` does, so `T` in EXPRESSION position inside
+    the body a `requires T impl X` on the class, a `ConstraintExpr`
+    lhs, `T::CONST` binds. The frame is pushed only when the decl
+    actually has generic params, so a non-generic type costs neither a
+    frame nor an empty trace scope. Test:
+    Tests/Sema/typeres_class_generic_expr.k.
+
+    [DONE, TEMPORARY] The bare-ffi miss gate. A bare
+    `ffi "c++" import "h.hh"` puts the header's names in unqualified
+    scope, but those declarations exist only inside clang until the
+    extraction pass, so an unqualified miss in a TU that carries one is
+    left unbound and marked foreign (`NamedIdentExpr::foreign`,
+    `TraceRow::foreign_gate`, skipped by NameBindingVerifier) instead of
+    diagnosed. Nothing is poisoned, so T treats the node as absent rather
+    than errored. This turns typos in such a TU into deferred clang
+    errors, which is why it is gated on the presence of a bare ffi import
+    in THIS TU and why extraction DELETES it rather than improving it.
+    IMPORTS.md §5.
 
     [DONE, by design] N does NOT bind: chain steps (ChainBinding, §2.7);
     ConstructorPattern / UnresolvedConstructorPattern HEADS and bare
@@ -335,9 +350,28 @@ Outcomes are recorded per step location in `ResolutionTrace::member_results`
 and joined onto N's Member rows by SemaDump, so the scopes section reads
 in source order and says what happened to each step.
 
-    [BROKEN] Reopened namespaces (multi-ModuleDecl candidate sets) see
-    IMPORTS.md §4.3.
-    [MISSING] Foreign anchor for ffi IMPORTS.md §5.
+    [DONE] Reopened namespaces. `Anchor.scopes` is a vector: an
+    all-`ModuleDecl` candidate cell is ONE namespace spread over N
+    scopes, not an overload set, and a `::` step searches every one of
+    them and unions the hits. A frozen source cell is reused only when a
+    single scope answered. IMPORTS.md §4.3.
+    [DONE] `AnchorKind::Foreign` for ffi. Entered from an `ImportDecl`
+    with ffi linkage; absorbing, so every later step records
+    `MemberOutcome::Foreign` with no decl, no poison and no diagnostic.
+    IMPORTS.md §5.
+
+    [DONE] Cross-TU probes are spelled, not imm-keyed. A DeclContext's
+    table is keyed by ITS OWN TU's imms (hard invariant #2), so probing a
+    foreign scope with this TU's imm index is not a miss it is a silent
+    wrong answer whenever the two interners happen to agree on an index.
+    `MemberLookup::in_scope` re-interns the name into the owning TU's imm
+    space for a foreign scope; `MemberLookup::lookup` spells the name once
+    per lookup because the walk can cross several TUs (a base class in one
+    file, an extension in another). Operator and ctor keys are built from
+    TokenKinds and stay cross-TU safe, so they skip the translation.
+    Anything that RENDERS a foreign decl has the same problem and the same
+    answer: `NameLookup::ctx_of` says where a decl's names live, and the
+    sema dump renderers and ChainBinding's diagnostics ask it first.
 
 ### 2.8 C checks [MISSING]
 
@@ -425,12 +459,18 @@ runs after TypeResolution in the same stage.
 
 Sema, name/type domain:
 
-    a. N: class-level generic params into the lexical stack       BROKEN, ~20 lines
-    b. IMPORTS.md §8 items 1–8 (symbol paths, merged cell,
-       reopening, foreign anchor, re-export)                      ~180 lines
+    a. N: class-level generic params into the lexical stack       DONE
+    b. IMPORTS.md §8 items 1–9 (symbol paths, merged cell,
+       reopening, foreign anchor, bare-ffi gate, re-export,
+       named roots)                                              DONE
     c. `_representative` exists in N, T, and CB move to
        NameLookup as a static                                    cleanup
     d. Split R001E; grep FIXME(diag-table)                         diag table
+
+Name resolution and import lookup are complete: every form in
+IMPORTS.md §1 binds, checked end to end by
+Tests/Sema/imports_all_forms. What is left in the name domain is (c),
+a refactor, and (d), the diagnostic table.
 
 Sema, type domain (each unblocks the next):
 

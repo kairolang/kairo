@@ -1,20 +1,20 @@
-// CASE 10b (XFAIL  deferred to clang header-parse integration):
-// `ffi ... import "h" as z` should bind `z` to an ANCHOR the future clang-
-// extraction pass hangs real (translated) decls off of  overlay key `legacy`
-// with one ffi-anchor target.
+// CASE 10b: `ffi ... import "h" as z` binds `z` to an ANCHOR -- overlay key
+// `legacy` with one ffi-anchor target -- that the future clang-extraction
+// pass will hang real (translated) decls off of.
 //
-// NOT wired yet. The PP currently DROPS ffi imports (builds no ImportDecl), so
-// nothing reaches phase I to bind the anchor  today this shows 0 overlay keys.
+// Wired: the PP builds the ImportDecl and records it in tu->imports (no path
+// resolution, no fid, no import edge, no clang), phase I binds the anchor,
+// and ChainBinding gives it AnchorKind::Foreign so every step off `legacy` is
+// recorded Foreign -- no decl, no poison, no diagnostic. IMPORTS.md §5.
 //
-// The real design (next task): the index/PP layer, which already resolves the
-// header path, calls clang ONCE, caches the ASTUnit per header, does a cheap
-// name+scope walk into the disambig table, and records the ffi ImportDecl so
-// phase I binds `z` as the anchor. Sema's symbol build then translates clang
-// decls -> Kairo nodes off that anchor (reading the same cache), and the
-// backend hands clang the cached ASTUnit instead of reparsing via -include.
-// The PARSER cannot own this: it runs after disambig decisions, too late to
-// feed header symbols into `<`-disambiguation. See RESOLUTION.md (clang
-// extraction pass) + Preprocessor::_handle_ffi.
+// Still MISSING, and the reason a step has no decl yet: the extraction pass.
+// The design is one clang parse of the header at INDEX time, ASTUnit cached
+// per header, reused three ways -- (1) a cheap name+scope walk into the
+// disambig table so `<`-disambiguation sees header symbols during full parse,
+// (2) sema's symbol build translating clang decls into Kairo nodes off the
+// anchor, (3) the backend taking the cached ASTUnit instead of reparsing via
+// -include. The PARSER cannot own this: it runs after disambig decisions, too
+// late to feed header symbols into `<`-disambiguation.
 
 ffi "c" import "legacy.h" as legacy
 

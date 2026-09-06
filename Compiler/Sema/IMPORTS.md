@@ -61,13 +61,13 @@ identical: an overlay entry keyed by this TU's imm, holding targets.
 
 ## 2. Pipeline: what happens at each stage
 
-    PP     resolve import PATHS to fids; stamp the node       [DONE, one gap]
+    PP     resolve import PATHS to fids; stamp the node       [DONE]
     Index  hoist decl heads for parser disambiguation         [DONE]
     Parse  build AST; freeze per-DC symbol tables             [DONE]
-    I      ImportResolution: build this TU's overlay          [DONE, three bugs]
+    I      ImportResolution: build this TU's overlay          [DONE]
     N      NameResolution: bind heads through the overlay     [DONE]
     T      TypeResolution: canonicalize types                 [DONE]
-    CB     ChainBinding: bind `::` and `.` steps              [DONE, one gap]
+    CB     ChainBinding: bind `::` and `.` steps              [DONE]
     ...
     EP     EmitPlan: regenerate the per-TU C++ interface      [MISSING]
     CG     TokenSink: emit                                    [needs one rule]
@@ -81,16 +81,16 @@ through `ImportResolver` (file-first: `foo.k`, fallback `foo/module.k`;
 (fid, decl) in declaration order. **The PP is the one writer of path->file.**
 Phase I never touches the filesystem.
 
-[BROKEN] `import foo::MyClass`: the PP resolves `foo` as the file and knows
-`MyClass` is a trailing symbol, but records only `resolved_fid`. I cannot
-tell a symbol path from a two-segment module path. Fix: add
+[DONE] `import foo::MyClass`. The PP now stamps
 
     ImportDecl::file_seg_count: u32   // leading segments that named the FILE
 
-stamped next to `resolved_fid`. `== path_segments.size()` for a plain module
-import. See §4.1.
+next to `resolved_fid`, from the segment count `ImportResolver` actually
+consumed (`ResolveOut::seg_count` = the `try_len` that resolved), not
+guessed from the path string. `== path_segments.size()` for a plain module
+import, `0` for unresolved or ffi. See §4.1.
 
-[DECIDED] **Module roots and paths.**
+[DONE] **Module roots and paths.**
 
 A module path is `[root name] + directories + file`, and every part of
 that is fixed by where the file sits, never by who imports it.
@@ -130,10 +130,17 @@ that is fixed by where the file sits, never by who imports it.
   use site still errors (an identical-signature candidate pair is
   ambiguous at overload resolution); the definition site does not.
 
-Mechanically: `ImportResolver::Builder::add_include` takes a name;
-`SearchRoot` carries it; `module_base` for a file under a root is
-`[root name] + relative directories`; the entry root passes an empty
-name. Verify with a two-root test where both roots contain `a.k`.
+Mechanically: `ImportResolver::Builder::add_include(path, name)`;
+`SearchRoot::name` carries it (empty = the entry root);
+`canonical_module_path` prefixes it, so `module_base` for a file under a
+root is `[root name] + relative directories`. `-I path` takes the
+directory's basename; `-I name=path` overrides it, split on the first
+`=`. `resolve_module_rel` probes the importing file's OWN root with the
+path as written, then any root whose name is the leading segment with
+the rest of the path, then the remaining roots except that a file
+under a named root never falls back into the entry root, which is a leaf
+of the import graph. Two roots claiming one name is an R018E from the
+driver before anything is parsed (`take_root_collisions`).
 
 ### 2.2 Index + Parse
 
@@ -165,21 +172,22 @@ complete before an importer folds re-exports) and for T (imported file's
 type nodes canonical before an importer expands an alias through them).
 Do not change that loop order.
 
-[BROKEN] Three defects in I, all small:
+[DONE] The three defects in I, and re-export:
 
-1. `_rebuild_merged` excludes `ModuleHandle` targets from the `merged`
-   cell that `NameLookup::unqualified` reads. So `foo` after `import foo`
-   resolves to an EMPTY cell and N reports it undeclared. A module handle
-   is a legitimate lookup answer (a name denoting a scope). Include it.
-2. `OverlayEntry::non_function_count` counts `ModuleHandle` as a
-   non-function target, so two files reopening `module util` imported by
-   the same TU are diagnosed as an ambiguous import. They are one
-   namespace. Exempt `ModuleHandle` (and `FfiAnchor`).
-3. Symbol-path imports (§1 forms 3, 4, and multi-segment items in 5)
-   fold as module handles named after the last segment. See §4.1.
+1. `_rebuild_merged` admits `ModuleHandle` and `FfiAnchor` targets. A
+   name denoting a scope is a legitimate lookup answer; excluding them
+   made `foo` after `import foo` resolve to an EMPTY cell.
+2. `OverlayEntry::non_function_count` exempts those two kinds, and counts
+   DISTINCT entities rather than targets so `import foo::MyClass`
+   alongside `import foo::*` is not an ambiguity either.
+3. Symbol-path imports fold through `_fold_symbol_path`. See §4.1.
+4. Re-export is folded. See §4.4.
 
-[MISSING] Re-export. `pub import` / `prot import` sets a visibility bit
-that nothing reads. See §4.4.
+Both scope-handle kinds record `Public` as their ACCESS fact. `vis` is
+what N reads to say "exists but is private"; recording the import edge's
+own pub/prot there made every plain `import foo` report "'foo' is
+imported but is declared private in its module". Whether the edge
+re-exports is a separate question, answered from `origin` in §4.4.
 
 ### 2.4 N NameResolution
 
@@ -205,14 +213,20 @@ or a value's declared type's members. Aliases are transparent: `f::add`
 after `import foo as f` steps into foo's shared table because `f` is bound
 to foo's `ModuleDecl`. [DONE]
 
-[BROKEN] Reopened namespaces: with I fix #2 the overlay hands N a cell of
-N `ModuleDecl`s; N cannot collapse them (distinct canonicals) and defers;
-ChainBinding treats a deferred head as "needs inference". Fix: an all-
-`ModuleDecl` candidate set is a `Module` anchor with N scopes; `::` steps
-search all of them; a hit in two is a genuine ambiguity (already
-diagnosed by `_commit`). `Anchor.scope` becomes `Anchor.scopes`.
+[DONE] Reopened namespaces. An all-`ModuleDecl` candidate set is a
+`Module` anchor with N scopes (`Anchor.scopes`); `::` steps search every
+one and union the hits; a genuine ambiguity is still `_commit`'s to
+diagnose.
 
-[MISSING] `Foreign` anchor for ffi. See §5.
+[DONE] `Foreign` anchor for ffi. See §5.
+
+[DONE] Cross-TU probes are spelled, not imm-keyed. `in_context` probed a
+foreign module's table with THIS TU's imm index, which is right only when
+the two interners happen to agree (`bar::id` resolved, `bar::Box` did
+not); the record walk had the same fault, so a member of an imported type
+never resolved. `MemberLookup::in_scope` re-interns per scope. Rendering
+a foreign decl is the same problem: `NameLookup::ctx_of` answers where a
+decl's names live, and the dump and diagnostics ask it first.
 
 ### 2.7 EP EmitPlan [MISSING]
 
@@ -243,7 +257,7 @@ The codegen half. Specified fully in §6.
 
 ## 4. Lookup-side work items (sema)
 
-### 4.1 Symbol-path imports [BROKEN -> specified]
+### 4.1 Symbol-path imports [DONE]
 
 Forms 3 and 4, and multi-segment items in form 5.
 
@@ -264,28 +278,50 @@ route items with `sub_path.size() > 1` through the same walker; today it
 reads only the last token and looks it up at top level.
 
 Error homes: missing intermediate or final segment -> `R015E` here, nowhere
-else.
+else. `_walk_segment` is the one walker; `_fold_symbol_path` and
+`_fold_selective` both go through it, so a single-segment item is that walk
+with one step.
 
-### 4.2 Module handles in `merged` [BROKEN -> one line]
+A module named through a symbol path folds as a `ModuleHandle`, not a
+`Type`, so §4.3's exemption covers `import u1::util` / `import u2::util`
+as well as two plain imports.
+
+### 4.2 Module handles in `merged` [DONE]
 
 `_rebuild_merged`: append `t.decl` for `Type`, `ModuleHandle`, and
 `FfiAnchor` targets. Only `FunctionSet` unions cells.
 
-### 4.3 Reopened namespaces [BROKEN -> two edits]
+### 4.3 Reopened namespaces [DONE]
 
 `non_function_count`: skip `ModuleHandle` and `FfiAnchor`.
 ChainBinding: `Anchor.scopes: vec<*DeclContext>`; all-module candidate
 sets become a multi-scope `Module` anchor; `::` searches every scope.
 
-### 4.4 Re-export [MISSING]
+### 4.4 Re-export [DONE]
 
 RESOLUTION.md §2 already decides the rule: a `pub`/`prot` import is
-surface. In `_resolve_one`, after folding `src_tu->symbols()`, also walk
-`src_tu->import_overlay->collect_rows()` and fold every target whose
-`origin` ImportDecl `is_public()` (or `is_protected()`), carrying the
-target's own `vis` fact forward. Wall 1 holds: a `priv` import edge in the
-source is never folded. DAG order guarantees the source overlay is
-complete. ~40 lines in I.
+surface. A re-exported name lives in the source TU's OVERLAY, never in its
+symbol table, and a plain `import foo` binds foo's ModuleDecl whose shared
+table IS that symbol table so the two ways of reaching a re-export need
+two mechanisms:
+
+- A **wildcard** import folds the source's re-exported targets into this
+  TU's overlay (`_fold_reexports`), carrying each target's own kind, vis,
+  cell/decl and src_fid. DAG order guarantees the source overlay is
+  complete, and already transitively closed. A **selective** import names
+  exactly what it takes, so it folds none.
+- A **plain** import reaches them through `foo::name`, so ChainBinding's
+  module step consults the source overlay after missing in the table
+  (`MemberLookup::reexport_lookup`, name re-interned into the source TU's
+  imm space, probe-only, never interning).
+
+Both paths accept a target only when its `origin` import is pub/prot, so
+wall 1 holds: a `priv` import edge in the source is never surface.
+
+Note what a form re-exports. `pub import bar` re-exports the NAME `bar`,
+so an importer of foo writes `foo::bar::f()`. `pub import bar::*`
+re-exports bar's contents, so it writes `foo::f()`. The overlay records
+what the import bound, and re-export hands exactly that on.
 
 ### 4.5 Protected-import enforcement [MISSING]
 
@@ -303,6 +339,13 @@ extraction pass (`Interop/Clang`, post-I, [MISSING], large) hangs real
 
 Until then, the model that is correct now and stays correct later:
 
+[DONE, both halves.] The PP no longer drops an ffi import outright: it
+builds the `ImportDecl` header, alias, linkage and records it in
+`tu->imports` without resolving a path, claiming a fid, or contributing an
+import edge. The tokens are still dropped from the output buffer and clang
+is still not consulted. Phase I already knew how to bind the anchor;
+nothing had ever reached it.
+
 **Aliased (`as my_h`).** `my_h` binds to the `ImportDecl` (needs §4.2).
 ChainBinding gets `AnchorKind::Foreign`; every step after a Foreign anchor
 records `MemberOutcome::Foreign`: no decl, no diagnostic, no poison, chain
@@ -319,7 +362,10 @@ import, mark the use Foreign instead of erroring. This turns typos into
 deferred clang errors the exact failure the frontend exists to prevent 
 so it is gated on the presence of a bare ffi import in this TU, documented
 as temporary, and extraction is the thing that removes the gate, not an
-optional improvement.
+optional improvement. Implemented as `NamedIdentExpr::foreign` +
+`TraceRow::foreign_gate`, with a skip in `NameBindingVerifier` so the
+deliberate non-binding is not an invariant violation. Nothing is poisoned,
+so T treats the node as absent rather than errored.
 
 **Codegen.** Every ffi `ImportDecl` in the TU (and, transitively, in every
 TU whose decls this TU emits an interface for? no: only THIS TU's, because
@@ -435,15 +481,15 @@ instantiated at arguments Kairo accepted.
 
 Each item is independently testable. Do them in this order.
 
-    1. ImportDecl::file_seg_count stamped by PP           PP         ~10 lines
-    2. _fold_symbol_path; route multi-seg items through it  I        ~40 lines
-    3. ModuleHandle + FfiAnchor into `merged`             I          1 line
-    4. non_function_count exemption                       I          1 line
-    5. Anchor.scopes, multi-module `::`                   CB         ~30 lines
-    6. Foreign anchor + Foreign outcome                   CB, trace  ~40 lines
-    7. Bare-ffi miss gate in N                            N          ~15 lines
-    8. Re-export fold                                     I          ~40 lines
-    9. Named roots: add_include(name), SearchRoot.name, module_base prefix; two-root test      PP/Resolution ~30 lines
+    1. ImportDecl::file_seg_count stamped by PP           PP         DONE
+    2. _fold_symbol_path; route multi-seg items through it  I        DONE
+    3. ModuleHandle + FfiAnchor into `merged`             I          DONE
+    4. non_function_count exemption                       I          DONE
+    5. Anchor.scopes, multi-module `::`                   CB         DONE
+    6. Foreign anchor + Foreign outcome                   CB, trace  DONE
+    7. Bare-ffi miss gate in N                            N          DONE
+    8. Re-export fold                                     I          DONE
+    9. Named roots: add_include(name), SearchRoot.name, module_base prefix   PP/Resolution DONE
    10. TypeCycleCheck                                     Sema/Check ~80 lines
    11. EmitPlan collector + closure + tiers               Codegen    the real work
    12. Out-of-line body rule                              TokenSink
@@ -452,10 +498,15 @@ Each item is independently testable. Do them in this order.
    14. EmitCXXHeader via the same emitter                 Codegen    ~20 lines
    15. Clang extraction pass (removes the §5 gate)        Interop    large
 
-Test for 1–8: `main.k` importing `foo.k` under every form in §1, plus two
-files reopening `module util`, plus an aliased ffi header. `--print-sema`
-must show every head bound `[import overlay]` and every step bound, with
-exactly one diagnostic for one deliberate typo.
+Test for 1–9: `Tests/Sema/imports_all_forms`. `main.k` imports `foo.k`
+under every form in §1, plus `module util` reopened across two files, plus
+a re-export through `pub import bar::*`, plus an aliased ffi header.
+`--print-sema` shows every head bound `[import overlay]` and every step
+bound or foreign, with exactly two diagnostics: a name behind a PRIVATE
+import edge and one deliberate typo. `main.sema.golden` is the whole dump,
+for diffing what a change did beyond the asserted lines. Named roots (9)
+are covered separately: two roots each holding `a.k`, imported as `a` and
+`foo::a`, binding to two different decls.
 
 Test for 11–12: foo.cpp + main.cpp compiled together with
 `-fsanitize=undefined -Wodr`; main.cpp's preamble diffed against a
