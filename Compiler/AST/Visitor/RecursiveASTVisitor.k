@@ -36,7 +36,7 @@ import AST::Node::PrimaryExpressions::*;
 import AST::Node::Statements::*;
 import AST::Node::Types::*;
 import AST::Context::DeclContext::*;
-import AST::Node::CanonicalTypes::*;
+import AST::Context::CanonicalTypes::*;
 
 class <D> RecursiveASTVisitor {
     var ctx: *ASTContext;

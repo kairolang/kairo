@@ -15,7 +15,7 @@
 import AST::Context::ASTContext::*;
 import Driver::TUStage::*;   // standalone enum; no cycle
 import Resolution::ModulePath::*;
-import AST::Node::CanonicalTypes::*;
+import AST::Context::CanonicalTypes::*;
 
 /// Aggregates all file-level DisambigTable instances for cross-file lookup.
 /// Owns all ASTContext instances created during the index phase.
