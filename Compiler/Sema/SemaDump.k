@@ -248,6 +248,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     priv var _n_ty_total:   usize = 0;
     priv var _n_ty_canon:   usize = 0;
     priv var _n_ty_dep:     usize = 0;
+    priv var _n_ty_err:     usize = 0;
     
     priv var _n_step_bound: usize = 0;
     priv var _n_step_cands: usize = 0;
@@ -937,6 +938,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         var flags = static_cast::<u8>(n->type_flags);
         var dep   = static_cast::<u8>(Type::TypeFlags::IsDependent);
         if (flags & dep) != 0 { self._n_ty_dep += 1; }
+        if n->is_poisoned() { self._n_ty_err += 1; }
         return true;
     }
 
@@ -1071,7 +1073,8 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         self._p.paint(Color::Tree, "  ");
         self._p.put(f"{self._n_ty_total} type node(s): ");
         self._p.put(f"{self._n_ty_canon} canonical, ");
-        self._p.put(f"{self._n_ty_dep} dependent");
+        self._p.put(f"{self._n_ty_dep} dependent, ");
+        self._p.put(f"{self._n_ty_err} errored");
         self._p.newline();
         if (self._n_ty_total > 0) && (self._n_ty_canon == 0)
         && (static_cast::<u8>(self.sc->phase) < static_cast::<u8>(SemaPhase::TypesResolved)) {

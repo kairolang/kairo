@@ -298,6 +298,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
 
         // Unusable left side: record why and stop the chain.
         if a.kind == AnchorKind::Errored {
+            if st->name != &null { st->name->poison(); }
             self._record(loc, MemberOutcome::Errored, &null, 0, &null);
             return a;
         }
@@ -387,7 +388,16 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                  || (st->access_kind == ChainExpr::AccessKind::QuestionArrow);
 
         if maybe {
-            if isa::<NullableType>(ty) { ty = cast::<NullableType>(ty)->inner; }
+            if isa::<NullableType>(ty) {
+                ty = cast::<NullableType>(ty)->inner;
+            } else if isa::<RecordType>(ty) {
+                // `T?` may have been lowered to `Null<T>` (lang item). Peel it.
+                var rt = cast::<RecordType>(ty);
+                var null_decl = self.sc->well_known.get(WellKnownType::Null);
+                if (null_decl != &null) && (rt->decl == null_decl) && (rt->args.size() == 1) {
+                    ty = rt->args[0];
+                }
+            }
             // `?.` on a non-nullable is a warning's worth, not an error; the
             // nullable checker owns it. Proceed on the type as-is.
         }
@@ -443,7 +453,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         if n == 1 {
             var d = self._representative((*cands)[0]);
             st->resolved_decl = d;
-            self._record(loc, MemberOutcome::Bound, d, 1, owner);
+            self._record(loc, MemberOutcome::Bound, d, 1, self._home_of(d));
             self.n_bound += 1;
             return self._anchor_after(d, st);
         }
@@ -471,7 +481,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             }
             if !distinct {
                 st->resolved_decl = sole;
-                self._record(loc, MemberOutcome::Bound, sole, 1, owner);
+                self._record(loc, MemberOutcome::Bound, sole, 1, self._home_of(sole));
                 self.n_bound += 1;
                 return self._anchor_after(sole, st);
             }
@@ -507,6 +517,14 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     }
 
     // === helpers ===================================================================
+
+    /// The decl that OWNS `d`'s scope -- the type a member was declared in,
+    /// which is what a reader wants to see, not the type it was reached
+    /// through.
+    priv fn _home_of(self, d: *Decl) -> *Decl {
+        if (d == &null) || (d->semantic_dc == &null) { return &null; }
+        return reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+    }
 
     priv fn _record(self, loc: u32, o: MemberOutcome, d: *Decl, ncand: usize, owner: *Decl) {
         self.sc->trace.member_result(loc, o, d, ncand, owner);
