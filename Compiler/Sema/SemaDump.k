@@ -10,14 +10,31 @@
 ///     passes produced, which is otherwise invisible: `resolved_decl` links,
 ///     redecl chains, out-of-line attachment, lang items, and canonical types.
 ///
-///     Six sections, in pipeline order, so the dump reads as a phase trace:
+///     Eight sections, in pipeline order, so the dump reads as a phase trace:
 ///
 ///       phase        -- how far sema actually got for this TU.
 ///       lang items   -- sc.well_known                            [N(a)]
+///       tables       -- every DeclContext's frozen table, whole  [I]
 ///       chains       -- multi-decl cells: overload set vs redecl [N(a)]
 ///       out-of-line  -- `fn Class::method` attachment            [N(a)]
-///       bindings     -- every NamedIdentExpr use site            [N(b)]
+///       scopes       -- the lexical frame tree: what each scope  [N(b)]
+///                       declares and what each name SHADOWS
+///       bindings     -- every NamedIdentExpr use site, with the  [N(b)]
+///                       source that answered it
 ///       types        -- every Type node's canonical / dependent  [T]
+///
+///     `tables` and `scopes` are NOT the same list seen twice. A DeclContext
+///     owns a symbol table; a lexical frame does not, and N keeps locals out
+///     of tables entirely. So a class body appears only in `tables` and a
+///     function body only in `scopes`, and the two together are what "which
+///     declaration is in scope here" actually means.
+///
+///     The scopes and bindings sections answer different questions and are
+///     both worth having: `scopes` is N's decision log, replayed in the order
+///     N made the decisions, and is the only place shadowing is visible at
+///     all; `bindings` is the AST's FINAL state, walked fresh. A use that
+///     appears in one and not the other is a bug   an unvisited node shows
+///     up only in `bindings`, a rewritten one only in `scopes`.
 ///
 ///     A section reports the ABSENCE of a result as loudly as its presence:
 ///     `<UNRESOLVED>` in red is the point of the tool. The types section is
@@ -42,6 +59,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::ResolutionTrace::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
 import AST::Context::TranslationUnit::*;
@@ -136,6 +154,47 @@ fn sema_dump_decl_brief(ctx: *ASTContext, d: *Decl) -> string {
     return f"{kind} {name} @ {at}{pois}";
 }
 
+/// \brief Which lookup source answered, in N's own search order. The single
+///        most useful column on a binding row: `local` vs `scope` vs
+///        `overlay` is usually the whole explanation for a surprise.
+fn sema_dump_via_str(v: TraceVia) -> string {
+    switch v {
+        case TraceVia::Local   { return "local";   }
+        case TraceVia::Scope   { return "scope";   }
+        case TraceVia::Overlay { return "import";  }
+        case TraceVia::Miss    { return "miss";    }
+        default                { return "";        }
+    }
+}
+
+/// \brief Source-shaped word for a lexical frame.
+fn sema_dump_scope_kind_str(k: TraceScopeKind) -> string {
+    switch k {
+        case TraceScopeKind::Function       { return "fn";      }
+        case TraceScopeKind::Closure        { return "closure"; }
+        case TraceScopeKind::Block          { return "block";   }
+        case TraceScopeKind::ForBody        { return "for";     }
+        case TraceScopeKind::CatchArm       { return "catch";   }
+        case TraceScopeKind::MatchArm       { return "case";    }
+        case TraceScopeKind::ContextBinding { return "with";    }
+    }
+    return "scope";
+}
+
+/// \brief The access operator a deferred chain step was reached through, so
+///        `.x` and `::x` are told apart on sight   they are resolved by very
+///        different rules in T.
+fn sema_dump_sep_str(k: TraceSep) -> string {
+    switch k {
+        case TraceSep::Dot           { return ".";   }
+        case TraceSep::Arrow         { return "->";  }
+        case TraceSep::ColonColon    { return "::";  }
+        case TraceSep::QuestionDot   { return "?.";  }
+        case TraceSep::QuestionArrow { return "?->"; }
+    }
+    return ".";
+}
+
 fn sema_dump_phase_str(p: SemaPhase) -> string {
     switch p {
         case SemaPhase::Parsed          { return "Parsed";          }
@@ -175,10 +234,17 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     priv var _scope: string = "<tu>";     ///< current qualified scope path.
     priv var _emitted_scope: string = ""; ///< last scope header actually printed.
 
+    /// use-site SourceLocation::id -> index into sc->trace.rows. Built once
+    /// in run(); empty when the trace was not recorded.
+    priv var _use_index: libcxx::unordered_map::<u32, usize>;
+
     // Counters for the summary line.
     priv var _n_bound:      usize = 0;
     priv var _n_deferred:   usize = 0;
     priv var _n_unresolved: usize = 0;
+    /// Chain steps N handed to T. Counted off the TRACE, not the AST walk:
+    /// the RAV skips step names, so this walk never sees one.
+    priv var _n_member:     usize = 0;
     priv var _n_ty_total:   usize = 0;
     priv var _n_ty_canon:   usize = 0;
     priv var _n_ty_dep:     usize = 0;
@@ -206,9 +272,13 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         if errs > 0 { self._p.paint(Color::Error, f"   ({errs} sema error(s))"); }
         self._p.newline();
 
+        self._build_use_index();
+
         self._dump_lang_items();
+        self._dump_symbol_tables(tu);
         self._dump_chains(tu);
         self._dump_out_of_line(tu);
+        self._dump_scopes();
         self._dump_bindings(tu);
         self._dump_summary();
 
@@ -217,55 +287,80 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
 
     // --- section 1: lang items --------------------------------------------
 
+    /// Lang items are ORDINARY library decls, found by unqualified lookup at
+    /// the TU root (`NameResolution::_bind_well_known`)   `i32` is a name,
+    /// not an intrinsic. So a TU with no prelude in scope binds none of them,
+    /// which is expected and not a failure. Thirty-odd `<unresolved>` rows
+    /// read like one, though, so that case collapses to a single line.
     priv fn _dump_lang_items(self) {
         self._p.paint(Color::NodeKind, "-- lang items (well_known) --");
         self._p.newline();
-        self._lang_row(WellKnownType::Future,   "Future");
-        self._lang_row(WellKnownType::Range,    "Range");
-        self._lang_row(WellKnownType::Yield,    "Yield");
-        self._lang_row(WellKnownType::Ordering, "Ordering");
-        self._lang_row(WellKnownType::Null,     "Null");
-        self._lang_row(WellKnownType::Panic,    "Panic");
-
-        self._lang_row(WellKnownType::String,   "string");
-        self._lang_row(WellKnownType::Vector,   "vector");
-        self._lang_row(WellKnownType::Slice,    "slice");
-        self._lang_row(WellKnownType::Array,    "array");
-        self._lang_row(WellKnownType::HashMap,  "map");
-        self._lang_row(WellKnownType::HashSet,  "set");
-
-        self._lang_row(WellKnownType::BigInt,   "int");
-        self._lang_row(WellKnownType::BigFloat, "float");
-
-        self._lang_row(WellKnownType::I8,   "i8");
-        self._lang_row(WellKnownType::I16,  "i16");
-        self._lang_row(WellKnownType::I32,  "i32");
-        self._lang_row(WellKnownType::I64,  "i64");
-        self._lang_row(WellKnownType::I128, "i128");
-        self._lang_row(WellKnownType::I256, "i256");
-        self._lang_row(WellKnownType::I512, "i512");
-
-        self._lang_row(WellKnownType::U8,   "u8");
-        self._lang_row(WellKnownType::U16,  "u16");
-        self._lang_row(WellKnownType::U32,  "u32");
-        self._lang_row(WellKnownType::U64,  "u64");
-        self._lang_row(WellKnownType::U128, "u128");
-        self._lang_row(WellKnownType::U256, "u256");
-        self._lang_row(WellKnownType::U512, "u512");
-
-        self._lang_row(WellKnownType::F8,   "f8");
-        self._lang_row(WellKnownType::F16,  "f16");
-        self._lang_row(WellKnownType::F32,  "f32");
-        self._lang_row(WellKnownType::F64,  "f64");
-        self._lang_row(WellKnownType::F128, "f128");
-        self._lang_row(WellKnownType::F256, "f256");
+        if self._lang_rows(false) == 0 {
+            self._p.paint(Color::Tree, "  ");
+            self._p.paint(Color::Dim,
+                "(none bound: no prelude in scope for this TU   expected, not an error)");
+            self._p.newline();
+            return;
+        }
+        self._lang_rows(true);
     }
 
-    priv fn _lang_row(self, k: WellKnownType, spelling: string) {
+    /// The spelling table, walked twice: once to count, once to print. One
+    /// list, so a lang item can never be counted and not rendered.
+    priv fn _lang_rows(self, emit: bool) -> usize {
+        var n: usize = 0;
+        n += self._lang_row(emit, WellKnownType::Future,   "Future");
+        n += self._lang_row(emit, WellKnownType::Range,    "Range");
+        n += self._lang_row(emit, WellKnownType::Yield,    "Yield");
+        n += self._lang_row(emit, WellKnownType::Ordering, "Ordering");
+        n += self._lang_row(emit, WellKnownType::Null,     "Null");
+        n += self._lang_row(emit, WellKnownType::Panic,    "Panic");
+
+        n += self._lang_row(emit, WellKnownType::String,   "string");
+        n += self._lang_row(emit, WellKnownType::Vector,   "vector");
+        n += self._lang_row(emit, WellKnownType::Slice,    "slice");
+        n += self._lang_row(emit, WellKnownType::Array,    "array");
+        n += self._lang_row(emit, WellKnownType::HashMap,  "map");
+        n += self._lang_row(emit, WellKnownType::HashSet,  "set");
+
+        n += self._lang_row(emit, WellKnownType::BigInt,   "int");
+        n += self._lang_row(emit, WellKnownType::BigFloat, "float");
+
+        n += self._lang_row(emit, WellKnownType::I8,   "i8");
+        n += self._lang_row(emit, WellKnownType::I16,  "i16");
+        n += self._lang_row(emit, WellKnownType::I32,  "i32");
+        n += self._lang_row(emit, WellKnownType::I64,  "i64");
+        n += self._lang_row(emit, WellKnownType::I128, "i128");
+        n += self._lang_row(emit, WellKnownType::I256, "i256");
+        n += self._lang_row(emit, WellKnownType::I512, "i512");
+
+        n += self._lang_row(emit, WellKnownType::U8,   "u8");
+        n += self._lang_row(emit, WellKnownType::U16,  "u16");
+        n += self._lang_row(emit, WellKnownType::U32,  "u32");
+        n += self._lang_row(emit, WellKnownType::U64,  "u64");
+        n += self._lang_row(emit, WellKnownType::U128, "u128");
+        n += self._lang_row(emit, WellKnownType::U256, "u256");
+        n += self._lang_row(emit, WellKnownType::U512, "u512");
+
+        n += self._lang_row(emit, WellKnownType::F8,   "f8");
+        n += self._lang_row(emit, WellKnownType::F16,  "f16");
+        n += self._lang_row(emit, WellKnownType::F32,  "f32");
+        n += self._lang_row(emit, WellKnownType::F64,  "f64");
+        n += self._lang_row(emit, WellKnownType::F128, "f128");
+        n += self._lang_row(emit, WellKnownType::F256, "f256");
+        return n;
+    }
+
+    /// \return 1 when the item is bound, 0 otherwise, so the caller can decide
+    ///         whether the section is worth printing at all.
+    priv fn _lang_row(self, emit: bool, k: WellKnownType, spelling: string) -> usize {
+        var d = self.sc->well_known.get(k);
+        if !emit {
+            return (1) if (d != &null) else (0);
+        }
         self._p.paint(Color::Tree, "  ");
         self._p.paint(Color::TypeName, spelling);
         self._p.put("  ");
-        var d = self.sc->well_known.get(k);
         if d == &null {
             // Not an error by itself: a lang item is only required at USE.
             self._p.paint(Color::Dim, "<unresolved>");
@@ -274,6 +369,115 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
             self._p.put(sema_dump_decl_brief(self.ctx, d));
         }
         self._p.newline();
+        return (1) if (d != &null) else (0);
+    }
+
+    // --- section 1b: scope symbol tables ----------------------------------
+
+    /// Every DeclContext's FROZEN table, in full. The lexical-scopes section
+    /// below cannot show these: it replays N's lexical FRAME stack, and a
+    /// class body owns a table, not a frame, so `Foo` can never appear there.
+    /// The chains section walks the same contexts but drops every cell of
+    /// size 1, which is most of them.
+    ///
+    /// Without this section a member's declaration is visible only obliquely,
+    /// in a shadowing note on some unrelated row   and whether member
+    /// injection put the right things in the right scope is not checkable at
+    /// all. This is the section you read to answer "what does Foo contain".
+    priv fn _dump_symbol_tables(self, tu: *TranslationUnit) {
+        self._p.paint(Color::NodeKind, "-- scope symbol tables (what each scope declares) --");
+        self._p.newline();
+        var n = self._tables_in(static_cast::<*DeclContext>(tu), "<tu>");
+        if n == 0 {
+            self._p.paint(Color::Tree, "  ");
+            self._p.paint(Color::Dim, "(no scope declares anything)");
+            self._p.newline();
+        }
+    }
+
+    /// \return how many scopes actually printed, so the caller can say
+    ///         "nothing" rather than printing a bare header.
+    priv fn _tables_in(self, dc: *DeclContext, qual: string) -> usize {
+        if dc == &null { return 0; }
+        var printed: usize = 0;
+
+        if dc->dc_symbols != &null {
+            var rows = vec::<SymbolTable::Entry>();
+            dc->dc_symbols->collect_entries(rows);
+            var order = vec::<usize>();
+            self._source_order(rows, order);
+
+            if rows.size() > 0 {
+                self._p.paint(Color::Tree, "  ");
+                self._p.paint(Color::Keyword, qual);
+                self._p.paint(Color::Dim, f"   [{rows.size()} name(s)]");
+                self._p.newline();
+                printed += 1;
+
+                for var k: usize = 0; k < order.size(); ++k {
+                    var i    = order[k];
+                    var cell = rows[i].cell;
+                    if cell == &null { continue; }
+                    var name = rows[i].name.describe(self.ctx);
+
+                    self._p.paint(Color::Tree, "    ");
+                    self._p.paint(Color::Ident, self._pad(name, 12));
+                    if cell->size() == 1 {
+                        self._p.paint(Color::Operator, "-> ");
+                        self._p.put(sema_dump_decl_brief(self.ctx, cell->get(0)));
+                        self._p.newline();
+                    } else {
+                        // The full listing is the chains section's job; here
+                        // just say the name is plural so the count adds up.
+                        self._p.paint(Color::Dim, f"   [{cell->size()} decls   see chains below]");
+                        self._p.newline();
+                    }
+                }
+            }
+        }
+
+        for var i: usize = 0; i < dc->dc_decls.size(); ++i {
+            var d = *(dc->dc_decls.get(i));
+            if d == &null { continue; }
+            var child = NameLookup::context_of(d);
+            if child == &null { continue; }
+            var nm = sema_dump_decl_name(self.ctx, d);
+            if nm.size() == 0 { nm = "<anon>"; }
+            printed += self._tables_in(child, f"{qual}::{nm}");
+        }
+        return printed;
+    }
+
+    /// Table order is hash order: stable per run, but meaningless to a reader
+    /// and it churns the moment a name is added. \p out receives indices into
+    /// \p rows ordered by where the decl was WRITTEN, so the section reads
+    /// down the source file. Permuting INDICES rather than entries keeps the
+    /// sort off the entries themselves, which hold an observer into the
+    /// frozen table. Insertion sort: this is one scope's table, not the TU.
+    priv fn _source_order(self, rows: ref!(vec::<SymbolTable::Entry>),
+                          out: ref!(vec::<usize>)) {
+        for var i: usize = 0; i < rows.size(); ++i { out.push_back(i); }
+        for var i: usize = 1; i < out.size(); ++i {
+            var j = i;
+            while (j > 0) && (self._entry_pos(rows, out[j - 1]) > self._entry_pos(rows, out[j])) {
+                var tmp     = out[j - 1];
+                out[j - 1]  = out[j];
+                out[j]      = tmp;
+                j -= 1;
+            }
+        }
+    }
+
+    /// Source position of a table row, for ordering. A row with no usable
+    /// decl sorts last rather than first: it is the odd one out, and the top
+    /// of the list is where the reader starts.
+    priv fn _entry_pos(self, rows: ref!(vec::<SymbolTable::Entry>), i: usize) -> u32 {
+        var cell = rows[i].cell;
+        if cell == &null { return u32(-1); }
+        if cell->size() == 0 { return u32(-1); }
+        var d = cell->get(0);
+        if d == &null { return u32(-1); }
+        return d->range.start.id;
     }
 
     // --- section 2: redecl chains / overload sets -------------------------
@@ -403,7 +607,225 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         return nm;
     }
 
-    // --- section 4 + 5: bindings and types (one walk) ---------------------
+    // --- section 4: lexical scopes (N's decision log) ---------------------
+
+    /// Replay sc->trace: the lexical frame tree N pushed, what each frame
+    /// declared, and what every declaration and every use HID. Shadowing
+    /// exists nowhere on the AST   the shadowed decl is simply never
+    /// consulted   so this section is the only place it can be seen.
+    priv fn _dump_scopes(self) {
+        self._p.paint(Color::NodeKind, "-- lexical scopes (declarations & shadowing) --");
+        self._p.newline();
+
+        var tr = &(self.sc->trace);
+        if !tr->enabled {
+            // Cannot happen through the driver (the flag that prints this is
+            // the flag that records it), but a programmatic caller can build a
+            // SemaContext by hand; say why the section is empty rather than
+            // implying the TU has no scopes.
+            self._p.paint(Color::Dim, "  (trace not recorded for this run)");
+            self._p.newline();
+            return;
+        }
+        if tr->rows.empty() {
+            self._p.paint(Color::Dim, "  (no lexical scopes: nothing with a body in this TU)");
+            self._p.newline();
+            return;
+        }
+
+        for var i: usize = 0; i < tr->rows.size(); ++i {
+            var r = &(tr->rows[i]);
+            switch r->kind {
+                case TraceRowKind::ScopeOpen  { self._trace_scope_open(r);  }
+                case TraceRowKind::ScopeClose { 0;                          }
+                case TraceRowKind::Declare    { self._trace_declare(r);     }
+                case TraceRowKind::Use        { self._trace_use(r);         }
+                case TraceRowKind::Member     { self._trace_member(r);      }
+            }
+        }
+    }
+
+    /// Two spaces of lead-in plus two per frame depth, so the frame tree reads
+    /// as the nesting the source has.
+    priv fn _trace_indent(self, depth: usize) {
+        self._p.paint(Color::Tree, "  ");
+        for var i: usize = 0; i < depth; ++i { self._p.paint(Color::Tree, "  "); }
+    }
+
+    priv fn _trace_scope_open(self, r: *TraceRow) {
+        self._trace_indent(r->depth);
+        self._p.paint(Color::Keyword, sema_dump_scope_kind_str(r->scope_kind));
+        if r->owner != &null {
+            var nm = sema_dump_decl_name(self.ctx, r->owner);
+            if nm.size() > 0 {
+                self._p.put(" ");
+                // Qualified by the table-owning scope the frame sits in, so
+                // `bump` reads as `Counter::bump`. A class body owns a table,
+                // not a frame, so it never gets a row of its own here.
+                var home = self._dc_label(r->enclosing);
+                if (home.size() > 0) && (home != "<tu>") {
+                    self._p.paint(Color::Ident, f"{home}::{nm}");
+                } else {
+                    self._p.paint(Color::Ident, nm);
+                }
+            }
+        }
+        self._p.paint(Color::Dim, f"  @ {sema_dump_loc(self.ctx, r->at.start)}");
+        self._p.newline();
+    }
+
+    priv fn _trace_declare(self, r: *TraceRow) {
+        self._trace_indent(r->depth);
+        self._p.paint(Color::Attr, "declare ");
+        self._p.paint(Color::Ident, self._pad(self._imm_name(r->name), 12));
+        self._p.paint(Color::Operator, "= ");
+        self._p.put(sema_dump_decl_brief(self.ctx, r->decl));
+        self._trace_shadow_note(r);
+        self._p.newline();
+    }
+
+    priv fn _trace_use(self, r: *TraceRow) {
+        self._trace_indent(r->depth);
+        self._p.paint(Color::Operator, "use     ");
+        self._p.paint(Color::Ident, self._pad(self._imm_name(r->name), 12));
+        self._p.paint(Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10));
+        self._p.put(" ");
+
+        if r->via == TraceVia::Miss {
+            self._p.paint(Color::Error, "<UNRESOLVED>");
+            self._p.paint(Color::Dim, "  (diagnosed: no such name in any scope)");
+            self._p.newline();
+            return;
+        }
+
+        self._p.paint(Color::Operator, "-> ");
+        if r->decl != &null {
+            self._p.put(sema_dump_decl_brief(self.ctx, r->decl));
+        } else if r->cell_size > 0 {
+            self._p.paint(Color::Dim, f"{r->cell_size} candidate(s), deferred to overload resolution");
+        } else {
+            self._p.paint(Color::Error, "<nothing>");
+        }
+
+        self._p.paint(Color::Dim, f"  [{self._via_label(r)}]");
+        if r->poisoned { self._p.paint(Color::Error, "  (diagnosed)"); }
+        self._trace_shadow_note(r);
+        self._p.newline();
+    }
+
+    /// A step N did not bind. The row says WHY it is empty   `<deferred>`,
+    /// not `<UNRESOLVED>`   because those two look identical on the AST (both
+    /// leave `resolved_decl` null) and mean opposite things: one is the phase
+    /// boundary working, the other is a bug.
+    priv fn _trace_member(self, r: *TraceRow) {
+        self._trace_indent(r->depth);
+        self._p.paint(Color::Operator, "member  ");
+
+        var sep = sema_dump_sep_str(r->sep);
+        var txt = f"{sep}<?>";
+        switch r->member_kind {
+            case TraceMemberKind::Name       { txt = f"{sep}{self._imm_name(r->name)}"; }
+            case TraceMemberKind::TupleIndex { txt = f"{sep}{r->index}";                }
+            case TraceMemberKind::Operator   { txt = f"{sep}<operator>";                }
+        }
+        self._p.paint(Color::Ident, self._pad(txt, 12));
+        self._p.paint(Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10));
+        self._p.put(" ");
+        // `::` is a scope step, not a member step: its base resolved to a
+        // NAMED SCOPE, not to a value with a type. Saying "needs the type of
+        // the base" about `Pt::get` sends the reader looking for a type error
+        // that does not exist.
+        if r->sep == TraceSep::ColonColon {
+            self._p.paint(Color::Dim,
+                "<deferred: needs the scope named by the base   TypeResolution>");
+        } else {
+            self._p.paint(Color::Dim,
+                "<deferred: needs the type of the base   TypeResolution>");
+        }
+        self._p.newline();
+    }
+
+    /// `local frame 2` / `scope Foo` / `import overlay`   WHERE the answer
+    /// came from, named the way the reader thinks about it.
+    priv fn _via_label(self, r: *TraceRow) -> string {
+        switch r->via {
+            case TraceVia::Local {
+                if r->frame == usize(-1) { return "local"; }
+                return f"local frame {r->frame}";
+            }
+            case TraceVia::Scope   { return f"scope {self._dc_label(r->found_in)}"; }
+            case TraceVia::Overlay { return "import overlay";                       }
+            case TraceVia::Miss    { return "miss";                                 }
+            default                { return "?";                                    }
+        }
+    }
+
+    /// The whole point of the section: name the decl this one hid, and say
+    /// which source it lived in, so "why did it pick THAT one" has an answer
+    /// on the same line.
+    priv fn _trace_shadow_note(self, r: *TraceRow) {
+        if r->shadowed == &null { return; }
+        self._p.paint(Color::Attr,
+            f"  (shadows {sema_dump_decl_brief(self.ctx, r->shadowed)}");
+        // Where the loser lived. A named scope beats the bare source word:
+        // "in Counter" answers the follow-up question that "via scope" only
+        // raises.
+        if r->shadowed_via == TraceVia::Scope {
+            self._p.paint(Color::Attr, f" in {self._dc_label(r->shadowed_found_in)}");
+        } else if r->shadowed_via == TraceVia::Overlay {
+            self._p.paint(Color::Attr, " from an import");
+        } else if r->shadowed_via == TraceVia::Local {
+            self._p.paint(Color::Attr, " in an enclosing frame");
+        }
+        self._p.paint(Color::Attr, ")");
+    }
+
+    /// Right-pad to a fixed column so the `-> target` arrows line up down the
+    /// section. Names longer than the column push their row out rather than
+    /// being truncated (a clipped identifier is worse than a ragged column),
+    /// but they still get ONE space   without it `wildcard_target@ 98:13`
+    /// runs the name into the location that follows it.
+    priv fn _pad(self, s: string, w: usize) -> string {
+        var out = s;
+        if s.size() >= w { return out + " "; }
+        for var i: usize = s.size(); i < w; ++i { out += " "; }
+        return out;
+    }
+
+    priv fn _imm_name(self, imm: u32) -> string {
+        if imm == u32(-1) { return "<?>"; }
+        return self.sc->imm_table()->get_ident(imm);
+    }
+
+    /// Index the trace's Use rows by source location so the AST-walk section
+    /// below can show the same provenance without re-running lookup. A use
+    /// site is unique by location, so `SourceLocation::id` is a sufficient
+    /// key; built once because the alternative is a scan per use, which is
+    /// quadratic on exactly the large files this tool is used on.
+    priv fn _build_use_index(self) {
+        var tr = &(self.sc->trace);
+        if !tr->enabled { return; }
+        for var i: usize = 0; i < tr->rows.size(); ++i {
+            if tr->rows[i].kind == TraceRowKind::Member {
+                self._n_member += 1;
+                continue;
+            }
+            if tr->rows[i].kind != TraceRowKind::Use { continue; }
+            self._use_index[tr->rows[i].at.start.id] = i;
+        }
+    }
+
+    priv fn _trace_use_for(self, loc: SourceLocation) -> *TraceRow {
+        var tr = &(self.sc->trace);
+        if !tr->enabled { return &null; }
+        var it = self._use_index.find(loc.id);
+        if it == self._use_index.end() { return &null; }
+        return &(tr->rows[it->second]);
+    }
+
+    // --- section 5 + 6: bindings and types (one walk) ---------------------
 
     priv fn _dump_bindings(self, tu: *TranslationUnit) {
         self._p.paint(Color::NodeKind, "-- name bindings --");
@@ -442,20 +864,34 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
 
         var nm = self.ctx->get_spelling(n->name);
         self._p.paint(Color::Tree, "    ");
-        self._p.paint(Color::Ident, nm);
-        self._p.paint(Color::Dim, f"  @ {sema_dump_loc(self.ctx, n->range.start)}");
-        self._p.put("  ");
+        self._p.paint(Color::Ident, self._pad(nm, 12));
+        self._p.paint(Color::Dim,
+            self._pad(f"@ {sema_dump_loc(self.ctx, n->range.start)}", 10));
+        self._p.put(" ");
+
+        // The trace row for this exact use, when N recorded one. Its absence
+        // on a BOUND node is itself information: the node was bound by
+        // something other than N(b)'s use path (N(a)'s qualifier walk, or a
+        // previous run over the same AST).
+        var tr = self._trace_use_for(n->range.start);
 
         if n->is_bound() {
             self._n_bound += 1;
             self._p.paint(Color::Operator, "-> ");
             self._p.put(sema_dump_decl_brief(self.ctx, n->resolved_decl));
+            if tr != &null {
+                self._p.paint(Color::Dim, f"  [{self._via_label(tr)}]");
+                self._trace_shadow_note(tr);
+            } else {
+                self._p.paint(Color::Dim, "  [pre-bound: not resolved by N(b)]");
+            }
             self._p.newline();
         } else if n->is_deferred() {
             self._n_deferred += 1;
             var cell = n->candidate_cell;
             self._p.paint(Color::Operator, "-> ");
             self._p.paint(Color::Dim, f"{cell->size()} candidate(s), awaiting overload resolution");
+            if tr != &null { self._p.paint(Color::Dim, f"  [{self._via_label(tr)}]"); }
             self._p.newline();
             for var i: usize = 0; i < cell->size(); ++i {
                 self._p.paint(Color::Tree, "        - ");
@@ -549,6 +985,19 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         return out;
     }
 
+    /// A closure body is its own scope for the reader even though it owns no
+    /// DeclContext, and without this its uses are filed under the enclosing
+    /// function   which is exactly the row you are staring at when a capture
+    /// bound to the wrong thing.
+    fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
+        if n == &null { return n; }
+        var saved = self._scope;
+        self._scope = f"{self._scope}::<closure @ {sema_dump_loc(self.ctx, n->range.start)}>";
+        var out = RecursiveASTVisitor_SemaDump::traverse_closure_expr(n);
+        self._scope = saved;
+        return out;
+    }
+
     fn traverse_module_decl(self, n: *ModuleDecl) -> *ModuleDecl {
         if n == &null { return n; }
         var saved = self._scope;
@@ -589,5 +1038,16 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
             self._p.put("0 unresolved");
         }
         self._p.newline();
+
+        // A SEPARATE figure, not folded into `deferred`. The two defer for
+        // unrelated reasons   an overload set waits on argument types, a
+        // member waits on the base's type   and a reader chasing one is not
+        // helped by a number that could be either.
+        if self._n_member > 0 {
+            self._p.paint(Color::Tree, "  ");
+            self._p.put(f"{self._n_member} chain step(s) deferred to TypeResolution");
+            self._p.paint(Color::Dim, "  (member/scope access; never N's to bind)");
+            self._p.newline();
+        }
     }
 }

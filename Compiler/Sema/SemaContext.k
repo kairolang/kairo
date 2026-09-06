@@ -30,6 +30,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::GlobalDisambigTable::*;
 import AST::Node::Base::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::ResolutionTrace::*;
 import Diagnostic::BufferedDiagSink::*;
 import Lexer::Immediate::*;
 import Config::Invocation::*;
@@ -206,6 +207,13 @@ class SemaContext {
     /// for the four primitives and the LookupResult lifetime law).
     pub var lookup: NameLookup;
 
+    /// N's decision log, for `--print-sema`. Recording is enabled once here
+    /// and nowhere else; every pass writes to it unconditionally and the
+    /// trace itself no-ops when off. READ-ONLY for everyone but SemaDump: a
+    /// pass that consults this is a pass whose behavior changes under the
+    /// flag meant to explain it.
+    pub var trace: ResolutionTrace;
+
     /// diag->error_count() at construction; errored() reports only errors
     /// sema itself produced (parse errors already gated the run).
     pub var error_count_base: u32 = 0;
@@ -232,6 +240,9 @@ class SemaContext {
         self.phase = SemaPhase::Parsed;
         self.opts.load(ctx->ci);
         self.lookup.init(self.tu);
+        // Tracing costs one branch per name when off, so it is gated on the
+        // only flag that reads it rather than on a build mode.
+        if ctx->ci != &null { self.trace.enabled = ctx->ci->frontend.print_sema; }
         self.error_count_base = self.diag->error_count();
     }
 
