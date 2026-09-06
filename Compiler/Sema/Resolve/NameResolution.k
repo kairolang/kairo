@@ -892,8 +892,14 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
 
         // An out-of-line def resolves against the type it was written FOR,
         // not the scope it was written IN. N(a) recorded that as semantic_dc.
+        //
+        // `home` is that owning scope, kept for the trace: cur_dc becomes the
+        // function itself below, so reading it back would label every frame
+        // with the function's own name (`bump::bump`).
+        var home = saved_dc;
         if (n->semantic_dc != &null) && (n->semantic_dc != n->lexical_dc) {
             self.cur_dc = reinterpret_cast::<*DeclContext>(n->semantic_dc);
+            home        = self.cur_dc;
         } else {
             self.cur_dc = static_cast::<*DeclContext>(n);
         }
@@ -904,7 +910,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // silent shadowing.
         self.locals.push_back(LocalScope{});
         self.sc->trace.open_scope(TraceScopeKind::Function, static_cast::<*Decl>(n),
-                                  n->range, self.cur_dc);
+                                  n->range, home);
         for var i: usize = 0; i < n->generic_params.size(); ++i {
             var gp = n->generic_params[i];
             if gp == &null { continue; }
@@ -1455,6 +1461,55 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             if entry->targets[i].vis != OverlayVisibility::Private { return true; }
         }
         return false;
+    }
+
+    /// Chain STEPS are not N's to bind: everything after the first `.`/`::`
+    /// needs the type of the base, and that does not exist until T (header,
+    /// "Explicitly NOT done here"). The RAV agrees   traverse_chain_expr
+    /// walks the base and each step's generic args but never `st->name`   so
+    /// a member access leaves NO row of any kind behind it.
+    ///
+    /// That is indistinguishable, in a dump, from a name that was never seen
+    /// at all. This override closes only that gap: it records each step as
+    /// deferred and resolves NOTHING. No lookup, no binding, no diagnostic,
+    /// no write to `st->resolved_decl`   T still owns every one of those.
+    /// Gated on `trace.enabled` (RESOLUTION.md invariant #6).
+    fn traverse_chain_expr(self, n: *ChainExpr) -> *ChainExpr {
+        if n == &null { return n; }
+
+        // Base first, so the base's own `use` row lands before the steps that
+        // hang off it and the section reads left-to-right like the source.
+        var out = RecursiveASTVisitor_NameResolution::traverse_chain_expr(n);
+        if !self.sc->trace.enabled { return out; }
+
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var st = n->steps.get(i);
+            if st == &null { continue; }
+
+            var mk  = TraceMemberKind::Name;
+            var imm = u32(-1);
+            var at  = st->range;
+            if st->is_operator() {
+                mk = TraceMemberKind::Operator;
+            } else if st->is_tuple_index() {
+                mk = TraceMemberKind::TupleIndex;
+            } else if st->name != &null {
+                imm = self._name_imm(st->name->name);
+                at  = st->name->range;
+            }
+
+            var sep = TraceSep::Dot;
+            switch st->access_kind {
+                case ChainExpr::AccessKind::Dot           { sep = TraceSep::Dot;           }
+                case ChainExpr::AccessKind::Arrow         { sep = TraceSep::Arrow;         }
+                case ChainExpr::AccessKind::ColonColon    { sep = TraceSep::ColonColon;    }
+                case ChainExpr::AccessKind::QuestionDot   { sep = TraceSep::QuestionDot;   }
+                case ChainExpr::AccessKind::QuestionArrow { sep = TraceSep::QuestionArrow; }
+            }
+
+            self.sc->trace.member_step(imm, at, mk, sep, st->index);
+        }
+        return out;
     }
 
     // --- deferred: pattern heads -------------------------------------------
