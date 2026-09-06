@@ -44,6 +44,28 @@ import AST::Context::DeclContext::*;
 import AST::Node::Base::*;
 import Location::SourceLocation::*;
 
+/// \enum MemberOutcome
+/// \brief What ChainBinding decided about one chain step. Joined onto N's
+///        Member row by SemaDump via the step's location, so the scopes
+///        section still reads in source order.
+enum MemberOutcome derives u8 {
+    None = 0,        ///< ChainBinding did not run (phase stopped before T).
+    Bound,           ///< resolved_decl set.
+    Candidates,      ///< candidate_cell set; overload resolution picks.
+    NeedsInference,  ///< base has no declared type (inferred var, call result).
+    Dependent,       ///< base is rooted in a generic param; M2 owns it.
+    Errored,         ///< diagnosed here.
+}
+
+/// \class MemberResult
+class MemberResult {
+    pub var outcome:  MemberOutcome = MemberOutcome::None;
+    pub var decl:     *Decl         = &null;   ///< Bound.
+    pub var ncand:    usize         = 0;       ///< Candidates.
+    pub var found_in: *Decl         = &null;   ///< the type/module that answered.
+    fn MemberResult(self) { }
+}
+
 /// \enum TraceVia
 /// \brief WHICH of N's three lookup sources answered. This is the column a
 ///        reader checks first when a name bound to the wrong thing.
@@ -162,10 +184,11 @@ class TraceRow {
 class ResolutionTrace {
     pub var enabled: bool = false;
     pub var rows:    vec::<TraceRow>;
-
     /// Frame depth as N sees it. Maintained here rather than passed in at
     /// every call so the pass cannot drift from the log.
     priv var _depth: usize = 0;
+    /// step location id -> outcome. Written by ChainBinding, read by SemaDump.
+    pub var member_results: libcxx::unordered_map::<u32, MemberResult>;
 
     fn ResolutionTrace(self) { }
 
@@ -246,6 +269,23 @@ class ResolutionTrace {
         r.sep         = sep;
         r.index       = index;
         self.rows.push_back(r);
+    }
+
+    fn member_result(self, loc_id: u32, outcome: MemberOutcome, decl: *Decl,
+                     ncand: usize, found_in: *Decl) {
+        if !self.enabled { return; }
+        var r = MemberResult{};
+        r.outcome  = outcome;
+        r.decl     = decl;
+        r.ncand    = ncand;
+        r.found_in = found_in;
+        self.member_results[loc_id] = r;
+    }
+
+    fn member_result_for(self, loc_id: u32) -> *MemberResult {
+        var it = self.member_results.find(loc_id);
+        if it == self.member_results.end() { return &null; }
+        return &(it->second);
     }
 
     fn empty(self) -> bool { return self.rows.empty(); }

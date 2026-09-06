@@ -248,6 +248,11 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     priv var _n_ty_total:   usize = 0;
     priv var _n_ty_canon:   usize = 0;
     priv var _n_ty_dep:     usize = 0;
+    
+    priv var _n_step_bound: usize = 0;
+    priv var _n_step_cands: usize = 0;
+    priv var _n_step_open:  usize = 0;
+    priv var _n_step_err:   usize = 0;
 
     fn SemaDump(self, sc: *SemaContext, opts: PrintOptions) {
         self.sc   = sc;
@@ -692,10 +697,9 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         self._p.newline();
     }
 
-    /// A step N did not bind. The row says WHY it is empty   `<deferred>`,
-    /// not `<UNRESOLVED>`   because those two look identical on the AST (both
-    /// leave `resolved_decl` null) and mean opposite things: one is the phase
-    /// boundary working, the other is a bug.
+    /// A chain step. N recorded it as deferred; ChainBinding (after T) may
+    /// have decided it. Join the outcome by location so the row stays where
+    /// N put it, in source order.
     priv fn _trace_member(self, r: *TraceRow) {
         self._trace_indent(r->depth);
         self._p.paint(Color::Operator, "member  ");
@@ -711,21 +715,50 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         self._p.paint(Color::Dim,
             self._pad(f"@ {sema_dump_loc(self.ctx, r->at.start)}", 10));
         self._p.put(" ");
-        // `::` is a scope step, not a member step: its base resolved to a
-        // NAMED SCOPE, not to a value with a type. Saying "needs the type of
-        // the base" about `Pt::get` sends the reader looking for a type error
-        // that does not exist.
-        if r->sep == TraceSep::ColonColon {
-            self._p.paint(Color::Dim,
-                "<deferred: needs the scope named by the base   TypeResolution>");
-        } else {
-            self._p.paint(Color::Dim,
-                "<deferred: needs the type of the base   TypeResolution>");
+
+        var mr = self.sc->trace.member_result_for(r->at.start.id);
+        if mr == &null {
+            // ChainBinding never ran: the honest pre-T reading.
+            if r->sep == TraceSep::ColonColon {
+                self._p.paint(Color::Dim, "<deferred: needs the scope named by the base   ChainBinding>");
+            } else {
+                self._p.paint(Color::Dim, "<deferred: needs the type of the base   ChainBinding>");
+            }
+            self._p.newline();
+            return;
+        }
+
+        var _where = "";
+        if mr->found_in != &null { _where = f"  [member of {sema_dump_decl_name(self.ctx, mr->found_in)}]"; }
+
+        switch mr->outcome {
+            case MemberOutcome::Bound {
+                self._p.paint(Color::Operator, "-> ");
+                self._p.put(sema_dump_decl_brief(self.ctx, mr->decl));
+                self._p.paint(Color::Dim, _where);
+            }
+            case MemberOutcome::Candidates {
+                self._p.paint(Color::Operator, "-> ");
+                self._p.paint(Color::Dim, f"{mr->ncand} candidate(s), awaiting overload resolution{_where}");
+            }
+            case MemberOutcome::NeedsInference {
+                self._p.paint(Color::Dim, "<deferred: base type is inferred   TypeInference>");
+            }
+            case MemberOutcome::Dependent {
+                self._p.paint(Color::Dim, "<dependent: rooted in a generic parameter   M2>");
+            }
+            case MemberOutcome::Errored {
+                self._p.paint(Color::Error, "<UNRESOLVED>");
+                self._p.paint(Color::Dim, "  (diagnosed)");
+            }
+            default {
+                self._p.paint(Color::Dim, "<deferred>");
+            }
         }
         self._p.newline();
     }
 
-    /// `local frame 2` / `scope Foo` / `import overlay`   WHERE the answer
+    /// `local frame 2` / `scope Foo` / `import overlay`   _WHERE the answer
     /// came from, named the way the reader thinks about it.
     priv fn _via_label(self, r: *TraceRow) -> string {
         switch r->via {
@@ -985,6 +1018,50 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         return out;
     }
 
+    /// The RAV skips step names; print them from AST state so the FINAL
+    /// binding of every step is visible here, not only N's decision log.
+    fn traverse_chain_expr(self, n: *ChainExpr) -> *ChainExpr {
+        if n == &null { return n; }
+        var out = RecursiveASTVisitor_SemaDump::traverse_chain_expr(n);
+        for var i: usize = 0; i < n->steps.size(); ++i {
+            var st = n->steps.get(i);
+            if (st == &null) || (st->name == &null) { continue; }
+            self._scope_header();
+            var sep = ".";
+            switch st->access_kind {
+                case ChainExpr::AccessKind::Arrow         { sep = "->";  }
+                case ChainExpr::AccessKind::ColonColon    { sep = "::";  }
+                case ChainExpr::AccessKind::QuestionDot   { sep = "?.";  }
+                case ChainExpr::AccessKind::QuestionArrow { sep = "?->"; }
+                default                                   { sep = ".";   }
+            }
+            var nm = f"{sep}{self.ctx->get_spelling(st->name->name)}";
+            self._p.paint(Color::Tree, "    ");
+            self._p.paint(Color::Ident, self._pad(nm, 12));
+            self._p.paint(Color::Dim,
+                self._pad(f"@ {sema_dump_loc(self.ctx, st->name->range.start)}", 10));
+            self._p.put(" ");
+            if st->resolved_decl != &null {
+                self._n_step_bound += 1;
+                self._p.paint(Color::Operator, "-> ");
+                self._p.put(sema_dump_decl_brief(self.ctx, st->resolved_decl));
+            } else if st->candidate_cell != &null {
+                self._n_step_cands += 1;
+                self._p.paint(Color::Operator, "-> ");
+                self._p.paint(Color::Dim, f"{st->candidate_cell->size()} candidate(s), awaiting overload resolution");
+            } else if st->name->is_poisoned() {
+                self._n_step_err += 1;
+                self._p.paint(Color::Error, "<UNRESOLVED>");
+                self._p.paint(Color::Dim, "  (diagnosed)");
+            } else {
+                self._n_step_open += 1;
+                self._p.paint(Color::Dim, "<open: inference or M2>");
+            }
+            self._p.newline();
+        }
+        return out;
+    }
+
     // --- section 6 + summary ----------------------------------------------
 
     priv fn _dump_summary(self) {
@@ -996,7 +1073,8 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         self._p.put(f"{self._n_ty_canon} canonical, ");
         self._p.put(f"{self._n_ty_dep} dependent");
         self._p.newline();
-        if (self._n_ty_total > 0) && (self._n_ty_canon == 0) {
+        if (self._n_ty_total > 0) && (self._n_ty_canon == 0)
+        && (static_cast::<u8>(self.sc->phase) < static_cast::<u8>(SemaPhase::TypesResolved)) {
             // Expected until TypeResolution is implemented; say so rather
             // than letting a reader mistake it for a resolution failure.
             self._p.paint(Color::Tree, "  ");
@@ -1021,10 +1099,12 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         // unrelated reasons   an overload set waits on argument types, a
         // member waits on the base's type   and a reader chasing one is not
         // helped by a number that could be either.
-        if self._n_member > 0 {
+        var steps = self._n_step_bound + self._n_step_cands + self._n_step_open + self._n_step_err;
+        if steps > 0 {
             self._p.paint(Color::Tree, "  ");
-            self._p.put(f"{self._n_member} chain step(s) deferred to TypeResolution");
-            self._p.paint(Color::Dim, "  (member/scope access; never N's to bind)");
+            self._p.put(f"{steps} chain step(s): {self._n_step_bound} bound, ");
+            self._p.put(f"{self._n_step_cands} overload sets, {self._n_step_open} open");
+            if self._n_step_err > 0 { self._p.paint(Color::Error, f", {self._n_step_err} unresolved"); }
             self._p.newline();
         }
     }
