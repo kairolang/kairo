@@ -54,9 +54,15 @@ fn propagate_flags(parent: *Type, child: *Type) {
 ///  Always dependent. Sema substitutes at instantiation.
 ///
 class GenericParamType derives Type {
+    /// The GenericParamDecl this refers to. Null on parser-built nodes
+    /// (`...T` in _parse_variadic_type, where the binding is not yet known);
+    /// ALWAYS set on canonical nodes from CanonicalTypeStore, which unique on
+    /// (owner, param_index). Typed *Decl to dodge the stage0 cycle.
+    pub var owner:      *Decl = &null;
     pub var param_name: *NamedIdentExpr; ///< The declared param name, e.g. T.
     pub var param_index: u32;           ///< Index in the generic param list.
     pub var is_pack:     bool;          ///< True if this is a variadic pack param ...T.
+
 
     static fn create(
         ctx:         *ASTContext,
