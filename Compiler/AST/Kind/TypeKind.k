@@ -69,7 +69,23 @@ enum TypeKind derives u8 {
     NullableType,
 
     /// -----------------------------------------------------------------------
-    ///  Collection types  [5 .. 9]
+    /// Canonical types  [5 .. 6]
+    /// -----------------------------------------------------------------------
+
+    /// Canonical nominal type: a class/struct/union/interface/enum plus its
+    /// canonical generic arguments. NEVER produced by the parser -- created
+    /// only by CanonicalTypeStore. A ChainType naming `Foo` gets one of these
+    /// as its `canonical`.
+    RecordType,
+
+    /// Canonical primitive: i32, bool, f64, void, usize ... NEVER produced by
+    /// the parser (builtins lex as At* keyword tokens and ride through
+    /// ChainType); created only by CanonicalTypeStore. Universal entities, one
+    /// singleton per kind per build.
+    BuiltinType,
+
+    /// -----------------------------------------------------------------------
+    ///  Collection types  [7 .. 11]
     /// -----------------------------------------------------------------------
 
     /// Tuple type:  (i32, str, f64)
@@ -97,7 +113,7 @@ enum TypeKind derives u8 {
     SelfType, // const can be attached here
 
     /// -----------------------------------------------------------------------
-    ///  Callable type  [10]
+    ///  Callable type  [12]
     /// -----------------------------------------------------------------------
 
     /// Function pointer type:  fn(i32, str) -> bool (explicit capture control is a part of the expression syntax, not the type syntax)
@@ -105,7 +121,7 @@ enum TypeKind derives u8 {
     FunctionPointerType,
 
     /// -----------------------------------------------------------------------
-    ///  Compiler-inserted types  [11 .. 12]
+    ///  Compiler-inserted types  [13 .. 14]
     /// -----------------------------------------------------------------------
 
     /// Type inference placeholder:  _ or omitted annotation
@@ -143,6 +159,8 @@ fn to_string(t: TypeKind) -> string {
         case TypeKind::PackExpansionType { return "PackExpansionType"; }
         case TypeKind::PointerType { return "PointerType"; }
         case TypeKind::NullableType { return "NullableType"; }
+        case TypeKind::RecordType { return "RecordType"; }
+        case TypeKind::BuiltinType { return "BuiltinType"; }
         case TypeKind::TupleType { return "TupleType"; }
         case TypeKind::FixedArrayType { return "FixedArrayType"; }
         case TypeKind::VectorType { return "VectorType"; }
