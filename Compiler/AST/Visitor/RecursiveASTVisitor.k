@@ -36,6 +36,7 @@ import AST::Node::PrimaryExpressions::*;
 import AST::Node::Statements::*;
 import AST::Node::Types::*;
 import AST::Context::DeclContext::*;
+import AST::Node::CanonicalTypes::*;
 
 class <D> RecursiveASTVisitor {
     var ctx: *ASTContext;
@@ -62,6 +63,8 @@ class <D> RecursiveASTVisitor {
             case TypeKind::PointerType           { return self.dyn()->traverse_pointer_type(             cast::<PointerType>(e)            ); }
             case TypeKind::TypeOfType            { return self.dyn()->traverse_type_of_type(             cast::<TypeOfType>(e)             ); }
             case TypeKind::InferredType          { return self.dyn()->traverse_inferred_type(            cast::<InferredType>(e)           ); }
+            case TypeKind::RecordType            { return self.dyn()->traverse_record_type(              cast::<RecordType>(e)             ); }
+            case TypeKind::BuiltinType           { return self.dyn()->traverse_builtin_type(             cast::<BuiltinType>(e)            ); }
             case TypeKind::NullableType          { return self.dyn()->traverse_nullable_type(            cast::<NullableType>(e)           ); }
             case TypeKind::OpaqueFFIType         { return self.dyn()->traverse_opaque_ffi_type(          cast::<OpaqueFFIType>(e)          ); }
             case TypeKind::FixedArrayType        { return self.dyn()->traverse_fixed_array_type(         cast::<FixedArrayType>(e)         ); }
@@ -159,6 +162,19 @@ class <D> RecursiveASTVisitor {
 
     fn traverse_inferred_type(self, n: *InferredType) -> *InferredType {
         self.dyn()->walkup_inferred_type(n);
+        return n;
+    }
+
+    // Canonical nodes are LEAVES for traversal purposes: their components are
+    // themselves canonical and shared across the whole build, so descending
+    // would revisit one node once per referring TU.
+    fn traverse_record_type(self, n: *RecordType) -> *RecordType {
+        self.dyn()->walkup_record_type(n);
+        return n;
+    }
+
+    fn traverse_builtin_type(self, n: *BuiltinType) -> *BuiltinType {
+        self.dyn()->walkup_builtin_type(n);
         return n;
     }
 
@@ -282,6 +298,16 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_inferred_type(n);
     }
 
+    fn walkup_record_type(self, n: *RecordType) -> bool {
+        if self.dyn()->visit_type(n) == false { return false; }
+        return self.dyn()->visit_record_type(n);
+    }
+
+    fn walkup_builtin_type(self, n: *BuiltinType) -> bool {
+        if self.dyn()->visit_type(n) == false { return false; }
+        return self.dyn()->visit_builtin_type(n);
+    }
+
     fn walkup_nullable_type(self, n: *NullableType) -> bool {
         if self.dyn()->visit_type(n) == false { return false; }
         return self.dyn()->visit_nullable_type(n);
@@ -343,6 +369,8 @@ class <D> RecursiveASTVisitor {
     fn visit_pointer_type(            self, n: *PointerType          ) -> bool { return true; }
     fn visit_type_of_type(            self, n: *TypeOfType           ) -> bool { return true; }
     fn visit_inferred_type(           self, n: *InferredType         ) -> bool { return true; }
+    fn visit_record_type(             self, n: *RecordType           ) -> bool { return true; }
+    fn visit_builtin_type(            self, n: *BuiltinType          ) -> bool { return true; }
     fn visit_nullable_type(           self, n: *NullableType         ) -> bool { return true; }
     fn visit_opaque_ffi_type(         self, n: *OpaqueFFIType        ) -> bool { return true; }
     fn visit_fixed_array_type(        self, n: *FixedArrayType       ) -> bool { return true; }
