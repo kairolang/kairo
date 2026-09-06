@@ -326,28 +326,6 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         n += self._lang_row(emit, WellKnownType::BigInt,   "int");
         n += self._lang_row(emit, WellKnownType::BigFloat, "float");
 
-        n += self._lang_row(emit, WellKnownType::I8,   "i8");
-        n += self._lang_row(emit, WellKnownType::I16,  "i16");
-        n += self._lang_row(emit, WellKnownType::I32,  "i32");
-        n += self._lang_row(emit, WellKnownType::I64,  "i64");
-        n += self._lang_row(emit, WellKnownType::I128, "i128");
-        n += self._lang_row(emit, WellKnownType::I256, "i256");
-        n += self._lang_row(emit, WellKnownType::I512, "i512");
-
-        n += self._lang_row(emit, WellKnownType::U8,   "u8");
-        n += self._lang_row(emit, WellKnownType::U16,  "u16");
-        n += self._lang_row(emit, WellKnownType::U32,  "u32");
-        n += self._lang_row(emit, WellKnownType::U64,  "u64");
-        n += self._lang_row(emit, WellKnownType::U128, "u128");
-        n += self._lang_row(emit, WellKnownType::U256, "u256");
-        n += self._lang_row(emit, WellKnownType::U512, "u512");
-
-        n += self._lang_row(emit, WellKnownType::F8,   "f8");
-        n += self._lang_row(emit, WellKnownType::F16,  "f16");
-        n += self._lang_row(emit, WellKnownType::F32,  "f32");
-        n += self._lang_row(emit, WellKnownType::F64,  "f64");
-        n += self._lang_row(emit, WellKnownType::F128, "f128");
-        n += self._lang_row(emit, WellKnownType::F256, "f256");
         return n;
     }
 

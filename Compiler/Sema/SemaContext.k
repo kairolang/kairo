@@ -28,9 +28,12 @@
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::GlobalDisambigTable::*;
+import AST::Context::CanonicalTypes::*;
 import AST::Node::Base::*;
+import AST::Node::CanonicalNodes::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::ResolutionTrace::*;
+import Sema::Resolve::ResolutionState::*;
 import Diagnostic::BufferedDiagSink::*;
 import Lexer::Immediate::*;
 import Config::Invocation::*;
@@ -116,12 +119,17 @@ class SemaOptions {
 ///        ordinary symbol tables sema just needs a direct handle for
 ///        desugaring. Their names are NEVER special-cased in lookup.
 ///
-///        Builtin VALUE types (i32, bool, f64 ...) are a different problem
-///        and do not belong here or in any symbol table: they are universal
-///        entities, to be modeled as singleton Type nodes owned by
-///        ASTContext (Clang's IntTy model) once a BuiltinType TypeKind
-///        exists. Today builtins ride through ChainType; TypeResolution
-///        resolves them by keyword, not by table lookup.
+///        The primitive value types that used to sit in this list (i8..f256)
+///        are GONE, and their absence is the point. `i32` lexes as the keyword
+///        token AtI32, never as an identifier, so it could not enter a symbol
+///        table and unqualified lookup could never have found it -- every one
+///        of those rows was permanently `<unresolved>` in --print-sema. They
+///        are universal entities now: BuiltinType singletons owned by
+///        CanonicalTypeStore, resolved by TOKEN KIND in TypeResolution, not by
+///        name. See CanonicalNodes.k.
+///
+///        What remains are genuine library types: real decls, in real tables,
+///        reached by real lookup, that sema needs a handle to for desugaring.
 enum WellKnownType derives u8 {
     Future = 0, ///< spawn foo() desugar type: Future<T>.
     Range,      ///< 1..2 | 1..=2 desugar type: Range(a, b, t/f).
@@ -130,29 +138,22 @@ enum WellKnownType derives u8 {
     Null,       ///< T? desugar type: Null<T>.
     Panic,      ///< fn () panic -> T desugar type: Panic<T>.
 
-    String,  ///< ""     builtin value type: string.
-    Vector,  ///< [T]    builtin value type: vector.
-    Slice,   ///< [T;]   builtin value type: slice.
-    Array,   ///< [T; N] builtin value type: array.
-    HashMap, ///< {K: V} builtin value type: hashmap.
-    HashSet, ///< {T}    builtin value type: hashset.
+    String,  ///< ""     library type: string.
+    Vector,  ///< [T]    library type: vector.
+    Slice,   ///< [T;]   library type: slice.
+    Array,   ///< [T; N] library type: array.
+    HashMap, ///< {K: V} library type: hashmap.
+    HashSet, ///< {T}    library type: hashset.
 
-    BigInt,   ///< 3.0e+100 builtin value type: BigInt.
-    BigFloat, ///< 1.2e+100 builtin value type: BigFloat.
+    BigInt,   ///< 3.0e+100 library type: BigInt.
+    BigFloat, ///< 1.2e+100 library type: BigFloat.
 
-    // i8 - i512
-    I8, I16, I32, I64, I128, I256, I512,
-    // u8 - u512
-    U8, U16, U32, U64, U128, U256, U512,
-    // f8 - f512
-    F8, F16, F32, F64, F128, F256,
-
-    COUNT,         ///< keep last.
+    COUNT,    ///< keep last.
 }
 
 /// \class WellKnownDecls
 /// \brief Lang-item registry: WellKnownType -> canonical *Decl. Populated
-///        once during NameResolution by qualified lookup of the canonical
+///        once during NameResolution by unqualified lookup of the canonical
 ///        std paths; read by the lowering passes. A missing entry is only
 ///        an error at USE (e.g. `async` used but Future unresolvable), and
 ///        that diagnosis belongs to the pass that needs it.
@@ -183,16 +184,14 @@ class WellKnownDecls {
 /// \brief The state every pass borrows. One per TU per sema run.
 ///
 /// \par What lives here vs elsewhere
-///   here:        phase, options, diag handle, lang items, error budget.
+///   here:        phase, options, diag handle, lang items, resolution state.
 ///   ASTContext:  arenas, interner, tokens, source mgmt (AST-domain).
-///   nodes:       ALL inter-pass results (resolved_decl links, type_ slots,
-///                poison bits, redecl chains). Passes communicate through
-///                the AST and registries, NEVER through each other.
-///   later:       NameLookup (the shared N/T lookup core) and the global
-///                cross-TU tables (conformance registry, instantiation
-///                cache) land here as fields when those components are
-///                built import_overlay consumption and the M2 sync point
-///                are their gatekeepers.
+///   GlobalDisambig: the canonical type store   BUILD-wide, not TU-wide,
+///                because type identity is a pointer comparison and pointers
+///                only compare inside one uniquing domain.
+///   nodes:       ALL inter-pass results (resolved_decl links, canonical
+///                slots, poison bits, redecl chains). Passes communicate
+///                through the AST and registries, NEVER through each other.
 class SemaContext {
     pub var ctx:   obs::<ASTContext>;
     pub var tu:    obs::<TranslationUnit>;
@@ -207,11 +206,18 @@ class SemaContext {
     /// for the four primitives and the LookupResult lifetime law).
     pub var lookup: NameLookup;
 
+    /// THE canonical type store. Borrowed from GlobalDisambigTable, NOT owned:
+    /// canonical identity is build-wide (see CanonicalTypes.k header).
+    pub var types: obs::<CanonicalTypeStore> = &null;
+
+    /// Demand-driven resolution memo + cycle stack. Per-TU, unsynchronized.
+    pub var rstate: ResolutionState;
+
     /// N's decision log, for `--print-sema`. Recording is enabled once here
     /// and nowhere else; every pass writes to it unconditionally and the
     /// trace itself no-ops when off. READ-ONLY for everyone but SemaDump: a
-    /// pass that consults this is a pass whose behavior changes under the
-    /// flag meant to explain it.
+    /// pass that consults this is a pass whose behavior changes under the flag
+    /// meant to explain it.
     pub var trace: ResolutionTrace;
 
     /// diag->error_count() at construction; errored() reports only errors
@@ -228,6 +234,7 @@ class SemaContext {
         self.g     = &null;
         self.tu    = &null;
         self.diag  = &null;
+        self.types = &null;
         self.phase = SemaPhase::Parsed;
         self.error_count_base = 0;
     }
@@ -240,6 +247,23 @@ class SemaContext {
         self.phase = SemaPhase::Parsed;
         self.opts.load(ctx->ci);
         self.lookup.init(self.tu);
+
+        // The store is build-wide and idempotently initialized, so every TU
+        // may ask; the first caller wins and the rest are a locked bool read.
+        // Pointer width comes from the target, which is the only thing about a
+        // builtin that is not fixed by its own name.
+        if g != &null {
+            self.types = g->types();
+            var pbits: usize = 64;
+            if ctx->ci != &null { pbits = ctx->ci->target.pointer_width; }
+            if pbits == 0 { pbits = 64; }
+            self.types->init(pbits);
+        }
+
+        if ctx->ci != &null {
+            self.rstate.set_max_depth(static_cast::<usize>(ctx->ci->frontend.max_scope_depth));
+        }
+
         // Tracing costs one branch per name when off, so it is gated on the
         // only flag that reads it rather than on a build mode.
         if ctx->ci != &null { self.trace.enabled = ctx->ci->frontend.print_sema; }
@@ -267,6 +291,12 @@ class SemaContext {
 
     fn imm_table(self) -> *ImmediateTable {
         return self.ctx->get_imm_table();
+    }
+
+    /// Shorthand for the single most-requested canonical.
+    fn builtin(self, b: BuiltinKind) -> *Type {
+        if self.types == &null { return &null; }
+        return self.types->builtin(b);
     }
 
     /// Errors produced since sema began.
