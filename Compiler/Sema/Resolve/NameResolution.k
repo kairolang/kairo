@@ -981,60 +981,115 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         return out;
     }
 
-    // Type / module scopes: save-restore cur_dc into the decl's own DC. No
-    // locals frame -- type scopes have tables, not lexical locals.
+    // Type / module scopes: save-restore cur_dc into the decl's own DC, plus
+    // a locals frame for the generic parameters.
+    //
+    // A type's generic params are NOT in its DeclContext table -- they are
+    // template parameters, not members -- so without a lexical frame `T` in
+    // EXPRESSION position inside the body (`requires T impl X`, a
+    // ConstraintExpr lhs, `T::CONST`) reports "use of undeclared identifier".
+    // Functions already did this; every type-shaped scope needs it too.
+
+    /// Push a locals frame holding `gps`. Returns whether one was pushed, so
+    /// a non-generic decl costs neither a frame nor an empty trace scope.
+    priv fn _open_type_generics(self, owner: *Decl, gps: FrozenList::<*GenericParamDecl>,
+                                at: SourceRange, home: *DeclContext) -> bool {
+        if gps.size() == 0 { return false; }
+        self.locals.push_back(LocalScope{});
+        self.sc->trace.open_scope(TraceScopeKind::Block, owner, at, home);
+        for var i: usize = 0; i < gps.size(); ++i {
+            var gp = gps[i];
+            if gp == &null { continue; }
+            self._declare_local(self._name_imm(gp->name), static_cast::<*Decl>(gp), gp->range);
+        }
+        return true;
+    }
+
+    priv fn _close_type_generics(self, pushed: bool) {
+        if !pushed { return; }
+        self.sc->trace.close_scope();
+        self.locals.pop_back();
+    }
 
     fn traverse_class_decl(self, n: *ClassDecl) -> *ClassDecl {
         if n == &null { return n; }
         var saved = self.cur_dc;
+        var pushed = self._open_type_generics(static_cast::<*Decl>(n), n->generic_params,
+                                              n->range, saved);
         self.cur_dc = static_cast::<*DeclContext>(n);
         var out = RecursiveASTVisitor_NameResolution::traverse_class_decl(n);
         self.cur_dc = saved;
+        self._close_type_generics(pushed);
         return out;
     }
 
     fn traverse_struct_decl(self, n: *StructDecl) -> *StructDecl {
         if n == &null { return n; }
         var saved = self.cur_dc;
+        var pushed = self._open_type_generics(static_cast::<*Decl>(n), n->generic_params,
+                                              n->range, saved);
         self.cur_dc = static_cast::<*DeclContext>(n);
         var out = RecursiveASTVisitor_NameResolution::traverse_struct_decl(n);
         self.cur_dc = saved;
+        self._close_type_generics(pushed);
         return out;
     }
 
     fn traverse_union_decl(self, n: *UnionDecl) -> *UnionDecl {
         if n == &null { return n; }
         var saved = self.cur_dc;
+        var pushed = self._open_type_generics(static_cast::<*Decl>(n), n->generic_params,
+                                              n->range, saved);
         self.cur_dc = static_cast::<*DeclContext>(n);
         var out = RecursiveASTVisitor_NameResolution::traverse_union_decl(n);
         self.cur_dc = saved;
+        self._close_type_generics(pushed);
         return out;
     }
 
     fn traverse_enum_decl(self, n: *EnumDecl) -> *EnumDecl {
         if n == &null { return n; }
         var saved = self.cur_dc;
+        var pushed = self._open_type_generics(static_cast::<*Decl>(n), n->generic_params,
+                                              n->range, saved);
         self.cur_dc = static_cast::<*DeclContext>(n);
         var out = RecursiveASTVisitor_NameResolution::traverse_enum_decl(n);
         self.cur_dc = saved;
+        self._close_type_generics(pushed);
         return out;
     }
 
     fn traverse_interface_decl(self, n: *InterfaceDecl) -> *InterfaceDecl {
         if n == &null { return n; }
         var saved = self.cur_dc;
+        var pushed = self._open_type_generics(static_cast::<*Decl>(n), n->generic_params,
+                                              n->range, saved);
         self.cur_dc = static_cast::<*DeclContext>(n);
         var out = RecursiveASTVisitor_NameResolution::traverse_interface_decl(n);
         self.cur_dc = saved;
+        self._close_type_generics(pushed);
         return out;
     }
 
     fn traverse_extension_decl(self, n: *ExtensionDecl) -> *ExtensionDecl {
         if n == &null { return n; }
         var saved = self.cur_dc;
+        var pushed = self._open_type_generics(static_cast::<*Decl>(n), n->generic_params,
+                                              n->range, saved);
         self.cur_dc = static_cast::<*DeclContext>(n);
         var out = RecursiveASTVisitor_NameResolution::traverse_extension_decl(n);
         self.cur_dc = saved;
+        self._close_type_generics(pushed);
+        return out;
+    }
+
+    /// A type alias owns no DeclContext; only its generic params need a frame.
+    fn traverse_type_alias_decl(self, n: *TypeAliasDecl) -> *TypeAliasDecl {
+        if n == &null { return n; }
+        var pushed = self._open_type_generics(static_cast::<*Decl>(n), n->generic_params,
+                                              n->range, self.cur_dc);
+        var out = RecursiveASTVisitor_NameResolution::traverse_type_alias_decl(n);
+        self._close_type_generics(pushed);
         return out;
     }
 
