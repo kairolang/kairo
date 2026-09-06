@@ -47,6 +47,13 @@ class DisambigTable;
 class ASTContext {
     pub var source_path: Path;
     pub var module_base: ModulePath;
+
+    /// `module_base`'s LEAF segment, interned into THIS file's imm table.
+    /// ModulePath segments carry PreprocessorSymbolTable SymbolIDs, which are
+    /// a different name domain from an imm index; a synthesized module name
+    /// token built from one spells as the interner's fallback text. The PP
+    /// writes this once, next to module_base. u32(-1) = anonymous root file.
+    pub var module_leaf_imm: u32 = u32(-1);
     
     /// This is the general allocators for the compiler pipeline.
     /// One allocator per transiatve stage of the pipeline. Each allocator is reset when the stage is complete.

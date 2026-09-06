@@ -83,7 +83,10 @@ enum AnchorKind derives u8 {
 /// \class Anchor
 class Anchor {
     pub var kind:  AnchorKind   = AnchorKind::Errored;
-    pub var scope: *DeclContext = &null;   ///< Module.
+    /// Module: every scope the base denotes. More than one when a name is
+    /// bound to a module reopened across files -- they are ONE namespace,
+    /// so a `::` step searches all of them (IMPORTS.md §4.3).
+    pub var scopes: vec::<*DeclContext>;
     pub var decl:  *Decl        = &null;   ///< Type: the record decl. Value: the decl (for notes).
     pub var ty:    *Type        = &null;   ///< Type: its record. Value: the canonical.
     fn Anchor(self) { }
@@ -156,15 +159,31 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
 
         if n->base == &null {
             // `::std::x`: global root.
-            a.kind  = AnchorKind::Module;
-            a.scope = static_cast::<*DeclContext>(self.sc->tu);
+            a.kind = AnchorKind::Module;
+            a.scopes.push_back(static_cast::<*DeclContext>(self.sc->tu));
             return a;
         }
         if n->base->is_poisoned() { a.kind = AnchorKind::Errored; return a; }
 
         if isa::<NamedIdentExpr>(n->base) {
             var id = cast::<NamedIdentExpr>(n->base);
-            if id->is_deferred() { a.kind = AnchorKind::NeedsInference; return a; }   // overload set head.
+            if id->is_deferred() {
+                // A cell of nothing but ModuleDecls is one reopened namespace,
+                // not an overload set N failed to collapse: the canonicals are
+                // distinct decls but the SCOPE is the union of their tables.
+                // Anything else in the cell is a real overload set.
+                var cell = id->candidate_cell;
+                var all_mod = cell->size() > 0;
+                for var i: usize = 0; i < cell->size(); ++i {
+                    if !isa::<ModuleDecl>(cell->get(i)) { all_mod = false; break; }
+                }
+                if !all_mod { a.kind = AnchorKind::NeedsInference; return a; }
+                a.kind = AnchorKind::Module;
+                for var i: usize = 0; i < cell->size(); ++i {
+                    a.scopes.push_back(NameLookup::context_of(cell->get(i)));
+                }
+                return a;
+            }
             if !id->is_bound()   { a.kind = AnchorKind::Errored;        return a; }   // N diagnosed.
             return self._anchor_after(id->resolved_decl, &null);
         }
@@ -183,9 +202,9 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
 
         switch d->kind {
             case DeclKind::ModuleDecl {
-                a.kind  = AnchorKind::Module;
-                a.scope = NameLookup::context_of(d);
-                a.decl  = d;
+                a.kind = AnchorKind::Module;
+                a.scopes.push_back(NameLookup::context_of(d));
+                a.decl = d;
                 return a;
             }
             case DeclKind::ClassDecl     { return self._type_anchor(d); }
@@ -342,17 +361,37 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
             }
             if a.kind == AnchorKind::Module {
-                var res = self.sc->lookup.in_context(a.scope, name);
-                if !res.found() {
+                // Search every scope the anchor denotes and union the hits.
+                var cands  = vec::<*Decl>();
+                var nhit: usize = 0;
+                var frozen: *OverloadCell = &null;
+                for var si: usize = 0; si < a.scopes.size(); ++si {
+                    var cell = self.ml.in_scope(a.scopes[si], name, spelled);
+                    if cell == &null { continue; }
+                    if cell->size() == 0 { continue; }
+                    nhit  += 1;
+                    frozen = cell;
+                    for var i: usize = 0; i < cell->size(); ++i {
+                        var d = cell->get(i);
+                        if d == &null { continue; }
+                        var dup = false;
+                        for var k: usize = 0; k < cands.size(); ++k {
+                            if cands[k] == d { dup = true; break; }
+                        }
+                        if !dup { cands.push_back(d); }
+                    }
+                }
+                if cands.empty() {
                     var mn = ("the global scope") if (a.decl == &null) else (f"module '{self._decl_name_str(a.decl)}\x27");
                     self._err(at, f"no member named '{spelled}' in {mn}");
                     st->name->poison();
                     self._record(loc, MemberOutcome::Errored, &null, 0, a.decl);
                     var r = Anchor{}; r.kind = AnchorKind::Errored; return r;
                 }
-                var cands = vec::<*Decl>();
-                for var i: usize = 0; i < res.cell->size(); ++i { cands.push_back(res.cell->get(i)); }
-                return self._commit(st, loc, &cands, a.decl, res.cell);
+                // A frozen cell may only be reused when it IS the answer: with
+                // two contributing scopes the union is a new set.
+                if nhit > 1 { frozen = &null; }
+                return self._commit(st, loc, &cands, a.decl, frozen);
             }
             // Type: statics, nested types, enum variants, ctors -- member lookup.
             var cands = vec::<*Decl>();
@@ -523,7 +562,17 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     /// through.
     priv fn _home_of(self, d: *Decl) -> *Decl {
         if (d == &null) || (d->semantic_dc == &null) { return &null; }
-        return reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+        var owner = reinterpret_cast::<*DeclContext>(d->semantic_dc)->owner_decl();
+        if isa::<ExtensionDecl>(owner) {
+            // An ExtensionDecl has no name of its own, so reporting it says
+            // "[member of ]". The home a reader means is the type extended.
+            var e = cast::<ExtensionDecl>(owner);
+            if (e->target != &null) && (e->target->canonical != &null)
+            && isa::<RecordType>(e->target->canonical) {
+                return cast::<RecordType>(e->target->canonical)->decl;
+            }
+        }
+        return owner;
     }
 
     priv fn _record(self, loc: u32, o: MemberOutcome, d: *Decl, ncand: usize, owner: *Decl) {
@@ -569,20 +618,24 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         return self._generic_params_of(d).size();
     }
 
+    /// Spelled with the decl's OWN context: a name reached through an import
+    /// is interned in the source file's imm table, not this TU's.
     priv fn _decl_name_str(self, d: *Decl) -> string {
         if d == &null { return "<null>"; }
-        if isa::<ClassDecl>(d)        { return self.sc->ctx->get_spelling(cast::<ClassDecl>(d)->name);        }
-        if isa::<StructDecl>(d)       { return self.sc->ctx->get_spelling(cast::<StructDecl>(d)->name);       }
-        if isa::<UnionDecl>(d)        { return self.sc->ctx->get_spelling(cast::<UnionDecl>(d)->name);        }
-        if isa::<InterfaceDecl>(d)    { return self.sc->ctx->get_spelling(cast::<InterfaceDecl>(d)->name);    }
-        if isa::<EnumDecl>(d)         { return self.sc->ctx->get_spelling(cast::<EnumDecl>(d)->name);         }
-        if isa::<TypeAliasDecl>(d)    { return self.sc->ctx->get_spelling(cast::<TypeAliasDecl>(d)->name);    }
-        if isa::<ModuleDecl>(d)       { return self.sc->ctx->get_spelling(cast::<ModuleDecl>(d)->name);       }
-        if isa::<FunctionDecl>(d)     { return self.sc->ctx->get_spelling(cast::<FunctionDecl>(d)->name);     }
-        if isa::<ParamDecl>(d)        { return self.sc->ctx->get_spelling(cast::<ParamDecl>(d)->name);        }
-        if isa::<VariableDecl>(d)     { return self.sc->ctx->get_spelling(cast::<VariableDecl>(d)->name);     }
-        if isa::<FieldDecl>(d)        { return self.sc->ctx->get_spelling(cast::<FieldDecl>(d)->name);        }
-        if isa::<EnumVariantDecl>(d)  { return self.sc->ctx->get_spelling(cast::<EnumVariantDecl>(d)->name);  }
+        var ctx = NameLookup::ctx_of(d);
+        if ctx == &null { ctx = self.sc->ctx; }
+        if isa::<ClassDecl>(d)        { return ctx->get_spelling(cast::<ClassDecl>(d)->name);        }
+        if isa::<StructDecl>(d)       { return ctx->get_spelling(cast::<StructDecl>(d)->name);       }
+        if isa::<UnionDecl>(d)        { return ctx->get_spelling(cast::<UnionDecl>(d)->name);        }
+        if isa::<InterfaceDecl>(d)    { return ctx->get_spelling(cast::<InterfaceDecl>(d)->name);    }
+        if isa::<EnumDecl>(d)         { return ctx->get_spelling(cast::<EnumDecl>(d)->name);         }
+        if isa::<TypeAliasDecl>(d)    { return ctx->get_spelling(cast::<TypeAliasDecl>(d)->name);    }
+        if isa::<ModuleDecl>(d)       { return ctx->get_spelling(cast::<ModuleDecl>(d)->name);       }
+        if isa::<FunctionDecl>(d)     { return ctx->get_spelling(cast::<FunctionDecl>(d)->name);     }
+        if isa::<ParamDecl>(d)        { return ctx->get_spelling(cast::<ParamDecl>(d)->name);        }
+        if isa::<VariableDecl>(d)     { return ctx->get_spelling(cast::<VariableDecl>(d)->name);     }
+        if isa::<FieldDecl>(d)        { return ctx->get_spelling(cast::<FieldDecl>(d)->name);        }
+        if isa::<EnumVariantDecl>(d)  { return ctx->get_spelling(cast::<EnumVariantDecl>(d)->name);  }
         return "<decl>";
     }
 

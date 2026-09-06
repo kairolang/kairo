@@ -342,17 +342,33 @@ class ASTParse
         // Prefer the leaf's real source token; else synthesize an identifier
         // token carrying the leaf imm (name-domain only, no source slice).
         var name_tok: Token;
-        if leaf.token != &null {
-            name_tok = *(leaf.token);
-        } else {
-            name_tok       = Token{};
-            name_tok.kind  = TokenKind::LitIdentifier;
-            name_tok.imm   = leaf.name;
-            name_tok.range = SourceRange::invalid();
+        // Both halves of this token must belong to THIS file.
+        //
+        //   imm:   `leaf.name` is a PP SymbolID -- a different name domain
+        //          from an imm index -- and `leaf.token` is a token of
+        //          whichever file spelled the path. The PP re-interns the
+        //          leaf into this file's imm space for exactly this
+        //          (ASTContext::module_leaf_imm).
+        //   range: TokenText resolves the interner FROM THE RANGE's fid, so
+        //          an invalid range means no interner and the name spells as
+        //          "$FALLBACK-MISSING-INTERN$". A zero-length range at the
+        //          file's start is both resolvable and honest: the module IS
+        //          the file.
+        var at = SourceRange::invalid();
+        if self.ctx->sm != &null {
+            var start = self.ctx->sm->get_loc(self.ctx->fid, 0);
+            at = SourceRange(start, start);
+        }
+        name_tok       = Token{};
+        name_tok.kind  = TokenKind::LitIdentifier;
+        name_tok.range = at;
+        if leaf.token != &null { name_tok.imm = leaf.token->imm; }
+        if self.ctx->module_leaf_imm != u32(-1) {
+            name_tok.imm = self.ctx->module_leaf_imm;
         }
 
         var tu_dc = static_cast::<*DeclContext>(self.tu);
-        var md = ModuleDecl::create(self.ctx, SourceRange::invalid(), name_tok, tu_dc);
+        var md = ModuleDecl::create(self.ctx, at, name_tok, tu_dc);
 
         // A2: share the TU's symbol table rather than owning a second one, so
         // member lookup through the module hits the same frozen decls. A file

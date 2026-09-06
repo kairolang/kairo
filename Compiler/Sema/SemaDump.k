@@ -123,8 +123,12 @@ fn sema_dump_kind_str(k: DeclKind) -> string {
 }
 
 /// \brief The decl's own spelled name, or "" for the unnamed kinds.
-fn sema_dump_decl_name(ctx: *ASTContext, d: *Decl) -> string {
-    if (d == &null) || (ctx == &null) { return ""; }
+fn sema_dump_decl_name(ctx_in: *ASTContext, d: *Decl) -> string {
+    if (d == &null) || (ctx_in == &null) { return ""; }
+    // Names are interned per file: a decl reached through an import must be
+    // spelled with ITS OWN context, not the importing TU's.
+    var ctx = NameLookup::ctx_of(d);
+    if ctx == &null { ctx = ctx_in; }
     if isa::<FunctionDecl>(d)      { return ctx->get_spelling(cast::<FunctionDecl>(d)->name);      }
     if isa::<VariableDecl>(d)      { return ctx->get_spelling(cast::<VariableDecl>(d)->name);      }
     if isa::<FieldDecl>(d)         { return ctx->get_spelling(cast::<FieldDecl>(d)->name);         }
@@ -144,8 +148,10 @@ fn sema_dump_decl_name(ctx: *ASTContext, d: *Decl) -> string {
 /// \brief One-line identity for a decl: `kind name @ line:col`. Deliberately
 ///        NOT the full DeclPrinter rendering   a binding row wants a compact
 ///        target, and a method body's worth of text in a table cell is noise.
-fn sema_dump_decl_brief(ctx: *ASTContext, d: *Decl) -> string {
+fn sema_dump_decl_brief(ctx_in: *ASTContext, d: *Decl) -> string {
     if d == &null { return "<null>"; }
+    var ctx = NameLookup::ctx_of(d);
+    if ctx == &null { ctx = ctx_in; }
     var kind = sema_dump_kind_str(d->kind);
     var name = sema_dump_decl_name(ctx, d);
     var at   = sema_dump_loc(ctx, d->range.start);

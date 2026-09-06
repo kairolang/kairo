@@ -172,6 +172,24 @@ class MemberLookup {
         return out->size() > before;
     }
 
+    // === Single-scope lookup, correct across TUs ==============================
+
+    /// Look one identifier up in ONE scope, whichever TU that scope lives in.
+    ///
+    /// A DeclContext's table is keyed by ITS OWN TU's imms (hard invariant
+    /// #2), so probing a foreign scope with this TU's imm index is not a miss
+    /// -- it is a silent WRONG answer whenever the two interners happen to
+    /// agree on an index. `spelling` is the escape hatch: for a foreign scope
+    /// the name is re-interned into that TU's imm space and probed there.
+    fn in_scope(self, dc: *DeclContext, name: DeclName, spelling: string) -> *OverloadCell {
+        if dc == &null { return &null; }
+        var tu = NameLookup::tu_of(dc);
+        if (tu == &null) || (tu == self.sc->tu) { return dc->lookup_symbol(name); }
+        var imms = self.sc->ctx->tcm->get_imm_table_for_fid(tu->fid);
+        if imms == &null { return &null; }
+        return SymbolTable::lookup_foreign(dc->dc_symbols, imms, spelling);
+    }
+
     /// Own table -> extensions -> bases. `seen` dedups the DAG so a virtual
     /// base reached twice contributes once.
     priv fn _walk_record(self, d: *Decl, name: DeclName, out: *vec::<*Decl>, seen: *set::<u64>) {

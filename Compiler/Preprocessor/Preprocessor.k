@@ -2460,6 +2460,20 @@ class PreProcessor {
 
         var ctx = self._gscope->get_or_create_context(
             fid, self._sm, self._tcm, self._diag, self._resolver, self._inv, mod_path);
+
+        // Re-intern the module path's leaf into this file's imm space. The
+        // path is spelled in the PP symbol table; the parser's synthesized
+        // ModuleDecl name token needs an imm, and the two are different name
+        // domains (see ASTContext::module_leaf_imm).
+        if (ctx->module_leaf_imm == u32(-1)) && (ctx->module_base.segments.size() > 0) {
+            var segs = &(ctx->module_base.segments);
+            var leaf = self._sym->resolve((*segs)[segs->size() - 1].name);
+            var imms = ctx->get_imm_table();
+            if (leaf != &null) && (imms != &null) {
+                ctx->module_leaf_imm = imms->intern_ident_copy(*leaf);
+            }
+        }
+
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         if tu == &null {
             tu = ctx->alloc_init_pp_cleanup::<TranslationUnit>(ctx, fid, ctx->hoisted, self._gscope);

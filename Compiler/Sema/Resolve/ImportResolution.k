@@ -304,8 +304,12 @@ class ImportResolution {
             t.kind = OverlayTargetKind::FunctionSet;
             t.cell = cell;
         } else {
-            t.kind = OverlayTargetKind::Type;
             t.decl = cell->get(0);
+            // A module named through a symbol path is still a module handle,
+            // not an entity: two files reopening it are one namespace, so it
+            // must not count toward the ambiguity tally (IMPORTS.md §4.3).
+            t.kind = (OverlayTargetKind::ModuleHandle) if (isa::<ModuleDecl>(t.decl))
+                     else (OverlayTargetKind::Type);
         }
         self._add(overlay, visible, t);
     }

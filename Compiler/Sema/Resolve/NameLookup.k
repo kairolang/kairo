@@ -19,6 +19,7 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
+import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
 import AST::Context::DeclContext::*;
 import AST::Context::SymbolTable::*;
@@ -139,6 +140,38 @@ class NameLookup {
     /// decls. Type aliases return null on purpose: alias expansion is
     /// TypeResolution's job; qualified lookup through an alias must go
     /// through T's expansion, not silently through here.
+    /// The TranslationUnit a scope ultimately lives in, or null.
+    static fn tu_of(dc: *DeclContext) -> *TranslationUnit {
+        var c = dc;
+        while c != &null {
+            if c->dc_kind == DeclContextKind::TranslationUnit {
+                return reinterpret_cast::<*TranslationUnit>(c);
+            }
+            c = c->dc_parent;
+        }
+        return &null;
+    }
+
+    /// The ASTContext a decl's NAMES live in, or null when it has no scope to
+    /// walk up from.
+    ///
+    /// Names are interned PER FILE, so spelling a decl reached through an
+    /// import with the importing TU's context yields the interner's fallback
+    /// text ("$FALLBACK-MISSING-INTERN$ ...") rather than the name. Anything
+    /// that renders a decl -- a diagnostic, a dump -- has to ask the decl
+    /// where its names live first.
+    static fn ctx_of(d: *Decl) -> *ASTContext {
+        if d == &null { return &null; }
+        var dc = NameLookup::context_of(d);
+        if dc == &null {
+            if d->semantic_dc != &null      { dc = reinterpret_cast::<*DeclContext>(d->semantic_dc); }
+            else if d->lexical_dc != &null  { dc = reinterpret_cast::<*DeclContext>(d->lexical_dc); }
+        }
+        var tu = NameLookup::tu_of(dc);
+        if tu == &null { return &null; }
+        return tu->ctx;
+    }
+
     static fn context_of(d: *Decl) -> *DeclContext {
         if d == &null { return &null; }
         if isa::<ClassDecl>(d)     { return static_cast::<*DeclContext>(cast::<ClassDecl>(d));     }
