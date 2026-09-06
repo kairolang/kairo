@@ -403,6 +403,24 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                     }
                 }
                 if cands.empty() {
+                    // Nothing in the module's own table. Its pub/prot imports
+                    // are part of its surface too, and they live in its
+                    // OVERLAY rather than that table (IMPORTS.md §4.4).
+                    for var si: usize = 0; si < a.scopes.size(); ++si {
+                        var rx = self.ml.reexport_lookup(a.scopes[si], spelled);
+                        if rx == &null { continue; }
+                        for var i: usize = 0; i < rx->size(); ++i {
+                            var d = rx->get(i);
+                            if d == &null { continue; }
+                            var dup = false;
+                            for var k: usize = 0; k < cands.size(); ++k {
+                                if cands[k] == d { dup = true; break; }
+                            }
+                            if !dup { cands.push_back(d); }
+                        }
+                    }
+                }
+                if cands.empty() {
                     var mn = ("the global scope") if (a.decl == &null) else (f"module '{self._decl_name_str(a.decl)}\x27");
                     self._err(at, f"no member named '{spelled}' in {mn}");
                     st->name->poison();

@@ -101,6 +101,17 @@ class ImportResolution {
 
         if id->is_wildcard {
             self._fold_wildcard(id, overlay, src_syms, fid);
+            // Re-export: the source's own pub/prot imports are part of its
+            // surface (RESOLUTION.md §2, two walls). DAG order guarantees the
+            // source overlay is complete, and transitively closed, by now.
+            //
+            // Only for a WILDCARD: a selective import names exactly what it
+            // takes, and a PLAIN import reaches re-exports through `foo::name`
+            // -- which needs no fold, because foo's ModuleDecl shares foo's
+            // TABLE while its re-exported names live in foo's OVERLAY, so the
+            // step consults that overlay directly
+            // (MemberLookup::reexport_lookup).
+            self._fold_reexports(id, overlay, src_tu, fid);
             return;
         }
         if id->has_items {
@@ -108,6 +119,37 @@ class ImportResolution {
             return;
         }
         self._fold_plain(id, overlay, src_tu, fid);
+    }
+
+    /// Fold every target the SOURCE TU re-exports (its own pub/prot imports)
+    /// under the same spelling. Carries each target's existing kind, vis,
+    /// cell/decl and src_fid: what is re-exported is the original thing, not
+    /// a copy of it. A target whose origin import is private is never folded
+    /// (wall 1).
+    priv fn _fold_reexports(self, id: *ImportDecl, overlay: *ImportOverlay,
+                            src_tu: *TranslationUnit, fid: u32) {
+        var src_overlay = src_tu->import_overlay;
+        if src_overlay == &null { return; }
+        var src_ctx = self.sc->g->get_context(fid);
+        if src_ctx == &null { return; }
+        var src_imms = src_ctx->get_imm_table();
+        if src_imms == &null { return; }
+
+        var rows = vec::<ImportOverlay::Row>();
+        src_overlay->collect_rows(rows);
+        for var r: usize = 0; r < rows.size(); ++r {
+            var e = rows[r].entry;
+            if e == &null { continue; }
+            var spelling = src_imms->get_ident(rows[r].key);
+            if spelling.size() == 0 { continue; }
+            for var i: usize = 0; i < e->targets.size(); ++i {
+                var t = e->targets[i];
+                var o = dyn_cast::<ImportDecl>(t.origin);
+                if o == &null { continue; }
+                if !(o->is_public() || o->is_protected()) { continue; }
+                self._add(overlay, spelling, t);
+            }
+        }
     }
 
     priv fn _fold_plain(self, id: *ImportDecl, overlay: *ImportOverlay,

@@ -190,6 +190,41 @@ class MemberLookup {
         return SymbolTable::lookup_foreign(dc->dc_symbols, imms, spelling);
     }
 
+    /// The names a module RE-EXPORTS, for a `mod::name` step that missed in
+    /// the module's own table.
+    ///
+    /// A file's `pub import bar` is part of its surface (RESOLUTION.md §2,
+    /// two walls), but a re-exported name lives in the source TU's OVERLAY,
+    /// not in its symbol table -- and a plain `import foo` in a third file
+    /// binds foo's ModuleDecl, whose shared table is exactly that symbol
+    /// table. So `foo::f` has to ask foo's overlay, which is what this does.
+    ///
+    /// Returns null unless some target under that key came in through a
+    /// pub/prot import; a PRIVATE import edge in the source is never surface
+    /// (wall 1).
+    fn reexport_lookup(self, scope: *DeclContext, spelling: string) -> *OverloadCell {
+        if scope == &null { return &null; }
+        var tu = NameLookup::tu_of(scope);
+        if tu == &null { return &null; }
+        if tu->import_overlay == &null { return &null; }
+
+        var imms = self.sc->ctx->tcm->get_imm_table_for_fid(tu->fid);
+        if imms == &null { return &null; }
+        var key = imms->find_ident(spelling);          // probe only; never intern.
+        if key == u32(-1) { return &null; }
+
+        var entry = tu->import_overlay->entry(key);
+        if entry == &null { return &null; }
+        var surface = false;
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            var o = dyn_cast::<ImportDecl>(entry->targets[i].origin);
+            if o == &null { continue; }
+            if o->is_public() || o->is_protected() { surface = true; break; }
+        }
+        if !surface { return &null; }
+        return tu->import_overlay->lookup_ident(key);
+    }
+
     /// Own table -> extensions -> bases. `seen` dedups the DAG so a virtual
     /// base reached twice contributes once.
     priv fn _walk_record(self, d: *Decl, name: DeclName, out: *vec::<*Decl>, seen: *set::<u64>) {
