@@ -33,6 +33,19 @@ class TargetOptions {
     pub var m32:       bool   = false;
     pub var m64:       bool   = false;
 
+    /// \brief Pointer width in bits. DERIVED, not parsed: a width that
+    ///        disagrees with the triple is not a target, so there is no flag.
+    ///
+    /// \details Filled by CompilerInstance::_apply_invocation from
+    ///          llvm::Triple::getArchPointerBitWidth() on the effective
+    ///          triple, after -m32/-m64 have been applied via the Triple's
+    ///          32/64-bit arch variants -- the same rewrite clang performs. A
+    ///          value of 0 means it was never filled (hand-built invocation
+    ///          that skipped _apply_invocation); consumers treat 0 as 64.
+    ///          Config/ stays LLVM-free by having the driver write this rather
+    ///          than computing it here.
+    pub var pointer_width: usize = 0;
+
     static fn from_args(args: ref!(ParsedArgs)) -> TargetOptions {
         var o = TargetOptions();
         (o.triple)     = args.get_string("target");

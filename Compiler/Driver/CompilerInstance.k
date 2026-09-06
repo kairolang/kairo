@@ -1205,6 +1205,28 @@ class CompilerInstance {
         } else {
             Logger::set_stream_level(Logger::Level::Info);
         }
+
+        // Pointer width for usize/isize, off the effective triple. -m32/-m64
+        // are applied as arch-variant rewrites first, matching clang: they
+        // change WHICH triple we compile for, and the width follows from that.
+        // Written onto the invocation so sema reads a plain number and Config/
+        // never has to see LLVM.
+        var triple_str = std::string_to_nstring(self._effective_triple());
+        var width: usize = 64;
+        
+        var tt = llvm::Triple(llvm::Triple::normalize(triple_str.raw()));
+        if self._inv.target.m32      {
+            tt = tt.get32BitArchVariant();
+        } else if (self._inv.target.m64) {
+            tt = tt.get64BitArchVariant();
+        }
+        
+        var w = tt.getArchPointerBitWidth();
+        if w != 0 {
+            width = static_cast<usize>(w);
+        }
+        
+        (self.invocation().target.pointer_width) = width;
     }
 }
 
