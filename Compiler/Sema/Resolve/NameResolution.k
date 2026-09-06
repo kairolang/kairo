@@ -244,6 +244,7 @@ class NameBindingVerifier derives RecursiveASTVisitor::<NameBindingVerifier> {
         if n == &null { return true; }
         if n->is_bound() || n->is_deferred() { return true; }
         if n->is_poisoned() { return true; }   // unbound BECAUSE it was diagnosed.
+        if n->foreign      { return true; }    // unbound BY the bare-ffi gate.
 
         self.violations += 1;
         var nm = self.sc->ctx->get_spelling(n->name);
@@ -304,6 +305,18 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// shadow a param instead of colliding with it.
     priv var _suppress_next_block_frame: bool = false;
 
+    /// TEMPORARY, and removed by the clang extraction pass (IMPORTS.md §5).
+    ///
+    /// A BARE `ffi "c++" import "h.hh"` puts the header's names in unqualified
+    /// scope, but the header's decls exist only inside clang until extraction
+    /// hangs real Decls off the anchor. Until then an unqualified miss in such
+    /// a TU cannot be distinguished from a typo, so it is left unbound and
+    /// marked foreign rather than diagnosed. This TURNS TYPOS INTO DEFERRED
+    /// CLANG ERRORS -- exactly what a frontend exists to prevent -- which is
+    /// why it is gated on the presence of a bare ffi import in THIS TU and why
+    /// extraction is the thing that deletes it, not an optional improvement.
+    priv var _has_bare_ffi: bool = false;
+
     fn NameResolution(self, sc: *SemaContext) {
         self.sc = sc;
     }
@@ -321,6 +334,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._assert_entry(tu);
 
         self._self_imm = self.sc->imm_table()->intern_ident_copy("self");
+        self._has_bare_ffi = self._compute_has_bare_ffi(tu);
 
         self._validate_decls(tu);          // N(a)
         self._bind(tu);                    // N(b)
@@ -1135,6 +1149,19 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// UnresolvedConstructorPattern and is genuinely ambiguous between a
     /// nullary constructor and a binder until the scrutinee type is known,
     /// so it stays deferred to T.
+    /// Does this TU carry a BARE ffi import (no `as` alias)? Computed once;
+    /// see _has_bare_ffi.
+    priv fn _compute_has_bare_ffi(self, tu: *TranslationUnit) -> bool {
+        for var i: usize = 0; i < tu->imports.size(); ++i {
+            var slot = tu->imports[i];
+            if slot == &null { continue; }
+            var id = dyn_cast::<ImportDecl>(*slot);
+            if id == &null { continue; }
+            if id->has_ffi_linkage() && !id->has_alias { return true; }
+        }
+        return false;
+    }
+
     priv fn _declare_local(self, imm: u32, d: *Decl, at: SourceRange) {
         if imm == u32(-1) { return; }
         if self.locals.empty() { return; }
@@ -1456,6 +1483,15 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var h = self._resolve_name(imm);
 
         if !h.found {
+            if self._has_bare_ffi {
+                // See _has_bare_ffi: the name may be the header's. No poison
+                // (T must not treat it as errored) and no diagnostic.
+                n->foreign = true;
+                self.sc->trace.use_site(imm, n->range, &null, TraceVia::Miss,
+                                        &null, usize(-1), 0, false,
+                                        &null, TraceVia::None, &null, true);
+                return true;
+            }
             var nm = self.sc->ctx->get_spelling(n->name);
             self.sc->diag->report(DiagID::R001E, n->range.start,
                 f"use of undeclared identifier '{nm}\x27"

@@ -219,6 +219,12 @@ class NamedIdentExpr derives Expr {
     pub var resolved_decl:  *Decl         = &null;
     pub var candidate_cell: *OverloadCell = &null;
 
+    /// A FOURTH state, and a temporary one: both slots null, NOT poisoned,
+    /// no diagnostic, because this TU has a bare `ffi` import and the name
+    /// may be the header's. Written by N's bare-ffi gate; removed with the
+    /// gate when the clang extraction pass lands (IMPORTS.md §5).
+    pub var foreign: bool = false;
+
     fn is_bound(self)    -> bool { return self.resolved_decl != &null; }
     fn is_deferred(self) -> bool {
         return (self.resolved_decl == &null) && (self.candidate_cell != &null);

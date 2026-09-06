@@ -683,8 +683,12 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         self._p.put(" ");
 
         if r->via == TraceVia::Miss {
-            self._p.paint(Color::Error, "<UNRESOLVED>");
-            self._p.paint(Color::Dim, "  (diagnosed: no such name in any scope)");
+            if r->foreign_gate {
+                self._p.paint(Color::Dim, "<foreign: unqualified name from a bare ffi import>");
+            } else {
+                self._p.paint(Color::Error, "<UNRESOLVED>");
+                self._p.paint(Color::Dim, "  (diagnosed: no such name in any scope)");
+            }
             self._p.newline();
             return;
         }
@@ -919,6 +923,11 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
                 self._p.put(sema_dump_decl_brief(self.ctx, cell->get(i)));
                 self._p.newline();
             }
+        } else if n->foreign {
+            // The bare-ffi gate: unbound on purpose, not a miss. Not counted
+            // as unresolved -- there is nothing here for anyone to fix.
+            self._p.paint(Color::Dim, "<foreign: unqualified name from a bare ffi import>");
+            self._p.newline();
         } else {
             self._n_unresolved += 1;
             if n->is_poisoned() {

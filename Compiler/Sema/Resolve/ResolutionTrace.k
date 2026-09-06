@@ -175,6 +175,10 @@ class TraceRow {
     pub var cell_size: usize        = 0;     ///< >0: deferred overload set.
     pub var poisoned:  bool         = false; ///< diagnosed at this use.
 
+    /// Use + Miss: the miss was ALLOWED by the bare-ffi gate rather than
+    /// diagnosed (IMPORTS.md §5). Temporary; goes with the gate.
+    pub var foreign_gate: bool = false;
+
     fn TraceRow(self) { }
 }
 
@@ -236,7 +240,7 @@ class ResolutionTrace {
     fn use_site(self, imm: u32, at: SourceRange, bound: *Decl, via: TraceVia,
                 found_in: *DeclContext, frame: usize, cell_size: usize,
                 poisoned: bool, shadowed: *Decl, shadowed_via: TraceVia,
-                shadowed_in: *DeclContext) {
+                shadowed_in: *DeclContext, foreign_gate: bool = false) {
         if !self.enabled { return; }
         var r = TraceRow{};
         r.kind              = TraceRowKind::Use;
@@ -249,6 +253,7 @@ class ResolutionTrace {
         r.frame             = frame;
         r.cell_size         = cell_size;
         r.poisoned          = poisoned;
+        r.foreign_gate      = foreign_gate;
         r.shadowed          = shadowed;
         r.shadowed_via      = shadowed_via;
         r.shadowed_found_in = shadowed_in;
