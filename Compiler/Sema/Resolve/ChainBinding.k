@@ -77,6 +77,7 @@ enum AnchorKind derives u8 {
     Value,           ///< a value with a canonical type: `.`/`->` steps do member lookup.
     NeedsInference,  ///< a value whose type is not declared.
     Dependent,       ///< rooted in a generic parameter.
+    Foreign,         ///< behind an ffi anchor: the header's names live in clang.
     Errored,         ///< already diagnosed; stay silent.
 }
 
@@ -100,6 +101,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
     pub var n_cands:     usize = 0;
     pub var n_inference: usize = 0;
     pub var n_dependent: usize = 0;
+    pub var n_foreign:   usize = 0;
     pub var n_errored:   usize = 0;
 
     priv var _self_imm: u32 = u32(-1);
@@ -228,6 +230,19 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 a.ty   = c;
                 return a;
             }
+            case DeclKind::ImportDecl {
+                // `ffi "c++" import "h.hh" as my_h`: `my_h` is a scope FICTION.
+                // The header's decls exist only inside clang until the
+                // extraction pass, so every step after it is Foreign: no decl,
+                // no diagnostic, no poison (IMPORTS.md §5).
+                if cast::<ImportDecl>(d)->has_ffi_linkage() {
+                    a.kind = AnchorKind::Foreign;
+                    a.decl = d;
+                    return a;
+                }
+                a.kind = AnchorKind::Errored;
+                return a;
+            }
             case DeclKind::GenericParamDecl {
                 a.kind = AnchorKind::Dependent;
                 a.decl = d;
@@ -329,6 +344,12 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         if a.kind == AnchorKind::Dependent {
             self._record(loc, MemberOutcome::Dependent, &null, 0, a.decl);
             self.n_dependent += 1;
+            return a;
+        }
+        if a.kind == AnchorKind::Foreign {
+            // Foreign is absorbing: every later step is foreign too.
+            self._record(loc, MemberOutcome::Foreign, &null, 0, a.decl);
+            self.n_foreign += 1;
             return a;
         }
 

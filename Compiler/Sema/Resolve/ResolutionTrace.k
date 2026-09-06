@@ -55,6 +55,7 @@ enum MemberOutcome derives u8 {
     NeedsInference,  ///< base has no declared type (inferred var, call result).
     Dependent,       ///< base is rooted in a generic param; M2 owns it.
     Errored,         ///< diagnosed here.
+    Foreign,         ///< behind an ffi anchor: clang resolves it, not us.
 }
 
 /// \class MemberResult

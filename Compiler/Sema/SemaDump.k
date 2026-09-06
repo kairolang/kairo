@@ -758,6 +758,9 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
                 self._p.paint(Color::Error, "<UNRESOLVED>");
                 self._p.paint(Color::Dim, "  (diagnosed)");
             }
+            case MemberOutcome::Foreign {
+                self._p.paint(Color::Dim, "<foreign: resolved by clang   ffi header>");
+            }
             default {
                 self._p.paint(Color::Dim, "<deferred>");
             }

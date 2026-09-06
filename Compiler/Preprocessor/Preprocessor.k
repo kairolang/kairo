@@ -354,15 +354,54 @@ class PPWalker
             //   (3) backend: hand clang the cached ASTUnit instead of a cc1
             //       `-include`, avoiding a reparse.
             // The parser CANNOT own this: it runs after disambig decisions are
-            // made, too late for (1). Until that lands, ffi imports are dropped
-            // here and contribute nothing to lookup.
-            self._src->next(); // ffi
-            self._src->next(); // lang
-            self._src->next(); // import
+            // made, too late for (1).
+            //
+            // Until that lands the header's DECLS do not exist, but the import
+            // itself does: phase I binds `as z` to an anchor and ChainBinding
+            // treats every step off it as Foreign (IMPORTS.md §5), and codegen
+            // needs the header list for its #includes. So the node is built
+            // and recorded here -- no path resolution, no fid, no import edge
+            // -- and the tokens are still dropped from the output buffer.
+            var ffi_kw   = self._src->next(); // ffi
+            var lang_tok = self._src->next(); // "lang"
+            self._src->next();                // import
+
+            var header_tok = Token{};
+            var alias_tok  = Token{};
+            var has_alias  = false;
+            var last       = lang_tok;
+            var saw_header = false;
             while !self._src->at_eof() {
+                if self._src->peek(0).kind == TokenKind::OpSemicolon {
+                    last = self._src->next();
+                    break;
+                }
                 var t = self._src->next();
-                if t.kind == TokenKind::OpSemicolon { break; }
+                last = t;
+                if (!saw_header) && (t.kind == TokenKind::LitString) {
+                    header_tok = t;
+                    saw_header = true;
+                    continue;
+                }
+                if t.kind == TokenKind::KwAs {
+                    if self._src->peek(0).kind == TokenKind::LitIdentifier {
+                        alias_tok = self._src->next();
+                        has_alias = true;
+                        last      = alias_tok;
+                    }
+                    continue;
+                }
+                if t.kind == TokenKind::TkNewLine { break; }
             }
+
+            var fr = ffi_kw.range | last.range;
+            var fid_node = ImportDecl::create(self._ctx, fr, ImportKind::Native);
+            fid_node->header    = header_tok;
+            fid_node->alias     = alias_tok;
+            fid_node->has_alias = has_alias;
+            fid_node->range     = fr;
+            fid_node->set_ffi_linkage(self._ffi_lang_kind(lang_tok), lang_tok, fr);
+            self._tu->imports.push(static_cast::<*Decl>(fid_node));
             return;
         }
 
@@ -447,6 +486,15 @@ class PPWalker
         id->set_visibility(self._u8_to_vis(vis), spec->range);
         id->range     = spec->range;
         return id;
+    }
+
+    /// `"c"` -> C, anything else -> Cpp. The parser owns the real
+    /// classification and its diagnostic; the PP only needs enough to make
+    /// has_ffi_linkage() true and to carry the language to codegen.
+    priv fn _ffi_lang_kind(self, lang_tok: Token) -> LinkageKind {
+        var s = TokenText::resolve(lang_tok, self._tcm).get_text();
+        if (s == "\"c\"") || (s == "c") { return LinkageKind::C; }
+        return LinkageKind::Cpp;
     }
 
     priv fn _u8_to_vis(self, vis: u8) -> VisibilityKind {
