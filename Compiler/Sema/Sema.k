@@ -33,6 +33,8 @@
 import Sema::SemaContext::*;
 import Sema::Resolve::ImportResolution::*;
 import Sema::Resolve::NameResolution::*;
+import Sema::Resolve::TypeResolve::*;
+import Sema::Resolve::ChainBinding::*;
 import Sema::Expand::RequiresDesugar::*;
 import Sema::Verify::LoopContextCheck::*;
 import Sema::Verify::ArmOrderCheck::*;
@@ -212,13 +214,16 @@ class Sema {
     }
 
     /// Phase T. Every non-dependent Type node -> canonical; dependent
-    /// types MARKED, not resolved (hard invariant #5). Arity /
-    /// unknown-type-name errors live here.
+    /// types MARKED, not resolved (hard invariant #5). Then every chain
+    /// step decidable from declared types is bound (ChainBinding: base-walk
+    /// PRE is T complete, RESOLUTION.md §2b). Arity / unknown-type-name /
+    /// no-member errors live here.
     priv fn _stage_type_resolution(self) -> bool {
         if self._already(SemaPhase::TypesResolved) { return true; }
         var _t = TimeRegion("T-types");
         self.sc.require_phase(SemaPhase::NamesResolved);
-        // TODO(sema): TypeResolution(&self.sc).run();
+        { var _p = TimeRegion("TypeResolve");  TypeResolution(&self.sc).run(); }
+        { var _p = TimeRegion("ChainBinding"); ChainBinding(&self.sc).run();   }
         self.sc.advance_phase(SemaPhase::TypesResolved);
         return !self._hard_stop();
     }

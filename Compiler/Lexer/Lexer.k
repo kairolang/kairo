@@ -1211,7 +1211,7 @@ class Lexer {
         // Tuple-index position: the previous token is a member-access separator
         // AND this number is glued to it. `_last_sym` names which separator, so
         // adjacency reduces to "the byte before us is that separator's last
-        // byte" — `.` for `.`/`?.`, `>` for `->`/`?->`. A gap (`t. 0.5`) leaves
+        // byte" `.` for `.`/`?.`, `>` for `->`/`?->`. A gap (`t. 0.5`) leaves
         // the number an ordinary float and lets the parser own the complaint.
         ctx.is_tuple_index = false;
         if (!is_dot)
@@ -1328,7 +1328,7 @@ class Lexer {
                 // lexes as 1.0, which (a) makes `1.foo()` unreachable and (b) is
                 // ambiguous with `1 . <tuple-index>` now that `.N` is member access.
                 // Raw byte compare is safe: digits are ASCII and no continuation byte
-                // of a multibyte sequence is < 0x80 — same reasoning as the `..` check
+                // of a multibyte sequence is < 0x80 same reasoning as the `..` check
                 // directly above.
                 if (q >= end) || !Lexer::is_base_digit(normalize_char32(q[0]), ctx.base) {
                     self.commit_cursor(base, p, step);
@@ -1464,7 +1464,7 @@ class Lexer {
     ///
     /// \details `t.0` must lex as `t` `.` `0`, but `x = .5` must still lex `.5`
     ///          as a float. Only what came before the dot distinguishes them.
-    ///          `Name` covers identifiers and keywords alike — deliberately, so
+    ///          `Name` covers identifiers and keywords alike deliberately, so
     ///          `self.0` works. A keyword followed by `.` + digit (`return.5`)
     ///          is a parse error under either reading, so the conflation costs
     ///          nothing but the wording of a diagnostic nobody will hit.

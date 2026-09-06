@@ -127,7 +127,6 @@ import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import Token::TokenPrinter::*;
-import Sema::Lower::NullableTypeLowering::*;
 import Sema::Sema::*;
 import Sema::SemaDump::*;
 import Sema::SemaContext::*;
@@ -1109,13 +1108,6 @@ class CompilerInstance {
         var parsed_tu = parser.parse();
         ctx->tu = reinterpret_cast::<*void>(parsed_tu);
 
-        var lowered_tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
-        if lowered_tu != &null {
-            var pass = NullableTypeLowering{};
-            pass.ctx = ctx;
-            pass.run(lowered_tu);
-        }
-
         return true;
     }
 
@@ -1438,16 +1430,6 @@ fn FrontendAction::_parse() -> bool {
         }
     }
 
-    for fid in fids {
-        var lower_ctx = self._global_scope->get_context(fid);
-        if lower_ctx == &null { continue; }
-        var lower_tu = reinterpret_cast::<*TranslationUnit>(lower_ctx->tu);
-        if lower_tu == &null { continue; }
-        var pass = NullableTypeLowering{};
-        pass.ctx = lower_ctx;
-        pass.run(lower_tu);
-    }
-
     // --- print-ast / mem stats: unchanged -----------------------------------
     var ast_mode = self._ci->invocation().frontend.print_ast;
     if !ast_mode.empty() {
@@ -1546,7 +1528,7 @@ fn FrontendAction::_sema() -> bool {
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
         if tu == &null { continue; }
         var sem = Sema(ctx, self._global_scope);
-        sem.run_to(SemaPhase::NamesResolved);
+        sem.run_to(SemaPhase::TypesResolved);
         ctx->diag_sink.drain_into(self._ci->diag());
 
         // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
