@@ -299,9 +299,9 @@ class ChainExpr derives Expr {
     /// \brief what this step names. `access_kind` is the separator; this is
     ///        the thing on the right of it.
     enum StepTarget derives u8 {
-        Name,        ///< an identifier — `name` is set
-        Operator,    ///< an overloaded operator — `op_tokens` is set
-        TupleIndex,  ///< a tuple element ordinal — `index` is set
+        Name,        ///< an identifier `name` is set
+        Operator,    ///< an overloaded operator `op_tokens` is set
+        TupleIndex,  ///< a tuple element ordinal `index` is set
     }
 
     /// \class Step

@@ -69,6 +69,29 @@ class ASTContext {
                                                                       // but replace with TranslationUnit once stage1 is self-hosting
     pub var fid:           u32; // needed to get the right lexer
 
+    // Arena reset frees the BLOCKS; it does not run destructors. Anything
+    // allocated into an arena whose type is not trivially destructible   it
+    // holds a vec, a libcxx::unordered_map, a string   leaks that heap
+    // storage on every reset unless its destructor runs first.
+    //
+    // Harmless when a context is built once and torn down once. Not harmless
+    // under incremental reparse, where the leak repeats per edit.
+    //
+    // Register such allocations via the *_cleanup helpers below and
+    // release_from() will run the destructor (placement dtor only   the
+    // storage itself still belongs to the arena) before resetting.
+
+    struct ArenaCleanup {
+        var obj: *void;
+        var run: fn(*void);
+    }
+
+    priv var _cleanup_pp:    vec::<ArenaCleanup>;
+    priv var _cleanup_index: vec::<ArenaCleanup>;
+    priv var _cleanup_ast:   vec::<ArenaCleanup>;
+    priv var _cleanup_sema:  vec::<ArenaCleanup>;
+
+
     fn ASTContext(
         self,
         fid:       u32,
@@ -152,27 +175,6 @@ class ASTContext {
         return static_cast::<*T>(mem);
     }
 
-    // Arena reset frees the BLOCKS; it does not run destructors. Anything
-    // allocated into an arena whose type is not trivially destructible   it
-    // holds a vec, a libcxx::unordered_map, a string   leaks that heap
-    // storage on every reset unless its destructor runs first.
-    //
-    // Harmless when a context is built once and torn down once. Not harmless
-    // under incremental reparse, where the leak repeats per edit.
-    //
-    // Register such allocations via the *_cleanup helpers below and
-    // release_from() will run the destructor (placement dtor only   the
-    // storage itself still belongs to the arena) before resetting.
-
-    struct ArenaCleanup {
-        var obj: *void;
-        var run: fn(*void);
-    }
-
-    priv var _cleanup_pp:    vec::<ArenaCleanup>;
-    priv var _cleanup_index: vec::<ArenaCleanup>;
-    priv var _cleanup_ast:   vec::<ArenaCleanup>;
-
     priv fn _run_cleanups(self, list: *vec::<ArenaCleanup>) {
         // reverse order: later allocations may reference earlier ones.
         var n = list->size();
@@ -192,6 +194,19 @@ class ASTContext {
             c.obj = static_cast<void *>(p);
             c.run = [](void *q) { static_cast<T *>(q)->~T(); };
             this->_cleanup_ast.push_back(c);
+            return p;
+        }
+    }
+
+    inline "c++" { // PORT(trivial)
+        template <typename T, typename ...Args>
+        T *alloc_init_sema_cleanup(Args &&...args) {
+            void *mem = this->sema_alloc.alloc(sizeof(T), alignof(T));
+            T *p = ::new (mem) T(libcxx::forward<Args>(args)...);
+            ArenaCleanup c;
+            c.obj = static_cast<void *>(p);
+            c.run = [](void *q) { static_cast<T *>(q)->~T(); };
+            this->_cleanup_sema.push_back(c);
             return p;
         }
     }
@@ -292,6 +307,7 @@ class ASTContext {
         }
 
         if from <= TUStage::Sema {
+            self._run_cleanups(&(self._cleanup_sema));
             self.sema_alloc.reset_fast();
         }
 
@@ -315,6 +331,7 @@ class ASTContext {
     /// registered destructors are not   run them here or every context
     /// teardown leaks the heap members of its non-trivial allocations.
     fn op delete (self) {
+        self._run_cleanups(&(self._cleanup_sema));
         self._run_cleanups(&(self._cleanup_ast));
         self._run_cleanups(&(self._cleanup_index));
         self._run_cleanups(&(self._cleanup_pp));
