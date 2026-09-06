@@ -25,9 +25,18 @@ class SearchRoot {
     pub var root:      own::<DirEntry>;
     pub var priority:  u32;
 
-    fn SearchRoot(self, path: Path, priority: u32, ext_cfg: *FileExtensions) {
+    /// The root's MODULE name: the leading segment every module under it
+    /// carries (IMPORTS.md §2.1). `-I ~/foo` registers a root named `foo`, so
+    /// `~/foo/a.k` is `foo::a` from every importer. Empty for the ENTRY root,
+    /// the one and only unnamed root and therefore the only one whose files
+    /// are importable with a bare first segment.
+    pub var name: string = "";
+
+    fn SearchRoot(self, path: Path, priority: u32, ext_cfg: *FileExtensions,
+                  name: string = "") {
         self.base_path     = path;
         self.priority      = priority;
+        self.name          = name;
         self.ext_cfg       = ext_cfg;
         self.root          = std::create::<DirEntry>(path.filename(), true);
         self.root->fs_path = path;

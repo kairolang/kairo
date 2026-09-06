@@ -126,6 +126,19 @@ class ModuleNameCollision {
     pub var case_only: bool = false;   ///< true: differ only by case (portability).
 }
 
+/// \class RootNameCollision
+/// \brief two search roots registered under one module name.
+///
+/// \details A root's name is the leading segment of every module under it, so
+///          two roots sharing one name make a module path mean two files.
+///          A build error, reported before anything is parsed; never
+///          first-wins, never a merge (IMPORTS.md §2.1).
+class RootNameCollision {
+    pub var name: string;
+    pub var a:    string;   ///< the root already registered.
+    pub var b:    string;   ///< the one that collided with it.
+}
+
 /// \class ImportResolver
 /// \brief resolves qualified module paths and file names against a set of
 ///        indexed search roots
@@ -159,6 +172,10 @@ class ImportResolver {
     priv var _swept_dirs:       set::<string>;
     priv var _collisions:       vec::<ModuleNameCollision>;
 
+    /// Duplicate root names found at build_index time. Same deferral reason as
+    /// _collisions: the resolver has no DiagEngine.
+    priv var _root_collisions:  vec::<RootNameCollision>;
+
     /// \class Builder
     /// \brief fluent builder for constructing an `ImportResolver`
     ///
@@ -176,6 +193,7 @@ class ImportResolver {
     pub class Builder {
         priv var _cwd:           std::Nullable::<Path>;
         priv var _include_paths: vec::<Path>;
+        priv var _include_names: vec::<string>;   ///< parallel to _include_paths.
         priv var _ext_cfg:       *FileExtensions;
         priv var _pool:          *ThreadPool;
 
@@ -183,6 +201,7 @@ class ImportResolver {
         fn Builder(self) {
             self._cwd           = null;
             self._include_paths = vec::<Path>();
+            self._include_names = vec::<string>();
             self._ext_cfg       = &null;
             self._pool          = &null;
         }
@@ -198,8 +217,13 @@ class ImportResolver {
         /// \brief appends a single include path to the search list
         /// \param path the directory to add
         /// \return pointer to self for chaining
-        fn add_include(self, path: Path) -> ref!(Builder) {
+        /// \param name the root's MODULE name -- the leading segment every
+        ///             module under it carries (IMPORTS.md §2.1). Empty means
+        ///             "use the directory's basename"; only the ENTRY root is
+        ///             legitimately unnamed.
+        fn add_include(self, path: Path, name: string = "") -> ref!(Builder) {
             self._include_paths.push_back(path);
+            self._include_names.push_back((name) if (name.size() > 0) else (path.filename()));
             return self;
         }
 
@@ -208,7 +232,7 @@ class ImportResolver {
         /// \return pointer to self for chaining
         fn add_includes(self, paths: vec::<Path>) -> ref!(Builder) {
             for p: Path in paths {
-                self._include_paths.push_back(p);
+                self.add_include(p, "");
             }
             return self;
         }
@@ -237,7 +261,8 @@ class ImportResolver {
             // state is uninitialised. Async indexing bought nothing anyway since
             // CompilationBatch::run() calls wait_for_index() before dispatching
             // any TU tasks - the spin was immediate and free-threaded for zero gain.
-            resolver->build_index(cwd_path, self._include_paths, &null);
+            resolver->build_index(cwd_path, self._include_paths, &null,
+                                  self._include_names);
             return resolver;
         }
     }
@@ -261,7 +286,8 @@ class ImportResolver {
     /// \param cwd the current working directory (priority 0)
     /// \param include_paths additional include directories (priority 1+)
     /// \param pool optional thread pool; currently unused in body but reserved for parallel indexing
-    fn build_index(self, cwd: Path, include_paths: vec::<Path>, pool: *ThreadPool = &null) {
+    fn build_index(self, cwd: Path, include_paths: vec::<Path>, pool: *ThreadPool = &null,
+                   include_names: vec::<string> = vec::<string>()) {
         Logger::info(Logger::Stage::Preprocessor,
             f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={include_paths.size() + 1}");
 
@@ -274,9 +300,23 @@ class ImportResolver {
         }
 
         var priority: u32 = 1;
-        for p: Path in include_paths {
+        for var i: usize = 0; i < include_paths.size(); ++i {
+            var p = include_paths[i];
             if p.exists() && p.is_directory() {
-                var root = std::create::<SearchRoot>(p, priority, self._ext_cfg);
+                var nm = (include_names[i]) if (i < include_names.size()) else ("");
+                if nm.size() == 0 { nm = p.filename(); }
+                // Two roots claiming one name is a build error, never
+                // first-wins and never a merge (IMPORTS.md §2.1). Recorded
+                // here and drained by the caller, which owns a DiagEngine.
+                for var k: usize = 0; k < self._roots.size(); ++k {
+                    if self._roots[k]->name != nm { continue; }
+                    var c = RootNameCollision{};
+                    c.name = nm;
+                    c.a    = self._roots[k]->base_path.full_path();
+                    c.b    = p.full_path();
+                    self._root_collisions.push_back(c);
+                }
+                var root = std::create::<SearchRoot>(p, priority, self._ext_cfg, nm);
                 self._roots.push_back(root);
                 priority += 1;
             }
@@ -467,18 +507,59 @@ class ImportResolver {
             }
         }
 
-        // 2. root candidate (priority order: cwd, then -m/-I dirs).
+        // 2. root candidates, in the order IMPORTS.md §2.1 fixes:
+        //      a. the importing file's OWN root, with the path as written
+        //      b. any root whose NAME is the leading segment, with the rest
+        //      c. every other root with the path as written -- except that a
+        //         file under a NAMED root never falls back into the entry
+        //         root: the entry TU is a leaf of the import graph and nothing
+        //         outside it can name it.
+        var own_root: *SearchRoot = &null;
+        if has_from { own_root = self.root_for_dir(from_dir); }
+
         var root_hit  = false;
         var root_path: Path;
-        var ri: usize = 0;
-        while (ri < self._roots.size()) && (!root_hit) {
-            var h = self._probe_root(self._roots[ri], segments, is_module);
+
+        if own_root != &null {
+            var h = self._probe_root(own_root, segments, is_module);
             if h.found {
                 root_hit  = true;
                 root_path = h.path;
                 if !sib_hit { out.file_dir = h.file_dir; }
             }
+        }
+
+        if (!root_hit) && (segments.size() > 1) {
+            var tail = vec::<string>();
+            for var i: usize = 1; i < segments.size(); ++i { tail.push_back(segments[i]); }
+            var ni: usize = 0;
+            while (ni < self._roots.size()) && (!root_hit) {
+                var r = self._roots[ni];
+                ni += 1;
+                if r->name.size() == 0 { continue; }
+                if r->name != segments[0] { continue; }
+                var h = self._probe_root(r, tail, is_module);
+                if h.found {
+                    root_hit  = true;
+                    root_path = h.path;
+                    if !sib_hit { out.file_dir = h.file_dir; }
+                }
+            }
+        }
+
+        var from_library = (own_root != &null) && (own_root->name.size() > 0);
+        var ri: usize = 0;
+        while (ri < self._roots.size()) && (!root_hit) {
+            var r = self._roots[ri];
             ri += 1;
+            if r == own_root { continue; }                       // already tried
+            if from_library && (r->name.size() == 0) { continue; } // library -> entry root
+            var h = self._probe_root(r, segments, is_module);
+            if h.found {
+                root_hit  = true;
+                root_path = h.path;
+                if !sib_hit { out.file_dir = h.file_dir; }
+            }
         }
 
         if (!sib_hit) && (!root_hit) { return out; }
@@ -522,6 +603,7 @@ class ImportResolver {
         var out = vec::<string>();
 
         var best_rel = "";
+        var best_name = "";
         var best_len: usize = 0;
         for var i: usize = 0; i < self._roots.size(); ++i {
             var root = self._roots[i];
@@ -531,11 +613,18 @@ class ImportResolver {
             // shadowed by an outer one into a longer, wrong identity.
             var base_len = root->base_path.full_path().size();
             if (best_rel.size() == 0) || (base_len > best_len) {
-                best_rel = rel;
-                best_len = base_len;
+                best_rel  = rel;
+                best_name = root->name;
+                best_len  = base_len;
             }
         }
         if best_rel.size() == 0 { return out; }
+
+        // The root's name is the leading segment: `~/foo/a.k` under `-I ~/foo`
+        // is `foo::a` from EVERY importer, which is what makes a file's
+        // identity -- and therefore its C++ namespace -- independent of who
+        // imported it. The entry root is unnamed and contributes no prefix.
+        if best_name.size() > 0 { out.push_back(self.module_ident(best_name)); }
 
         var parts = self.split_path(best_rel);
         if parts.size() == 0 { return out; }
@@ -566,6 +655,37 @@ class ImportResolver {
         var out = self._collisions;
         self._collisions.clear();
         return out;
+    }
+
+    /// \brief drains duplicate-root-name findings from build_index.
+    ///
+    /// \details Fatal, and reported BEFORE anything is parsed: a module path
+    ///          under a duplicated root name means two different files.
+    fn take_root_collisions(self) -> vec::<RootNameCollision> {
+        var out = self._root_collisions;
+        self._root_collisions.clear();
+        return out;
+    }
+
+    /// \brief the deepest registered root that contains \p dir, or null.
+    ///
+    /// \details "The importing file's own root": what its unqualified imports
+    ///          resolve against first, and the root whose name prefixes its
+    ///          own module path (IMPORTS.md §2.1).
+    fn root_for_dir(self, dir: Path) -> *SearchRoot {
+        var best: *SearchRoot = &null;
+        var best_len: usize = 0;
+        for var i: usize = 0; i < self._roots.size(); ++i {
+            var r = self._roots[i];
+            if self._relative_to(dir, r->base_path).size() == 0 {
+                // _relative_to returns empty for "not under"; the root dir
+                // itself is handled by the full-path equality below.
+                if dir.full_path() != r->base_path.full_path() { continue; }
+            }
+            var len = r->base_path.full_path().size();
+            if (best == &null) || (len > best_len) { best = r; best_len = len; }
+        }
+        return best;
     }
 
     /// \brief the module identity a filename claims: `-` folded to `_`.

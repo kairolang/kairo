@@ -779,13 +779,54 @@ class CompilerInstance {
     ///          execute() asserts on it. Named to match that assert   it was
     ///          `index()`, which collided with the unrelated ASTParse Index
     ///          pass and described neither of the three things it builds.
+    /// One `-I` entry. `-I name=path` names the root explicitly; a bare
+    /// `-I path` takes the directory's basename. The name is the leading
+    /// segment of every module under the root (IMPORTS.md §2.1), so it is
+    /// part of those modules' identity and cannot be left to chance.
+    ///
+    /// Split on the FIRST `=`: a path may contain one, a name may not.
+    priv fn _add_root(self, rb: ref!(ImportResolver::Builder), spec: string) {
+        var name = string();
+        var dir  = string();
+        var split = false;
+        inline "c++" {
+            auto raw = spec.raw_string();
+            auto pos = raw.find(WIDE_STR('='));
+            if (pos != decltype(raw)::npos && pos > 0 && pos + 1 < raw.size()) {
+                name  = ::kairo::std::String::basic<wchar_t>(raw.substr(0, pos));
+                dir   = ::kairo::std::String::basic<wchar_t>(raw.substr(pos + 1));
+                split = true;
+            }
+        }
+        if !split {
+            rb.add_include(Path(spec));
+            return;
+        }
+        rb.add_include(Path(dir), name);
+    }
+
+    /// Two roots under one name make a module path mean two files. Fatal, and
+    /// reported before anything is parsed.
+    priv fn _report_root_collisions(self) {
+        if self._imp == &null { return; }
+        var found = self._imp->take_root_collisions();
+        for var i: usize = 0; i < found.size(); ++i {
+            var c = found[i];
+            self._diag->report(DiagCode(DiagID::R018E),
+                f"duplicate module root '{c.name}': '{c.a}' and '{c.b}' both claim it; "
+                "give one an explicit name with -I name=path"
+            ).emit();
+        }
+    }
+
     fn initialize(self, cwd: Path) {
         {
             var _t = TimeRegion("ImportIndex");
             var rb = ImportResolver::Builder().cwd(cwd);
-            for dir: string in self.invocation().include_dirs { rb.add_include(Path(dir)); }
-            for dir: string in self.invocation().macro_paths  { rb.add_include(Path(dir)); }
+            for dir: string in self.invocation().include_dirs { self._add_root(rb, dir); }
+            for dir: string in self.invocation().macro_paths  { self._add_root(rb, dir); }
             self._imp = rb.create_ptr(self._pool);
+            self._report_root_collisions();
         }
 
         self._pp = std::create::<PreProcessor>(
