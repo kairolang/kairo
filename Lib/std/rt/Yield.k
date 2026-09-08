@@ -10,7 +10,7 @@
 // No libc++, no libstdc++, no libc headers. Clang builtins only.
 //===----------------------------------------------------------------------===//
 
-eval if !defined!(_LIBCPP_NEW) && !defined(_GLIBCXX_NEW) && !defined(_NEW_) {
+eval if !defined!(_LIBCPP_NEW) && (!defined(_GLIBCXX_NEW)) && !defined(_NEW_) {
 module Std {
     enum AlignmentSizeType derives typeof sizeof (typeof 0) {}
 }
@@ -258,7 +258,7 @@ struct Yield {
 
   // Fused: false forever once exhausted. Never resumes a done or null frame.
   bool _advance() noexcept {
-    if (!_h || _h.done()) return false;
+    if ((!_h) || _h.done()) return false;
     _h.resume();
     if (_h.done()) { _h.promise()._val = &null; return false; }
     return true;
@@ -266,7 +266,7 @@ struct Yield {
 
   T& _current() const noexcept { return *_h.promise()._val; }
 
-  bool _exhausted() const noexcept { return !_h || _h.done(); }
+  bool _exhausted() const noexcept { return (!_h) || _h.done(); }
 
 private:
   _Handle _h;
