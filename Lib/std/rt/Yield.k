@@ -65,31 +65,31 @@ class <P = void> CoroutineHandle {
     return __h
   }
 
-  eval fn address(self) const -> unsafe *void {
+  eval fn address(const self) -> unsafe *void {
     return self.__f
   }
 
-  eval fn op as (self) const -> bool {
+  eval fn op as (const self) -> bool {
     return self.__f != &null
   }
 
-  fn done(self) const -> bool {
+  fn done(const self) -> bool {
     return __builtin_coro_done(self.__f)
   }
 
-  fn resume(self) const -> void {
+  fn resume(const self) -> void {
     __builtin_coro_resume(self.__f)
   }
 
-  fn destroy(self) const -> void {
+  fn destroy(const self) -> void {
     __builtin_coro_destroy(self.__f)
   }
 
-  fn op () (self) const -> void {
+  fn op () (const self) -> void {
     self.resume()
   }
 
-  fn promise(self) const -> core::ref<P> {
+  fn promise(const self) -> core::ref<P> {
     return *(__builtin_coro_promise(
         self.__f,
         alignof P,
@@ -97,7 +97,7 @@ class <P = void> CoroutineHandle {
       ) as *P)
   }
 
-  eval fn op as (self) const -> CoroutineHandle<void> /* out-of-line */
+  eval fn op as (const self) -> CoroutineHandle<void> /* out-of-line */
 };
 
 // [coroutine.handle] void specialization.
@@ -121,33 +121,33 @@ class <> CoroutineHandle<void> {
     return __h
   }
 
-  eval fn address(self) const -> unsafe *void {
+  eval fn address(const self) -> unsafe *void {
     return self.__f
   }
 
-  eval fn op as (self) const -> bool {
+  eval fn op as (const self) -> bool {
     return self.__f != &null
   }
 
-  fn done(self) const -> bool {
+  fn done(const self) -> bool {
     return __builtin_coro_done(self.__f)
   }
 
-  fn resume(self) const -> void {
+  fn resume(const self) -> void {
     __builtin_coro_resume(self.__f)
   }
 
-  fn destroy(self) const -> void {
+  fn destroy(const self) -> void {
     __builtin_coro_destroy(self.__f)
   }
 
-  fn op () (self) const -> void {
+  fn op () (const self) -> void {
     self.resume()
   }
 }
 
 // Out of line: CoroutineHandle<void> must be complete first.
-eval fn <P> CoroutineHandle<P>::op as (self) const -> CoroutineHandle<void> {
+eval fn <P> CoroutineHandle<P>::op as (const self) -> CoroutineHandle<void> {
   return CoroutineHandle<void>::from_address(__f);
 }
 
