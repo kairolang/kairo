@@ -416,8 +416,12 @@ class RedeclMerge {
         var im = self.sc->ctx->get_ident_imm(f->name);
         if (im != u32(-1)) && home->is_type_scope() {
             var owner = home->owner_decl();
+            // By spelling, each through its own context (NameResolution::
+            // _member_key): an imported owner's imm is the header TU's.
             if owner != &null {
-                if self.sc->ctx->get_ident_imm(decl_name_tok(owner)) == im {
+                var oc = NameLookup::ctx_of(owner);
+                if oc == &null { oc = self.sc->ctx; }
+                if oc->get_spelling(decl_name_tok(owner)) == self.sc->ctx->get_spelling(f->name) {
                     return DeclName::ctor();
                 }
             }

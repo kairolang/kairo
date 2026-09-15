@@ -127,6 +127,10 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     pub var sc: *SemaContext;
 
     var cur_dc: *DeclContext = &null;
+    /// Where the out-of-line definition being resolved was WRITTEN, while its
+    /// owning scope (cur_dc) lives in another TU; null otherwise. Mirrors
+    /// NameResolution::_ool_lexical; read by _lookup_unqualified.
+    priv var _ool_lexical: *DeclContext = &null;
     var frames: vec::<GenericFrame>;
     var _selfs:  vec::<*Decl>;
     var ltypes: vec::<LocalTypeFrame>;
@@ -724,7 +728,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             } else {
                 head = self._lookup_local_type(imm);
                 if head == &null {
-                    var r = self.sc->lookup.unqualified(self.cur_dc, DeclName::ident(imm));
+                    var r = self._lookup_unqualified(self.cur_dc, imm);
                     // An `extend` body's DeclContext parents to the TU, so the
                     // walk above never reaches the type being extended. Its
                     // nested types and aliases ARE in scope there -- `Nested`
@@ -1463,9 +1467,15 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     fn traverse_function_decl(self, n: *FunctionDecl) -> *FunctionDecl {
         if n == &null { return n; }
 
-        var saved_dc = self.cur_dc;
+        var saved_dc  = self.cur_dc;
+        var saved_ool = self._ool_lexical;
         if (n->semantic_dc != &null) && (n->semantic_dc != n->lexical_dc) {
             self.cur_dc = reinterpret_cast::<*DeclContext>(n->semantic_dc);
+            // Owning scope in another TU: see NameLookup::unqualified_out_of_line.
+            var lex = reinterpret_cast::<*DeclContext>(n->lexical_dc);
+            if (lex != &null) && (NameLookup::tu_of(self.cur_dc) != NameLookup::tu_of(lex)) {
+                self._ool_lexical = lex;
+            }
         } else {
             self.cur_dc = static_cast::<*DeclContext>(n);
         }
@@ -1499,8 +1509,27 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
 
         self._pop_frame();
         if pushed_self { self._selfs.pop_back(); }
-        self.cur_dc = saved_dc;
+        self.cur_dc       = saved_dc;
+        self._ool_lexical = saved_ool;
         return out;
+    }
+
+    /// sc->lookup.unqualified, rerouted only for a walk that starts in the
+    /// foreign owning chain of an out-of-line body (NameResolution::
+    /// _lookup_unqualified, same rule). A walk from a scope of this TU -- or of
+    /// an imported Kairo file T is reading, whose names that file keys -- is
+    /// left exactly as it was.
+    priv fn _lookup_unqualified(self, from: *DeclContext, imm: u32) -> SemaLookupResult {
+        var name = DeclName::ident(imm);
+        if (self._ool_lexical == &null) || (from == &null) {
+            return self.sc->lookup.unqualified(from, name);
+        }
+        if NameLookup::tu_of(from) == NameLookup::tu_of(self._ool_lexical) {
+            return self.sc->lookup.unqualified(from, name);
+        }
+        var imms = self.sc->ctx->get_imm_table();
+        var sp   = (imms->get_ident(imm)) if (imms != &null) else ("");
+        return self.sc->lookup.unqualified_out_of_line(from, name, sp, self._ool_lexical);
     }
 
     fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
