@@ -92,6 +92,12 @@ class LifecycleFacts {
     /// reads `user_transfer` instead.
     pub var category:      LifecycleCategory = LifecycleCategory::Copy;
     pub var user_transfer: bool = false;   ///< wrote a @copy or @move ctor at all.
+    /// Destruction work of this record's OWN: a user destructor, or a
+    /// by-value field whose destructor is non-trivial. Bases deliberately do
+    /// not contribute -- a `delete` through a base pointer still runs the
+    /// base's destructor, so the base's work is never the part that leaks.
+    /// The virtual-destructor rule reads this, not `trivial_dtor`.
+    pub var own_dtor_work: bool = false;
     fn LifecycleFacts(self) { }
 }
 
@@ -230,6 +236,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         else if user_move && (!user_copy)    { f->category = LifecycleCategory::Move; }
         else                                 { f->category = LifecycleCategory::Copy; }
         f->has_user_dtor = user_dtor;
+        f->own_dtor_work = user_dtor;
         f->virtual_dtor  = dtor_virtual;
         if !f->copyable {
             f->why_not_copyable = ("its copy constructor is deleted") if (copy_deleted)
@@ -273,6 +280,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             if (fd->type_ == &null) || (fd->type_->canonical == &null) { continue; }
             var ff = self.facts_of_type(fd->type_->canonical);
             if ff.in_progress { continue; }
+            if !ff.trivial_dtor { f->own_dtor_work = true; }
             self._absorb(f, &ff, f"its field '{self.sc->ctx->get_spelling(fd->name)}\x27");
         }
 
@@ -292,7 +300,10 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         self.n_checked += 1;
 
         var df = self.facts_of(static_cast::<*Decl>(n));
-        if df->trivial_dtor { return true; }
+        // Own work, not `trivial_dtor`: that absorbs the base's destructor,
+        // which made every class deriving a non-trivial base an error -- even
+        // one adding nothing a base-typed `delete` would skip.
+        if !df->own_dtor_work { return true; }
         var dn = self.sc->ctx->get_spelling(n->name);
 
         for var i: usize = 0; i < n->derives_list.size(); ++i {

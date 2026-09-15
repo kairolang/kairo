@@ -137,6 +137,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::MemberLookup::*;
 import Sema::Type::TypeUtil::*;
 import Config::Invocation::*;
 import AST::Context::ASTContext::*;
@@ -337,7 +338,15 @@ class RedeclMerge {
             if f->semantic_dc == &null { continue; }   // unattached; N(a) diagnosed.
 
             var home = reinterpret_cast::<*DeclContext>(f->semantic_dc);
-            var cell = home->lookup_symbol(self._member_key(f, home));
+            // Same lazy-fill hazard as N(a): a partly filled imported table
+            // hands back a cell missing the overload this def defines.
+            var owner = home->owner_decl();
+            if owner != &null { MemberLookup::ensure_filled(self.sc, owner); }
+            // Cross-TU safe (see NameResolution::_attach_out_of_line): a raw
+            // lookup_symbol with this TU's imm probes an imported record's
+            // table with the wrong key and returns ANOTHER member's cell.
+            var ml   = MemberLookup(self.sc);
+            var cell = ml.in_scope(home, self._member_key(f, home), self.sc->ctx->get_spelling(f->name));
             if cell == &null { continue; }             // N(a) diagnosed the missing name.
 
             var group = self._fn_group(cell);
@@ -444,7 +453,6 @@ class RedeclMerge {
 
         var fa = self._foreign(a);
         var fb = self._foreign(b);
-
         // Const-ness participates in signature identity for FOREIGN decls
         // only. Kairo source may not declare const overloads at all (see
         // header), so for Kairo-authored decls a const mismatch is one
@@ -456,8 +464,13 @@ class RedeclMerge {
             if a->is_const() != b->is_const() { return false; }
         }
 
-        // Exactly one side foreign: its reference kinds are read as modes.
-        var mixed = fa != fb;
+        // Exactly one side owned by clang: its reference kinds are read as
+        // modes. Keyed on _cxx_owned, NOT _foreign: an out-of-line Kairo def
+        // of a method imported into THIS TU is the case the mapping exists
+        // for, and _foreign (another TU) is false for it.
+        var oa    = self._cxx_owned(a);
+        var ob    = self._cxx_owned(b);
+        var mixed = oa != ob;
 
         for var i: usize = 0; i < a->params.size(); ++i {
             var pa = a->params[i];
@@ -482,12 +495,19 @@ class RedeclMerge {
                 continue;
             }
 
-            var sa = self._param_shape(pa, ca, fa, mixed);
-            var sb = self._param_shape(pb, cb, fb, mixed);
+            var sa = self._param_shape(pa, ca, oa, mixed);
+            var sb = self._param_shape(pb, cb, ob, mixed);
             if sa.mode != sb.mode { return false; }
             if sa.ty   != sb.ty   { return false; }
         }
         return true;
+    }
+
+    /// True when clang owns \p d: an `ffi` import, from this TU or another
+    /// (FFILinkage::is_imported -- it carries a USR). Distinct from _foreign,
+    /// which asks only "another TU" and is false for a header imported here.
+    priv fn _cxx_owned(self, d: *FunctionDecl) -> bool {
+        return d->is_imported();
     }
 
     /// The (mode, type) a value parameter is judged on. Top-level cv is

@@ -518,6 +518,13 @@ class OverloadResolution {
                 c->reason = f"cannot convert argument of type '{got}' to parameter '{pn}' of type '{self.tu.str(pt)}\x27";
                 return;
             }
+            // An unmarked argument reaching `@inout` is TOLERATED (CallTyping
+            // warns), never preferred: it ranks as a conversion. At Exact it
+            // tied `f(x: T)` and `f(a)` was ambiguous; now the by-value
+            // overload wins `f(a)` and `f(&a)` still picks `@inout`.
+            if (mode == ParamMode::Inout) && (!a->marked) && (r == ImplicitRank::Exact) {
+                r = ImplicitRank::Converted;
+            }
             if (r == ImplicitRank::Converted) && (c->rank < 1) { c->rank = 1; }
             // An `@inout` binding IS a `T&` binding for the reference tiebreak.
             if r == ImplicitRank::Exact { c->binds[i] = (3) if (mode == ParamMode::Inout) else (self._bind_kind(pt)); }

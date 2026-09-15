@@ -59,6 +59,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import Sema::Resolve::MemberLookup::*;
 import Sema::Resolve::ResolutionTrace::*;
 import AST::Context::ASTContext::*;
 import AST::Context::DeclContext::*;
@@ -694,8 +695,22 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             // The member must already be declared in the type. Missing =
             // an out-of-line definition of something the type never
             // declared, which is an error here and nowhere else.
-            var key = self._member_key(f, home);
-            if home->lookup_symbol(key) == &null {
+            // An imported record's member table is filled lazily and in
+            // pieces: probing it raw finds whatever an earlier lookup
+            // happened to fill. `fn S::g` then `fn S::h` reported `h` as
+            // undeclared. Fill it whole before asking.
+            var owner = home->owner_decl();
+            if owner != &null { MemberLookup::ensure_filled(self.sc, owner); }
+
+            // Through MemberLookup::in_scope, never a raw lookup_symbol: an
+            // imported record's table is keyed by the HEADER TU's imms, and
+            // this TU's imm for the name finds whichever member happens to
+            // share its index (`fn S::g` probed S's `f`). The spelling lets
+            // in_scope re-intern the name in the scope's own TU.
+            var key  = self._member_key(f, home);
+            var ml   = MemberLookup(self.sc);
+            var cell = ml.in_scope(home, key, self.sc->ctx->get_spelling(f->name));
+            if cell == &null {
                 var nm = self.sc->ctx->get_spelling(f->name);
                 self.sc->diag->report(DiagID::R031E, f->range.start,
                     f"out-of-line definition of '{nm}' does not match any declaration in its scope"
