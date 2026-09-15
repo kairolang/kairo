@@ -206,8 +206,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 }
                 if !all_mod { a.kind = AnchorKind::NeedsInference; return a; }
                 a.kind = AnchorKind::Module;
+                // Each candidate's whole ring, deduped (module_scopes skips a
+                // scope already pushed): two reopenings of one ring would
+                // otherwise contribute it twice.
                 for var i: usize = 0; i < cell->size(); ++i {
-                    a.scopes.push_back(NameLookup::context_of(cell->get(i)));
+                    NameLookup::module_scopes(cell->get(i), a.scopes);
                 }
                 return a;
             }
@@ -289,7 +292,11 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
         switch d->kind {
             case DeclKind::ModuleDecl {
                 a.kind = AnchorKind::Module;
-                a.scopes.push_back(NameLookup::context_of(d));
+                // N collapses a reopened module's cell to its canonical, so a
+                // single decl arrives here -- but it DENOTES every block in its
+                // ring. One scope would make `Util::b` miss when `b` lives in
+                // the second `module Util { }`.
+                NameLookup::module_scopes(d, a.scopes);
                 a.decl = d;
                 return a;
             }

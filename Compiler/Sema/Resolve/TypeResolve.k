@@ -940,9 +940,11 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         for var i: usize = 0; i < r.cell->size(); ++i {
             if !isa::<ModuleDecl>(r.cell->get(i)) { return; }
         }
+        // Each entry's whole reopening ring, deduped -- `Util::SomeType` must
+        // see a type declared in any `module Util { }` block, not only the
+        // one the cell's entry is.
         for var i: usize = 0; i < r.cell->size(); ++i {
-            var dc = NameLookup::context_of(r.cell->get(i));
-            if dc != &null { out->push_back(dc); }
+            NameLookup::module_scopes(r.cell->get(i), *out);
         }
     }
 

@@ -60,6 +60,10 @@ five type kinds + modules, retarget canonical at the definition, diagnose
 redefinition and conflicting kinds, attach `out_of_line` defs, populate
 `sc.well_known`. **Specializations are skipped**: their own chains link in
 T on canonical spec args (#12). Function chains are R's (§2.6a).
+**Modules reopen**: every `module Foo { }` block is a definition, so two
+defining links is legal for a ModuleDecl ring (`_reopenable`) and a
+redefinition for the five type kinds. `unqualified` treats a module scope
+as its whole ring (IMPORTS.md §4.3).
 
 (b) Binding: every `NamedIdentExpr` head gets `resolved_decl` or
 `candidate_cell`. Order: lexical locals stack (innermost first) ->
@@ -240,7 +244,11 @@ alias -> Type; `Self` bound to an ExtensionDecl -> Type (its target);
 module -> Module; generic param -> Dependent (carrying its canonical);
 call / inferred var / overload set / operator or tuple-index step ->
 NeedsInference. An ffi alias denotes the header TUs' ModuleDecls, so it
-anchors as Module like any reopened namespace.
+anchors as Module like any reopened namespace. A module anchor's scopes
+are its whole reopening RING (`NameLookup::module_scopes`, deduped), from a
+single decl as much as from an all-module cell: N collapses a same-TU
+reopened module to its canonical, and `Util::b` must still find a `b` that
+lives in the second `module Util { }` block.
 
 **Two callers, one binder** [DECIDED, MISSING, spec 4]. `bind_step(chain,
 st, anchor)` is public. ChainBinding calls it from its own walk with the

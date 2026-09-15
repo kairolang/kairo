@@ -306,6 +306,22 @@ many `std` openings declared it.
 ChainBinding: `Anchor.scopes: vec<*DeclContext>`; all-module candidate
 sets become a multi-scope `Module` anchor; `::` searches every scope.
 
+Same TU, `module Util { }` written twice: one entity, N scopes, linked as a
+redecl ring by N(a). Three rules make the ring behave as one block:
+- **Not a redefinition.** Every module block is a definition; N(a)'s
+  two-definitions check skips modules (`_reopenable`). Two reopenings
+  declaring the same MEMBER twice is item 13a's question, at M2.
+- **Unqualified sees the ring.** `NameLookup::unqualified`, on a miss in a
+  module scope, tries every other block of its ring (`module_scopes`), so
+  `a` declared in block 1 is in scope in block 2 -- and block 2's names in
+  block 1: no declaration-order rule, "as if one block".
+- **A collapsed decl expands.** N binds `Util` to the ring's canonical as a
+  single decl, so ChainBinding's single-decl Module anchor and T's `mods`
+  walk both push `module_scopes(d)` (deduped), not `context_of(d)`.
+  `tests: Tests/Sema/lookup_module_reopen.k`.
+Two FILES both writing `module Util` are two rings; merging those is the
+cross-reopening question at M2 (item 13a).
+
 ### 4.4 Re-export [DONE]
 
 RESOLUTION.md §2 already decides the rule: a `pub`/`prot` import is

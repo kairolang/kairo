@@ -580,6 +580,16 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// Idempotent by construction: linking is skipped when the two links
     /// already share a chain, and retarget_canonical recomputes the same
     /// target on a second run (LSP contract, exit criterion 7).
+    /// Kinds that may legally have more than one defining link. Only
+    /// modules: a module reopens, like a C++ namespace, and every
+    /// `module Foo { }` block is a definition. For the five type kinds
+    /// two bodies is the redefinition this reports. Whether two
+    /// reopenings declare the same MEMBER twice is a different question
+    /// with a different home (M2, cross-reopening; IMPORTS.md item 13a).
+    priv fn _reopenable(self, k: DeclKind) -> bool {
+        return k == DeclKind::ModuleDecl;
+    }
+
     priv fn <T> _link_group(self, e: SymbolTable::Entry, group: *vec::<*Decl>) {
         var first = cast::<T>((*group)[0]);
         if first == &null { return; }
@@ -602,7 +612,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             if cur->is_this_definition { defs.push_back((*group)[i]); }
         }
 
-        if defs.size() > 1 {
+        if (defs.size() > 1) && (!self._reopenable((*group)[0]->kind)) {
             var name = e.name.describe(self.sc->ctx);
             self.sc->diag->report(DiagID::R029E, defs[1]->range.start,
                 f"redefinition of '{name}\x27"

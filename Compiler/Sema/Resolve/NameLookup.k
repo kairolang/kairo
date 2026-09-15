@@ -148,6 +148,21 @@ class NameLookup {
         while dc != &null {
             var r = self.in_context(dc, name);
             if r.found() { return r; }
+            // A module is its whole ring: a name declared in an earlier
+            // `module Foo { }` block is in scope in a later one, exactly as
+            // if both had been written as one block. Tried only on a miss,
+            // so a name this block declares still wins and the common
+            // (single-block) case costs one extra isa.
+            var owner = dc->owner_decl();
+            if (owner != &null) && isa::<ModuleDecl>(owner) {
+                var scopes = vec::<*DeclContext>();
+                NameLookup::module_scopes(owner, scopes);
+                for var i: usize = 0; i < scopes.size(); ++i {
+                    if scopes[i] == dc { continue; }
+                    var rr = self.in_context(scopes[i], name);
+                    if rr.found() { return rr; }
+                }
+            }
             dc = dc->dc_parent;
         }
 
@@ -276,6 +291,35 @@ class NameLookup {
     /// out-of-line definition is involved -- `fn C::bump` is in no symbol
     /// table, so a member with one in-class declaration and two out-of-line
     /// definitions is a cell of size 1 and a ring of size 3.
+    /// Every scope a module DENOTES: its own, plus every other reopening
+    /// in its redeclaration ring. One `module Foo { }` block is one
+    /// DeclContext with one table, and a module reopened N times is N of
+    /// them naming ONE entity -- the same shape as a C++ namespace opened
+    /// N times, and the same shape ChainBinding's multi-scope Module
+    /// anchor and TypeResolve's `mods` walk already handle for the
+    /// cross-TU case (IMPORTS.md 4.3). Ring order is insertion order, so
+    /// the first-written block answers first.
+    ///
+    /// Appends nothing for a non-module, so a caller can invoke it
+    /// unconditionally on any scope's owner. A scope already in \p out is
+    /// not appended again: two candidates of one ring (a cell holding both
+    /// reopenings) would otherwise push the ring twice.
+    static fn module_scopes(d: *Decl, out: ref!(vec::<*DeclContext>)) {
+        if d == &null { return; }
+        if !isa::<ModuleDecl>(d) { return; }
+        var links = vec::<*Decl>();
+        NameLookup::collect_chain(d, links);
+        for var i: usize = 0; i < links.size(); ++i {
+            var dc = NameLookup::context_of(links[i]);
+            if dc == &null { continue; }
+            var seen = false;
+            for var j: usize = 0; j < out.size(); ++j {
+                if out[j] == dc { seen = true; break; }
+            }
+            if !seen { out.push_back(dc); }
+        }
+    }
+
     static fn collect_chain(d: *Decl, out: ref!(vec::<*Decl>)) {
         if d == &null { return; }
         if      isa::<ClassDecl>(d)     { NameLookup::_ring::<ClassDecl>(cast::<ClassDecl>(d), out);         }
