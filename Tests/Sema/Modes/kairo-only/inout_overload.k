@@ -13,10 +13,18 @@ fn main() {
 // spelling at the call site. `f(x: T)` / `f(@inout x: T)` are two entities
 // and the marker chooses.
 //
-// TODO: pin r1 -> line 1 and r2 -> line 2 with a SEMA block once the
-// `--print-sema` callee rendering is regenerated against a build.
+// The unmarked `f(a)` reaching `@inout` ranks as a conversion, so the
+// by-value overload wins it; the marked `f(&a)` picks `@inout`. The second
+// RUN pins WHICH decl each call bound to, off the name-bindings dump.
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
+// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 //
 // DIAG-NOT: inout_overload.k:{{[1-7]}}:{{[0-9]+}}: error
-// DIAG:     inout_overload.k:8:{{[0-9]+}}: error [{{[A-Z0-9]+}}]:
+// DIAG:     inout_overload.k:8:{{[0-9]+}}: error [SC001E]: no matching overload for call to 'f'
+// DIAG-NOT: {{error|warning}} [
+//
+// SEMA:      -- name bindings --
+// SEMA:      <tu>::main
+// SEMA:      f @ 5:14 -> fn f @ 1:1
+// SEMA:      f @ 6:14 -> fn f @ 2:1

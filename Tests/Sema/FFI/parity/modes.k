@@ -27,10 +27,24 @@ fn main() {
 // Not a %parity case despite the directory: @inout / @move have no C++
 // spelling, so there is no oracle to write.
 //
-// TODO: pin the redecl chains and the s.b overload picks with a SEMA block
-// against a build.
+// The second RUN pins that N attached every definition to S -- the
+// out-of-line name lookup goes through MemberLookup::in_scope, so a Kairo
+// name is re-keyed into the header TU's imm space rather than probing S's
+// table with this TU's index. Which `b` overload each `s.b(...)` call picks is
+// not observable in the dump (both return void, and the line-8 error stops
+// sema before Checked); the pairing is proven by the absence of R031E on
+// lines 3-7.
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
+// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
+//
+// SEMA:      -- out-of-line definitions --
+// SEMA-NEXT: f @ 3:1 -> attached to S
+// SEMA-NEXT: g @ 4:1 -> attached to S
+// SEMA-NEXT: h @ 5:1 -> attached to S
+// SEMA-NEXT: b @ 6:1 -> attached to S
+// SEMA-NEXT: b @ 7:1 -> attached to S
+// SEMA-NEXT: f @ 8:1 -> attached to S
 //
 // DIAG-NOT: modes.k:{{[1-7]}}:{{[0-9]+}}: error
 // DIAG:     modes.k:8:{{[0-9]+}}: error [{{[A-Z0-9]+}}]:

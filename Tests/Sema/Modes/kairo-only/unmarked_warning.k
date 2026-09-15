@@ -14,9 +14,16 @@ fn main() {
 // tolerance) and warned after selection; a prvalue or a const lvalue never
 // binds, marked or not.
 //
-// TODO: the "line 4 still binds" half wants a SEMA block against a build.
+// The second RUN proves the warned call still BINDS and is not poisoned:
+// `bump` at 4:5 resolves, and the call is typed `void`, not <ERROR>.
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
+// RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
+//
+// SEMA:      -- name bindings --
+// SEMA:      bump @ 4:5 -> fn bump @ 1:1
+// SEMA:      -- expression types --
+// SEMA:      CallExpr @ 4:5 : void
 //
 // DIAG-DAG: unmarked_warning.k:4:{{[0-9]+}}: warning [SC001W]: {{.*}}'&'
 // DIAG-DAG: unmarked_warning.k:6:{{[0-9]+}}: error [{{[A-Z0-9]+}}]:
