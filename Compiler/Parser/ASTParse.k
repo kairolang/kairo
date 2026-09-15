@@ -1982,6 +1982,24 @@ class ASTParse
             decl->add_annotation(e->kind, e->name, e->range, e->args);
         }
 
+        // `@copy fn T(self, other: Self)` / `@move ...`: the transfer-ctor
+        // attribute IS the TransferKind. Everything downstream (ClassLifecycle,
+        // the printer, codegen) reads FunctionDecl::transfer and never the
+        // attribute, so it is stamped here, where every decl's annotations
+        // land -- in-class, out-of-line, and nested alike. Without it a Kairo
+        // transfer ctor is an ordinary method and the lifecycle rules are blind.
+        if isa::<FunctionDecl>(decl) {
+            var fd     = cast::<FunctionDecl>(decl);
+            var k_copy = self.ctx->hoisted->intern("copy");
+            var k_move = self.ctx->hoisted->intern("move");
+            for var i: usize = 0; i < annot->entries.size(); ++i {
+                var e = &annot->entries[i];
+                if e->kind != AnnotationKind::Attribute { continue; }
+                if e->name == k_copy { fd->transfer = TransferKind::Copy; }
+                if e->name == k_move { fd->transfer = TransferKind::Move; }
+            }
+        }
+
         if annot->visibility != VisibilityKind::None {
             decl->set_visibility(annot->visibility, annot->vis_range);
         }
