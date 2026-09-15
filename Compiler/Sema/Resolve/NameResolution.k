@@ -74,6 +74,7 @@ import AST::Node::Expressions::*;
 import AST::Node::Patterns::*;
 import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
+import AST::DeclFacts::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::ExprKind::*;
@@ -337,6 +338,10 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// primitive, a structural type, an unresolvable path) leaves this null and
     /// costs nothing -- T reports whatever is wrong with it.
     priv var _ext_target: *DeclContext = &null;
+    /// Where the out-of-line definition being resolved was WRITTEN, while its
+    /// owning scope (cur_dc) lives in another TU; null otherwise. Set and
+    /// restored by traverse_function_decl; read by _lookup_unqualified.
+    priv var _ool_lexical: *DeclContext = &null;
 
     fn NameResolution(self, sc: *SemaContext) {
         self.sc = sc;
@@ -739,8 +744,15 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var im = self.sc->ctx->get_ident_imm(f->name);
         if (im != u32(-1)) && home->is_type_scope() {
             var owner = home->owner_decl();
-            if (owner != &null) && (self._decl_name_imm(owner) == im) {
-                return DeclName::ctor();
+            // By SPELLING, each side through the context its token lives in:
+            // an imported owner's name is interned in the header's TU, so
+            // comparing imms across the two is a coincidence, not an answer.
+            if owner != &null {
+                var oc = NameLookup::ctx_of(owner);
+                if oc == &null { oc = self.sc->ctx; }
+                if oc->get_spelling(decl_name_tok(owner)) == self.sc->ctx->get_spelling(f->name) {
+                    return DeclName::ctor();
+                }
             }
         }
         return DeclName::ident(im);
@@ -880,7 +892,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
             }
         }
 
-        var r = self.sc->lookup.unqualified(self.cur_dc, DeclName::ident(imm));
+        var r = self._lookup_unqualified(self.cur_dc, imm);
         if (!r.found()) && (self._ext_target != &null) {
             r = self.sc->lookup.in_context(self._ext_target, DeclName::ident(imm));
         }
@@ -951,9 +963,17 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         // function itself below, so reading it back would label every frame
         // with the function's own name (`bump::bump`).
         var home = saved_dc;
+        var saved_ool = self._ool_lexical;
         if (n->semantic_dc != &null) && (n->semantic_dc != n->lexical_dc) {
             self.cur_dc = reinterpret_cast::<*DeclContext>(n->semantic_dc);
             home        = self.cur_dc;
+            // Owning scope in ANOTHER TU (an imported record): its tables are
+            // keyed by that TU, and the file this body was written in is not
+            // on its parent chain. _lookup_unqualified bridges both.
+            var lex = reinterpret_cast::<*DeclContext>(n->lexical_dc);
+            if (lex != &null) && (NameLookup::tu_of(self.cur_dc) != NameLookup::tu_of(lex)) {
+                self._ool_lexical = lex;
+            }
         } else {
             self.cur_dc = static_cast::<*DeclContext>(n);
         }
@@ -984,8 +1004,27 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self.sc->trace.close_scope();
         self.locals.pop_back();
         self.cur_dc = saved_dc;
+        self._ool_lexical = saved_ool;
         self._suppress_next_block_frame = saved_suppress;
         return out;
+    }
+
+    /// sc->lookup.unqualified, except from inside an out-of-line body whose
+    /// owning scope is in another TU (see NameLookup::unqualified_out_of_line).
+    /// Only a walk that STARTS in that foreign chain is rerouted: a walk
+    /// resuming in this TU (the trace's "what did it hide") keys correctly
+    /// already.
+    priv fn _lookup_unqualified(self, from: *DeclContext, imm: u32) -> SemaLookupResult {
+        var name = DeclName::ident(imm);
+        if (self._ool_lexical == &null) || (from == &null) {
+            return self.sc->lookup.unqualified(from, name);
+        }
+        if NameLookup::tu_of(from) == NameLookup::tu_of(self._ool_lexical) {
+            return self.sc->lookup.unqualified(from, name);
+        }
+        var imms = self.sc->ctx->get_imm_table();
+        var sp   = (imms->get_ident(imm)) if (imms != &null) else ("");
+        return self.sc->lookup.unqualified_out_of_line(from, name, sp, self._ool_lexical);
     }
 
     fn traverse_closure_expr(self, n: *ClosureExpr) -> *ClosureExpr {
@@ -1314,7 +1353,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         if !self.sc->trace.enabled { return out; }
         if imm == u32(-1) { return out; }
 
-        var r = self.sc->lookup.unqualified(from, DeclName::ident(imm));
+        var r = self._lookup_unqualified(from, imm);
         if !r.found() { return out; }
         out.decl     = r.first();
         out.via      = (TraceVia::Overlay) if (r.via_overlay) else (TraceVia::Scope);

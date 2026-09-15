@@ -2070,7 +2070,19 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var scope = reinterpret_cast::<*DeclContext>(d->semantic_dc);
         var imm   = self._decl_name_imm(d);
         if (scope == &null) || (imm == u32(-1)) { return &null; }
-        var r = self.sc->lookup.unqualified(scope, DeclName::ident(imm));
+        // A Kairo spec of an IMPORTED primary has its semantic scope in the
+        // header's TU, keyed by that TU's imms: probe it by spelling, then
+        // fall back to where the spec was written (unqualified_out_of_line).
+        // A spec whose scope is this TU's walks exactly as before.
+        var r   = SemaLookupResult::not_found();
+        var lex = reinterpret_cast::<*DeclContext>(d->lexical_dc);
+        if (lex != &null) && (NameLookup::tu_of(scope) != NameLookup::tu_of(lex)) {
+            var imms = self.sc->ctx->get_imm_table();
+            var sp   = (imms->get_ident(imm)) if (imms != &null) else ("");
+            r = self.sc->lookup.unqualified_out_of_line(scope, DeclName::ident(imm), sp, lex);
+        } else {
+            r = self.sc->lookup.unqualified(scope, DeclName::ident(imm));
+        }
         if r.found() {
             for var i: usize = 0; i < r.cell->size(); ++i {
                 var c = r.cell->get(i);

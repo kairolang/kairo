@@ -171,6 +171,31 @@ class NameLookup {
         return SemaLookupResult::not_found();
     }
 
+    /// unqualified() for the body of an out-of-line definition whose OWNING
+    /// scope lives in another TU -- `fn S::g` in a Kairo file, S imported from
+    /// a header. Two halves, in C++'s order for a member body:
+    ///
+    ///   1. the owning chain (the class, its enclosing namespaces), probed by
+    ///      \p spelling: each of those tables is keyed by the HEADER TU's imms,
+    ///      and this TU's imm there is a silent wrong answer (`other()` found
+    ///      S's `f`). The walk stops before the header's FILE scope and never
+    ///      reads its overlay: those are that file's names, not this one's.
+    ///   2. on a miss, \p lexical -- the scope the definition was WRITTEN in --
+    ///      through plain unqualified(), which reaches this file's own scope
+    ///      and overlay. Without it a free function beside the definition was
+    ///      invisible from inside it.
+    fn unqualified_out_of_line(self, from: *DeclContext, name: DeclName,
+                               spelling: string, lexical: *DeclContext) -> SemaLookupResult {
+        var dc = from;
+        while dc != &null {
+            if dc->dc_kind == DeclContextKind::TranslationUnit { break; }
+            var r = self.in_context(dc, name, spelling);
+            if r.found() { return r; }
+            dc = dc->dc_parent;
+        }
+        return self.unqualified(lexical, name);
+    }
+
     // --- Primitive 3: decl -> owned scope -------------------------------------
 
     /// The scope a decl OWNS (its body), or null for non-scope-owning
