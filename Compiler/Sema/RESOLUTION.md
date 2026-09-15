@@ -77,6 +77,20 @@ overload set goes through whole.
     type body's decl -- the class/struct/... or the ExtensionDecl.
     [REMOVED] The bare-ffi miss gate. ffi imports bring real decls now
     (IMPORTS.md §5), so an unqualified miss is a miss in every TU.
+    [DONE] Out-of-line body of a member whose OWNER is in another TU
+    (`fn S::g` in a Kairo file, S from a header). cur_dc is the owner's
+    scope, keyed by the header TU and parented to the header's file, so
+    the plain walk probed it with this TU's imm (a silent wrong member) and
+    never reached the file the definition was written in. Order, as C++
+    for a member body: locals -> the owner chain (class, enclosing
+    namespaces; stops before the header's file scope, never reads its
+    overlay), probed by SPELLING -> the definition's lexical_dc through
+    plain `unqualified`. `NameLookup::unqualified_out_of_line`; entered only
+    through `_lookup_unqualified` while `_ool_lexical` is set, so every
+    other walk is unchanged. T mirrors it for type heads.
+    [DONE] Attaching an out-of-line def (a) and matching it to an overload
+    (R(b)) probe the owner through `MemberLookup::in_scope`, spelled; the
+    ctor test compares SPELLINGS, each through its own TU's context.
     [DONE, by design] N does NOT bind: chain steps (ChainBinding);
     ConstructorPattern heads and bare `case n` (pattern checking);
     named-initializer field names (X); attribute ARGUMENTS.
@@ -132,7 +146,10 @@ What T decides:
 - **Builtins** by token kind, before any lookup. `i32::x`: error.
 - **`self`/`Self` in type position**: the innermost type scope's record with
   its own params as args. `Self::Inner` is a HEAD. `Self<T>` is an error.
-- **Heads**: generic frames -> `ltypes` -> `unqualified(cur_dc)`.
+- **Heads**: generic frames -> `ltypes` -> `unqualified(cur_dc)`. Inside an
+  out-of-line body whose owner is in another TU, the last step is
+  `unqualified_out_of_line` (§ N(b)). `_primary_of_spec` applies the same
+  rule to a spec whose semantic scope is an imported primary's.
 - **`::` segments** step through `context_of(decl)`, alias expanded first,
   spelled for cross-TU probes. `T::Item` and `Foo<T>::Inner` are marked
   dependent and stopped (#5); M2 owns member-of-instantiation. The one
@@ -589,7 +606,14 @@ control** is a late filter [MISSING].
 
 1. **Frozen means frozen.**
 2. **One key space per TU.** Cross-TU goes through the spelling shim; the
-   overlay consulted is the one of the TU the walk started in.
+   overlay consulted is the one of the TU the walk started in. A raw
+   `lookup_symbol` / imm-keyed `unqualified` on a scope that may be foreign
+   is a silent wrong answer, not a miss: the entry points that cross are
+   `MemberLookup::in_scope`, `NameLookup::in_context` (with a spelling) and
+   `NameLookup::unqualified_out_of_line`. The one walk that starts in a
+   foreign chain from this TU's code -- an out-of-line body of an imported
+   member -- also falls back to the definition's lexical scope, since the
+   owner's parents are the header's, not this file's.
 3. **One error, one home.** Import existence/ambiguity: I. Import access:
    N(b). Redefinition / conflicting kinds: N(a). Function redefinition /
    signature disagreement: R. Unresolved head, `Self` outside a type body

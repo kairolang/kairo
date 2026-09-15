@@ -20,8 +20,8 @@ fn main() {
     read(d);                                // expect: clean -- the moving path returned
 
     var e = Buf{ n: 6 };
-    while e.n > 0 {
-        read(e);                            // expect: error -- moved on the previous iteration
+    while e.n > 0 {                         // expect: error -- moved on the previous iteration (first read wins)
+        read(e);                            // expect: quiet -- same binding, already reported
         sink(e);
     }
 }
@@ -31,11 +31,16 @@ fn main() {
 // predecessor moved, a returning branch contributes nothing, a loop back-edge
 // carries the move into the next iteration.
 //
+// One error per BINDING per body (MoveState::reported): the loop's three
+// reads of `e` (the condition, `read(e)`, `sink(e)`) are one mistake, named at
+// the first -- the condition on line 23. Only a reassignment re-arms it.
+//
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //
-// DIAG:      use_after_move.k:7:{{[0-9]+}}: error [{{[A-Z0-9]+}}]: {{.*}}'a' is used after being moved
+// DIAG:      use_after_move.k:7:{{[0-9]+}}: error [SC001E]: 'a' is used after being moved
 // DIAG-NEXT: use_after_move.k:6:{{[0-9]+}}: note
 // DIAG-NOT:  use_after_move.k:12:{{[0-9]+}}: error
-// DIAG:      use_after_move.k:16:{{[0-9]+}}: error [{{[A-Z0-9]+}}]: {{.*}}'c'
+// DIAG:      use_after_move.k:16:{{[0-9]+}}: error [SC001E]: 'c' is used after being moved
 // DIAG-NOT:  use_after_move.k:20:{{[0-9]+}}: error
-// DIAG:      use_after_move.k:24:{{[0-9]+}}: error [{{[A-Z0-9]+}}]: {{.*}}'e'
+// DIAG:      use_after_move.k:23:{{[0-9]+}}: error [SC001E]: 'e' is used after being moved
+// DIAG-NOT:  {{error|warning}} [

@@ -79,7 +79,20 @@ class MoveState {
     pub var moved: vec::<*Decl>;
     pub var at:    vec::<SourceRange>;   ///< parallel: where each was moved.
     pub var dead:  bool = false;
+    /// Bindings already reported used-after-move on this path. One error per
+    /// BINDING, not per read: three reads of one moved `e` in a loop are one
+    /// mistake, and three errors for it is the cascade the poison rule exists
+    /// to prevent. Travels with the flow state -- so a reassignment (clear)
+    /// re-arms it, a join unions it, and a loop's back edge carries it.
+    pub var reported: vec::<*Decl>;
     fn MoveState(self) { }
+
+    fn was_reported(self, d: *Decl) -> bool {
+        for var i: usize = 0; i < self.reported.size(); ++i {
+            if self.reported[i] == d { return true; }
+        }
+        return false;
+    }
 
     fn index_of(self, d: *Decl) -> usize {
         for var i: usize = 0; i < self.moved.size(); ++i {
@@ -95,7 +108,13 @@ class MoveState {
         self.at.push_back(where_);
     }
 
+    /// A reassignment: \p d holds a live value again, and a later move-then-use
+    /// of it is a NEW mistake that must be reported, so its report is dropped
+    /// along with the move.
     fn clear(self, d: *Decl) {
+        for var r: usize = 0; r < self.reported.size(); ++r {
+            if self.reported[r] == d { self.reported.erase(self.reported.begin() + r); break; }
+        }
         var i = self.index_of(d);
         if i == usize(-1) { return; }
         self.moved.erase(self.moved.begin() + i);
@@ -114,6 +133,11 @@ fn move_join(a: MoveState, b: MoveState) -> MoveState {
             out.at.push_back(b.at[i]);
         }
     }
+    // Reported on either path stays reported: re-reporting after the join
+    // would be the second error for the mistake one branch already named.
+    for var i: usize = 0; i < b.reported.size(); ++i {
+        if !out.was_reported(b.reported[i]) { out.reported.push_back(b.reported[i]); }
+    }
     return out;
 }
 
@@ -130,7 +154,6 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
     priv var _tu:    TypeUtil;
     priv var _st:    MoveState;
     priv var _loops: vec::<LoopFrame>;
-    priv var _reported: set::<u64>;
     pub var n_moves:   usize = 0;
     pub var n_errored: usize = 0;
 
@@ -600,9 +623,11 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         var i = self._st.index_of(d);
         if i == usize(-1) { return; }
 
-        var key = reinterpret_cast::<u64>(d) ^ (static_cast::<u64>(n->range.start.id) << 32);
-        if self._reported.contains(key) { return; }
-        self._reported.insert(key);
+        // Keyed on the BINDING alone (MoveState::reported): the first read
+        // after the move is the error; later reads stay quiet until a
+        // reassignment clears it.
+        if self._st.was_reported(d) { return; }
+        self._st.reported.push_back(d);
 
         var nm = self.sc->ctx->get_spelling(n->name);
         var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
