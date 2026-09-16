@@ -612,6 +612,11 @@ control** is a late filter [MISSING].
 
 ## 3. Hard invariants
 
+Invariants 8-13 and 9a live in `IMPORTS.md` §3 (imports, namespaces and the
+emitted interface) and are part of this list by reference. Nothing checks
+that the two stay in step, so a change to either is expected to touch both:
+they are one list split by subject, not two lists.
+
 1. **Frozen means frozen.**
 2. **One key space per TU.** Cross-TU goes through the spelling shim; the
    overlay consulted is the one of the TU the walk started in. A raw

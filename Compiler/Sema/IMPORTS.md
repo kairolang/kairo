@@ -232,9 +232,12 @@ never resolved. `MemberLookup::in_scope` re-interns per scope. Rendering
 a foreign decl is the same problem: `NameLookup::ctx_of` answers where a
 decl's names live, and the dump and diagnostics ask it first.
 
-### 2.7 EP EmitPlan [DONE for the plan; the emitter is MISSING]
+### 2.7 EP EmitPlan [DONE for the plan and declarations; bodies PARTIAL]
 
-The codegen half. Specified fully in §6.
+The codegen half. Specified fully in §6. InterfaceEmitter emits every
+declaration (own and foreign) into either sink; EmitIR emits bodies and
+still refuses methods (needs `self` -> `this`) and extension members (needs
+ExtensionLowering), warning once per family instead.
 
 ---
 
@@ -246,6 +249,13 @@ The codegen half. Specified fully in §6.
 9. **One namespace per decl, derived, never stored per use.** A decl's C++
    namespace is its DC parent chain -> `ModuleDecl::module_path`. Every TU
    that emits that decl computes the same path from the same node.
+9a. **Nothing outside the source tree reaches the ABI.** A decl's C++
+    namespace is a function of its root's declared name and its path
+    within that root, plus any `module X { }` blocks enclosing it — and of
+    nothing else: not the checkout's directory name, not a flag, not the
+    importer's spelling. Two builds of one tree emit byte-identical
+    interfaces. The entry TU has no path and emits into the unnamed
+    namespace, `main` excepted.
 10. **Aliases are TU-local.** An alias never appears in an exported
     interface. C++ consumers see canonical names only.
 11. **Class granularity.** A class enters a TU's emitted interface whole
@@ -519,11 +529,14 @@ by import order.
 Tie-break inside a tier: (source fid, source order). Output is
 deterministic.
 
-### 6.4 Namespace wrapping [MISSING]
+### 6.4 Namespace wrapping [DONE]
 
-Each decl in `namespace a { namespace b { ... } }` from `module_path`.
-Reopening is free in C++; one wrapper per decl is correct, merging
-consecutive same-path decls is cosmetic. Root TU decls: global namespace.
+Each decl in `namespace a::b { ... }`, from `CXXSpell::ns_segments` (§3
+invariant 9a). Reopening is free in C++, so one wrapper per decl is
+correct; InterfaceEmitter merges consecutive same-namespace tier-0 entries,
+EmitIR does not merge at all. Entry-TU decls go in the UNNAMED namespace,
+not the global one -- `main` excepted, which C++ requires at global scope
+and which therefore gets no declaration in the interface at all.
 
 ### 6.5 Alias tail [DECIDED: none]
 
@@ -541,12 +554,13 @@ TU-local and never appears in an exported interface) and costs a second
 naming mechanism codegen would have to keep consistent with the first.
 Qualified-at-use is fewer moving parts; do not relitigate.
 
-### 6.6 Emitter reuse [MISSING]
+### 6.6 Emitter reuse [DONE]
 
-`InterfaceEmitter(roots) -> token stream`. Two callers:
+`InterfaceEmitter(plan) -> EmitSink` (TokenSink for the build, TextSink for
+`--print-cxx` and headers). Two callers:
 
-    EmitPlan        roots = foreign decls used by this TU
-    EmitCXXHeader   roots = this module's `pub` decls   (the C++ interop header)
+    EmitPlan        roots = every own decl + foreign reached      (PlanMode::Preamble)
+    EmitCXXHeader   roots = own `pub` decls + foreign reached     (PlanMode::Header)
 
 Zero new logic for the header. A C++ consumer of the header sees canonical
 namespaced names and nothing else.
@@ -574,6 +588,10 @@ checked in Kairo at the instantiation site, lowered (`WhereDispatchLowering`)
 BEFORE emission. The emitted template is unconstrained and is only ever
 instantiated at arguments Kairo accepted.
 
+Note: template member bodies are emitted into the template's own TU always,
+and into every TU that homes one of its instances (the explicit
+instantiation definition needs the body visible). The header carries them.
+
 ---
 
 ## 8. Ordered work list
@@ -591,10 +609,17 @@ Each item is independently testable. Do them in this order.
     9. Named roots: add_include(name), SearchRoot.name, module_base prefix   PP/Resolution DONE
    10. TypeCycleCheck                                     Sema/Check DONE
    11. EmitPlan collector + closure + tiers               Codegen    DONE
-   12. Out-of-line body rule                              TokenSink
+   12. InterfaceEmitter                                   Codegen    DONE (declarations); EmitIR bodies OPEN
+   12b. Cross-fid TokenSink (locmap-translated locations) Codegen    DONE
    13. Instantiation registry + extern template           M1/M2
    13a. Cross-reopening redefinition check (same signature, two definitions) at M2 sync
-   14. EmitCXXHeader via the same emitter                 Codegen    ~20 lines
+        OPEN, and not a codegen item: a module reopened in two files can define
+        one signature twice, and nothing diagnoses it. Codegen cannot: each TU
+        sees one half, emits it, and the collision surfaces as a LINKER
+        duplicate-symbol error naming the mangled C++ name. Belongs in the M2
+        sync point, where every TU's decls are visible at once; the error is
+        N(a)'s (redefinition), with a note on the other definition.
+   14. EmitCXXHeader via the same emitter                 Codegen    DONE
    15. Clang extraction pass (removes the §5 gate)        Interop, Sema/Foreign  DONE (§5)
 
 Test for 1–9: `Tests/Sema/imports_all_forms`. `main.k` imports `foo.k`
