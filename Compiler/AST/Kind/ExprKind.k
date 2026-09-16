@@ -338,3 +338,51 @@ enum ExprKind derives u8 {
     // -----------------------------------------------------------------------
     ExprKindCount,
 }
+
+fn to_string(ek: ExprKind) -> string {
+    switch ek {
+        case ExprKind::RecoveryExpr { return "RecoveryExpr"; }
+        case ExprKind::IntegerLiteralExpr { return "IntegerLiteralExpr"; }
+        case ExprKind::FloatingLiteralExpr { return "FloatingLiteralExpr"; }
+        case ExprKind::StringLiteralExpr { return "StringLiteralExpr"; }
+        case ExprKind::CharacterLiteralExpr { return "CharacterLiteralExpr"; }
+        case ExprKind::BooleanLiteralExpr { return "BooleanLiteralExpr"; }
+        case ExprKind::NullLiteralExpr { return "NullLiteralExpr"; }
+        case ExprKind::ListLiteralExpr { return "ListLiteralExpr"; }
+        case ExprKind::TupleLiteralExpr { return "TupleLiteralExpr"; }
+        case ExprKind::SetLiteralExpr { return "SetLiteralExpr"; }
+        case ExprKind::MapLiteralExpr { return "MapLiteralExpr"; }
+        case ExprKind::NamedInitializerExpr { return "NamedInitializerExpr"; }
+        case ExprKind::AnonInitializerExpr { return "AnonInitializerExpr"; }
+        case ExprKind::ChainExpr { return "ChainExpr"; }
+        case ExprKind::CallExpr { return "CallExpr"; }
+        case ExprKind::SubscriptExpr { return "SubscriptExpr"; }
+        case ExprKind::NamedIdentExpr { return "NamedIdentExpr"; }
+        case ExprKind::UnaryOperatorExpr { return "UnaryOperatorExpr"; }
+        case ExprKind::BinaryOperatorExpr { return "BinaryOperatorExpr"; }
+        case ExprKind::AssignOperatorExpr { return "AssignOperatorExpr"; }
+        case ExprKind::ImplConformanceExpr { return "ImplConformanceExpr"; }
+        case ExprKind::DerivesRelationExpr { return "DerivesRelationExpr"; }
+        case ExprKind::IfExpr { return "IfExpr"; }
+        case ExprKind::TryCatchExpr { return "TryCatchExpr"; }
+        case ExprKind::MatchExpr { return "MatchExpr"; }
+        case ExprKind::RangeExpr { return "RangeExpr"; }
+        case ExprKind::ClosureExpr { return "ClosureExpr"; }
+        case ExprKind::AwaitExpr { return "AwaitExpr"; }
+        case ExprKind::SpawnExpr { return "SpawnExpr"; }
+        case ExprKind::ThreadExpr { return "ThreadExpr"; }
+        case ExprKind::ConstraintExpr { return "ConstraintExpr"; }
+        case ExprKind::SizeOfExpr { return "SizeOfExpr"; }
+        case ExprKind::AlignOfExpr { return "AlignOfExpr"; }
+        case ExprKind::TypeOfExpr { return "TypeOfExpr"; }
+        case ExprKind::EvalExpr { return "EvalExpr"; }
+        case ExprKind::UnsafeExpr { return "UnsafeExpr"; }
+        case ExprKind::DeleteExpr { return "DeleteExpr"; }
+        case ExprKind::PackExpansionExpr { return "PackExpansionExpr"; }
+        case ExprKind::TypeCastExpr { return "TypeCastExpr"; }
+        case ExprKind::ImplicitBoundaryCastExpr { return "ImplicitBoundaryCastExpr"; }
+        case ExprKind::ParenExpr { return "ParenExpr"; }
+        case ExprKind::VerbatimExpr { return "VerbatimExpr"; }
+        case ExprKind::ExprKindCount { return "ExprKindCount"; }
+    }
+}

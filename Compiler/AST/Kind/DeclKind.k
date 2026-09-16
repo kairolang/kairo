@@ -125,3 +125,31 @@ enum DeclKind derives u8 {
     // -----------------------------------------------------------------------
     DeclKindCount,
 }
+
+fn to_string(dk: DeclKind) -> string {
+    switch dk {
+        case DeclKind::RecoveryDecl { return "RecoveryDecl"; }
+        case DeclKind::FunctionDecl { return "FunctionDecl"; }
+        case DeclKind::VariableDecl { return "VariableDecl"; }
+        case DeclKind::FieldDecl { return "FieldDecl"; }
+        case DeclKind::ParamDecl { return "ParamDecl"; }
+        case DeclKind::GenericParamDecl { return "GenericParamDecl"; }
+        case DeclKind::StructDecl { return "StructDecl"; }
+        case DeclKind::ClassDecl { return "ClassDecl"; }
+        case DeclKind::InterfaceDecl { return "InterfaceDecl"; }
+        case DeclKind::ExtensionDecl { return "ExtensionDecl"; }
+        case DeclKind::EnumDecl { return "EnumDecl"; }
+        case DeclKind::EnumVariantDecl { return "EnumVariantDecl"; }
+        case DeclKind::UnionDecl { return "UnionDecl"; }
+        case DeclKind::TypeAliasDecl { return "TypeAliasDecl"; }
+        case DeclKind::ModuleDecl { return "ModuleDecl"; }
+        case DeclKind::ImportDecl { return "ImportDecl"; }
+        case DeclKind::VisibilityGroupDecl { return "VisibilityGroupDecl"; }
+        case DeclKind::FFIBlockDecl { return "FFIBlockDecl"; }
+        case DeclKind::EvalBlockDecl { return "EvalBlockDecl"; }
+        case DeclKind::TestDecl { return "TestDecl"; }
+        case DeclKind::MacroDecl { return "MacroDecl"; }
+        case DeclKind::ProcedureMacroDecl { return "ProcedureMacroDecl"; }
+        case DeclKind::DeclKindCount { return "DeclKindCount"; }
+    }
+}

@@ -232,3 +232,36 @@ enum StmtKind derives u8 {
     // -----------------------------------------------------------------------
     StmtKindCount,
 }
+
+fn to_string(s: StmtKind) -> string {
+    switch s {
+        case StmtKind::RecoveryStmt { return "RecoveryStmt"; }
+        case StmtKind::CompoundStmt { return "CompoundStmt"; }
+        case StmtKind::ExpressionStmt { return "ExpressionStmt"; }
+        case StmtKind::DeclStmt { return "DeclStmt"; }
+        case StmtKind::ReturnStmt { return "ReturnStmt"; }
+        case StmtKind::BreakStmt { return "BreakStmt"; }
+        case StmtKind::ContinueStmt { return "ContinueStmt"; }
+        case StmtKind::PanicStmt { return "PanicStmt"; }
+        case StmtKind::YieldStmt { return "YieldStmt"; }
+        case StmtKind::RuntimeAssertStmt { return "RuntimeAssertStmt"; }
+        case StmtKind::StaticAssertStmt { return "StaticAssertStmt"; }
+        case StmtKind::LabelIntrinsicStmt { return "LabelIntrinsicStmt"; }
+        case StmtKind::JumpIntrinsicStmt { return "JumpIntrinsicStmt"; }
+        case StmtKind::ConditionalStmt { return "ConditionalStmt"; }
+        case StmtKind::WhileLoopStmt { return "WhileLoopStmt"; }
+        case StmtKind::LoopStmt { return "LoopStmt"; }
+        case StmtKind::RangedForStmt { return "RangedForStmt"; }
+        case StmtKind::IndexedForStmt { return "IndexedForStmt"; }
+        case StmtKind::MatchStmt { return "MatchStmt"; }
+        case StmtKind::LabeledStmt { return "LabeledStmt"; }
+        case StmtKind::TryCatchStmt { return "TryCatchStmt"; }
+        case StmtKind::FinallyStmt { return "FinallyStmt"; }
+        case StmtKind::UnsafeBlockStmt { return "UnsafeBlockStmt"; }
+        case StmtKind::ContextBindingStmt { return "ContextBindingStmt"; }
+        case StmtKind::DestructuringDeclStmt { return "DestructuringDeclStmt"; }
+        case StmtKind::InlineBlockStmt { return "InlineBlockStmt"; }
+        case StmtKind::EvalBlockStmt { return "EvalBlockStmt"; }
+        case StmtKind::StmtKindCount { return "StmtKindCount"; }
+    }
+}

@@ -54,3 +54,19 @@ enum PatternKind derives u8 {
     // -- Marker ----------------------------------------------------------
     PatternKindCount,
 }
+
+fn to_string(pk: PatternKind) -> string {
+    switch pk {
+        case PatternKind::RecoveryPattern: return "RecoveryPattern";
+        case PatternKind::WildcardPattern: return "WildcardPattern";
+        case PatternKind::LiteralPattern: return "LiteralPattern";
+        case PatternKind::BindingPattern: return "BindingPattern";
+        case PatternKind::TupleDestructurePattern: return "TupleDestructurePattern";
+        case PatternKind::ConstructorPattern: return "ConstructorPattern";
+        case PatternKind::UnresolvedConstructorPattern: return "UnresolvedConstructorPattern";
+        case PatternKind::AlternationPattern: return "AlternationPattern";
+        case PatternKind::RangePattern: return "RangePattern";
+        case PatternKind::SlicePattern: return "SlicePattern";
+        default: return "<unknown>";
+    }
+}
