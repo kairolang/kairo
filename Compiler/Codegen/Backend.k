@@ -10,7 +10,13 @@
 ///     - Backend.k is the ONLY file that imports emitters.
 ///     - Emitters import CodegenContext, never this file. They reach the
 ///       sink through cg->sink.
-///     - Only Backend.k, CodegenAction.k, TokenSink.k, and
+///     - Emitters write to an EmitSink (EmitSink.k), never to a concrete
+///       sink. The sink files are EmitSink.k (the interface), TokenSink.k
+///       (clang tokens, the real build) and TextSink.k (C++ text). This
+///       file uses only TokenSink; TextSink's callers are the driver's
+///       --print-cxx dump and EmitCXXHeader, both of which run in sema and
+///       need no clang.
+///     - Only Backend.k, CodegenAction.k, the sink files, and
 ///       Printer/TokenStreamPrinter.k may import clang headers. An
 ///       `ffi "c++" import "clang/..."` appearing in Emit/ is a
 ///       layer-fusion bug, full stop. Emitters name clang::tok kinds in
@@ -47,17 +53,22 @@ ffi "c++" import "llvm/Support/MemoryBuffer.h";
 import Interop::Clang::ClangBackend::*;
 import Interop::Clang::HeaderSet::*;
 import Location::SourceLocation::*;
+import Codegen::EmitSink::*;
 import Codegen::TokenSink::*;
+import Codegen::EmitPlan::*;
 import Codegen::CodegenAction::*;
 import Codegen::CodegenContext::*;
 import Codegen::Printer::TokenStreamPrinter::*;
 
 // Backend is the ONLY file that imports emitters (see header).
 import Codegen::Emit::EmitIR::*;
+import Codegen::Emit::InterfaceEmitter::*;
 
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::InstantiationRegistry::*;
 import AST::Node::Program::*;
+import Preprocessor::PreprocessorSymbolTable::*;
 
 /// \class CodegenBackend
 /// \brief Per-TU codegen run over the shared ClangBackend. Constructed by
@@ -74,14 +85,19 @@ class CodegenBackend derives TokenFiller {
     priv var _print: bool = false;   ///< --print-cg
     priv var _path:  string;         ///< for the printer header
     priv var _sets:  vec::<*HeaderSet>;  ///< header sets this TU's graph requested, main file's first
+    priv var _psym:      obs::<PreprocessorSymbolTable>;  ///< module_base segments -> namespace names
+    priv var _instances: obs::<InstantiationRegistry>;    ///< tier 3 of the plan
 
     fn CodegenBackend(self, be: *ClangBackend, ctx: *ASTContext, kfid: FileID,
-                      arena: *ArenaAllocator, ksize: u32) {
-        self._be    = be;
-        self._ctx   = ctx;
-        self._kfid  = kfid;
-        self._arena = arena;
-        self._ksize = ksize;
+                      arena: *ArenaAllocator, ksize: u32,
+                      psym: *PreprocessorSymbolTable, instances: *InstantiationRegistry) {
+        self._be        = be;
+        self._ctx       = ctx;
+        self._kfid      = kfid;
+        self._arena     = arena;
+        self._ksize     = ksize;
+        self._psym      = psym;
+        self._instances = instances;
     }
 
     fn set_print_cg(self, on: bool, path: string) {
@@ -103,27 +119,24 @@ class CodegenBackend derives TokenFiller {
         if tu == &null { return false; }
         if tu->program == &null { return false; }
 
-        var cg = CodegenContext(self._ctx, sink);
-
-        // EmitPlan is M3. For a single TU of free functions the plan is the
-        // identity transform, so enter Planned trivially rather than
-        // pretending a pass ran.
+        var cg = CodegenContext(self._ctx, sink, self._psym, self._instances);
+        var plan = EmitPlan(&cg, PlanMode::Preamble);
+        plan.run();
         cg.advance_phase(CodegenPhase::Planned);
 
-        var ir = EmitIR(&cg);
+        // Every declaration, own and foreign, before any body: the item
+        // loop below then only ever defines what is already declared.
+        var ie = InterfaceEmitter(&cg, &plan);
+        ie.run();
 
-        var items = &(tu->program->items);
-        for var i: usize = 0; i < items->size(); i++ {
-            var item = *(items->get(i));
-            switch item.kind {
-                case TopLevelKind::Decl { ir.emit(item.as_decl()); }
-                default {
-                    // Top-level stmts/exprs are not emittable C++ at M2.
-                    ICE_FAIL("CodegenBackend: top-level statements are not "
-                        "supported at M2");
-                }
-            }
-        }
+        // Bodies, driven by the plan: the same order the interface used, so
+        // a definition always follows the declaration it matches.
+        var ir = EmitIR(&cg);
+        ir.emit_tu(&plan);
+
+        // Home instantiation definitions last: they only instantiate members
+        // whose definitions precede them.
+        ie.emit_home_instantiations();
 
         sink->eof();
         cg.advance_phase(CodegenPhase::Emitted);
