@@ -98,13 +98,10 @@ class KairoEmitAction derives clang::EmitObjAction {
         var live_cfid = self.locmap->clang_fid_of(self.kfid);
         if !live_cfid.isValid() { return false; }
 
-        // kbase is the Kairo raw loc of byte 0 of this file. The sink derives
-        // its own delta from it and owns every location conversion from here
-        // on   there is exactly one place that arithmetic lives.
-        var kbase = self.locmap->kairo_base(self.kfid);
-
+        // The sink translates every location through the map, not a per-file
+        // delta: preamble tokens borrow spans from OTHER registered fids.
         self.sink = std::create::<TokenSink>(
-            pp, csm, live_cfid, kbase, self.ksize, self.arena);
+            pp, csm, self.locmap, live_cfid, self.kfid, self.ksize, self.arena);
         self.filled = self.filler->fill(self.sink);
         if !self.filled { return false; }
 

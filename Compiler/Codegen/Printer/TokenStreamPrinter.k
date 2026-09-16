@@ -101,8 +101,11 @@ class TokenStreamPrinter {
                 }
             }
 
+            // The fid column: a preamble token borrows its decl's span in
+            // ANOTHER file, and without the fid its offset reads as garbage.
+            var kf = sink->kairo_fid(i);
             var off_s: string = ("     ?") if (koff == u32(-1)) else (f"{koff}");
-            std::print(f"{i}  {kind_name}  {family}  [{off_s}, {klen})  \x22{spell}\x22");
+            std::print(f"{i}  {kind_name}  {family}  [{kf}:{off_s}, {klen})  \x22{spell}\x22");
         }
 
         std::print("=========================================================");

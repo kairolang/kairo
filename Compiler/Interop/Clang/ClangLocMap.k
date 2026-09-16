@@ -419,6 +419,12 @@ class ClangLocMap {
              - static_cast::<i64>(self.kairo_base(kfid));
     }
 
+    /// Kairo loc for byte \p off of \p kfid. eof() needs a loc for the last
+    /// byte of the file it is closing and has no token to borrow it from.
+    fn ksm_loc(self, kfid: FileID, off: usize) -> SourceLocation {
+        return self._ksm->get_loc(kfid, off);
+    }
+
     /// Dumps the whole mapping: per fid, Kairo base vs clang SLoc base and the
     /// delta between them.
     ///
