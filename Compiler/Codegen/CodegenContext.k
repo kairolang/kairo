@@ -4,33 +4,12 @@
 ///          *CodegenContext; only the Backend driver constructs one.
 ///
 ///   Structural rule (identical to SemaContext.k, same reason): the driver
-///   must import every emitter to schedule them. If emitters took *Backend,
-///   every emitter would import the driver and the driver imports every
-///   emitter   an import cycle hub at the worst possible place. Emitters
-///   import THIS file and never see the driver.
+///   imports every emitter; emitters import THIS file and never the driver.
 ///
-///   Composition, not wrapping: CodegenContext HOLDS obs<ASTContext> and
-///   obs<TokenSink>; it does not forward either one's API. Reach through
-///   cg->ctx for AST services and cg->sink to emit.
+///   Composition, not wrapping: handles only, zero logic, zero forwarding.
+///   Reach through cg->ctx for AST services and cg->sink to emit.
 ///
-///   \par ZERO LOGIC   and now zero forwarding either
-///     This class used to carry a token-shaped wrapper per emission
-///     (emit_ident, emit_punct, emit_synth_semi, ...) plus the global ->
-///     file-relative offset conversion. All of it moved onto TokenSink, which
-///     takes Kairo Tokens and SourceRanges directly and owns the location
-///     arithmetic in one place. The wrappers were pure forwarding once that
-///     happened, so they are gone.
-///
-///     What remains is what the header always claimed: handles and phase.
-///     Every time an emit_* helper wants to land back here, it belongs on the
-///     sink (if it constructs a token) or in an emitter under Emit/ (if it
-///     decides a shape). That single discipline is what keeps codegen from
-///     becoming what it became in Stage 0.
-///
-///   \par Import law
-///     This file imports NO clang headers. It sees TokenSink as an opaque
-///     Kairo type. Only Backend.k, CodegenAction.k, TokenSink.k, and
-///     Printer/TokenStreamPrinter.k may touch clang.
+///   Import law: no clang headers here. The sink is an opaque Kairo type.
 ///
 ///   Phase: CODEGEN (shared by all emitters)
 ///
@@ -45,57 +24,61 @@
 
 import AST::Context::ASTContext::*;
 import AST::Context::TranslationUnit::*;
+import AST::Context::InstantiationRegistry::*;
 import AST::Node::Base::*;
-import Codegen::TokenSink::*;
+import Preprocessor::PreprocessorSymbolTable::*;
+import Codegen::EmitSink::*;
 
-/// \enum CodegenPhase
-/// \brief Where the TU is in the emit schedule. Monotonically advanced by
-///        the Backend driver; emitters ASSERT their preconditions against it
-///        instead of trusting the schedule.
 enum CodegenPhase derives u8 {
-    /// Context wired, nothing emitted.
-    Ready = 0,
-    /// EmitPlan built (decl order + fwd-decl set). M3   at M2 the plan is
-    /// the identity transform and this phase is entered trivially.
-    Planned,
-    /// Token stream fully emitted; eof appended.
-    Emitted,
+    Ready = 0,   ///< Context wired, nothing emitted.
+    Planned,     ///< EmitPlan built.
+    Emitted,     ///< Token stream fully emitted; eof appended.
 }
 
-/// \class CodegenContext
-/// \brief The state every emitter borrows. One per TU per codegen run.
-///
-/// \par What lives here vs elsewhere
-///   here:        AST handles, the sink handle, phase.
-///   ASTContext:  arenas, interner, tokens, source mgmt (AST-domain).
-///   TokenSink:   the token stream, the literal arena, and ALL location
-///                arithmetic.
-///   nowhere:     intermediate representation. Codegen owns NO IR. Sema's
-///                Lower/ stage produces the codegen-shaped tree.
+/// Emission switches. Every one is a build-wide decision, never per site.
+class EmitOptions {
+    /// Same-file extension members ALSO declared as inline member wrappers
+    /// in the class body. OFF: the class text carries only `friend` lines
+    /// and an extension member is reached as a free function from Kairo
+    /// and C++ alike. Kept as a switch, not deleted, so the surface can be
+    /// reopened without re-deriving where the wrapper would go.
+    pub var extension_member_wrappers: bool = false;
+
+    fn EmitOptions(self) { }
+}
+
 class CodegenContext {
-    pub var ctx:   obs::<ASTContext>;
-    pub var tu:    obs::<TranslationUnit>;
-    pub var sink:  obs::<TokenSink>;
-    pub var phase: CodegenPhase = CodegenPhase::Ready;
+    pub var ctx:       obs::<ASTContext>;
+    pub var tu:        obs::<TranslationUnit>;
+    pub var sink:      obs::<EmitSink>;
+    /// PP symbol table: `module_base` segments are PP SymbolIDs, and the C++
+    /// namespace path is rendered from them (IMPORTS.md invariant 9).
+    pub var psym:      obs::<PreprocessorSymbolTable>;
+    /// The build's instance registry: tier 3 of the plan, and the args a
+    /// shell node does not carry itself.
+    pub var instances: obs::<InstantiationRegistry>;
+    pub var opts:      EmitOptions;
+    pub var phase:     CodegenPhase = CodegenPhase::Ready;
 
-    /// Default ctor: leaves the context UNWIRED. Exists so a by-value member
-    /// can be default-constructed then assigned. An emitter must never run
-    /// against a default-constructed context.
+
     fn CodegenContext(self) {
-        self.ctx   = &null;
-        self.tu    = &null;
-        self.sink  = &null;
-        self.phase = CodegenPhase::Ready;
+        self.ctx       = &null;
+        self.tu        = &null;
+        self.sink      = &null;
+        self.psym      = &null;
+        self.instances = &null;
+        self.phase     = CodegenPhase::Ready;
     }
 
-    fn CodegenContext(self, ctx: *ASTContext, sink: *TokenSink) {
-        self.ctx   = ctx;
-        self.tu    = reinterpret_cast::<*TranslationUnit>(ctx->tu);
-        self.sink  = sink;
-        self.phase = CodegenPhase::Ready;
+    fn CodegenContext(self, ctx: *ASTContext, sink: *EmitSink,
+                      psym: *PreprocessorSymbolTable, instances: *InstantiationRegistry) {
+        self.ctx       = ctx;
+        self.tu        = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        self.sink      = sink;
+        self.psym      = psym;
+        self.instances = instances;
+        self.phase     = CodegenPhase::Ready;
     }
-
-    // --- Phase discipline -----------------------------------------------------
 
     fn require_phase(self, min: CodegenPhase) {
         assert((static_cast::<u8>(self.phase) >= static_cast::<u8>(min))
