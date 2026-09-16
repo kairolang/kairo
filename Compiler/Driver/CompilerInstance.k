@@ -113,6 +113,11 @@ import Command::Command::*;
 import Command::FlagRegistry::*;
 import Codegen::Backend::*;
 import Codegen::EmitPlan::*;
+import Codegen::EmitCXXHeader::*;
+import Codegen::Emit::CXXSpell::*;
+import Codegen::TextSink::*;
+import Support::FileIO::Path::*;
+import Codegen::Emit::InterfaceEmitter::*;
 import Codegen::CodegenContext::*;
 import Config::Invocation::*;
 import Driver::BatchResult::*;
@@ -209,6 +214,14 @@ class FrontendAction {
     fn fids(self)    -> vec::<u32> { return self._fids;                }
     fn ok(self)      -> bool    { return self._stage == TUStage::Done; }
     fn failed(self)  -> bool    { return self._stage == TUStage::Failed; }
+    priv static fn _ensure_parent_dir(path: string) { // TODO: move to Path.k or FileSystem.k
+        var np = std::string_to_nstring(path);
+        inline "c++" {
+            libcxx::filesystem::path fp(np.raw_string());
+            libcxx::error_code ec;
+            libcxx::filesystem::create_directories(fp.parent_path(), ec);
+        }
+    }
 
     priv fn _fatal(self, id: DiagID, msg: string) -> bool;
     priv fn _load(self)        -> bool;
@@ -1788,10 +1801,52 @@ fn FrontendAction::_sema() -> bool {
             if ctx == &null { continue; }
             var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
             if tu == &null { continue; }
-            var cg = CodegenContext(ctx, &null);
-            var plan = EmitPlan(&cg);
+            var psym = self._ci->pp()->get_symbol_table();
+            var cg = CodegenContext(ctx, &null, psym, self._global_scope->instances());
+            var plan = EmitPlan(&cg, PlanMode::Preamble);
             plan.run();
             plan.dump(self._ci->sm()->get_filename(fid));
+
+            // The header root set too (own pub decls, no uses), so both
+            // are golden-testable from one flag. The entry TU has no
+            // header (EmitCXXHeader skips it), so its dump would be noise.
+            if CXXSpell::is_entry_tu(tu) { continue; }
+            var hcg = CodegenContext(ctx, &null, psym, self._global_scope->instances());
+            var hplan = EmitPlan(&hcg, PlanMode::Header);
+            hplan.run();
+            hplan.dump(self._ci->sm()->get_filename(fid));
+        }
+    }
+
+    // The interface text needs no clang either, so it is produced here and
+    // works under --type-check-only. Behind a full codegen run it would sit
+    // behind EmitIR, which ICEs on any body the M2 prototype cannot emit.
+    // A sibling loop, not the plan loop: that one skips the entry TU before
+    // its header dump, and the entry TU still has a preamble.
+    if fe.print_cxx || (!fe.emit_headers.empty()) {
+        for var i: usize = 0; i < n; ++i {
+            var fid = self._fids[n - 1 - i];
+            var ctx = self._global_scope->get_context(fid);
+            if ctx == &null { continue; }
+            var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+            if tu == &null { continue; }
+            if fe.print_cxx {
+                var ts  = TextSink(self._ci->sm(), self._ci->tcm());
+                var tcg = CodegenContext(ctx, &ts, self._ci->pp()->get_symbol_table(), self._global_scope->instances());
+                var tplan = EmitPlan(&tcg, PlanMode::Preamble);
+                tplan.run();
+                tcg.advance_phase(CodegenPhase::Planned);
+                InterfaceEmitter(&tcg, &tplan).run();
+                std::print(f"============== CXX PREAMBLE fid {fid}: {self._ci->sm()->get_filename(fid)} ==============");
+                std::print(ts.out);
+            }
+            // EmitCXXHeader skips the entry TU and writes nothing for it.
+            if !fe.emit_headers.empty() {
+                var h = EmitCXXHeader(ctx, self._ci->pp()->get_symbol_table(), self._global_scope->instances());
+                if h.write(fe.emit_headers) {
+                    Logger::info(Logger::Stage::Driver, f"emitted header {h.path_under(fe.emit_headers)}");
+                }
+            }
         }
     }
 
@@ -1834,7 +1889,6 @@ fn FrontendAction::_codegen() -> bool {
 
     self._stage = TUStage::Codegen;
 
-
     {
         var _tw = TimeRegion("ClangStartupWait");
         self._ci->pool()->wait_group(CLANG_STARTUP_GROUP());
@@ -1845,63 +1899,103 @@ fn FrontendAction::_codegen() -> bool {
         return self._fatal(DiagID::I006F, "clang backend not ready");
     }
 
-    var kfid    = self._file_id;
-    var sink    = BufferedDiagSink{};
-    var adapter = be->begin_tu(&sink, kfid);
+    var fe    = self._ci->invocation().frontend;
+    var psym  = self._ci->pp()->get_symbol_table();
+    var insts = self._global_scope->instances();
 
-    var ctx = self._global_scope->get_context(self._file_id);
-    if ctx == &null {
+    // One object per Kairo TU. Foreign fids are C++ headers: clang parsed
+    // them, nothing is emitted for them.
+    var own = vec::<u32>();
+    var n   = self._fids.size();
+    for var i: usize = 0; i < n; ++i {
+        var f = self._fids[n - 1 - i];   // reverse tree order: imports before importers.
+        if self._ci->is_foreign_fid(f) { continue; }
+        own.push_back(f);
+    }
+    if own.size() == 0 {
+        return self._fatal(DiagID::I006F, "codegen: no Kairo translation unit to emit");
+    }
+
+    // `-o x.o` names THE object only when there is one; with a graph it is
+    // a directory, because n TUs cannot share one output path.
+    var single_obj = "";
+    var obj_dir    = fe.output;
+    if (!obj_dir.empty()) && (Path(obj_dir).extension() == "o") && (own.size() == 1) {
+        single_obj = obj_dir;
+        obj_dir    = "";
+    } else if obj_dir.empty() {
+        obj_dir = ".";
+    }
+
+    for fid: u32 in own {
+        var ctx = self._global_scope->get_context(fid);
+        if ctx == &null {
+            return self._fatal(DiagID::I006F, "codegen: no ASTContext for a Kairo fid");
+        }
+        var ksize = static_cast::<u32>(self._ci->sm()->get_file_size(fid));
+        if ksize == 0 {
+            return self._fatal(DiagID::I006F, "codegen: zero-size Kairo file");
+        }
+
+        // The object path mirrors the module path, so two modules of the
+        // same leaf name do not collide. The entry TU has no module path.
+        var out = single_obj;
+        if out.empty() {
+            var ocg  = CodegenContext(ctx, &null, psym, insts);
+            var sp   = CXXSpell(&ocg);
+            var segs = sp.module_segments(reinterpret_cast::<*TranslationUnit>(ctx->tu));
+            var rel  = "";
+            for var i: usize = 0; i < segs.size(); ++i {
+                if i > 0 { rel += "/"; }
+                rel += segs[i];
+            }
+            if rel.size() == 0 { rel = self.path.stem(); }
+            out = obj_dir + "/" + rel + ".o";
+        }
+
+        var sink    = BufferedDiagSink{};
+        var adapter = be->begin_tu(&sink, fid);
+
+        var cg = CodegenBackend(be, ctx, fid, &(ctx->codegen_alloc), ksize, psym, insts);
+        cg.set_print_cg(fe.print_cg, self._ci->sm()->get_filename(fid));
+
+        // Phase B loads phase A's PCHs instead of re-parsing the headers.
+        // THIS TU's set goes first: it is the one that becomes the implicit
+        // PCH (see CodegenBackend::run for the one-PCH limitation).
+        var sets = vec::<*HeaderSet>();
+        var own_tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
+        if (own_tu != &null) && (own_tu->header_set != &null) {
+            sets.push_back(reinterpret_cast::<*HeaderSet>(own_tu->header_set));
+        }
+        for other: u32 in self._fids {
+            var sctx = self._global_scope->get_context(other);
+            if sctx == &null { continue; }
+            var stu = reinterpret_cast::<*TranslationUnit>(sctx->tu);
+            if (stu == &null) || (stu->header_set == &null) { continue; }
+            var hs  = reinterpret_cast::<*HeaderSet>(stu->header_set);
+            var dup = false;
+            for var j: usize = 0; j < sets.size(); ++j { if sets[j] == hs { dup = true; break; } }
+            if !dup { sets.push_back(hs); }
+        }
+        cg.set_header_sets(sets);
+
+        var ok = false;
+        {
+            var _tr = TimeRegion("Emit");
+            self._ensure_parent_dir(out);
+            ok = cg.run(out);
+        }
+
+        // end_tu FIRST: it flushes any builder still open in the adapter, so
+        // draining before it would silently drop the last diagnostic.
         be->end_tu(adapter);
-        return self._fatal(DiagID::I006F, "codegen: no ASTContext for main fid");
-    }
+        sink.drain_into(self._ci->diag(), self._ci->sm());
 
-    var ksize = static_cast::<u32>(self._ci->sm()->get_file_size(self._file_id));
-    if ksize == 0 {
-        be->end_tu(adapter);
-        return self._fatal(DiagID::I006F, "codegen: zero-size main file");
-    }
-
-    var fe  = self._ci->invocation().frontend;
-    var out = fe.output;
-    if out.empty() { out = "a.o"; }
-
-    var cg = CodegenBackend(be, ctx, kfid, &(ctx->codegen_alloc), ksize);
-    cg.set_print_cg(fe.print_cg, self.path.full_path());
-
-    // Phase B loads phase A's PCHs instead of re-parsing the headers. The
-    // MAIN file's set goes first: it is the one that becomes the implicit
-    // PCH (see CodegenBackend::run for the one-PCH limitation).
-    var sets = vec::<*HeaderSet>();
-    var main_tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
-    if (main_tu != &null) && (main_tu->header_set != &null) {
-        sets.push_back(reinterpret_cast::<*HeaderSet>(main_tu->header_set));
-    }
-    for fid: u32 in self._fids {
-        var sctx = self._global_scope->get_context(fid);
-        if sctx == &null { continue; }
-        var stu = reinterpret_cast::<*TranslationUnit>(sctx->tu);
-        if (stu == &null) || (stu->header_set == &null) { continue; }
-        var hs  = reinterpret_cast::<*HeaderSet>(stu->header_set);
-        var dup = false;
-        for var j: usize = 0; j < sets.size(); ++j { if sets[j] == hs { dup = true; break; } }
-        if !dup { sets.push_back(hs); }
-    }
-    cg.set_header_sets(sets);
-
-    var ok = false;
-    {
-        var _tr = TimeRegion("Emit");
-        ok = cg.run(out);
-    }
-
-    // end_tu FIRST: it flushes any builder still open in the adapter, so
-    // draining before it would silently drop the last diagnostic.
-    be->end_tu(adapter);
-    sink.drain_into(self._ci->diag(), self._ci->sm());
-
-    if !ok {
-        self._stage = TUStage::Failed;
-        return false;
+        if !ok {
+            self._stage = TUStage::Failed;
+            return false;
+        }
+        Logger::info(Logger::Stage::Driver, f"emitted object {out}");
     }
 
     self._stage = TUStage::Done;
