@@ -48,6 +48,13 @@
 // (c) reached with full precision and truncating separately. These are
 // three different bugs with different fixes.
 
+class Foo {}
+
 fn f() {
     var x: f80 = 3.14159265358979323846
+
+    var y: Foo = match x {
+        case 3.14159265358979323846 { 129 } // expected to match, but does not
+        default { 102 } // taken instead, because x was truncated to f64 precision
+    }
 }
