@@ -50,12 +50,8 @@ import Token::TokenKind::*;
 /// encoding has one place to land.
 fn named_call_arg_value(a: *Expr) -> *Expr {
     if a == &null { return &null; }
-    if !isa::<AssignOperatorExpr>(a) { return &null; }
-    var asn = cast::<AssignOperatorExpr>(a);
-    if asn->op_token.kind != TokenKind::OpColon { return &null; }
-    if (asn->lhs == &null) || (asn->rhs == &null) { return &null; }
-    if !isa::<NamedIdentExpr>(asn->lhs) { return &null; }
-    return asn->rhs;
+    if !isa::<NamedArgExpr>(a) { return &null; }
+    return cast::<NamedArgExpr>(a)->value;
 }
 
 class <D> RecursiveASTVisitor {
@@ -501,6 +497,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::ImplicitBoundaryCastExpr { return self.dyn()->traverse_implicit_boundary_cast_expr(cast::<ImplicitBoundaryCastExpr>(e) ); }
             case ExprKind::ParenExpr                { return self.dyn()->traverse_paren_expr(                 cast::<ParenExpr>(e)                ); }
             case ExprKind::VerbatimExpr             { return self.dyn()->traverse_verbatim_expr(              cast::<VerbatimExpr>(e)             ); }
+            case ExprKind::NamedArgExpr             { return self.dyn()->traverse_named_arg_expr(             cast::<NamedArgExpr>(e)             ); }
             case ExprKind::RecoveryExpr             { self.dyn()->visit_expr(e); return e; }
             case ExprKind::ExprKindCount            {  ICE_FAIL("ExprKindCount reached RAV in Stage 1 - driver bail failed"); return &null; }
         }
@@ -841,6 +838,14 @@ class <D> RecursiveASTVisitor {
         return n;
     }
 
+    /// The VALUE is the only child. `name` is a label, not an expression:
+    /// walking it would bind a parameter name as though it were a use.
+    fn traverse_named_arg_expr(self, n: *NamedArgExpr) -> *NamedArgExpr {
+        if self.dyn()->walkup_named_arg_expr(n) == false { return n; }
+        if n->value != &null { n->value = self.dyn()->dispatch_expr(n->value); }
+        return n;
+    }
+
     fn traverse_eval_expr(self, n: *EvalExpr) -> *EvalExpr {
         if self.dyn()->walkup_eval_expr(n) == false { return n; }
         if n->operand != &null { n->operand = self.dyn()->dispatch_expr(n->operand); }
@@ -1056,8 +1061,14 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_verbatim_expr(n);
     }
 
+    fn walkup_named_arg_expr(self, n: *NamedArgExpr) -> bool {
+        if self.dyn()->visit_expr(static_cast::<*Expr>(n)) == false { return false; }
+        return self.dyn()->visit_named_arg_expr(n);
+    }
+
     fn visit_paren_expr(self, n: *ParenExpr) -> bool { return true; }
     fn visit_verbatim_expr(self, n: *VerbatimExpr) -> bool { return true; }
+    fn visit_named_arg_expr(self, n: *NamedArgExpr) -> bool { return true; }
 
     fn walkup_eval_expr(self, n: *EvalExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
