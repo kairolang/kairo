@@ -333,6 +333,17 @@ enum ExprKind derives u8 {
     /// Never produced in Semantic fidelity. Reaching sema or codegen is an ICE.
     VerbatimExpr,
 
+    /// `name: value` in an argument list.
+    /// Node: NamedArgExpr: name: Token, value: *Expr
+    ///
+    /// The label is not an expression, so this is not an operator node. It was
+    /// an AssignOperatorExpr whose operator token happened to be `:`, which
+    /// meant every reader of an argument list had to know that shape and step
+    /// around the lhs. Placement reads `name`; everything else reads `value`.
+    ///
+    /// Reaching codegen is an ICE: CallLowering places it.
+    NamedArgExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -383,6 +394,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::ImplicitBoundaryCastExpr { return "ImplicitBoundaryCastExpr"; }
         case ExprKind::ParenExpr { return "ParenExpr"; }
         case ExprKind::VerbatimExpr { return "VerbatimExpr"; }
+        case ExprKind::NamedArgExpr { return "NamedArgExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

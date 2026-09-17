@@ -104,6 +104,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::EvalExpr                 { return "EvalExpr";                 }
         case ExprKind::UnsafeExpr               { return "UnsafeExpr";               }
         case ExprKind::ParenExpr                { return "ParenExpr";                }
+        case ExprKind::NamedArgExpr             { return "NamedArgExpr";             }
         case ExprKind::VerbatimExpr             { return "VerbatimExpr";             }
         case ExprKind::DeleteExpr               { return "DeleteExpr";               }
         case ExprKind::PackExpansionExpr        { return "PackExpansionExpr";        }
@@ -358,6 +359,13 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self.p.paint(Color::Punct, "(");
             self.src_expr(cast::<ParenExpr>(e)->inner);
             self.p.paint(Color::Punct, ")");
+            return;
+        }
+        if isa::<NamedArgExpr>(e) {
+            var na = cast::<NamedArgExpr>(e);
+            self.p.paint(Color::Ident, self.tok(na->name));
+            self.p.paint(Color::Punct, ": ");
+            self.src_expr(na->value);
             return;
         }
         if isa::<VerbatimExpr>(e) {
@@ -1210,11 +1218,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         return false;
     }
 
-    fn _param_list(self, params: FrozenList::<*ParamDecl>, is_variadic: bool) {
+    /// The `...` goes on the parameter that CARRIES it, which need not be the
+    /// last one. Keying off `is_variadic` + last index printed the marker on
+    /// the wrong parameter for every signature with a keyword-only tail.
+    fn _param_list(self, params: FrozenList::<*ParamDecl>) {
         self.p.paint(Color::Punct, "(");
         for var i: usize = 0; i < params.size(); ++i {
             if i > 0 { self.p.paint(Color::Punct, ", "); }
-            if is_variadic && (i == params.size() - 1) && (!params[i]->is_self) {
+            if params[i]->is_pack && (!params[i]->is_self) {
                 self.p.paint(Color::Punct, "...");
             }
             self._d_param(params[i]);
@@ -1260,7 +1271,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
         self._spec_args(fd->spec_kind, fd->spec_args); // post-name `<...>` (#68)
 
-        self._param_list(fd->params, fd->is_variadic);
+        self._param_list(fd->params);
         self._fn_modifiers(fd);
 
         if fd->is_noreturn {
@@ -1514,6 +1525,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     }
 
     fn _d_import(self, im: *ImportDecl) {
+        // The injected `import builtin::*` is not in the source. Printing it
+        // would make the rendered tree disagree with the file it came from,
+        // and a round-tripped print would then carry an import the user never
+        // wrote. It has no path_segments to spell either.
+        if im->is_prelude { return; }
+
         if im->has_ffi_linkage() {
             self.p.paint(Color::Keyword, "ffi ");
             self.p.paint(Color::Literal, self.tok(im->ffi_lang_token()));
@@ -1625,7 +1642,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _d_proc_macro(self, pm: *ProcedureMacroDecl) {
         self.p.paint(Color::Keyword, "macro ");
         self.p.paint(Color::Attr, f"@{self.tok(pm->name)}");
-        self._param_list(pm->params, false);
+        self._param_list(pm->params);
         self.p.put(" ");
         if pm->body != &null {
             self.src_stmt(static_cast::<*Stmt>(pm->body));
@@ -2070,6 +2087,16 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<EvalExpr>(e)             { self._dx_kw("EvalExpr",   cast::<EvalExpr>(e)->operand,   is_last); return; }
         if isa::<UnsafeExpr>(e)           { self._dx_kw("UnsafeExpr", cast::<UnsafeExpr>(e)->operand, is_last); return; }
         if isa::<ParenExpr>(e)            { self._dx_kw("ParenExpr",  cast::<ParenExpr>(e)->inner,    is_last); return; }
+        if isa::<NamedArgExpr>(e) {
+            var na = cast::<NamedArgExpr>(e);
+            self._head("NamedArgExpr", is_last);
+            self.p.paint(Color::Ident, f" {self.tok(na->name)}:");
+            self.p.newline();
+            self.p.enter(is_last);
+            self._child_expr(na->value, true);
+            self.p.leave();
+            return;
+        }
         if isa::<VerbatimExpr>(e) {
             var ve = cast::<VerbatimExpr>(e);
             self._head("VerbatimExpr", is_last);
@@ -2828,7 +2855,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         }
         self._dd_spec(fd->spec_kind, fd->spec_args); // specialization tag + pattern (#68)
         // signature (params + return) inline; full declarations explode as children.
-        self._param_list(fd->params, fd->is_variadic);
+        self._param_list(fd->params);
         if fd->is_noreturn {
             self.p.paint(Color::Punct, " -> ");
             self.p.paint(Color::Operator, "!");
@@ -3278,7 +3305,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._dump_vis(static_cast::<*Decl>(pm));
         self.p.put(" ");
         self.p.paint(Color::Attr, f"@{self.tok(pm->name)}");
-        self._param_list(pm->params, false);
+        self._param_list(pm->params);
         self.p.newline();
 
         var has_attrs = self._has_annotations(static_cast::<*Decl>(pm));

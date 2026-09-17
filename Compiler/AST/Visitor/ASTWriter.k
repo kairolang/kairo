@@ -616,6 +616,7 @@ class <D> ASTWriter {
             case ExprKind::ImplicitBoundaryCastExpr { return self.dyn()->transform_implicit_boundary_cast_expr(cast::<ImplicitBoundaryCastExpr>(e) ); }
             case ExprKind::ParenExpr                { return self.dyn()->transform_paren_expr(                 cast::<ParenExpr>(e)                ); }
             case ExprKind::VerbatimExpr             { return self.dyn()->transform_verbatim_expr(              cast::<VerbatimExpr>(e)             ); }
+            case ExprKind::NamedArgExpr             { return self.dyn()->transform_named_arg_expr(             cast::<NamedArgExpr>(e)             ); }
             case ExprKind::RecoveryExpr             { return e; }
             case ExprKind::ExprKindCount            {  ICE_FAIL("ExprKindCount reached ASTWriter - bug"); return &null; }
         }
@@ -850,6 +851,13 @@ class <D> ASTWriter {
 
     fn transform_paren_expr(self, n: *ParenExpr) -> *Expr {
         if n->inner != &null { n->inner = self.dyn()->transform_expr(n->inner); }
+        return n;
+    }
+
+    /// The value is rewritten; the label is not a node, so there is nothing
+    /// to rewrite about the name.
+    fn transform_named_arg_expr(self, n: *NamedArgExpr) -> *Expr {
+        if n->value != &null { n->value = self.dyn()->transform_expr(n->value); }
         return n;
     }
 
