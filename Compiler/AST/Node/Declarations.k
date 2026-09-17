@@ -294,6 +294,18 @@ class ParamDecl derives Decl {
     pub var unname:      bool = false;     ///< true for the `unnamed` parameter.
     pub var has_default: bool = false;     ///< imported C++ param with a default arg; no Kairo expr to carry.
 
+    /// This parameter carries the `...`. Set by DeclParse on the marked
+    /// parameter, which need not be the last one. `FunctionDecl::is_variadic`
+    /// and `ClosureExpr::is_variadic` are DERIVED from this (true iff some
+    /// parameter has it) and are never written directly -- the list is the
+    /// truth about which parameter is the pack, and a flag on the function
+    /// cannot say that.
+    pub var is_pack:      bool = false;
+    /// A non-pack parameter that follows the pack. It can only be supplied by
+    /// name, because every remaining positional argument belongs to the pack.
+    /// Set by DeclParse when it closes the list.
+    pub var keyword_only: bool = false;
+
     /// Passing mode. Legal only here (and on a fn-pointer type's parameter
     /// positions); the parser rejects it everywhere else. See AST/ParamMode.k.
     /// Never set on `self`: the receiver is already a reference parameter.
@@ -321,6 +333,8 @@ class ParamDecl derives Decl {
         node->type_  = type_;
         node->index  = index;
         node->unname = unname;
+        node->is_pack      = false;
+        node->keyword_only = false;
         return node;
     }
 
@@ -336,6 +350,8 @@ class ParamDecl derives Decl {
         node->type_   = &null;
         node->is_self = true;
         node->index   = 0;
+        node->is_pack      = false;
+        node->keyword_only = false;
         return node;
     }
 
@@ -348,6 +364,8 @@ class ParamDecl derives Decl {
         node->init_annotations(&(ctx->ast_alloc));;
         node->mode       = ParamMode::Value;
         node->mode_range = SourceRange::invalid();
+        node->is_pack      = false;
+        node->keyword_only = false;
         return node;
     }
 
@@ -1182,6 +1200,18 @@ class ImportDecl derives Decl, FFILinkage::<ImportDecl> {
     pub var is_wildcard:   bool = false;         ///< whole-path wildcard `import x::*`.
     pub var has_items:     bool = false;         ///< true when `items` is populated.
     pub var last_seg_is_macro: bool = false;
+
+    /// Synthesized by the driver, not written by the user: the implicit
+    /// `import builtin::*` every non-builtin TU behaves as though it opened
+    /// with. Set next to resolved_fid, which the driver stamps directly --
+    /// the PP's path resolution never runs for this node, because there are
+    /// no real path_segments to spell.
+    ///
+    /// Read only where the distinction is user-visible: the AST printer hides
+    /// it (printing an import the source does not contain is a lie about the
+    /// file), and the sema dump labels it. Phase I treats it as an ordinary
+    /// private wildcard import -- which is exactly what it means.
+    pub var is_prelude:    bool = false;
 
     /// Source-module file id, resolved by the PP walk (FileImportIndex) at the
     /// point the import path resolves. 0 = unresolved. Written ONCE by the PP;

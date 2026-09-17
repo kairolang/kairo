@@ -52,6 +52,19 @@ class CallExpr derives Expr {
     /// the argument list. empty for no-arg calls like `foo()`.
     pub var args:   FrozenList::<*Expr>;
 
+    /// Parallel to the CALLEE'S PARAMETERS (`f->params`, `self` included and
+    /// occupying slot 0 on a method): the index into `args` of the argument
+    /// bound to that parameter, or -1 for "use the parameter's default".
+    /// For the pack parameter it is the index of the FIRST pack argument, and
+    /// `pack_len` says how many follow it.
+    ///
+    /// Written once by CallTyping at Selected, and it is the fact CallLowering
+    /// reorders from -- the argument order at the call site is the user's, the
+    /// order C++ needs is the parameter list's, and nothing downstream should
+    /// have to re-derive the mapping between them.
+    pub var arg_map:  FrozenList::<i32>;
+    pub var pack_len: u32 = 0;
+
     static fn create(
         ctx:    *ASTContext,
         range:  SourceRange,
@@ -61,6 +74,7 @@ class CallExpr derives Expr {
         node->kind   = ExprKind::CallExpr;
         node->range  = range;
         node->callee = callee;
+        node->pack_len = 0;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -74,6 +88,7 @@ class CallExpr derives Expr {
         node->recovery_kind = ExprKind::CallExpr;
         node->range         = range;
         node->callee        = &null;
+        node->pack_len      = 0;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -88,6 +103,59 @@ class CallExpr derives Expr {
 
     fn arg_count(self) -> usize {
         return self.args.size();
+    }
+}
+
+///
+///  NamedArgExpr
+///  `name: value` in an argument list.
+///
+/// A label is not an expression, so this is not an operator node. It used to
+/// be an AssignOperatorExpr carrying a `:` operator token, which forced every
+/// reader of an argument list to recognise that shape and step around the lhs.
+/// Placement (CallTyping) reads `name`; everything else reads `value`.
+///
+class NamedArgExpr derives Expr {
+    /// the parameter name written at the call site.
+    pub var name:  Token;
+
+    /// the argument value.
+    pub var value: *Expr;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        name:  Token,
+        value: *Expr
+    ) -> *NamedArgExpr {
+        var node    = ctx->alloc::<NamedArgExpr>();
+        node->kind  = ExprKind::NamedArgExpr;
+        node->range = range;
+        node->name  = name;
+        node->value = value;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn create_error(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *NamedArgExpr {
+        var node            = ctx->alloc::<NamedArgExpr>();
+        node->kind          = ExprKind::RecoveryExpr;
+        node->recovery_kind = ExprKind::NamedArgExpr;
+        node->range         = range;
+        node->value         = &null;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::NamedArgExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::NamedArgExpr;
     }
 }
 
@@ -558,6 +626,10 @@ class BinaryOperatorExpr derives Expr {
 class AssignOperatorExpr derives Expr {
     pub var lhs:      *Expr;
     pub var rhs:      *Expr;
+    /// Never `:`. A `name: value` argument is a NamedArgExpr; this node
+    /// carried that shape once, and every reader of an argument list had to
+    /// know to step around the lhs. `create` rejects it so the old shape
+    /// cannot come back by accident.
     pub var op_token: Token;
 
     /// The user operator overload resolution selected, or null for a builtin
@@ -573,6 +645,8 @@ class AssignOperatorExpr derives Expr {
         rhs:      *Expr,
         op_token: Token
     ) -> *AssignOperatorExpr {
+        ICE_IF(op_token.kind == TokenKind::OpColon,
+            "AssignOperatorExpr: `:` is not an assignment; a named argument is a NamedArgExpr");
         var node       = ctx->alloc::<AssignOperatorExpr>();
         node->kind     = ExprKind::AssignOperatorExpr;
         node->range    = range;
