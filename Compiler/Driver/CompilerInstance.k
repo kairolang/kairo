@@ -874,6 +874,22 @@ class CompilerInstance {
             var rb = ImportResolver::Builder().cwd(cwd);
             for dir: string in self.invocation().include_dirs { self._add_root(rb, dir); }
             for dir: string in self.invocation().macro_paths  { self._add_root(rb, dir); }
+
+            // The builtin root, registered under the NAME `builtin` so every
+            // module beneath it carries that leading segment -- the lang-item
+            // fill addresses decls by qualified path, and an unnamed root would
+            // give them the directory's basename instead.
+            //
+            // --builtins-dir wins; otherwise <resource-dir>/builtin. With
+            // neither there is no builtin root at all, the prelude resolves to
+            // nothing, and the lang items stay unbound -- which is diagnosed at
+            // USE by whichever pass needs one, never here.
+            var broot = self.invocation().pp.builtins_dir;
+            if broot.empty() && (!self.invocation().target.resource_dir.empty()) {
+                broot = (Path(self.invocation().target.resource_dir) / "builtin").full_path();
+            }
+            if !broot.empty() { rb.add_include(Path(broot), "builtin"); }
+
             self._imp = rb.create_ptr(self._pool);
             self._report_root_collisions();
         }
@@ -1520,6 +1536,12 @@ fn FrontendAction::_preprocess() -> bool {
 
     var pp_res = self._ci->pp()->preprocess(self._file_id, self.module_base);
     self._fids = pp_res.fids;
+    // Which fid is the builtin module, recorded once for the build. Sema fills
+    // the lang-item table from it (NameResolution); it cannot identify the fid
+    // itself, because ModulePath segments are PP SymbolIDs and Sema has no
+    // symbol table. 0 means no builtin root -- the lang items stay unbound and
+    // whichever pass needs one diagnoses it at the use.
+    if pp_res.builtin_fid != 0 { self._global_scope->set_builtin_fid(pp_res.builtin_fid); }
 
     // error_count/warn_count are snapshotted once in run()'s finally block,
     // after every stage this TU reaches - not here.
@@ -1780,7 +1802,11 @@ fn FrontendAction::_sema() -> bool {
         if tu->is_foreign { continue; }   // decls came from clang, already resolved; nothing to run.
         var sem = Sema(ctx, self._global_scope);
         sem.sc.foreign = self._ci->foreign_instantiate();   // before any pass captures &sem.sc.
-        sem.run_to(SemaPhase::Checked);
+        // Through L, not just the checks: OperatorLowering rewrites every user
+        // operator into the call it is, and codegen ICEs on any operator node
+        // that reaches it. --type-check-only stops here too, so the lowering
+        // schedule runs under it and is exercised by the sema tests.
+        sem.run_to(SemaPhase::Lowered);
         ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
 
         // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which

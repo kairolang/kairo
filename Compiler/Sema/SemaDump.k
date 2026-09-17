@@ -362,7 +362,7 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     /// \return 1 when the item is bound, 0 otherwise, so the caller can decide
     ///         whether the section is worth printing at all.
     priv fn _lang_row(self, emit: bool, k: WellKnownType, spelling: string) -> usize {
-        var d = self.sc->well_known.get(k);
+        var d = self.sc->well_known->get(k);
         if !emit {
             return (1) if (d != &null) else (0);
         }

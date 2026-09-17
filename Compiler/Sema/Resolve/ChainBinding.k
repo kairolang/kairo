@@ -618,7 +618,7 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
             } else if isa::<RecordType>(ty) {
                 // `T?` may have been lowered to `Null<T>` (lang item). Peel it.
                 var rt = cast::<RecordType>(ty);
-                var null_decl = self.sc->well_known.get(WellKnownType::Null);
+                var null_decl = self.sc->well_known->get(WellKnownType::Null);
                 if (null_decl != &null) && (rt->decl == null_decl) && (rt->args.size() == 1) {
                     ty = rt->args[0];
                 }

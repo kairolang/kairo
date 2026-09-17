@@ -113,6 +113,27 @@ class DepScanner {
         self.visit(fid, ModulePath(), graph, 0);
     }
 
+    /// \brief folds a MODULE (named, not a file path) into the graph as a root.
+    ///
+    /// \details The prelude's path. One difference from add_root_dependency and
+    ///          it is the whole reason this exists: the module's CANONICAL path
+    ///          comes back from the resolver, so its files carry their root's
+    ///          leading segment. add_root_dependency passes an EMPTY
+    ///          ModulePath, which is right for --force-include (a bare file
+    ///          folded in at global scope) and wrong for a module -- the
+    ///          lang-item fill keys on the qualified path, and an empty one
+    ///          would make `builtin::Vector` unaddressable.
+    ///
+    /// \returns the module's fid, or 0 when it does not resolve. Silent on a
+    ///          miss, as everything else in the scanner is: the PP walk
+    ///          re-resolves and owns the diagnostic.
+    fn add_module_dependency(self, segments: vec::<string>, graph: *DepGraph) -> u32 {
+        var dep = self.resolve_segments(segments, true, Path(), false);
+        if dep.fid == 0 { return 0; }
+        self.visit(dep.fid, dep.mod_path, graph, 0);
+        return dep.fid;
+    }
+
     priv fn visit(self, fid: u32, mod_path: ModulePath, graph: *DepGraph, depth: u32) {
         if graph->all_fids.contains(fid) { return; }
         if self._visiting.contains(fid)  { return; } // cycle

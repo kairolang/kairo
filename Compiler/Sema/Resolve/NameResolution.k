@@ -432,7 +432,60 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     priv fn _validate_decls(self, tu: *TranslationUnit) {
         self._validate_context(static_cast::<*DeclContext>(tu));
         self._attach_out_of_line(tu);
-        self._resolve_well_known(tu);
+    }
+
+    /// Fill the build's lang-item table from THIS TU, which must be the builtin
+    /// one. Called by Sema between N and T (Sema::_stage_name_resolution): N has
+    /// bound the names, and T has not yet resolved `[T;]` in
+    /// `Vector(items: const [T;])` -- which is the point, because resolving it
+    /// needs the Slice handle this fills.
+    ///
+    /// The TU fills its OWN table, so the DeclName invariant holds by
+    /// construction: the imm indices and the scope are both this file's, and no
+    /// key crosses a TU boundary (RESOLUTION.md hard invariant #2).
+    ///
+    /// A name missing from Lib/builtin leaves its slot null. That is NOT
+    /// diagnosed here -- it is an error at the USE, reported by whichever pass
+    /// wanted the item, because a file that never says `[T]` should not be told
+    /// about Vector. `Array` is deliberately absent: `[T; N]` stays structural.
+    fn fill_lang_items(self) {
+        if self.sc->g == &null { return; }
+        if self.sc->ctx == &null { return; }
+        if self.sc->ctx->fid != self.sc->g->builtin_fid() { return; }
+        if !self.sc->g->wk_claim_fill() { return; }
+
+        var root = static_cast::<*DeclContext>(self.sc->tu);
+        self._bind_lang(root, WellKnownType::Slice,      "Slice");
+        self._bind_lang(root, WellKnownType::Vector,     "Vector");
+        self._bind_lang(root, WellKnownType::HashSet,    "HashSet");
+        self._bind_lang(root, WellKnownType::HashMap,    "HashMap");
+        self._bind_lang(root, WellKnownType::String,     "string");
+
+        self._bind_lang(root, WellKnownType::Range,      "Range");
+        self._bind_lang(root, WellKnownType::Ordering,   "Ordering");
+        self._bind_lang(root, WellKnownType::Future,     "Future");
+        self._bind_lang(root, WellKnownType::Yield,      "Yield");
+        self._bind_lang(root, WellKnownType::Null,       "Null");
+        self._bind_lang(root, WellKnownType::Panic,      "Panic");
+
+        self._bind_lang(root, WellKnownType::BigInt,     "BigInt");
+        self._bind_lang(root, WellKnownType::BigFloat,   "BigFloat");
+
+        self._bind_lang(root, WellKnownType::PanicRaise, "PanicRaise");
+        self._bind_lang(root, WellKnownType::PanicCatch, "PanicCatch");
+        self._bind_lang(root, WellKnownType::AssertFail, "AssertFail");
+    }
+
+    /// One lang item, by the name it is DECLARED with in Lib/builtin. The old
+    /// binder asked for "Map", "Set", "Int", "Float" and "String"; the tree
+    /// declares HashMap, HashSet, BigInt, BigFloat and `string`, so five of the
+    /// seventeen could never match.
+    priv fn _bind_lang(self, root: *DeclContext, k: WellKnownType, spelling: string) {
+        var im = self.sc->imm_table()->find_ident(spelling);
+        if im == u32(-1) { return; }        // never interned here: absent.
+        var r = self.sc->lookup.unqualified(root, DeclName::ident(im));
+        if !r.found() { return; }
+        self.sc->well_known->_set(k, r.first());
     }
 
     /// Validate one scope's frozen table, then recurse into every child
@@ -839,35 +892,6 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// item is only an error at USE ("async used but Future unresolvable"),
     /// and that diagnosis belongs to the lowering pass that needs it. Erroring
     /// per TU would fire on every file that never mentions async.
-    priv fn _resolve_well_known(self, tu: *TranslationUnit) {
-        var root = static_cast::<*DeclContext>(tu);
-        
-        self._bind_well_known(root, WellKnownType::Future,   "Future");
-        self._bind_well_known(root, WellKnownType::Range,    "Range");
-        self._bind_well_known(root, WellKnownType::Yield,    "Yield");
-        self._bind_well_known(root, WellKnownType::Ordering, "Ordering");
-        self._bind_well_known(root, WellKnownType::Null,     "Null");
-        self._bind_well_known(root, WellKnownType::Panic,    "Panic");
-
-        self._bind_well_known(root, WellKnownType::String,   "string");
-        self._bind_well_known(root, WellKnownType::Vector,   "vector");
-        self._bind_well_known(root, WellKnownType::Slice,    "slice");
-        self._bind_well_known(root, WellKnownType::Array,    "array");
-        self._bind_well_known(root, WellKnownType::HashMap,  "map");
-        self._bind_well_known(root, WellKnownType::HashSet,  "set");
-
-        self._bind_well_known(root, WellKnownType::BigInt,   "int");
-        self._bind_well_known(root, WellKnownType::BigFloat, "float");
-    }
-
-    priv fn _bind_well_known(self, root: *DeclContext, k: WellKnownType, spelling: string) {
-        var im = self.sc->imm_table()->find_ident(spelling);
-        if im == u32(-1) { return; }        // never interned in this TU: absent.
-        var r = self.sc->lookup.unqualified(root, DeclName::ident(im));
-        if !r.found() { return; }
-        self.sc->well_known._set(k, r.first());
-    }
-
     // === N(b): binding ====================================================
 
     priv fn _bind(self, tu: *TranslationUnit) {

@@ -282,7 +282,7 @@ class TypeUtil {
 
     /// `record(lang item decl, args)` or null when the item is unbound.
     fn lang_record(self, k: WellKnownType, args: *vec::<*Type>) -> *Type {
-        var d = self.sc->well_known.get(k);
+        var d = self.sc->well_known->get(k);
         if d == &null { return &null; }
         var rep = NameLookup::representative(d);
         var gps = self.generic_params_of(rep);
@@ -325,7 +325,7 @@ class TypeUtil {
 
     /// Is \p t the vector/set/map/string lang record, or its structural form.
     fn is_lang(self, t: *Type, k: WellKnownType) -> bool {
-        var d = self.sc->well_known.get(k);
+        var d = self.sc->well_known->get(k);
         if d == &null { return false; }
         var rd = self.record_decl(t);
         if rd == &null { return false; }

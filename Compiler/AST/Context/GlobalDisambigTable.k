@@ -13,6 +13,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import AST::Context::ASTContext::*;
+import AST::LangItems::*;    // WellKnownDecls: storage only; the fill is Sema's
 import Driver::TUStage::*;   // standalone enum; no cycle
 import Resolution::ModulePath::*;
 import AST::Context::CanonicalTypes::*;
@@ -40,6 +41,19 @@ class GlobalDisambigTable {
     priv var _by_fid:    libcxx::unordered_map::<u32, GlobalScopeEntry>;
     priv var _mu:        std::SharedMutex;
     priv var _instances: InstantiationRegistry;
+
+    /// The lang items, ONE table for the build. Per-TU storage was the bug it
+    /// replaces: every TU re-bound them by unqualified name from its own root,
+    /// so a file that never mentioned `Vector` had no handle to it and one that
+    /// declared its own shadowed the real one.
+    ///
+    /// STORAGE only. The fill lives in Sema (NameResolution), because it needs
+    /// NameLookup and DeclName -- putting it here would make AST depend on
+    /// Sema. This layer owns the table, the builtin fid, and the guarantee that
+    /// the fill runs once.
+    priv var _well_known: WellKnownDecls;
+    priv var _builtin_fid: u32  = 0;    ///< 0 = no builtin root this build.
+    priv var _wk_filled:   bool = false;
 
     fn GlobalDisambigTable(self) {
         self._by_fid.reserve(128);
@@ -199,6 +213,35 @@ class GlobalDisambigTable {
     }
 
     fn types(self) -> *CanonicalTypeStore { return &self._types; }
+
+    // --- Lang items -----------------------------------------------------------
+
+    /// The build's lang-item table. Sema reads it through `sc->well_known`.
+    fn well_known(self) -> *WellKnownDecls { return &self._well_known; }
+
+    /// Recorded by the driver from PPResult once the graph is known.
+    fn set_builtin_fid(self, fid: u32) {
+        var lock = std::LockGuard(self._mu);
+        self._builtin_fid = fid;
+    }
+
+    fn builtin_fid(self) -> u32 {
+        var rlock = std::SharedLock(self._mu);
+        return self._builtin_fid;
+    }
+
+    /// Test-and-set: true for the FIRST caller only, and only when there is a
+    /// builtin fid to fill from. Sema calls this in N and fills on a true;
+    /// every later TU sees the table already populated.
+    ///
+    /// The guard lives here rather than in the pass because "once per build" is
+    /// a property of the build, and a per-TU pass has no way to know it ran.
+    fn wk_claim_fill(self) -> bool {
+        var lock = std::LockGuard(self._mu);
+        if self._wk_filled || (self._builtin_fid == 0) { return false; }
+        self._wk_filled = true;
+        return true;
+    }
 
     fn size(self) -> usize {
         return self._by_fid.size();

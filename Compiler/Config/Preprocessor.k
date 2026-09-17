@@ -41,6 +41,12 @@ class PreprocessorOptions {
     // -- prelude -----------------------------------------------------------
     pub var prelude_path:       string = "";        ///< --prelude
     pub var no_prelude:         bool   = false;     ///< --no-prelude / --freestanding
+    /// --builtins-dir: where the builtin module tree lives. Empty means
+    /// `<resource-dir>/builtin`; with neither, there is no builtin root and the
+    /// lang items stay unbound. Read by the DRIVER (it registers the search
+    /// root); the PP never needs it, because the prelude resolves by module
+    /// NAME through that root rather than by path.
+    pub var builtins_dir:       string = "";        ///< --builtins-dir
     // -- debug / trace -----------------------------------------------------
     pub var macro_debug_filter: string = "";     ///< --macro-debug-filter
     pub var macro_debug:        bool   = false;  ///< --macro-debug
@@ -68,6 +74,7 @@ class PreprocessorOptions {
         (o.macro_debug_filter) = args.get_string("macro-debug-filter");
         (o.prelude_path)       = args.get_string("prelude");
         (o.no_prelude)         = args.get_bool("no-prelude") || args.get_bool("freestanding");
+        (o.builtins_dir)       = args.get_string("builtins-dir");
 
         for s: string in args.get_list("define")        { o.defines.push_back(s); }
         for s: string in args.get_list("force-include") { o.force_includes.push_back(s); }

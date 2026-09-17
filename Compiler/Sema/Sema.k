@@ -50,6 +50,7 @@ import Sema::Check::ValueCategoryPass::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Check::MoveCheck::*;
 import Sema::Type::ExprTyper::*;
+import Sema::Lower::OperatorLowering::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
 import Support::TimeReport::*;
@@ -215,7 +216,13 @@ class Sema {
         if self._already(SemaPhase::NamesResolved) { return true; }
         var _t = TimeRegion("N-names");
         self.sc.require_phase(SemaPhase::Verified);
-        NameResolution(&self.sc).run();
+        var nr = NameResolution(&self.sc);
+        nr.run();
+        // Between N and T, and only in the builtin TU: N has bound the names,
+        // and T has not yet resolved `[T;]` in `Vector(items: const [T;])` --
+        // which needs the Slice handle this fills. Every other TU's call is a
+        // fid compare and a return.
+        nr.fill_lang_items();
         self.sc.advance_phase(SemaPhase::NamesResolved);
         return !self._hard_stop();
     }
@@ -305,12 +312,13 @@ class Sema {
         if self._already(SemaPhase::Lowered) { return true; }
         var _t = TimeRegion("L-lowerings");
         self.sc.require_phase(SemaPhase::Checked);
+
+        { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
         // TODO(sema): ExtensionLowering(&self.sc).run();     // folds extends
         // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit
         //             using Base::name; for merged base overloads C++ would
         //             hide reads type->needs_using written by MemberLookup,
         //             never re-walks bases.
-        // TODO(sema): OperatorLowering(&self.sc).run();
         // TODO(sema): MatchLowering(&self.sc).run();
         // TODO(sema): PanicLowering(&self.sc).run();
         // TODO(sema): ...

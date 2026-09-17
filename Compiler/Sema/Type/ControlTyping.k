@@ -195,7 +195,7 @@ class <T> ControlTyping {
         if dyn()->propagate(n, n->operand) { return &null; }
         if ot == &null { return &null; }
         if !dyn()->tu.is_lang(ot, WellKnownType::Future) {
-            if dyn()->sc->well_known.get(WellKnownType::Future) == &null { dyn()->missing_lang_item(n, "Future"); return &null; }
+            if dyn()->sc->well_known->get(WellKnownType::Future) == &null { dyn()->missing_lang_item(n, "Future"); return &null; }
             dyn()->fail(n, f"'await' requires a 'Future', not '{dyn()->tu.str(ot)}\x27");
             return &null;
         }

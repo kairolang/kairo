@@ -48,6 +48,12 @@ import Interop::Clang::HeaderSet::*;
 struct PPResult {
     var ok:   bool = false;
     var fids: vec::<u32>;   ///< entry's transitive graph, sorted ascending.
+    /// The builtin module's fid (`builtin/module.k`), or 0 when there is no
+    /// builtin root or the prelude is off. Handed out rather than rediscovered:
+    /// the prelude fold already resolved it, and sema cannot find it on its own
+    /// -- ModulePath segments are PreprocessorSymbolTable SymbolIDs, a name
+    /// domain nothing in Sema can reach.
+    var builtin_fid: u32 = 0;
 }
 
 //  Per-fid walker. One instance per fid; the batch driver owns the shared
@@ -2601,6 +2607,38 @@ class PreProcessor {
             self._diag->report(DiagID::R019E,
                 f"import depth limit ({self._opts.max_import_depth}) exceeded at '{graph.depth_exceeded_path}'; raise it with --cmax-import-depth=N"
             ).emit();
+        }
+
+        // The PRELUDE: every TU behaves as though it wrote `import builtin::*`
+        // before its first token. Folded HERE, beside --force-include, for the
+        // same reason: the graph has to reach it before the walk, or sema asks
+        // for a lang item that was never parsed.
+        //
+        // Resolved as a MODULE, not a path -- the resolver answers with the
+        // canonical `builtin` segments, which is what the lang-item fill keys
+        // on. A custom --prelude REPLACES it (a plain file, folded like a
+        // force-include); --no-prelude and --freestanding turn it off; and a
+        // builtin file reached as the entry is its own prelude, so the
+        // self-edge is skipped.
+        if !self._opts.no_prelude {
+            var p_fid: u32 = 0;
+            if self._opts.prelude_path.size() > 0 {
+                p_fid = self._sm->load_file(Path(self._opts.prelude_path));
+                if (p_fid != u32(-1)) && (p_fid != 0) && (p_fid != entry_fid) {
+                    scanner.add_root_dependency(p_fid, &graph);
+                }
+            } else {
+                var segs = vec::<string>();
+                segs.push_back("builtin");
+                p_fid = scanner.add_module_dependency(&segs, &graph);
+                // Only the real builtin module is reported: a custom --prelude
+                // is a file, not the lang-item root, and sema must not read
+                // lang items out of it.
+                if (p_fid != 0) && (p_fid != u32(-1)) { out.builtin_fid = p_fid; }
+            }
+            if (p_fid != 0) && (p_fid != u32(-1)) && (p_fid != entry_fid) {
+                graph.add_edge(entry_fid, p_fid);
+            }
         }
 
         // --force-include: fold each file (and its own transitive imports) into

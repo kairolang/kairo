@@ -41,6 +41,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::StringList>("force-include",  "",  "force-include",       "force-include a file before all source files (repeatable)");
     cmd->define::<FlagKind::String>   ("sysroot",         "",  "sysroot",             "override system root directory for both compilation and cross-compilation", "");
     cmd->define::<FlagKind::String>   ("resource-dir",    "",  "resource-dir",        "clang resource directory for C++ interop; its include/ holds the builtin headers", "");
+    cmd->define::<FlagKind::String>   ("builtins-dir",    "",  "builtins-dir",        "directory holding Kairo's builtin module tree; overrides <resource-dir>/builtin", "");
     cmd->define::<FlagKind::String>   ("prelude",         "",  "prelude",             "path to a custom prelude file (replaces the default prelude)",             "");
     cmd->define::<FlagKind::String>   ("working-dir",     "",  "working-dir",         "override working directory for all relative path resolution",              "");
     cmd->define::<FlagKind::String>   ("input-encoding",  "",  "input-encoding",      "source file encoding override: utf-8|utf-16|latin-1 (default: utf-8)",    "utf-8");
