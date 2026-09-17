@@ -1,0 +1,111 @@
+THE STD CONTRACT
+================
+
+What every file in std may assume, may not do, and must ship with. Supervision checks against this document, not against taste. A rule here changes by editing this file in the same commit as the code that needs it.
+
+
+1. WHAT STD IS
+--------------
+
+  - std is an ordinary Kairo root named "std". It is not part of the compiler.
+
+  - Builtin declares, std extends. A type sema needs a handle to (Slice, Vector, HashMap, HashSet, string, Range, Ordering, Null, Future, Yield, Panic, BigInt, BigFloat, the panic entry points) is declared in the compiler's Lib/builtin with fields and constructors only. std adds every method through extend. std never redeclares, wraps, or shadows a builtin type.
+
+  - std depends on builtin and on itself. Nothing else: no compiler internals, no runtime headers, no host libraries except through a declared FFI module (section 4).
+
+
+2. NAMING AND LAYOUT
+--------------------
+
+  - One module per file, one file per concept: std/vec.k extends [T], std/string.k extends string, std/fmt.k formatting, std/io.k I/O. A directory with a module.k is a module; module.k only re-exports.
+
+  - Identifiers never start with __kairo_; the compiler rejects it.
+
+  - Public surface is explicit: pub on every exported decl, nothing exported by omission. A pub decl's signature is API; changing it is a versioned change.
+
+  - Sugar is spelled as sugar: [T] not Vector<T>, [T;] not Slice<T>, string not builtin::string. Both name the same decl; the sugar is the documented spelling.
+
+
+3. WHAT STD MAY AND MAY NOT USE
+-------------------------------
+
+  May:
+
+  - Everything in builtin.
+
+  - extend, generics, interfaces with structural conformance, operators (fn op), unsafe blocks around raw pointer work, @inout/@move.
+
+  - FFI imports through ffi "c" import in a dedicated std/sys/*.k file (section 4).
+
+  May not:
+
+  - inline "c++" / inline "c" blocks. Stage 1 does not support them; a file that uses one does not compile.
+
+  - Spell a C++ name, a mangled name, or a runtime symbol. std does not know it becomes C++.
+
+  - Depend on evaluation order, on [T; N] being a record, on T? layout, or on any lowering's output shape. Those are the compiler's; they change.
+
+  - Use a feature listed as red in section 7 in a way that lands on the default build. Red features are used only behind XFAIL tests that name the feature.
+
+
+4. FFI
+------
+
+  - All host contact goes through std/sys/: one file per host surface (std/sys/libc.k, std/sys/posix.k), each a plain ffi "c" import plus thin unsafe wrappers that return Kairo types.
+
+  - Nothing outside std/sys/ names a C function. If a module needs write(2), it calls sys::write, which is the only place that knows the signature.
+
+  - No C++ headers. The C surface is what Stage 1 supports.
+
+
+5. TESTS
+--------
+
+Every source file ships with a test file, and the tests are not small.
+
+  - Layout. foo.k has a sibling foo.test.k. The compiler treats foo.test.k as part of foo.k's translation unit when testing: same module, same scope, private access, as if its test blocks were written at the bottom of foo.k. Test code never ships in a build that is not a test build. Utility files (module.k, sys/*.k declarations) are the only files allowed to omit a test file, and sys/*.k wrappers still get one.
+
+  - Size. A test file covers every pub declaration in its source file: the documented behaviour, every documented edge (empty, one element, capacity boundary, negative, unicode, null), and every documented error. A pub fn with no test is a review reject. A test file that is shorter than its source file needs a justification in its header comment.
+
+  - Shape. test "name" { ... } blocks with assert. One block per behaviour, named in plain words (test "push grows capacity by doubling"). A block that asserts one thing is fine; a block that asserts nothing is not a test.
+
+  - Executable. Every module also has one link test under Tests/std/<module>/: a main that exercises the module and exits with a computed code, built with kr -o + link + run. Tests that only type-check prove nothing about std.
+
+  - Goldens. Every module has a --print-cxx golden. It exists to catch ABI drift, not to be edited when it changes: a diff in the golden is a finding to explain in the PR, then regenerate.
+
+
+6. REVIEW
+---------
+
+A change to std is reviewed for, in this order:
+
+  1. Does it break section 1 or section 3? Reject.
+  2. Is every new pub decl tested per section 5? Reject if not.
+  3. Does the --print-cxx golden change, and is the change explained?
+  4. Does it read like the rest of std (section 2)?
+
+Correctness of the implementation is fourth on purpose: a correct function with no test or a private dependency is not landable.
+
+
+7. FEATURE STATUS
+-----------------
+
+Kept current by the compiler side. A feature marked red is not usable in std's default build; tests that need it are XFAIL and name it here.
+
+| -------------------------------------------------- | -------------------------------------------- |
+|                      Feature                       |                    Status                    |
+| -------------------------------------------------- | -------------------------------------------- |
+| structs, classes, enums (C-like), extend, generics | OK                                           |
+| operators via `fn op`                              | OK (OperatorLowering)                        |
+| defaults, named args, packs                        | OK (CallLowering)                            |
+| `[...]` literals as slices                         | OK (ListLiteralLowering)                     |
+| extension method calls                             | OK (ExtensionLowering)                       |
+| interfaces as bounds, witnesses                    | NO (ConformanceChecking / EmitWitness)       |
+| `T?`, `?.`, `??`                                   | NO (nullable) lowering                       |
+| ranged `for`, ranges, slicing                      | NO (IterLowering)                            |
+| `match`                                            | NO (MatchLowering)                           |
+| `panic` / `try` / `finally` / `assert`             | NO (PanicLowering)                           |
+| `yield`                                            | NO (YieldLowering)                           |
+| f-strings                                          | NO (FStringLowering)                         |
+| destructors (`op delete`), copy/move               | NO (CopyMoveLowering / DestructorInsertion)  |
+| -------------------------------------------------- | -------------------------------------------- |
