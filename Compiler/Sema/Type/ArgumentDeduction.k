@@ -266,16 +266,18 @@ class Deduction {
             } case TypeKind::VectorType {
                 var e = self.substitute(cast::<VectorType>(t)->element);
                 if e == &null { return &null; }
-                return self.sc->types->vector(e);
+                // null when the lang item is unbound: a poisoned component,
+                // which reads here as no-match, exactly like any other.
+                return self.tu.vector_of(e);
             } case TypeKind::SetType {
                 var e = self.substitute(cast::<SetType>(t)->element);
                 if e == &null { return &null; }
-                return self.sc->types->set_of(e);
+                return self.tu.set_of(e);
             } case TypeKind::MapType {
                 var k = self.substitute(cast::<MapType>(t)->key);
                 var v = self.substitute(cast::<MapType>(t)->value);
                 if (k == &null) || (v == &null) { return &null; }
-                return self.sc->types->map_of(k, v);
+                return self.tu.map_of(k, v);
             } case TypeKind::FixedArrayType {
                 var a = cast::<FixedArrayType>(t);
                 var e = self.substitute(a->element);
@@ -403,17 +405,17 @@ class Deduction {
             } case TypeKind::VectorType {
                 var vt = cast::<VectorType>(t);
                 var i  = self.replace_self(vt->element, iface, with);
-                return (t) if (i == vt->element) else (self.sc->types->vector(i));
+                return (t) if (i == vt->element) else (self.tu.vector_of(i));
             } case TypeKind::SetType {
                 var st = cast::<SetType>(t);
                 var i  = self.replace_self(st->element, iface, with);
-                return (t) if (i == st->element) else (self.sc->types->set_of(i));
+                return (t) if (i == st->element) else (self.tu.set_of(i));
             } case TypeKind::MapType {
                 var mt = cast::<MapType>(t);
                 var k  = self.replace_self(mt->key, iface, with);
                 var v  = self.replace_self(mt->value, iface, with);
                 if (k == mt->key) && (v == mt->value) { return t; }
-                return self.sc->types->map_of(k, v);
+                return self.tu.map_of(k, v);
             } case TypeKind::TupleType {
                 var tt      = cast::<TupleType>(t);
                 var elems   = vec::<*Type>();

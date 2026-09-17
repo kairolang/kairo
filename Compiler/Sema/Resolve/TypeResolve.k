@@ -75,6 +75,7 @@ import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
+import AST::LangItems::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
@@ -274,14 +275,40 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         n->canonical = self.sc->types->nullable(n->inner->canonical);
     }
 
+    /// The canonical RECORD for a container lang item, or null with \p n
+    /// poisoned when the builtin root does not declare it.
+    ///
+    /// `[T]`, `{T}` and `{K: V}` are sugar for a DECLARED type, so an unbound
+    /// item is a real error at the use rather than a quiet fall back to a
+    /// structural canonical: the two would be different identities for the
+    /// same written type, and the mismatch would surface far from here.
+    ///
+    /// TypeResolve holds no TypeUtil, so this goes through the table and the
+    /// store directly rather than through `tu.lang_record`.
+    priv fn _lang_record(self, n: *Type, k: WellKnownType, args: *vec::<*Type>) -> *Type {
+        var d = self.sc->well_known->get(k);
+        if d == &null {
+            self.sc->diag->report(DiagID::R001E, n->range.start,
+                f"lang item '{to_string(k)}' is not declared in the builtin root"
+            ).first(n->range).emit();
+            n->poison();
+            return &null;
+        }
+        return self.sc->types->record(NameLookup::representative(d), args);
+    }
+
     priv fn _resolve_vector(self, n: *VectorType) {
         if !self._component_ok(n, n->element) { return; }
-        n->canonical = self.sc->types->vector(n->element->canonical);
+        var args = vec::<*Type>();
+        args.push_back(n->element->canonical);
+        n->canonical = self._lang_record(static_cast::<*Type>(n), WellKnownType::Vector, &args);
     }
 
     priv fn _resolve_set(self, n: *SetType) {
         if !self._component_ok(n, n->element) { return; }
-        n->canonical = self.sc->types->set_of(n->element->canonical);
+        var args = vec::<*Type>();
+        args.push_back(n->element->canonical);
+        n->canonical = self._lang_record(static_cast::<*Type>(n), WellKnownType::HashSet, &args);
     }
 
     priv fn _resolve_cxx_lref(self, n: *CXXLValueRefType) {
@@ -313,7 +340,10 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var ok_k = self._component_ok(n, n->key);
         var ok_v = self._component_ok(n, n->value);
         if !(ok_k && ok_v) { return; }
-        n->canonical = self.sc->types->map_of(n->key->canonical, n->value->canonical);
+        var args = vec::<*Type>();
+        args.push_back(n->key->canonical);
+        args.push_back(n->value->canonical);
+        n->canonical = self._lang_record(static_cast::<*Type>(n), WellKnownType::HashMap, &args);
     }
 
     priv fn _resolve_tuple(self, n: *TupleType) {
@@ -340,7 +370,17 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         var elem = n->element->canonical;
 
         if n->is_incomplete {
-            n->canonical = self.sc->types->array(elem, 0);
+            // `[T;]` written in a KAIRO file is the Slice lang item. In an
+            // FFI-imported header it is C's incomplete array and must stay
+            // structural -- rewriting it would stop the imported signature
+            // matching the header it came from.
+            if (self.sc->tu != &null) && self.sc->tu->is_foreign {
+                n->canonical = self.sc->types->array(elem, 0);
+                return;
+            }
+            var sargs = vec::<*Type>();
+            sargs.push_back(elem);
+            n->canonical = self._lang_record(static_cast::<*Type>(n), WellKnownType::Slice, &sargs);
             return;
         }
 
@@ -1382,19 +1422,24 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             case TypeKind::NullableType {
                 self._narrowest_in_type(cast::<NullableType>(t)->inner, worst, worst_rank);
             }
+            // These three stay even though `[T]`, `{T}` and `{K: V}` now
+            // CANONICALIZE to records: this walk is over the alias's SYNTAX,
+            // where they are still Vector/Set/Map nodes. The RecordType arm
+            // above never sees them, so dropping these let `pub type L = [P]`
+            // leak a priv P without a word.
             case TypeKind::VectorType {
                 self._narrowest_in_type(cast::<VectorType>(t)->element, worst, worst_rank);
             }
             case TypeKind::SetType {
                 self._narrowest_in_type(cast::<SetType>(t)->element, worst, worst_rank);
             }
-            case TypeKind::FixedArrayType {
-                self._narrowest_in_type(cast::<FixedArrayType>(t)->element, worst, worst_rank);
-            }
             case TypeKind::MapType {
                 var mt = cast::<MapType>(t);
                 self._narrowest_in_type(mt->key,   worst, worst_rank);
                 self._narrowest_in_type(mt->value, worst, worst_rank);
+            }
+            case TypeKind::FixedArrayType {
+                self._narrowest_in_type(cast::<FixedArrayType>(t)->element, worst, worst_rank);
             }
             case TypeKind::TupleType {
                 var tt = cast::<TupleType>(t);

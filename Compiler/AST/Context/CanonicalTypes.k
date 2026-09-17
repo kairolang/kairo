@@ -277,13 +277,12 @@ class CanonicalTypeStore {
         return self._unary(TypeKind::NullableType, inner);
     }
 
-    fn vector(self, element: *Type) -> *Type {
-        return self._unary(TypeKind::VectorType, element);
-    }
-
-    fn set_of(self, element: *Type) -> *Type {
-        return self._unary(TypeKind::SetType, element);
-    }
+    // No vector()/set_of()/map_of(): `[T]`, `{T}` and `{K: V}` canonicalize to
+    // the Vector/HashSet/HashMap lang RECORDS (TypeResolve::_lang_record), and
+    // a second way to build a structural container canonical would fork the
+    // identity of the same written type. The VectorType/SetType/MapType arms
+    // below stay: those kinds still exist as SYNTAX nodes and pass through
+    // qualified() and the dedup probes.
 
     /// `const T&` is cxx_lref(qualified(CONST, T)): the reference has no
     /// qualifiers of its own, the referee carries them, and the referee is
@@ -294,32 +293,6 @@ class CanonicalTypeStore {
 
     fn cxx_rref(self, referee: *Type) -> *Type {
         return self._unary(TypeKind::CXXRValueRefType, referee);
-    }
-
-    fn map_of(self, key: *Type, value: *Type) -> *Type {
-        if (key == &null) || (value == &null) { return &null; }
-        var h = canon_hash_u64(0, static_cast::<u64>(static_cast::<u8>(TypeKind::MapType)));
-        h = canon_hash_ptr(h, reinterpret_cast::<*void>(key));
-        h = canon_hash_ptr(h, reinterpret_cast::<*void>(value));
-
-        var lock = std::LockGuard(self._mu);
-        var hit = self._probe_map(h, key, value);
-        if hit != &null { return hit; }
-
-        var mt = self._alloc::<MapType>();
-        mt->kind  = TypeKind::MapType;
-        mt->range = SourceRange::invalid();
-        mt->key   = key;
-        mt->value = value;
-        mt->init_annotations(&(self._arena));
-        mt->init_spans(&(self._arena));
-
-        var ty = static_cast::<*Type>(mt);
-        ty->canonical = ty;
-        self._absorb_flags(ty, key);
-        self._absorb_flags(ty, value);
-        self._insert(h, ty);
-        return ty;
     }
 
     fn tuple(self, elements: *vec::<*Type>) -> *Type {

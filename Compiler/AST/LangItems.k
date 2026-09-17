@@ -67,6 +67,34 @@ enum WellKnownType derives u8 {
     COUNT,      ///< keep last.
 }
 
+/// The lang item's NAME as the builtin root declares it. Diagnostics quote
+/// this, so it must match the spelling `NameResolution::fill_lang_items` looks
+/// up -- a message naming an item the tree does not declare is worse than no
+/// message.
+fn to_string(k: WellKnownType) -> string {
+    switch k {
+        case WellKnownType::Future     { return "Future";     }
+        case WellKnownType::Range      { return "Range";      }
+        case WellKnownType::Yield      { return "Yield";      }
+        case WellKnownType::Ordering   { return "Ordering";   }
+        case WellKnownType::Null       { return "Null";       }
+        case WellKnownType::Panic      { return "Panic";      }
+        case WellKnownType::String     { return "string";     }
+        case WellKnownType::Vector     { return "Vector";     }
+        case WellKnownType::Slice      { return "Slice";      }
+        case WellKnownType::Array      { return "Array";      }
+        case WellKnownType::HashMap    { return "HashMap";    }
+        case WellKnownType::HashSet    { return "HashSet";    }
+        case WellKnownType::BigInt     { return "BigInt";     }
+        case WellKnownType::BigFloat   { return "BigFloat";   }
+        case WellKnownType::PanicRaise { return "PanicRaise"; }
+        case WellKnownType::PanicCatch { return "PanicCatch"; }
+        case WellKnownType::AssertFail { return "AssertFail"; }
+        case WellKnownType::COUNT      { return "<count>";    }
+    }
+    return "<unknown>";
+}
+
 /// \class WellKnownDecls
 /// \brief WellKnownType -> canonical *Decl. ONE per build, owned by
 ///        GlobalDisambigTable and filled once from the builtins fid (lang

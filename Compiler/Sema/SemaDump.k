@@ -325,13 +325,9 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
     priv fn _dump_lang_items(self) {
         self._p.paint(Color::NodeKind, "-- lang items (well_known) --");
         self._p.newline();
-        if self._lang_rows(false) == 0 {
-            self._p.paint(Color::Tree, "  ");
-            self._p.paint(Color::Dim,
-                "(none bound: no prelude in scope for this TU   expected, not an error)");
-            self._p.newline();
-            return;
-        }
+        // No "none bound for this TU" case: the table is the BUILD's, filled
+        // once from the builtin fid, so an empty one means the builtin root is
+        // missing entirely rather than anything about this TU's import set.
         self._lang_rows(true);
     }
 
