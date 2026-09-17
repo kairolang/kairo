@@ -399,22 +399,25 @@ class InterfaceEmitter {
         ICE_IF(m->is_variadic, "InterfaceEmitter: variadic pack parameters are not emitted yet");
         var s = self._spell->template_head(static_cast::<*Decl>(m));
         var is_ctor = self._is_ctor(m, owner);
-        var is_dtor = m->is_operator && self._op_text(m) == "delete";
+        // One spelling, computed once. `op delete` comes back from leaf() as
+        // `~Owner` already, so the leading `~` IS the destructor test -- there
+        // is no second place that knows how a destructor is named.
+        var nm = self._spell->leaf(m);
+        var is_dtor = m->is_operator && (nm[0] == '~');
         var is_method = m->is_method();
 
-        if !is_method && !is_ctor && !is_dtor { s += "static "; }
+        if (!is_method) && (!is_ctor) && !is_dtor { s += "static "; }
         if (m->abi == AbiKind::Virtual) || (m->abi == AbiKind::Override) || (m->body_kind == FnBodyKind::Virtual) { s += "virtual "; }
         if m->is_noreturn { s += "[[noreturn]] "; }
 
         if is_ctor {
             s += self._spell->leaf(owner);
         } else if is_dtor {
-            s += "~";
-            s += self._spell->leaf(owner);
+            s += nm;
         } else {
             s += self._ret(m);
             s += " ";
-            s += self._fn_name(m);
+            s += nm;
         }
         s += "(";
         s += self._params(m, false, &null);
@@ -434,7 +437,6 @@ class InterfaceEmitter {
     /// as an explicit first parameter (`Self*` / `const Self*`).
     priv fn _free_fn_text(self, f: *FunctionDecl, ext: *ExtensionDecl) -> string {
         ICE_IF(f->is_variadic, "InterfaceEmitter: variadic pack parameters are not emitted yet");
-        ICE_IF(f->is_operator && (ext == &null), "InterfaceEmitter: free operator functions need OperatorLowering");
         var s = "";
         if ext != &null { s += self._spell->template_head(static_cast::<*Decl>(ext)); }
         s += self._spell->template_head(static_cast::<*Decl>(f));
@@ -473,6 +475,12 @@ class InterfaceEmitter {
                 s += self._spell->imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f)));
             }
         }
+        // C++ distinguishes postfix `++`/`--` from prefix by an unnamed `int`
+        // parameter. Kairo says `op r++`, so the dummy is invented here.
+        if CXXSpell::op_is_postfix(f) {
+            if !first { s += ", "; }
+            s += "int";
+        }
         return s;
     }
 
@@ -482,15 +490,7 @@ class InterfaceEmitter {
     }
 
     priv fn _fn_name(self, f: *FunctionDecl) -> string {
-        if f->is_operator { return "operator" + self._op_text(f); }
         return self._spell->leaf(static_cast::<*Decl>(f));
-    }
-
-    priv fn _op_text(self, f: *FunctionDecl) -> string {
-        var ctx = CXXSpell::tu_of(static_cast::<*Decl>(f))->ctx;
-        var s = "";
-        for var i: usize = 0; i < f->op_token.size(); ++i { s += ctx->get_spelling(f->op_token[i]); }
-        return s;
     }
 
     priv fn _is_ctor(self, m: *FunctionDecl, owner: *Decl) -> bool {

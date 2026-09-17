@@ -47,6 +47,13 @@ class PreprocessorOptions {
     /// root); the PP never needs it, because the prelude resolves by module
     /// NAME through that root rather than by path.
     pub var builtins_dir:       string = "";        ///< --builtins-dir
+    /// --no-builtins: suppress the implicit `import builtin::*` injection.
+    /// Distinct from --no-prelude, which also stops the builtin root being
+    /// FOLDED into the import graph: the builtin TU's own tests need the root
+    /// loaded (it is what they compile) while having no prelude of their own,
+    /// and a Tests/ case asserting the unbound-lang-item diagnostic needs the
+    /// same shape.
+    pub var no_builtins:        bool   = false;     ///< --no-builtins
     // -- debug / trace -----------------------------------------------------
     pub var macro_debug_filter: string = "";     ///< --macro-debug-filter
     pub var macro_debug:        bool   = false;  ///< --macro-debug
@@ -75,6 +82,7 @@ class PreprocessorOptions {
         (o.prelude_path)       = args.get_string("prelude");
         (o.no_prelude)         = args.get_bool("no-prelude") || args.get_bool("freestanding");
         (o.builtins_dir)       = args.get_string("builtins-dir");
+        (o.no_builtins)        = args.get_bool("no-builtins");
 
         for s: string in args.get_list("define")        { o.defines.push_back(s); }
         for s: string in args.get_list("force-include") { o.force_includes.push_back(s); }

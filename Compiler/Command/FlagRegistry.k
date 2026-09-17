@@ -46,6 +46,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::String>   ("working-dir",     "",  "working-dir",         "override working directory for all relative path resolution",              "");
     cmd->define::<FlagKind::String>   ("input-encoding",  "",  "input-encoding",      "source file encoding override: utf-8|utf-16|latin-1 (default: utf-8)",    "utf-8");
     cmd->define::<FlagKind::Bool>     ("no-prelude",      "",  "no-prelude",          "disable the implicit prelude entirely",                                    false);
+    cmd->define::<FlagKind::Bool>     ("no-builtins",     "",  "no-builtins",         "do not inject the implicit 'import builtin::*' into each translation unit", false);
     cmd->define::<FlagKind::Bool>     ("no-stdlib",       "",  "no-stdlib",           "do not include or link the standard library",                              false);
     cmd->define::<FlagKind::Bool>     ("no-default-libs", "",  "no-default-libs",     "do not link default runtime libraries",                                    false);
     cmd->define::<FlagKind::Bool>     ("no-crt",          "",  "no-crt",              "do not link CRT startup objects (freestanding targets)",                   false);
