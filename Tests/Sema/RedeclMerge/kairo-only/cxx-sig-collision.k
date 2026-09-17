@@ -29,10 +29,15 @@ class C {
 //
 // Error at the SECOND decl, note at the first, and the C++ signature named.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG:      cxx-sig-collision.k:15:1: error [R052E]: 'f(u64)' and 'f(usize)' have the same C++ signature 'f(::std::uint64_t)' on this target
+// The C++ signature is spelled with BUILTIN types, not the <cstdint>
+// typedefs: an emitted interface that named ::std::uint64_t would drag
+// <cstdint> into every C++ consumer of it. The collision is the same one
+// either way -- u64 and usize lower to one type on a 64-bit target -- so
+// only the rendering of the name changed here, not the rule.
+// DIAG:      cxx-sig-collision.k:15:1: error [R052E]: 'f(u64)' and 'f(usize)' have the same C++ signature 'f(unsigned long)' on this target
 // DIAG-NEXT: cxx-sig-collision.k:14:1: note [R052N]: 'f(u64)' declared here
-// DIAG-NEXT: cxx-sig-collision.k:18:1: error [R052E]: 'g(i64, i32)' and 'g(isize, i32)' have the same C++ signature 'g(::std::int64_t, ::std::int32_t)' on this target
+// DIAG-NEXT: cxx-sig-collision.k:18:1: error [R052E]: 'g(i64, i32)' and 'g(isize, i32)' have the same C++ signature 'g(signed long, signed int)' on this target
 // DIAG-NEXT: cxx-sig-collision.k:17:1: note [R052N]: 'g(i64, i32)' declared here
-// DIAG-NEXT: cxx-sig-collision.k:22:5: error [R052E]: 'm(u64)' and 'm(usize)' have the same C++ signature 'm(::std::uint64_t)' on this target
+// DIAG-NEXT: cxx-sig-collision.k:22:5: error [R052E]: 'm(u64)' and 'm(usize)' have the same C++ signature 'm(unsigned long)' on this target
 // DIAG-NEXT: cxx-sig-collision.k:21:5: note [R052N]: 'm(u64)' declared here
 // DIAG-NOT:  error
