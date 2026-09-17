@@ -109,6 +109,12 @@ class SubscriptExpr derives Expr {
     /// the index or range expression inside the brackets.
     pub var index: *Expr;
 
+    /// The user operator overload resolution selected, or null for a builtin
+    /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
+    /// read by OperatorLowering, which rewrites the node into the call.
+    pub var resolved_op: *Decl = &null;
+    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+
     static fn create(
         ctx:   *ASTContext,
         range: SourceRange,
@@ -120,6 +126,8 @@ class SubscriptExpr derives Expr {
         node->range = range;
         node->base  = base;
         node->index = index;
+        node->resolved_op = &null;
+        node->op_via_free = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -134,6 +142,8 @@ class SubscriptExpr derives Expr {
         node->range         = range;
         node->base          = &null;
         node->index         = &null;
+        node->resolved_op   = &null;
+        node->op_via_free   = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -427,6 +437,12 @@ class UnaryOperatorExpr derives Expr {
     /// bare. False for every other `&`.
     pub var is_mode_marker: bool = false;
 
+    /// The user operator overload resolution selected, or null for a builtin
+    /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
+    /// read by OperatorLowering, which rewrites the node into the call.
+    pub var resolved_op: *Decl = &null;
+    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+
     static fn create(
         ctx:      *ASTContext,
         range:    SourceRange,
@@ -441,6 +457,8 @@ class UnaryOperatorExpr derives Expr {
         node->op_token = op_token;
         node->fix      = fix;
         node->is_mode_marker = false;
+        node->resolved_op    = &null;
+        node->op_via_free    = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -455,6 +473,8 @@ class UnaryOperatorExpr derives Expr {
         node->range         = range;
         node->operand       = &null;
         node->is_mode_marker = false;
+        node->resolved_op    = &null;
+        node->op_via_free    = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -480,6 +500,12 @@ class BinaryOperatorExpr derives Expr {
     pub var rhs:      *Expr;
     pub var op_token: Token;
 
+    /// The user operator overload resolution selected, or null for a builtin
+    /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
+    /// read by OperatorLowering, which rewrites the node into the call.
+    pub var resolved_op: *Decl = &null;
+    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+
     static fn create(
         ctx:      *ASTContext,
         range:    SourceRange,
@@ -493,6 +519,8 @@ class BinaryOperatorExpr derives Expr {
         node->lhs      = lhs;
         node->rhs      = rhs;
         node->op_token = op_token;
+        node->resolved_op = &null;
+        node->op_via_free = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -507,6 +535,8 @@ class BinaryOperatorExpr derives Expr {
         node->range         = range;
         node->lhs           = &null;
         node->rhs           = &null;
+        node->resolved_op   = &null;
+        node->op_via_free   = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -530,6 +560,12 @@ class AssignOperatorExpr derives Expr {
     pub var rhs:      *Expr;
     pub var op_token: Token;
 
+    /// The user operator overload resolution selected, or null for a builtin
+    /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
+    /// read by OperatorLowering, which rewrites the node into the call.
+    pub var resolved_op: *Decl = &null;
+    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+
     static fn create(
         ctx:      *ASTContext,
         range:    SourceRange,
@@ -543,6 +579,8 @@ class AssignOperatorExpr derives Expr {
         node->lhs      = lhs;
         node->rhs      = rhs;
         node->op_token = op_token;
+        node->resolved_op = &null;
+        node->op_via_free = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -557,6 +595,8 @@ class AssignOperatorExpr derives Expr {
         node->range         = range;
         node->lhs           = &null;
         node->rhs           = &null;
+        node->resolved_op   = &null;
+        node->op_via_free   = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1214,6 +1254,12 @@ class TypeCastExpr derives Expr {
     pub var is_unsafe: bool;
     pub var mode:      CastMode = CastMode::Default;
 
+    /// The user operator overload resolution selected, or null for a builtin
+    /// operator. Written by X (OperatorTyping / MemberTyping / CastTyping),
+    /// read by OperatorLowering, which rewrites the node into the call.
+    pub var resolved_op: *Decl = &null;
+    pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+
     static fn create(
         ctx:       *ASTContext,
         range:     SourceRange,
@@ -1229,6 +1275,8 @@ class TypeCastExpr derives Expr {
         node->target    = target;
         node->is_unsafe = is_unsafe;
         node->mode      = mode;
+        node->resolved_op = &null;
+        node->op_via_free = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1238,6 +1286,8 @@ class TypeCastExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::TypeCastExpr;
         node->range         = range;
+        node->resolved_op   = &null;
+        node->op_via_free   = false;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
