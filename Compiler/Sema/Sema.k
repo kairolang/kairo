@@ -51,6 +51,7 @@ import Sema::Check::ClassLifecycle::*;
 import Sema::Check::MoveCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::OperatorLowering::*;
+import Sema::Lower::ListLiteralLowering::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
 import Support::TimeReport::*;
@@ -314,6 +315,10 @@ class Sema {
         self.sc.require_phase(SemaPhase::Checked);
 
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
+        // After OperatorLowering: a list literal can be an operand (`[1,2] + x`
+        // with a user `op +`), and hoisting one out of a statement the operator
+        // pass is still rewriting would move it out from under that rewrite.
+        { var _p = TimeRegion("ListLiteralLowering"); ListLiteralLowering(&self.sc).run(); }
         // TODO(sema): ExtensionLowering(&self.sc).run();     // folds extends
         // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit
         //             using Base::name; for merged base overloads C++ would
