@@ -28,6 +28,9 @@ fn use_a() {
 // DIAG-NEXT: receiver_const.k:2:5: note [I900N]: candidate not viable: 'm' is not const; it cannot be called on a const object
 // DIAG-NOT:  error
 //
+// The prelude dumps the builtin TUs ahead of this one, each with an
+// `-- inferred decls --` of its own: anchor on this file's header first.
+// SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}receiver_const.k =====
 // SEMA:      -- inferred decls --
 // SEMA-NEXT: b : A
 // SEMA-NEXT: x : i32

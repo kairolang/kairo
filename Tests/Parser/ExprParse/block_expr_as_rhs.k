@@ -17,8 +17,13 @@
 //
 // The contract asserted below is the minimum: it parses, with no errors, and
 // the initializer is not mistaken for a set literal.
-// AST: -- 0 error(s), 0 warning(s) --
+// Anchored on this file's TU: the prelude dumps the builtin TUs first, and
+// they parse cleanly, so an unanchored error-count check matches THEIR footer
+// and the AST-NOTs below stop covering this file at all.
+// AST: TranslationUnit '{{.*}}block_expr_as_rhs.k'
 // AST-NOT: SetLiteralExpr
 // AST-NOT: RecoveryExpr
+// AST-NOT: ============== AST (tree) for fid
+// AST: -- 0 error(s), 0 warning(s) --
 
 fn Test() { var x = { var t = 1; t * 2 }; }

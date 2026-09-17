@@ -9,6 +9,9 @@ fn use_prvalue() {
     var r = f(T())
 }
 
+// The prelude dumps the builtin TUs ahead of this one, each with an
+// `-- inferred decls --` of its own: anchor on this file's header first.
+// SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}ref_overload_prvalue.k =====
 // SEMA:      -- inferred decls --
 // SEMA-NEXT: r : f64
 

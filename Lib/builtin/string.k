@@ -12,5 +12,4 @@ pub struct string {
     var len:  usize
 
     fn string(self)
-    fn length(const self) -> usize
 }

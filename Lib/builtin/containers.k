@@ -15,7 +15,6 @@ pub struct <T> Slice {
     var len:  usize
 
     fn Slice(self, data: *T, len: usize)
-    fn size(const self) -> usize
 }
 
 /// Growable, owning.
@@ -25,9 +24,7 @@ pub struct <T> Vector {
     var cap:  usize
 
     fn Vector(self)
-    fn Vector(self, items: const [T;])
-    fn size(const self) -> usize
-    fn push(self, item: T)
+    fn Vector(self, const items: [T;])
 }
 
 pub struct <T> HashSet {
@@ -36,7 +33,6 @@ pub struct <T> HashSet {
     var cap:  usize
 
     fn HashSet(self)
-    fn size(const self) -> usize
 }
 
 pub struct <K, V> HashMap {
@@ -46,5 +42,4 @@ pub struct <K, V> HashMap {
     var cap:    usize
 
     fn HashMap(self)
-    fn size(const self) -> usize
 }

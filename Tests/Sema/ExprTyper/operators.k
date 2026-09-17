@@ -29,9 +29,9 @@ fn ok(b: i32, g: u8, h: i32?, i: bool, f: f64) {
     var flip   = ~b;
 }
 
-// `<=>` yields the `Ordering` lang item, so without the prelude it reports
-// the missing item rather than a type. That is the correct answer for this
-// import set and is asserted as such.
+// `<=>` yields the `Ordering` lang item. The prelude puts it in scope in
+// every TU, so this types as `Ordering` -- it used to report the missing item
+// instead, which was the right answer only while nothing imported builtin.
 fn spaceship(b: i32) {
     var cmp = b <=> b;
 }
@@ -40,8 +40,12 @@ fn spaceship(b: i32) {
 // DIAG: note{{.*}}cast one side explicitly with 'as' to choose the result type
 // DIAG: error{{.*}}operands 'i64' and 'f64' do not unify
 // DIAG: error{{.*}}bitwise operators require two integers, two bytes, or two bools, not 'byte' and 'u8'
-// DIAG: error{{.*}}needs the 'Ordering' lang item
+// DIAG-NOT: error{{.*}}needs the 'Ordering' lang item
 
+// The prelude puts the builtin TUs in the dump ahead of this one, and each of
+// them has an `-- inferred decls --` section of its own. Anchor on THIS file's
+// header first, or the -NEXT chain below walks off a builtin dump instead.
+// SEMA: ===== SEMA fid {{[0-9]+}}: {{.*}}operators.k =====
 // SEMA: -- inferred decls --
 // SEMA:      shift : i32
 // SEMA-NEXT: coal : i32
@@ -51,3 +55,4 @@ fn spaceship(b: i32) {
 // SEMA-NEXT: neg : i32
 // SEMA-NEXT: not_ : bool
 // SEMA-NEXT: flip : i32
+// SEMA-NEXT: cmp : Ordering

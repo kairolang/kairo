@@ -38,6 +38,9 @@ fn main() {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 //
+// The prelude dumps the builtin TUs ahead of this one, each with sections of
+// the same names: anchor on this file's header first.
+// SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}modes.k =====
 // SEMA:      -- out-of-line definitions --
 // SEMA-NEXT: f @ 3:1 -> attached to S
 // SEMA-NEXT: g @ 4:1 -> attached to S

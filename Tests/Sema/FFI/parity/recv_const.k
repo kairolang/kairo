@@ -17,6 +17,9 @@ fn use_buf(b: *Buf, k: *const Buf) {
 // DIAG-NEXT: recv_const.h:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: 'clear' is not const; it cannot be called on a const object
 // DIAG-NOT:  error
 
+// The prelude dumps the builtin TUs ahead of this one, each with an
+// `-- inferred decls --` of its own: anchor on this file's header first.
+// SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}recv_const.k =====
 // SEMA:      -- inferred decls --
 // SEMA-NEXT: p : *i32
 // SEMA-NEXT: q : *const i32

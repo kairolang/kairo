@@ -22,6 +22,9 @@ fn use_ptrs() {
 // DIAG-NEXT: ptr_const.h:10:1: note [I900N]: candidate not viable: cannot convert argument of type '**i32' to parameter 'pp' of type '**const i32'
 // DIAG-NOT:  error
 
+// The prelude dumps the builtin TUs ahead of this one, each with an
+// `-- inferred decls --` of its own: anchor on this file's header first.
+// SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}ptr_const_overload.k =====
 // SEMA:      -- inferred decls --
 // SEMA-NEXT: a : i64
 // SEMA-NEXT: b : i32

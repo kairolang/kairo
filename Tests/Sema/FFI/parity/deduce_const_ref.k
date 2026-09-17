@@ -16,6 +16,9 @@ fn use_deduce() {
     var e = addr(c)
 }
 
+// The prelude dumps the builtin TUs ahead of this one, each with an
+// `-- inferred decls --` of its own: anchor on this file's header first.
+// SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}deduce_const_ref.k =====
 // SEMA:      -- inferred decls --
 // SEMA-NEXT: a : i32
 // SEMA-NEXT: b : i32

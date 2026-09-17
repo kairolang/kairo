@@ -16,8 +16,13 @@
 // and the body parses as RecoveryStmt + a stray NamedInitializerExpr.
 //
 // The contract asserted below is the minimum: it parses, with no errors.
-// AST: -- 0 error(s), 0 warning(s) --
+// Anchored on this file's TU: the prelude dumps the builtin TUs first, and
+// they parse cleanly, so an unanchored error-count check matches THEIR footer
+// and the AST-NOTs below stop covering this file at all.
+// AST: TranslationUnit '{{.*}}in_containment_check.k'
 // AST-NOT: RecoveryStmt
 // AST-NOT: RecoveryExpr
+// AST-NOT: ============== AST (tree) for fid
+// AST: -- 0 error(s), 0 warning(s) --
 
 fn Test() { if 5 in my_set { } }

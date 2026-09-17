@@ -41,9 +41,11 @@ fn f_destructure(t: (i32, i32)) -> i32 {
     return a + b
 }
 
-// The caught error is a declaration scoped to its arm.
+// The caught error is a declaration scoped to its arm. It is bound to the
+// `Panic` lang item, so it is USED here rather than returned: the prelude
+// makes that type real, and `Panic` does not convert to i32.
 fn f_catch() -> i32 {
-    try { return 1 } catch e { return e }
+    try { return 1 } catch e { var c = e; return 0 }
 }
 
 // --- no diagnostics at all -------------------------------------------------
@@ -71,7 +73,7 @@ fn f_catch() -> i32 {
 // SEMA-NEXT:   b  @ 41:16  -> var b @ 40:13
 
 // SEMA:      <tu>::f_catch
-// SEMA:        e  @ 46:39  -> var e @ 46:28
+// SEMA:        e  @ 48:40  -> var e @ 48:28
 
 // Nothing anywhere in the file is left unbound.
 // SEMA:      0 unresolved

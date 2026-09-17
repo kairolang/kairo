@@ -30,6 +30,9 @@ fn U::U(self, x: i32) { }
 //
 // DIAG-NOT: {{error|warning}} [
 //
+// The prelude dumps the builtin TUs ahead of this one, each with sections of
+// the same names: anchor on this file's header first.
+// SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}out_of_line_foreign.k =====
 // SEMA:      -- out-of-line definitions --
 // SEMA-NEXT: g @ 6:1 -> attached to S
 // SEMA-NEXT: f @ 7:1 -> attached to S
