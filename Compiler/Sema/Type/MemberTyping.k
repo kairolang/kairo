@@ -336,6 +336,10 @@ class <T> MemberTyping {
                                            dyn()->tu.strip_nullable(bt));
                 if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
                 if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
+                // Member-only resolution, so via_free is false here by
+                // construction; assigned from r anyway so the two never drift.
+                n->resolved_op = r.decl;
+                n->op_via_free = r.via_free;
                 r.ded.bind_from_record(dyn()->tu.strip_nullable(bt));
                 dyn()->finish_call_args(r.decl, &args, &r);
                 n->value_category = Expr::ValueCategory::LValue;

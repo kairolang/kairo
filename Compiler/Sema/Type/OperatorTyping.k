@@ -125,6 +125,11 @@ class <T> OperatorTyping {
         var r = dyn()->ovl.resolve_mixed(&cands, &margs, true, &frees, &fargs, n->range, f"op {spelled}");
         if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
+        // Record what was chosen. OperatorLowering rewrites the node from this
+        // and never looks an operator up again.
+        var bin = cast::<BinaryOperatorExpr>(n);
+        bin->resolved_op = r.decl;
+        bin->op_via_free = r.via_free;
         dyn()->finish_call_args(r.decl, (&fargs) if (r.via_free) else (&margs), &r);
         return dyn()->call_result_type(r.decl, &r);
     }
@@ -329,6 +334,8 @@ class <T> OperatorTyping {
                                                  f"op {dyn()->sc->ctx->get_spelling(n->op_token)}");
                 if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
                 if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
+                n->resolved_op = r.decl;
+                n->op_via_free = r.via_free;
                 if r.via_free { dyn()->finish_call_args(r.decl, &fargs, &r); }
                 return dyn()->call_result_type(r.decl, &r);
             }
@@ -480,6 +487,8 @@ class <T> OperatorTyping {
                                                  f"op {dyn()->sc->ctx->get_spelling(n->op_token)}");
                 if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
                 if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
+                n->resolved_op = r.decl;
+                n->op_via_free = r.via_free;
                 dyn()->finish_call_args(r.decl, (&fargs) if (r.via_free) else (&margs), &r);
                 n->value_category = Expr::ValueCategory::LValue;
                 return lt;
