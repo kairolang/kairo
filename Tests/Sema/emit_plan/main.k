@@ -27,20 +27,45 @@ fn main() -> i32 {
     return foo::use_f(f);
 }
 
+// The dump covers EVERY TU in the graph now, own decls included, and each
+// non-entry TU gets a second (header) plan besides its preamble. So every
+// check below is ANCHORED on main's own preamble section: an unanchored
+// pattern would match foo's or bar's plan and assert nothing about THIS TU.
+// main is the entry TU, so it has a preamble and no header, and its section
+// is the last one in the dump.
+// PLAN: ===== EMIT PLAN fid 0 (preamble)
+
 // Tier 0 forward-declares every type in the set, which is what breaks the
-// pointer edge to Deep before tier 1 has to sort anything.
-// PLAN: tier 0: forward declarations
-// PLAN-DAG: class B
-// PLAN-DAG: class Deep
-// PLAN-DAG: class F
+// pointer edge to Deep before tier 1 has to sort anything. Membership is the
+// assertion here, not order, hence -DAG.
+// No `fid N @ off` in any pattern below: the offsets are byte positions in
+// these files, and main's own is past THESE COMMENTS, so asserting it would
+// break on every edit to the prose.
+// PLAN: -- tier 0: forward declarations --
+// PLAN-DAG: class ::foo::F [fwd] foreign
+// PLAN-DAG: class ::bar::B [fwd] foreign
+// PLAN-DAG: class ::bar::Deep [fwd] foreign
 
-// Tier 1 is definitions only, and Deep is not one: nothing needs its layout.
-// PLAN: tier 1: definitions
-// PLAN: class B   [complete]
-// PLAN: class F   [complete]
+// Tier 1 is definitions only, and ORDER is the assertion: B precedes F
+// whatever order the two files were written in. -NEXT is what makes that
+// exact, and it is also what proves Deep is not wedged between them --
+// nothing needs Deep's layout, so it never gets a definition at all.
+// PLAN: -- tier 1: definitions --
+// PLAN-NEXT: class ::bar::B [complete] foreign
+// PLAN-NEXT: class ::foo::F [complete] foreign
+// PLAN-NOT: Deep
+// PLAN: -- tier 2: function declarations --
 
-// PLAN: tier 2: function declarations
-// PLAN: fn use_f
+// main is this TU's own; use_f is reached through foo. The own/foreign
+// column is the point -- a plan that marked either wrongly would emit a
+// definition in the wrong object.
+// PLAN-DAG: fn ::main [fwd] own
+// PLAN-DAG: fn ::foo::use_f [fwd] foreign
 
-// Never named, never planned.
+// Never named from main, so never in MAIN's plan. It does appear in foo's
+// own plan, correctly: a TU plans its own declarations, because the class
+// text it emits must be identical to the text every importer emits. That is
+// exactly why this check is anchored rather than global -- as a bare
+// PLAN-NOT over the whole dump it would now be asserting the opposite of
+// the rule. main's section is last, so this runs to end of input.
 // PLAN-NOT: Unused
