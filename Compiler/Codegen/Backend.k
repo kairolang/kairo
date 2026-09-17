@@ -82,7 +82,7 @@ class CodegenBackend derives TokenFiller {
     priv var _kfid:  FileID;
     priv var _arena: obs::<ArenaAllocator>;
     priv var _ksize: u32 = 0;
-    priv var _print: bool = false;   ///< --print-cg
+    priv var _print: u8 = 0;   ///< bit 0: print-cg, bit 1: print-ir
     priv var _path:  string;         ///< for the printer header
     priv var _sets:  vec::<*HeaderSet>;  ///< header sets this TU's graph requested, main file's first
     priv var _psym:      obs::<PreprocessorSymbolTable>;  ///< module_base segments -> namespace names
@@ -100,7 +100,7 @@ class CodegenBackend derives TokenFiller {
         self._instances = instances;
     }
 
-    fn set_print_cg(self, on: bool, path: string) {
+    fn set_print_cg(self, on: u8, path: string) {
         self._print = on;
         self._path  = path;
     }
@@ -141,8 +141,14 @@ class CodegenBackend derives TokenFiller {
         sink->eof();
         cg.advance_phase(CodegenPhase::Emitted);
 
-        if self._print {
-            TokenStreamPrinter::print(sink, self._path);
+        if self._print != 0 {
+            // we deicide if we prnt cg or ir or both
+            if (self._print & 1) != 0 {
+                TokenStreamPrinter::print(sink, self._path);
+            }
+            if (self._print & 2) != 0 {
+                TokenStreamPrinter::print_tokens(sink, self._path);
+            }
         }
 
         return true;

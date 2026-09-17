@@ -330,6 +330,7 @@ fn register_kairo_flags(cmd: *Command) {
     //  DEVELOPER / DUMP INTERNALS
 
     cmd->define::<FlagKind::Bool>  ("print-cg",         "",  "print-cg",         "dump codegen tokens after sema, lower, and optimization passes",               false);
+    cmd->define::<FlagKind::Bool>  ("print-ir",         "",  "print-ir",         "dump CXX IR after codegen",                                                    false);
     cmd->define::<FlagKind::Bool>  ("print-bcir",       "",  "print-bcir",       "dump BCIR before and after borrow-check lowering",                             false);
     cmd->define::<FlagKind::String>("print-ast",        "",  "print-ast",        "AST dump format: tree|flat|canonical (default: tree)",                         "");
     cmd->define::<FlagKind::Bool>  ("print-sema",       "",  "print-sema",       "dump IR after semantic analysis",                                              false);
@@ -356,8 +357,8 @@ fn register_kairo_flags(cmd: *Command) {
 
     //  generic instantiation
     cmd->define_cfg::<FlagKind::I32>("max-generic-depth",         "maximum generic instantiation nesting depth",                               256,     1,    65536);
-    cmd->define_cfg::<FlagKind::I32>("max-generic-instantiations","maximum total generic instantiations across compilation",                   16384,   1,    16777216);
     cmd->define_cfg::<FlagKind::I32>("max-generic-backtrace",     "maximum frames shown in generic instantiation error backtraces",            16,      0,    64);
+    cmd->define_cfg::<FlagKind::I32>("max-generic-instantiations", "maximum total generic instantiations across compilation (0 = unlimited)", 16384,   0,    16777216);
 
     //  const / eval
     cmd->define_cfg::<FlagKind::I32>("max-const-eval-steps",      "maximum steps in a single const/eval expression evaluation",               1000000, 1,    2147483647);
@@ -378,7 +379,6 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define_cfg::<FlagKind::I32>("max-expr-depth",            "maximum expression nesting depth (guards parser stack overflow)",          512,     1,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-scope-depth",           "maximum nested scope depth",                                               256,     1,    65536);
     cmd->define_cfg::<FlagKind::I32>("tab-width",                 "tab stop width for column numbers in diagnostics",                         4,       1,    16);
-    cmd->define_cfg::<FlagKind::I32>("max-generic-instantiations", "maximum total generic instantiations across compilation (0 = unlimited)", 16384,   0,    16777216);
     //  type system
     cmd->define_cfg::<FlagKind::I32>("max-struct-fields",         "maximum fields in a single struct or class (0 = unlimited)",               0,       0,    65536);
     cmd->define_cfg::<FlagKind::I32>("max-function-params",       "maximum parameters in a single function declaration (0 = unlimited)",      255,     0,    65536);

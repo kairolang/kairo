@@ -2047,7 +2047,10 @@ fn FrontendAction::_codegen() -> bool {
         var adapter = be->begin_tu(&sink, fid);
 
         var cg = CodegenBackend(be, ctx, fid, &(ctx->codegen_alloc), ksize, psym, insts);
-        cg.set_print_cg(fe.print_cg, self._ci->sm()->get_filename(fid));
+        var print_mode: u8 = 0;
+        if fe.print_cg { print_mode |= 2; }
+        if fe.print_ir { print_mode |= 1; }
+        cg.set_print_cg(print_mode, self._ci->sm()->get_filename(fid));
 
         // Phase B loads phase A's PCHs instead of re-parsing the headers.
         // THIS TU's set goes first: it is the one that becomes the implicit
