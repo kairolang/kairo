@@ -385,9 +385,6 @@ class CXXSpell {
                 var o = cast::<OpaqueFFIType>(t);
                 return self._join(self.imm_name(o->name, self._cg->tu->fid), name);
             }
-            case TypeKind::VectorType { ICE_FAIL("CXXSpell: [T] reached codegen before the container migration (RESOLUTION.md §2.6); spell it through the Vector lang item once WellKnownDecls is build-global"); }
-            case TypeKind::SetType    { ICE_FAIL("CXXSpell: {T} reached codegen before the container migration (RESOLUTION.md §2.6)"); }
-            case TypeKind::MapType    { ICE_FAIL("CXXSpell: {K:V} reached codegen before the container migration (RESOLUTION.md §2.6)"); }
             case TypeKind::NullableType { ICE_FAIL("CXXSpell: T? reached codegen; NullableTypeLowering must reduce it first"); }
             case TypeKind::TupleType  { ICE_FAIL("CXXSpell: tuple type reached codegen; no lowering exists yet"); }
             default {

@@ -376,9 +376,22 @@ class InterfaceEmitter {
             if v == &null { continue; }
             var vs = self._spell->leaf(static_cast::<*Decl>(v));
             if v->discriminant != &null {
-                var lit = dyn_cast::<IntegerLiteralExpr>(v->discriminant);
+                // A NEGATIVE discriminant is a prefix `-` over the literal, not
+                // a literal -- `Ordering::Less = -1` in the builtin root is the
+                // first one to reach here. The sign is emitted ahead of the
+                // token; anything else still needs the constant evaluator.
+                var dexpr = v->discriminant;
+                var sign  = "";
+                if isa::<UnaryOperatorExpr>(dexpr) {
+                    var u = cast::<UnaryOperatorExpr>(dexpr);
+                    if u->fix == UnaryOperatorExpr::Fix::Prefix {
+                        if u->op_token.kind == TokenKind::OpMinus { sign  = "-"; dexpr = u->operand; }
+                        else if u->op_token.kind == TokenKind::OpPlus { dexpr = u->operand; }
+                    }
+                }
+                var lit = dyn_cast::<IntegerLiteralExpr>(dexpr);
                 ICE_IF(lit == &null, "InterfaceEmitter: non-literal enum discriminant; needs the constant evaluator");
-                vs += " = ";
+                vs += " = " + sign;
                 sink->spell(v->name.range, vs);
                 sink->literal(lit->token.range, clang::tok::numeric_constant);
                 sink->spell(v->name.range, ",");

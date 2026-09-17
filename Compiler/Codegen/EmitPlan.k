@@ -568,13 +568,8 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
         case TypeKind::CXXLValueRefType { self._admit_type(cast::<CXXLValueRefType>(c)->referee, PlanNeed::Fwd); }
         case TypeKind::CXXRValueRefType { self._admit_type(cast::<CXXRValueRefType>(c)->referee, PlanNeed::Fwd); }
         case TypeKind::NullableType     { self._admit_type(cast::<NullableType>(c)->inner, PlanNeed::Fwd); }
-        case TypeKind::VectorType       { self._admit_type(cast::<VectorType>(c)->element, PlanNeed::Fwd); }
-        case TypeKind::SetType          { self._admit_type(cast::<SetType>(c)->element, PlanNeed::Fwd); }
-        case TypeKind::MapType {
-            var m = cast::<MapType>(c);
-            self._admit_type(m->key, PlanNeed::Fwd);
-            self._admit_type(m->value, PlanNeed::Fwd);
-        }
+        // No Vector/Set/Map arms: they are RecordTypes now and admit through
+        // the record path, which already walks their generic arguments.
         case TypeKind::TupleType {
             var tp = cast::<TupleType>(c);
             for var i: usize = 0; i < tp->elements.size(); ++i { self._admit_type(*(tp->elements.get(i)), need); }

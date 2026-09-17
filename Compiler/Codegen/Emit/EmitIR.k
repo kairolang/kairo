@@ -581,7 +581,7 @@ class EmitIR {
             case ExprKind::ThreadExpr           { ICE_FAIL("EmitIR: thread; the async lowering owns it"); }
             case ExprKind::EvalExpr             { ICE_FAIL("EmitIR: eval; EvalLowering owns it"); }
             case ExprKind::PackExpansionExpr    { ICE_FAIL("EmitIR: pack expansion; not emitted yet"); }
-            case ExprKind::ListLiteralExpr      { ICE_FAIL("EmitIR: list literal; the container migration owns it"); }
+            case ExprKind::ListLiteralExpr      { self._array_literal(cast::<ListLiteralExpr>(e)); }
             case ExprKind::SetLiteralExpr       { ICE_FAIL("EmitIR: set literal; the container migration owns it"); }
             case ExprKind::MapLiteralExpr       { ICE_FAIL("EmitIR: map literal; the container migration owns it"); }
             case ExprKind::TupleLiteralExpr     { ICE_FAIL("EmitIR: tuple literal; no lowering yet"); }
@@ -969,6 +969,26 @@ class EmitIR {
     /// `T{ .a = x, .b = y }` in declaration order. Designated init needs an
     /// aggregate; a record with a user constructor is a ctor call and is
     /// OperatorLowering/CopyMoveLowering's to rewrite.
+    /// `{ a, b, c }` for a `[T; N]` literal. The ONLY list literal that
+    /// reaches codegen: ListLiteralLowering rewrites a slice-typed one into a
+    /// hoisted array plus a Slice ctor call, so what is left here is always an
+    /// array -- and a brace list is legal only as a declarator's initializer,
+    /// which is the one place that lowering leaves it.
+    priv fn _array_literal(self, n: *ListLiteralExpr) {
+        ICE_IF(n->type_ == &null, "EmitIR: untyped list literal reached codegen; ExprTyper gate failure");
+        var c = canon_unqual(n->type_);
+        ICE_IF((c == &null) || (c->kind != TypeKind::FixedArrayType),
+            "EmitIR: non-array list literal reached codegen; ListLiteralLowering must rewrite it into a Slice construction");
+        var elem = cast::<FixedArrayType>(c)->element;
+
+        sink->spell(n->range, "{");
+        for var i: usize = 0; i < n->elements.size(); ++i {
+            if i > 0 { sink->spell(n->range, ","); }
+            self._value(n->elements[i], elem);
+        }
+        sink->spell(n->range, "}");
+    }
+
     priv fn _init(self, e: *Expr, fields: FrozenList::<InitField>) {
         ICE_IF(e->type_ == &null, "EmitIR: untyped initializer reached codegen; ExprTyper gate failure");
         var c = canon_unqual(e->type_);
