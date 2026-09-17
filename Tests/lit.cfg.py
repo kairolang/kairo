@@ -115,6 +115,18 @@ def _clang_roots():
     roots = " --sysroot=%s" % sysroot
     if res:
         roots += " --resource-dir=%s" % res
+    # The builtin module tree. An installed compiler finds it under
+    # <resource-dir>/builtin, but nothing in the build copies Lib/builtin
+    # there, so the suite points at the source tree directly. Without this
+    # every lang item is unbound and `string` does not resolve -- which looks
+    # like a sema bug rather than a missing flag.
+    builtins = os.path.normpath(
+        os.path.join(config.test_source_root, "..", "Lib", "builtin"))
+    # The flag names the builtin tree ITSELF (the directory holding module.k),
+    # not its parent -- the driver registers it as a search root named
+    # `builtin`, and `import builtin` resolves through that name.
+    if os.path.isdir(builtins):
+        roots += " --builtins-dir=%s" % builtins
     return roots
 
 kairo_roots = _clang_roots()
@@ -164,12 +176,21 @@ if clang_bin:
             os.path.join(config.test_source_root, "parity_check.py"),
             kairo_bin + kairo_roots,     # one quoted command: kairo + its header roots
             clang_bin)))
+    # A C++ driver for tests that compile kairo's emitted objects and LINK them
+    # (Tests/Codegen/operators). --driver-mode=g++ rather than a sibling
+    # "clang++" path: clang_bin may have come from PATH or from --param, and
+    # guessing a neighbour binary that may not exist turns a link test into a
+    # confusing "file not found" instead of a clean UNSUPPORTED.
+    config.substitutions.append(("%clangxx", clang_bin + " --driver-mode=g++"))
 else:
     # Leave a substitution that explains itself, in case a test forgets
     # `REQUIRES: clang` and runs anyway.
     config.substitutions.append(
         ("%parity", "echo 'parity needs clang; pass --param clang=/path or set "
                     "CLANG_BIN' >&2; false #"))
+    config.substitutions.append(
+        ("%clangxx", "echo 'this test needs clang; pass --param clang=/path or set "
+                     "CLANG_BIN' >&2; false #"))
 # %s and %t are provided by lit automatically:
 #   %s -> absolute path to the current test file
 #   %t -> a temp path unique to this test (use for scratch output)
