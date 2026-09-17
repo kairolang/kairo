@@ -279,6 +279,20 @@ fn decl_name_tok(d: *Decl) -> Token {
     return Token{};
 }
 
+/// The parameter carrying the `...`, or null when there is none. This is the
+/// one walk that answers WHICH parameter is the pack; `is_variadic` is exactly
+/// `decl_pack_param(d) != null` and says only that one exists.
+fn decl_pack_param(d: *Decl) -> *ParamDecl {
+    if d == &null { return &null; }
+    if !isa::<FunctionDecl>(d) { return &null; }
+    var f = cast::<FunctionDecl>(d);
+    for var i: usize = 0; i < f->params.size(); ++i {
+        var p = f->params[i];
+        if (p != &null) && p->is_pack { return p; }
+    }
+    return &null;
+}
+
 /// `derives_list`: the kinds with nominal bases.
 fn decl_bases(d: *Decl) -> FrozenList::<InheritEdge> {
     if d == &null { return create_empty_frozen_list::<InheritEdge>(); }
