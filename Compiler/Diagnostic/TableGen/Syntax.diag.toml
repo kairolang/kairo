@@ -1483,3 +1483,40 @@ group = "preprocessor"
     verify the file is the one you meant to compile, or raise the cap with
     `--cmax-file-size-mb=N`. the default is 256 MB.
     """
+
+[S067]
+brief = "qualifier written after the pack marker"
+group = "declarations"
+
+    [S067.E]
+    explain = """
+    # qualifiers precede the pack marker
+
+    a parameter's qualifiers come first and the `...` sits immediately before the name, so a pack
+    parameter is written `const ...s: T`. `...const s: T` puts the marker where a reader looks for
+    the qualifier, and the two spellings would otherwise mean the same thing - which is why only
+    one of them is accepted rather than both.
+
+    ## how to fix
+
+    move the qualifier in front of the marker: `const ...s: T`.
+    """
+
+[S068]
+brief = "more than one pack parameter"
+group = "declarations"
+
+    [S068.E]
+    explain = """
+    # only one pack parameter
+
+    a pack absorbs every remaining positional argument, so a second pack could never receive one:
+    there is no rule that would decide where the first pack stops and the second begins.
+
+    parameters AFTER a pack are still allowed - they become keyword-only, supplied by name - so a
+    signature that wants more trailing parameters does not need a second pack.
+
+    ## how to fix
+
+    keep one pack and give the remaining parameters names, or take a container instead.
+    """

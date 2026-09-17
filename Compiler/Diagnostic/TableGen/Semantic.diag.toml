@@ -368,3 +368,114 @@ group = "constraints"
 
     move the constraint to the aliased type itself, or to the function that uses the alias.
     """
+
+[SC017]
+brief = "identifier uses the reserved compiler prefix"
+group = "names"
+
+    [SC017.E]
+    explain = """
+    # reserved prefix
+
+    kairo emits your names into c++ unmangled, and it also invents a few names of its own for
+    constructs c++ cannot spell - `op in` becomes `__kairo_contains`, `op ^^` becomes
+    `__kairo_pow`, and so on. every invented name starts with the same reserved prefix.
+
+    a declaration that starts with that prefix can therefore collide with a name the compiler
+    minted, in a translation unit you never wrote. the collision surfaces as a c++ redefinition
+    of a symbol with no kairo declaration behind it, which is why this is an error at the
+    declaration rather than a warning.
+
+    the prefix is also reserved to the implementation by c++ itself ([lex.name]/3), so defining
+    one is undefined behaviour independently of kairo.
+
+    ## how to fix
+
+    rename the declaration. nothing in user code needs this prefix.
+    """
+
+[SC018]
+brief = "keyword-only parameter given positionally"
+group = "calls"
+
+    [SC018.E]
+    explain = """
+    # this parameter can only be given by name
+
+    the parameter follows a pack. every positional argument after the ones that fill the parameters
+    before the pack belongs to the PACK, so a positional argument can never reach this parameter -
+    there is no count at which it would stop being part of the pack.
+
+    ## how to fix
+
+    pass it by name: `f(a, b, end: x)`.
+    """
+
+[SC019]
+brief = "no parameter with this name"
+group = "calls"
+
+    [SC019.E]
+    explain = """
+    # no parameter by that name
+
+    the callee has no parameter with the name used at the call site. names are matched against the
+    SELECTED declaration's parameters, so a typo here is not a silent positional argument.
+
+    ## how to fix
+
+    check the spelling against the declaration, or drop the label to pass it positionally.
+    """
+
+[SC020]
+brief = "parameter given both positionally and by name"
+group = "calls"
+
+    [SC020.E]
+    explain = """
+    # this parameter was already given
+
+    the parameter is filled twice: once by position and once by name, or twice by name. which
+    argument wins would be arbitrary, so neither does.
+
+    ## how to fix
+
+    remove one of the two arguments.
+    """
+
+[SC021]
+brief = "required parameter not given"
+group = "calls"
+
+    [SC021.E]
+    explain = """
+    # missing argument
+
+    the parameter has no default, and no argument reached it - positionally or by name. a parameter
+    without a default may follow one WITH a default, so the parameters before it being satisfied
+    says nothing about this one.
+
+    ## how to fix
+
+    pass the parameter, or give it a default in the declaration.
+    """
+
+[SC022]
+brief = "named argument between two pack arguments"
+group = "calls"
+
+    [SC022.E]
+    explain = """
+    # the pack must be contiguous
+
+    a named argument appears between two arguments that belong to the pack. the pack is recorded as
+    a first argument plus a length, because that is what lets a call be reordered into the order c++
+    needs without re-deriving which arguments were pack members. an argument spliced into the middle
+    of the pack has no place in that description: the run from the first pack argument to the last
+    would include one that is not a pack member at all.
+
+    ## how to fix
+
+    move the named argument after the pack arguments. `f(a, b, k: x)` rather than `f(a, k: x, b)` -
+    named arguments are matched by name, so their position among themselves never mattered.
+    """
