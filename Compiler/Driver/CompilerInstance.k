@@ -1785,6 +1785,57 @@ fn FrontendAction::_sema() -> bool {
         }
     }
 
+    // The PRELUDE, as a real ImportDecl. The PP folded the builtin root into
+    // the import GRAPH, so it is parsed, ordered and admitted -- but a graph
+    // edge binds no NAMES: phase I builds a TU's overlay from tu->imports and
+    // nothing else, so without this every user TU sees an empty builtin
+    // surface and `string` fails to resolve.
+    //
+    // Injected HERE because this is the one point where both halves exist:
+    // ctx->tu is set by the parse above, and phase I runs just below.
+    //
+    // resolved_fid is stamped rather than resolved. FileImportIndex resolves a
+    // path by SPELLING path_segments, and a synthesized node has none to
+    // spell; a wildcard fold reads resolved_fid and never looks at the path.
+    if !self._ci->invocation().pp.no_builtins {
+        var bfid = self._global_scope->builtin_fid();
+        if bfid != 0 {
+            var bsym = self._ci->pp()->get_symbol_table()->intern("builtin");
+            for var i: usize = 0; i < self._fids.size(); ++i {
+                var fid = self._fids[i];
+                if fid == bfid { continue; }      // the builtin root is its own prelude
+                var pctx = self._global_scope->get_context(fid);
+                if pctx == &null { continue; }
+                var ptu = reinterpret_cast::<*TranslationUnit>(pctx->tu);
+                if ptu == &null { continue; }
+                if ptu->is_foreign { continue; }  // clang-owned; it has no Kairo overlay.
+
+                // Every file UNDER the builtin root is part of the prelude
+                // rather than a consumer of it. Injecting there would make
+                // builtin reach itself by a second path, and the re-export
+                // fold would then depend on its own overlay being complete.
+                var psegs = &(pctx->module_base.segments);
+                if psegs->size() > 0 {
+                    var phead = (*psegs)[0];
+                    if phead.name == bsym { continue; }
+                }
+
+                var ploc = SourceLocation::from_base(fid, 0);
+                var pid  = ImportDecl::create(pctx, SourceRange(ploc, ploc), ImportKind::Native);
+                pid->is_wildcard    = true;
+                pid->is_prelude     = true;
+                pid->resolved_fid   = bfid;
+                pid->file_seg_count = 1;
+                ptu->imports.push(static_cast::<*Decl>(pid));
+
+                var pedge = ImportEdge{};
+                pedge.target_fid = bfid;
+                pedge.decl       = static_cast::<*Decl>(pid);
+                ptu->import_edges.push(pedge);
+            }
+        }
+    }
+
     // Phases I -> E -> V -> N -> T -> checks (ImportResolution, Expand,
     // Verify, NameResolution, TypeResolution/ChainBinding, then the
     // signature/layout checks) across every fid of this TU's graph. Run in
@@ -2166,6 +2217,18 @@ fn FrontendAction::_dump_overlays() {
         }
 
         std::print(f"fid {fid}: {ov->size()} overlay key(s)");
+
+        // The injected prelude is not in the source, so naming it here is the
+        // only place a reader can see WHY builtin's names are in this overlay.
+        for var pi: usize = 0; pi < tu->imports.size(); ++pi {
+            var pslot = tu->imports[pi];
+            if pslot == &null { continue; }
+            var pimp = dyn_cast::<ImportDecl>(*pslot);
+            if pimp == &null { continue; }
+            if !pimp->is_prelude { continue; }
+            std::print(f"  <prelude> import builtin::* (src=fid {pimp->resolved_fid})");
+        }
+
         var imms = ctx->get_imm_table();
         var rows = vec::<ImportOverlay::Row>();
         ov->collect_rows(rows);
