@@ -1,0 +1,116 @@
+Mechanical source migrations
+============================
+
+One transform per script. Each takes a tree root, reports by default, and
+writes only with --apply:
+
+    python3 Scripts/Migration/<script>.py Compiler
+    python3 Scripts/Migration/<script>.py Compiler --apply
+    python3 Scripts/Migration/<script>.py Compiler --apply --only Lexer
+
+These run on a COPY of the tree, not on Compiler/ in place. Compiler/ stays
+Stage 0 syntax because Stage 0 is what compiles it; the Stage 1 test corpus is
+the migrated copy. private/portdry/ was the first one.
+
+kairo_lex.py is the shared lexer-lite and CLI driver. It is not a parser: it
+only has to be right about which byte offsets are Kairo CODE, so a rewrite
+never fires inside a // or /* */ comment, a string literal, or an
+inline "c++" body. f-string {...} interiors ARE code and are rewritten.
+Compiler/Native, Lib/bootstrap and Lib/llvm-runtimes are skipped -- C++ by
+design.
+
+
+v0.0.1 -> v0.1.0 port
+---------------------
+
+Split out of private/port_dryrun.py, which carried all six of these plus the
+lexer in one file. Run order, which is the order the dry-run used:
+
+    ternary_to_if.py        A if C else B  ->  if C { A } else { B }
+    switch_to_match.py      switch -> match, statement keyword only
+    stub_ffi_imports.py     ffi "c++" import -> commented out   (DRY-RUN ONLY)
+    drop_turbofish.py       Foo::<T> -> Foo<T>
+    case_labels_to_arms.py  case A: case B: -> case A, B { ... }
+    ranged_for_binding.py   for x: T in xs -> for var x: T in xs
+
+Two deliberate differences from port_dryrun.py: it hardcoded
+private/portdry/ and wrote unconditionally, because it ran on a throwaway copy
+of the tree. These take the root as an argument and require --apply.
+
+stub_ffi_imports.py is a dry-run aid, not a port step. It existed so a known
+Stage 1 parse gap could not swamp the residual parse-error list. Every stub it
+leaves is grep-able (rg PORTDRY-FFI-STUB) and has to come back before the tree
+means anything. Do not run it on a tree you intend to keep.
+
+ternary_to_if.py is the one that can get it wrong: it finds where operand A
+starts by scanning left with no parser. It reports what it could not parse
+rather than guessing, and it will not cross a newline -- in a
+newline-terminated language `foo()\nif x {` is a statement, not a ternary, and
+only unbalanced brackets tell the two apart. Those sites are by hand:
+
+    rg '^\s+else\s+[^{]*$'
+
+
+inline C++ retirement
+---------------------
+
+320 sites in Compiler/: 98 `inline "c++"` blocks (642 body lines) and 222
+`__inline_cpp("...")`. They exist because Stage 0's syntax had gaps that were
+worked around rather than fixed, so every one of them has a Stage 1 spelling --
+the corpus is not complete until they are gone.
+
+The __inline_cpp half, by shape:
+
+    C cast of a literal     141   63.5%    (size_t)5, (uint64_t)0, (u8*)""
+    other expr               24   10.8%
+    libcxx/std call          22    9.9%
+    multi-line body          19    8.6%
+    libc call ::f(...)        7    3.2%
+    stmt (assign/return)      4    1.8%
+    C cast of an expr         3    1.4%
+    intrinsic tmpl / decl     2    0.9%
+
+inline_cpp_casts.py       the 141, plus the 3 cast-of-expression. Eight
+                          distinct target types across all of them.
+                          T* -> *T with the star count carried; a cast to a
+                          pointer REQUIRES `unsafe` (`f as unsafe *void`, never
+                          `f as *void`); T& has no Stage 1 spelling and is
+                          reported, never rewritten. `char` and `wchar_t` are
+                          refused rather than guessed. --selftest runs the
+                          table without touching a tree.
+
+Still to write: libc calls -> ffi "c" import plus a direct call (7), and the
+libcxx/std calls, which libcxx_to_cxx_std.py already handles outside inline
+blocks. The 19 multi-line bodies are not expressions -- they are C++ member
+declarations spliced into a class (ArenaAllocator.k:159 is a variadic template
+member, TokenBuffer.k:63 a move constructor). Those are by hand, and they are
+the sites that exercise Stage 1 generics hardest, so they are worth writing
+carefully anyway.
+
+One sequencing note. The corpus only means anything if Stage 1 accepts it, and
+"Stage 1 accepts it" is the thing under test -- so a bad rewrite and a Stage 1
+bug look identical. That is why this is one script per rule and not one porter:
+when Stage 1 chokes on file 40 you need to know which rule to suspect, and you
+need to re-run one rule against a fresh copy.
+
+
+Other
+-----
+
+ref_and_mref.py           ref!(T) / mref(T) in parameter position
+                          -> @inout x: T / @move x: T
+
+libcxx_to_cxx_std.py      libcxx::X -> cxx::std::X. Stage 1.5 work, not yet
+                          run. `libcxx` is a Stage 0 bootstrap alias
+                          (namespace libcxx = ::std, config.hh:53) with
+                          nothing behind it in Stage 1 resolution; Stage 1
+                          reaches C++'s std through the `cxx` overlay
+                          (Compiler/Sema/IMPORTS.md 5).
+
+                          The rename is the easy half. `cxx` binds only in a
+                          TU with an ffi import, and cxx::std::X only resolves
+                          if X's header is in that TU's closure, so the script
+                          reports per file which ffi imports are missing and
+                          refuses to guess them. Sites inside inline "c++"
+                          blocks are reported MANUAL and never rewritten --
+                          cxx::std is not valid C++ there.

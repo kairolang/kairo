@@ -10,8 +10,8 @@ ffi "c++" import "iostream"
 
 fn say() {
     var x: i32 = 42
-    std::cout << x
-    std::cout << 50 as i16
+    cxx::std::cout << x
+    cxx::std::cout << 50 as i16
 }
 
 // --- lit wiring -----------------------------------------------------------

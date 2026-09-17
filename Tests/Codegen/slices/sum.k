@@ -22,8 +22,18 @@ fn sum(const xs: [i32;]) -> i32 {
     return total
 }
 
-fn call_it() -> i32 {
-    return sum([1, 2, 3])
+pub fn refed(@inout x: i32) {
+    x += 10
+}
+
+// fn call_it() -> i32 {
+//     return sum([1, 2, 3])
+// }
+
+fn main() -> i32 {
+    var x = 19
+    refed(&x)
+    return x
 }
 
 // DIAG-NOT: error

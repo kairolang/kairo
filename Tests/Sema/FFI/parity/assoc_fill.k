@@ -11,8 +11,8 @@ ffi "c++" import "set"
 ffi "c++" import "unordered_map"
 
 fn use_assoc() {
-    var s: std::set<i32>
-    var m: std::unordered_map<i32, i32>
+    var s: cxx::std::set<i32>
+    var m: cxx::std::unordered_map<i32, i32>
     s.insert(1)
     m[1] = 2
     var n = s.size() + m.size()

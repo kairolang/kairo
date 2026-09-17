@@ -1,7 +1,7 @@
 ffi "c++" import "<mutex>";
-fn take(@move m: std::mutex) { }
+fn take(@move m: cxx::std::mutex) { }
 fn main() {
-    var m = std::mutex();
+    var m = cxx::std::mutex();
     take(m);                                // expect: error cannot move a value of type 'std::mutex': its copy constructor is deleted / declares no move constructor; note type declared here
 }
 

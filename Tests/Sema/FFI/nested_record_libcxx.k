@@ -11,11 +11,11 @@
 ffi "c++" import "vector"
 
 fn value_type() -> i32 {
-    var x: std::vector<i32>::value_type = 1
+    var x: cxx::std::vector<i32>::value_type = 1
     return x
 }
 
-fn destroy(d: *std::vector<i32>::__destroy_vector) {
+fn destroy(d: *cxx::std::vector<i32>::__destroy_vector) {
     d->__vec_
 }
 

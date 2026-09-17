@@ -127,6 +127,14 @@ def _clang_roots():
     # `builtin`, and `import builtin` resolves through that name.
     if os.path.isdir(builtins):
         roots += " --builtins-dir=%s" % builtins
+    # The std module tree, same story: an installed compiler finds it under
+    # <resource-dir>/std, nothing in the build copies Lib/std there. The
+    # driver registers it under the ROOT NAME `kairo::std`, so bare `std` in a
+    # test is the prelude alias for it and `cxx::std` is C++'s.
+    stdlib = os.path.normpath(
+        os.path.join(config.test_source_root, "..", "Lib", "std"))
+    if os.path.isdir(stdlib):
+        roots += " --std-dir=%s" % stdlib
     return roots
 
 kairo_roots = _clang_roots()

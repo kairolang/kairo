@@ -5,7 +5,7 @@
 ffi "c++" import "vector"
 
 fn use_vector() -> u64 {
-    var v: std::vector<i32>
+    var v: cxx::std::vector<i32>
     v.push_back(1)
     return v.size()
 }
