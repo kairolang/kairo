@@ -7,7 +7,9 @@ What every file in std may assume, may not do, and must ship with. Supervision c
 1. WHAT STD IS
 --------------
 
-  - std is an ordinary Kairo root named "std". It is not part of the compiler.
+  - std is an ordinary Kairo root, named "kairo::std". It is not part of the compiler.
+
+  - The root name has TWO segments on purpose. std's declarations are kairo::std::* and emit into the C++ namespace ::kairo::std, which can never collide with C++'s own std -- that one is reached from Kairo as cxx::std. Bare "std" in Kairo source is therefore not a root name at all: it is a TU-local alias the prelude binds (import kairo::std as std), which a file's own `module std { }` or a real import of the same name shadows by the ordinary rules.
 
   - Builtin declares, std extends. A type sema needs a handle to (Slice, Vector, HashMap, HashSet, string, Range, Ordering, Null, Future, Yield, Panic, BigInt, BigFloat, the panic entry points) is declared in the compiler's Lib/builtin with fields and constructors only. std adds every method through extend. std never redeclares, wraps, or shadows a builtin type.
 
@@ -17,7 +19,9 @@ What every file in std may assume, may not do, and must ship with. Supervision c
 2. NAMING AND LAYOUT
 --------------------
 
-  - One module per file, one file per concept: std/vec.k extends [T], std/string.k extends string, std/fmt.k formatting, std/io.k I/O. A directory with a module.k is a module; module.k only re-exports.
+  - One module per file, one file per concept: std/vec.k is kairo::std::vec and extends [T], std/string.k extends string, std/fmt.k formatting, std/io.k I/O. A directory with a module.k is a module; module.k only re-exports. At the ROOT's top level the directory is the root, so std/module.k is kairo::std itself and not kairo::std::module.
+
+  - TEMPORARY: std/module.k currently declares one function, print, instead of only re-exporting. It exists so the root can be tested end to end -- resolution, module path, and emitted spelling -- before there is a library to test with. It goes the moment there is a second file here.
 
   - Identifiers never start with __kairo_; the compiler rejects it.
 
