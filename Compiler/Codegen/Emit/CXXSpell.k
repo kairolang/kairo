@@ -40,6 +40,8 @@ import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
 import AST::ParamMode::*;
+import AST::LangItems::*;
+import Token::TokenKind::*;
 import Location::SourceManager::*;
 
 /// VisibilityKind enumerator values (AST/Mixin/Annotation.k): None,
@@ -141,8 +143,80 @@ class CXXSpell {
     }
 
     fn leaf(self, d: *Decl) -> string {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f != &null) && f->is_operator { return self.operator_name(f); }
         var t = decl_name_tok(d);
         return self.imm_name(t.imm, CXXSpell::fid_of(d));
+    }
+
+    /// `operator+`, `operator[]`, `operator<=>`; `op as` -> `operator T`;
+    /// `op delete` -> `~Owner`; operators C++ cannot spell -> LowerTargets.
+    /// l/r on ++/-- is fixity, not part of the name (see op_is_postfix).
+    fn operator_name(self, f: *FunctionDecl) -> string {
+        var ctx = CXXSpell::tu_of(static_cast::<*Decl>(f))->ctx;
+        var sym = "";
+        for var i: usize = 0; i < f->op_token.size(); ++i {
+            var t = f->op_token[i];
+            var s = ctx->get_spelling(t);
+            if (i == 0) && (f->op_token.size() == 2) && ((s == "l") || (s == "r")) { continue; }
+            sym += self._op_sym(t, ctx);
+        }
+        if sym == "delete" { return "~" + self.leaf(self.operator_owner(f)); }
+        if sym == "as" {
+            ICE_IF(f->return_type == &null, "CXXSpell: `op as` with no target type");
+            return "operator " + self._type(f->return_type);
+        }
+        var named = CXXSpell::named_operator(sym, f);
+        if named.size() > 0 { return named; }
+        return "operator" + sym;
+    }
+
+    static fn named_operator(sym: string, f: *FunctionDecl) -> string {
+        if sym == "in"    { return (LowerTargets::op_contains()) if (f->params.size() > 1) else (LowerTargets::op_iter()); }
+        if sym == "^^"    { return LowerTargets::op_pow(); }
+        if sym == "==="   { return LowerTargets::op_deep_eq(); }
+        if sym == ".*"    { return LowerTargets::op_dotstar(); }
+        if sym == "await" { return LowerTargets::op_await(); }
+        return "";
+    }
+
+    /// `op r++` / `op r--`: the postfix form, which C++ declares with an
+    /// `int` dummy parameter.
+    static fn op_is_postfix(f: *FunctionDecl) -> bool {
+        if (!f->is_operator) || (f->op_token.size() != 2) { return false; }
+        var ctx = CXXSpell::tu_of(static_cast::<*Decl>(f))->ctx;
+        return ctx->get_spelling(f->op_token[0]) == "r";
+    }
+
+    /// The type an operator belongs to: its class, or its extension's target.
+    fn operator_owner(self, f: *FunctionDecl) -> *Decl {
+        var lex = reinterpret_cast::<*DeclContext>(f->lexical_dc);
+        if (lex != &null) && (lex->dc_kind == DeclContextKind::Extension) {
+            var x = cast::<ExtensionDecl>(lex->dc_owner);
+            var c = x->target->canonical;
+            ICE_IF((c == &null) || (c->kind != TypeKind::RecordType), "CXXSpell: extension operator on a non-record target");
+            return CXXSpell::rep(cast::<RecordType>(c)->decl);
+        }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        ICE_IF((dc == &null) || (!dc->is_type_scope()), "CXXSpell: operator with no owning type");
+        return CXXSpell::rep(dc->dc_owner);
+    }
+
+    priv fn _op_sym(self, t: Token, ctx: *ASTContext) -> string {
+        switch t.kind {
+            case TokenKind::KwAnd    { return "&&"; }
+            case TokenKind::KwOr     { return "||"; }
+            case TokenKind::KwNot    { return "!";  }
+            case TokenKind::KwXor    { return "^";  }
+            case TokenKind::KwBitand { return "&";  }
+            case TokenKind::KwBitor  { return "|";  }
+            case TokenKind::KwCompl  { return "~";  }
+            case TokenKind::KwNotEq  { return "!="; }
+            case TokenKind::KwAndEq  { return "&="; }
+            case TokenKind::KwOrEq   { return "|="; }
+            case TokenKind::KwXorEq  { return "^="; }
+            default { return ctx->get_spelling(t); }
+        }
     }
 
     /// The module path of a TU as strings: root name + directories + file.

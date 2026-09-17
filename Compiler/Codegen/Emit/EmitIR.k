@@ -250,7 +250,6 @@ class EmitIR {
     priv fn _method(self, m: *FunctionDecl, owner: *Decl) {
         if !m->has_body() { return; }
         if m->body_kind != FnBodyKind::Block { self._unsupported_body(m); return; }
-        ICE_IF(m->is_operator, "EmitIR: operator method; OperatorLowering must rename it");
         ICE_IF(m->is_variadic, "EmitIR: variadic pack parameters are not emitted yet");
 
         var wrap = self._open_ns(owner, m->name.range);
@@ -258,13 +257,18 @@ class EmitIR {
         var head = self._owner_template_head(owner);
         head += self._spell.template_head(static_cast::<*Decl>(m));
         var is_ctor = (self._spell.leaf(m) == self._spell.leaf(owner));
+        var nm = self._spell.leaf(m);
         var qual = self._owner_qual(owner);
         if is_ctor {
             head += qual + "::" + self._spell.leaf(owner);
+        } else if nm[0] == '~' {
+            // A destructor definition takes no return type, and leaf() has
+            // already spelled the `~`.
+            head += qual + "::" + nm;
         } else {
             head += self._ret(m);
             head += " ";
-            head += qual + "::" + self._spell.leaf(m);
+            head += qual + "::" + nm;
         }
         head += "(";
         head += self._params_text(m, &null);
@@ -347,6 +351,11 @@ class EmitIR {
             s += self._spell.param_type(p);
             s += " ";
             s += self._spell.imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f)));
+        }
+        // The postfix `int` dummy, same rule as the declaration side.
+        if CXXSpell::op_is_postfix(f) {
+            if !first { s += ", "; }
+            s += "int";
         }
         return s;
     }
@@ -562,6 +571,7 @@ class EmitIR {
             }
             case ExprKind::UnsafeExpr           { self.emit(cast::<UnsafeExpr>(e)->operand); }
             case ExprKind::SubscriptExpr        { self._subscript(cast::<SubscriptExpr>(e)); }
+            case ExprKind::NamedArgExpr         { ICE_FAIL("EmitIR: named argument; CallLowering owns it"); }
             case ExprKind::MatchExpr            { ICE_FAIL("EmitIR: match expression; MatchLowering owns it"); }
             case ExprKind::TryCatchExpr         { ICE_FAIL("EmitIR: try expression; PanicLowering owns it"); }
             case ExprKind::RangeExpr            { ICE_FAIL("EmitIR: range; IterLowering owns it"); }
@@ -692,7 +702,11 @@ class EmitIR {
             ICE_IF(st->access_kind == ChainExpr::AccessKind::ColonColon, "EmitIR: `::` after a value step");
             ICE_IF((st->access_kind == ChainExpr::AccessKind::QuestionDot) || (st->access_kind == ChainExpr::AccessKind::QuestionArrow),
                 "EmitIR: optional chaining; NullTestLowering owns it");
-            ICE_IF(st->is_operator(), "EmitIR: operator step; OperatorLowering owns it");
+            if st->is_operator() {
+                sink->spell(st->range, (("->") if (is_ptr) else (".")) + self._spell.leaf(st->resolved_decl));
+                is_ptr = false;
+                continue;
+            }
             ICE_IF(st->is_tuple_index(), "EmitIR: tuple index; no lowering yet");
             ICE_IF(st->is_ufcs || self._is_extension_member(st->resolved_decl), "EmitIR: extension member used as a value; only a call form exists");
             ICE_IF(st->resolved_decl == &null, "EmitIR: unbound member step reached codegen; gate failure");
