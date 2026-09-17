@@ -113,12 +113,15 @@ DC chain); T's `_lookup_in_selfs` for type position. Field defaults and enum
 variant values keep the type body's scope (`_fn_depth` resets to 0 on entry
 to every type scope).
 
-**Lang items are bound by fid + path, not by unqualified name** [DECIDED,
-MISSING]. `_bind_well_known` walks the TU root by name today, so a user
-`class Vector` or a missing prelude changes what `[i32]` MEANS. A desugar
-target is not a name: the driver knows the builtin module's fid, and
-`WellKnownDecls` is filled once per build from it. Same for `Null`, `Range`,
-`Future`, `Yield`, `Ordering`, `Panic`, `string`.
+**Lang items are bound by fid + path** [DONE]. The compiler ships a root
+named `builtin` (`Lib/builtin`, installed to `<resource-dir>/builtin`,
+`--builtins-dir` overrides). The driver folds it into every non-builtin
+TU's import graph and synthesizes one `ImportDecl` (`is_prelude`) per TU
+equivalent to `import builtin::*`, after parse and before I;
+`--no-builtins` suppresses the import, `--no-prelude` also stops the root
+being folded. `WellKnownDecls` lives on `GlobalDisambigTable`, filled once
+per build from the builtin fid between that fid's N and T, by qualified
+path; no TU walks its own root by name. `NameBindingVerifier` unchanged.
 
 `NameBindingVerifier` is N's exit test: no reachable `NamedIdentExpr`
 survives with both slots null unless poisoned.
@@ -173,15 +176,21 @@ What T decides:
 - **#68 refinement**; **enum underlying** must be a builtin integer;
   **`extend` target** resolved first; a record target becomes Self.
 
-**Containers are records, not structural kinds** [DECIDED, MISSING].
-`[T]`, `{K:V}`, `{T}`, `string` desugar to `builtin::Vector<T>` /
-`builtin::Map<K,V>` / `builtin::Set<T>` / `builtin::String`, records found
-by fid+path (above). `_resolve_vector/_set/_map` then produce
-`record(Vector, [elem])`; the store's `vector()/set_of()/map_of()` and
-MemberLookup's `_ext_by_shape` are deleted. `*T`, tuples, fn pointers and
-`[T;]` stay structural. `[T; N]` is a C array (structural, FFI-shaped).
-Until the migration lands both forms are live and `TypeUtil::vector_of`
-etc. follow whichever the lang item says, so identity stays one domain.
+**Containers are records, not structural kinds** [DECIDED; migration in
+progress]. `[T;]`, `[T]`, `{T}`, `{K: V}` and `string` are sugar for
+`builtin::Slice<T>`, `Vector<T>`, `HashSet<T>`, `HashMap<K, V>`, `string` --
+decls in the builtin root reached through `sc->well_known`.
+`_resolve_vector/_set/_map` and the incomplete-array arm produce
+`record(item, args)`; an unbound item is R053E at the use. The store's
+`vector()/set_of()/map_of()` and MemberLookup's `_ext_by_shape` are
+deleted; `VectorType`/`SetType`/`MapType` remain as syntax nodes whose
+canonical is a `RecordType`. `extend <T> [T]` is legal syntax for
+`extend <T> Vector<T>`. `*T`, tuples, fn pointers and `[T; N]` stay
+structural (`[T; N]` needs const generic arguments in the registry key
+before it can be a record; it is also the FFI shape of a C array). An
+FFI-imported incomplete array keeps the structural `array(elem, 0)`. A
+`[...]` literal is a `Slice<E>` (or takes an expected `[E; N]` outright);
+`Slice<T> -> Vector<T>` is the one container conversion, rank Converted.
 
 **`unsafe *T` is a distinct canonical from `*T`** [DECIDED, MISSING, spec 2].
 `PointerType::is_unsafe` enters the store's key. Without it the `unsafe *`
@@ -332,6 +341,12 @@ binder decl -- as the CANONICAL NODE ITSELF, which is self-canonical, so
 every consumer reading `->canonical` is unchanged and no node is
 allocated; and the promotion `candidate_cell -> resolved_decl` on a callee
 (`NamedIdentExpr` or `ChainExpr::Step`). Never a new AST node.
+
+Plus two facts on operator and call nodes that are slots, not nodes:
+`resolved_op`/`op_via_free` on Binary/Unary/Assign/Subscript/`TypeCastExpr`
+(the user operator overload resolution selected), and
+`CallExpr::param_map`/`pack_len` (argument placement over `f->params`,
+`self` included, -1 = default). Both are read by `Lower/` only.
 
 **Four terminal states per expression.** typed (`type_` set); poisoned
 (diagnosed, `type_` null); unknown (`IsInstantiationDependent` set,
@@ -484,7 +499,18 @@ section; TypeQual enum path in `TypeUtil::syntax_is_const`.
 `<unknown>`, zero diagnostics -- if this one fails, something treats
 dependent as failed, and that is the first bug to fix).
 
-### 2.10 L, M1, M2 [MISSING]
+### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
+
+`Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
+§6). Order, fixed: OperatorLowering -> CallLowering ->
+ListLiteralLowering -> ExtensionLowering -> EnumLayoutLowering ->
+NullableTypeLowering -> NullTestLowering -> CoalesceLowering ->
+FStringLowering -> IterLowering -> MatchLowering/PatternCompilation ->
+PanicLowering/FinallyLowering -> YieldLowering ->
+TypeQueryLowering/NarrowedAccessLowering -> label lowering ->
+CopyMoveLowering -> DestructorInsertion. Sugar first, control flow second,
+lifecycle last. Every pass is an ASTWriter; a node a pass owns that reaches
+codegen is an ICE naming the pass.
 
 Mono model: "Kairo enumerates and checks; C++ instantiates explicitly".
 M1 walks `InstantiationRegistry::collect`; it creates nothing (T and X
@@ -560,16 +586,16 @@ same-file extension members at Fwd, placed BEFORE the class definition
 (tier 0), since a namespaced friend needs a prior declaration. Generic:
 `template<class T> struct Box { template<class U> friend void m(Box<U>*); }`.
 
-**Builtins are a compiler-shipped module** [DECIDED]. `builtins/Vector.k`
-declares `struct <T> Vector { data, len, cap }` -- an FFI-backed record
-spelled `kairo::builtins::vec` in C++ -- and std adds every method via
-`extend <T> Vector<T> impl VectorI<T>` in std's own file, which the orphan
-rule permits because `VectorI` is declared there. `VectorI` therefore
-lists EVERY method (the impl-only rule above). A no-std user may still
-`extend Vector impl MyInterface` from their own file. Consequence to
-accept knowingly: Vector's representation is public API (struct fields
-default pub; std's extend is not a friend), unless `prot` with
-same-library provenance lands (AccessCheck).
+**builtin declares, std extends** [DONE for the root; std pending].
+`Lib/builtin` declares every lang item with fields and constructors only (a
+struct may hold nothing else); std adds every method through `extend` in
+its own files, which the orphan rule permits for impl extends and which
+plain extends on builtin types are exempt from by the same file rule
+applied to the root (`extend [T]` in std is an impl extend of a std
+interface, or lands in a file the orphan rule accepts -- see
+ExtensionOrphanCheck). Nothing is FFI-backed; the C++ spelling of
+`Vector<T>` is derived from its decl like any record. Consequence kept: a
+builtin type's representation is public API.
 
 **Generic bodies and extension members: witness structs** [DECIDED,
 MISSING]. A generic body emits ONCE as a C++ template. Inside
@@ -612,10 +638,14 @@ control** is a late filter [MISSING].
 
 ## 3. Hard invariants
 
-Invariants 8-13 and 9a live in `IMPORTS.md` §3 (imports, namespaces and the
-emitted interface) and are part of this list by reference. Nothing checks
+Invariants 8-13, 9a and 9b live in `IMPORTS.md` §3 (imports, namespaces and
+the emitted interface) and are part of this list by reference. Nothing checks
 that the two stay in step, so a change to either is expected to touch both:
 they are one list split by subject, not two lists.
+
+Names the compiler knows but the user did not write -- lang items and lower
+targets -- are defined in `AST/LangItems.k` and nowhere else (invariant 9b).
+A pass that needs one asks that file; it never spells the string itself.
 
 1. **Frozen means frozen.**
 2. **One key space per TU.** Cross-TU goes through the spelling shim; the
@@ -688,7 +718,8 @@ Blocking X (spec items; land before the bug sweep):
 
 Non-blocking, same subsystem:
 
-    8.  Named-argument node + CallTyping::arg_info           parser/X        small
+    8.  Named-argument node (NamedArgExpr, ParamDecl::is_pack, parser/X     IN PROGRESS
+        param_map)
     9.  SemaDump `-- expression types --` + inferred decls   dump            small
     10. TypeQual enum path check in TypeUtil                 X               trivial
     11. GenericParamKindBound::Duck; sc->bounds; the three-  P/C/CB/X        small
@@ -701,9 +732,10 @@ Name/type residue:
     a. Split ImportResolution's shared R015E                 diag table
     b. `Foo<i32>::Inner` dependence flag (§2.6 PARTIAL)      small
     c. `NameLookup::qualified_step` spelled overload         small
-    d. Lang items by fid+path; containers as builtin records design DONE,
-       (§2.5, §2.6); delete vector()/set_of()/map_of() and    code MISSING
-       _ext_by_shape
+    d. Lang items by fid+path; containers as builtin records DONE (design);
+       (§2.5, §2.6)                                           code: items 2-9 of
+                                                              the container
+                                                              ticket in flight
     e. `_register_specs_in` into executable scopes           small
     f. `_selfs` as *Type (§2.6)                               small
     g. closure bodies push a null DC                          small

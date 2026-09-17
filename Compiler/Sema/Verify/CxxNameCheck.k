@@ -41,6 +41,7 @@ import AST::Node::Patterns::*;
 import AST::Node::Casting::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Sema::Verify::CxxReservedWords::*;
+import AST::LangItems::*;
 import Token::Token::*;
 import Diagnostic::Registry::*;
 
@@ -88,7 +89,29 @@ class CxxNameCheck derives RecursiveASTVisitor::<CxxNameCheck> {
             return;
         }
 
-        var why = cxx_reserved_reason(self.sc->ctx->get_spelling(name));
+        var s = self.sc->ctx->get_spelling(name);
+
+        // BEFORE the [lex.name] patterns below, not after: the reserved prefix
+        // contains a double underscore, so cxx_reserved_reason would answer
+        // first and report the generic pattern warning instead of this. The
+        // compiler MINTS names with this prefix (LowerTargets: `op in` becomes
+        // __kairo_contains, and so on), so a user declaring one does not merely
+        // risk UB -- it collides with an invented name in the emitted C++.
+        var rp = LowerTargets::reserved_prefix();
+        if s.length() >= rp.length() {
+            var hit = true;
+            for var i: usize = 0; i < rp.length(); ++i {
+                if s[i] != rp[i] { hit = false; break; }
+            }
+            if hit {
+                self.sc->diag->report(DiagID::SC017E, name.range.start,
+                    f"identifier \x27{s}\x27 uses the reserved prefix \x27{rp}\x27"
+                ).first(name.range).emit();
+                return;
+            }
+        }
+
+        var why = cxx_reserved_reason(s);
         if !why.empty() {
             self.sc->diag->report(DiagID::SC005W, name.range.start,
                 f"{what} name is reserved for the implementation in C++: {why}"

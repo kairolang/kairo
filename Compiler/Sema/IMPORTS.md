@@ -143,6 +143,15 @@ under a named root never falls back into the entry root, which is a leaf
 of the import graph. Two roots claiming one name is an R018E from the
 driver before anything is parsed (`take_root_collisions`).
 
+**The builtin root.** `Lib/builtin` is a named root (`builtin`) the
+compiler always registers (`<resource-dir>/builtin`; `--builtins-dir`
+overrides). Every non-builtin TU receives one synthesized `ImportDecl` with
+`is_prelude = true`, `resolved_fid` stamped directly (no path to resolve),
+folded by I like any wildcard import; `module.k`'s `pub import`s re-export
+through the ordinary path. `--print-imports` labels it `<prelude>`; the AST
+printer hides it. A one-segment import of a named root (`import builtin`)
+resolves to the root itself (ImportProbe no longer requires two segments).
+
 ### 2.2 Index + Parse
 
 Index mode hoists decl heads into `DisambigTable` so the parser can
@@ -232,12 +241,13 @@ never resolved. `MemberLookup::in_scope` re-interns per scope. Rendering
 a foreign decl is the same problem: `NameLookup::ctx_of` answers where a
 decl's names live, and the dump and diagnostics ask it first.
 
-### 2.7 EP EmitPlan [DONE for the plan and declarations; bodies PARTIAL]
+### 2.7 EP EmitPlan [DONE]
 
-The codegen half. Specified fully in §6. InterfaceEmitter emits every
-declaration (own and foreign) into either sink; EmitIR emits bodies and
-still refuses methods (needs `self` -> `this`) and extension members (needs
-ExtensionLowering), warning once per family instead.
+The codegen half; CODEGEN.md is the full description. InterfaceEmitter
+emits every declaration into either sink; EmitIR emits bodies for the
+C++-shaped core, method and extension-member definitions, and template
+member bodies into home TUs; explicit instantiation definitions follow
+every body. One object per non-foreign TU.
 
 ---
 
@@ -256,6 +266,15 @@ ExtensionLowering), warning once per family instead.
     importer's spelling. Two builds of one tree emit byte-identical
     interfaces. The entry TU has no path and emits into the unnamed
     namespace, `main` excepted.
+9b. **Compiler-invented names come from one file.** `AST/LangItems.k` holds
+    both kinds: LANG ITEMS (a decl a user could have written, arriving
+    through ordinary imports, filled once per build on the
+    GlobalDisambigTable) and LOWER TARGETS (a fragment of a C++ name that
+    no Kairo declaration spells -- `__kairo_contains` for `op in`,
+    `__kairo_pow` for `op ^^`). Nothing else in the compiler carries a copy
+    of any of those strings, and `CxxNameCheck` rejects a user identifier
+    that starts with the reserved prefix, so an invented name can never
+    collide with a written one.
 10. **Aliases are TU-local.** An alias never appears in an exported
     interface. C++ consumers see canonical names only.
 11. **Class granularity.** A class enters a TU's emitted interface whole
@@ -554,6 +573,10 @@ TU-local and never appears in an exported interface) and costs a second
 naming mechanism codegen would have to keep consistent with the first.
 Qualified-at-use is fewer moving parts; do not relitigate.
 
+Use-site exactness is codegen's: every argument whose type differs from the
+parameter's canonical is cast to it (CODEGEN.md §6), so C++ overload
+resolution has one Exact candidate.
+
 ### 6.6 Emitter reuse [DONE]
 
 `InterfaceEmitter(plan) -> EmitSink` (TokenSink for the build, TextSink for
@@ -620,9 +643,9 @@ Each item is independently testable. Do them in this order.
     9. Named roots: add_include(name), SearchRoot.name, module_base prefix   PP/Resolution DONE
    10. TypeCycleCheck                                     Sema/Check DONE
    11. EmitPlan collector + closure + tiers               Codegen    DONE
-   12. InterfaceEmitter                                   Codegen    DONE (declarations); EmitIR bodies OPEN
+   12. InterfaceEmitter                                   Codegen    DONE (declarations and bodies)
    12b. Cross-fid TokenSink (locmap-translated locations) Codegen    DONE
-   13. Instantiation registry + extern template           M1/M2
+   13. Instantiation registry + extern template           M1/M2      tier 3 extern/explicit DONE for classes; M1/M2 fill OPEN
    13a. Cross-reopening redefinition check (same signature, two definitions) at M2 sync
         OPEN, and not a codegen item: a module reopened in two files can define
         one signature twice, and nothing diagnoses it. Codegen cannot: each TU
@@ -632,6 +655,9 @@ Each item is independently testable. Do them in this order.
         N(a)'s (redefinition), with a note on the other definition.
    14. EmitCXXHeader via the same emitter                 Codegen    DONE
    15. Clang extraction pass (removes the §5 gate)        Interop, Sema/Foreign  DONE (§5)
+   16. Per-TU object emission (_codegen loop, obj dir)    Codegen    DONE
+   17. Builtin root + prelude                             PP/driver  DONE
+   18. Container migration (items 2-9)                    Sema/Codegen  IN PROGRESS
 
 Test for 1–9: `Tests/Sema/imports_all_forms`. `main.k` imports `foo.k`
 under every form in §1, plus `module util` reopened across two files, plus

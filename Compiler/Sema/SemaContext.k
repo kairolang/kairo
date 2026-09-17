@@ -92,6 +92,52 @@ enum SemaPhase derives u8 {
 ///   nodes:       ALL inter-pass results (resolved_decl links, canonical
 ///                slots, poison bits, redecl chains). Passes communicate
 ///                through the AST and registries, NEVER through each other.
+/// \class SemaOptions
+/// \brief Sema-relevant toggles, snapshotted from CompilerInvocation at
+///        SemaContext construction. Passes read sc->opts, never reach into
+///        ci raw flags this gives tests a way to toggle behavior without
+///        assembling a full invocation, and gives flags exactly one
+///        deserialization point (same rule as LangOptions itself).
+///
+///        Tri-state convention matches LangOptions: -1 unset (profile
+///        default applies), 0 off, 1 on. Resolve through on().
+class SemaOptions {
+    pub var verify_interfaces: i32 = -1;  ///< check extend..impl bodies against interface.
+    pub var const_checks:      i32 = -1;  ///< const-correctness enforcement.
+    pub var overflow_checks:   i32 = -1;  ///< arith overflow checking semantics.
+    pub var strict_null:       i32 = -1;  ///< nullable strictness.
+    pub var implicit_conv:     i32 = -1;  ///< allow implicit conversions.
+    pub var rtti:              i32 = -1;  ///< emit RTTI-dependent features.
+
+    /// Longest chain of alias-through-alias expansions T will follow before
+    /// giving up (--cmax-type-alias-depth). NOT a tri-state: a positive count,
+    /// already defaulted by the flag parser. Separate from the resolution
+    /// stack's scope-depth cap because an alias chain is the one structure a
+    /// user can make arbitrarily long by accident (a chain of re-exports) and
+    /// wants to tune without loosening every other nesting limit.
+    pub var max_type_alias_depth: i32 = 64;
+
+    fn SemaOptions(self) { }
+
+    /// Populate from the invocation. The single flag -> option boundary.
+    fn load(self, ci: *CompilerInvocation) {
+        if ci == &null { return; }
+        self.verify_interfaces = ci->lang.verify_interfaces;
+        self.const_checks      = ci->lang.const_checks;
+        self.overflow_checks   = ci->lang.overflow_checks;
+        self.strict_null       = ci->lang.strict_null;
+        self.implicit_conv     = ci->lang.implicit_conv;
+        self.rtti              = ci->lang.rtti;
+        self.max_type_alias_depth = ci->lang.max_type_alias_depth;
+    }
+
+    /// Resolve a tri-state against its profile default.
+    fn on(self, v: i32, def: bool) -> bool {
+        if v == -1 { return def; }
+        return v != 0;
+    }
+}
+
 class SemaContext {
     pub var ctx:       obs::<ASTContext>;
     pub var tu:        obs::<TranslationUnit>;
