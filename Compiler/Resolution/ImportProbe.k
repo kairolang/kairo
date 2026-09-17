@@ -193,7 +193,7 @@ class ImportResolver {
     pub class Builder {
         priv var _cwd:           std::Nullable::<Path>;
         priv var _include_paths: vec::<Path>;
-        priv var _include_names: vec::<string>;   ///< parallel to _include_paths.
+        priv var _include_names: vec::<vec::<string>>;  ///< parallel to _include_paths.
         priv var _ext_cfg:       *FileExtensions;
         priv var _pool:          *ThreadPool;
 
@@ -201,7 +201,7 @@ class ImportResolver {
         fn Builder(self) {
             self._cwd           = null;
             self._include_paths = vec::<Path>();
-            self._include_names = vec::<string>();
+            self._include_names = vec::<vec::<string>>();
             self._ext_cfg       = &null;
             self._pool          = &null;
         }
@@ -217,13 +217,19 @@ class ImportResolver {
         /// \brief appends a single include path to the search list
         /// \param path the directory to add
         /// \return pointer to self for chaining
-        /// \param name the root's MODULE name -- the leading segment every
-        ///             module under it carries (IMPORTS.md §2.1). Empty means
-        ///             "use the directory's basename"; only the ENTRY root is
+        /// \param name the root's MODULE name -- the leading SEGMENTS every
+        ///             module under it carries (IMPORTS.md §2.1), written as a
+        ///             module path (`kairo::std`). Empty means "use the
+        ///             directory's basename"; only the ENTRY root is
         ///             legitimately unnamed.
+        ///
+        /// The `::` split happens HERE and nowhere else, so `-I name=path`,
+        /// the driver's own registrations and any future caller agree on what
+        /// a dotted name means.
         fn add_include(self, path: Path, name: string = "") -> ref!(Builder) {
             self._include_paths.push_back(path);
-            self._include_names.push_back((name) if (name.size() > 0) else (path.filename()));
+            var segs = split_module_name((name) if (name.size() > 0) else (path.filename()));
+            self._include_names.push_back(segs);
             return self;
         }
 
@@ -287,7 +293,7 @@ class ImportResolver {
     /// \param include_paths additional include directories (priority 1+)
     /// \param pool optional thread pool; currently unused in body but reserved for parallel indexing
     fn build_index(self, cwd: Path, include_paths: vec::<Path>, pool: *ThreadPool = &null,
-                   include_names: vec::<string> = vec::<string>()) {
+                   include_names: vec::<vec::<string>> = vec::<vec::<string>>()) {
         Logger::info(Logger::Stage::Preprocessor,
             f"ImportResolver::build_index: cwd='{cwd.full_path()}' roots={include_paths.size() + 1}");
 
@@ -303,15 +309,17 @@ class ImportResolver {
         for var i: usize = 0; i < include_paths.size(); ++i {
             var p = include_paths[i];
             if p.exists() && p.is_directory() {
-                var nm = (include_names[i]) if (i < include_names.size()) else ("");
-                if nm.size() == 0 { nm = p.filename(); }
+                var nm = (include_names[i]) if (i < include_names.size()) else (vec::<string>());
+                if nm.size() == 0 { nm = split_module_name(p.filename()); }
                 // Two roots claiming one name is a build error, never
-                // first-wins and never a merge (IMPORTS.md §2.1). Recorded
-                // here and drained by the caller, which owns a DiagEngine.
+                // first-wins and never a merge (IMPORTS.md §2.1). EQUAL names
+                // only: one name being a PREFIX of another is legal, because
+                // resolve_module_rel matches longest-first and so has exactly
+                // one answer for every path.
                 for var k: usize = 0; k < self._roots.size(); ++k {
-                    if self._roots[k]->name != nm { continue; }
+                    if !root_names_equal(self._roots[k]->name, nm) { continue; }
                     var c = RootNameCollision{};
-                    c.name = nm;
+                    c.name = self._name_str(nm);
                     c.a    = self._roots[k]->base_path.full_path();
                     c.b    = p.full_path();
                     self._root_collisions.push_back(c);
@@ -529,48 +537,68 @@ class ImportResolver {
             }
         }
 
-        if (!root_hit) && (segments.size() > 1) {
-            var tail = vec::<string>();
-            for var i: usize = 1; i < segments.size(); ++i { tail.push_back(segments[i]); }
-            var ni: usize = 0;
-            while (ni < self._roots.size()) && (!root_hit) {
+        // Named roots, LONGEST NAME FIRST. A root's name is a module path,
+        // not an identifier, so the match is on the leading N segments of the
+        // import: with roots `kairo::std` and `kairo`, `import kairo::std::vec`
+        // is the former's `vec.k` and never the latter's `std/vec.k`.
+        // Longest-first is also what makes prefix pairs legal -- only EQUAL
+        // names are the R018E collision.
+        //
+        // A name consuming the WHOLE path (empty tail) names the root itself,
+        // and what that resolves to is the root's own entry point, its
+        // module.k. `_probe_root` cannot serve that case: it addresses
+        // segments[size-1] and would read off the front of an empty vec.
+        // Without it a root named `builtin` is reachable as
+        // `builtin::containers` but never as `builtin` -- the spelling the
+        // prelude uses -- and `import kairo::std` never resolves at all.
+        if !root_hit {
+            var cands = vec::<*SearchRoot>();
+            for var ni: usize = 0; ni < self._roots.size(); ++ni {
                 var r = self._roots[ni];
-                ni += 1;
                 if r->name.size() == 0 { continue; }
-                if r->name != segments[0] { continue; }
+                if !root_name_matches(r->name, segments) { continue; }
+                cands.push_back(r);
+            }
+            // Insertion sort, descending by name length. The candidate set is
+            // the roots whose name prefixes ONE import path: one or two in
+            // every real build.
+            for var a: usize = 1; a < cands.size(); ++a {
+                var c = cands[a];
+                var b = a;
+                while (b > 0) && (cands[b - 1]->name.size() < c->name.size()) {
+                    cands[b] = cands[b - 1];
+                    b -= 1;
+                }
+                cands[b] = c;
+            }
+
+            var ci: usize = 0;
+            while (ci < cands.size()) && (!root_hit) {
+                var r = cands[ci];
+                ci += 1;
+
+                var tail = vec::<string>();
+                for var ti: usize = r->name.size(); ti < segments.size(); ++ti {
+                    tail.push_back(segments[ti]);
+                }
+
+                if tail.size() == 0 {
+                    var snode = r->root;
+                    if snode == &null { continue; }
+                    self._sweep_dir(snode);
+                    var smod = snode->find_by_stem_and_category("module", FileCategory::KairoSource);
+                    if (smod != &null) && (smod->file_path) {
+                        root_hit  = true;
+                        root_path = *(smod->file_path);
+                    }
+                    continue;
+                }
+
                 var h = self._probe_root(r, tail, is_module);
                 if h.found {
                     root_hit  = true;
                     root_path = h.path;
                     if !sib_hit { out.file_dir = h.file_dir; }
-                }
-            }
-        }
-
-        // A root's NAME, alone. `import builtin` names the root itself, so
-        // what it resolves to is that root's own entry point -- its module.k.
-        // _probe_root cannot serve this: it addresses segments[size-1], and
-        // the tail here is empty.
-        //
-        // Without this, a one-segment import skipped the name branch above
-        // (guarded on size() > 1) and fell through to the path-as-written
-        // probes, which look for `<root>/builtin/builtin.k` -- so a root named
-        // `builtin` was reachable as `builtin::containers` but never as
-        // `builtin`, which is the spelling the prelude uses.
-        if (!root_hit) && (segments.size() == 1) {
-            var si: usize = 0;
-            while (si < self._roots.size()) && (!root_hit) {
-                var sr = self._roots[si];
-                si += 1;
-                if sr->name.size() == 0        { continue; }
-                if sr->name != segments[0]     { continue; }
-                var snode = sr->root;
-                if snode == &null              { continue; }
-                self._sweep_dir(snode);
-                var smod = snode->find_by_stem_and_category("module", FileCategory::KairoSource);
-                if (smod != &null) && (smod->file_path) {
-                    root_hit  = true;
-                    root_path = *(smod->file_path);
                 }
             }
         }
@@ -631,7 +659,7 @@ class ImportResolver {
         var out = vec::<string>();
 
         var best_rel = "";
-        var best_name = "";
+        var best_name = vec::<string>();
         var best_len: usize = 0;
         for var i: usize = 0; i < self._roots.size(); ++i {
             var root = self._roots[i];
@@ -648,11 +676,15 @@ class ImportResolver {
         }
         if best_rel.size() == 0 { return out; }
 
-        // The root's name is the leading segment: `~/foo/a.k` under `-I ~/foo`
-        // is `foo::a` from EVERY importer, which is what makes a file's
-        // identity -- and therefore its C++ namespace -- independent of who
-        // imported it. The entry root is unnamed and contributes no prefix.
-        if best_name.size() > 0 { out.push_back(self.module_ident(best_name)); }
+        // The root's name is the leading SEGMENTS: `~/foo/a.k` under
+        // `-I ~/foo` is `foo::a` from EVERY importer, and `Lib/std/vec.k`
+        // under `-I kairo::std=Lib/std` is `kairo::std::vec`. That is what
+        // makes a file's identity -- and therefore its C++ namespace --
+        // independent of who imported it. The entry root is unnamed and
+        // contributes no prefix.
+        for var bi: usize = 0; bi < best_name.size(); ++bi {
+            out.push_back(self.module_ident(best_name[bi]));
+        }
 
         var parts = self.split_path(best_rel);
         if parts.size() == 0 { return out; }
@@ -664,7 +696,15 @@ class ImportResolver {
         parts[parts.size() - 1] = leaf;
 
         // `Foo/module.k` IS module `Foo`; the leaf names the directory entry.
-        if (leaf == "module") && (parts.size() > 1) { parts.pop_back(); }
+        // At a root's TOP level the directory is the root itself, so the root
+        // NAME is already the whole path and the leaf drops there too.
+        // Without the second clause `Lib/std/module.k` under `kairo::std`
+        // would be `kairo::std::module`, its synthetic module_self would be
+        // named `module`, and every decl in it would emit one C++ namespace
+        // too deep. (Same latent bug for `Lib/builtin/module.k`, which was
+        // `builtin::module`; unexercised only because the prelude folds it as
+        // a wildcard and never binds its handle.)
+        if (leaf == "module") && ((parts.size() > 1) || (out.size() > 0)) { parts.pop_back(); }
 
         for var i: usize = 0; i < parts.size(); ++i {
             out.push_back(self.module_ident(parts[i]));
@@ -1218,9 +1258,13 @@ class ImportResolver {
         var old      = self._roots[index];
         var path     = old->base_path;
         var priority = old->priority;
+        var name     = old->name;        // copied BEFORE the destroy: dropping it
+                                         // here silently demoted a named root to
+                                         // the entry root and changed every module
+                                         // path under it.
 
         std::destroy(old);
-        self._roots[index] = std::create::<SearchRoot>(path, priority, self._ext_cfg);
+        self._roots[index] = std::create::<SearchRoot>(path, priority, self._ext_cfg, name);
 
         self.invalidate_cache();
     }
@@ -1238,7 +1282,7 @@ class ImportResolver {
 
         for i in range::<usize>(0, self._roots.size()) {
             var root = self._roots[i];
-            result += f"  [{root->priority}] {root->base_path.full_path()}\n";
+            result += f"  [{root->priority}] {root->name_str()} -> {root->base_path.full_path()}\n";
         }
 
         return result;
@@ -1260,6 +1304,18 @@ class ImportResolver {
         }
 
         return result;
+    }
+
+    /// A root name spelled back for a diagnostic. Mirrors SearchRoot::name_str
+    /// but takes the raw segments, which is what the collision record has.
+    priv fn _name_str(self, segs: vec::<string>) -> string {
+        if segs.size() == 0 { return "<entry>"; }
+        var out = string();
+        for var i: usize = 0; i < segs.size(); ++i {
+            if i > 0 { out += "::"; }
+            out += segs[i];
+        }
+        return out;
     }
 
     priv fn make_cache_key(self, prefix: string, segments: vec::<string>) -> string {
@@ -1307,7 +1363,7 @@ class ImportResolver {
 
         for i in range::<usize>(0, self._roots.size()) {
             var root = self._roots[i];
-            result += f"\n[Root {i}] priority={root->priority} path={root->base_path.full_path()}\n";
+            result += f"\n[Root {i}] priority={root->priority} name={root->name_str()} path={root->base_path.full_path()}\n";
             result += self.dump_node(root->root, 1);
         }
 

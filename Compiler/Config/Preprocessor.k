@@ -54,6 +54,17 @@ class PreprocessorOptions {
     /// and a Tests/ case asserting the unbound-lang-item diagnostic needs the
     /// same shape.
     pub var no_builtins:        bool   = false;     ///< --no-builtins
+    /// --std-dir: where the Kairo standard library tree lives. Empty means
+    /// `<resource-dir>/std`; with neither there is no std root, bare `std`
+    /// binds nothing, and every use of it is an ordinary unresolved-name
+    /// error. Read by the DRIVER (it registers the search root under the name
+    /// `kairo::std`) and by the PP, which folds `kairo::std` into the import
+    /// GRAPH the same way it folds `builtin`.
+    pub var std_dir:            string = "";        ///< --std-dir
+    /// --no-stdlib: no std root, no `import kairo::std as std` alias. Distinct
+    /// from --no-builtins: builtin DECLARES the lang items sema needs, std
+    /// only extends them, so a freestanding TU can drop std and keep builtin.
+    pub var no_stdlib:          bool   = false;     ///< --no-stdlib / --freestanding
     // -- debug / trace -----------------------------------------------------
     pub var macro_debug_filter: string = "";     ///< --macro-debug-filter
     pub var macro_debug:        bool   = false;  ///< --macro-debug
@@ -83,6 +94,8 @@ class PreprocessorOptions {
         (o.no_prelude)         = args.get_bool("no-prelude") || args.get_bool("freestanding");
         (o.builtins_dir)       = args.get_string("builtins-dir");
         (o.no_builtins)        = args.get_bool("no-builtins");
+        (o.std_dir)            = args.get_string("std-dir");
+        (o.no_stdlib)          = args.get_bool("no-stdlib") || args.get_bool("freestanding");
 
         for s: string in args.get_list("define")        { o.defines.push_back(s); }
         for s: string in args.get_list("force-include") { o.force_includes.push_back(s); }

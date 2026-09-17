@@ -38,6 +38,7 @@ import AST::Node::Base::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import Token::Token::*;
+import Token::TokenKind::*;
 import Token::TokenText::*;
 import Location::SourceRange::*;
 import Diagnostic::Registry::*;
@@ -58,19 +59,34 @@ class ImportResolution {
         var overlay = self.sc->ctx->alloc_init_pp_cleanup::<ImportOverlay>();
         tu->import_overlay = overlay;
 
+        // Every top-level `std` opening reachable through this TU's ffi
+        // closure, accumulated across imports and bound ONCE as `cxx::std`
+        // below. Collected here rather than in _resolve_ffi because `cxx` is
+        // one name for the whole TU, not one per import.
+        var cxx_std  = vec::<*Decl>();
+        var ffi_orig: *Decl = &null;
+
         for var i: usize = 0; i < tu->imports.size(); ++i {
             var slot = tu->imports[i];        // *(*Decl): ArenaList::op[] yields *T
             if slot == &null { continue; }
             var id = dyn_cast::<ImportDecl>(*slot);
             if id == &null { continue; }
-            self._resolve_one(id, overlay);
+            if id->has_ffi_linkage() && (id->resolved_fid != 0) && (ffi_orig == &null) {
+                ffi_orig = static_cast::<*Decl>(id);
+            }
+            self._resolve_one(id, overlay, cxx_std);
+        }
+
+        if (cxx_std.size() > 0) && (ffi_orig != &null) {
+            self._bind_cxx(overlay, cxx_std, ffi_orig);
         }
 
         overlay->freeze();
         return true;
     }
 
-    priv fn _resolve_one(self, id: *ImportDecl, overlay: *ImportOverlay) {
+    priv fn _resolve_one(self, id: *ImportDecl, overlay: *ImportOverlay,
+                         cxx_std: ref!(vec::<*Decl>)) {
         // ffi: clang parsed the header set and Sema/Foreign indexed it into
         // one Kairo TU per header BEFORE sema; the driver stamped the closure
         // (the header and everything it transitively includes) onto the node.
@@ -78,7 +94,7 @@ class ImportResolution {
         // diagnostics already said so.
         if id->has_ffi_linkage() {
             if id->resolved_fid == 0 { return; }
-            self._resolve_ffi(id, overlay);
+            self._resolve_ffi(id, overlay, cxx_std);
             return;
         }
 
@@ -291,7 +307,7 @@ class ImportResolution {
         for var j: usize = 0; j < id->items.size(); ++j {
             var it = id->items[j];
             if it.is_wildcard {
-                self._fold_all_cells(id, overlay, src_syms, fid);
+                self._fold_all_cells(id, overlay, src_syms, fid, false);
                 continue;
             }
             if it.sub_path.size() == 0 { continue; }
@@ -323,11 +339,17 @@ class ImportResolution {
 
     priv fn _fold_wildcard(self, id: *ImportDecl, overlay: *ImportOverlay,
                            src_syms: *SymbolTable, fid: u32) {
-        self._fold_all_cells(id, overlay, src_syms, fid);
+        self._fold_all_cells(id, overlay, src_syms, fid, false);
     }
 
+    /// \param skip_std true ONLY from the bare-ffi fold, where `std` is now
+    ///        reached through `cxx::std` instead. It is a parameter rather
+    ///        than a check inside the loop because this function has three
+    ///        callers: the bare ffi fold, `import foo::*`, and a `*` item in a
+    ///        selective import. Skipping the name unconditionally would also
+    ///        skip it for `import kairo::std::*`.
     priv fn _fold_all_cells(self, id: *ImportDecl, overlay: *ImportOverlay,
-                            src_syms: *SymbolTable, fid: u32) {
+                            src_syms: *SymbolTable, fid: u32, skip_std: bool) {
         var rows = vec::<SymbolTable::Entry>();
         src_syms->collect_entries(rows);
         for var r: usize = 0; r < rows.size(); ++r {
@@ -338,6 +360,7 @@ class ImportResolution {
             if e.cell == &null { continue; }
             var spelling = e.name.describe(self.sc->g->get_context(fid));
             if spelling.size() == 0 { continue; }
+            if skip_std && (spelling == "std") { continue; }
             self._fold_cell(id, overlay, spelling, e.cell, fid);
         }
     }
@@ -369,13 +392,21 @@ class ImportResolution {
     /// reopened-module shape ChainBinding's multi-scope Module anchor already
     /// searches (§4.3). Bare `ffi import "h"`: every name of every header in
     /// the closure, unqualified, as the `#include` it stands for would.
-    priv fn _resolve_ffi(self, id: *ImportDecl, overlay: *ImportOverlay) {
+    priv fn _resolve_ffi(self, id: *ImportDecl, overlay: *ImportOverlay,
+                         cxx_std: ref!(vec::<*Decl>)) {
         var alias: string = "";
         if id->has_alias { alias = self.sc->ctx->get_spelling(id->alias); }
         for var i: usize = 0; i < id->ffi_closure_fids.size(); ++i {
             var fid = id->ffi_closure_fids[i];
             var src_tu = self._source_tu(fid);
             if src_tu == &null { continue; }
+
+            // `std` for the `cxx` overlay, collected for BOTH shapes and
+            // BEFORE the aliased branch returns: an aliased ffi import still
+            // puts C++'s std in this TU's closure, and `cxx::std` is not a
+            // per-import name.
+            self._collect_cxx_std(src_tu, fid, cxx_std);
+
             if id->has_alias {
                 if (alias.size() == 0) || (src_tu->module_self == &null) { continue; }
                 var t = OverlayTarget{};
@@ -389,8 +420,89 @@ class ImportResolution {
             }
             var syms = src_tu->symbols();
             if syms == &null { continue; }
-            self._fold_all_cells(id, overlay, syms, fid);
+            // skip_std: bare `std` no longer comes from a header. Everything
+            // else folds as the `#include` it stands for would, so `boost::`,
+            // `absl::` and friends are untouched -- `cxx` is one alias for one
+            // name, not a general prefix.
+            self._fold_all_cells(id, overlay, syms, fid, true);
         }
+    }
+
+    /// Append every top-level `std` ModuleDecl of one closure header. Probed
+    /// by SPELLING through the header TU's own imm table, like every other
+    /// cross-TU read (hard invariant #2).
+    priv fn _collect_cxx_std(self, src_tu: *TranslationUnit, fid: u32,
+                             out: ref!(vec::<*Decl>)) {
+        var syms = src_tu->symbols();
+        if syms == &null { return; }
+        var imms = self.sc->ctx->tcm->get_imm_table_for_fid(fid);
+        if imms == &null { return; }
+        var cell = SymbolTable::lookup_foreign(syms, imms, "std");
+        if cell == &null { return; }
+        for var i: usize = 0; i < cell->size(); ++i {
+            var d = cell->get(i);
+            if d == &null { continue; }
+            if !isa::<ModuleDecl>(d) { continue; }   // a C++ namespace; anything
+                                                      // else under that name is
+                                                      // not a scope to step into.
+            var dup = false;
+            for var j: usize = 0; j < out.size(); ++j {
+                if out[j] == d { dup = true; break; }
+            }
+            if !dup { out.push_back(d); }
+        }
+    }
+
+    /// IMPORTS.md §5. Bind `cxx`, whose ONE member `std` is C++'s `std`.
+    ///
+    /// A TRANSPARENT alias: it binds a name and nothing else. The decls it
+    /// reaches are the header TUs' own, they keep their own DC chains and
+    /// their own paths, and codegen spells them `::std::…` exactly as it did
+    /// when bare `std` reached them. It exists for one reason -- bare `std`
+    /// now means Kairo's (`kairo::std`).
+    ///
+    /// No new lookup arm. `cxx::std::cout` walks the path that already
+    /// exists: `cxx` is a Module anchor (module_scopes on a ring of one
+    /// yields its own scope), `std` under it is an all-module cell -- §4.3's
+    /// multi-scope rule -- and `cout` searches every reopening. A TU with no
+    /// ffi import never gets here, so `cxx::std` is an ordinary miss there.
+    ///
+    /// This is the one SymbolTable built outside ASTParse::_build_symbols. It
+    /// holds foreign decls by REFERENCE, never copies, and is frozen before
+    /// anything can read it -- the same shape OverlayEntry::merged already
+    /// has, so hard invariant #2 stands.
+    priv fn _bind_cxx(self, overlay: *ImportOverlay, std_mods: ref!(vec::<*Decl>),
+                      origin: *Decl) {
+        var at = origin->range;
+
+        // Both halves of a synthesized token belong to THIS file: the imm in
+        // this TU's imm space, the range in this file, because TokenText
+        // resolves the interner FROM the range's fid.
+        var tok   = Token{};
+        tok.kind  = TokenKind::LitIdentifier;
+        tok.range = at;
+        tok.imm   = self.sc->imm_table()->intern_ident_copy("cxx");
+
+        var tbl  = self.sc->ctx->alloc_init_cleanup::<SymbolTable>();
+        var skey = self.sc->imm_table()->intern_ident_copy("std");
+        for var i: usize = 0; i < std_mods.size(); ++i {
+            tbl->append_ident(skey, std_mods[i]);
+        }
+        tbl->freeze();
+
+        var tu_dc = static_cast::<*DeclContext>(self.sc->tu);
+        var md    = ModuleDecl::create(self.sc->ctx, at, tok, tu_dc);
+        md->set_symbols(tbl);
+
+        self.sc->tu->cxx_module = static_cast::<*Decl>(md);
+
+        var t = OverlayTarget{};
+        t.kind    = OverlayTargetKind::ModuleHandle;
+        t.decl    = static_cast::<*Decl>(md);
+        t.origin  = origin;
+        t.vis     = OverlayVisibility::Public;
+        t.src_fid = self.sc->ctx->fid;
+        self._add(overlay, "cxx", t);
     }
 
     /// Intern the visible name into THIS TU's imm space (overlay key), add the
@@ -399,6 +511,28 @@ class ImportResolution {
     priv fn _add(self, overlay: *ImportOverlay, visible: string, t: OverlayTarget) {
         var key = self.sc->imm_table()->intern_ident_copy(visible);
         var entry = overlay->entry_for(key);
+
+        // Shadowing a PRELUDE module handle. Two ModuleHandle targets under
+        // one key UNION into a multi-scope module -- non_function_count
+        // exempts ModuleHandle so reopened namespaces and ffi closures work
+        // (§4.3) -- and is_ambiguous() therefore never fires. Left alone, a
+        // user's own `import std` (or a root they named `std`) would silently
+        // MERGE their namespace with `kairo::std` instead of shadowing it,
+        // and nothing anywhere would say so.
+        //
+        // So: a real import evicts a prelude handle of the same name, and a
+        // prelude handle never lands on a name a real import already bound.
+        // Narrow on purpose -- handles only. builtin's wildcard folds Type
+        // and FunctionSet targets, and a user import colliding with one of
+        // those is still the R016E it is today.
+        if self._is_prelude_handle(t) {
+            for var i: usize = 0; i < entry->targets.size(); ++i {
+                if !self._is_prelude_handle(entry->targets[i]) { return; }
+            }
+        } else {
+            self._drop_prelude_handles(entry);
+        }
+
         var was_ambiguous = entry->is_ambiguous();
 
         entry->add_target(t);
@@ -418,6 +552,26 @@ class ImportResolution {
                 ).first(d->range).emit();
             }
         }
+    }
+
+    /// A module handle bound by an injected prelude import, as opposed to one
+    /// the TU actually wrote.
+    priv fn _is_prelude_handle(self, t: OverlayTarget) -> bool {
+        if t.kind != OverlayTargetKind::ModuleHandle { return false; }
+        var o = dyn_cast::<ImportDecl>(t.origin);
+        if o == &null { return false; }
+        return o->is_prelude;
+    }
+
+    priv fn _drop_prelude_handles(self, entry: *OverlayEntry) {
+        var keep = vec::<OverlayTarget>();
+        var any  = false;
+        for var i: usize = 0; i < entry->targets.size(); ++i {
+            if self._is_prelude_handle(entry->targets[i]) { any = true; continue; }
+            keep.push_back(entry->targets[i]);
+        }
+        if !any { return; }
+        entry->targets = keep;
     }
 
     priv fn _rebuild_merged(self, entry: *OverlayEntry) {

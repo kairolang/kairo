@@ -1049,6 +1049,19 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
         // -- module: a scope, never a type ------------------------------------
         if isa::<ModuleDecl>(d) {
             var nm = self.sc->ctx->get_spelling(cast::<ModuleDecl>(d)->name);
+
+            // `cxx` is the C++ std overlay, whose ONE member is `std`
+            // (IMPORTS.md §5). Naming it alone denotes nothing, and the
+            // generic "is a module, not a type" leaves the reader guessing
+            // which module and what to write instead.
+            if (self.sc->tu != &null) && (d == self.sc->tu->cxx_module) {
+                self.sc->diag->report(DiagID::R053E, seg->range.start,
+                    "'cxx' names the C++ std overlay; write `cxx::std`"
+                ).first(seg->range).emit();
+                ct->poison();
+                return &null;
+            }
+
             self.sc->diag->report(DiagID::R023E, seg->range.start,
                 f"'{nm}' is a module, not a type"
             ).first(seg->range).emit();

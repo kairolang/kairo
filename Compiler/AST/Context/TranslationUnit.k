@@ -178,6 +178,17 @@ class TranslationUnit derives DeclContext {
     pub var out_of_line:    ArenaList::<*Decl>;
     pub var import_overlay: obs::<ImportOverlay>;   ///< built by phase I; null until then.
 
+    /// The synthetic `cxx` module, built by phase I for a TU with any ffi
+    /// import, or null. It owns one binding -- `std` -> every top-level `std`
+    /// ModuleDecl in this TU's ffi closure -- so `cxx::std` names C++'s `std`
+    /// while bare `std` means Kairo's (IMPORTS.md §5).
+    ///
+    /// A TRANSPARENT alias: the decls reached through it keep their own paths
+    /// and codegen spells them `::std::…`. Nothing downstream reads this
+    /// field except the two diagnostics for `cxx` used alone, which compare
+    /// against it by identity.
+    pub var cxx_module:     obs::<Decl> = &null;
+
     /// Synthetic per-file module node: a real ModuleDecl whose dc_symbols is
     /// SHARED with this TU (A2 model), created at parse exit. Gives plain
     /// imports a genuine *Decl to bind (no TU->Decl reinterpret) and unifies

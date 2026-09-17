@@ -383,7 +383,20 @@ class ExprTyper
                 return &null;
             }
             case DeclKind::GenericParamDecl { self.mark_unknown(n); return &null; }
-            case DeclKind::ModuleDecl      { self.note_module_expr(n); return &null; }
+            case DeclKind::ModuleDecl {
+                // A module used as a value is the typer's own (still open)
+                // question and stays silent here. `cxx` is not: it is the C++
+                // std overlay, its one member is `std`, and naming it alone
+                // denotes nothing -- answerable now, so answer it.
+                if (self.sc->tu != &null) && (d == self.sc->tu->cxx_module) {
+                    self.sc->diag->report(DiagID::R053E, n->range.start,
+                        "'cxx' names the C++ std overlay; write `cxx::std`"
+                    ).first(n->range).emit();
+                    return &null;
+                }
+                self.note_module_expr(n);
+                return &null;
+            }
             case DeclKind::ExtensionDecl {
                 // `Self` inside an extend: denotes the target type.
                 var t = self.type_from_type_decl(d, n->generic_args, static_cast::<*Expr>(n));

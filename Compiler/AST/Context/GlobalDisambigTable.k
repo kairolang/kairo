@@ -58,6 +58,9 @@ class GlobalDisambigTable {
     /// because a leaf is type-resolved before the root that re-exports it.
     priv var _builtin_fids: set::<u32>;
 
+    priv var _std_fid:  u32 = 0;    ///< 0 = no std root this build.
+    priv var _std_fids: set::<u32>; ///< every fid in the std subtree.
+
     fn GlobalDisambigTable(self) {
         self._by_fid.reserve(128);
     }
@@ -245,6 +248,37 @@ class GlobalDisambigTable {
     fn is_builtin_fid(self, fid: u32) -> bool {
         var rlock = std::SharedLock(self._mu);
         return self._builtin_fids.contains(fid);
+    }
+
+    /// The std module's fid (`std/module.k` under the root `kairo::std`),
+    /// recorded by the driver from PPResult. What the synthesized
+    /// `import kairo::std as std` is stamped with.
+    fn set_std_fid(self, fid: u32) {
+        var lock = std::LockGuard(self._mu);
+        self._std_fid = fid;
+    }
+
+    fn std_fid(self) -> u32 {
+        var rlock = std::SharedLock(self._mu);
+        return self._std_fid;
+    }
+
+    /// Every fid in the std subtree, recorded by the driver before sema runs.
+    /// std is a CONSUMER of the builtin prelude like any other TU, but never
+    /// of its own: injecting the alias there would let std reach itself by a
+    /// second path, and the re-export fold would then depend on its own
+    /// overlay being complete. Recorded here rather than derived in Sema for
+    /// the same reason builtin is -- the test is on the module path, whose
+    /// segments are PreprocessorSymbolTable ids, a name domain no Sema pass
+    /// can reach.
+    fn mark_std_fid(self, fid: u32) {
+        var lock = std::LockGuard(self._mu);
+        self._std_fids.insert(fid);
+    }
+
+    fn is_std_fid(self, fid: u32) -> bool {
+        var rlock = std::SharedLock(self._mu);
+        return self._std_fids.contains(fid);
     }
 
     fn size(self) -> usize {

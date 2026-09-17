@@ -54,6 +54,12 @@ struct PPResult {
     /// -- ModulePath segments are PreprocessorSymbolTable SymbolIDs, a name
     /// domain nothing in Sema can reach.
     var builtin_fid: u32 = 0;
+    /// The std module's fid (`std/module.k` under the root named
+    /// `kairo::std`), or 0 when there is no std root, --no-stdlib is set, or
+    /// the prelude is off. Handed out for the same reason builtin_fid is: the
+    /// driver stamps the synthesized `import kairo::std as std` with it, and
+    /// sema cannot find it on its own.
+    var std_fid: u32 = 0;
 }
 
 //  Per-fid walker. One instance per fid; the batch driver owns the shared
@@ -2638,6 +2644,27 @@ class PreProcessor {
             }
             if (p_fid != 0) && (p_fid != u32(-1)) && (p_fid != entry_fid) {
                 graph.add_edge(entry_fid, p_fid);
+            }
+        }
+
+        // The STD root, folded into the graph exactly as builtin is. A graph
+        // edge binds no NAMES -- the driver synthesizes the `import kairo::std
+        // as std` alias once sema has a TU to hang it on -- but without the
+        // edge Lib/std is never loaded, never parsed, never wave-ordered, and
+        // there is no fid for that alias to carry.
+        //
+        // Its own gate, not the prelude block's: --prelude REPLACES builtin's
+        // prelude and says nothing about std, and --no-builtins suppresses
+        // builtin's injection while leaving std's. Only --no-stdlib (which
+        // --freestanding implies) and --no-prelude turn this off.
+        if (!self._opts.no_stdlib) && (!self._opts.no_prelude) {
+            var ssegs = vec::<string>();
+            ssegs.push_back("kairo");
+            ssegs.push_back("std");
+            var s_fid = scanner.add_module_dependency(ssegs, &graph);
+            if (s_fid != 0) && (s_fid != u32(-1)) {
+                out.std_fid = s_fid;
+                if s_fid != entry_fid { graph.add_edge(entry_fid, s_fid); }
             }
         }
 

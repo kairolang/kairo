@@ -890,6 +890,23 @@ class CompilerInstance {
             }
             if !broot.empty() { rb.add_include(Path(broot), "builtin"); }
 
+            // The std root, registered under the NAME `kairo::std`. Two
+            // segments on purpose: `Lib/std/vec.k` is then `kairo::std::vec`
+            // and emits into `::kairo::std`, which can never collide with
+            // C++'s own `std` (that one is reached through `cxx::std`), while
+            // bare `std` is free to be the TU-local prelude alias for it.
+            //
+            // --std-dir wins; otherwise <resource-dir>/std. --no-stdlib skips
+            // the root entirely, and with no root bare `std` binds nothing and
+            // every use of it is an ordinary unresolved-name error at USE.
+            if !self.invocation().pp.no_stdlib {
+                var sroot = self.invocation().pp.std_dir;
+                if sroot.empty() && (!self.invocation().target.resource_dir.empty()) {
+                    sroot = (Path(self.invocation().target.resource_dir) / "std").full_path();
+                }
+                if !sroot.empty() { rb.add_include(Path(sroot), "kairo::std"); }
+            }
+
             self._imp = rb.create_ptr(self._pool);
             self._report_root_collisions();
         }
@@ -1542,6 +1559,7 @@ fn FrontendAction::_preprocess() -> bool {
     // symbol table. 0 means no builtin root -- the lang items stay unbound and
     // whichever pass needs one diagnoses it at the use.
     if pp_res.builtin_fid != 0 { self._global_scope->set_builtin_fid(pp_res.builtin_fid); }
+    if pp_res.std_fid     != 0 { self._global_scope->set_std_fid(pp_res.std_fid);         }
 
     // error_count/warn_count are snapshotted once in run()'s finally block,
     // after every stage this TU reaches - not here.
@@ -1845,6 +1863,101 @@ fn FrontendAction::_sema() -> bool {
                 pedge.target_fid = bfid;
                 pedge.decl       = static_cast::<*Decl>(pid);
                 ptu->import_edges.push(pedge);
+            }
+        }
+    }
+
+    // The STD ALIAS. `Lib/std` is registered under the root name `kairo::std`,
+    // so its decls are `kairo::std::…` and emit into `::kairo::std` -- never
+    // colliding with C++'s `std`, which is reached through `cxx::std`. Bare
+    // `std` is then free to be a TU-LOCAL ALIAS for it, bound here as a real
+    // `import kairo::std as std` so phase I folds it through _fold_plain like
+    // any other aliased plain import and the name obeys the ordinary
+    // overlay-vs-DC-chain rules.
+    //
+    // A plain import, not a wildcard: it binds ONE name (`std`), where the
+    // builtin prelude binds every name builtin declares. That is the whole
+    // difference between the two preludes.
+    //
+    // resolved_fid is stamped rather than resolved, as builtin's is; the path
+    // segments exist anyway so --print-imports and the sema dump can spell
+    // what was bound.
+    var sfid = self._global_scope->std_fid();
+    if sfid != 0 {
+        var ksym = self._ci->pp()->get_symbol_table()->intern("kairo");
+        var ssym = self._ci->pp()->get_symbol_table()->intern("std");
+        // --no-stdlib means there is no std root at all (the driver never
+        // registered it, so sfid is 0 and we are not here); --no-prelude
+        // suppresses the alias while leaving the root importable by its real
+        // name.
+        var sinject = !self._ci->invocation().pp.no_prelude;
+        self._global_scope->mark_std_fid(sfid);
+        {
+            for var i: usize = 0; i < self._fids.size(); ++i {
+                var fid = self._fids[i];
+                if fid == sfid { continue; }          // std is not its own consumer
+                var sctx = self._global_scope->get_context(fid);
+                if sctx == &null { continue; }
+                var stu = reinterpret_cast::<*TranslationUnit>(sctx->tu);
+                if stu == &null { continue; }
+                if stu->is_foreign { continue; }      // clang-owned; no Kairo overlay.
+
+                // Every file UNDER the std root is part of std rather than a
+                // consumer of it: the alias would let std reach itself by a
+                // second path, and the re-export fold would then depend on
+                // its own overlay being complete. Two segments to test, so
+                // two interned ids -- the root name is a module PATH.
+                var ssegs = &(sctx->module_base.segments);
+                if ssegs->size() >= 2 {
+                    if ((*ssegs)[0].name == ksym) && ((*ssegs)[1].name == ssym) {
+                        self._global_scope->mark_std_fid(fid);
+                        continue;
+                    }
+                }
+
+                // builtin DECLARES what std extends, so std imports builtin
+                // and never the reverse. Injecting here would close that into
+                // a cycle and break the DAG order phase I depends on.
+                if self._global_scope->is_builtin_fid(fid) { continue; }
+
+                if !sinject { continue; }
+
+                var sloc = SourceLocation::from_base(fid, 0);
+                var srng = SourceRange(sloc, sloc);
+                var simm = sctx->get_imm_table();
+                if simm == &null { continue; }
+
+                // Both halves of a synthesized token must belong to THIS file:
+                // the imm index in this file's imm space, the range in this
+                // file, because TokenText resolves the interner FROM the
+                // range's fid (ASTParse::_synthesize_module_self says the same).
+                var ktok  = Token{};
+                ktok.kind  = TokenKind::LitIdentifier;
+                ktok.range = srng;
+                ktok.imm   = simm->intern_ident_copy("kairo");
+
+                var stok  = Token{};
+                stok.kind  = TokenKind::LitIdentifier;
+                stok.range = srng;
+                stok.imm   = simm->intern_ident_copy("std");
+
+                var segs = vec::<Token>();
+                segs.push_back(ktok);
+                segs.push_back(stok);
+
+                var sid = ImportDecl::create(sctx, srng, ImportKind::Native);
+                sid->path_segments.from_buf(segs.data(), segs.size(), sctx);
+                sid->file_seg_count = 2;      // both segments named the FILE
+                sid->has_alias      = true;
+                sid->alias          = stok;   // the bound name: bare `std`
+                sid->is_prelude     = true;
+                sid->resolved_fid   = sfid;
+                stu->imports.push(static_cast::<*Decl>(sid));
+
+                var sedge = ImportEdge{};
+                sedge.target_fid = sfid;
+                sedge.decl       = static_cast::<*Decl>(sid);
+                stu->import_edges.push(sedge);
             }
         }
     }
@@ -2242,7 +2355,14 @@ fn FrontendAction::_dump_overlays() {
             var pimp = dyn_cast::<ImportDecl>(*pslot);
             if pimp == &null { continue; }
             if !pimp->is_prelude { continue; }
-            std::print(f"  <prelude> import builtin::* (src=fid {pimp->resolved_fid})");
+            // Two shapes of prelude now: builtin's wildcard (no path
+            // segments, every name it declares) and std's aliased plain
+            // import (two segments, one name). Spell what was actually bound.
+            if pimp->has_alias {
+                std::print(f"  <prelude> import kairo::std as std (src=fid {pimp->resolved_fid})");
+            } else {
+                std::print(f"  <prelude> import builtin::* (src=fid {pimp->resolved_fid})");
+            }
         }
 
         var imms = ctx->get_imm_table();

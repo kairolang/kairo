@@ -96,11 +96,23 @@ import, `0` for unresolved or ffi. See §4.1.
 A module path is `[root name] + directories + file`, and every part of
 that is fixed by where the file sits, never by who imports it.
 
-- **Every root has a name; the name is the leading segment.** `-I ~/foo`
+- **Every root has a name, and the name is a module PATH.** `-I ~/foo`
   registers a root named `foo` (the directory basename; `-I name=path`
-  overrides). `import foo::a` resolves to `~/foo/a.k`, whose module path
-  is `foo::a`. `module.k` names its directory; `module X { }` inside a
-  file appends `X`.
+  overrides, and the name is split on `::`). `import foo::a` resolves to
+  `~/foo/a.k`, whose module path is `foo::a`. A name may have several
+  segments: Kairo's own standard library registers as `kairo::std`, so
+  `Lib/std/vec.k` is `kairo::std::vec`. `module.k` names its directory --
+  and at a root's TOP level the directory IS the root, so `Lib/std/module.k`
+  is `kairo::std`, not `kairo::std::module`. `module X { }` inside a file
+  appends `X`.
+- **Root names match longest first.** An import path is matched against
+  each root's segment list on its LEADING segments, longest name winning:
+  with roots `kairo::std` and a hypothetical `kairo`, `import kairo::std::vec`
+  is the former's `vec.k` and never the latter's `std/vec.k`. Longest-first
+  is what makes prefix pairs legal; only EQUAL names are the collision
+  below. A name that consumes the whole path names the root itself and
+  resolves to its own `module.k` -- that is how `import builtin` and
+  `import kairo::std` resolve.
 - **The entry root is unnamed.** The directory of the entry file is a
   root with no name, so `./a.k` is `a`. It is the only unnamed root, and
   therefore the only root whose files are importable with a bare first
@@ -142,6 +154,39 @@ the rest of the path, then the remaining roots except that a file
 under a named root never falls back into the entry root, which is a leaf
 of the import graph. Two roots claiming one name is an R018E from the
 driver before anything is parsed (`take_root_collisions`).
+
+**The std root.** `Lib/std` is a named root whose name is the two-segment
+path `kairo::std` (`<resource-dir>/std`; `--std-dir` overrides, `--no-stdlib`
+skips it). Two segments so that its decls emit into `::kairo::std`, which can
+never collide with C++'s `std`, and so that the bare name `std` is free to
+mean something else. It means a TU-LOCAL ALIAS: every non-builtin, non-std TU
+receives a synthesized `import kairo::std as std` with `is_prelude = true` and
+`resolved_fid` stamped to `Lib/std/module.k`, folded by I through `_fold_plain`
+like any other aliased plain import. `--no-stdlib` or `--no-prelude` suppresses
+it; `--print-imports` labels it `<prelude>`; the AST printer hides it.
+
+A graph edge and a name binding are two different things, so BOTH halves
+exist: the PP adds `kairo::std` to the import graph next to `builtin` (without
+it the tree is never loaded and there is no fid to stamp), and the driver
+synthesizes the ImportDecl once sema has a TU to hang it on. `PPResult::std_fid`
+carries the fid between them, and the std subtree is marked
+(`GlobalDisambigTable::mark_std_fid`) rather than tested on the module path,
+because the segments are PreprocessorSymbolTable ids no Sema pass can reach.
+builtin files are skipped too: builtin DECLARES what std extends, so std
+imports builtin and never the reverse.
+
+**Shadowing the alias.** Bare `std` is an ordinary overlay binding, so a TU's
+own `module std { }` shadows it by the ordinary rule (DC chain before
+overlay), with no special case. A real IMPORT of the same name is not
+ordinary, and this is the one place the prelude is not: two `ModuleHandle`
+targets under one key UNION into a multi-scope module -- `non_function_count`
+exempts ModuleHandle so reopened namespaces and ffi closures work (§4.3) --
+so a user's `import std` would silently merge their namespace with
+`kairo::std` and `is_ambiguous()` would never fire. Rule: a real import
+EVICTS a prelude handle of the same name, and a prelude handle never lands on
+a name a real import already bound (`ImportResolution::_add`). Handles only:
+builtin's wildcard folds Type and FunctionSet targets, and a user import
+colliding with one of those is still the R016E it always was.
 
 **The builtin root.** `Lib/builtin` is a named root (`builtin`) the
 compiler always registers (`<resource-dir>/builtin`; `--builtins-dir`
@@ -408,7 +453,45 @@ after I asks where a decl came from except through `FFILinkage`
              under the ONE alias key -- the reopened-namespace shape (§4.3),
              so `my_h::f` searches every header's table. Bare:
              _fold_all_cells over every closure header, as the `#include`
-             it stands for would.
+             it stands for would, MINUS the name `std` (see below).
+
+**`cxx::std` is C++'s `std`.** Bare `std` is Kairo's (`kairo::std`, §2.1), so
+C++'s needs a spelling of its own. Once per TU with any ffi import, phase I
+synthesizes a `ModuleDecl` named `cxx` owning exactly ONE binding: `std` ->
+every top-level `std` ModuleDecl in that TU's ffi closure, collected while
+`_resolve_ffi` folds each closure header (for the aliased shape too -- an
+aliased ffi import still puts C++'s std in the closure). It folds into the
+overlay as a `ModuleHandle` under the key `cxx`. A TU with no ffi import binds
+nothing and `cxx::std` is an ordinary miss.
+
+It is a TRANSPARENT alias: it binds a name and nothing else. The decls it
+reaches are the header TUs' own, they keep their own DC chains and their own
+paths, and codegen spells them `::std::…` exactly as it did when bare `std`
+reached them. Nothing after I knows the overlay exists.
+
+No new lookup arm. `cxx::std::cout` walks the path that already exists: `cxx`
+is a Module anchor (`module_scopes` on a ring of one yields its own scope),
+`std` under it is an all-module cell -- §4.3's multi-scope rule -- and `cout`
+searches every reopening. If ChainBinding or TypeResolve's `mods` walk ever
+needs a change for this, that is a bug in the reopened-namespace support and
+is fixed there.
+
+`_fold_all_cells` takes a `skip_std` flag rather than checking the name
+inline, because it has three callers: the bare ffi fold, `import foo::*`, and
+a `*` item in a selective import. Only the first passes true. Every other
+top-level C++ name folds as before, so `boost::`, `absl::` and friends are
+unaffected -- `cxx` is one alias for one name, not a general prefix.
+
+`cxx` used alone as a value or a type is `R053E`: "'cxx' names the C++ std
+overlay; write `cxx::std`". A user shadowing `cxx` with their own module or
+root is legal and not diagnosed. This is the one SymbolTable built outside
+`ASTParse::_build_symbols`; it holds foreign decls by reference, never copies,
+and is frozen before anything reads it -- the same shape `OverlayEntry::merged`
+already has, so hard invariant #2 stands.
+
+Note for Stage 1.5: the ~750 `libcxx::` sites in the compiler's own source are
+a Stage 0 bootstrap namespace with nothing behind them in Stage 1 resolution.
+Their target spelling is `cxx::std::`, not `std::`.
     N/T/CB   nothing special. Cross-TU probes spell through in_scope; a
              header TU has an ImmediateTable (TCM::ensure_imm_table) and no
              tokens.
@@ -658,6 +741,18 @@ Each item is independently testable. Do them in this order.
    16. Per-TU object emission (_codegen loop, obj dir)    Codegen    DONE
    17. Builtin root + prelude                             PP/driver  DONE
    18. Container migration (items 2-9)                    Sema/Codegen  IN PROGRESS
+   19. std root named `kairo::std` + bare-`std` prelude alias  Resolution/PP/driver  DONE
+        Multi-segment SearchRoot::name, longest-first root matching,
+        `module.k` at a root's top level naming the ROOT, PPResult::std_fid,
+        the synthesized `import kairo::std as std`, and the prelude-handle
+        eviction rule in _add. Tests: Tests/Sema/std_root.k,
+        Tests/Sema/std_shadow.k.
+   20. `cxx::std` overlay                                 I          DONE
+        Tests: Tests/Sema/cxx_overlay.k, Tests/Sema/cxx_overlay_no_ffi.k.
+        OPEN: the link test (a TU calling `cxx::std::strlen` and a
+        `kairo::std` function in one body, compiled and run) needs std's own
+        object on the link line, which the single-`-o` driver path does not
+        emit for a graph TU yet.
 
 Test for 1–9: `Tests/Sema/imports_all_forms`. `main.k` imports `foo.k`
 under every form in §1, plus `module util` reopened across two files, plus

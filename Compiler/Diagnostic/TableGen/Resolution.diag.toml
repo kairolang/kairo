@@ -1248,3 +1248,35 @@ group = "redeclaration"
 
     [R052.N]
     explain = "Points at the earlier overload the flagged one collides with."
+
+[R053]
+brief = "'cxx' used alone"
+group = "import"
+
+    [R053.E]
+    explain = """
+    # 'cxx' used alone
+
+    `cxx` is not a module you can name on its own. it is the overlay a translation unit with an
+    ffi import gets so that c++'s `std` namespace stays reachable after bare `std` was given to
+    kairo's own standard library (`kairo::std`). it has exactly one member, `std`, and naming it
+    without that member denotes nothing.
+
+    the alias is transparent: the declarations reached through `cxx::std` keep their own paths
+    and are emitted as `::std::...`, exactly as they were before the overlay existed.
+
+    ## example
+
+    ```kairo
+    ffi "c++" import "<string>"
+
+    var s: cxx = ...              // 'cxx' names the c++ std overlay; write `cxx::std`
+    var t: cxx::std::string       // correct
+    ```
+
+    ## how to fix
+
+    write `cxx::std`, then the name you want: `cxx::std::string`, `cxx::std::strlen`. bare `std`
+    is kairo's standard library and is a different namespace. a translation unit with no ffi
+    import binds no `cxx` at all, and `cxx::std` there is an ordinary undeclared-name error.
+    """
