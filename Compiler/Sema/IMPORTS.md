@@ -592,6 +592,17 @@ Note: template member bodies are emitted into the template's own TU always,
 and into every TU that homes one of its instances (the explicit
 instantiation definition needs the body visible). The header carries them.
 
+Emission ORDER inside a TU follows from that. The `extern template`
+DECLARATIONS stay in the preamble, where they have to precede any use, but
+the explicit instantiation DEFINITIONS are emitted AFTER every body in the
+TU. An explicit instantiation only instantiates the members that are
+defined at the point it appears, so a definition emitted with the preamble
+yields an instance with no members -- and the importing TU's `extern
+template` then correctly refuses to supply its own, so the member is
+missing at link time with no diagnostic anywhere. That is the whole reason
+the Backend runs `InterfaceEmitter::emit_home_instantiations` as a second
+pass after `EmitIR::emit_tu`, rather than emitting tier 3 with tiers 0-2.
+
 ---
 
 ## 8. Ordered work list
