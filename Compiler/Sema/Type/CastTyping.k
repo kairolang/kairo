@@ -289,11 +289,11 @@ class <T> CastTyping {
                         var r = dyn()->ovl.resolve(&ctors, &args, true, n->range, dyn()->tu.decl_name(td2));
                         if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
                         if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
-                        // A converting CONSTRUCTOR, not an `op` -- it has no
-                        // op_token, so a reader that spells the callee from one
-                        // has to branch on this rung. See OperatorLowering.
-                        n->resolved_op = r.decl;
-                        n->op_via_free = r.via_free;
+                        // resolved_op stays NULL on this rung. A converting
+                        // constructor is a construction, not an operator call,
+                        // and CopyMoveLowering owns construction shapes --
+                        // recording it here would hand OperatorLowering a decl
+                        // with no op_token to spell.
                         r.ded.bind_from_record(dyn()->tu.strip_nullable(target));
                         dyn()->finish_call_args(r.decl, &args, &r);
                         return target;

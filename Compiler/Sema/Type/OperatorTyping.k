@@ -199,7 +199,17 @@ class <T> OperatorTyping {
         }
 
         // `===`: identity. Pointers, nullables of pointers, or the same record.
+        // It is also OVERLOADABLE, so a non-primitive pair gets the user
+        // operator when one exists and only falls through to identity when
+        // none does; deciding identity first would make `op ===` unreachable.
         if k == TokenKind::OpEqualEqualEqual {
+            var lb3 = dyn()->tu.kind_of(lt) != BuiltinKind::COUNT;
+            var rb3 = dyn()->tu.kind_of(rt) != BuiltinKind::COUNT;
+            if !(lb3 && rb3) {
+                var found3 = false;
+                var ut3 = self.user_binary(static_cast::<*Expr>(n), k, TokenKind::TkUnknown, n->lhs, lt, n->rhs, &found3);
+                if found3 { return ut3; }
+            }
             if self.unify_operands(lt, rt) == &null {
                 dyn()->fail(n, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' are unrelated");
                 return &null;

@@ -50,6 +50,7 @@ import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
 import Sema::Type::ArgumentDeduction::*;
+import Diagnostic::Registry::*;
 import AST::ASTSupport::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
@@ -120,6 +121,11 @@ class Candidate {
     pub var generic:      bool  = false;
     pub var free:         bool  = false;    ///< from resolve_mixed's free list: judged with no receiver.
     pub var reason:       string = "";
+    /// Which placement rule rejected this candidate, or SC001E for anything
+    /// else. `_report_no_viable` promotes it to the real diagnostic when there
+    /// is exactly ONE candidate; with an overload set the specific rule is a
+    /// property of one candidate, not of the call, so it stays a note.
+    pub var reason_code:  DiagID = DiagID::SC001E;
     /// per arg: param index, usize(-1) for the Kairo pack tail, usize(-2) for
     /// a C `...` tail (no parameter at all; finish_call_args finds none and
     /// types a literal there with its default, which is C's promotion).
@@ -419,29 +425,72 @@ class OverloadResolution {
             params.push_back(p);
         }
         var nparams = params.size();
+        // The pack is wherever it is MARKED, not the last slot: a keyword-only
+        // tail sits after it, and treating the last parameter as the pack gave
+        // every one of those arguments to the wrong place.
         var pack_at = usize(-1);
-        if f->is_variadic && (nparams > 0) { pack_at = nparams - 1; }
+        for var i: usize = 0; i < nparams; ++i {
+            if params[i]->is_pack { pack_at = i; break; }
+        }
 
         var filled = vec::<bool>();
         for var i: usize = 0; i < nparams; ++i { filled.push_back(false); }
         for var i: usize = 0; i < args->size(); ++i { c->arg_to_param.push_back(usize(-1)); c->binds.push_back(0); }
 
-        // 1. place every argument.
-        var pos: usize = 0;
+        // 1. NAMED first, then positional. Placement has to know which slots a
+        //    name already claimed before it decides where the positionals
+        //    stop, and reading the list once in source order cannot: a name
+        //    may appear before the positional it affects.
         for var i: usize = 0; i < args->size(); ++i {
             var a = &((*args)[i]);
-            if a->name.size() > 0 {
-                var found = usize(-1);
-                for var j: usize = 0; j < nparams; ++j {
-                    if self.tu.param_name(params[j]) == a->name { found = j; break; }
-                }
-                if found == usize(-1) { c->viable = false; c->reason = f"no parameter named '{a->name}\x27"; return; }
-                if filled[found]      { c->viable = false; c->reason = f"parameter '{a->name}' given twice"; return; }
-                filled[found] = true;
-                c->arg_to_param[i] = found;
-                continue;
+            if a->name.size() == 0 { continue; }
+            var found = usize(-1);
+            for var j: usize = 0; j < nparams; ++j {
+                if self.tu.param_name(params[j]) == a->name { found = j; break; }
             }
+            if found == usize(-1) {
+                c->viable = false;
+                c->reason_code = DiagID::SC019E;
+                c->reason = f"no parameter named '{a->name}\x27";
+                return;
+            }
+            if filled[found] {
+                c->viable = false;
+                c->reason_code = DiagID::SC020E;
+                c->reason = f"parameter '{a->name}' was already given";
+                return;
+            }
+            filled[found] = true;
+            c->arg_to_param[i] = found;
+        }
+
+        // 2. positional, left to right over the slots no name claimed.
+        //    pack_lo/pack_hi/pack_n describe the pack's RUN in `args`, which
+        //    CallExpr::arg_map records as a first index plus a length.
+        var pos: usize = 0;
+        var pack_lo: usize = usize(-1);
+        var pack_hi: usize = usize(-1);
+        var pack_n:  usize = 0;
+        for var i: usize = 0; i < args->size(); ++i {
+            var a = &((*args)[i]);
+            if a->name.size() > 0 { continue; }
             if (pack_at != usize(-1)) && (pos >= pack_at) {
+                // This argument joins the pack. If it cannot, the useful
+                // reading is usually not "bad pack element" but "you meant a
+                // keyword-only parameter and wrote it positionally" -- there
+                // is no argument count at which a positional reaches one, so
+                // without this the user gets a conversion error naming the
+                // pack and no hint that the parameter they wanted exists.
+                var kw = self._keyword_only_meant(c, a, &params, pack_at, nparams, receiver);
+                if kw != usize(-1) {
+                    c->viable = false;
+                    c->reason_code = DiagID::SC018E;
+                    c->reason = f"parameter '{self.tu.param_name(params[kw])}' can only be given by name; it follows a pack, so this argument joins the pack instead";
+                    return;
+                }
+                if pack_lo == usize(-1) { pack_lo = i; }
+                pack_hi = i;
+                pack_n += 1;
                 c->arg_to_param[i] = usize(-1);   // pack tail
                 filled[pack_at] = true;
                 continue;
@@ -461,12 +510,26 @@ class OverloadResolution {
             pos += 1;
         }
 
-        // 2. missing parameters need defaults.
+        // 2a. the pack must be one unbroken run. arg_map describes it as a
+        //     first index plus a length, so a named argument spliced into the
+        //     middle would put a non-member inside that run and CallLowering
+        //     would reorder it as a pack element.
+        if (pack_n > 0) && ((pack_hi - pack_lo + 1) != pack_n) {
+            c->viable = false;
+            c->reason_code = DiagID::SC022E;
+            c->reason = "a named argument cannot appear between two pack arguments; move it after them";
+            return;
+        }
+
+        // 3. missing parameters need defaults. A parameter WITHOUT a default is
+        //    allowed to follow one with a default, so an unfilled slot here is
+        //    never implied by the slots around it.
         for var j: usize = 0; j < nparams; ++j {
             if filled[j] { continue; }
             if j == pack_at { continue; }
             if (params[j]->default_val != &null) || params[j]->has_default { continue; }
             var pn = self.tu.param_name(params[j]);
+            c->reason_code = DiagID::SC021E;
             c->viable = false;
             c->reason = f"missing argument for parameter '{pn}\x27";
             return;
@@ -540,6 +603,39 @@ class OverloadResolution {
             c->reason = "could not deduce every generic parameter from the arguments";
             return;
         }
+    }
+
+    /// The keyword-only parameter \p a was probably meant for, or usize(-1).
+    ///
+    /// Only asked when the argument does NOT fit the pack, so the answer is
+    /// "there is a parameter this would have fitted, and it is unreachable
+    /// positionally". Dependent parameters are skipped on both sides: ranking
+    /// one unifies into `c->ded`, and this is a speculative probe that must
+    /// leave the candidate exactly as it found it.
+    priv fn _keyword_only_meant(self, c: *Candidate, a: *ArgInfo, params: *vec::<*ParamDecl>,
+                                pack_at: usize, nparams: usize, receiver: *Type) -> usize {
+        var pack_ty = self._param_target(c, params, pack_at, receiver);
+        if (pack_ty == &null) || pack_ty->is_dependent() { return usize(-1); }
+        if self._rank_arg(c, a, pack_ty, true, ParamMode::Value) != ImplicitRank::None { return usize(-1); }
+
+        for var j: usize = 0; j < nparams; ++j {
+            if !(*params)[j]->keyword_only { continue; }
+            var kt = self._param_target(c, params, j, receiver);
+            if (kt == &null) || kt->is_dependent() { continue; }
+            if self._rank_arg(c, a, kt, false, (*params)[j]->mode) != ImplicitRank::None { return j; }
+        }
+        return usize(-1);
+    }
+
+    /// The parameter's canonical target type as the ranking loop derives it:
+    /// top-level cv dropped, `Self` resolved through the receiver.
+    priv fn _param_target(self, c: *Candidate, params: *vec::<*ParamDecl>, j: usize, receiver: *Type) -> *Type {
+        var p = (*params)[j];
+        if p->type_ == &null { return &null; }
+        var pt = p->type_->canonical;
+        if pt == &null { return &null; }
+        if !p->is_self { pt = canon_unqual(pt); }
+        return c->ded.through_receiver(c->f, canon_unqual(receiver), pt);
     }
 
     /// \p mode is the parameter's passing mode. `@inout` is judged exactly as
@@ -654,6 +750,19 @@ class OverloadResolution {
     // === diagnostics ========================================================
 
     priv fn _report_no_viable(self, cs: *vec::<Candidate>, at: SourceRange, name: string) {
+        // One candidate: the rule that rejected it IS the error, named at the
+        // call. "no matching overload" plus a single note says the same thing
+        // twice and buries the part the user can act on.
+        if cs->size() == 1 {
+            var only = &((*cs)[0]);
+            if only->reason_code != DiagID::SC001E {
+                var sb = self.sc->diag->report(only->reason_code, at.start, only->reason);
+                sb.first(at);
+                sb.note(only->f->range.start, "declared here").first(only->f->range);
+                sb.emit();
+                return;
+            }
+        }
         var b = self.sc->diag->report(DiagID::SC001E, at.start,
             f"no matching overload for call to '{name}\x27"
         );

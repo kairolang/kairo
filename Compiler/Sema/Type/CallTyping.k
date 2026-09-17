@@ -106,9 +106,9 @@ class <T> CallTyping {
         a.carrier = e_in;
         var value = named_call_arg_value(e_in);
         if value != &null {
-            var id = cast::<NamedIdentExpr>(cast::<AssignOperatorExpr>(e_in)->lhs);
-            a.name       = dyn()->sc->ctx->get_spelling(id->name);
-            a.name_range = id->range;
+            var na = cast::<NamedArgExpr>(e_in);
+            a.name       = dyn()->sc->ctx->get_spelling(na->name);
+            a.name_range = na->name.range;
             e = value;
         }
         a.expr  = e;
@@ -444,9 +444,55 @@ class <T> CallTyping {
 
         self.finish_call_args(r.decl, &args, &r);
         self._warn_unmarked(&args, &r);
+        self._write_arg_map(n, r.decl, &args, &r);
         var rt = self.call_result_type(r.decl, &r);
         if rt == &null { dyn()->mark_unknown(n); return &null; }
         return rt;
+    }
+
+    /// `CallExpr::arg_map`, written once, at Selected. Parallel to the CALLEE'S
+    /// PARAMETERS with `self` in slot 0, holding the index into `args` of the
+    /// argument bound to each parameter, -1 for "use the default", and for the
+    /// pack the index of its first argument with `pack_len` beside it.
+    ///
+    /// The resolver's own `arg_to_param` is the other direction and over a
+    /// receiver-EXCLUDED view, so it cannot be handed to CallLowering as-is:
+    /// inverting it here means nothing downstream re-derives the mapping.
+    priv fn _write_arg_map(self, n: *CallExpr, f: *FunctionDecl, args: *vec::<ArgInfo>, r: *OvlResult) {
+        if (n == &null) || (f == &null) { return; }
+        var np = f->params.size();
+        var map: std::StackBuf::<i32, 8>;
+        for var i: usize = 0; i < np; ++i { map.push_back(i32(-1)); }
+
+        // view index -> f->params index. finish_call_args builds the same view
+        // for the same reason; the offset is the receiver the resolver skipped.
+        var off: usize = 0;
+        if (np > 0) && (f->params[0] != &null) && f->params[0]->is_self && r->receiver_bound { off = 1; }
+
+        var pack_lo: i32   = i32(-1);
+        var pack_n:  usize = 0;
+        var pack_at        = usize(-1);
+        for var i: usize = 0; i < np; ++i {
+            if (f->params[i] != &null) && f->params[i]->is_pack { pack_at = i; break; }
+        }
+
+        for var i: usize = 0; i < args->size(); ++i {
+            var pi = (r->arg_to_param[i]) if (i < r->arg_to_param.size()) else (usize(-1));
+            if pi == usize(-2) { continue; }            // C `...` tail: no parameter at all.
+            if pi == usize(-1) {
+                // Pack tail. Its run is contiguous (SC022E rejects otherwise),
+                // so the first index and the count describe it exactly.
+                if pack_lo == i32(-1) { pack_lo = i32(i); }
+                pack_n += 1;
+                continue;
+            }
+            var slot = pi + off;
+            if slot < np { map[slot] = i32(i); }
+        }
+        if (pack_at != usize(-1)) && (pack_lo != i32(-1)) { map[pack_at] = pack_lo; }
+
+        n->arg_map.from_buf(map.data(), map.size(), dyn()->sc->ctx);
+        n->pack_len = u32(pack_n);
     }
 
     /// `Foo(args)` on a record type: constructors live in the type's own
@@ -489,6 +535,7 @@ class <T> CallTyping {
         r.ded.bind_from_record(rec);
         self.finish_call_args(r.decl, &args, &r);
         self._warn_unmarked(&args, &r);
+        self._write_arg_map(n, r.decl, &args, &r);
         return rec;
     }
 
