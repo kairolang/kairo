@@ -161,6 +161,24 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         out.computed = true;
         if t_in == &null { return out; }
         var t = canon_unqual(t_in);
+
+        // The OWNING library containers, restated against the lang records
+        // they canonicalize to since the container migration. Lib/builtin
+        // declares their layout but no destructor -- bodies live in std -- so
+        // the RecordType arm below reads them off its decl as trivially
+        // destructible, and a class holding a `[i32]` would silently lose its
+        // non-trivial destructor, taking the virtual-destructor diagnostic
+        // with it.
+        //
+        // Slice is deliberately absent: it is a non-owning ptr+len view, and
+        // it IS trivial in both senses.
+        if self._tu.is_vector_like(t) || self._tu.is_map_like(t)
+        || self._tu.is_set_like(t)    || self._tu.is_string(t) {
+            out.trivially_copyable = false;
+            out.trivial_dtor       = false;
+            return out;
+        }
+
         switch t->kind {
             case TypeKind::RecordType {
                 var d = cast::<RecordType>(t)->decl;

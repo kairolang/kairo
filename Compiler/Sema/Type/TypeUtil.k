@@ -126,11 +126,12 @@ class TypeUtil {
         return cast::<RecordType>(u)->args;
     }
 
+    /// `[T; N]` only -- the one container that is still structural. Vector,
+    /// HashSet and Slice are lang records; their element comes out of
+    /// container_elem, off the record's arguments.
     fn element_of(self, t: *Type) -> *Type {
         var u = canon_unqual(t);
         if u == &null { return &null; }
-        if isa::<VectorType>(u)     { return cast::<VectorType>(u)->element; }
-        if isa::<SetType>(u)        { return cast::<SetType>(u)->element; }
         if isa::<FixedArrayType>(u) { return cast::<FixedArrayType>(u)->element; }
         return &null;
     }
@@ -291,31 +292,32 @@ class TypeUtil {
         return self.sc->types->record(rep, &trimmed);
     }
 
-    /// Container canonicals follow whichever path the store is on: the
-    /// builtin::Vector record when the lang item is bound, the structural
-    /// canonical otherwise. Same answer T gives, so identity stays one domain.
+    /// A container canonical is the lang RECORD or nothing. There is no
+    /// structural fallback: two spellings of one written type would be two
+    /// identities, and null is the poisoned-component answer every caller
+    /// already handles.
     fn vector_of(self, elem: *Type) -> *Type {
         if elem == &null { return &null; }
         var a = vec::<*Type>(); a.push_back(elem);
-        var r = self.lang_record(WellKnownType::Vector, &a);
-        if r != &null { return r; }
-        return self.sc->types->vector(elem);
+        return self.lang_record(WellKnownType::Vector, &a);
+    }
+
+    fn slice_of(self, elem: *Type) -> *Type {
+        if elem == &null { return &null; }
+        var a = vec::<*Type>(); a.push_back(elem);
+        return self.lang_record(WellKnownType::Slice, &a);
     }
 
     fn set_of(self, elem: *Type) -> *Type {
         if elem == &null { return &null; }
         var a = vec::<*Type>(); a.push_back(elem);
-        var r = self.lang_record(WellKnownType::HashSet, &a);
-        if r != &null { return r; }
-        return self.sc->types->set_of(elem);
+        return self.lang_record(WellKnownType::HashSet, &a);
     }
 
     fn map_of(self, k: *Type, v: *Type) -> *Type {
         if (k == &null) || (v == &null) { return &null; }
         var a = vec::<*Type>(); a.push_back(k); a.push_back(v);
-        var r = self.lang_record(WellKnownType::HashMap, &a);
-        if r != &null { return r; }
-        return self.sc->types->map_of(k, v);
+        return self.lang_record(WellKnownType::HashMap, &a);
     }
 
     fn string_type(self) -> *Type {
@@ -332,26 +334,10 @@ class TypeUtil {
         return self.pattern_of(rd) == NameLookup::representative(d);
     }
 
-    fn is_vector_like(self, t: *Type) -> bool {
-        var u = canon_unqual(t);
-        if u == &null { return false; }
-        if isa::<VectorType>(u) { return true; }
-        return self.is_lang(t, WellKnownType::Vector);
-    }
-
-    fn is_map_like(self, t: *Type) -> bool {
-        var u = canon_unqual(t);
-        if u == &null { return false; }
-        if isa::<MapType>(u) { return true; }
-        return self.is_lang(t, WellKnownType::HashMap);
-    }
-
-    fn is_set_like(self, t: *Type) -> bool {
-        var u = canon_unqual(t);
-        if u == &null { return false; }
-        if isa::<SetType>(u) { return true; }
-        return self.is_lang(t, WellKnownType::HashSet);
-    }
+    fn is_vector_like(self, t: *Type) -> bool { return self.is_lang(t, WellKnownType::Vector);  }
+    fn is_map_like(self, t: *Type)    -> bool { return self.is_lang(t, WellKnownType::HashMap); }
+    fn is_set_like(self, t: *Type)    -> bool { return self.is_lang(t, WellKnownType::HashSet); }
+    fn is_slice(self, t: *Type)       -> bool { return self.is_lang(t, WellKnownType::Slice);   }
 
     fn is_string(self, t: *Type) -> bool { return self.is_lang(t, WellKnownType::String); }
 
@@ -359,7 +345,7 @@ class TypeUtil {
     fn container_elem(self, t: *Type) -> *Type {
         var e = self.element_of(t);
         if e != &null { return e; }
-        if self.is_vector_like(t) || self.is_set_like(t) {
+        if self.is_vector_like(t) || self.is_set_like(t) || self.is_slice(t) {
             var args = self.record_args(t);
             if args.size() > 0 { return args[0]; }
         }
@@ -369,9 +355,6 @@ class TypeUtil {
     fn map_key_value(self, t: *Type, k: *(*Type), v: *(*Type)) -> bool {
         var u = canon_unqual(t);
         if u == &null { return false; }
-        if isa::<MapType>(u) {
-            (*k) = cast::<MapType>(u)->key; (*v) = cast::<MapType>(u)->value; return true;
-        }
         if self.is_lang(t, WellKnownType::HashMap) {
             var args = self.record_args(t);
             if args.size() >= 2 { (*k) = args[0]; (*v) = args[1]; return true; }
@@ -418,6 +401,27 @@ class TypeUtil {
         switch t->kind {
             case TypeKind::BuiltinType { return cast::<BuiltinType>(t)->spelling(); }
             case TypeKind::RecordType {
+                // A lang container prints as the SUGAR it was written as:
+                // `[i32]`, not `Vector<i32>`. Every diagnostic quotes this, so
+                // the spelling a user sees is the one they typed.
+                if self.is_slice(t) {
+                    var sa = self.record_args(t);
+                    if sa.size() > 0 { return "[" + self.str(sa[0]) + ";]"; }
+                }
+                if self.is_vector_like(t) {
+                    var va = self.record_args(t);
+                    if va.size() > 0 { return "[" + self.str(va[0]) + "]"; }
+                }
+                if self.is_set_like(t) {
+                    var ea = self.record_args(t);
+                    if ea.size() > 0 { return "{" + self.str(ea[0]) + "}"; }
+                }
+                if self.is_map_like(t) {
+                    var ma = self.record_args(t);
+                    if ma.size() >= 2 { return "{" + self.str(ma[0]) + ": " + self.str(ma[1]) + "}"; }
+                }
+                if self.is_string(t) { return "string"; }
+
                 var r = cast::<RecordType>(t);
                 var s = self.decl_name(r->decl);
                 if r->args.size() > 0 {
