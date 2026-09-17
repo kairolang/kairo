@@ -252,6 +252,16 @@ class Conversion {
             return ImplicitRank::None;
         }
 
+        // `[T;]` -> `[T]`: a slice converts to the vector that owns a copy of
+        // it. The one container rung in the lattice, and it is invariant in
+        // the element -- `[D;] -> [B]` would copy through a base and slice
+        // every element. (`[T;]` -> `const [T;]` is the cv rule above.)
+        if self.tu.is_slice(fu) && self.tu.is_vector_like(tq) {
+            var se = self.tu.container_elem(fu);
+            var ve = self.tu.container_elem(tq);
+            if (se != &null) && (se == ve) { return ImplicitRank::Converted; }
+        }
+
         return ImplicitRank::None;
     }
 

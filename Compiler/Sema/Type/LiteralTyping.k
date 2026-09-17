@@ -230,10 +230,18 @@ class <T> LiteralTyping {
             if n->elements.size() == 0 { dyn()->fail(n, "cannot infer the element type of an empty list; annotate the target"); }
             return &null;
         }
-        // an expected fixed array `[T; N]` keeps its shape.
+        // An expected `[T; N]` with exactly N elements IS an array literal:
+        // it takes the array type outright, with no conversion (§5). A count
+        // mismatch falls through to a slice, and the assignment then fails on
+        // the types rather than silently losing elements.
         var ex = canon_unqual(dyn()->tu.strip_nullable(expected));
-        if (ex != &null) && isa::<FixedArrayType>(ex) { return ex; }
-        return dyn()->tu.vector_of(elem);
+        if (ex != &null) && isa::<FixedArrayType>(ex) {
+            var at = cast::<FixedArrayType>(ex);
+            if (!at->is_incomplete) && (static_cast::<usize>(at->size_bits) == n->elements.size()) { return ex; }
+        }
+        // Otherwise a list literal is a SLICE: it is a view of the elements as
+        // written. ListLiteralLowering gives it the array to point at.
+        return dyn()->tu.slice_of(elem);
     }
 
     fn type_set_literal(self, n: *SetLiteralExpr, expected: *Type) -> *Type {
