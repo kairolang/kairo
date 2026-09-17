@@ -2630,7 +2630,7 @@ class PreProcessor {
             } else {
                 var segs = vec::<string>();
                 segs.push_back("builtin");
-                p_fid = scanner.add_module_dependency(&segs, &graph);
+                p_fid = scanner.add_module_dependency(segs, &graph);
                 // Only the real builtin module is reported: a custom --prelude
                 // is a file, not the lang-item root, and sema must not read
                 // lang items out of it.

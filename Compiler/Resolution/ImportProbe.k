@@ -547,6 +547,34 @@ class ImportResolver {
             }
         }
 
+        // A root's NAME, alone. `import builtin` names the root itself, so
+        // what it resolves to is that root's own entry point -- its module.k.
+        // _probe_root cannot serve this: it addresses segments[size-1], and
+        // the tail here is empty.
+        //
+        // Without this, a one-segment import skipped the name branch above
+        // (guarded on size() > 1) and fell through to the path-as-written
+        // probes, which look for `<root>/builtin/builtin.k` -- so a root named
+        // `builtin` was reachable as `builtin::containers` but never as
+        // `builtin`, which is the spelling the prelude uses.
+        if (!root_hit) && (segments.size() == 1) {
+            var si: usize = 0;
+            while (si < self._roots.size()) && (!root_hit) {
+                var sr = self._roots[si];
+                si += 1;
+                if sr->name.size() == 0        { continue; }
+                if sr->name != segments[0]     { continue; }
+                var snode = sr->root;
+                if snode == &null              { continue; }
+                self._sweep_dir(snode);
+                var smod = snode->find_by_stem_and_category("module", FileCategory::KairoSource);
+                if (smod != &null) && (smod->file_path) {
+                    root_hit  = true;
+                    root_path = *(smod->file_path);
+                }
+            }
+        }
+
         var from_library = (own_root != &null) && (own_root->name.size() > 0);
         var ri: usize = 0;
         while (ri < self._roots.size()) && (!root_hit) {
