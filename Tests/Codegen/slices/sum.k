@@ -15,6 +15,8 @@
 // there is no object to link and run yet. The lowering is pinned through the
 // sema dump instead, which is where its synthesized nodes are visible.
 
+ffi "c++" import "cstddef"
+
 fn sum(const xs: [i32;]) -> i32 {
     var total: i32 = 0;
     return total

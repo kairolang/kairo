@@ -75,6 +75,7 @@ import AST::Kind::TypeKind::*;
 import AST::ParamMode::*;
 import Location::SourceRange::*;
 import Token::TokenKind::*;
+import Lexer::Immediate::*;
 
 __inline_cpp("
 #define sink this->_cg->sink
@@ -462,18 +463,26 @@ class EmitIR {
             case StorageClass::Eval   { sink->kw_constexpr(n->name); }
             default { }
         }
-        if n->type_ == &null {
-            var nm = self._cg->ctx->get_spelling(n->name);
-            self._cg->ctx->diag_sink.report(DiagCode(DiagID::I001W), n->name.range.start,
-                f"internal: '{nm}' reached codegen with no inferred type; This is a compiler bug; please report it with the source that triggered it"
-            ).first(n->name.range).emit();
-            sink->kw_auto(n->name);
-        } else if n->type_->range.is_valid() {
-            self.emit(n->type_);
+        var c: *Type = &null;
+        if (n->type_ != &null) && (n->type_->canonical != &null) { c = canon_unqual(n->type_->canonical); }
+        if (c != &null) && (c->kind == TypeKind::FixedArrayType) {
+            // `T name[N]`: the name sits inside the declarator.
+            var nm = self._cg->ctx->get_imm_table()->get_ident(n->name.imm);
+            sink->spell(n->name.range, self._spell.decl(n->type_, nm));
         } else {
-            sink->spell(n->name.range, self._spell._type(n->type_));
+            if n->type_ == &null {
+                var nm = self._cg->ctx->get_spelling(n->name);
+                self._cg->ctx->diag_sink.report(DiagCode(DiagID::I001W), n->name.range.start,
+                    f"internal: '{nm}' reached codegen with no inferred type; This is a compiler bug; please report it with the source that triggered it"
+                ).first(n->name.range).emit();
+                sink->kw_auto(n->name);
+            } else if n->type_->range.is_valid() {
+                self.emit(n->type_);
+            } else {
+                sink->spell(n->name.range, self._spell._type(n->type_));
+            }
+            self._name(n->name);
         }
-        sink->create(n->name);
         if n->init != &null {
             sink->synth_at_end(n->name.range, clang::tok::equal);
             self._value(n->init, n->type_);
@@ -537,7 +546,7 @@ class EmitIR {
         ICE_IF(e->is_poisoned(), "EmitIR: poisoned expr reached codegen; sema gate failure");
 
         switch e->kind {
-            case ExprKind::IntegerLiteralExpr   { sink->synth(cast::<IntegerLiteralExpr>(e)->token, clang::tok::numeric_constant); }
+            case ExprKind::IntegerLiteralExpr   { self._int_lit(cast::<IntegerLiteralExpr>(e)->token); }
             case ExprKind::FloatingLiteralExpr  { sink->synth(cast::<FloatingLiteralExpr>(e)->token, clang::tok::numeric_constant); }
             case ExprKind::CharacterLiteralExpr { sink->synth(cast::<CharacterLiteralExpr>(e)->token, clang::tok::char_constant); }
             case ExprKind::BooleanLiteralExpr   { sink->spell(e->range, (("true") if (cast::<BooleanLiteralExpr>(e)->value) else ("false"))); }
@@ -648,7 +657,7 @@ class EmitIR {
             sink->spell(n->range, (("self") if (self._cur_ext != &null) else ("this")));
             return;
         }
-        if self._is_local(d) { sink->create(n->name); return; }
+        if self._is_local(d) { self._name(n->name); return; }
         sink->spell(n->range, self._spell.qual_name(d));
     }
 
@@ -711,7 +720,7 @@ class EmitIR {
             ICE_IF(st->is_ufcs || self._is_extension_member(st->resolved_decl), "EmitIR: extension member used as a value; only a call form exists");
             ICE_IF(st->resolved_decl == &null, "EmitIR: unbound member step reached codegen; gate failure");
             sink->spell(st->range, (("->") if (is_ptr) else (".")));
-            sink->create(st->name->name);
+            self._name(st->name->name);
             is_ptr = self._type_is_pointer(st->resolved_type);
         }
         return is_ptr;
@@ -795,12 +804,11 @@ class EmitIR {
             return;
         }
 
-        // A type as callee is a constructor call; a function is a call;
-        // anything else (fn-pointer value) emits as an expression.
-        if f != &null {
-            self.emit(n->callee);
-        } else if self._is_type_decl(callee) {
-            sink->spell(n->callee->range, self._spell.qual_name(callee));
+        // A constructor call names the TYPE being built, from the call's own
+        // canonical (`Slice<int>(...)`), never the ctor decl's owner template.
+        if self._is_ctor(f) || self._is_type_decl(callee) {
+            ICE_IF(n->type_ == &null, "EmitIR: untyped constructor call; ExprTyper gate failure");
+            sink->spell(n->callee->range, self._spell._type(n->type_));
         } else {
             self.emit(n->callee);
         }
@@ -878,6 +886,41 @@ class EmitIR {
 
     priv fn _is_type_decl(self, d: *Decl) -> bool {
         return isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d);
+    }
+
+    /// Borrow only when the bytes at the range ARE the spelling. A token a
+    /// lowering minted is anchored on the node it replaced, so its bytes are
+    /// something else entirely -- `__kairo_tmp0` sitting on the `[1, 2, 3]`
+    /// it hoisted. Those go through the arena with the same caret.
+    ///
+    /// The sink cannot make this call itself: it holds no ASTContext, and the
+    /// virtual it would test from (`literal`) is handed a range, never a token.
+    priv fn _name(self, t: Token) {
+        var spelled = self._cg->ctx->get_imm_table()->get_ident(t.imm);
+        if self._cg->ctx->get_spelling(t) != spelled {
+            sink->create_ident(t.range, spelled);
+            return;
+        }
+        sink->create(t);
+    }
+
+    /// Same rule for a numeric constant: a minted IntData carries no source
+    /// body, so it is spelled from its value instead of borrowed.
+    priv fn _int_lit(self, t: Token) {
+        var d = self._cg->ctx->get_imm_table()->get::<Immediate::IntData>(t.imm);
+        if (d != &null) && (!d->body.is_valid()) {
+            var cxx = std::string_to_nstring(f"{d->value_lo}");
+            sink->create_int(t.range, cxx);
+            return;
+        }
+        sink->synth(t, clang::tok::numeric_constant);
+    }
+
+    priv fn _is_ctor(self, f: *FunctionDecl) -> bool {
+        if (f == &null) || (!f->is_method()) { return false; }
+        var dc = reinterpret_cast::<*DeclContext>(f->semantic_dc);
+        if (dc == &null) || (!dc->is_type_scope()) { return false; }
+        return self._spell.leaf(static_cast::<*Decl>(f)) == self._spell.leaf(CXXSpell::rep(dc->dc_owner));
     }
 
     // --- Operators ---------------------------------------------------------------------
