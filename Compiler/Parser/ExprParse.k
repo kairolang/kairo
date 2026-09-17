@@ -1575,19 +1575,16 @@ class <T> ExprParse {
                     if self._is_decl_keyword(dyn()->current().kind) { return; }
                     self._sync_expr_progress(ExprSyncCtx::Comma, 1);
                 } else {
-                    var name_expr = NamedIdentExpr::create(dyn()->ctx, name_range, name_tok);
-                    var colon_tok = Token();
-                    colon_tok.kind  = TokenKind::OpColon;
-                    colon_tok.range = name_range;
-
-                    var named = AssignOperatorExpr::create(
+                    // A real node, not an AssignOperatorExpr wearing a `:`.
+                    // The label was never an expression, and every reader of
+                    // an argument list had to know to step around it.
+                    var named = NamedArgExpr::create(
                         dyn()->ctx,
                         name_range | value->range,
-                        name_expr,
-                        value,
-                        colon_tok
+                        name_tok,
+                        value
                     );
-                    out->push_back(named);
+                    out->push_back(static_cast::<*Expr>(named));
                 }
             } else {
                 // positional argument
@@ -3465,6 +3462,20 @@ class <T> ExprParse {
         ce->generic_params = gparams;
         ce->captures       = captures;
         ce->params         = params;
+        // Derived from the parameters, exactly as FunctionDecl::is_variadic is.
+        // Nothing set this before, so a closure's pack was invisible to every
+        // reader that asked the closure instead of the list.
+        ce->is_variadic    = false;
+        for var i: usize = 0; i < ce->params.size(); ++i {
+            if (ce->params[i] != &null) && ce->params[i]->is_pack { ce->is_variadic = true; }
+        }
+        var ce_seen_pack = false;
+        for var i: usize = 0; i < ce->params.size(); ++i {
+            var cp = ce->params[i];
+            if cp == &null { continue; }
+            if cp->is_pack { ce_seen_pack = true; continue; }
+            if ce_seen_pack { cp->keyword_only = true; }
+        }
         ce->modifiers      = modifiers;
         ce->return_type    = ret_type;
         ce->explicit_no_capture = explicit_no_capture;

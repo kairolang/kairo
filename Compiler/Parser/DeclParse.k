@@ -1267,9 +1267,24 @@ class <T> DeclParse {
         }
 
         var params: std::StackBuf::<*ParamDecl, 4>;
-        var is_variadic = self._parse_param_list(&params);
+        self._parse_param_list(&params);
         fd->params.from_buf(params.data(), params.size(), dyn()->ctx);
-        fd->is_variadic = is_variadic;
+        // DERIVED, never written directly: the parameter list is the truth
+        // about which parameter is the pack (ParamDecl::is_pack), and a flag on
+        // the function cannot say which one it is.
+        fd->is_variadic = false;
+        for var i: usize = 0; i < fd->params.size(); ++i {
+            if (fd->params[i] != &null) && fd->params[i]->is_pack { fd->is_variadic = true; }
+        }
+        // A non-pack parameter after the pack can only ever be supplied by
+        // name: every positional argument from the pack onward belongs to it.
+        var seen_pack = false;
+        for var i: usize = 0; i < fd->params.size(); ++i {
+            var p = fd->params[i];
+            if p == &null { continue; }
+            if p->is_pack { seen_pack = true; continue; }
+            if seen_pack  { p->keyword_only = true; }
+        }
 
         // a signature with any type-only (unnamed) parameter is a forward
         // declaration: it is purely a type signature and cannot carry a body.
@@ -1494,11 +1509,30 @@ class <T> DeclParse {
                 break;
             }
 
-            // variadic pack `...name: T`
+            // The pack marker. `const ...s: T` and `...s: T` are both accepted
+            // and mean the same thing; the qualifier comes FIRST, so the probe
+            // below also has to accept `const` followed by `...`. Marked here
+            // when the `...` leads; the const probe marks the other order.
             var p_start = dyn()->current_ptr()->range;
+            var p_pack  = false;
+            /// `...const s: T` -- diagnosed below, but the `const` is consumed
+            /// and kept, so it still reaches the ParamDecl.
+            var p_const_pre = false;
             if dyn()->check(TokenKind::OpEllipsis) {
-                variadic = true;
+                p_pack = true;
                 dyn()->advance(); // consume `...`
+                // `...const s: T`: the marker is where the qualifier belongs.
+                // Diagnosed, then the `const` is CONSUMED and kept, so the
+                // parameter stays usable for everything downstream instead of
+                // cascading into "expected type".
+                if dyn()->check(TokenKind::KwConst) {
+                    var c_tok = dyn()->current();
+                    dyn()->diag->report(DiagID::S067E, c_tok.range.start,
+                        "qualifiers precede the pack marker: write 'const ...s\x27"
+                    ).first(c_tok.range).emit();
+                    dyn()->advance(); // consume `const`
+                    p_const_pre = true;
+                }
             }
 
             // Disambiguate a named param (`name: T`) from a bare type-only
@@ -1513,8 +1547,8 @@ class <T> DeclParse {
             // Both open `const` + identifier, so the discriminator is the `:`
             // two tokens along. Probe for the named shape; on a miss roll back
             // so the `const` is left for parse_type to fold into the type.
-            var p_const = false;
-            if dyn()->check(TokenKind::KwConst) {
+            var p_const = p_const_pre;
+            if (!p_pack) && dyn()->check(TokenKind::KwConst) {
                 var probe = dyn()->tentative_begin();
                 dyn()->advance(); // consume `const`
                 // `const @mode x: T`, the other order of `@mode const x: T`.
@@ -1522,11 +1556,19 @@ class <T> DeclParse {
                 var c_mode       = dyn()->_peek_mode();
                 var c_mode_range = SourceRange::invalid();
                 if c_mode != ParamMode::Value { c_mode_range = dyn()->_consume_mode(); }
+                // `const ...s: T`: the canonical pack spelling. Consumed here
+                // so the named-shape test below sees `s :` as usual.
+                var c_pack = false;
+                if dyn()->check(TokenKind::OpEllipsis) {
+                    c_pack = true;
+                    dyn()->advance();
+                }
                 if dyn()->check(TokenKind::LitIdentifier)
                 && dyn()->check_peek(TokenKind::OpColon)
                 && (!dyn()->check_peek(TokenKind::OpColonColon)) {
                     dyn()->tentative_commit(probe);
                     p_const = true;
+                    if c_pack { p_pack = true; }
                     if (c_mode != ParamMode::Value) && (p_mode == ParamMode::Value) {
                         p_mode       = c_mode;
                         p_mode_range = c_mode_range;
@@ -1573,6 +1615,18 @@ class <T> DeclParse {
             pd->is_const   = p_const;
             pd->mode       = p_mode;
             pd->mode_range = p_mode_range;
+
+            // A second pack has no rule that could decide where the first one
+            // stops. Diagnosed, and NOT marked: the list keeps exactly one
+            // pack so placement downstream stays well-defined.
+            if p_pack && variadic {
+                dyn()->diag->report(DiagID::S068E, p_start.start,
+                    "only one pack parameter is allowed; the first pack takes every remaining positional argument"
+                ).first(p_start).emit();
+            } else if p_pack {
+                pd->is_pack = true;
+                variadic    = true;
+            }
 
             // `const` with a mode contradicts it. Reported at the mode, and the
             // mode KEPT: the decl stays usable for everything downstream.
