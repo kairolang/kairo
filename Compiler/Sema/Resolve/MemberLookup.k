@@ -78,13 +78,9 @@ class MemberLookup {
     /// in_scope: a foreign scope's table cannot be probed with our imm.
     priv var _cur_spelling: string = "";
 
-    /// Generic extensions on STRUCTURAL types (`extend <T> [T]`, `extend <T>
-    /// *T`): their target canonical mentions the extension's own param, so
-    /// no use-site canonical is pointer-equal to it. Keyed by TypeKind: at
-    /// name level such an extension contributes to every instance of that
-    /// shape (the record rule, `extend <T> Vec<T>`, applied to builtins);
-    /// which body runs is dispatch.
-    priv var _ext_by_shape: libcxx::unordered_map::<u8, vec::<*ExtensionDecl>>;
+    // No _ext_by_shape index: `extend <T> [T]` now targets
+    // record(Vector, [T]), so it keys on the Vector primary through
+    // _ext_by_decl like any other generic extension on a record.
 
     fn MemberLookup(self) {
         self.sc = &null;
@@ -133,11 +129,6 @@ class MemberLookup {
                 // target is the primary (#12), which is the key we want.
                 var key = reinterpret_cast::<u64>(cast::<RecordType>(c)->decl);
                 self._ext_by_decl[key].push_back(e);
-            } else if c->is_dependent() {
-                // `extend <T> [T]`, `extend <T> *T`: the target canonical
-                // mentions the extension's own param, so no use-site
-                // canonical is pointer-equal to it. Key by SHAPE instead.
-                self._ext_by_shape[static_cast::<u8>(c->kind)].push_back(e);
             } else {
                 // `extend i32 { }`, `extend [u8] { }`: one exact canonical.
                 self._ext_by_type[reinterpret_cast::<u64>(c)].push_back(e);
@@ -198,8 +189,6 @@ class MemberLookup {
         } else {
             var exts = self.extensions_of_type(c);
             if exts != &null { self._append_from_extensions(exts, name, out); }
-            var it = self._ext_by_shape.find(static_cast::<u8>(c->kind));
-            if it != self._ext_by_shape.end() { self._append_from_extensions(&(it->second), name, out); }
         }
         return out->size() > before;
     }
