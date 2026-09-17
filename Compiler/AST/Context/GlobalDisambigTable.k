@@ -53,7 +53,10 @@ class GlobalDisambigTable {
     /// the fill runs once.
     priv var _well_known: WellKnownDecls;
     priv var _builtin_fid: u32  = 0;    ///< 0 = no builtin root this build.
-    priv var _wk_filled:   bool = false;
+    /// Every fid under the builtin root, the root included. NOT a bool latch:
+    /// the lang items are filled by whichever builtin TU DECLARES each one,
+    /// because a leaf is type-resolved before the root that re-exports it.
+    priv var _builtin_fids: set::<u32>;
 
     fn GlobalDisambigTable(self) {
         self._by_fid.reserve(128);
@@ -230,17 +233,18 @@ class GlobalDisambigTable {
         return self._builtin_fid;
     }
 
-    /// Test-and-set: true for the FIRST caller only, and only when there is a
-    /// builtin fid to fill from. Sema calls this in N and fills on a true;
-    /// every later TU sees the table already populated.
-    ///
-    /// The guard lives here rather than in the pass because "once per build" is
-    /// a property of the build, and a per-TU pass has no way to know it ran.
-    fn wk_claim_fill(self) -> bool {
+    /// Every fid in the builtin subtree, recorded by the driver before sema
+    /// runs. Sema cannot derive this itself: the test is on the module path,
+    /// whose segments are PreprocessorSymbolTable ids, a name domain no Sema
+    /// pass can reach.
+    fn mark_builtin_fid(self, fid: u32) {
         var lock = std::LockGuard(self._mu);
-        if self._wk_filled || (self._builtin_fid == 0) { return false; }
-        self._wk_filled = true;
-        return true;
+        self._builtin_fids.insert(fid);
+    }
+
+    fn is_builtin_fid(self, fid: u32) -> bool {
+        var rlock = std::SharedLock(self._mu);
+        return self._builtin_fids.contains(fid);
     }
 
     fn size(self) -> usize {

@@ -448,11 +448,18 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// diagnosed here -- it is an error at the USE, reported by whichever pass
     /// wanted the item, because a file that never says `[T]` should not be told
     /// about Vector. `Array` is deliberately absent: `[T; N]` stays structural.
+    /// Called for EVERY builtin TU, not just the root, and each binds only the
+    /// items it actually declares (`_bind_lang` writes nothing on a miss).
+    ///
+    /// It cannot be the root alone: TUs are type-resolved in reverse tree
+    /// order, so `containers.k` -- which declares Slice -- reaches its own T
+    /// before `module.k` re-exports it, and `fn Vector(self, const items:
+    /// [T;])` would then resolve `[T;]` against an empty table and report the
+    /// item missing from inside the builtin root itself.
     fn fill_lang_items(self) {
         if self.sc->g == &null { return; }
         if self.sc->ctx == &null { return; }
-        if self.sc->ctx->fid != self.sc->g->builtin_fid() { return; }
-        if !self.sc->g->wk_claim_fill() { return; }
+        if !self.sc->g->is_builtin_fid(self.sc->ctx->fid) { return; }
 
         var root = static_cast::<*DeclContext>(self.sc->tu);
         self._bind_lang(root, WellKnownType::Slice,      "Slice");

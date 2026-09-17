@@ -1656,10 +1656,24 @@ class <D> RecursiveASTVisitor {
             if self.stop { break; }
             self.dyn()->traverse_inherit_edge(n->implements.get(i));
         }
-        // MEMBERS: flat fields + nested types (no methods in a struct body).
+        // MEMBERS: flat fields + flat methods + nested types.
+        //
+        // A struct body holds no NAMED functions (S048E), but it does hold
+        // constructors and operator overloads, and the parser puts those in
+        // `methods` exactly as it does for a class. Walking only the fields
+        // left a struct ctor parsed and name-bound but never type-resolved:
+        // its parameters' type nodes kept a null canonical, and the first
+        // thing to ask for one -- CXXSpell, emitting the interface -- ICEd
+        // with "type with no canonical reached codegen". Nullary ctors hid it,
+        // which is why `struct string { string() }` was fine and
+        // `struct <T> Slice { Slice(*T, usize) }` was not.
         for var i: usize = 0; i < n->fields.size(); i++ {
             if self.stop { break; }
             self.dyn()->dispatch_decl(*(n->fields.get(i)));  // discard
+        }
+        for var i: usize = 0; i < n->methods.size(); i++ {
+            if self.stop { break; }
+            self.dyn()->dispatch_decl(*(n->methods.get(i)));  // discard
         }
         if self.stop { return n; }
         self.dyn()->_rav_dc_nested(static_cast::<*DeclContext>(n));

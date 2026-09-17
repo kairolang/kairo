@@ -1797,10 +1797,18 @@ fn FrontendAction::_sema() -> bool {
     // resolved_fid is stamped rather than resolved. FileImportIndex resolves a
     // path by SPELLING path_segments, and a synthesized node has none to
     // spell; a wildcard fold reads resolved_fid and never looks at the path.
-    if !self._ci->invocation().pp.no_builtins {
-        var bfid = self._global_scope->builtin_fid();
-        if bfid != 0 {
-            var bsym = self._ci->pp()->get_symbol_table()->intern("builtin");
+    //
+    // MARKING is not gated on --no-builtins, only injection is: that flag
+    // suppresses the implicit import, not the builtin root's own compilation.
+    // The builtin files are still parsed and type-resolved either way, and an
+    // unmarked one resolves `[T;]` against an empty lang-item table and
+    // reports the item missing from inside Lib/builtin itself.
+    var bfid = self._global_scope->builtin_fid();
+    if bfid != 0 {
+        var bsym   = self._ci->pp()->get_symbol_table()->intern("builtin");
+        var inject = !self._ci->invocation().pp.no_builtins;
+        self._global_scope->mark_builtin_fid(bfid);   // the loop skips the root below.
+        {
             for var i: usize = 0; i < self._fids.size(); ++i {
                 var fid = self._fids[i];
                 if fid == bfid { continue; }      // the builtin root is its own prelude
@@ -1817,8 +1825,13 @@ fn FrontendAction::_sema() -> bool {
                 var psegs = &(pctx->module_base.segments);
                 if psegs->size() > 0 {
                     var phead = (*psegs)[0];
-                    if phead.name == bsym { continue; }
+                    if phead.name == bsym {
+                        self._global_scope->mark_builtin_fid(fid);
+                        continue;
+                    }
                 }
+
+                if !inject { continue; }
 
                 var ploc = SourceLocation::from_base(fid, 0);
                 var pid  = ImportDecl::create(pctx, SourceRange(ploc, ploc), ImportKind::Native);
