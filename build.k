@@ -348,7 +348,12 @@ fn common_flags(t: ref!(Target)) {
     t.passthrough("-flto=thin")
      .passthrough("-fuse-ld=lld")
      .passthrough("-w")
-     .passthrough("-g");
+     .passthrough("-g")
+     .passthrough("-fno-fast-math")
+     .passthrough("-fno-approx-func")
+     .passthrough("-ffp-contract=off")
+     .passthrough("-fno-associative-math")
+     .passthrough("-fno-rounding-math");
 
     // Stage 0 unconditionally adds -fsanitize=undefined,bounds,function in debug.
     // On Windows that pulls MSVC's compiler-rt which is incompatible with our
