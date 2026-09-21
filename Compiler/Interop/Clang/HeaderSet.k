@@ -155,6 +155,9 @@ class HeaderSet {
     // The live phase-A instance.
     priv var _ci:      opt::<clang::CompilerInstance> = &null;
     priv var _act:     opt::<HeaderSetAction>         = &null;
+    /// BeginSourceFile succeeded. EndSourceFile on an action that never began
+    /// walks a half-built Preprocessor, so release() must not pair blindly.
+    priv var _began:   bool                           = false;
     priv var _printer: opt::<clang::TextDiagnosticPrinter> = &null;   ///< fallback client only; see begin_diag.
     priv var _ksm:     obs::<SourceManager> = &null;                  ///< the backend's; adapter spans.
 
@@ -333,6 +336,7 @@ class HeaderSet {
         if !self._act->BeginSourceFile(*(self._ci), input) {
             self.ok = false; self.built.store(true); return;
         }
+        self._began = true;
         // llvm::Error: bool(err) is TRUE ON FAILURE, and an unconsumed Error
         // asserts on destruction.
         var err = self._act->Execute();
@@ -389,7 +393,8 @@ class HeaderSet {
 
     fn release(self) {
         if self._act != &null {
-            if self._ci != &null { self._act->EndSourceFile(); }
+            if (self._ci != &null) && self._began { self._act->EndSourceFile(); }
+            self._began = false;
             std::destroy(self._act);
             self._act = &null;
         }
@@ -469,6 +474,12 @@ class HeaderSetCache {
     }
 
     fn release_all(self) {
+        // A build still in flight owns the very clang::CompilerInstance
+        // release() destroys. --syntax-only and --preprocess stop before
+        // _sema(), which is the only other place phase A is joined, so
+        // without this drain the driver tears the instance down underneath
+        // the parse thread: a SEGV in ~Preprocessor, or a hang.
+        self.wait_all();
         var lock = std::LockGuard(self._mu);
         for var it = self._sets.begin(); it != self._sets.end(); ++it { it->second->release(); }
     }

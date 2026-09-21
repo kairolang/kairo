@@ -70,6 +70,55 @@ class <T> DeclParse {
         }
     }
 
+    priv inline fn check_is_ident(self) -> bool {
+        switch dyn()->current().kind {
+            case TokenKind::AtVoid { return true; }
+            case TokenKind::AtBool { return true; }
+            case TokenKind::AtByte { return true; }
+            case TokenKind::AtChar { return true; }
+
+            case TokenKind::AtUsize { return true; }
+            case TokenKind::AtIsize { return true; }
+            
+            case TokenKind::AtF8     { return true; }
+            case TokenKind::AtF8E4M3 { return true; }
+            case TokenKind::AtF8E5M2 { return true; }
+            case TokenKind::AtBf16   { return true; }
+            case TokenKind::AtF16    { return true; }
+            case TokenKind::AtF32    { return true; }
+            case TokenKind::AtF64    { return true; }
+            case TokenKind::AtF80    { return true; }
+            case TokenKind::AtF128   { return true; }
+            case TokenKind::AtF256   { return true; }
+            case TokenKind::AtF512   { return true; }
+            
+            case TokenKind::AtU8   { return true; }
+            case TokenKind::AtU16  { return true; }
+            case TokenKind::AtU32  { return true; }
+            case TokenKind::AtU64  { return true; }
+            case TokenKind::AtU128 { return true; }
+            case TokenKind::AtU256 { return true; }
+            case TokenKind::AtU512 { return true; }
+            
+            case TokenKind::AtI8   { return true; }
+            case TokenKind::AtI16  { return true; }
+            case TokenKind::AtI32  { return true; }
+            case TokenKind::AtI64  { return true; }
+            case TokenKind::AtI128 { return true; }
+            case TokenKind::AtI256 { return true; }
+            case TokenKind::AtI512 { return true; }
+
+            case TokenKind::BiFile     { return true; }
+            case TokenKind::BiLine     { return true; }
+            case TokenKind::BiColumn   { return true; }
+            case TokenKind::BiFunction { return true; }
+            case TokenKind::BiModule   { return true; }
+            
+            case TokenKind::LitIdentifier { return true;  }
+            default                       { return false; }
+        }
+    }
+
     /// \brief true if the resolved token can begin a declaration.
     /// \details mirrors StmtParse::_starts_decl; used both there and here.
     inline fn _starts_decl_kw(self, k: TokenKind) -> bool {
@@ -851,7 +900,7 @@ class <T> DeclParse {
         // const value parameter: `const N: T`
         if dyn()->check(TokenKind::KwConst) {
             dyn()->advance(T::SkipNL::After); // consume `const`
-            if !dyn()->check(TokenKind::LitIdentifier) {
+            if !dyn()->check_is_ident() {
                 dyn()->diag->report(DiagID::S049E, start.start,
                     "expected parameter name after 'const' in generic parameter list"
                 ).first(start).emit();
@@ -884,7 +933,7 @@ class <T> DeclParse {
             dyn()->advance(); // consume `...`
         }
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S049E, start.start,
                 "expected type parameter name in generic parameter list"
             ).first(start).emit();
@@ -1389,11 +1438,11 @@ class <T> DeclParse {
             // if the next-next is NOT another `::` and this is the trailing
             // segment, stop so the caller can read the method name. We detect
             // the trailing segment by: identifier NOT followed by `::`.
-            if dyn()->check(TokenKind::LitIdentifier) && (!dyn()->check_peek(TokenKind::OpColonColon)) {
+            if dyn()->check_is_ident() && (!dyn()->check_peek(TokenKind::OpColonColon)) {
                 // leave cursor on the trailing segment for the caller.
                 break;
             }
-            if !dyn()->check(TokenKind::LitIdentifier) {
+            if !dyn()->check_is_ident() {
                 break;
             }
             var seg_tok = dyn()->current();
@@ -1735,14 +1784,13 @@ class <T> DeclParse {
         {
             var p_start   = dyn()->current_ptr()->range;
             var is_const: bool = false;
-            var by_ptr:   bool = false;
 
             if dyn()->check(TokenKind::KwConst) {
                 is_const = true;
                 dyn()->advance(); // consume `const`
 
                 // Recovery: ensure 'const' is followed by a valid next token
-                if !dyn()->check(TokenKind::OpStar) && !dyn()->check(TokenKind::LitIdentifier) {
+                if !dyn()->check(TokenKind::OpStar) && !dyn()->check_is_ident() {
                     dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                         "expected '*' or identifier after 'const' in capture list"
                     );
@@ -1765,9 +1813,7 @@ class <T> DeclParse {
                     return;
                 }
 
-                by_ptr = true;
-
-                if !dyn()->check(TokenKind::LitIdentifier) {
+                if !dyn()->check_is_ident() {
                     dyn()->diag->report(DiagID::S047E, star_range.start,
                         "expected capture name after '*\x27"
                     ).first(star_range).emit();
@@ -1824,7 +1870,7 @@ class <T> DeclParse {
                 dyn()->advance(); // consume `const`
 
                 // Recovery: ensure valid structural capture token follows
-                if !dyn()->check(TokenKind::OpStar) && !dyn()->check(TokenKind::LitIdentifier) {
+                if !dyn()->check(TokenKind::OpStar) && !dyn()->check_is_ident() {
                     dyn()->report_tok(DiagID::S047E, dyn()->current_ptr(),
                         "expected '*' or identifier after 'const' in capture list"
                     );
@@ -1839,7 +1885,7 @@ class <T> DeclParse {
                 dyn()->advance(); // consume `*`
             }
 
-            if !dyn()->check(TokenKind::LitIdentifier) {
+            if !dyn()->check_is_ident() {
                 dyn()->diag->report(DiagID::S047E, p_start.start,
                     "expected capture name"
                 ).first(p_start).emit();
@@ -2091,7 +2137,7 @@ class <T> DeclParse {
             is_thread = true;
         }
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected a name after the binding keyword"
             ).first(start).emit();
@@ -2209,7 +2255,7 @@ class <T> DeclParse {
             is_thread = true;
         }
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S048E, start.start,
                 "expected field name"
             ).first(start).emit();
@@ -2591,7 +2637,7 @@ class <T> DeclParse {
         self._parse_generic_or_spec_intro(&gparams, &cls_intro);
         var has_generics = !gparams.is_empty();
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected class name"
             ).first(start).emit();
@@ -2694,7 +2740,7 @@ class <T> DeclParse {
         self._parse_generic_or_spec_intro(&gparams, &struct_intro);
         var has_generics = !gparams.is_empty();
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected struct name"
             ).first(start).emit();
@@ -2784,7 +2830,7 @@ class <T> DeclParse {
         self._parse_generic_or_spec_intro(&gparams, &union_intro);
         var has_generics = !gparams.is_empty();
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected union name"
             ).first(start).emit();
@@ -2863,7 +2909,7 @@ class <T> DeclParse {
             has_generics = true;
         }
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected interface name"
             ).first(start).emit();
@@ -3006,7 +3052,7 @@ class <T> DeclParse {
             has_generics = true;
         }
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected enum name"
             ).first(start).emit();
@@ -3105,7 +3151,7 @@ class <T> DeclParse {
 
     /// \brief parses one enum variant (plain or ADT-payload).
     priv fn _parse_enum_variant(self, idx: u32) -> *EnumVariantDecl {
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             var r = dyn()->current_ptr()->range;
             dyn()->diag->report(DiagID::S048E, r.start,
                 "expected variant name in enum body"
@@ -3130,7 +3176,7 @@ class <T> DeclParse {
                 }
                 // payload fields are `name: Type` (no var/const keyword).
                 dyn()->_reject_mode_binding();
-                if !dyn()->check(TokenKind::LitIdentifier) { break; }
+                if !dyn()->check_is_ident() { break; }
                 var fname = dyn()->current();
                 var fstart = fname.range;
                 dyn()->advance();
@@ -3180,7 +3226,7 @@ class <T> DeclParse {
             has_generics = true;
         }
 
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected alias name after 'type\x27"
             ).first(start).emit();
@@ -3417,7 +3463,7 @@ class <T> DeclParse {
     /// \brief parses a procedural / attribute macro `macro @name(...) { }`.
     priv fn _parse_proc_macro(self, start: SourceRange) -> *Decl {
         dyn()->advance(); // consume `@`
-        if !dyn()->check(TokenKind::LitIdentifier) {
+        if !dyn()->check_is_ident() {
             dyn()->diag->report(DiagID::S046E, start.start,
                 "expected name after 'macro @\x27"
             ).first(start).emit();

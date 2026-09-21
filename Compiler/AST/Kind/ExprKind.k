@@ -344,6 +344,12 @@ enum ExprKind derives u8 {
     /// Reaching codegen is an ICE: CallLowering places it.
     NamedArgExpr,
 
+    /// A C++ braced-init-list: `{ a, b, c }`.
+    /// Node: InitListExpr: elements. Never parsed; Lower/ mints it. An array
+    /// one emits as bare braces where it initializes a declarator and as
+    /// `__kairo_array<T, N>{...}` everywhere else.
+    InitListExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -395,6 +401,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::ParenExpr { return "ParenExpr"; }
         case ExprKind::VerbatimExpr { return "VerbatimExpr"; }
         case ExprKind::NamedArgExpr { return "NamedArgExpr"; }
+        case ExprKind::InitListExpr { return "InitListExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

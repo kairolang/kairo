@@ -124,6 +124,7 @@ class <T> TypeParse {
         TokenKind::BiColumn,
         TokenKind::BiFunction,
         TokenKind::BiModule,
+        TokenKind::BiSelf,
         TokenKind::LitIdentifier,
         TokenKind::KwSelf
     };
