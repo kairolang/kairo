@@ -1243,8 +1243,29 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         } else {
             self._p.paint(Color::Dim, "<no type: callable/type/module>");
         }
+        self._note_lowering_choices(n);
         self._p.newline();
         return true;
+    }
+
+    /// What X decided that the type alone does not say, and that the tree
+    /// stops showing once Lower/ has run: which storage a slice literal's
+    /// backing array gets, and that a cast is a construction.
+    priv fn _note_lowering_choices(self, n: *Expr) {
+        if isa::<ListLiteralExpr>(n) {
+            if cast::<ListLiteralExpr>(n)->storage == ListStorage::Extended {
+                self._p.paint(Color::Dim, "  [extended]");
+            }
+            return;
+        }
+        if isa::<TypeCastExpr>(n) {
+            var c = cast::<TypeCastExpr>(n)->resolved_ctor;
+            if c != &null {
+                self._p.paint(Color::Dim, "  [ctor: ");
+                self._p.put(sema_dump_decl_brief(self.ctx, c));
+                self._p.paint(Color::Dim, "]");
+            }
+        }
     }
 
     /// Collected on the same walk, printed after it: a declaration is only

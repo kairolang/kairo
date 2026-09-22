@@ -315,9 +315,9 @@ class Sema {
         self.sc.require_phase(SemaPhase::Checked);
 
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
-        // After OperatorLowering: a list literal can be an operand (`[1,2] + x`
-        // with a user `op +`), and hoisting one out of a statement the operator
-        // pass is still rewriting would move it out from under that rewrite.
+        // After OperatorLowering: a list literal can be an operand of a user
+        // operator, and this pass builds constructor calls that must not be
+        // re-read as operator nodes.
         { var _p = TimeRegion("ListLiteralLowering"); ListLiteralLowering(&self.sc).run(); }
         // TODO(sema): ExtensionLowering(&self.sc).run();     // folds extends
         // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit

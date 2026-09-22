@@ -1,32 +1,38 @@
 /// --- The Kairo Project -------------- Sema/Lower/ListLiteralLowering.k --- ///
 ///
-///   \brief Give every slice-typed list literal an array to point at.
+///   \brief Render every list literal as the construction X decided it is.
 ///
 ///   \detail
-///     `[1, 2, 3]` is a SLICE: a view of the elements as written (§5). A view
-///     needs storage, and C++ accepts a brace list only as a declarator's
-///     initializer -- never as an argument, a return value, or an operand. So
-///     the storage is hoisted and the literal becomes a construction over it:
+///     X typed the literal as its target, bound the constructors and chose
+///     where a slice's backing array lives. This pass decides nothing:
 ///
-///       f([1, 2, 3])
-///     ->
-///       var __kairo_tmp0: [i32; 3] = [1, 2, 3];      // spliced BEFORE the stmt
-///       f(Slice(&__kairo_tmp0, 3))
+///       [T; N]            ->  InitListExpr                       { a, b, c }
+///       Slice, FullExpr   ->  Slice(<array prvalue> as *T, N)
+///       Slice, Extended   ->  var __kairo_tmpK: [T; N] = { a, b, c };   (spliced before the owner)
+///                             Slice(__kairo_tmpK as *T, N)
+///       Vector            ->  Vector(Slice(<array prvalue> as *T, N))
+///       Vector, empty     ->  Vector()
+///       Slice, empty      ->  Slice(&null, 0)
 ///
-///     A literal whose type is already `[T; N]` is left alone: it IS the
-///     declarator's initializer, which is the one position a brace list is
-///     legal in, and EmitIR emits it as one.
+///     The array prvalue is an InitListExpr in expression position; C++ gives
+///     it the lifetime of the full-expression, which is what FullExpr means.
+///     No statement is hoisted for it, so evaluation order and conditional
+///     evaluation are the source's.
 ///
-///   \par Where it splices
-///     ExpressionStmt, DeclStmt and ReturnStmt: the three statement forms that
-///     can be preceded by a declaration in the same block. A literal reached
-///     from a condition or a loop header has nowhere to hoist TO -- the temp
-///     would fall out of scope, or be evaluated on the wrong iteration -- so
-///     that ICEs rather than emitting something subtly wrong.
+///     Both constructor arguments carry an explicit cast. The callee is the
+///     PATTERN's constructor, its parameter types are dependent, and EmitIR's
+///     exactness cast skips dependent parameters.
+///
+///   \par Extended
+///     The only case that mints a declaration, and always in front of a
+///     DeclStmt: X marks a slice literal Extended only where it directly
+///     initializes a `var`. Inner backings splice first. A for-init variable
+///     and a namespace-scope variable have no statement list to splice into
+///     and ICE by name.
 ///
 ///   \par Postcondition
-///     No slice-typed ListLiteralExpr reaches codegen. Set and map literals
-///     have no lowering at all yet and ICE by name.
+///     No ListLiteralExpr reaches codegen, poisoned ones excepted (the gate
+///     stops those). Set and map literals have no lowering yet and ICE.
 ///
 ///   Phase: LOWER, after OperatorLowering.
 ///
@@ -53,8 +59,6 @@ import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
 import AST::Node::Casting::*;
 import AST::Context::ASTContext::*;
-import AST::Context::DeclContext::*;
-import AST::Context::SymbolTable::*;
 import AST::Context::CanonicalTypes::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Kind::ExprKind::*;
@@ -71,14 +75,15 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
 
-    /// Declarations hoisted out of the statement currently being rewritten,
-    /// in the order they must run. Drained by whichever statement transform
-    /// opened the window.
+    /// Backing declarations minted under the DeclStmt being rewritten, in the
+    /// order they must run. Drained by the DeclStmt that opened the window.
     priv var _pending: vec::<*Stmt>;
 
-    /// False everywhere a hoist has nowhere to go (conditions, loop headers).
-    /// A literal reached with this false is an ICE, not a silent miscompile.
-    priv var _can_hoist: bool = false;
+    /// True while a DeclStmt that sits in a statement LIST is being rewritten.
+    priv var _window: bool = false;
+
+    /// True while a for-init is being rewritten: a scalar slot, nothing splices.
+    priv var _scalar_slot: bool = false;
 
     priv var _counter: u32 = 0;
 
@@ -94,70 +99,74 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
         ASTWriter_ListLiteralLowering::run(self.sc->tu);
     }
 
-    // --- the three statements a hoist can precede -----------------------------
-
-    fn transform_expression_stmt(self, n: *ExpressionStmt) -> vec::<*Stmt> {
-        var mark = self._open();
-        var body = ASTWriter_ListLiteralLowering::transform_expression_stmt(n);
-        return self._close(mark, body);
-    }
+    // --- the one statement a backing array can precede ------------------------
 
     fn transform_decl_stmt(self, n: *DeclStmt) -> vec::<*Stmt> {
-        var mark = self._open();
+        var mark         = self._pending.size();
+        var saved_window = self._window;
+        var saved_scalar = self._scalar_slot;
+        self._window      = !saved_scalar;
+        self._scalar_slot = false;      // statements nested in the initializer are lists again.
+
         var body = ASTWriter_ListLiteralLowering::transform_decl_stmt(n);
-        return self._close(mark, body);
-    }
 
-    fn transform_return_stmt(self, n: *ReturnStmt) -> vec::<*Stmt> {
-        var mark = self._open();
-        var body = ASTWriter_ListLiteralLowering::transform_return_stmt(n);
-        return self._close(mark, body);
-    }
+        self._window      = saved_window;
+        self._scalar_slot = saved_scalar;
 
-    /// Open the hoist window for one statement. Returns the pending mark: a
-    /// statement drains only what IT added, because statements nest (a
-    /// DeclStmt inside a compound inside an ExpressionStmt's operand) and an
-    /// inner one must not carry an outer one's temps into its own list.
-    priv fn _open(self) -> usize {
-        self._can_hoist = true;
-        return self._pending.size();
-    }
-
-    /// Splice this statement's temps in FRONT of it, in the order they were
-    /// created, and close the window behind them.
-    priv fn _close(self, mark: usize, body: vec::<*Stmt>) -> vec::<*Stmt> {
         var out = vec::<*Stmt>();
         for var i: usize = mark; i < self._pending.size(); ++i { out.push_back(self._pending[i]); }
         for var i: usize = 0; i < body.size(); ++i { out.push_back(body[i]); }
         while self._pending.size() > mark { self._pending.pop_back(); }
-        self._can_hoist = (mark > 0);
         return out;
+    }
+
+    /// The base body, with the init marked as the scalar slot it is.
+    fn transform_indexed_for_stmt(self, n: *IndexedForStmt) -> vec::<*Stmt> {
+        if n->init != &null {
+            var saved = self._scalar_slot;
+            self._scalar_slot = true;
+            n->init = self.transform_stmt_scalar(n->init);
+            self._scalar_slot = saved;
+        }
+        if n->cond   != &null { n->cond   = self.transform_expr(n->cond); }
+        if n->update != &null { n->update = self.transform_expr(n->update); }
+        n->body = cast::<CompoundStmt>(self.transform_stmt_scalar(n->body));
+        return self._one_stmt(n);
     }
 
     // --- the rewrite ----------------------------------------------------------
 
     fn transform_list_literal_expr(self, n: *ListLiteralExpr) -> *Expr {
-        // The window belongs to the enclosing STATEMENT, not to this node: a
-        // nested literal hoists into the same place its parent does.
-        var saved_hoist = self._can_hoist;
+        // Children first: nested literals are already lowered, and an inner
+        // Extended backing is already pending ahead of this one.
         var out = ASTWriter_ListLiteralLowering::transform_list_literal_expr(n);
+        if n->is_poisoned() || (n->type_ == &null) { return out; }
 
-        if n->type_ == &null { return out; }
         var c = canon_unqual(n->type_);
         if c == &null { return out; }
 
-        // `[T; N]`: already a declarator's initializer. EmitIR emits the braces.
-        if isa::<FixedArrayType>(c) { return out; }
+        if isa::<FixedArrayType>(c) {
+            return static_cast::<*Expr>(self._init_list(n, c));
+        }
 
-        // Anything else must be the Slice lang record; a list literal has no
-        // third type after LiteralTyping.
-        ICE_IF(!self.tu.is_slice(n->type_),
-            "ListLiteralLowering: list literal is neither an array nor a slice; LiteralTyping invariant violation");
+        var elem = self.tu.container_elem(c);
+        ICE_IF(elem == &null, "ListLiteralLowering: container target with no element type; LiteralTyping invariant violation");
 
-        ICE_IF(!saved_hoist,
-            "ListLiteralLowering: list literal in a condition or loop header needs hoisting; only ExpressionStmt, DeclStmt and ReturnStmt can carry one");
+        if self.tu.is_slice(c) { return self._slice(n, c, elem); }
 
-        return self._hoist_slice(n);
+        ICE_IF(!self.tu.is_vector_like(c),
+            "ListLiteralLowering: list literal is not an array, a slice or a vector; LiteralTyping invariant violation");
+        ICE_IF(n->owner_ctor == &null, "ListLiteralLowering: vector literal with no constructor bound; LiteralTyping must bind it");
+
+        var args = self.list_builder::<*Expr>();
+        if n->elements.size() > 0 {
+            var st = self.tu.slice_of(elem);
+            ICE_IF(st == &null, "ListLiteralLowering: the Slice lang item is unbound under a vector literal");
+            // A vector copies out before the statement ends: always a temporary.
+            n->storage = ListStorage::FullExpr;
+            args.push(self._slice(n, st, elem));
+        }
+        return self._ctor_call(n->range, n->owner_ctor, to_string(WellKnownType::Vector), &args, n->type_);
     }
 
     fn transform_set_literal_expr(self, n: *SetLiteralExpr) -> *Expr {
@@ -170,101 +179,117 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
         return static_cast::<*Expr>(n);
     }
 
-    /// `[a, b, c]` (Slice<T>) -> temp `[T; 3]` + `Slice(&temp, 3)`.
-    priv fn _hoist_slice(self, n: *ListLiteralExpr) -> *Expr {
-        var slice_ty = n->type_;
-        var elem     = self.tu.container_elem(slice_ty);
-        if elem == &null { return static_cast::<*Expr>(n); }   // poisoned; already diagnosed.
+    // --- pieces ---------------------------------------------------------------
 
-        var count   = n->elements.size();
-        var arr_ty  = self.sc->types->array(elem, static_cast::<u64>(count));
-        if arr_ty == &null { return static_cast::<*Expr>(n); }
+    /// The literal's elements as a braced-init-list typed \p arr_ty. The list
+    /// is shared, not copied: the literal node is dropped from the tree.
+    priv fn _init_list(self, n: *ListLiteralExpr, arr_ty: *Type) -> *InitListExpr {
+        var il = InitListExpr::create(self.ctx, n->range);
+        il->elements = n->elements;
+        il->adopt_sema(static_cast::<*Expr>(n));
+        il->type_          = arr_ty;
+        il->value_category = Expr::ValueCategory::RValue;
+        return il;
+    }
 
-        // 1. the temp, initialized by the literal RETYPED as the array. The
-        //    literal node is reused: it is the same elements in the same order,
-        //    and only its type changes.
-        var name_tok = self._ident_token(n->range,
-            LowerTargets::reserved_prefix() + "tmp" + f"{self._counter}");
+    /// `Slice(data, len)` typed \p slice_ty, over the storage X chose.
+    priv fn _slice(self, n: *ListLiteralExpr, slice_ty: *Type, elem: *Type) -> *Expr {
+        ICE_IF(n->slice_ctor == &null, "ListLiteralLowering: slice literal with no constructor bound; LiteralTyping must bind it");
+        var count = n->elements.size();
+        var ptr   = self.sc->types->pointer(elem);
+
+        var data: *Expr = &null;
+        if count == 0 {
+            // No zero-length array exists to point at.
+            var nl = NullLiteralExpr::create(self.ctx, n->range, true);
+            nl->type_          = ptr;
+            nl->value_category = Expr::ValueCategory::RValue;
+            data = static_cast::<*Expr>(nl);
+        } else {
+            var arr_ty = self.sc->types->array(elem, static_cast::<u64>(count));
+            ICE_IF(arr_ty == &null, "ListLiteralLowering: no array canonical for a slice literal's backing");
+            var il = self._init_list(n, arr_ty);
+            var storage: *Expr = static_cast::<*Expr>(il);
+            if n->storage == ListStorage::Extended { storage = self._backing_local(n->range, arr_ty, il); }
+            data = self._cast(n->range, storage, ptr);
+        }
+
+        var len = self._cast(n->range, self._int_literal(n->range, static_cast::<u64>(count)),
+                             self.sc->builtin(BuiltinKind::USize));
+
+        var args = self.list_builder::<*Expr>();
+        args.push(data);
+        args.push(len);
+        return self._ctor_call(n->range, n->slice_ctor, to_string(WellKnownType::Slice), &args, slice_ty);
+    }
+
+    /// `var __kairo_tmpK: [T; N] = { ... };` ahead of the owning DeclStmt;
+    /// returns the name that refers to it.
+    priv fn _backing_local(self, at: SourceRange, arr_ty: *Type, il: *InitListExpr) -> *Expr {
+        ICE_IF(!self._window,
+            "ListLiteralLowering: an Extended slice literal outside a statement list (a for-init or a namespace-scope variable); its backing array needs a home this pass cannot give it");
+
+        var name_tok = self._ident_token(at, LowerTargets::reserved_prefix() + "tmp" + f"{self._counter}");
         self._counter += 1;
 
-        n->type_ = arr_ty;
-
-        var vd    = VariableDecl::create(self.ctx, n->range, name_tok, StorageClass::Var);
+        var vd    = VariableDecl::create(self.ctx, at, name_tok, StorageClass::Var);
         vd->type_ = arr_ty;
-        vd->init  = static_cast::<*Expr>(n);
-
+        vd->init  = static_cast::<*Expr>(il);
         self._pending.push_back(static_cast::<*Stmt>(
-            DeclStmt::create(self.ctx, n->range, static_cast::<*Decl>(vd))));
+            DeclStmt::create(self.ctx, at, static_cast::<*Decl>(vd))));
 
-        // 2. `&temp`, typed as the ctor's `*T` parameter. Codegen inserts the
-        //    cast from the array's own pointer type; Kairo's `&` on an array
-        //    and C's array-to-pointer decay are not the same spelling.
-        var use = NamedIdentExpr::create(self.ctx, n->range, name_tok);
+        var use = NamedIdentExpr::create(self.ctx, at, name_tok);
         use->resolved_decl  = static_cast::<*Decl>(vd);
         use->type_          = arr_ty;
         use->value_category = Expr::ValueCategory::LValue;
+        return static_cast::<*Expr>(use);
+    }
 
-        var amp = Token();
-        amp.kind  = TokenKind::OpAmp;
-        amp.range = n->range;
+    /// An explicit cast to the canonical \p to. EmitIR renders `static_cast`.
+    priv fn _cast(self, at: SourceRange, operand: *Expr, to: *Type) -> *Expr {
+        var c = TypeCastExpr::create(self.ctx, at, operand, to);
+        c->type_          = to;
+        c->value_category = Expr::ValueCategory::RValue;
+        return static_cast::<*Expr>(c);
+    }
 
-        var addr = UnaryOperatorExpr::create(self.ctx, n->range,
-            static_cast::<*Expr>(use), amp, UnaryOperatorExpr::Fix::Prefix);
-        addr->type_          = self.sc->types->pointer(elem);
-        addr->value_category = Expr::ValueCategory::RValue;
-
-        // 3. the length.
-        var len = self._int_literal(n->range, static_cast::<u64>(count));
-
-        // 4. `Slice(&temp, N)`.
-        var ctor = self._slice_ctor();
-        ICE_IF(ctor == &null,
-            "ListLiteralLowering: the Slice lang item declares no two-argument constructor; Lib/builtin and this pass disagree");
-
-        var callee = NamedIdentExpr::create(self.ctx, n->range,
-            self._ident_token(n->range, to_string(WellKnownType::Slice)));
+    /// A constructor call typed \p ty. The callee names the ctor decl; EmitIR
+    /// spells the type from the call's own canonical, never from this token.
+    priv fn _ctor_call(self, at: SourceRange, ctor: *Decl, name: string,
+                       args: *ListBuilder::<*Expr>, ty: *Type) -> *Expr {
+        var callee = NamedIdentExpr::create(self.ctx, at, self._ident_token(at, name));
         callee->resolved_decl = ctor;
 
-        var call = CallExpr::create(self.ctx, n->range, static_cast::<*Expr>(callee));
-        var args = self.list_builder::<*Expr>();
-        args.push(static_cast::<*Expr>(addr));
-        args.push(len);
-        args.freeze_into(&(call->args));
-        call->type_          = slice_ty;
+        var call = CallExpr::create(self.ctx, at, static_cast::<*Expr>(callee));
+        args->freeze_into(&(call->args));
+        call->type_          = ty;
         call->value_category = Expr::ValueCategory::RValue;
-
         return static_cast::<*Expr>(call);
     }
 
     // --- synthesis helpers ----------------------------------------------------
 
-    /// An identifier token for a name this pass invented. The imm is interned
-    /// into THIS file's table, which is the only one the node may be read
-    /// through (RESOLUTION.md hard invariant #2).
+    /// An identifier token for a name this pass invented, interned into THIS
+    /// file's table (RESOLUTION.md hard invariant #2).
     priv fn _ident_token(self, range: SourceRange, spelling: string) -> Token {
         var t = Token();
         t.kind  = TokenKind::LitIdentifier;
         t.range = range;
-        // intern_ident_copy, not the lexer path: the bytes are ours, not a
-        // source slice. It hashes the way the lexer does, so a synthesized
-        // name and a written one of the same spelling share a slot.
         t.imm   = self.sc->imm_table()->intern_ident_copy(spelling);
         return t;
     }
 
-    /// An integer literal with a synthesized value. A literal reads its value
-    /// through an Immediate::IntData entry, and the lexer is normally the only
-    /// thing that fills one; `create` mints the slot and the value is written
-    /// straight in, with no source text to evaluate.
+    /// An integer literal with a synthesized value: the IntData slot is minted
+    /// and written straight in, with no source text behind it.
     priv fn _int_literal(self, range: SourceRange, value: u64) -> *Expr {
         var tbl = self.sc->imm_table();
         var idx = tbl->create::<Immediate::IntData>();
         var d   = tbl->get::<Immediate::IntData>(idx);
         d->value_lo = value;
         d->value_hi = 0;
-        d->bits     = 0;      // no suffix: an unsuffixed literal takes its context's type.
+        d->bits     = 0;
         d->base     = 10;
-        d->flags    = 0;      // not unsigned, not negative, not big, no suffix/prefix.
+        d->flags    = 0;
 
         var t = Token();
         t.kind  = TokenKind::LitInt;
@@ -276,30 +301,8 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
         lit->value_category = Expr::ValueCategory::RValue;
         return static_cast::<*Expr>(lit);
     }
-
-    /// The `Slice(data, len)` constructor, by shape: the one ctor with exactly
-    /// two non-self parameters. Found through the lang item, never by name.
-    priv fn _slice_ctor(self) -> *Decl {
-        var d = self.sc->well_known->get(WellKnownType::Slice);
-        if d == &null { return &null; }
-        var body = self.tu.pattern_of(NameLookup::representative(d));
-        var dc   = NameLookup::context_of(body);
-        if dc == &null { return &null; }
-
-        var cell = self.sc->lookup.in_context(dc, DeclName::ctor());
-        if !cell.found() { return &null; }
-        for var i: usize = 0; i < cell.cell->size(); ++i {
-            var cand = cell.cell->get(i);
-            if !isa::<FunctionDecl>(cand) { continue; }
-            var f = cast::<FunctionDecl>(cand);
-            var n: usize = 0;
-            for var p: usize = 0; p < f->params.size(); ++p {
-                var pd = f->params[p];
-                if (pd == &null) || pd->is_self { continue; }
-                n += 1;
-            }
-            if n == 2 { return cand; }
-        }
-        return &null;
-    }
 }
+
+__inline_cpp("
+#undef ASTWriter_ListLiteralLowering
+");
