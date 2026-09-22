@@ -22,3 +22,4 @@ private/
 
 .lit_test_times.txt
 .gdb_history
+*.o
