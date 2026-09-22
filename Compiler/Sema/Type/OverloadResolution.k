@@ -70,6 +70,24 @@ enum LitKind derives u8 {
     Float,    ///< fits any float.
     Null,     ///< `null`: fits any nullable.
     NullPtr,  ///< `&null`: fits any pointer or nullable pointer.
+    List,     ///< `[...]`: ranked by shape through ArgInfo::elems.
+}
+
+/// One element of a list literal, ranked by SHAPE. Flat on purpose: ArgInfo
+/// is a value passed and copied everywhere, and a container of ArgInfo inside
+/// ArgInfo is a type that contains itself -- its copies do not survive, and
+/// what breaks is every OTHER field, silently, on calls that have no list
+/// literal in them at all. Children live in the same pool, named by index.
+class ListShape {
+    pub var lit:     LitKind = LitKind::None;
+    pub var lit_lo:  u64  = 0;
+    pub var lit_hi:  u64  = 0;
+    pub var lit_big: bool = false;
+    pub var lit_neg: bool = false;
+    pub var ty:      *Type = &null;   ///< set when the element is not an untyped literal.
+    pub var kids_lo: usize = 0;       ///< a nested list literal's own elements.
+    pub var kids_n:  usize = 0;
+    fn ListShape(self) { }
 }
 
 class ArgInfo {
@@ -87,6 +105,11 @@ class ArgInfo {
     pub var lit_hi:     u64  = 0;
     pub var lit_big:    bool = false;
     pub var lit_neg:    bool = false;
+    /// LitKind::List only: the element shapes, as a range in
+    /// OverloadResolution::list_shapes. Written by
+    /// LiteralTyping::list_literal_shape.
+    pub var elems_lo:   usize = 0;
+    pub var elems_n:    usize = 0;
     pub var dependent:  bool = false;       ///< type unknowable here; poisons nothing.
     /// The argument's value category (a literal is a prvalue), and for an
     /// lvalue whether it is const. Only reference parameters read them:
@@ -175,6 +198,11 @@ class OverloadResolution {
     pub var sc:   *SemaContext;
     pub var conv: *Conversion;
     pub var tu:   TypeUtil;
+
+    /// Every list literal's element shapes, for this TU. Append-only, and
+    /// indices into it are stable for exactly that reason: an ArgInfo names
+    /// its elements by range, so nothing has to hold a container of itself.
+    pub var list_shapes: vec::<ListShape>;
 
     fn OverloadResolution(self) { self.sc = &null; self.conv = &null; }
     fn OverloadResolution(self, sc: *SemaContext, conv: *Conversion) {
@@ -679,9 +707,13 @@ class OverloadResolution {
         if a->lit != LitKind::None {
             if pt->is_dependent() {
                 // `fn <T> f(x: T)` with `f(10)`: T := the literal's default.
-                var def = self._literal_default(a);
+                var def = self._literal_default(a, pt);
                 if def == &null { return ImplicitRank::None; }
-                return c->ded.unify(pt, def, true);
+                var ur = c->ded.unify(pt, def, true);
+                // A list literal reaching a slice or vector is never Exact.
+                if (ur != ImplicitRank::None) && (a->lit == LitKind::List)
+                && (!isa::<FixedArrayType>(canon_unqual(def))) { return ImplicitRank::Converted; }
+                return ur;
             }
             return self._rank_literal_arg(a, pt);
         }
@@ -728,11 +760,69 @@ class OverloadResolution {
             case LitKind::NullPtr {
                 return (ImplicitRank::Exact) if (self.tu.pointee(target) != &null) else (ImplicitRank::None);
             }
+            case LitKind::List { return self._rank_list(a, pt); }
             default { return ImplicitRank::None; }
         }
     }
 
-    priv fn _literal_default(self, a: *ArgInfo) -> *Type {
+    /// A list literal TAKES its parameter's type (§5), so nothing is converted;
+    /// the rank says which target it took. `[T; N]` with N == count is the
+    /// literal's own type and ranks as the worst element does. Slice and Vector
+    /// are Converted, and unordered against each other: with only those two
+    /// overloads the call is ambiguous, as in C++.
+    priv fn _rank_list(self, a: *ArgInfo, pt: *Type) -> ImplicitRank {
+        var target = canon_unqual(self.tu.strip_nullable(pt));
+        if target == &null { return ImplicitRank::None; }
+
+        var is_array = false;
+        if isa::<FixedArrayType>(target) {
+            var at = cast::<FixedArrayType>(target);
+            if at->is_incomplete || (static_cast::<usize>(at->size_bits) != a->elems_n) { return ImplicitRank::None; }
+            is_array = true;
+        } else if (!self.tu.is_slice(target)) && (!self.tu.is_vector_like(target)) {
+            return ImplicitRank::None;
+        }
+        var elem = self.tu.container_elem(target);
+        if elem == &null { return ImplicitRank::None; }
+
+        var worst = ImplicitRank::Exact;
+        for var i: usize = 0; i < a->elems_n; ++i {
+            var el = &(self.list_shapes[a->elems_lo + i]);
+            var r  = self._rank_elem(el, elem);
+            if r == ImplicitRank::None { return ImplicitRank::None; }
+            if r == ImplicitRank::Converted { worst = ImplicitRank::Converted; }
+        }
+        if !is_array { return ImplicitRank::Converted; }
+        return worst;
+    }
+
+    /// One element against the container's element type. A nested list is
+    /// ranked through its own range; everything else is its literal shape or
+    /// its type.
+    priv fn _rank_elem(self, el: *ListShape, elem: *Type) -> ImplicitRank {
+        if el->lit == LitKind::List {
+            var sub = ArgInfo{};
+            sub.lit      = LitKind::List;
+            sub.elems_lo = el->kids_lo;
+            sub.elems_n  = el->kids_n;
+            return self._rank_list(&sub, elem);
+        }
+        if el->lit != LitKind::None {
+            var sub = ArgInfo{};
+            sub.lit     = el->lit;
+            sub.lit_lo  = el->lit_lo;
+            sub.lit_hi  = el->lit_hi;
+            sub.lit_big = el->lit_big;
+            sub.lit_neg = el->lit_neg;
+            return self._rank_literal(&sub, elem);
+        }
+        if el->ty != &null { return self.conv->implicit(el->ty, elem); }
+        return ImplicitRank::None;
+    }
+
+    /// \p pt is the (dependent) parameter the default will be unified against;
+    /// only a list reads it, to choose which container its default is.
+    priv fn _literal_default(self, a: *ArgInfo, pt: *Type) -> *Type {
         switch a->lit {
             case LitKind::Int {
                 var pb = self.tu.builtin(BuiltinKind::USize)->size_bits;
@@ -743,8 +833,40 @@ class OverloadResolution {
                 return self.tu.builtin(BuiltinKind::U128);
             }
             case LitKind::Float { return self.tu.builtin(BuiltinKind::F64); }
+            case LitKind::List { return self._list_default(a->elems_lo, a->elems_n, pt); }
             default { return &null; }
         }
+    }
+
+    /// The type a list literal takes when its parameter is dependent: the
+    /// join of its elements' own defaults, in whichever container \p pt asks
+    /// for (an array when it asks for nothing).
+    priv fn _list_default(self, lo: usize, n: usize, pt: *Type) -> *Type {
+        var target = canon_unqual(self.tu.strip_nullable(pt));
+        var ept: *Type = (self.tu.container_elem(target)) if (target != &null) else (&null);
+        var e: *Type = &null;
+        for var i: usize = 0; i < n; ++i {
+            var el = &(self.list_shapes[lo + i]);
+            var t: *Type = &null;
+            if el->lit == LitKind::List { t = self._list_default(el->kids_lo, el->kids_n, ept); }
+            else if el->lit != LitKind::None {
+                var sub = ArgInfo{};
+                sub.lit     = el->lit;
+                sub.lit_lo  = el->lit_lo;
+                sub.lit_hi  = el->lit_hi;
+                sub.lit_big = el->lit_big;
+                sub.lit_neg = el->lit_neg;
+                t = self._literal_default(&sub, ept);
+            } else { t = el->ty; }
+            if t == &null { return &null; }
+            var j = self.conv->join(e, t);
+            if j == &null { return &null; }
+            e = j;
+        }
+        if e == &null { return &null; }
+        if (target != &null) && self.tu.is_vector_like(target) { return self.tu.vector_of(e); }
+        if (target != &null) && self.tu.is_slice(target)       { return self.tu.slice_of(e); }
+        return self.sc->types->array(e, static_cast::<u64>(n));
     }
 
     // === diagnostics ========================================================
