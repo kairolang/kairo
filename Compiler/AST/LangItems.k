@@ -150,6 +150,13 @@ class LowerTargets {
     static fn witness_suffix() -> string { return "_witness"; }
     static fn concept_suffix() -> string { return "_c"; }
 
+    // --- Array prvalues (writer: InterfaceEmitter; reader: EmitIR) --------------------
+
+    /// `template <class T, decltype(sizeof(0)) N> using __kairo_array = T[N];`
+    /// An alias, so it is never instantiated: `__kairo_array<int, 3>` IS
+    /// `int[3]`, given a name a functional cast can use.
+    static fn array_alias() -> string { return "__kairo_array"; }
+
     /// The reserved identifier prefix. CxxNameCheck rejects user identifiers
     /// that start with it.
     static fn reserved_prefix() -> string { return "__kairo_"; }

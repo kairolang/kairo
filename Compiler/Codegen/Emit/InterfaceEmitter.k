@@ -36,6 +36,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
+import AST::LangItems::*;
 import AST::Node::Base::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
@@ -67,7 +68,15 @@ class InterfaceEmitter {
 
     fn run(self) {
         var header = (self._plan->mode() == PlanMode::Header);
-        if header { self._header_prologue(); }
+        if header {
+            self._header_prologue();
+        } else {
+            // The array-prvalue alias, once per TU, ahead of every body that
+            // can name it. A header carries no bodies and needs none.
+            sink->spell(self._tu_at(),
+                "template <class T, decltype(sizeof(0)) N> using " + LowerTargets::array_alias() + " = T[N];");
+            sink->brk();
+        }
 
         var i: usize = 0;
         var n = self._plan->entries.size();
@@ -482,11 +491,9 @@ class InterfaceEmitter {
             }
             if !first { s += ", "; }
             first = false;
-            s += self._spell->param_type(p);
-            if !p->unname {
-                s += " ";
-                s += self._spell->imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f)));
-            }
+            var nm = "";
+            if !p->unname { nm = self._spell->imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f))); }
+            s += self._spell->param_decl(p, nm);
         }
         // C++ distinguishes postfix `++`/`--` from prefix by an unnamed `int`
         // parameter. Kairo says `op r++`, so the dummy is invented here.
@@ -543,7 +550,7 @@ class InterfaceEmitter {
                 if (p == &null) || p->is_self { continue; }
                 if !first { s += ", "; }
                 first = false;
-                s += self._spell->param_type(p, ie);
+                s += self._spell->param_decl(p, "", ie);
             }
             s += ");";
         } else {

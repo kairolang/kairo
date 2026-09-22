@@ -367,7 +367,11 @@ class CXXSpell {
                 var a = cast::<FixedArrayType>(t);
                 var ext = "";
                 if !a->is_incomplete { ext = f"{a->size_bits}"; }
-                return self.decl(a->element, f"{name}[{ext}]", subst);
+                // `[]` binds tighter than `*` and `&`: a pointer or reference
+                // TO an array parenthesizes its declarator.
+                var nm = name;
+                if (nm.size() > 0) && ((nm[0] == '*') || (nm[0] == '&')) { nm = "(" + nm + ")"; }
+                return self.decl(a->element, f"{nm}[{ext}]", subst);
             }
             case TypeKind::FunctionPointerType {
                 var f = cast::<FunctionPointerType>(t);
@@ -398,6 +402,24 @@ class CXXSpell {
     /// EmitIR documents them). \p is_const is the `const x: T` marker.
     fn param_type(self, p: *ParamDecl, subst: *InstanceEntry = &null) -> string {
         return self._param_type(p->type_, p->mode, p->is_const, subst);
+    }
+
+    /// `type name` for a parameter, name folded into the declarator. The one
+    /// spelling that differs from `param_type(p) + " " + name` is an array:
+    /// `[T; N]` is passed by reference (`const T (&xs)[N]` / `T (&xs)[N]`),
+    /// never by value (StmtTyping rejects that), so the name sits inside the
+    /// declarator and `decl()` builds it. Empty \p name is the abstract form.
+    fn param_decl(self, p: *ParamDecl, name: string, subst: *InstanceEntry = &null) -> string {
+        var c = (p->type_->canonical) if (p->type_ != &null) else (&null);
+        if (c != &null) && (canon_unqual(c)->kind == TypeKind::FixedArrayType) {
+            ICE_IF((p->mode == ParamMode::Value) && (!p->is_const),
+                "CXXSpell: array parameter by value; StmtTyping must reject it");
+            var s = self.decl(canon_unqual(c), "&" + name, subst);
+            return (("const " + s) if (p->is_const) else (s));
+        }
+        var s = self.param_type(p, subst);
+        if name.size() > 0 { s += " " + name; }
+        return s;
     }
 
     priv fn _param_type(self, t: *Type, mode: ParamMode, is_const: bool, subst: *InstanceEntry) -> string {

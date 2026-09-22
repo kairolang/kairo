@@ -44,11 +44,15 @@ fn main() -> i32 {
     var eq: bool     = scaled == c      // op ==     -> true
     var neg: Vec2    = -sum             // op -      -> { -4, -6 }
 
-    // op as on each: 10 + (-10) + 20 + 1 == 21.
-    return ((sum as f64) as i32)
-         + ((neg as f64) as i32)
-         + ((scaled as f64) as i32)
-         + ((1) if eq else (0))
+    // A block `if` cannot start a continuation line: the parser ends the
+    // statement at the previous line and reads the `+` as a new one. Bound
+    // to a var, which the sum reads as an operand like any other.
+    var bonus: i32 = if eq { 1 } else { 0 }
+
+    // op as on each: 10 + (-10) + 20 + 1 == 21. On ONE line: a continuation
+    // line that STARTS with `+` does not parse (the statement ends at the
+    // previous line), which is older than this test and not what it asserts.
+    return ((sum as f64) as i32) + ((neg as f64) as i32) + ((scaled as f64) as i32) + bonus
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -69,6 +73,10 @@ fn main() -> i32 {
 // comment above derives; a wrong operator picks a different one rather than
 // failing to link, which is the whole point of checking the exit code.
 // REQUIRES: clang
-// RUN: %kairo %s -o %t.o
-// RUN: %clangxx %t.o -o %t.exe
+// `-o` names a DIRECTORY: the entry TU's object, plus one per builtin TU
+// it pulled in. The Slice instance is homed in whichever of those used it,
+// so all of them go to the linker.
+// RUN: rm -rf %t.d
+// RUN: %kairo %s -o %t.d
+// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o -o %t.exe
 // RUN: %t.exe; test $? -eq 21

@@ -59,6 +59,7 @@ import AST::Context::TranslationUnit::*;
 import AST::Context::InstantiationRegistry::*;
 import AST::ASTSupport::*;
 import AST::DeclFacts::*;
+import AST::LangItems::*;
 import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::Declarations::*;
@@ -349,9 +350,7 @@ class EmitIR {
             }
             if !first { s += ", "; }
             first = false;
-            s += self._spell.param_type(p);
-            s += " ";
-            s += self._spell.imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f)));
+            s += self._spell.param_decl(p, self._spell.imm_name(p->name.imm, CXXSpell::fid_of(static_cast::<*Decl>(f))));
         }
         // The postfix `int` dummy, same rule as the declaration side.
         if CXXSpell::op_is_postfix(f) {
@@ -485,7 +484,12 @@ class EmitIR {
         }
         if n->init != &null {
             sink->synth_at_end(n->name.range, clang::tok::equal);
-            self._value(n->init, n->type_);
+            var il = dyn_cast::<InitListExpr>(n->init);
+            if (il != &null) && (c != &null) && (c->kind == TypeKind::FixedArrayType) {
+                self._init_list(il, true);     // a declarator's initializer: the one place bare braces are legal.
+            } else {
+                self._value(n->init, n->type_);
+            }
         }
     }
 
@@ -590,7 +594,8 @@ class EmitIR {
             case ExprKind::ThreadExpr           { ICE_FAIL("EmitIR: thread; the async lowering owns it"); }
             case ExprKind::EvalExpr             { ICE_FAIL("EmitIR: eval; EvalLowering owns it"); }
             case ExprKind::PackExpansionExpr    { ICE_FAIL("EmitIR: pack expansion; not emitted yet"); }
-            case ExprKind::ListLiteralExpr      { self._array_literal(cast::<ListLiteralExpr>(e)); }
+            case ExprKind::ListLiteralExpr      { ICE_FAIL("EmitIR: list literal; ListLiteralLowering owns it"); }
+            case ExprKind::InitListExpr         { self._init_list(cast::<InitListExpr>(e), false); }
             case ExprKind::SetLiteralExpr       { ICE_FAIL("EmitIR: set literal; the container migration owns it"); }
             case ExprKind::MapLiteralExpr       { ICE_FAIL("EmitIR: map literal; the container migration owns it"); }
             case ExprKind::TupleLiteralExpr     { ICE_FAIL("EmitIR: tuple literal; no lowering yet"); }
@@ -1007,29 +1012,38 @@ class EmitIR {
 
     // --- Initializers -------------------------------------------------------------
 
-    /// `T{ .a = x, .b = y }` in declaration order. Designated init needs an
-    /// aggregate; a record with a user constructor is a ctor call and is
-    /// OperatorLowering/CopyMoveLowering's to rewrite.
-    /// `{ a, b, c }` for a `[T; N]` literal. The ONLY list literal that
-    /// reaches codegen: ListLiteralLowering rewrites a slice-typed one into a
-    /// hoisted array plus a Slice ctor call, so what is left here is always an
-    /// array -- and a brace list is legal only as a declarator's initializer,
-    /// which is the one place that lowering leaves it.
-    priv fn _array_literal(self, n: *ListLiteralExpr) {
-        ICE_IF(n->type_ == &null, "EmitIR: untyped list literal reached codegen; ExprTyper gate failure");
+    /// A braced-init-list of array type. \p bare is the declarator form:
+    /// `= { a, b }` on a variable, and an array nested directly inside another
+    /// (C++ cannot initialize an array element from an array prvalue).
+    /// Everywhere else it is the array PRVALUE `::__kairo_array<T, N>{ a, b }`,
+    /// alive until the end of the full-expression. Valid C++17; GCC rejects the
+    /// decay of one ("taking address of temporary array"), clang does not, and
+    /// bodies only ever go through clang.
+    priv fn _init_list(self, n: *InitListExpr, bare: bool) {
+        ICE_IF(n->type_ == &null, "EmitIR: untyped init list reached codegen; ListLiteralLowering must type it");
         var c = canon_unqual(n->type_);
         ICE_IF((c == &null) || (c->kind != TypeKind::FixedArrayType),
-            "EmitIR: non-array list literal reached codegen; ListLiteralLowering must rewrite it into a Slice construction");
-        var elem = cast::<FixedArrayType>(c)->element;
+            "EmitIR: init list that is not an array; the initializer_list constructor form is not written yet");
+        var at   = cast::<FixedArrayType>(c);
+        var elem = at->element;
 
-        sink->spell(n->range, "{");
+        if bare {
+            sink->spell(n->range, "{");
+        } else {
+            sink->spell(n->range, "::" + LowerTargets::array_alias() + "<" + self._spell._type(elem) + ", " + f"{at->size_bits}" + ">{");
+        }
         for var i: usize = 0; i < n->elements.size(); ++i {
             if i > 0 { sink->spell(n->range, ","); }
-            self._value(n->elements[i], elem);
+            var el = n->elements[i];
+            if isa::<InitListExpr>(el) { self._init_list(cast::<InitListExpr>(el), true); }
+            else { self._value(el, elem); }
         }
         sink->spell(n->range, "}");
     }
 
+    /// `T{ .a = x, .b = y }` in declaration order. Designated init needs an
+    /// aggregate; a record with a user constructor is a ctor call and is
+    /// OperatorLowering/CopyMoveLowering's to rewrite.
     priv fn _init(self, e: *Expr, fields: FrozenList::<InitField>) {
         ICE_IF(e->type_ == &null, "EmitIR: untyped initializer reached codegen; ExprTyper gate failure");
         var c = canon_unqual(e->type_);
