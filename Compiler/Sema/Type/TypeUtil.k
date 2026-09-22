@@ -282,14 +282,12 @@ class TypeUtil {
     // === lang items =========================================================
 
     /// `record(lang item decl, args)` or null when the item is unbound.
+    /// SemaContext owns the builder: TypeResolve reaches the same one, so a
+    /// written `[T;]` and one a literal takes share an identity AND a registry
+    /// entry (without which the instance has no home TU and its bodies are
+    /// emitted nowhere).
     fn lang_record(self, k: WellKnownType, args: *vec::<*Type>) -> *Type {
-        var d = self.sc->well_known->get(k);
-        if d == &null { return &null; }
-        var rep = NameLookup::representative(d);
-        var gps = self.generic_params_of(rep);
-        var trimmed = vec::<*Type>();
-        for var i: usize = 0; (i < gps.size()) && (i < args->size()); ++i { trimmed.push_back((*args)[i]); }
-        return self.sc->types->record(rep, &trimmed);
+        return self.sc->lang_record(k, args);
     }
 
     /// A container canonical is the lang RECORD or nothing. There is no

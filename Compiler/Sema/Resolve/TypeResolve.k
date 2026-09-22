@@ -283,8 +283,11 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     /// structural canonical: the two would be different identities for the
     /// same written type, and the mismatch would surface far from here.
     ///
-    /// TypeResolve holds no TypeUtil, so this goes through the table and the
-    /// store directly rather than through `tu.lang_record`.
+    /// The unbound item is diagnosed HERE, where there is a written node to
+    /// point at; SemaContext::lang_record returns null for it and has no
+    /// range of its own. Everything else -- trimming to the arity, and
+    /// registering a concrete instance -- is that one builder's, so a written
+    /// `[T;]` and one a literal takes are the same canonical.
     priv fn _lang_record(self, n: *Type, k: WellKnownType, args: *vec::<*Type>) -> *Type {
         var d = self.sc->well_known->get(k);
         if d == &null {
@@ -294,7 +297,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
             n->poison();
             return &null;
         }
-        return self.sc->types->record(NameLookup::representative(d), args);
+        return self.sc->lang_record(k, args);
     }
 
     priv fn _resolve_vector(self, n: *VectorType) {

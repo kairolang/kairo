@@ -32,6 +32,7 @@ import AST::Context::CanonicalTypes::*;
 import AST::Node::Base::*;
 import AST::Node::CanonicalNodes::*;
 import AST::LangItems::*;
+import AST::DeclFacts::*;
 import Sema::Check::ConstraintSet::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Resolve::ResolutionTrace::*;
@@ -269,6 +270,35 @@ class SemaContext {
     fn builtin(self, b: BuiltinKind) -> *Type {
         if self.types == &null { return &null; }
         return self.types->builtin(b);
+    }
+
+    /// THE canonical for a lang record at \p args. Concrete args go through
+    /// the InstantiationRegistry, exactly as TypeResolve::_type_of_decl sends
+    /// a written `Foo<i32>`: the instance then has a home TU, and EmitPlan
+    /// emits its explicit instantiation and homed bodies there. A dependent
+    /// use keeps the primary (a pattern, deferred to M2). TypeResolve and
+    /// TypeUtil both build through here, so `[i32;]` written, `[i32;]` taken
+    /// by a literal, and `Slice<i32>` spelled out are one identity.
+    fn lang_record(self, k: WellKnownType, args: *vec::<*Type>) -> *Type {
+        if (self.well_known == &null) || (self.types == &null) { return &null; }
+        var d = self.well_known->get(k);
+        if d == &null { return &null; }
+        var rep = NameLookup::representative(d);
+        var gps = decl_generic_params(rep);
+        var trimmed = vec::<*Type>();
+        var dep = false;
+        for var i: usize = 0; (i < gps.size()) && (i < args->size()); ++i {
+            var a = (*args)[i];
+            if a == &null { return &null; }
+            if a->is_dependent() || a->is_instantiation_dependent() { dep = true; }
+            trimmed.push_back(a);
+        }
+        var inst = rep;
+        if (!dep) && (gps.size() > 0) && (self.instances != &null) && (self.ctx != &null) {
+            var e = self.instances->instance_for(rep, &trimmed, self.ctx->fid, NameLookup::ctx_of(rep));
+            if e != &null { inst = e->decl; }
+        }
+        return self.types->record(inst, &trimmed);
     }
 
     /// Errors produced since sema began.
