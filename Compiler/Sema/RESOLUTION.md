@@ -11,6 +11,16 @@ Pipeline, as scheduled by `Sema.k`:
       -> C (ConstraintExtraction, TypeCycleCheck, ExprTyper, ShadowCheck, ...)
       -> L -> M1 -> M2
 
+**The dumps are pinned to phases, not to the end of the run.**
+`--print-sema` dumps after `run_to(Checked)` -- X's output, before any
+`Lower/` pass has rewritten the nodes it names (a list literal is still a
+list literal, a cast is still a cast). `--print-lowered` is the same dump on
+the far side of `Lower/`, and a test asserting what a lowering PRODUCED uses
+that one. `--print-ast` is earlier still: it dumps at the end of P, before
+sema runs at all. Splitting the run this way must not lose the hard stop --
+a stage that returned false has already halted the pipeline, and the driver
+does not re-enter (`Sema.k::_hard_stop`).
+
 ### 2.1 P parse [DONE]
 
 POST: every DC has a frozen table; `out_of_line` collected.
@@ -376,6 +386,46 @@ at the literal. Against a parameter, an untyped literal ranks Exact for
 any type it fits (it TAKES the type; it is not converted) and is typed
 with the parameter type after selection. The lexer's min-width guess is
 not read for unsuffixed literals.
+
+**List literals** (`LiteralTyping::type_list_literal`). A `[...]` literal
+takes its type from the TARGET, the same way a scalar literal does:
+`[T; N]` (the count must match the target's, else an error), `[T;]` a
+Slice, `[T]` a Vector. With no container target it is `[T; N]` over the
+join of its elements. Empty with no target is an error, as `null` is.
+
+In argument position it is deferred exactly like a scalar literal
+(`LitKind::List`, the element shapes in `ArgInfo::elems`): ranked by SHAPE,
+typed after selection. Rank (`_rank_list`): `[T; N]` with a matching count
+is the literal's own type and ranks as its worst element does (Exact when
+every element is Exact); Slice and Vector are Converted and unordered
+against each other, so those two overloads ALONE are ambiguous -- the same
+answer C++ gives for span vs vector. Deduction against a dependent
+parameter goes through the element join (`_list_default`) and yields an
+array, a slice or a vector by the parameter's shape.
+
+X records three facts on the node, and the lowering decides nothing:
+`slice_ctor` and `owner_ctor` -- found by SHAPE through the lang item
+(parameter count, and whether the single parameter is a Slice), never by
+name -- and `storage`, `FullExpr` or `Extended`. Extended means the literal
+directly initializes a `var`, and it propagates into nested slice literals.
+
+Lifetime errors (`SC001E` for now): a slice-typed literal RETURNED, as the
+RHS of `=`, as a field default, or as an initializer's value for a
+slice-typed field. Those are the positions with no scope to extend a
+backing array into. Documented hole: a callee that RETAINS a slice
+argument is not decidable here; that is AMT's escape clause (Stage 2).
+
+`[T;] -> [T]` is not implicit -- it allocates. Write `s as [T]`, which goes
+through Vector's converting constructor: CastTyping rung 5d records
+`TypeCastExpr::resolved_ctor`, and OperatorLowering rewrites the cast into
+the construction. A literal never needs the cast; it takes `[T]` directly.
+
+`[T; N]` is a C array, and X enforces the four rules that follow from that:
+it is not copied (`_reject_array_copy`: an array is initialized from a list
+literal and from nothing else), not assigned, not passed by value (write
+`const`, `@inout`, or take a slice), and not returned (return `[T]` or fill
+an `@inout` parameter). It is a local, a field, a literal, a `const`/
+`@inout` parameter, and what a slice views.
 
 **Overload resolution** (`OverloadResolution.k`). Viability: placement
 (positional, named, pack tail), defaults, every placed arg at rank <=

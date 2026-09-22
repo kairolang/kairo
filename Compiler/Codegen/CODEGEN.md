@@ -25,6 +25,15 @@ Three rules govern the whole layer:
    subset of Kairo (§6). Every other node ICEs naming the Lower/ pass that
    owns it. Codegen never grows an arm for a node a lowering removes.
 
+Rule 1 covers the lang records too. Every lang record at concrete arguments
+is built through `SemaContext::lang_record`, which registers the instance
+(`InstantiationRegistry::instance_for`) and points the `RecordType` at the
+INSTANCE node, exactly as a written `Foo<i32>` does. A written `[i32;]`, a
+literal that took `[i32;]`, and a spelled-out `Slice<i32>` are therefore one
+canonical, and that instance has a home TU for its explicit instantiation.
+`TypeResolve::_lang_record` and `TypeUtil::lang_record` both delegate to it;
+nothing else builds a lang record. A dependent use keeps the primary.
+
 ## 1. Pipeline
 
     FrontendAction::_codegen      per non-foreign fid, DAG order
@@ -52,6 +61,14 @@ spacing rules (tight before `::` `<` `>` `(` `)` `*` `&` `,` `;` `:`,
 tight after `::` `<` `(` `~`; `::` tight only after a word). Emitters import
 `CodegenContext` only; clang types are visible transitively.
 
+Identifiers are never byte-borrowed. `TokenSink` spells an identifier from
+the `IdentifierInfo` and reads the range as caret geometry alone, so
+`EmitIR::_name(Token)` always goes through `create_ident` with the spelling
+from the imm table of the file that OWNS the body being emitted — for a
+foreign template homed here, that is not this TU. Float and char literals
+still borrow their bytes (`synth` → `literal`), so a lowering that mints one
+must spell it from its value, as `_int_lit` does.
+
 ## 3. EmitPlan
 
 Per TU, the set of declarations the emitted C++ needs, with strengths and
@@ -75,8 +92,8 @@ pointers, signature types Fwd. Refinements decided since:
 Tiers: 0 forward declarations; 1 definitions, topo-sorted on Complete;
 2 function declarations; 3 instantiations (`extern template` unless this
 TU is the instance's home, `template class` if it is). Entry-TU decls go
-in the unnamed namespace; `main` is emitted at global scope and never
-declared in the interface.
+in the file's own namespace (§5); `main` is emitted at global scope and
+never declared in the interface.
 
 ## 4. CXXSpell — the one speller
 
@@ -93,14 +110,42 @@ emitters use the same instance; a declaration and a body cannot disagree.
   `__kairo_pow`, `__kairo_deep_eq`, `__kairo_dotstar`, `__kairo_await`).
 - `_type(t)`: canonical → C++; builtins by table (`i32` is
   `::std::int32_t`), records qualified with instance args from the
-  registry, pointers, references, C arrays in `decl()` form. Structural
+  registry, pointers, references, arrays through `decl()`. Structural
   containers are gone (builtin records); `T?` and tuples ICE naming their
   lowering.
+- `decl(t, name)`: the declarator form, the name folded in. `[T; N]` is a C
+  array: it is a local, a field, a literal, a `const`/`@inout` parameter,
+  and what a slice views; it is not copied, assigned, passed by value or
+  returned, and X rejects all four. A `[...]` literal with no container
+  target has type `[T; N]`. A declarator that starts with `*` or `&` is
+  parenthesized before the array suffix (`signed int(*)[2]`, not
+  `signed int*[2]`).
 - `param_type(p)`: modes → `T&` (`@inout`), `T&&` (`@move`), `T`. The
   `const T&` rule for by-value records is DECIDED and not yet applied.
+  This is the name-less form, and the right one for everything that is not
+  an array.
+- `param_decl(p, name)`: the parameter spelling with the name folded into
+  the declarator. Arrays are the case it exists for: a `const [T; N]`
+  parameter is `const T (&name)[N]`, an `@inout` one is `T (&name)[N]`, and
+  by value is an ICE (StmtTyping rejects it). Both emitters spell
+  parameters through here.
 - `template_head(d)`: `template <class T, ...>`.
 
 ## 5. InterfaceEmitter
+
+Every Preamble — never a Header, which carries no bodies — opens with
+
+    template <class T, decltype(sizeof(0)) N> using __kairo_array = T[N];
+
+(`LowerTargets::array_alias`). It is an alias, so it is never instantiated.
+
+Namespace wrapping: an entry-TU decl lives in `namespace <file stem>`, the
+stem sanitized to an identifier (`CXXSpell::entry_stem`); a `priv` or
+`internal` decl goes one level deeper, into an unnamed namespace nested
+inside it (`CXXSpell::is_anon`); `main` stays at global scope. Qualified
+names are unchanged — `::stem::x` reaches into the unnamed namespace through
+C++'s implicit using-directive — so `qual_name` knows nothing about any of
+it. Library roots still wrap by `module_base` (Piece 1 open).
 
 Walks plan entries by tier. Records: `class`/`struct` with access
 specifiers, fields, method DECLARATIONS (never bodies — invariant 12),
@@ -122,8 +167,18 @@ Declarations are the plan's; EmitIR writes bodies. What it knows:
     primitive operators, casts, `if`/`while`/`for(;;)`/C-style `for`,
     `return`/`break`/`continue` (unlabeled), locals, blocks, named and
     anonymous initializers (designated, declaration order, aggregates
-    only), `sizeof`/`alignof`/`delete`, `unsafe` (transparent), array
-    brace lists as variable initializers.
+    only), `sizeof`/`alignof`/`delete`, `unsafe` (transparent),
+    `InitListExpr`.
+
+`InitListExpr` is the C++ braced-init-list, and array-typed only. Its two
+spellings are chosen by POSITION: the bare `{...}` as a `VariableDecl`'s
+direct initializer and as an element sitting directly inside another array
+`InitListExpr` (C++ cannot initialize an array element from an array
+prvalue); the prvalue `::__kairo_array<T, N>{...}` everywhere else, alive to
+the end of the full-expression. Both are valid C++17, but GCC rejects the
+decay of a prvalue array ("taking address of temporary array") and clang
+does not — bodies only ever go through clang, and that is a HARD dependency
+of this layer, not a preference.
 
 Definitions it produces: free functions (namespace wrapper per function),
 methods out of line (`RET Owner<T>::name(params) const`), constructors and
@@ -155,9 +210,11 @@ ICE map (node → owner): match/MatchExpr → MatchLowering; try/finally/
 panic/assert → PanicLowering; ranged for/ranges/slices → IterLowering;
 `?.`/`??`/`T?` → the nullable trio; f-strings → FStringLowering; yield →
 YieldLowering; closures → lambda emission (unwritten); await/spawn/thread
-→ async lowering; list/set/map literals → ListLiteralLowering; labeled
+→ async lowering; `ListLiteralExpr` / set / map literals →
+ListLiteralLowering (set and map have no lowering yet); labeled
 break/continue → label lowering; typeof/impl/derives tests →
-TypeQueryLowering; NamedArgExpr → CallLowering.
+TypeQueryLowering; NamedArgExpr → CallLowering; a `TypeCastExpr` with a
+record operand and no `resolved_ctor` → OperatorLowering.
 
 ## 7. Templates
 
@@ -188,7 +245,13 @@ extension call through a field path, homed template instance, one `.o`
 per module, `clang++ -Wodr` link, exit 9. `Tests/Codegen/operators`,
 `Tests/Codegen/defaults`, `Tests/Codegen/slices`: one per lowering, each
 with a `--print-cxx` golden and a link that exits with a computed value.
-`--print-cg` goldens carry the fid column and preamble offsets.
+`Tests/Codegen/slices/sum.k` is the list-literal link test: an array
+prvalue as an argument, an Extended backing array behind a `var`, a literal
+under a conditional, exit 38. Its `-o` names a DIRECTORY, so the link takes
+the entry TU's object and one per builtin TU it pulled in — `%t.d/*.o
+%t.d/builtin/*.o` — because the Slice instance is homed in whichever of
+them used it. `--print-cg` goldens carry the fid column and preamble
+offsets.
 
 ## 10. Open
 
@@ -196,3 +259,15 @@ Piece 1 (root naming by `module X;` declaration; `-I` becomes C++-only);
 `const T&` for by-value records; witnesses/concepts; per-TU header reuse
 across FrontendActions; namespace merging in EmitIR (cosmetic);
 `ReturnStmt` keyword token; `TextSink` binary spacing outside parens.
+
+Emitter consolidation: one `fn_signature` in CXXSpell, one namespace
+helper, one record-members accessor, `is_ctor` as a decl fact rather than a
+name comparison — goldens for every `Tests/Codegen` test go in FIRST, or
+the refactor has nothing to hold it.
+
+Constructor initializer lists: `FunctionDecl::initializers`, mem-init
+emission, and the const-field init-once rule. AccessCheck. Vector/HashSet/
+HashMap constructor bodies in `Lib/builtin` — vector literals type-check
+and emit today, but do not LINK. Set and map literal lowering, which needs
+`Pair<K, V>` and the Slice constructors on HashSet/HashMap. Static
+promotion of an all-constant `const`-element slice literal.

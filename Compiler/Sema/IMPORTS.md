@@ -309,8 +309,9 @@ every body. One object per non-foreign TU.
     within that root, plus any `module X { }` blocks enclosing it — and of
     nothing else: not the checkout's directory name, not a flag, not the
     importer's spelling. Two builds of one tree emit byte-identical
-    interfaces. The entry TU has no path and emits into the unnamed
-    namespace, `main` excepted.
+    interfaces. The entry TU declares no root, so its namespace is its FILE
+    STEM (CODEGEN.md §5), `main` excepted -- and the stem is inside the
+    source tree, so the invariant is unchanged.
 9b. **Compiler-invented names come from one file.** `AST/LangItems.k` holds
     both kinds: LANG ITEMS (a decl a user could have written, arriving
     through ordinary imports, filled once per build on the
@@ -395,6 +396,11 @@ redecl ring by N(a). Three rules make the ring behave as one block:
   `tests: Tests/Sema/lookup_module_reopen.k`.
 Two FILES both writing `module Util` are two rings; merging those is the
 cross-reopening question at M2 (item 13a).
+
+The entry TU is NOT the unnamed namespace any more: it reopens
+`namespace <file stem>`, and only its `priv`/`internal` decls go one level
+deeper into an unnamed namespace nested there. CODEGEN.md §5 has the rule;
+invariant 9a is unchanged, because the stem is inside the source tree.
 
 ### 4.4 Re-export [DONE]
 
@@ -636,9 +642,12 @@ deterministic.
 Each decl in `namespace a::b { ... }`, from `CXXSpell::ns_segments` (§3
 invariant 9a). Reopening is free in C++, so one wrapper per decl is
 correct; InterfaceEmitter merges consecutive same-namespace tier-0 entries,
-EmitIR does not merge at all. Entry-TU decls go in the UNNAMED namespace,
-not the global one -- `main` excepted, which C++ requires at global scope
-and which therefore gets no declaration in the interface at all.
+EmitIR does not merge at all. Entry-TU decls go in a namespace named for
+the FILE STEM, not the global one; a `priv` or `internal` one goes into an
+unnamed namespace nested inside that -- `main` excepted, which C++ requires
+at global scope and which therefore gets no declaration in the interface at
+all. CODEGEN.md §5 is the rule; qualified names do not change, because C++
+reaches into the unnamed namespace through its implicit using-directive.
 
 ### 6.5 Alias tail [DECIDED: none]
 
@@ -693,6 +702,13 @@ link error, so the registry is authoritative.
 checked in Kairo at the instantiation site, lowered (`WhereDispatchLowering`)
 BEFORE emission. The emitted template is unconstrained and is only ever
 instantiated at arguments Kairo accepted.
+
+The lang records are no exception. `Slice<i32>`, `Vector<i32>` and their
+kin instantiate through this same registry whenever the arguments are
+concrete, because everything that builds one goes through
+`SemaContext::lang_record` (CODEGEN.md §0): the sugar `[i32;]`, a literal
+that took `[i32;]`, and the spelled-out `Slice<i32>` name ONE instance,
+with one home TU and one explicit instantiation.
 
 Note: template member bodies are emitted into the template's own TU always,
 and into every TU that homes one of its instances (the explicit
