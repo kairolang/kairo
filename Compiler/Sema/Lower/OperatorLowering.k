@@ -123,14 +123,37 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
 
     fn transform_type_cast_expr(self, n: *TypeCastExpr) -> *Expr {
         var out = ASTWriter_OperatorLowering::transform_type_cast_expr(n);
+        if n->resolved_ctor != &null { return self._ctor_cast(n); }
         if n->resolved_op == &null { return out; }
         var f = dyn_cast::<FunctionDecl>(n->resolved_op);
         ICE_IF(f == &null, "OperatorLowering: cast resolved to a non-function");
-        // A converting constructor is a construction, not an operator call;
-        // CopyMoveLowering owns construction shapes.
-        if !f->is_operator { return out; }
+        ICE_IF(!f->is_operator, "OperatorLowering: a converting constructor arrives through resolved_ctor, not resolved_op");
         var args = vec::<*Expr>();
         return self._call_tokens(static_cast::<*Expr>(n), n->operand, f->op_token, n->resolved_op, false, &args);
+    }
+
+    /// `x as T` through a converting constructor -> `T(x)`. The callee names
+    /// the ctor decl; EmitIR spells the TYPE from the call's own canonical.
+    priv fn _ctor_cast(self, n: *TypeCastExpr) -> *Expr {
+        var f = dyn_cast::<FunctionDecl>(n->resolved_ctor);
+        ICE_IF(f == &null, "OperatorLowering: resolved_ctor is not a function");
+        // Spelled through the decl's own context, interned into this file's.
+        var c = NameLookup::ctx_of(static_cast::<*Decl>(f));
+        if c == &null { c = self.ctx; }
+        var t = Token();
+        t.kind  = TokenKind::LitIdentifier;
+        t.range = n->range;
+        t.imm   = self.sc->imm_table()->intern_ident_copy(c->get_spelling(f->name));
+
+        var head = NamedIdentExpr::create(self.ctx, n->range, t);
+        head->resolved_decl = n->resolved_ctor;
+
+        var call = CallExpr::create(self.ctx, n->range, static_cast::<*Expr>(head));
+        var all  = self.list_builder::<*Expr>();
+        all.push(n->operand);
+        all.freeze_into(&(call->args));
+        call->adopt_sema(static_cast::<*Expr>(n));
+        return static_cast::<*Expr>(call);
     }
 
     /// `op r++` / `op r--`: the postfix form. CXXSpell::op_is_postfix is the
