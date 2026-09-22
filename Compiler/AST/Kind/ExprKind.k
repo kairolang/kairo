@@ -350,6 +350,11 @@ enum ExprKind derives u8 {
     /// `__kairo_array<T, N>{...}` everywhere else.
     InitListExpr,
 
+    /// A GNU statement expression: `({ s0; s1; e; })`, the value of its last
+    /// statement. Never parsed; SequenceLowering mints it to make argument
+    /// evaluation order explicit. clang-only, like the array prvalue.
+    StmtExpr,
+
     // -----------------------------------------------------------------------
     //  Marker
     // -----------------------------------------------------------------------
@@ -402,6 +407,7 @@ fn to_string(ek: ExprKind) -> string {
         case ExprKind::VerbatimExpr { return "VerbatimExpr"; }
         case ExprKind::NamedArgExpr { return "NamedArgExpr"; }
         case ExprKind::InitListExpr { return "InitListExpr"; }
+        case ExprKind::StmtExpr { return "StmtExpr"; }
         case ExprKind::ExprKindCount { return "ExprKindCount"; }
     }
 }

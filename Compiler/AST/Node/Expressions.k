@@ -311,6 +311,35 @@ class InitListExpr derives Expr {
 }
 
 ///
+///  StmtExpr
+///  ({ s0; s1; e; })   -- the value is the last statement, an ExpressionStmt.
+///
+class StmtExpr derives Expr {
+    pub var body: *CompoundStmt;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange,
+        body:  *CompoundStmt
+    ) -> *StmtExpr {
+        var node    = ctx->alloc::<StmtExpr>();
+        node->kind  = ExprKind::StmtExpr;
+        node->range = range;
+        node->body  = body;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::StmtExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::StmtExpr;
+    }
+}
+
+///
 ///  TupleLiteralExpr
 ///  (1, "two", 3.0)
 ///

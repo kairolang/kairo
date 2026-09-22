@@ -619,6 +619,7 @@ class <D> ASTWriter {
             case ExprKind::VerbatimExpr             { return self.dyn()->transform_verbatim_expr(              cast::<VerbatimExpr>(e)             ); }
             case ExprKind::NamedArgExpr             { return self.dyn()->transform_named_arg_expr(             cast::<NamedArgExpr>(e)             ); }
             case ExprKind::InitListExpr             { return self.dyn()->transform_init_list_expr(             cast::<InitListExpr>(e)             ); }
+            case ExprKind::StmtExpr                 { return self.dyn()->transform_stmt_expr(                  cast::<StmtExpr>(e)                 ); }
             case ExprKind::RecoveryExpr             { return e; }
             case ExprKind::ExprKindCount            {  ICE_FAIL("ExprKindCount reached ASTWriter - bug"); return &null; }
         }
@@ -644,6 +645,11 @@ class <D> ASTWriter {
 
     fn transform_init_list_expr(self, n: *InitListExpr) -> *Expr {
         self.dyn()->rebuild_expr_list(&(n->elements));
+        return n;
+    }
+
+    fn transform_stmt_expr(self, n: *StmtExpr) -> *Expr {
+        if n->body != &null { n->body = cast::<CompoundStmt>(self.dyn()->transform_stmt_scalar(static_cast::<*Stmt>(n->body))); }
         return n;
     }
 

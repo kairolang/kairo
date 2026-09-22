@@ -52,6 +52,7 @@ import Sema::Check::MoveCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::ListLiteralLowering::*;
+import Sema::Lower::SequenceLowering::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
 import Support::TimeReport::*;
@@ -315,6 +316,13 @@ class Sema {
         self.sc.require_phase(SemaPhase::Checked);
 
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
+        // TODO(sema): CallLowering(&self.sc).run();        // goes HERE, before
+        //             SequenceLowering: defaults are filled first, so a thunk
+        //             call is an impure argument and gets ordered with the rest.
+        // Argument order: after OperatorLowering (operators are calls now),
+        // before ListLiteralLowering (a hoisted slice literal is marked
+        // Extended here and gets its backing there).
+        { var _p = TimeRegion("SequenceLowering"); SequenceLowering(&self.sc).run(); }
         // After OperatorLowering: a list literal can be an operand of a user
         // operator, and this pass builds constructor calls that must not be
         // re-read as operator nodes.

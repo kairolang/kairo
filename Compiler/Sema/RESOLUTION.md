@@ -408,6 +408,19 @@ X records three facts on the node, and the lowering decides nothing:
 (parameter count, and whether the single parameter is a Slice), never by
 name -- and `storage`, `FullExpr` or `Extended`. Extended means the literal
 directly initializes a `var`, and it propagates into nested slice literals.
+A literal SequenceLowering hoists into a `__kairo_arg` local is marked
+Extended there for the same reason: the local is a `var`, and the statement
+expression's block is the scope its backing array lives in.
+
+**Argument order.** Arguments are evaluated left to right, whatever the C++
+compiler would do with them. SequenceLowering writes the order into the
+tree: a call with two or more side-effecting operands (the receiver of
+`x.m(...)` is operand zero) becomes a statement expression that binds each
+of them to a `__kairo_arg` local first. A call whose result is an lvalue (an
+imported `T&` return) or a record value keeps C++'s order for now -- a
+statement expression yields a prvalue, which would change the category or
+force a copy the type may not have. Primitive operators are not calls and
+are not covered.
 
 Lifetime errors (`SC001E` for now): a slice-typed literal RETURNED, as the
 RHS of `=`, as a field default, or as an initializer's value for a
@@ -552,7 +565,7 @@ dependent as failed, and that is the first bug to fix).
 ### 2.10 L Lower [IN PROGRESS], M1, M2 [MISSING]
 
 `Lower/` reduces the tree to the C++-shaped core EmitIR emits (CODEGEN.md
-§6). Order, fixed: OperatorLowering -> CallLowering ->
+§6). Order, fixed: OperatorLowering -> CallLowering -> SequenceLowering ->
 ListLiteralLowering -> ExtensionLowering -> EnumLayoutLowering ->
 NullableTypeLowering -> NullTestLowering -> CoalesceLowering ->
 FStringLowering -> IterLowering -> MatchLowering/PatternCompilation ->

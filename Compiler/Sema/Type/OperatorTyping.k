@@ -84,8 +84,8 @@ class <T> OperatorTyping {
     /// top-level cv is gone by the time they meet.
     fn unify_operands(self, a_in: *Type, b_in: *Type) -> *Type {
         if (a_in == &null) || (b_in == &null) { return &null; }
-        var a = canon_unqual(a_in);
-        var b = canon_unqual(b_in);
+        var a = dyn()->tu.as_value(a_in);
+        var b = dyn()->tu.as_value(b_in);
         if a == b { return a; }
         var ab = dyn()->conv.implicit(a, b);
         var ba = dyn()->conv.implicit(b, a);
@@ -170,8 +170,8 @@ class <T> OperatorTyping {
         if (lt == &null) || (rt == &null) { return &null; }
         // Every builtin result below is a prvalue, and user_binary is safe to
         // hand the stripped type: ml.lookup and ADL both peel it anyway.
-        lt = canon_unqual(lt);
-        rt = canon_unqual(rt);
+        lt = dyn()->tu.as_value(lt);
+        rt = dyn()->tu.as_value(rt);
 
         // A DEPENDENT operand has no operator table yet: which `op +` applies
         // to `T` is decided by the instantiation, not here. Rejecting it at
@@ -325,6 +325,9 @@ class <T> OperatorTyping {
         var ot = dyn()->type_of(n->operand, (expected) if ((k == TokenKind::OpMinus) || (k == TokenKind::OpPlus) || (k == TokenKind::OpTilde)) else (&null));
         if dyn()->propagate(n, n->operand) { return &null; }
         if ot == &null { return &null; }
+        // `v.at(i)` is `i32&`; every arm below classifies the value it names,
+        // and `&`/`*` want the referee too -- `&v.at(i)` is `*i32`, as in C++.
+        ot = dyn()->tu.as_value(ot);
 
         // user operator first for non-primitives: members, plus free
         // operators the operand's modules declare (ADL).
@@ -448,6 +451,11 @@ class <T> OperatorTyping {
         var lt = dyn()->type_of(n->lhs, &null);
         if dyn()->propagate(n, n->lhs) { return &null; }
         if lt == &null { return &null; }
+        // The assigned-to object, not the reference naming it: `v.at(i) = 5`
+        // assigns an `i32`. The lvalue test below still reads the NODE's
+        // category, which _default_category already set to LValue for a `T&`
+        // result, so the reference stays assignable.
+        lt = dyn()->tu.as_value(lt);
 
         if !dyn()->is_lvalue(n->lhs) {
             dyn()->fail(n, "left side of assignment is not assignable");
@@ -476,6 +484,7 @@ class <T> OperatorTyping {
         var rt   = dyn()->type_of(n->rhs, lt);
         if dyn()->propagate(n, n->rhs) { return &null; }
         if rt == &null { return &null; }
+        rt = dyn()->tu.as_value(rt);
 
         // Members of the left side, plus ADL over BOTH sides. A primitive left
         // side with a record on the right still asks: `x += v` can be a free

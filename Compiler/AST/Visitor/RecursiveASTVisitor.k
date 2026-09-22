@@ -464,6 +464,7 @@ class <D> RecursiveASTVisitor {
             case ExprKind::NullLiteralExpr          { return self.dyn()->traverse_null_literal_expr(          cast::<NullLiteralExpr>(e)          ); }
             case ExprKind::ListLiteralExpr          { return self.dyn()->traverse_list_literal_expr(          cast::<ListLiteralExpr>(e)          ); }
             case ExprKind::InitListExpr             { return self.dyn()->traverse_init_list_expr(             cast::<InitListExpr>(e)             ); }
+            case ExprKind::StmtExpr                 { return self.dyn()->traverse_stmt_expr(                  cast::<StmtExpr>(e)                 ); }
             case ExprKind::TupleLiteralExpr         { return self.dyn()->traverse_tuple_literal_expr(         cast::<TupleLiteralExpr>(e)         ); }
             case ExprKind::SetLiteralExpr           { return self.dyn()->traverse_set_literal_expr(           cast::<SetLiteralExpr>(e)           ); }
             case ExprKind::MapLiteralExpr           { return self.dyn()->traverse_map_literal_expr(           cast::<MapLiteralExpr>(e)           ); }
@@ -557,6 +558,15 @@ class <D> RecursiveASTVisitor {
             if self.stop { break; }
             self.dyn()->dispatch_expr(*(n->elements.get(i)));  // discard
         }
+        return n;
+    }
+
+    // The block is the whole child. It must be walked: the locals
+    // SequenceLowering mints live in it, and a pass that skips them (EmitPlan
+    // admitting their types) drops work it has no other way to see.
+    fn traverse_stmt_expr(self, n: *StmtExpr) -> *StmtExpr {
+        if self.dyn()->walkup_stmt_expr(n) == false { return n; }
+        n->body = self.dyn()->traverse_block(n->body);
         return n;
     }
 
@@ -936,6 +946,11 @@ class <D> RecursiveASTVisitor {
         return self.dyn()->visit_init_list_expr(n);
     }
 
+    fn walkup_stmt_expr(self, n: *StmtExpr) -> bool {
+        if self.dyn()->visit_expr(n) == false { return false; }
+        return self.dyn()->visit_stmt_expr(n);
+    }
+
     fn walkup_tuple_literal_expr(self, n: *TupleLiteralExpr) -> bool {
         if self.dyn()->visit_expr(n) == false { return false; }
         return self.dyn()->visit_tuple_literal_expr(n);
@@ -1124,6 +1139,7 @@ class <D> RecursiveASTVisitor {
     fn visit_null_literal_expr(           self, n: *NullLiteralExpr          ) -> bool { return true; }
     fn visit_list_literal_expr(           self, n: *ListLiteralExpr          ) -> bool { return true; }
     fn visit_init_list_expr(              self, n: *InitListExpr             ) -> bool { return true; }
+    fn visit_stmt_expr(                   self, n: *StmtExpr                 ) -> bool { return true; }
     fn visit_tuple_literal_expr(          self, n: *TupleLiteralExpr         ) -> bool { return true; }
     fn visit_set_literal_expr(            self, n: *SetLiteralExpr           ) -> bool { return true; }
     fn visit_map_literal_expr(            self, n: *MapLiteralExpr           ) -> bool { return true; }

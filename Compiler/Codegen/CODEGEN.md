@@ -168,7 +168,7 @@ Declarations are the plan's; EmitIR writes bodies. What it knows:
     `return`/`break`/`continue` (unlabeled), locals, blocks, named and
     anonymous initializers (designated, declaration order, aggregates
     only), `sizeof`/`alignof`/`delete`, `unsafe` (transparent),
-    `InitListExpr`.
+    `InitListExpr`, `StmtExpr`.
 
 `InitListExpr` is the C++ braced-init-list, and array-typed only. Its two
 spellings are chosen by POSITION: the bare `{...}` as a `VariableDecl`'s
@@ -179,6 +179,13 @@ the end of the full-expression. Both are valid C++17, but GCC rejects the
 decay of a prvalue array ("taking address of temporary array") and clang
 does not — bodies only ever go through clang, and that is a HARD dependency
 of this layer, not a preference.
+
+`StmtExpr` is the GNU statement expression `({ s0; s1; e; })`, whose value is
+its last statement. SequenceLowering mints it to write Kairo's left-to-right
+argument order into the tree; nothing parses into it. The block emits as any
+block and the parens are what make it a value. Like the array prvalue it is
+clang-only -- it is not C++, it is a GNU extension clang implements -- so it
+carries the same HARD clang dependency.
 
 Definitions it produces: free functions (namespace wrapper per function),
 methods out of line (`RET Owner<T>::name(params) const`), constructors and

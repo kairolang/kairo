@@ -114,6 +114,18 @@ class TypeUtil {
         return (i) if (i != &null) else (t);
     }
 
+    /// A type read as a VALUE: a C++ reference is its referee ([expr.type]/1,
+    /// the lvalue-to-rvalue read), and top-level cv is gone. What every
+    /// operator classification wants; Conversion::implicit already does the
+    /// same on its own path.
+    fn as_value(self, t: *Type) -> *Type {
+        var u = t;
+        if u == &null { return &null; }
+        if isa::<CXXLValueRefType>(u)      { u = cast::<CXXLValueRefType>(u)->referee; }
+        else if isa::<CXXRValueRefType>(u) { u = cast::<CXXRValueRefType>(u)->referee; }
+        return canon_unqual(u);
+    }
+
     fn record_decl(self, t: *Type) -> *Decl {
         var u = canon_unqual(t);
         if (u == &null) || (!isa::<RecordType>(u)) { return &null; }

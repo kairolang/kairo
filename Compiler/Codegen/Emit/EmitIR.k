@@ -597,6 +597,13 @@ class EmitIR {
             case ExprKind::PackExpansionExpr    { ICE_FAIL("EmitIR: pack expansion; not emitted yet"); }
             case ExprKind::ListLiteralExpr      { ICE_FAIL("EmitIR: list literal; ListLiteralLowering owns it"); }
             case ExprKind::InitListExpr         { self._init_list(cast::<InitListExpr>(e), false); }
+            case ExprKind::StmtExpr {
+                // `({ ... })`: clang's statement expression. The block is
+                // emitted as any block; the parens make it a value.
+                sink->spell(e->range, "(");
+                self.emit_block(cast::<StmtExpr>(e)->body);
+                sink->spell(e->range, ")");
+            }
             case ExprKind::SetLiteralExpr       { ICE_FAIL("EmitIR: set literal; the container migration owns it"); }
             case ExprKind::MapLiteralExpr       { ICE_FAIL("EmitIR: map literal; the container migration owns it"); }
             case ExprKind::TupleLiteralExpr     { ICE_FAIL("EmitIR: tuple literal; no lowering yet"); }

@@ -76,6 +76,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::NullLiteralExpr          { return "NullLiteralExpr";          }
         case ExprKind::ListLiteralExpr          { return "ListLiteralExpr";          }
         case ExprKind::InitListExpr             { return "InitListExpr";             }
+        case ExprKind::StmtExpr                 { return "StmtExpr";                 }
         case ExprKind::TupleLiteralExpr         { return "TupleLiteralExpr";         }
         case ExprKind::SetLiteralExpr           { return "SetLiteralExpr";           }
         case ExprKind::MapLiteralExpr           { return "MapLiteralExpr";           }
@@ -339,6 +340,14 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<AssignOperatorExpr>(e)   { self._e_assign(cast::<AssignOperatorExpr>(e)); return; }
         if isa::<ListLiteralExpr>(e)      { self._expr_list("[", "]", cast::<ListLiteralExpr>(e)->elements);  return; }
         if isa::<InitListExpr>(e)         { self._expr_list("{", "}", cast::<InitListExpr>(e)->elements);    return; }
+        if isa::<StmtExpr>(e) {
+            // `({ ... })`: the parens are what make the block a value, so they
+            // round-trip like ParenExpr's.
+            self.p.paint(Color::Punct, "(");
+            self.src_stmt(static_cast::<*Stmt>(cast::<StmtExpr>(e)->body));
+            self.p.paint(Color::Punct, ")");
+            return;
+        }
         if isa::<TupleLiteralExpr>(e)     { self._expr_list("(", ")", cast::<TupleLiteralExpr>(e)->elements); return; }
         if isa::<SetLiteralExpr>(e)       { self._expr_list("{", "}", cast::<SetLiteralExpr>(e)->elements);   return; }
         if isa::<MapLiteralExpr>(e)       { self._e_map(cast::<MapLiteralExpr>(e));               return; }
@@ -2074,6 +2083,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<StringLiteralExpr>(e)    { self._dx_string_literal(cast::<StringLiteralExpr>(e), is_last); return; }
         if isa::<ListLiteralExpr>(e)      { self._dx_list_literal(cast::<ListLiteralExpr>(e), is_last);                  return; }
         if isa::<InitListExpr>(e)         { self._dx_expr_seq("InitListExpr",     cast::<InitListExpr>(e)->elements,     is_last); return; }
+        if isa::<StmtExpr>(e)             { self._dx_stmt_expr(cast::<StmtExpr>(e), is_last);        return; }
         if isa::<TupleLiteralExpr>(e)     { self._dx_expr_seq("TupleLiteralExpr", cast::<TupleLiteralExpr>(e)->elements, is_last); return; }
         if isa::<SetLiteralExpr>(e)       { self._dx_expr_seq("SetLiteralExpr",   cast::<SetLiteralExpr>(e)->elements,   is_last); return; }
         if isa::<MapLiteralExpr>(e)       { self._dx_map(cast::<MapLiteralExpr>(e), is_last);          return; }
@@ -2523,6 +2533,15 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.newline();
         self.p.enter(is_last);
         self._child_expr(operand, true);
+        self.p.leave();
+    }
+
+    /// One child, and it is a block: the value is its last statement.
+    fn _dx_stmt_expr(self, n: *StmtExpr, is_last: bool) {
+        self._head("StmtExpr", is_last);
+        self.p.newline();
+        self.p.enter(is_last);
+        self._child_stmt(static_cast::<*Stmt>(n->body), true);
         self.p.leave();
     }
 
