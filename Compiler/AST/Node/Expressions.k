@@ -225,12 +225,25 @@ class SubscriptExpr derives Expr {
     }
 }
 
+/// Where a Slice-typed list literal's backing array lives. X decides;
+/// ListLiteralLowering renders.
+enum ListStorage derives u8 {
+    FullExpr = 0,   ///< a temporary: dies at the end of the full-expression.
+    Extended,       ///< a named local in the scope of the `var` it initializes.
+}
+
 ///
 ///  ListLiteralExpr
 ///  [1, 2, 3]
 ///
 class ListLiteralExpr derives Expr {
     pub var elements: FrozenList::<*Expr>;
+
+    /// Written by X (LiteralTyping / StmtTyping), read by ListLiteralLowering.
+    /// The TARGET is `type_` itself: `[T; N]`, Slice or Vector.
+    pub var storage:    ListStorage = ListStorage::FullExpr;
+    pub var slice_ctor: *Decl = &null;   ///< Slice(data, len); set for a Slice or non-empty Vector target.
+    pub var owner_ctor: *Decl = &null;   ///< Vector(items), or Vector() when empty; set for a Vector target.
 
     static fn create(
         ctx:   *ASTContext,
@@ -239,6 +252,9 @@ class ListLiteralExpr derives Expr {
         var node    = ctx->alloc::<ListLiteralExpr>();
         node->kind  = ExprKind::ListLiteralExpr;
         node->range = range;
+        node->storage    = ListStorage::FullExpr;
+        node->slice_ctor = &null;
+        node->owner_ctor = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -251,6 +267,9 @@ class ListLiteralExpr derives Expr {
         node->kind          = ExprKind::RecoveryExpr;
         node->recovery_kind = ExprKind::ListLiteralExpr;
         node->range         = range;
+        node->storage       = ListStorage::FullExpr;
+        node->slice_ctor    = &null;
+        node->owner_ctor    = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -261,6 +280,33 @@ class ListLiteralExpr derives Expr {
 
     static fn expr_kind() -> ExprKind {
         return ExprKind::ListLiteralExpr;
+    }
+}
+
+///
+///  InitListExpr
+///  { a, b, c }   -- the C++ braced-init-list. Lower/ mints it; nothing parses into it.
+///
+class InitListExpr derives Expr {
+    pub var elements: FrozenList::<*Expr>;
+
+    static fn create(
+        ctx:   *ASTContext,
+        range: SourceRange
+    ) -> *InitListExpr {
+        var node    = ctx->alloc::<InitListExpr>();
+        node->kind  = ExprKind::InitListExpr;
+        node->range = range;
+        node->init_annotations(&(ctx->ast_alloc));;
+        return node;
+    }
+
+    static fn classof(ptr: *Expr) -> bool {
+        return ptr->kind == ExprKind::InitListExpr;
+    }
+
+    static fn expr_kind() -> ExprKind {
+        return ExprKind::InitListExpr;
     }
 }
 
@@ -1334,6 +1380,11 @@ class TypeCastExpr derives Expr {
     pub var resolved_op: *Decl = &null;
     pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
 
+    /// The converting constructor rung 5d selected, or null. Separate from
+    /// resolved_op: a constructor has no op_token to spell. OperatorLowering
+    /// rewrites the cast into the construction.
+    pub var resolved_ctor: *Decl = &null;
+
     static fn create(
         ctx:       *ASTContext,
         range:     SourceRange,
@@ -1351,6 +1402,7 @@ class TypeCastExpr derives Expr {
         node->mode      = mode;
         node->resolved_op = &null;
         node->op_via_free = false;
+        node->resolved_ctor = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -1362,6 +1414,7 @@ class TypeCastExpr derives Expr {
         node->range         = range;
         node->resolved_op   = &null;
         node->op_via_free   = false;
+        node->resolved_ctor = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

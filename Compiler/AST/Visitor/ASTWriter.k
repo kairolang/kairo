@@ -9,11 +9,11 @@
 ///
 ///   Layer contract (per node N of family F):
 ///     transform_F(*F)    - switch on kind, route to transform_N. (generated)
-///                            STMT/DECL return vec<*F> (splice). EXPR/TYPE/
-///                            PATTERN return *F (scalar; null = delete).
+///                          STMT/DECL return vec<*F> (splice). EXPR/TYPE/
+///                          PATTERN return *F (scalar; null = delete).
 ///     transform_N(...)   - hand-written body. recurse into children via
-///                            transform_F / rebuild helpers; return the
-///                            (possibly rewritten) node(s).
+///                          transform_F / rebuild helpers; return the
+///                          (possibly rewritten) node(s).
 ///
 ///   Return-type rule:
 ///     EXPR / TYPE / PATTERN : scalar *F out. These never occupy a list
@@ -21,9 +21,10 @@
 ///                             of the same family is a 1:1 rewrite. null is
 ///                             deletion (only legal where the parent slot is
 ///                             nullable, or inside a rebuild_*_list filter).
-///     STMT / DECL           : vec<*F> out. A statement or declaration can
-///                             legitimately become zero, one, or many nodes
-///                             in its enclosing list. Empty vec = deletion.
+///
+///     STMT / DECL : vec<*F> out. A statement or declaration can legitimately
+///                   become zero, one, or many nodes in its enclosing list.
+///                   Empty vec = deletion.
 ///
 ///   Cross-family rewrites (expr->type, type->expr, ...) do NOT happen through
 ///   the dispatch machinery: every parent field is statically typed to one
@@ -36,7 +37,7 @@
 ///   use:
 ///     list_builder<T>()        - construct a fresh FrozenList from scratch.
 ///     rewriter(*FrozenList<T>) - deferred replace/remove/insert on an
-///                                 existing list, applied in one rebuild.
+///                                existing list, applied in one rebuild.
 ///     rebuild_*_list(...)      - map every element through its transform_F.
 ///   No pass ever touches ArenaList, set_allocator, or from_list directly.
 ///
@@ -617,6 +618,7 @@ class <D> ASTWriter {
             case ExprKind::ParenExpr                { return self.dyn()->transform_paren_expr(                 cast::<ParenExpr>(e)                ); }
             case ExprKind::VerbatimExpr             { return self.dyn()->transform_verbatim_expr(              cast::<VerbatimExpr>(e)             ); }
             case ExprKind::NamedArgExpr             { return self.dyn()->transform_named_arg_expr(             cast::<NamedArgExpr>(e)             ); }
+            case ExprKind::InitListExpr             { return self.dyn()->transform_init_list_expr(             cast::<InitListExpr>(e)             ); }
             case ExprKind::RecoveryExpr             { return e; }
             case ExprKind::ExprKindCount            {  ICE_FAIL("ExprKindCount reached ASTWriter - bug"); return &null; }
         }
@@ -636,6 +638,11 @@ class <D> ASTWriter {
     }
 
     fn transform_list_literal_expr(self, n: *ListLiteralExpr) -> *Expr {
+        self.dyn()->rebuild_expr_list(&(n->elements));
+        return n;
+    }
+
+    fn transform_init_list_expr(self, n: *InitListExpr) -> *Expr {
         self.dyn()->rebuild_expr_list(&(n->elements));
         return n;
     }

@@ -75,6 +75,7 @@ fn expr_kind_name(k: ExprKind) -> string {
         case ExprKind::BooleanLiteralExpr       { return "BooleanLiteralExpr";       }
         case ExprKind::NullLiteralExpr          { return "NullLiteralExpr";          }
         case ExprKind::ListLiteralExpr          { return "ListLiteralExpr";          }
+        case ExprKind::InitListExpr             { return "InitListExpr";             }
         case ExprKind::TupleLiteralExpr         { return "TupleLiteralExpr";         }
         case ExprKind::SetLiteralExpr           { return "SetLiteralExpr";           }
         case ExprKind::MapLiteralExpr           { return "MapLiteralExpr";           }
@@ -337,6 +338,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<BinaryOperatorExpr>(e)   { self._e_binary(cast::<BinaryOperatorExpr>(e)); return; }
         if isa::<AssignOperatorExpr>(e)   { self._e_assign(cast::<AssignOperatorExpr>(e)); return; }
         if isa::<ListLiteralExpr>(e)      { self._expr_list("[", "]", cast::<ListLiteralExpr>(e)->elements);  return; }
+        if isa::<InitListExpr>(e)         { self._expr_list("{", "}", cast::<InitListExpr>(e)->elements);    return; }
         if isa::<TupleLiteralExpr>(e)     { self._expr_list("(", ")", cast::<TupleLiteralExpr>(e)->elements); return; }
         if isa::<SetLiteralExpr>(e)       { self._expr_list("{", "}", cast::<SetLiteralExpr>(e)->elements);   return; }
         if isa::<MapLiteralExpr>(e)       { self._e_map(cast::<MapLiteralExpr>(e));               return; }
@@ -2070,7 +2072,8 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if isa::<BinaryOperatorExpr>(e)   { self._dx_binop(cast::<BinaryOperatorExpr>(e), is_last);         return; }
         if isa::<AssignOperatorExpr>(e)   { self._dx_assign(cast::<AssignOperatorExpr>(e), is_last);        return; }
         if isa::<StringLiteralExpr>(e)    { self._dx_string_literal(cast::<StringLiteralExpr>(e), is_last); return; }
-        if isa::<ListLiteralExpr>(e)      { self._dx_expr_seq("ListLiteralExpr",  cast::<ListLiteralExpr>(e)->elements,  is_last); return; }
+        if isa::<ListLiteralExpr>(e)      { self._dx_list_literal(cast::<ListLiteralExpr>(e), is_last);                  return; }
+        if isa::<InitListExpr>(e)         { self._dx_expr_seq("InitListExpr",     cast::<InitListExpr>(e)->elements,     is_last); return; }
         if isa::<TupleLiteralExpr>(e)     { self._dx_expr_seq("TupleLiteralExpr", cast::<TupleLiteralExpr>(e)->elements, is_last); return; }
         if isa::<SetLiteralExpr>(e)       { self._dx_expr_seq("SetLiteralExpr",   cast::<SetLiteralExpr>(e)->elements,   is_last); return; }
         if isa::<MapLiteralExpr>(e)       { self._dx_map(cast::<MapLiteralExpr>(e), is_last);          return; }
@@ -2251,6 +2254,21 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.enter(is_last);
         for var i: usize = 0; i < xs.size(); ++i {
             self._child_expr(xs[i], (i == xs.size() - 1));
+        }
+        self.p.leave();
+    }
+
+    /// A list literal, with the storage X chose for a slice-typed one: an
+    /// Extended backing array is a declaration this dump would not otherwise
+    /// show, because ListLiteralLowering mints it later.
+    fn _dx_list_literal(self, e: *ListLiteralExpr, is_last: bool) {
+        self._head("ListLiteralExpr", is_last);
+        self._dim(f"({e->elements.size()})");
+        if e->storage == ListStorage::Extended { self._dim(" [extended]"); }
+        self.p.newline();
+        self.p.enter(is_last);
+        for var i: usize = 0; i < e->elements.size(); ++i {
+            self._child_expr(e->elements[i], (i == e->elements.size() - 1));
         }
         self.p.leave();
     }
@@ -2479,6 +2497,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         if e->is_unsafe { self.p.put(" "); self.p.paint(Color::Keyword, "unsafe"); }
         self.p.put(" -> ");
         self.src_type(e->target);
+        // The decl itself belongs to --print-sema; here it is only worth
+        // saying that the cast is a construction, not a conversion.
+        if e->resolved_ctor != &null { self._dim(" [ctor]"); }
         self.p.newline();
         self.p.enter(is_last);
         self._child_expr(e->operand, true);
