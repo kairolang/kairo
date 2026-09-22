@@ -127,6 +127,7 @@ class <T> CallTyping {
             a.inner_const = self._const_lvalue(_op);
         }
 
+        if dyn()->list_literal_shape(e, &a) { return a; }
         if dyn()->literal_shape(e, &a) { return a; }
         a.ty = dyn()->type_of(e, &null);
         if (a.ty == &null) && (!e->is_poisoned()) { a.dependent = true; }

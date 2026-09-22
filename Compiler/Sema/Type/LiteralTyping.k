@@ -14,8 +14,10 @@
 ///     `negative` argument; OperatorTyping passes it.
 ///
 ///     Aggregate literals push the expected element type down and join what
-///     comes back up; an empty literal with no expected type has nothing to
-///     infer from and says so.
+///     comes back up. A list literal takes its target from the expected type:
+///     `[T; N]`, Slice or Vector; with none it is `[T; N]`. The constructors a
+///     Slice or Vector target is built through are bound here, so the lowering
+///     never looks one up.
 ///
 ///   Part of the Kairo Project, under the Apache License v2.0 with the
 ///   Kairo Runtime Library Exception.
@@ -39,6 +41,10 @@ import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
 import AST::Kind::ExprKind::*;
 import Diagnostic::Registry::*;
+import Sema::Resolve::NameLookup::*;
+import AST::Context::SymbolTable::*;
+import AST::Node::Declarations::*;
+import AST::LangItems::*;
 
 class <T> LiteralTyping {
     priv inline fn dyn(self) -> *T { return static_cast::<*T>(&self); }
@@ -84,6 +90,43 @@ class <T> LiteralTyping {
     fn is_untyped_literal(self, e: *Expr) -> bool {
         var a = ArgInfo{};
         return self.literal_shape(e, &a);
+    }
+
+    /// A list literal in ARGUMENT position is ranked by shape and typed after
+    /// selection, as an untyped scalar literal is (§5): it takes the
+    /// parameter's type. Kept out of literal_shape because is_untyped_literal
+    /// feeds operand unification, which a list has no part in.
+    ///
+    /// A literal a parent already typed is not deferred; its type is fixed.
+    fn list_literal_shape(self, e_in: *Expr, a: *ArgInfo) -> bool {
+        var e = dyn()->tu.strip_parens(e_in);
+        if (e == &null) || (!isa::<ListLiteralExpr>(e)) { return false; }
+        var n = cast::<ListLiteralExpr>(e);
+        if (n->type_ != &null) || n->is_poisoned() { return false; }
+        a->lit = LitKind::List;
+
+        // The children are collected first and appended in one run: typing an
+        // element can itself append (a nested list literal), and the range
+        // this ArgInfo names has to be contiguous.
+        var kids = vec::<ListShape>();
+        for var i: usize = 0; i < n->elements.size(); ++i {
+            var el = dyn()->arg_info(n->elements[i]);
+            if el.dependent { a->dependent = true; }
+            var sh = ListShape{};
+            sh.lit     = el.lit;
+            sh.lit_lo  = el.lit_lo;
+            sh.lit_hi  = el.lit_hi;
+            sh.lit_big = el.lit_big;
+            sh.lit_neg = el.lit_neg;
+            sh.ty      = el.ty;
+            sh.kids_lo = el.elems_lo;
+            sh.kids_n  = el.elems_n;
+            kids.push_back(sh);
+        }
+        a->elems_lo = dyn()->ovl.list_shapes.size();
+        a->elems_n  = kids.size();
+        for var i: usize = 0; i < kids.size(); ++i { dyn()->ovl.list_shapes.push_back(kids[i]); }
+        return true;
     }
 
     // === integers ===========================================================
@@ -213,7 +256,8 @@ class <T> LiteralTyping {
     }
 
     fn type_list_literal(self, n: *ListLiteralExpr, expected: *Type) -> *Type {
-        var elem_expected = dyn()->tu.container_elem(dyn()->tu.strip_nullable(expected));
+        var ex = canon_unqual(dyn()->tu.strip_nullable(expected));
+        var elem_expected = dyn()->tu.container_elem(ex);
         var elem: *Type = elem_expected;
         for var i: usize = 0; i < n->elements.size(); ++i {
             var t = dyn()->type_of(n->elements[i], elem_expected);
@@ -226,22 +270,111 @@ class <T> LiteralTyping {
             }
             elem = j;
         }
+        var count = n->elements.size();
         if elem == &null {
-            if n->elements.size() == 0 { dyn()->fail(n, "cannot infer the element type of an empty list; annotate the target"); }
+            if count == 0 { dyn()->fail(n, "cannot infer the element type of an empty list; annotate the target"); }
             return &null;
         }
-        // An expected `[T; N]` with exactly N elements IS an array literal:
-        // it takes the array type outright, with no conversion (§5). A count
-        // mismatch falls through to a slice, and the assignment then fails on
-        // the types rather than silently losing elements.
-        var ex = canon_unqual(dyn()->tu.strip_nullable(expected));
-        if (ex != &null) && isa::<FixedArrayType>(ex) {
+
+        // `[T; N]`: the literal IS the array, element for element.
+        if (ex != &null) && isa::<FixedArrayType>(ex) && (!cast::<FixedArrayType>(ex)->is_incomplete) {
             var at = cast::<FixedArrayType>(ex);
-            if (!at->is_incomplete) && (static_cast::<usize>(at->size_bits) == n->elements.size()) { return ex; }
+            if count == 0 { dyn()->fail(n, "an array literal needs at least one element"); return &null; }
+            if static_cast::<usize>(at->size_bits) != count {
+                dyn()->fail(n, f"array literal has {count} element(s), but '{dyn()->tu.str(ex)}' needs {at->size_bits}");
+                return &null;
+            }
+            return ex;
         }
-        // Otherwise a list literal is a SLICE: it is a view of the elements as
-        // written. ListLiteralLowering gives it the array to point at.
-        return dyn()->tu.slice_of(elem);
+
+        // `[T;]`: a view over a backing array ListLiteralLowering provides.
+        if (ex != &null) && dyn()->tu.is_slice(ex) {
+            if !self._bind_slice_ctor(n) { return &null; }
+            return ex;
+        }
+
+        // `[T]`: an owner, built from that same view. Empty is the default ctor.
+        if (ex != &null) && dyn()->tu.is_vector_like(ex) {
+            if count == 0 {
+                n->owner_ctor = self._lang_ctor(WellKnownType::Vector, 0, false);
+            } else {
+                if !self._bind_slice_ctor(n) { return &null; }
+                n->owner_ctor = self._lang_ctor(WellKnownType::Vector, 1, true);
+            }
+            if n->owner_ctor == &null { dyn()->missing_lang_item(n, "Vector"); return &null; }
+            return ex;
+        }
+
+        // No container target: the literal's own type.
+        if count == 0 {
+            dyn()->fail(n, "cannot infer the type of an empty list here; annotate the target as '[T;]' or '[T]\x27");
+            return &null;
+        }
+        return dyn()->sc->types->array(elem, static_cast::<u64>(count));
+    }
+
+    priv fn _bind_slice_ctor(self, n: *ListLiteralExpr) -> bool {
+        n->slice_ctor = self._lang_ctor(WellKnownType::Slice, 2, false);
+        if n->slice_ctor == &null { dyn()->missing_lang_item(n, "Slice"); return false; }
+        return true;
+    }
+
+    /// A lang record's constructor BY SHAPE: \p nparams non-self parameters,
+    /// and for \p from_slice the single one is a Slice. Found through the lang
+    /// item, never by name.
+    priv fn _lang_ctor(self, k: WellKnownType, nparams: usize, from_slice: bool) -> *Decl {
+        var d = dyn()->sc->well_known->get(k);
+        if d == &null { return &null; }
+        var body = dyn()->tu.pattern_of(NameLookup::representative(d));
+        var dc   = NameLookup::context_of(body);
+        if dc == &null { return &null; }
+        var cell = dyn()->sc->lookup.in_context(dc, DeclName::ctor());
+        if !cell.found() { return &null; }
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(cell.cell->get(i));
+            if f == &null { continue; }
+            var n: usize = 0;
+            var only: *ParamDecl = &null;
+            for var p: usize = 0; p < f->params.size(); ++p {
+                var pd = f->params[p];
+                if (pd == &null) || pd->is_self { continue; }
+                n += 1;
+                only = pd;
+            }
+            if n != nparams { continue; }
+            if from_slice {
+                if (only == &null) || (only->type_ == &null) || (!dyn()->tu.is_slice(only->type_->canonical)) { continue; }
+            }
+            return cell.cell->get(i);
+        }
+        return &null;
+    }
+
+    // === list storage =======================================================
+
+    fn is_slice_literal(self, e_in: *Expr) -> bool {
+        var e = dyn()->tu.strip_parens(e_in);
+        if (e == &null) || (!isa::<ListLiteralExpr>(e)) { return false; }
+        return (e->type_ != &null) && dyn()->tu.is_slice(e->type_);
+    }
+
+    /// A slice literal that directly initializes a `var` gets a backing array
+    /// in that var's scope, and so does every slice literal nested in it.
+    fn mark_list_storage(self, init: *Expr) {
+        if !self.is_slice_literal(init) { return; }
+        var n = cast::<ListLiteralExpr>(dyn()->tu.strip_parens(init));
+        n->storage = ListStorage::Extended;
+        for var i: usize = 0; i < n->elements.size(); ++i { self.mark_list_storage(n->elements[i]); }
+    }
+
+    /// The positions with no scope to extend a backing array into. A callee
+    /// that RETAINS a slice argument is not decidable here; that is AMT's
+    /// escape clause.
+    fn reject_slice_literal(self, e: *Expr, what: string) -> bool {
+        if !self.is_slice_literal(e) { return false; }
+        dyn()->fail(dyn()->tu.strip_parens(e),
+            f"a list literal {what} is a view of a temporary array and would outlive it; use '[T]' to own the elements, or bind the literal to a 'var' first");
+        return true;
     }
 
     fn type_set_literal(self, n: *SetLiteralExpr, expected: *Type) -> *Type {
