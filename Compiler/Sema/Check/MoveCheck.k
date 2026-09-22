@@ -530,7 +530,12 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             var p: *ParamDecl = &null;
             if f != &null {
                 if value != &null {
-                    var nm = self.sc->ctx->get_spelling(cast::<NamedIdentExpr>(cast::<AssignOperatorExpr>(a)->lhs)->name);
+                    // The label is on the NamedArgExpr itself. This read
+                    // predates that node -- a named argument was an
+                    // AssignOperatorExpr whose operator was `:` -- and the
+                    // stale cast was reinterpreting `name`'s bytes as an lhs
+                    // pointer, which UBSan catches as a misaligned downcast.
+                    var nm = self.sc->ctx->get_spelling(cast::<NamedArgExpr>(a)->name);
                     for var j: usize = 0; j < view.size(); ++j {
                         if self._tu.param_name(view[j]) == nm { p = view[j]; break; }
                     }
