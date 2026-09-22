@@ -1,25 +1,42 @@
-# Xmake cache
+# Build
 .xmake/
 build/
+vsxmake20*/
+compile_commands.json
 
-# MacOS Cache
-.DS_Store
+# Compiled artifacts
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.pdb
+*.ilk
+*.exp
+*.dSYM/
+core
+core.*
 
-# Clanged Cache
+# Tooling caches
 .clangd/
 .cache/
-target/
-private/
-vsxmake2022/
+__pycache__/
+.lit_test_times.txt
+Output/
+.gdb_history
 
-compile_commands.json
-index.html
+# Kairo
 *.k.script
 
-# Temp folder
-temp/
+# Local
 private/
+temp/
+/index.html
 
-.lit_test_times.txt
-.gdb_history
-*.o
+# OS
+.DS_Store
+EOF
