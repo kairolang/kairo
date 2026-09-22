@@ -1769,13 +1769,13 @@ fn FrontendAction::_sema() -> bool {
     // --print-sema styling follows --print-ast, exactly like --print-symbols:
     // 'tree' -> dump(), 'canonical' -> canonical(), otherwise flat diag rows.
     var sema_opts: PrintOptions = PrintOptions::diag();
-    if fe.print_sema {
+    if fe.print_sema || fe.print_lowered {
         var ast_mode = fe.print_ast;
         if      ast_mode == "tree"      { sema_opts = PrintOptions::dump();      }
         else if ast_mode == "canonical" { sema_opts = PrintOptions::canonical(); }
         sema_opts.color = !self._ci->invocation().diag.no_color;
-        std::print(f"-- sema: {self.path.full_path()} --");
     }
+    if fe.print_sema { std::print(f"-- sema: {self.path.full_path()} --"); }
 
     // Phase A of header import joins here. Every set requested during
     // preprocess must be PARSED before it can be indexed, and INDEXED before
@@ -1983,12 +1983,27 @@ fn FrontendAction::_sema() -> bool {
         // operator into the call it is, and codegen ICEs on any operator node
         // that reaches it. --type-check-only stops here too, so the lowering
         // schedule runs under it and is exercised by the sema tests.
-        sem.run_to(SemaPhase::Lowered);
+        // The dump is PINNED at Checked: X's output is what --print-sema is
+        // about, and a lowering replaces the very nodes it names (a list
+        // literal becomes a ctor call, a cast becomes a construction). Run
+        // the rest afterwards; --print-lowered is the same dump on the far
+        // side, for asserting what a lowering produced.
+        // Splitting the run must not lose the hard stop: a stage that
+        // returned false has already halted the pipeline, and re-entering
+        // would carry on past it -- running the checks and the lowerings over
+        // a tree whose names or types never resolved, which is cascade noise
+        // by the schedule's own policy (Sema.k::_hard_stop).
+        var reached = sem.run_to(SemaPhase::Checked);
+        if fe.print_sema { SemaDump(&(sem.sc), sema_opts).run(); }
+        if reached { sem.run(); }
         ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
 
         // Dump INSIDE the loop: SemaDump reads sc.phase / sc.well_known, which
         // live on this fid's SemaContext and die with `sem` at loop exit.
-        if fe.print_sema { SemaDump(&(sem.sc), sema_opts).run(); }
+        if fe.print_lowered {
+            std::print(f"-- lowered: {self.path.full_path()} --");
+            SemaDump(&(sem.sc), sema_opts).run();
+        }
     }
 
     if fe.print_imports { self._dump_overlays(); }

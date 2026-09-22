@@ -335,6 +335,7 @@ fn register_kairo_flags(cmd: *Command) {
     cmd->define::<FlagKind::Bool>  ("print-bcir",       "",  "print-bcir",       "dump BCIR before and after borrow-check lowering",                             false);
     cmd->define::<FlagKind::String>("print-ast",        "",  "print-ast",        "AST dump format: tree|flat|canonical (default: tree)",                         "");
     cmd->define::<FlagKind::Bool>  ("print-sema",       "",  "print-sema",       "dump IR after semantic analysis",                                              false);
+    cmd->define::<FlagKind::Bool>  ("print-lowered",    "",  "print-lowered",    "dump IR again after the Lower/ passes rewrite the tree",                       false);
     cmd->define::<FlagKind::Bool>  ("print-tokens",     "",  "print-tokens",     "dump token stream after preprocessing",                                        false);
     cmd->define::<FlagKind::Bool>  ("print-macros",     "",  "print-macros",     "dump macro symbol table after preprocessing",                                  false);
     cmd->define::<FlagKind::Bool>  ("print-imports",    "",  "print-imports",    "dump the full import resolution graph",                                        false);

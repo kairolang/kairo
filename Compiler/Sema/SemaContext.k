@@ -239,7 +239,11 @@ class SemaContext {
 
         // Tracing costs one branch per name when off, so it is gated on the
         // only flag that reads it rather than on a build mode.
-        if ctx->ci != &null { self.trace.enabled = ctx->ci->frontend.print_sema; }
+        // Both dumps read the trace, and --print-lowered runs strictly after
+        // --print-sema's cut, so recording has to survive the lowerings.
+        if ctx->ci != &null {
+            self.trace.enabled = ctx->ci->frontend.print_sema || ctx->ci->frontend.print_lowered;
+        }
         self.error_count_base = self.diag->error_count();
     }
 
