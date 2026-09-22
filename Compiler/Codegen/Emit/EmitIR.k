@@ -888,20 +888,18 @@ class EmitIR {
         return isa::<ClassDecl>(d) || isa::<StructDecl>(d) || isa::<UnionDecl>(d) || isa::<EnumDecl>(d);
     }
 
-    /// Borrow only when the bytes at the range ARE the spelling. A token a
-    /// lowering minted is anchored on the node it replaced, so its bytes are
-    /// something else entirely -- `__kairo_tmp0` sitting on the `[1, 2, 3]`
-    /// it hoisted. Those go through the arena with the same caret.
-    ///
-    /// The sink cannot make this call itself: it holds no ASTContext, and the
-    /// virtual it would test from (`literal`) is handed a range, never a token.
+    /// An identifier is spelled from its IMM, never borrowed: TokenSink takes
+    /// an identifier's spelling from the IdentifierInfo and its length is
+    /// caret geometry, so the bytes at the range buy nothing -- and a token a
+    /// lowering minted sits on bytes that are something else entirely. The imm
+    /// indexes the table of the file that owns the body being emitted, which
+    /// for a foreign template homed here is not this TU's.
     priv fn _name(self, t: Token) {
-        var spelled = self._cg->ctx->get_imm_table()->get_ident(t.imm);
-        if self._cg->ctx->get_spelling(t) != spelled {
-            sink->create_ident(t.range, spelled);
-            return;
-        }
-        sink->create(t);
+        var fid = self._cg->tu->fid;
+        if self._cur_fn != &null { fid = CXXSpell::fid_of(static_cast::<*Decl>(self._cur_fn)); }
+        var spelled = self._spell.imm_name(t.imm, fid);
+        ICE_IF(spelled == "<?>", "EmitIR: identifier token with no spelling in its owning file's table");
+        sink->create_ident(t.range, spelled);
     }
 
     /// Same rule for a numeric constant: a minted IntData carries no source
