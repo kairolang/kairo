@@ -10,7 +10,7 @@
 // these rows readable; the record identity is what `extend` and overload
 // resolution key on.
 
-fn containers(v: [i32], s: {i32}, m: {string: i32}, sl: [i32;], a: [i32; 3]) { }
+fn containers(v: [i32], s: {i32}, m: {string: i32}, sl: [i32;], const a: [i32; 3]) { }
 
 // An extension on the sugar reaches the Vector primary: after the migration
 // `extend <T> [T]` targets record(Vector, [T]) like any generic extension on

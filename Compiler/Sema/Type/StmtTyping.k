@@ -53,6 +53,7 @@ import AST::Kind::StmtKind::*;
 import Token::TokenKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Diagnostic::Registry::*;
+import AST::ParamMode::*;
 
 class TyperFrame {
     pub var fn_decl:  *FunctionDecl = &null;   ///< null for a closure.
@@ -173,9 +174,29 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if st == ResolveState::Resolved { return (v->type_->canonical) if (v->type_ != &null) else (&null); }
         if !dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(v), v->range) { return &null; }
         var t = dyn()->type_of(v->init, &null);
+        dyn()->mark_list_storage(v->init);
+        self._reject_array_copy(v, t);
         if t != &null { v->type_ = canon_unqual(t); }
         dyn()->sc->rstate.finish_decl(static_cast::<*Decl>(v), t != &null);
         return t;
+    }
+
+    priv fn _reject_array_return(self, f: *FunctionDecl, t: *Type) {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<FixedArrayType>(c)) { return; }
+        dyn()->sc->diag->report(DiagID::SC001E, f->range.start,
+            f"'{dyn()->tu.decl_name(static_cast::<*Decl>(f))}' returns an array; an array is not returned by value, return '[T]' or fill an '@inout' parameter"
+        ).first(f->name.range).emit();
+    }
+
+    /// An array is initialized from a list literal and from nothing else:
+    /// copying one is not an initialization C++ has.
+    priv fn _reject_array_copy(self, v: *VariableDecl, t: *Type) {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<FixedArrayType>(c)) { return; }
+        var init = dyn()->tu.strip_parens(v->init);
+        if (init == &null) || init->is_poisoned() || isa::<ListLiteralExpr>(init) { return; }
+        dyn()->fail(init, "an array is not copyable; initialize it from a list literal, or view the source through a slice or a pointer");
     }
 
     // === traversal overrides (scope) ========================================
@@ -192,6 +213,18 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             dyn()->type_of(p->default_val, pt);
             if pt != &null { dyn()->check_convertible(p->default_val, pt); }
         }
+        // `[T; N]` is a C array: by value it would decay to a pointer and
+        // pass by reference. `const` and `@inout` say what is meant.
+        for var i: usize = 0; i < n->params.size(); ++i {
+            var p = n->params[i];
+            if (p == &null) || p->is_self || (p->type_ == &null) { continue; }
+            var pc = canon_unqual(p->type_->canonical);
+            if (pc == &null) || (!isa::<FixedArrayType>(pc)) { continue; }
+            if p->is_const || (p->mode != ParamMode::Value) { continue; }
+            dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+                f"parameter '{dyn()->tu.param_name(p)}' takes an array by value; write 'const', '@inout', or take a slice"
+            ).first(p->range).emit();
+        }
         if n->requires_clause != &null { dyn()->type_of(n->requires_clause, dyn()->tu.builtin(BuiltinKind::Bool)); }
         if n->where_clause != &null    { dyn()->require_bool(n->where_clause, "a 'where' clause"); }
 
@@ -204,8 +237,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
 
         if n->body_kind == FnBodyKind::Expr {
             self.fn_return_type(n);   // demand path owns the frame + slot write.
+            if n->return_type != &null { self._reject_array_return(n, n->return_type->canonical); }
             return n;
         }
+        self._reject_array_return(n, declared);
 
         self.push_fn_frame(n, declared);
         var saved_unsafe = dyn()->unsafe_depth;
@@ -221,6 +256,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n->init != &null {
             var ft = (n->type_->canonical) if (n->type_ != &null) else (&null);
             dyn()->type_of(n->init, ft);
+            dyn()->reject_slice_literal(n->init, "used as a field default");
             if ft != &null { dyn()->check_convertible(n->init, ft); }
         }
         return n;
@@ -261,6 +297,8 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if st != ResolveState::Unresolved { return n; }   // demand-typed already.
         dyn()->sc->rstate.begin_decl(static_cast::<*Decl>(n), n->range);
         var t = dyn()->type_of(n->init, declared);
+        dyn()->mark_list_storage(n->init);
+        self._reject_array_copy(n, (declared) if (declared != &null) else (t));
         var ok = true;
         if declared != &null {
             ok = dyn()->check_convertible(n->init, declared);
@@ -306,6 +344,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         }
         fr->saw_return_value = true;
         var t = dyn()->type_of(n->value, fr->declared);
+        dyn()->reject_slice_literal(n->value, "returned from a function");
         if fr->declared != &null {
             if dyn()->tu.is_never(fr->declared) {
                 dyn()->sc->diag->report(DiagID::SC001E, n->range.start, "a function returning '!' cannot return").first(n->range).emit();

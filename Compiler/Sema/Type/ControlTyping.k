@@ -325,6 +325,7 @@ class <T> ControlTyping {
             var ft = (fd->type_->canonical) if (fd->type_ != &null) else (&null);
             if ft != &null { ft = dyn()->ded_scratch()->member_through(rec, ft); }
             dyn()->type_of(f->value, ft);
+            if dyn()->reject_slice_literal(f->value, "stored in a field") { ok = false; continue; }
             if (ft != &null) && (!dyn()->check_convertible(f->value, ft)) { ok = false; }
         }
         if !ok { dyn()->poison_only(n); return &null; }

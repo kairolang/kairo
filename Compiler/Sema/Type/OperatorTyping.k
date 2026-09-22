@@ -456,8 +456,15 @@ class <T> OperatorTyping {
         }
 
         if k == TokenKind::OpEqual {
+            var lc = canon_unqual(lt);
+            if (lc != &null) && isa::<FixedArrayType>(lc) {
+                dyn()->type_of(n->rhs, lt);
+                dyn()->fail(n, "an array is not assignable; assign its elements, or go through a slice");
+                return &null;
+            }
             dyn()->type_of(n->rhs, lt);
             if dyn()->propagate(n, n->rhs) { return &null; }
+            if dyn()->reject_slice_literal(n->rhs, "assigned to a slice") { dyn()->poison_only(n); return &null; }
             if !dyn()->check_convertible(n->rhs, lt) { dyn()->poison_only(n); return &null; }
             n->value_category = Expr::ValueCategory::LValue;
             return lt;
