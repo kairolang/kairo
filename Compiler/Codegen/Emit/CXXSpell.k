@@ -52,6 +52,7 @@ eval fn VIS_NONE() -> u8 { return 0; }
 eval fn VIS_PRIV() -> u8 { return 1; }
 eval fn VIS_PROT() -> u8 { return 2; }
 eval fn VIS_PUB()  -> u8 { return 3; }
+eval fn VIS_INTERNAL() -> u8 { return 4; }
 
 class CXXSpell {
     priv var _cg: obs::<CodegenContext>;
@@ -241,6 +242,45 @@ class CXXSpell {
         return tu->ctx->module_base.segments.size() == 0;
     }
 
+    /// The entry TU's namespace: its FILE STEM, sanitized to a C++
+    /// identifier. An entry file declares no module, so before this its decls
+    /// landed in one unnamed namespace and two entry TUs in a build could not
+    /// both define `helper`. The stem is a name the source already has.
+    static fn entry_stem(tu: *TranslationUnit) -> string {
+        if (tu == &null) || (tu->ctx == &null) || (tu->ctx->sm == &null) { return "_"; }
+        var path = tu->ctx->sm->get_filename(tu->fid);
+        // basename, then drop the extension.
+        var start: usize = 0;
+        for var i: usize = 0; i < path.size(); ++i {
+            if (path[i] == '/') || (path[i] == '\\') { start = i + 1; }
+        }
+        var end = path.size();
+        for var i: usize = start; i < path.size(); ++i {
+            if path[i] == '.' { end = i; break; }
+        }
+        var out = "";
+        for var i: usize = start; i < end; ++i {
+            var c = path[i];
+            var ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z'))
+                  || ((c >= '0') && (c <= '9')) || (c == '_');
+            if ok { out += c; } else { out += "_"; }
+        }
+        if out.size() == 0 { return "_"; }
+        if (out[0] >= '0') && (out[0] <= '9') { return "_" + out; }
+        return out;
+    }
+
+    /// A decl with no linkage outside its own file: `priv` or `internal` in
+    /// the entry TU. It goes in an unnamed namespace NESTED in the file's,
+    /// so `::<stem>::helper` still names it -- C++'s implicit using-directive
+    /// reaches into the unnamed one -- and qual_name is unchanged.
+    static fn is_anon(d: *Decl) -> bool {
+        if d == &null { return false; }
+        if !CXXSpell::is_entry_tu(CXXSpell::tu_of(d)) { return false; }
+        var v = CXXSpell::vis_of(d);
+        return (v == VIS_PRIV()) || (v == VIS_INTERNAL());
+    }
+
     /// The scope a decl's C++ name is qualified from: for an extension
     /// member the extension's parent (an extension is transparent, its
     /// members are free functions in the enclosing module), otherwise the
@@ -265,7 +305,11 @@ class CXXSpell {
             }
             dc = dc->dc_parent;
         }
-        var out = self.module_segments(CXXSpell::tu_of_dc(self._home_dc(d)));
+        var tu  = CXXSpell::tu_of_dc(self._home_dc(d));
+        var out = self.module_segments(tu);
+        // An entry TU declares no module, so module_segments gives nothing;
+        // its file stem is the namespace instead.
+        if out.size() == 0 { out.push_back(CXXSpell::entry_stem(tu)); }
         for var i: usize = 0; i < mods.size(); ++i { out.push_back(mods[mods.size() - 1 - i]); }
         return out;
     }
@@ -285,8 +329,10 @@ class CXXSpell {
         return out;
     }
 
-    /// `::ns::Outer::Inner`. Entry-TU decls have no namespace: `::Name`
-    /// resolves inside the unnamed namespace the emitter wraps them in.
+    /// `::ns::Outer::Inner`. An entry-TU decl's segment is its file stem, so
+    /// `::stem::Name` is the same name whether the decl is `pub` or `priv`:
+    /// C++'s implicit using-directive reaches into the nested unnamed
+    /// namespace `priv` puts it in, and qual_name never has to know.
     fn qual_name(self, d: *Decl) -> string {
         var r = CXXSpell::rep(d);
         if decl_is_imported(r) { return decl_cxx_spelling(r); }

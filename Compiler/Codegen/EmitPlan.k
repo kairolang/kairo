@@ -69,6 +69,13 @@ import AST::Kind::ExprKind::*;
 import AST::Visitor::RecursiveASTVisitor::*;
 import Location::SourceManager::*;
 
+/// A module's header carries what another module may name. `priv` is out by
+/// definition, and so is `internal`: it is visible within its own module and
+/// nowhere else, which is exactly what a header crosses.
+fn _hidden_in_header(v: u8) -> bool {
+    return (v == VIS_PRIV()) || (v == VIS_INTERNAL());
+}
+
 enum PlanNeed derives u8 {
     Fwd = 0,   ///< `class X;` is enough.
     Complete,  ///< the body-less definition must precede.
@@ -354,17 +361,17 @@ fn EmitPlan::_collect_own_decl(d: *Decl) {
     }
     if isa::<ExtensionDecl>(d) {
         var x = cast::<ExtensionDecl>(d);
-        if (self._mode == PlanMode::Header) && (CXXSpell::vis_of(d) == VIS_PRIV()) { return; }
+        if (self._mode == PlanMode::Header) && _hidden_in_header(CXXSpell::vis_of(d)) { return; }
         for var i: usize = 0; i < x->methods.size(); ++i {
             var m = x->methods[i];
             if m == &null { continue; }
-            if (self._mode == PlanMode::Header) && (CXXSpell::vis_of(static_cast::<*Decl>(m)) == VIS_PRIV()) { continue; }
+            if (self._mode == PlanMode::Header) && _hidden_in_header(CXXSpell::vis_of(static_cast::<*Decl>(m))) { continue; }
             self._admit_ext_fn(m, x);
         }
         return;
     }
     if !self._plannable(d) { return; }
-    if (self._mode == PlanMode::Header) && (CXXSpell::vis_of(d) == VIS_PRIV()) { return; }
+    if (self._mode == PlanMode::Header) && _hidden_in_header(CXXSpell::vis_of(d)) { return; }
     if self._is_type_decl(d) {
         // A definition here means every own type is Complete; its own
         // dependencies come in through _expand.

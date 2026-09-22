@@ -200,22 +200,23 @@ class EmitIR {
 
     // --- Namespace wrapper ------------------------------------------------------
 
-    /// Open the wrapper InterfaceEmitter declared \p d in. Returns whether
-    /// one was opened.
-    priv fn _open_ns(self, d: *Decl, at: SourceRange) -> bool {
-        if CXXSpell::is_entry_tu(CXXSpell::tu_of(d)) {
-            sink->spell(at, "namespace {");
-            return true;
-        }
+    /// Open the wrapper InterfaceEmitter declared \p d in.
+    /// The named namespace, plus an unnamed one nested in it for a decl with
+    /// no linkage outside its file. Returns how many braces to close.
+    priv fn _open_ns(self, d: *Decl, at: SourceRange) -> u32 {
+        var n: u32 = 0;
         var ns = self._spell.ns_segments(d);
-        if ns.size() == 0 { return false; }
-        sink->spell(at, "namespace " + self._spell.ns_join(ns) + " {");
-        return true;
+        if ns.size() > 0 {
+            sink->spell(at, "namespace " + self._spell.ns_join(ns) + " {");
+            n += 1;
+        }
+        if CXXSpell::is_anon(d) { sink->spell(at, "namespace {"); n += 1; }
+        return n;
     }
 
-    priv fn _close_ns(self, at: SourceRange) {
-        sink->spell(at, "}");
-        sink->brk();
+    priv fn _close_ns(self, at: SourceRange, n: u32) {
+        for var i: u32 = 0; i < n; ++i { sink->spell(at, "}"); }
+        if n > 0 { sink->brk(); }
     }
 
     // --- Functions ------------------------------------------------------------------
@@ -230,7 +231,7 @@ class EmitIR {
         if n->is_method() && (ext == &null) { return; }   // a method reached the free path; its owner emits it.
 
         var is_main = (ext == &null) && CXXSpell::is_entry_tu(self._cg->tu) && (self._spell.leaf(n) == "main");
-        var wrap = false;
+        var wrap: u32 = 0;
         if !is_main { wrap = self._open_ns(n, n->name.range); }
 
         var head = "";
@@ -245,7 +246,7 @@ class EmitIR {
         sink->spell(n->name.range, head);
 
         self._body(n, ext);
-        if wrap { self._close_ns(n->range); }
+        self._close_ns(n->range, wrap);
     }
 
     /// `RET Owner::name(params) [const] { body }`, inside the owner's wrapper.
@@ -279,7 +280,7 @@ class EmitIR {
         sink->spell(m->name.range, head);
 
         self._body(m, &null);
-        if wrap { self._close_ns(m->range); }
+        self._close_ns(m->range, wrap);
     }
 
     /// `template <class T>` for each generic owner, outermost first.

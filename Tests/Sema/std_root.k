@@ -28,8 +28,7 @@ fn use_std() -> void {
 //    kairo's standard library had been emitted into C++'s namespace, which is
 //    the collision this whole design exists to make impossible.
 // RUN: { %kairo %s --type-check-only --print-cxx 2>&1 || true; } | %FileCheck %s --check-prefix=CXX
-// CXX: kairo
-// CXX-SAME: std
+// CXX: kairo::std
 // CXX: print
 //
 // 4. nothing is diagnosed in the ordinary case.

@@ -85,17 +85,21 @@ class InterfaceEmitter {
         while (i < n) && (self._plan->entries[i].tier == PlanTier::FwdDecls) {
             var e = &(self._plan->entries[i]);
             var ns = self._spell->ns_segments(e->decl);
-            var entry_tu = CXXSpell::is_entry_tu(CXXSpell::tu_of(e->decl));
-            self._ns_open(e->decl, ns, entry_tu);
+            // The unnamed nesting is part of the wrapper, so a run shares one
+            // only if it agrees on that too: grouping on the segments alone
+            // would put a `priv` decl in a `pub` decl's namespace.
+            var anon = CXXSpell::is_anon(e->decl);
+            var opened = self._ns_open(e->decl, ns, anon);
             while (i < n) && (self._plan->entries[i].tier == PlanTier::FwdDecls) {
                 var f = &(self._plan->entries[i]);
                 var fns = self._spell->ns_segments(f->decl);
                 if !self._same_ns(ns, fns) { break; }
+                if CXXSpell::is_anon(f->decl) != anon { break; }
                 if header && (!f->own) && (f->need == PlanNeed::Complete) { i += 1; continue; }   // included.
                 self._fwd_decl(f->decl);
                 i += 1;
             }
-            self._ns_close(entry_tu);
+            self._ns_close(opened);
         }
 
         // tier 1
@@ -112,7 +116,7 @@ class InterfaceEmitter {
             i += 1;
             if header && (!e->own) { continue; }
             // EmitIR defines main at global scope as `int main`; a prior
-            // declaration buys nothing, and inside the unnamed namespace it
+            // declaration buys nothing, and inside the file's namespace it
             // would declare a different function.
             if self._is_entry_main(e->decl) { continue; }
             self._wrapped(e->decl, fn () { self._free_fn_decl(cast::<FunctionDecl>(e->decl), e->ext); });
@@ -171,30 +175,34 @@ class InterfaceEmitter {
         return true;
     }
 
-    priv fn _ns_open(self, d: *Decl, ns: ref!(vec::<string>), entry_tu: bool) {
+    /// Returns how many braces were opened: the named namespace, plus an
+    /// unnamed one nested in it for a decl with no linkage outside its file.
+    priv fn _ns_open(self, d: *Decl, ns: ref!(vec::<string>), anon: bool) -> u32 {
         var at = self._at(d);
-        if entry_tu { sink->spell(at, "namespace {"); return; }
-        if ns.size() == 0 { return; }   // a decl at the global namespace (never for a rooted file).
-        var s = "namespace ";
-        s += self._spell->ns_join(ns);
-        s += " {";
-        sink->spell(at, s);
+        var n: u32 = 0;
+        if ns.size() > 0 {
+            var s = "namespace ";
+            s += self._spell->ns_join(ns);
+            s += " {";
+            sink->spell(at, s);
+            n += 1;
+        }
+        if anon { sink->spell(at, "namespace {"); n += 1; }
+        return n;
     }
 
-    priv fn _ns_close(self, entry_tu: bool) {
-        // Closing brace anchored on nothing better than the TU: the wrapper
+    priv fn _ns_close(self, n: u32) {
+        // Closing braces anchored on nothing better than the TU: the wrapper
         // has no bytes of its own.
-        sink->spell(self._tu_at(), "}");
-        sink->brk();
+        for var i: u32 = 0; i < n; ++i { sink->spell(self._tu_at(), "}"); }
+        if n > 0 { sink->brk(); }
     }
 
     priv fn _wrapped(self, d: *Decl, body: fn()) {
         var ns = self._spell->ns_segments(d);
-        var entry_tu = CXXSpell::is_entry_tu(CXXSpell::tu_of(d));
-        var wrap = entry_tu || (ns.size() > 0);
-        if wrap { self._ns_open(d, ns, entry_tu); }
+        var opened = self._ns_open(d, ns, CXXSpell::is_anon(d));
         body();
-        if wrap { self._ns_close(entry_tu); }
+        self._ns_close(opened);
     }
 
     priv fn _is_entry_main(self, d: *Decl) -> bool {
