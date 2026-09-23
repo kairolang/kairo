@@ -24,6 +24,3 @@
 	url = https://github.com/kairolang/lib-helix
 	shallow = true
 
-[submodule "Lib/std"]
-	path = Lib/std
-	url = https://github.com/kairolang/kairo-std
