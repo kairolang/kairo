@@ -29,6 +29,10 @@ What every file in std may assume, may not do, and must ship with. Supervision c
 
   - Sugar is spelled as sugar: [T] not Vector<T>, [T;] not Slice<T>, string not builtin::string. Both name the same decl; the sugar is the documented spelling.
 
+  - Growth, rehash and realloc code that depends only on sizeof(T) and alignof(T) lives in a NON-TEMPLATE core (SmallVectorBase style); the template is a typed shell over it. Every explicitly instantiated member is emitted, so untyped cores are the only thing keeping instantiation cost flat.
+
+  - A [T;] field is a BORROWED VIEW, and its lifetime is on the author until AMT lands. A type that keeps its data declares [T] or [T; N]. A container does not store a slice of something it does not own.
+
 
 3. WHAT STD MAY AND MAY NOT USE
 -------------------------------
@@ -101,9 +105,10 @@ Kept current by the compiler side. A feature marked red is not usable in std's d
 | -------------------------------------------------- | -------------------------------------------- |
 | structs, classes, enums (C-like), extend, generics | OK                                           |
 | operators via `fn op`                              | OK (OperatorLowering)                        |
-| defaults, named args, packs                        | OK (CallLowering)                            |
-| `[...]` literals as slices                         | OK (ListLiteralLowering)                     |
-| extension method calls                             | OK (ExtensionLowering)                       |
+| defaults, named args, packs                        | NO (CallLowering)                            |
+| list literals                                      | OK (ListLiteralLowering)                     |
+| ... vector literals                                | PARTIAL (no Vector ctor bodies: no link)     |
+| extension method calls                             | NO (ExtensionLowering)                       |
 | interfaces as bounds, witnesses                    | NO (ConformanceChecking / EmitWitness)       |
 | `T?`, `?.`, `??`                                   | NO (nullable) lowering                       |
 | ranged `for`, ranges, slicing                      | NO (IterLowering)                            |
@@ -113,3 +118,9 @@ Kept current by the compiler side. A feature marked red is not usable in std's d
 | f-strings                                          | NO (FStringLowering)                         |
 | destructors (`op delete`), copy/move               | NO (CopyMoveLowering / DestructorInsertion)  |
 | -------------------------------------------------- | -------------------------------------------- |
+
+  - defaults, named args, packs: CallLowering is SPECIFIED, not written. Sema.k schedules OperatorLowering and ListLiteralLowering, and nothing else.
+
+  - list literals: [T; N] by default, [T;] or [T] by target, and in argument position ranked by shape. Vector literals type-check and EMIT, but do not link until the Vector constructor bodies land in builtin, so a module that uses one is not buildable yet.
+
+  - extension method calls: ExtensionLowering is not written. EmitIR's is_ufcs path emits the free-function call directly; that is the interim, not the contract.
