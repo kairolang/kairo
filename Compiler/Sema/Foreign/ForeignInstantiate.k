@@ -71,6 +71,7 @@ import Sema::Foreign::TypeExport::*;
 import Sema::Foreign::DeclImport::*;
 import Sema::Foreign::HeaderIndex::*;
 import Interop::Clang::HeaderSet::*;
+import Preprocessor::PreprocessorSymbolTable::*;
 import Diagnostic::BufferedDiagSink::*;
 import Diagnostic::ClangDiagAdapter::*;
 
@@ -81,6 +82,10 @@ class ForeignInstantiate {
     priv var _reg:       obs::<ForeignRegistry>;
     priv var _instances: obs::<InstantiationRegistry>;
     priv var _why:       string = "";              ///< the last failure's reason, for the log line.
+    /// For TypeExport's stand-ins of Kairo records (`vector<S>`), which
+    /// are named as EmitIR names them. Null until the driver has a
+    /// preprocessor; a Kairo-record argument is refused until then.
+    pub var psym:        obs::<PreprocessorSymbolTable> = &null;
 
     pub var n_filled: usize = 0;
     pub var n_failed: usize = 0;
@@ -169,6 +174,9 @@ class ForeignInstantiate {
 
         // 2. the args, spelled in THIS set's AST.
         var tx = TypeExport(cctx, csema, reinterpret_cast::<*void>(hs));
+        tx.reg       = self._reg;
+        tx.psym      = self.psym;
+        tx.instances = self._instances;
         var qs: llvm::SmallVector::<clang::QualType, 8>;
         for var i: usize = 0; i < e->args.size(); ++i {
             var q = tx.to_clang(e->args[i]);

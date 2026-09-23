@@ -542,9 +542,23 @@ is written in (`DeclImport::_home_at`): a token's text is read back through
 its range's TU, and a name interned in `<__fwd/vector.h>` but ranged in
 `<__vector/vector.h>` rendered as whatever identifier held that index
 there (`.size` as `cend`). A fill that cannot run -- an arg with no clang
-spelling (a Kairo-native record, a decl from another set), or a
-specialization clang rejects -- is sticky (`foreign_fill_failed`) and lookup
-walks the pattern, as it did before fills existed.
+spelling (a decl from another set, a Kairo record TypeExport cannot mirror),
+or a specialization clang rejects -- is sticky (`foreign_fill_failed`) and
+lookup walks the pattern, as it did before fills existed.
+
+[DONE] Kairo-native args (`std::vector<S>`). Phase A has never heard of `S`,
+so TypeExport declares a STAND-IN in the set's AST: a complete struct with
+S's non-static fields in order, under exactly the name EmitIR emits
+(`CXXSpell::ns_segments` + `leaf`, e.g. `::stem::S`). The name is the point:
+every spelling the fill records (`::std::vector<::stem::S>`, a member
+typedef's path) is printed from phase A and compiled in phase B against the
+real `S`. The stand-in's USR is registered to S itself in ForeignRegistry,
+so TypeImport reads `reference` back as `S&` -- the Kairo record, whose own
+members and extensions then resolve. It mirrors layout only (no methods, no
+user destructor or deleted copy), which is all declaring members needs.
+Refused, and the fill fails as before: generic records and their instances,
+records nested in a type, classes with a base, enums, a field whose type has
+no export, and a name a header already owns.
 
 [DONE] The fill trigger is ONE entry point, `MemberLookup::ensure_filled`,
 called by both readers of a shell's table: member lookup (`c.size`) and
@@ -559,8 +573,7 @@ recursive, and a shell already mid-fill on this thread returns false at once.
 
 A failed fill's clang errors reach the demanding TU's sink through the
 engine, spanned in the header. [MISSING] a Kairo note pointing at the USE
-that demanded the fill; a C++ forward
-shape for Kairo-native args (`std::vector<KairoStruct>`).
+that demanded the fill; stand-ins for the Kairo records refused above.
 
 **Nested records.** Implicit instantiation of `holder<alloc>` DECLARES
 `holder<alloc>::node` but defines it only when something requires it

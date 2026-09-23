@@ -81,6 +81,12 @@ class <T> MemberTyping {
 
         if n->base == &null {
             cur_kind = 2;
+        } else if self._is_cxx_head(n->base) {
+            // `cxx` as a chain HEAD is the overlay's scope, which is what it
+            // is for; _type_ident's R053E is for `cxx` standing alone, and
+            // typing the head through it rejected `cxx::std::vector<i32>()`.
+            dyn()->note_module_expr(n->base);
+            cur_kind = 2;
         } else {
             var bt = dyn()->type_of(n->base, &null);
             if n->base->is_poisoned() { dyn()->poison_only(n); return &null; }
@@ -299,6 +305,15 @@ class <T> MemberTyping {
 
     /// The cv of the object \p t denotes: through any C++ reference (a
     /// reference is its referee), not through a pointer.
+    /// \p e is the bare identifier `cxx`, bound to this TU's std overlay.
+    priv fn _is_cxx_head(self, e: *Expr) -> bool {
+        if !isa::<NamedIdentExpr>(e) { return false; }
+        var id = cast::<NamedIdentExpr>(e);
+        if (!id->is_bound()) || (!id->generic_args.is_empty()) { return false; }
+        var tu = dyn()->sc->tu;
+        return (tu != &null) && (tu->cxx_module != &null) && (id->resolved_decl == tu->cxx_module);
+    }
+
     priv fn _object_quals(self, t: *Type) -> u8 {
         var c = t;
         while c != &null {

@@ -11,15 +11,31 @@
 ///
 ///     What cannot be expressed, and why:
 ///       generic params, opaque, anything dependent   no concrete clang type.
-///       a Kairo-native record    phase A's AST has never heard of it. Needs
-///                                sema to emit a C++ forward shape for the
-///                                Kairo type into that AST first.
-///                                TODO(ffi): `std::vector<KairoStruct>`.
+///       a GENERIC Kairo record   (or an instance of one, or one nested in
+///                                another type, or one with a base) no
+///                                stand-in yet; see below.
 ///       a decl from ANOTHER set  its clang_decl points into a different
 ///                                ASTContext. v1 instantiates only through
 ///                                the set the primary came from, so a decl
 ///                                of any other set is refused, not re-found.
 ///       nullables, Kairo vectors/maps/slices   no C++ counterpart.
+///
+///   \par Kairo records
+///     phase A's AST has never heard of a Kairo-authored record, so
+///     `std::vector<S>` declares a STAND-IN for `S` there first (_standin):
+///     a complete C++ struct with S's non-static fields in order, declared
+///     under exactly the qualified name EmitIR gives S (`::stem::S`). The
+///     name is what makes it safe. Every spelling a fill records -- the
+///     instance's own `::std::vector<::stem::S>`, a member typedef's path --
+///     is printed from this AST, and phase B compiles it against the real
+///     `S`; any other name would be a spelling that names nothing there.
+///     The stand-in's USR is registered to S itself, so TypeImport reads
+///     `S&` out of `reference` as the Kairo record, not as a foreign one.
+///
+///     The stand-in carries layout, not behaviour: no methods, and implicit
+///     special members only (a Kairo destructor or deleted copy is not
+///     mirrored). That is enough for phase A, which declares members and
+///     never instantiates their bodies; phase B sees the real type.
 ///
 ///   \par Threading
 ///     A nested instance (`cont<cont<i32>>`) is spelled by specializing the
@@ -53,11 +69,24 @@ import AST::DeclFacts::*;
 import AST::Node::Types::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Casting::*;
+import AST::Context::InstantiationRegistry::*;
+import Preprocessor::PreprocessorSymbolTable::*;
+import Codegen::CodegenContext::*;
+import Codegen::Emit::CXXSpell::*;
+import Sema::Resolve::NameLookup::*;
+import Sema::Foreign::ForeignRegistry::*;
+import Sema::Foreign::TypeImport::*;
 
 class TypeExport {
     pub var cctx: obs::<clang::ASTContext>;
     pub var sema: obs::<clang::Sema>;        ///< for nested specializations.
     pub var set:  obs::<void>;               ///< the HeaderSet cctx belongs to (FFILinkage::origin_set's type).
+
+    // Stand-ins for Kairo records (see the file header). All three or none:
+    // with any of them null a Kairo record is refused, as it always was.
+    pub var reg:       obs::<ForeignRegistry>         = &null;   ///< stand-in USR -> the Kairo decl.
+    pub var psym:      obs::<PreprocessorSymbolTable> = &null;   ///< CXXSpell's module segments.
+    pub var instances: obs::<InstantiationRegistry>   = &null;   ///< CXXSpell's CodegenContext wants it.
 
     fn TypeExport(self, cctx: *clang::ASTContext, sema: *clang::Sema, set: *void) {
         self.cctx = cctx;
@@ -196,6 +225,9 @@ class TypeExport {
             if tag != &null { return clang::QualType(self.cctx->getCanonicalTagType(tag)); }
         }
 
+        // A Kairo-authored record: a stand-in under its emitted name.
+        if (!decl_is_imported(d)) && (!decl_is_instance(d)) { return self._standin(d, rt); }
+
         // An unfilled instance of an imported template: spell the template-id
         // from its args. Recursing here is what makes `cont<cont<i32>>` work.
         var prim = decl_instantiated_from(d);
@@ -210,6 +242,102 @@ class TypeExport {
             qs.push_back(q);
         }
         return self.template_id(ct, qs);
+    }
+
+    /// The stand-in for Kairo record \p d in this set's AST, declared on
+    /// first use and found by name after that. Null QualType when \p d is
+    /// a shape it cannot mirror, or when its name is already taken there.
+    /// PRE: sema_lock() held (it mutates the AST).
+    priv fn _standin(self, d_in: *Decl, rt: *RecordType) -> clang::QualType {
+        if (self.reg == &null) || (self.psym == &null) || (self.instances == &null) { return clang::QualType(); }
+        var d = NameLookup::representative(d_in);
+        if rt->args.size() > 0 { return clang::QualType(); }
+        if decl_generic_params(d).size() > 0 { return clang::QualType(); }
+        var tk = clang::TagTypeKind::Struct;
+        var fields: *FrozenList::<*FieldDecl> = &null;
+        if isa::<StructDecl>(d) { fields = &(cast::<StructDecl>(d)->fields); }
+        else if isa::<UnionDecl>(d) { fields = &(cast::<UnionDecl>(d)->fields); tk = clang::TagTypeKind::Union; }
+        else if isa::<ClassDecl>(d) {
+            // A base would have to be mirrored first, and its layout with it.
+            if cast::<ClassDecl>(d)->derives_list.size() > 0 { return clang::QualType(); }
+            fields = &(cast::<ClassDecl>(d)->fields);
+        }
+        if fields == &null { return clang::QualType(); }   // enums, interfaces: no stand-in.
+
+        // The name EmitIR gives d. CXXSpell only reads decl facts, the TU's
+        // imm table and the PP symbols, so a sink-less context is enough.
+        var tu = CXXSpell::tu_of(d);
+        if (tu == &null) || (tu->ctx == &null) { return clang::QualType(); }
+        var cg = CodegenContext(tu->ctx, &null, self.psym, self.instances);
+        var sp = CXXSpell(&cg);
+        // Nested in a type: the owner would need a stand-in of its own.
+        if sp.owner_types(d).size() > 0 { return clang::QualType(); }
+        var segs = sp.ns_segments(d);
+        var leaf = sp.leaf(d);
+
+        var loc = clang::SourceLocation();
+        var dc  = static_cast::<*clang::DeclContext>(self.cctx->getTranslationUnitDecl());
+        for var i: usize = 0; i < segs.size(); ++i {
+            var ii  = self._ident(segs[i]);
+            var res = dc->lookup(clang::DeclarationName(ii));
+            var ns: *clang::NamespaceDecl = &null;
+            if !res.empty() {
+                ns = llvm::dyn_cast::<clang::NamespaceDecl>(res.front());
+                if ns == &null { return clang::QualType(); }   // a header's non-namespace owns the name.
+            } else {
+                ns = clang::NamespaceDecl::Create(*(self.cctx), dc, false, loc, loc, ii, &null, false);
+                dc->addDecl(ns);
+            }
+            dc = static_cast::<*clang::DeclContext>(ns);
+        }
+
+        var lii = self._ident(leaf);
+        var res = dc->lookup(clang::DeclarationName(lii));
+        if !res.empty() {
+            var prev = llvm::dyn_cast::<clang::CXXRecordDecl>(res.front());
+            if prev == &null { return clang::QualType(); }
+            // Mid-definition: a field of d reached d again (`next: *S`). A
+            // pointer to it only needs the name; a by-value cycle is
+            // TypeCycleCheck's error, not ours.
+            var ours = prev->isBeingDefined()
+                    || (self.reg->find(TypeImport::usr_of(prev)) == d);
+            if !ours { return clang::QualType(); }             // a header's own `stem::S`.
+            return clang::QualType(self.cctx->getCanonicalTagType(prev));
+        }
+
+        var rd = clang::CXXRecordDecl::Create(*(self.cctx), tk, dc, loc, loc, lii, &null);
+        rd->setImplicit(true);
+        dc->addDecl(rd);
+        rd->startDefinition();
+        for var i: usize = 0; i < fields->size(); ++i {
+            var fd = (*fields)[i];
+            if (fd == &null) || fd->is_static() { continue; }
+            var ft: clang::QualType;
+            if (fd->type_ != &null) && (fd->type_->canonical != &null) { ft = self.to_clang(fd->type_->canonical); }
+            if ft.isNull() {
+                // All or nothing: a stand-in missing a field would be found
+                // by name later with the wrong shape.
+                dc->removeDecl(rd);
+                return clang::QualType();
+            }
+            var fii = self._ident(f"__kairo_f{i}");
+            var cf  = clang::FieldDecl::Create(*(self.cctx), rd, loc, loc, fii, ft,
+                                               self.cctx->getTrivialTypeSourceInfo(ft, loc),
+                                               &null, false, clang::ICIS_NoInit);
+            cf->setAccess(clang::AS_public);
+            rd->addDecl(cf);
+        }
+        rd->completeDefinition();
+
+        var usr = TypeImport::usr_of(rd);
+        if usr.empty() { dc->removeDecl(rd); return clang::QualType(); }
+        self.reg->put(usr, d);
+        return clang::QualType(self.cctx->getCanonicalTagType(rd));
+    }
+
+    priv fn _ident(self, s: string) -> *clang::IdentifierInfo {
+        var ns = std::string_to_nstring(s);
+        return &(self.cctx->Idents.get(llvm::StringRef(ns.raw(), ns.size())));
     }
 
     // builtins

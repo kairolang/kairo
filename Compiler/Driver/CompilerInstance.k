@@ -972,6 +972,7 @@ class CompilerInstance {
         self._pp = std::create::<PreProcessor>(
             self._sm, self._tcm, self._imp, self._pool,
             self._diag, self._g_scope, &self.invocation(), self.invocation().pp, self._headers);
+        self._finst->psym = self._pp->get_symbol_table();
     }
 
     /// Compiles all input files described by the invocation.

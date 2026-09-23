@@ -720,6 +720,29 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 self.n_bound += 1;
                 return self._anchor_after(sole, st);
             }
+            // Distinct ModuleDecls are one namespace reopened across TUs --
+            // libc++ opens `std` in dozens of headers, each its own decl --
+            // not an ambiguity: the anchor is the union of their scopes, as
+            // _anchor_of_base does for a head and TypeResolve for `::` in a
+            // type. Without it `cxx::std::vector<i32>()` was R028E while the
+            // same path as a type resolved.
+            var all_mod = true;
+            for var i: usize = 0; i < n; ++i {
+                if !isa::<ModuleDecl>((*cands)[i]) { all_mod = false; break; }
+            }
+            if all_mod {
+                var md = NameLookup::representative((*cands)[0]);
+                st->resolved_decl = md;
+                self._record(loc, MemberOutcome::Bound, md, 1, self._home_of(md));
+                self.n_bound += 1;
+                var ma = Anchor{};
+                ma.kind = AnchorKind::Module;
+                ma.decl = md;
+                for var i: usize = 0; i < n; ++i {
+                    NameLookup::module_scopes((*cands)[i], ma.scopes);
+                }
+                return ma;
+            }
             var nm = self.sc->ctx->get_spelling(st->name->name);
             var b = self.sc->diag->report(DiagID::R028E, st->name->range.start,
                 f"'{nm}' is ambiguous: it names more than one member reachable from here"
