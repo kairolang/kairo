@@ -20,11 +20,14 @@ config.test_format = lit.formats.ShTest(execute_external=True)
 # files are just traversed.
 config.suffixes = [".k"]
 
-# Directories never scanned for tests (inputs/fixtures live here).
-# Issues/ is a bug-reproducer corpus, not a lit suite: nearly every file in
-# it is a known-failing case kept for triage, and its expected behaviour is
+# Directories never scanned for tests (inputs/fixtures live here). These match
+# a directory NAME at any depth, so do not reuse them for a real test dir.
+# Clang/ is proof/oracle material, not a suite; Manual/ is hand-run scratch.
+# Bugs/Triage/ is a bug-reproducer corpus, not a lit suite: nearly every file
+# in it is a known-failing case kept for triage, and its expected behaviour is
 # whatever the issue says, not whatever the compiler currently prints.
-config.excludes = ["Inputs", "Manual", "Clang", "Issues"]
+# (Its sibling Bugs/Snapshots/ IS collected.)
+config.excludes = ["Inputs", "Manual", "Clang", "Triage"]
 
 # --- Where tests live --------------------------------------------------------
 config.test_source_root = os.path.dirname(__file__)

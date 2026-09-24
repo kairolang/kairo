@@ -138,7 +138,7 @@ fn same_frame_redefinition() -> i32 {
 // Line numbers below refer to the CODE above and are stable as long as that
 // code is not edited; the check block itself sits at the end of the file so
 // editing it shifts nothing. Regenerate with:
-//   kairo Tests/Sema/name_resolution.k --type-check-only --print-sema
+//   kairo Tests/Sema/Lookup/name_resolution.k --type-check-only --print-sema
 
 // CASE 5
 // DIAG: name_resolution.k:115:{{[0-9]+}}: error{{.*}}: use of undeclared identifier 'later'

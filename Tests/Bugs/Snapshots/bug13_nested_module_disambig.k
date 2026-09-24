@@ -36,6 +36,6 @@
 /// 3. Bug 2 (phantom hoists): statement-position bindings (for-headers,
 ///    locals) must not hoist phantom globals into the DisambigTable.
 ///
-/// Run: kairo Tests/Bugs/bug13_nested_module_disambig.k --print-ast=tree
+/// Run: kairo Tests/Bugs/Snapshots/bug13_nested_module_disambig.k --print-ast=tree
 
 var scale = 3 fn <T> gen(v: T) -> T { return v }

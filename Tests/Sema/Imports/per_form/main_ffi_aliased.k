@@ -18,7 +18,7 @@
 //
 // Asserted here: the import is silent, and the PP consumes it, so the tree
 // is just the function. What the names bind to is asserted in Tests/Sema/FFI
-// and Tests/Sema/imports_all_forms.
+// and Tests/Sema/Imports/imports_all_forms.
 
 ffi "c" import "legacy.h" as legacy
 

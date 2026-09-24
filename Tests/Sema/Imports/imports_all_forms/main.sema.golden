@@ -4,12 +4,12 @@ shows at a glance what a change to phase I / N / CB did to the whole
 dump, not just to the lines someone thought to assert.
 
 Regenerate from the repo root with:
-  kairo Tests/Sema/imports_all_forms/main.k --type-check-only --print-sema \
-    2>/dev/null | sed "s|$PWD/||g" > Tests/Sema/imports_all_forms/main.sema.golden
+  kairo Tests/Sema/Imports/imports_all_forms/main.k --type-check-only --print-sema \
+    2>/dev/null | sed "s|$PWD/||g" > Tests/Sema/Imports/imports_all_forms/main.sema.golden
 
 --------------------------------------------------------------------------
--- sema: Tests/Sema/imports_all_forms/main.k --
-===== SEMA fid 5: Tests/Sema/imports_all_forms/u2.k =====
+-- sema: Tests/Sema/Imports/imports_all_forms/main.k --
+===== SEMA fid 5: Tests/Sema/Imports/imports_all_forms/u2.k =====
 phase: Checked
 -- lang items (well_known) --
   (none bound: no prelude in scope for this TU   expected, not an error)
@@ -36,7 +36,7 @@ phase: Checked
 -- summary --
   0 bound, 0 deferred (overload sets), 0 unresolved
 
-===== SEMA fid 4: Tests/Sema/imports_all_forms/u1.k =====
+===== SEMA fid 4: Tests/Sema/Imports/imports_all_forms/u1.k =====
 phase: Checked
 -- lang items (well_known) --
   (none bound: no prelude in scope for this TU   expected, not an error)
@@ -63,7 +63,7 @@ phase: Checked
 -- summary --
   0 bound, 0 deferred (overload sets), 0 unresolved
 
-===== SEMA fid 3: Tests/Sema/imports_all_forms/baz.k =====
+===== SEMA fid 3: Tests/Sema/Imports/imports_all_forms/baz.k =====
 phase: Checked
 -- lang items (well_known) --
   (none bound: no prelude in scope for this TU   expected, not an error)
@@ -88,7 +88,7 @@ phase: Checked
 -- summary --
   0 bound, 0 deferred (overload sets), 0 unresolved
 
-===== SEMA fid 2: Tests/Sema/imports_all_forms/bar.k =====
+===== SEMA fid 2: Tests/Sema/Imports/imports_all_forms/bar.k =====
 phase: Checked
 -- lang items (well_known) --
   (none bound: no prelude in scope for this TU   expected, not an error)
@@ -113,7 +113,7 @@ phase: Checked
 -- summary --
   0 bound, 0 deferred (overload sets), 0 unresolved
 
-===== SEMA fid 1: Tests/Sema/imports_all_forms/foo.k =====
+===== SEMA fid 1: Tests/Sema/Imports/imports_all_forms/foo.k =====
 phase: Checked
 -- lang items (well_known) --
   (none bound: no prelude in scope for this TU   expected, not an error)
@@ -155,7 +155,7 @@ phase: Checked
 -- summary --
   2 bound, 0 deferred (overload sets), 0 unresolved
 
-===== SEMA fid 0: Tests/Sema/imports_all_forms/main.k =====
+===== SEMA fid 0: Tests/Sema/Imports/imports_all_forms/main.k =====
 phase: TypesResolved   (2 sema error(s))
 -- lang items (well_known) --
   (none bound: no prelude in scope for this TU   expected, not an error)

@@ -12,8 +12,8 @@ struct Vec2 {
     var x: f64
     var y: f64
 
-    fn op +(self, other: Vec2) -> Vec2 { return Vec2{ x: self.x + other.x, y: self.y + other.y } }
-    fn op ==(self, other: Vec2) -> bool { return (self.x == other.x) && (self.y == other.y) }
+    fn op +  (self, other: Vec2) -> Vec2 { return Vec2{ x: self.x + other.x, y: self.y + other.y } }
+    fn op == (self, other: Vec2) -> bool { return (self.x == other.x) && (self.y == other.y) }
     fn op <=>(self, other: Vec2) -> Ordering {
         if self.x < other.x { return Ordering::Less }
         if self.x > other.x { return Ordering::Greater }
@@ -66,8 +66,7 @@ fn main() -> i32 {
     var r: i32 = 2 ^^ -1                            // 0
 
     // 20 - 10 + 1 + 1 + 0 + 1 + 14 + 13 + 12 + 32 + 2 + 0 == 86
-    return ((scaled as f64) as i32) + ((neg as f64) as i32) + ne + lt + ge + has
-         + ((sum as f64) as i32) + ((old as f64) as i32) + acc2.total + p + (q as i32) + r
+    return ((scaled as f64) as i32) + ((neg as f64) as i32) + ne + lt + ge + has + ((sum as f64) as i32) + ((old as f64) as i32) + acc2.total + p + (q as i32) + r
 }
 
 // --- lit wiring -----------------------------------------------------------

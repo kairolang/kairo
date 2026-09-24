@@ -24,7 +24,7 @@ fn use_vector() -> u64 {
 // `std::vector<i32>` fills the instance from clang (ForeignInstantiate), so
 // size() returns canonical `unsigned long` -- u64. The function returns u64
 // to match: `usize` is a distinct type and crossing to it takes `as`
-// (Tests/Sema/usize_distinct.k), exactly as the oracle's `unsigned long`.
+// (Tests/Sema/Types/usize_distinct.k), exactly as the oracle's `unsigned long`.
 //
 // The bound NAMES, not just the types: the fill pins members to vector's
 // forward-declaring header (<__fwd/vector.h>) while they are written in

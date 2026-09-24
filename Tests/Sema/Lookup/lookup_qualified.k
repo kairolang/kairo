@@ -7,7 +7,7 @@
 //   Lib/llvm-runtimes/clang/test/SemaCXX/namespace.cpp (unqualified-lookup
 //   half only; the `using namespace` shadow-warning half is Kairo-analogue-
 //   free and is dropped -- Kairo has no using-directive, only `import`,
-//   which is a completely different mechanism tested under Tests/Imports/).
+//   which is a completely different mechanism tested under Tests/Sema/Imports/).
 //
 // What carries over: (a) a NESTED scope's unqualified lookup falls through
 // to its ENCLOSING scope, not just its own table (basic.lookup.unqual's

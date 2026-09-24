@@ -71,19 +71,51 @@ skipping them. They are noise, not breakage.
 
 LAYOUT
 
-    Parser/       parser and expression tests, the bulk of the suite
-    Sema/         name resolution
-    Imports/      module and FFI import cases, several multi-file
-    PP/           preprocessor
-    Codegen/      code emission; stage 1 cannot emit a binary yet, so these
-                  currently pin the emitted token stream instead
-    Clang/        clang interop
-    HelloWorld/   end-to-end fixtures
-    Bugs/         reduced reproducers
-    Manual/       run by hand, not by lit
+The suite mirrors the compiler pipeline. PascalCase directories are
+categories; a lowercase directory is ONE multi-file fixture (a test plus the
+files it imports) or a documented role (parity/, kairo-only/).
+
+    Preprocessor/       macro expansion, import scanning
+      Errors/           preprocessor diagnostics
+    Parser/
+      Expr/             expression parsing, one construct per file
+      Stmt/             statement parsing, one file per Stmt kind
+        CompoundStmt/
+      Grammar/          declaration-level grammar rules
+      Disambiguation/   generic-vs-comparison and dependent-chain disambiguation
+      Modes/            parameter/binding modes in the grammar
+      Integration/      larger mixed-construct parser runs
+    Sema/
+      Lookup/           name resolution (phase N), qualified + member lookup
+      Types/            type resolution (phase T), aliases, cycles, lang items
+      Imports/          imports, the prelude and the std / cxx overlays
+        per_form/         one test per import form over a shared corpus
+        imports_all_forms/  every form in one TU (IMPORTS.md 1-9)
+        emit_plan/        which TUs get emitted (IMPORTS.md 11)
+        module_roots/     named -I roots
+      ExprTyper/        expression typing, overloads, call arguments
+      Check/            post-resolution checks (lifecycle, C++ name clashes)
+      Operators/        operator declaration / use rules
+      Modes/            argument modes; kairo-only/ has no C++ oracle
+      FFI/              C++ interop; parity/ is differential against clang
+      RedeclMerge/      redeclaration merging; parity/ + kairo-only/, see README
+      Scenarios/        numbered end-to-end Sema walkthroughs (+ runner script)
+    Codegen/            code emission and link-and-run tests
+    Bugs/
+      Snapshots/        characterization snapshots of reported bugs (lit-run;
+                        they pin today's output, they do not specify it)
+      Triage/           bug-reproducer corpus, EXCLUDED from lit in lit.cfg.py
+      KNOWN_BUGS.md
+
+NOT lit suites -- lit never collects them, and they are not part of the test
+tree's categories:
+
+    Clang/        proof / oracle material for the clang interop (the path is
+                  hardcoded in Compiler/Interop/Clang/ClangLocMapTest.k)
+    Manual/       run by hand, not by lit; personal scratch
 
     NumericConformance/
-                  NOT lit tests. Self-checking Kairo programs that assert their
+                  Self-checking Kairo programs that assert their
                   own arithmetic and report via exit code, so they stay valid
                   the day stage 1 can emit a binary. A lit.local.cfg keeps lit
                   from collecting them. Run with:
@@ -92,6 +124,9 @@ LAYOUT
 
                   See Tests/NumericConformance/README -- it explains what those
                   programs cover and why numeric bugs get their own directory.
+
+Suite infrastructure lives at the top: lit.cfg.py, gen_checks.py (regenerates
+BEGIN/END-GENERATED-CHECKS blocks) and parity_check.py (the %parity driver).
 
 
 ADDING A TEST
@@ -103,5 +138,5 @@ FileCheck. `%kairo` expands to the resolved binary plus `--error-format=basic`,
 
 Tests whose expected behaviour is not implemented yet get `// XFAIL: *` and a
 comment saying what the CHECK lines describe and when to remove the marker --
-see Parser/ExprParse/fstring_interpolation_unimplemented.k for the pattern. An
+see Parser/Expr/fstring_interpolation_unimplemented.k for the pattern. An
 XFAIL that starts XPASSing means the feature landed.

@@ -11,8 +11,12 @@ struct V {
     fn op =(self, o: V) { }                                     // not overloadable
     fn op -(self, o: V, k: i32 = 0) -> V { return o }           // a default on an operator
     fn op <(self, o: V) -> i32 { return 0 }                     // a comparison returning i32
-    fn op -=(self, o: V) -> V { return o }                      // a compound assignment with a result
     fn op l++(self) -> V { return V{ x: self.x + 1 } }
+}
+
+struct U {
+    var x: i32
+    fn op -=(self, o: U) -> U { return o }                      // a compound assignment with a result
 }
 
 struct W {

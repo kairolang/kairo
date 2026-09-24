@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Run every *.k under Tests/Sema/cases through kairo with --print-sema and
+"""Run every *.k under Tests/Sema/Scenarios through kairo with --print-sema and
 dump stdout/stderr/exit per case into one file you can paste back.
 
-    python3 Tests/Sema/run_sema_tests.py [--kairo PATH] [--flags "..."] [--only NAME]
+    python3 Tests/Sema/Scenarios/run_sema_tests.py [--kairo PATH] [--flags "..."] [--only NAME]
 
 Default flags assume: --print-sema and a stop-after-sema flag. Fix the two
 names below if yours differ.
@@ -10,7 +10,7 @@ names below if yours differ.
 import argparse, os, subprocess, sys, textwrap, time
 
 HERE   = os.path.dirname(os.path.abspath(__file__))
-CASES  = os.path.join(HERE, "cases")
+CASES  = HERE
 OUT    = os.path.join(HERE, "out")
 
 def main():

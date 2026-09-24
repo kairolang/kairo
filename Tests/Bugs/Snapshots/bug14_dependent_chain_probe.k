@@ -56,7 +56,7 @@
 ///   - instantiation resolves each bracket left-to-right against the
 ///     then-concrete type; both-parses-valid -> hard error at the bracket
 ///
-/// Run: kairo Tests/Bugs/bug14_dependent_chain_probe.k --print-ast=tree
+/// Run: kairo Tests/Bugs/Snapshots/bug14_dependent_chain_probe.k --print-ast=tree
 
 fn <T> probe(a: T) -> i32 {
     var b = &a

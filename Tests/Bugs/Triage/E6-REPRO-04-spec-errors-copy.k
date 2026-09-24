@@ -1,5 +1,5 @@
 // build: kairo Z4-e6-spec-errors-copy.k --print-sema --type-check-only
-// Copy of Tests/Sema/cases/04_spec_errors.k for E6. The suite file claims
+// Copy of Tests/Sema/Scenarios/04_spec_errors.k for E6. The suite file claims
 // EXPECT: error "explicit specialization of 'Late' after it was already
 // instantiated" E6 says that never fires same-TU.
 class <T> Pair { var a: T; var b: T }
