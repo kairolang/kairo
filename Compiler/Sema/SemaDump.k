@@ -75,6 +75,8 @@ import AST::Node::Base::*;
 import AST::Node::Program::*;
 import AST::Node::PrimaryExpressions::*;
 import AST::Node::Expressions::*;
+import AST::Context::InstantiationRegistry::*;
+import AST::LangItems::*;
 import AST::Node::Patterns::*;
 import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
@@ -135,7 +137,17 @@ fn sema_dump_decl_name(ctx_in: *ASTContext, d: *Decl) -> string {
     // spelled with ITS OWN context, not the importing TU's.
     var ctx = NameLookup::ctx_of(d);
     if ctx == &null { ctx = ctx_in; }
-    if isa::<FunctionDecl>(d)      { return ctx->get_spelling(cast::<FunctionDecl>(d)->name);      }
+    if isa::<FunctionDecl>(d) {
+        // An operator has no name token; its operator tokens ARE its name
+        // (`op +`, `op l++`), and its name slot reads back as `$unknown$`.
+        var f = cast::<FunctionDecl>(d);
+        if f->is_operator {
+            var s = "op ";
+            for var i: usize = 0; i < f->op_token.size(); ++i { s += ctx->get_spelling(f->op_token[i]); }
+            return s;
+        }
+        return ctx->get_spelling(f->name);
+    }
     if isa::<VariableDecl>(d)      { return ctx->get_spelling(cast::<VariableDecl>(d)->name);      }
     if isa::<FieldDecl>(d)         { return ctx->get_spelling(cast::<FieldDecl>(d)->name);         }
     if isa::<ParamDecl>(d)         { return ctx->get_spelling(cast::<ParamDecl>(d)->name);         }
@@ -331,27 +343,15 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
         self._lang_rows(true);
     }
 
-    /// The spelling table, walked twice: once to count, once to print. One
-    /// list, so a lang item can never be counted and not rendered.
+    /// Every lang item, walked twice: once to count, once to print. The
+    /// enum IS the list and to_string the label -- the name the builtin root
+    /// declares -- so a new item can neither be missed here nor mislabelled.
     priv fn _lang_rows(self, emit: bool) -> usize {
         var n: usize = 0;
-        n += self._lang_row(emit, WellKnownType::Future,   "Future");
-        n += self._lang_row(emit, WellKnownType::Range,    "Range");
-        n += self._lang_row(emit, WellKnownType::Yield,    "Yield");
-        n += self._lang_row(emit, WellKnownType::Ordering, "Ordering");
-        n += self._lang_row(emit, WellKnownType::Null,     "Null");
-        n += self._lang_row(emit, WellKnownType::Panic,    "Panic");
-
-        n += self._lang_row(emit, WellKnownType::String,   "string");
-        n += self._lang_row(emit, WellKnownType::Vector,   "vector");
-        n += self._lang_row(emit, WellKnownType::Slice,    "slice");
-        n += self._lang_row(emit, WellKnownType::Array,    "array");
-        n += self._lang_row(emit, WellKnownType::HashMap,  "map");
-        n += self._lang_row(emit, WellKnownType::HashSet,  "set");
-
-        n += self._lang_row(emit, WellKnownType::BigInt,   "int");
-        n += self._lang_row(emit, WellKnownType::BigFloat, "float");
-
+        for var i: usize = 0; i < static_cast::<usize>(WellKnownType::COUNT); ++i {
+            var k = static_cast::<WellKnownType>(static_cast::<u8>(i));
+            n += self._lang_row(emit, k, to_string(k));
+        }
         return n;
     }
 
@@ -1250,8 +1250,22 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
 
     /// What X decided that the type alone does not say, and that the tree
     /// stops showing once Lower/ has run: which storage a slice literal's
-    /// backing array gets, and that a cast is a construction.
+    /// backing array gets, that a cast is a construction, how a comparison
+    /// is derived, and which instance a generic call or operator names.
     priv fn _note_lowering_choices(self, n: *Expr) {
+        if isa::<CallExpr>(n) {
+            self._note_instance(cast::<CallExpr>(n)->instance);
+            return;
+        }
+        if isa::<BinaryOperatorExpr>(n) {
+            var b = cast::<BinaryOperatorExpr>(n);
+            if b->op_rewrite == OpRewrite::Not { self._p.paint(Color::Dim, "  [rewrite: !(==)]"); }
+            if b->op_rewrite == OpRewrite::Cmp { self._p.paint(Color::Dim, "  [rewrite: <=> vs 0]"); }
+            self._note_instance(b->op_instance);
+            return;
+        }
+        if isa::<UnaryOperatorExpr>(n)  { self._note_instance(cast::<UnaryOperatorExpr>(n)->op_instance);  return; }
+        if isa::<AssignOperatorExpr>(n) { self._note_instance(cast::<AssignOperatorExpr>(n)->op_instance); return; }
         if isa::<ListLiteralExpr>(n) {
             if cast::<ListLiteralExpr>(n)->storage == ListStorage::Extended {
                 self._p.paint(Color::Dim, "  [extended]");
@@ -1266,6 +1280,21 @@ class SemaDump derives RecursiveASTVisitor::<SemaDump> {
                 self._p.paint(Color::Dim, "]");
             }
         }
+    }
+
+    /// `  [instance <args>]` for a call slot X filled with a registry entry.
+    priv fn _note_instance(self, slot: *void) {
+        var ie = reinterpret_cast::<*InstanceEntry>(slot);
+        if ie == &null { return; }
+        var s = "<";
+        for var i: usize = 0; i < ie->args.size(); ++i {
+            if i > 0 { s += ", "; }
+            s += self._tu.str(ie->args[i]);
+        }
+        s += ">";
+        self._p.paint(Color::Dim, "  [instance ");
+        self._p.put(s);
+        self._p.paint(Color::Dim, "]");
     }
 
     /// Collected on the same walk, printed after it: a declaration is only

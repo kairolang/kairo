@@ -241,7 +241,13 @@ class <T> CallTyping {
             var pi = (r->arg_to_param[i]) if (i < r->arg_to_param.size()) else (usize(-1));
             var p: *ParamDecl = &null;
             if pi != usize(-1) { if pi < view.size() { p = view[pi]; } }
-            else if view.size() > 0 { p = view[view.size() - 1]; }   // pack tail
+            else {
+                // The pack tail. By is_pack, not position: a named-only
+                // parameter may follow the pack, and the last one is then it.
+                for var k: usize = 0; k < view.size(); ++k {
+                    if view[k]->is_pack { p = view[k]; break; }
+                }
+            }
             if (p == &null) || (p->type_ == &null) { if a->lit != LitKind::None { dyn()->type_of(a->expr, &null); } continue; }
             var pt = p->type_->canonical;
             if (pt != &null) && pt->is_dependent() { pt = r->ded.substitute(pt); }
@@ -306,8 +312,8 @@ class <T> CallTyping {
                 args.push_back(b);
             }
             if ok {
-                dyn()->sc->instances->instance_for(NameLookup::representative(static_cast::<*Decl>(f)), &args,
-                                                   dyn()->sc->ctx->fid, NameLookup::ctx_of(static_cast::<*Decl>(f)));
+                r->instance = dyn()->sc->instances->instance_for(NameLookup::representative(static_cast::<*Decl>(f)), &args,
+                                                                 dyn()->sc->ctx->fid, NameLookup::ctx_of(static_cast::<*Decl>(f)));
             }
         }
         return rt;
@@ -447,6 +453,7 @@ class <T> CallTyping {
         self._warn_unmarked(&args, &r);
         self._write_arg_map(n, r.decl, &args, &r);
         var rt = self.call_result_type(r.decl, &r);
+        n->instance = reinterpret_cast::<*void>(r.instance);
         if rt == &null { dyn()->mark_unknown(n); return &null; }
         return rt;
     }

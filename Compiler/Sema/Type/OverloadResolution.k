@@ -60,6 +60,7 @@ import AST::Node::Casting::*;
 import Location::SourceRange::*;
 import Diagnostic::Registry::*;
 import AST::ParamMode::*;
+import AST::Context::InstantiationRegistry::*;
 
 /// \enum LitKind
 /// \brief An argument that is an untyped literal carries its shape so the
@@ -191,6 +192,9 @@ class OvlResult {
     /// Copied off the winner; see Candidate.
     pub var inout_unmarked: vec::<usize>;
     pub var inout_params:   vec::<*ParamDecl>;
+    /// The instance a GENERIC winner was registered as (call_result_type),
+    /// null for a non-generic one or a dependent call.
+    pub var instance: *InstanceEntry = &null;
     fn OvlResult(self) { }
 }
 
