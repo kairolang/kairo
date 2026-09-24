@@ -431,6 +431,13 @@ fn EmitPlan::visit_expr(e: *Expr) -> bool {
                 self._admit_use(s->resolved_decl);
                 self._admit_cell(s->candidate_cell);
             }
+        } case ExprKind::CallExpr {
+            // A generic callee's instance: tier 3, homed where it was first
+            // named, `extern template` elsewhere. A FUNCTION instance's decl
+            // is the primary itself (InstantiationRegistry::_new_instance),
+            // so it never comes through _admit's instance-shell path.
+            var ie = reinterpret_cast::<*InstanceEntry>(cast::<CallExpr>(e)->instance);
+            if ie != &null { self._admit_instance(ie, PlanNeed::Fwd); }
         } default { break; }
     }
     return true;

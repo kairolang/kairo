@@ -619,21 +619,31 @@ class EmitIR {
     /// Emit \p e where a value of \p want is required: the exactness cast
     /// if the canonicals differ. Initializers, returns and arguments all go
     /// through here.
-    priv fn _value(self, e: *Expr, want: *Type) {
-        if self._needs_cast(e, want) {
-            self._cast_to(want, e, "static_cast");
+    priv fn _value(self, e: *Expr, want: *Type, subst: *InstanceEntry = &null) {
+        if self._needs_cast(e, want, subst) {
+            self._cast_to(want, e, "static_cast", subst);
             return;
         }
         self.emit(e);
     }
 
     /// True when clang would see a conversion Kairo already decided. Both
-    /// sides concrete; identity is by canonical with top-level cv ignored.
-    priv fn _needs_cast(self, e: *Expr, want: *Type) -> bool {
+    /// sides concrete; identity is by canonical with top-level cv ignored. A
+    /// parameter that IS one of \p subst's generic parameters is read as the
+    /// instance's argument for it; any other dependent parameter is left to
+    /// the instantiation.
+    priv fn _needs_cast(self, e: *Expr, want: *Type, subst: *InstanceEntry) -> bool {
         if (e == &null) || (want == &null) { return false; }
         var have = e->type_;
         var w = want->canonical;
         if (have == &null) || (w == &null) { return false; }
+        if (subst != &null) && (canon_unqual(w) != &null) && (canon_unqual(w)->kind == TypeKind::GenericParamType) {
+            var g = cast::<GenericParamType>(canon_unqual(w));
+            if (g->owner != &null) && (CXXSpell::rep(g->owner) == CXXSpell::rep(subst->primary))
+            && (static_cast::<usize>(g->param_index) < subst->args.size()) {
+                w = subst->args[static_cast::<usize>(g->param_index)];
+            }
+        }
         if have->is_dependent() || w->is_dependent() { return false; }
         if have->is_instantiation_dependent() || w->is_instantiation_dependent() { return false; }
         // A record by value is copy-constructed; `static_cast<Rec>(x)` is a
@@ -642,8 +652,8 @@ class EmitIR {
         return canon_unqual(have) != canon_unqual(w);
     }
 
-    priv fn _cast_to(self, t: *Type, e: *Expr, kind: string) {
-        sink->spell(e->range, kind + "<" + self._spell._type(t) + ">(");
+    priv fn _cast_to(self, t: *Type, e: *Expr, kind: string, subst: *InstanceEntry = &null) {
+        sink->spell(e->range, kind + "<" + self._spell._type(t, subst) + ">(");
         self.emit(e);
         sink->spell(e->range, ")");
     }
@@ -807,12 +817,13 @@ class EmitIR {
             }
         }
 
-        var f = dyn_cast::<FunctionDecl>(callee);
+        var f    = dyn_cast::<FunctionDecl>(callee);
+        var inst = reinterpret_cast::<*InstanceEntry>(n->instance);
         if ext_call {
             ICE_IF(f == &null, "EmitIR: UFCS step that is not a function");
             sink->spell(n->callee->range, self._spell.qual_name(callee) + "(");
             self._receiver(ch);
-            self._args(n, f, true);
+            self._args(n, f, true, inst);
             sink->synth_at_end(n->range, clang::tok::r_paren);
             return;
         }
@@ -822,17 +833,34 @@ class EmitIR {
         if self._is_ctor(f) || self._is_type_decl(callee) {
             ICE_IF(n->type_ == &null, "EmitIR: untyped constructor call; ExprTyper gate failure");
             sink->spell(n->callee->range, self._spell._type(n->type_));
+        } else if (inst != &null) && (f != &null) && (f->generic_params.size() > 0) && self._plain_callee(n->callee) {
+            // A generic free function: the instance's arguments are spelled
+            // out. Left to clang, they would be deduced from the emitted
+            // argument EXPRESSIONS, and an argument whose C++ type is not its
+            // Kairo type (an int literal typed i64) deduces an instance no TU
+            // homed, so nothing defines it.
+            sink->spell(n->callee->range, self._spell.qual_name(callee) + self._spell.args_str(&(inst->args)));
         } else {
             self.emit(n->callee);
         }
         sink->synth_at_end(n->callee->range, clang::tok::l_paren);
-        self._args(n, f, false);
+        self._args(n, f, false, inst);
         sink->synth_at_end(n->range, clang::tok::r_paren);
+    }
+
+    /// A callee whose name is spelled whole: a bare name or a `::` path. A
+    /// generic METHOD through `.` needs `.template m<...>` and is still
+    /// RESOLUTION.md item r.
+    priv fn _plain_callee(self, c: *Expr) -> bool {
+        if isa::<NamedIdentExpr>(c) { return true; }
+        var ch = dyn_cast::<ChainExpr>(c);
+        if (ch == &null) || (ch->steps.size() == 0) { return false; }
+        return ch->steps.get(ch->steps.size() - 1)->access_kind == ChainExpr::AccessKind::ColonColon;
     }
 
     /// Arguments, each cast to its parameter's canonical where it differs.
     /// \p have_recv: a receiver was already emitted, so a comma precedes.
-    priv fn _args(self, n: *CallExpr, f: *FunctionDecl, have_recv: bool) {
+    priv fn _args(self, n: *CallExpr, f: *FunctionDecl, have_recv: bool, inst: *InstanceEntry) {
         var params = self._value_params(f);
         if have_recv && (n->args.size() > 0) { sink->spell(n->range, ","); }
         for var i: usize = 0; i < n->args.size(); ++i {
@@ -840,11 +868,11 @@ class EmitIR {
             if i > 0 { sink->synth_at_end(n->args[i - 1]->range, clang::tok::comma); }
             var p: *ParamDecl = &null;
             if i < params.size() { p = params[i]; }
-            self._arg(a, p);
+            self._arg(a, p, inst);
         }
     }
 
-    priv fn _arg(self, a: *Expr, p: *ParamDecl) {
+    priv fn _arg(self, a: *Expr, p: *ParamDecl, inst: *InstanceEntry) {
         // `&x` bound to an @inout parameter is the mode marker, not address-of.
         var u = dyn_cast::<UnaryOperatorExpr>(a);
         if (u != &null) && u->is_mode_marker { self.emit(u->operand); return; }
@@ -852,7 +880,7 @@ class EmitIR {
         if p->mode == ParamMode::Move {
             // An lvalue must be moved explicitly; a prvalue already is.
             if a->is_lvalue() {
-                sink->spell(a->range, "static_cast<" + self._spell._type(p->type_) + "&&>(");
+                sink->spell(a->range, "static_cast<" + self._spell._type(p->type_, inst) + "&&>(");
                 self.emit(a);
                 sink->spell(a->range, ")");
                 return;
@@ -861,7 +889,7 @@ class EmitIR {
             return;
         }
         if p->mode == ParamMode::Inout { self.emit(a); return; }   // an lvalue binds to T& as is.
-        self._value(a, p->type_);
+        self._value(a, p->type_, inst);
     }
 
     /// The parameters an argument list maps onto: `self` excluded.
@@ -936,9 +964,17 @@ class EmitIR {
 
     // --- Operators ---------------------------------------------------------------------
 
+    /// A class, struct or union operand: a user operator that OperatorLowering
+    /// must have rewritten. A plain enum is a RecordType too, and is NOT one:
+    /// `==`, `<` and `as` on an `enum class` are C++'s own.
     priv fn _record_operand(self, e: *Expr) -> bool {
         if (e == &null) || (e->type_ == &null) { return false; }
-        return canon_unqual(e->type_)->kind == TypeKind::RecordType;
+        var c = canon_unqual(e->type_);
+        if (c == &null) || (c->kind != TypeKind::RecordType) { return false; }
+        var d = cast::<RecordType>(c)->decl;
+        var en = dyn_cast::<EnumDecl>(d);
+        if en != &null { return en->is_adt; }
+        return !isa::<InterfaceDecl>(d);
     }
 
     priv fn _unary(self, n: *UnaryOperatorExpr) {
@@ -954,6 +990,7 @@ class EmitIR {
     }
 
     priv fn _binary(self, n: *BinaryOperatorExpr) {
+        ICE_IF(n->op_token.kind == TokenKind::OpEqualEqualEqual, "EmitIR: `===`; NullTestLowering owns it");
         ICE_IF(self._record_operand(n->lhs) || self._record_operand(n->rhs), "EmitIR: user operator; OperatorLowering must rewrite it into a call");
         sink->spell(n->range, "(");
         self.emit(n->lhs);
@@ -980,6 +1017,12 @@ class EmitIR {
     /// static_cast. A checked/asserting downcast is PanicLowering's; a user
     /// `op as` or a converting ctor is OperatorLowering's.
     priv fn _cast(self, n: *TypeCastExpr) {
+        // A lowering's move: `x as T&&`. Never written by the user (Kairo has
+        // no reference types), always a record, always static_cast.
+        if (n->target != &null) && (n->target->canonical != &null) && isa::<CXXRValueRefType>(n->target->canonical) {
+            self._cast_to(n->target, n->operand, "static_cast");
+            return;
+        }
         var src_rec = self._record_operand(n->operand);
         ICE_IF(src_rec && (!self._type_is_pointer(n->operand->type_)), "EmitIR: `as` on a record value; OperatorLowering owns op as / ctor casts");
         var kind = "static_cast";

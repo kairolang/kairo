@@ -162,6 +162,13 @@ class CXXSpell {
             if (i == 0) && (f->op_token.size() == 2) && ((s == "l") || (s == "r")) { continue; }
             sym += self._op_sym(t, ctx);
         }
+        // An extension operator is a free function taking `Self*`. C++ will
+        // not declare `operator-(V*)` ([over.oper]/7), and every call to one is
+        // explicit anyway, so it gets a plain name.
+        var lex = reinterpret_cast::<*DeclContext>(f->lexical_dc);
+        if (lex != &null) && (lex->dc_kind == DeclContextKind::Extension) {
+            return LowerTargets::ext_op(CXXSpell::ext_mnemonic(sym, f));
+        }
         if sym == "delete" { return "~" + self.leaf(self.operator_owner(f)); }
         if sym == "as" {
             ICE_IF(f->return_type == &null, "CXXSpell: `op as` with no target type");
@@ -175,9 +182,50 @@ class CXXSpell {
     static fn named_operator(sym: string, f: *FunctionDecl) -> string {
         if sym == "in"    { return (LowerTargets::op_contains()) if (f->params.size() > 1) else (LowerTargets::op_iter()); }
         if sym == "^^"    { return LowerTargets::op_pow(); }
-        if sym == "==="   { return LowerTargets::op_deep_eq(); }
         if sym == ".*"    { return LowerTargets::op_dotstar(); }
         if sym == "await" { return LowerTargets::op_await(); }
+        return "";
+    }
+
+    /// The mnemonic an extension operator is named by. Arity separates unary
+    /// `-` from binary, prefix `++` from postfix. The member-only operators
+    /// never get here: OperatorSignatureCheck rejects them in an extension.
+    static fn ext_mnemonic(sym: string, f: *FunctionDecl) -> string {
+        var unary = (f->params.size() <= 1);
+        if sym == "+"   { return ("pos") if (unary) else ("add"); }
+        if sym == "-"   { return ("neg") if (unary) else ("sub"); }
+        if sym == "*"   { return "mul"; }
+        if sym == "/"   { return "div"; }
+        if sym == "%"   { return "mod"; }
+        if sym == "^^"  { return "pow"; }
+        if sym == "<<"  { return "shl"; }
+        if sym == ">>"  { return "shr"; }
+        if sym == "&"   { return "band"; }
+        if sym == "|"   { return "bor"; }
+        if sym == "^"   { return "bxor"; }
+        if sym == "~"   { return "bnot"; }
+        if sym == "=="  { return "eq"; }
+        if sym == "!="  { return "ne"; }
+        if sym == "<"   { return "lt"; }
+        if sym == "<="  { return "le"; }
+        if sym == ">"   { return "gt"; }
+        if sym == ">="  { return "ge"; }
+        if sym == "<=>" { return "cmp"; }
+        if sym == "++"  { return ("inc_post") if (CXXSpell::op_is_postfix(f)) else ("inc"); }
+        if sym == "--"  { return ("dec_post") if (CXXSpell::op_is_postfix(f)) else ("dec"); }
+        if sym == "+="  { return "add_assign"; }
+        if sym == "-="  { return "sub_assign"; }
+        if sym == "*="  { return "mul_assign"; }
+        if sym == "/="  { return "div_assign"; }
+        if sym == "%="  { return "mod_assign"; }
+        if sym == "&="  { return "band_assign"; }
+        if sym == "|="  { return "bor_assign"; }
+        if sym == "^="  { return "bxor_assign"; }
+        if sym == "<<=" { return "shl_assign"; }
+        if sym == ">>=" { return "shr_assign"; }
+        if sym == "in"  { return ("iter") if (unary) else ("contains"); }
+        if sym == "await" { return "await"; }
+        ICE_FAIL(f"CXXSpell: extension operator '{sym}' has no free-function form; OperatorSignatureCheck must reject it");
         return "";
     }
 

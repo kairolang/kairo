@@ -107,7 +107,14 @@ emitters use the same instance; a declaration and a body cannot disagree.
   `op delete`; word operators map to symbols; `l`/`r` on `++`/`--` is
   fixity (`op_is_postfix`), not name. Operators C++ cannot spell come from
   `LowerTargets` (`__kairo_contains`/`__kairo_iter` for the two `op in`,
-  `__kairo_pow`, `__kairo_deep_eq`, `__kairo_dotstar`, `__kairo_await`).
+  `__kairo_pow`, `__kairo_dotstar`, `__kairo_await`). `===` is not an
+  operator a type declares: it is the nullable test, owned by the nullable
+  trio, and has no spelling here. An EXTENSION operator is a free function
+  taking `Self*`, which C++ will not declare as an operator
+  ([over.oper]/7), so it spells `LowerTargets::ext_op(mnemonic)`:
+  `__kairo_op_neg`, `__kairo_op_add`, `__kairo_op_inc_post`, ...
+  (`ext_mnemonic`; arity splits unary from binary). Every use is an
+  explicit call, never operator syntax.
 - `_type(t)`: canonical → C++; builtins by table (`i32` is
   `::std::int32_t`), records qualified with instance args from the
   registry, pointers, references, arrays through `decl()`. Structural
@@ -202,13 +209,24 @@ The no-headroom rules, each with one home:
   spell `leaf(resolved_decl)`.
 - `_call`: callee = promoted decl; a type as callee is a ctor call; a UFCS
   step is `::ns::m(&recv, args)` (until ExtensionLowering makes the tree
-  say it).
+  say it). A GENERIC free function called by a bare name or `::` path
+  spells its instance's arguments (`::m::pow<double, long>(...)`) from
+  `CallExpr::instance`, never leaving clang to deduce them: an argument
+  whose C++ type is not its Kairo type (an int literal typed `i64`) would
+  deduce an instance no TU homed. A generic METHOD through `.` still
+  deduces (`.template m<...>` is RESOLUTION.md item r).
 - `_arg`/`_value`: `static_cast<P>(a)` whenever the argument's canonical
   differs from the parameter's (records excluded; they copy-construct);
   `@inout` emits the operand bare; `@move` emits `static_cast<T&&>(x)`
-  for lvalues.
+  for lvalues. For a generic callee a parameter that IS one of its generic
+  parameters is compared, and cast, against the instance's argument for it.
 - `_binary`/`_unary`/`_assign`/`_subscript`/`_cast`: primitives only,
   parenthesized; a record operand is an ICE naming OperatorLowering.
+  "Record" is a class, struct, union or ADT enum (`_record_operand`): a
+  plain enum is a RecordType too, but `==`, `<` and `as` on an `enum class`
+  are C++'s own. `===` in `_binary` is an ICE naming the nullable
+  lowering; `x as T&&` (a lowering's move, never user-written) is a
+  `static_cast`.
 - `_var_decl`: an inferred type is the shared canonical (no range) and is
   spelled at the binding's name; a null type is `I011W` + `auto` — the
   only diagnostic codegen emits.
