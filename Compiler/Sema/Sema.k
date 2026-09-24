@@ -49,6 +49,7 @@ import Sema::Check::ShadowCheck::*;
 import Sema::Check::ValueCategoryPass::*;
 import Sema::Check::ClassLifecycle::*;
 import Sema::Check::MoveCheck::*;
+import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Type::ExprTyper::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::ListLiteralLowering::*;
@@ -272,6 +273,11 @@ class Sema {
         // diagnosing one. This pass is where a by-value loop is reported.
         { var _p = TimeRegion("TypeCycle"); TypeCycleCheck(&self.sc).run(); }
 
+        // Operator declaration rules, BEFORE X: X's derived operators and
+        // compound-assignment pairing assume shapes this pass has already
+        // rejected (a compound operator with a result, both halves of a pair).
+        { var _p = TimeRegion("OperatorSignature"); OperatorSignatureCheck(&self.sc).run(); }
+
         // Expression typing. After TypeCycleCheck because it asks for sizes
         // and layouts through the canonical store, and a by-value cycle has
         // to be reported before anything walks one.
@@ -300,7 +306,6 @@ class Sema {
         // ClassLifecycle (movability).
         { var _p = TimeRegion("MoveCheck"); MoveCheck(&self.sc, &lifecycle).run(); }
 
-        // TODO(sema): OperatorSignatureCheck(&self.sc).run();
         // TODO(sema): ConformanceChecking(&self.sc).run();
         // TODO(sema): ConstChecking(&self.sc).run();
         self.sc.advance_phase(SemaPhase::Checked);

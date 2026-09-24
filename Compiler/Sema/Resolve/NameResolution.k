@@ -83,6 +83,7 @@ import AST::Visitor::RecursiveASTVisitor::*;
 import Token::Token::*;
 import Token::TokenKind::*;
 import Diagnostic::Registry::*;
+import AST::OperatorFacts::*;
 
 __inline_cpp("
 #define RecursiveASTVisitor_NameResolution RecursiveASTVisitor<NameResolution>
@@ -481,6 +482,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::PanicRaise, "PanicRaise");
         self._bind_lang(root, WellKnownType::PanicCatch, "PanicCatch");
         self._bind_lang(root, WellKnownType::AssertFail, "AssertFail");
+        self._bind_lang(root, WellKnownType::Pow,        "pow");
     }
 
     /// One lang item, by the name it is DECLARED with in Lib/builtin. The old
@@ -803,13 +805,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
     /// `fn op`, plain identifier otherwise. Mirrors ASTParse::
     /// _index_symbol_decl so the probe and the table agree.
     priv fn _member_key(self, f: *FunctionDecl, home: *DeclContext) -> DeclName {
-        if f->is_operator {
-            var k0 = TokenKind::TkUnknown;
-            var k1 = TokenKind::TkUnknown;
-            if f->op_token.count > 0 { k0 = f->op_token[0].kind; }
-            if f->op_token.count > 1 { k1 = f->op_token[1].kind; }
-            return DeclName::op_name(k0, k1);
-        }
+        if f->is_operator { return OperatorFacts::key(f); }
 
         var im = self.sc->ctx->get_ident_imm(f->name);
         if (im != u32(-1)) && home->is_type_scope() {

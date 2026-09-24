@@ -384,6 +384,27 @@ class MemberLookup {
         for var i: usize = 0; i < rt->args.size(); ++i { self.associated_scopes(rt->args[i], out); }
     }
 
+    /// The FILE scope a value's record type was declared in, for OPERATOR
+    /// lookup only. _enclosing_modules stops at the TU on purpose: every free
+    /// function in the declaring file would otherwise be an ADL candidate
+    /// wherever the type is used. An operator is the one thing a file declares
+    /// FOR its types, and without this a free `op *` beside a file-scope type
+    /// is unreachable from every file, its own included.
+    fn declaring_scope(self, t: *Type, out: *vec::<*DeclContext>) {
+        var c = self._peel(t);
+        if (c == &null) || (!isa::<RecordType>(c)) { return; }
+        var d = cast::<RecordType>(c)->decl;
+        if d == &null { return; }
+        if d->semantic_dc == &null {
+            var p = decl_instantiated_from(d);
+            if p != &null { d = p; }
+        }
+        var tu = NameLookup::tu_of(reinterpret_cast::<*DeclContext>(d->semantic_dc));
+        if tu == &null { return; }
+        var dc = static_cast::<*DeclContext>(tu);
+        if !self._has_dc(out, dc) { out->push_back(dc); }
+    }
+
     /// Functions named \p name in each of \p scopes, minus anything already in
     /// \p skip (member lookup's answer) or \p out: the ADL half of an operator
     /// or unqualified-call candidate set. A decl reached two ways is one

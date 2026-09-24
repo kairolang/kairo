@@ -100,24 +100,27 @@ Correctness of the implementation is fourth on purpose: a correct function with 
 
 Kept current by the compiler side. A feature marked red is not usable in std's default build; tests that need it are XFAIL and name it here.
 
-| -------------------------------------------------- | -------------------------------------------- |
-|                      Feature                       |                    Status                    |
-| -------------------------------------------------- | -------------------------------------------- |
-| structs, classes, enums (C-like), extend, generics | OK                                           |
-| operators via `fn op`                              | OK (OperatorLowering)                        |
-| defaults, named args, packs                        | NO (CallLowering)                            |
-| list literals                                      | OK (ListLiteralLowering)                     |
-| ... vector literals                                | PARTIAL (no Vector ctor bodies: no link)     |
-| extension method calls                             | NO (ExtensionLowering)                       |
-| interfaces as bounds, witnesses                    | NO (ConformanceChecking / EmitWitness)       |
-| `T?`, `?.`, `??`                                   | NO (nullable) lowering                       |
-| ranged `for`, ranges, slicing                      | NO (IterLowering)                            |
-| `match`                                            | NO (MatchLowering)                           |
-| `panic` / `try` / `finally` / `assert`             | NO (PanicLowering)                           |
-| `yield`                                            | NO (YieldLowering)                           |
-| f-strings                                          | NO (FStringLowering)                         |
-| destructors (`op delete`), copy/move               | NO (CopyMoveLowering / DestructorInsertion)  |
-| -------------------------------------------------- | -------------------------------------------- |
+| -------------------------------------------------- | --------------------------------------------- |
+|                      Feature                       |                     Status                    |
+| -------------------------------------------------- | --------------------------------------------- |
+| structs, classes, enums (C-like), extend, generics | OK                                            |
+| operators via `fn op`                              | OK (OperatorLowering, OperatorSignatureCheck) |
+| defaults, named args, packs                        | NO (CallLowering)                             |
+| list literals                                      | OK (ListLiteralLowering)                      |
+| ... vector literals                                | PARTIAL (no Vector ctor bodies: no link)      |
+| extension method calls                             | NO (ExtensionLowering)                        |
+| interfaces as bounds, witnesses                    | NO (ConformanceChecking / EmitWitness)        |
+| `T?`, `?.`, `??`                                   | NO (nullable) lowering                        |
+| `===` on nullables                                 | NO (nullable lowering)                        |
+| ranged `for`, ranges, slicing                      | NO (IterLowering)                             |
+| `match`                                            | NO (MatchLowering)                            |
+| `panic` / `try` / `finally` / `assert`             | NO (PanicLowering)                            |
+| `yield`                                            | NO (YieldLowering)                            |
+| f-strings                                          | NO (FStringLowering)                          |
+| destructors (`op delete`), copy/move               | NO (CopyMoveLowering / DestructorInsertion)   |
+| -------------------------------------------------- | --------------------------------------------- |
+
+  - operators: member, free and extension `fn op`; `!=`, `<`, `<=`, `>`, `>=` derived from `op ==` / `op <=>`; compound assignment declared as one of the pair (`op +=` or `op +`, the other derived); `^^`; containment `in`. OperatorSignatureCheck rejects the shapes the lowering assumes away. `===` is not overloadable: it is the nullable test, and waits on the nullable lowering.
 
   - defaults, named args, packs: CallLowering is SPECIFIED, not written. Sema.k schedules OperatorLowering and ListLiteralLowering, and nothing else.
 

@@ -304,9 +304,17 @@ ambiguity error. Outcomes recorded per step in `ResolutionTrace`.
 
 ### 2.8 C checks [PARTIAL]
 
-In order: `ConstraintExtraction`, `TypeCycleCheck`, `ExprTyper` (§2.9),
-`ShadowCheck`. `OperatorSignatureCheck`, `ConformanceChecking`,
-`ConstChecking`, `AccessCheck`, `ExtensionOrphanCheck` are stubs / missing.
+In order: `ConstraintExtraction`, `TypeCycleCheck`,
+`OperatorSignatureCheck`, `ExprTyper` (§2.9), `ShadowCheck`.
+`ConformanceChecking`, `ConstChecking`, `AccessCheck`,
+`ExtensionOrphanCheck` are stubs / missing.
+
+`OperatorSignatureCheck` [DONE] runs BEFORE X, because X's derived
+operators and compound-assignment pairing assume the shapes it rejects:
+`===` and `=` declared at all (neither is overloadable), both halves of a
+compound pair (`op +=` AND `op +`), a default argument on an operator, a
+comparison not returning `bool`, a compound assignment with a result, and
+a member-only operator (`op as`, ...) in an extension.
 
 `ConstraintExtraction` partitions each decl's canonical `requires` into
 conformance constraints vs value predicates and writes the result to
@@ -352,11 +360,17 @@ every consumer reading `->canonical` is unchanged and no node is
 allocated; and the promotion `candidate_cell -> resolved_decl` on a callee
 (`NamedIdentExpr` or `ChainExpr::Step`). Never a new AST node.
 
-Plus two facts on operator and call nodes that are slots, not nodes:
+Plus facts on operator and call nodes that are slots, not nodes:
 `resolved_op`/`op_via_free` on Binary/Unary/Assign/Subscript/`TypeCastExpr`
-(the user operator overload resolution selected), and
-`CallExpr::param_map`/`pack_len` (argument placement over `f->params`,
-`self` included, -1 = default). Both are read by `Lower/` only.
+(the user operator overload resolution selected);
+`BinaryOperatorExpr::op_rewrite` (a comparison derived from `op ==` as
+`!(==)` or from `op <=>` as `(<=>) <op> 0`, so OperatorLowering never looks
+an operator up again); `op_instance` on Binary/Unary/Assign and
+`CallExpr::instance` (the registry entry of a GENERIC callee's instance,
+`*InstanceEntry` stored as `*void`, which EmitIR spells the call's template
+arguments from and EmitPlan homes); and `CallExpr::arg_map`/`pack_len`
+(argument placement over `f->params`, `self` included, -1 = default).
+`Lower/` reads them; codegen reads only the instance slots.
 
 **Four terminal states per expression.** typed (`type_` set); poisoned
 (diagnosed, `type_` null); unknown (`IsInstantiationDependent` set,
@@ -481,12 +495,19 @@ set as a value is an error at the use.
 **Operators** (`OperatorTyping.k`). Builtins follow §6 exactly (`u32 + i32`
 is an error; shifts unify the right operand alone; compound assignment
 converts the right operand only). Comparison -> bool; `<=>` -> `Ordering`;
-`??` on `T?` joins the inner with the right; `===` requires unifiable
-operands. Non-primitives search the LEFT operand's members and extensions
+`??` on `T?` joins the inner with the right; `===` needs a nullable
+operand (it is the null test, not an overloadable operator). `^^` on
+primitives calls the `pow` lang item and needs an integer exponent.
+Non-primitives search the LEFT operand's members and extensions
 under `op_name`, plus free operator functions found by ADL in the modules of
 EITHER operand's type (`MemberLookup::associated_scopes`: the enclosing
 modules up to, not including, the TU; pointers/refs/nullables peel; generic
-args recurse). Members and frees rank in ONE set
+args recurse), plus -- for operators only -- the FILE scope the record was
+declared in (`MemberLookup::declaring_scope`): a free `op *` beside a
+file-scope type is otherwise unreachable from every file, its own included.
+A comparison the type does not declare is derived: `!=` from `op ==`,
+`<`/`<=`/`>`/`>=` from `op <=>` (C++20's rewritten candidates, minus the
+reversed ones), recorded in `op_rewrite`. Members and frees rank in ONE set
 (`OverloadResolution::resolve_mixed`), so a tie between them is ambiguous.
 An unqualified call gets the same ADL over its arguments unless ordinary
 lookup found a method.

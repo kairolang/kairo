@@ -64,6 +64,8 @@ enum WellKnownType derives u8 {
     PanicCatch, ///< PanicLowering: catch entry point.
     AssertFail, ///< PanicLowering: `assert` failure entry point.
 
+    Pow,        ///< `^^` on primitives: `fn <B, E> pow(base: B, exp: E) -> B`.
+
     COUNT,      ///< keep last.
 }
 
@@ -90,6 +92,7 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::PanicRaise { return "PanicRaise"; }
         case WellKnownType::PanicCatch { return "PanicCatch"; }
         case WellKnownType::AssertFail { return "AssertFail"; }
+        case WellKnownType::Pow        { return "pow"; }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";
@@ -137,12 +140,16 @@ class LowerTargets {
     static fn op_iter()     -> string { return "__kairo_iter"; }
     /// `fn op ^^` -- exponentiation; not overloadable in C++.
     static fn op_pow()      -> string { return "__kairo_pow"; }
-    /// `fn op ===` -- deep equality; not overloadable in C++.
-    static fn op_deep_eq()  -> string { return "__kairo_deep_eq"; }
     /// `fn op .*` -- member-pointer access; not overloadable in C++.
     static fn op_dotstar()  -> string { return "__kairo_dotstar"; }
     /// `fn op await`.
     static fn op_await()    -> string { return "__kairo_await"; }
+    /// An extension operator. C++ cannot declare a non-member operator whose
+    /// only class-typed parameter is a POINTER ([over.oper]/7), and the
+    /// extension ABI passes the receiver as `Self*`, so an extension's `op -`
+    /// is a plain free function named here: `__kairo_op_neg`. Nothing ever
+    /// calls one through C++ operator syntax; every use is an explicit call.
+    static fn ext_op(mnemonic: string) -> string { return "__kairo_op_" + mnemonic; }
 
     // --- Witnesses (writer: EmitWitness) -------------------------------------------------
 

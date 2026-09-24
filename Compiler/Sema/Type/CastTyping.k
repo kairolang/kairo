@@ -252,7 +252,7 @@ class <T> CastTyping {
             }
             if exact.size() > 0 {
                 var args = vec::<ArgInfo>();
-                var r = dyn()->ovl.resolve(&exact, &args, true, n->range, "op as");
+                var r = dyn()->ovl.resolve(&exact, &args, true, n->range, "op as", src);
                 if r.outcome == OvlOutcome::Dependent { dyn()->mark_unknown(n); return &null; }
                 if r.outcome != OvlOutcome::Selected { dyn()->poison_only(n); return &null; }
                 n->resolved_op = r.decl;
