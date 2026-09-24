@@ -653,10 +653,8 @@ class <D> RecursiveASTVisitor {
         for var i: usize = 0; i < n->args.size(); i++ {
             if self.stop { break; }
             var a = *(n->args.get(i));
-            // A NAMED argument is encoded as `label : value` -- an
-            // AssignOperatorExpr whose operator token is `:` and whose lhs is
-            // a bare identifier (ExprParse::_parse_call_args). The label is
-            // the callee's PARAMETER name, not a name use: only overload
+            // A NAMED argument is a NamedArgExpr (`label: value`). The label
+            // is the callee's PARAMETER name, not a name use: only overload
             // resolution can say what it refers to, and walking it would make
             // every visitor treat it as an unbound identifier. Walk the value.
             var value = named_call_arg_value(a);

@@ -65,6 +65,15 @@ class CallExpr derives Expr {
     pub var arg_map:  FrozenList::<i32>;
     pub var pack_len: u32 = 0;
 
+    /// A generic callee's registry entry (`*InstanceEntry`, stored as `*void`
+    /// like Decl::semantic_dc): written by CallTyping at Selected, copied by
+    /// OperatorLowering onto the calls it mints. EmitIR spells the instance's
+    /// arguments explicitly from it: clang deducing them from the emitted
+    /// argument expressions is headroom, and an argument whose C++ type is not
+    /// its Kairo type (an int literal typed i64) deduces an instance nobody
+    /// homed.
+    pub var instance: *void = &null;
+
     static fn create(
         ctx:    *ASTContext,
         range:  SourceRange,
@@ -75,6 +84,8 @@ class CallExpr derives Expr {
         node->range  = range;
         node->callee = callee;
         node->pack_len = 0;
+        node->arg_map  = create_empty_frozen_list::<i32>();   // a minted call is positional; nothing may read an unset list.
+        node->instance = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -89,6 +100,8 @@ class CallExpr derives Expr {
         node->range         = range;
         node->callee        = &null;
         node->pack_len      = 0;
+        node->arg_map       = create_empty_frozen_list::<i32>();   // a minted call is positional; nothing may read an unset list.
+        node->instance      = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -585,6 +598,11 @@ class UnaryOperatorExpr derives Expr {
     /// read by OperatorLowering, which rewrites the node into the call.
     pub var resolved_op: *Decl = &null;
     pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    /// The registry entry of a GENERIC free operator's instance, written by X
+    /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
+    /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
+    /// call it mints, and EmitIR spells the instance's arguments from it.
+    pub var op_instance: *void = &null;
 
     static fn create(
         ctx:      *ASTContext,
@@ -602,6 +620,7 @@ class UnaryOperatorExpr derives Expr {
         node->is_mode_marker = false;
         node->resolved_op    = &null;
         node->op_via_free    = false;
+        node->op_instance    = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -618,6 +637,7 @@ class UnaryOperatorExpr derives Expr {
         node->is_mode_marker = false;
         node->resolved_op    = &null;
         node->op_via_free    = false;
+        node->op_instance    = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -634,6 +654,16 @@ class UnaryOperatorExpr derives Expr {
     fn is_postfix(self) -> bool { return self.fix == Fix::Postfix; }
 }
 
+/// How a comparison with no operator of its own is rendered from the one it
+/// was derived from (C++20's rewritten candidates, minus the reversed ones).
+/// Written by X beside `resolved_op`; read by OperatorLowering, which never
+/// looks an operator up again.
+enum OpRewrite derives u8 {
+    None = 0,   ///< resolved_op is the operator itself.
+    Not,        ///< `a != b` from `op ==`:  `!(a.op==(b))`.
+    Cmp,        ///< `a < b` and friends from `op <=>`:  `((a.op<=>(b)) as i8) <op> 0`.
+}
+
 ///
 ///  BinaryOperatorExpr
 ///  x + y | x && y | x == y | x << y | x ** y | etc.
@@ -648,6 +678,12 @@ class BinaryOperatorExpr derives Expr {
     /// read by OperatorLowering, which rewrites the node into the call.
     pub var resolved_op: *Decl = &null;
     pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    pub var op_rewrite:  OpRewrite = OpRewrite::None;
+    /// The registry entry of a GENERIC free operator's instance, written by X
+    /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
+    /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
+    /// call it mints, and EmitIR spells the instance's arguments from it.
+    pub var op_instance: *void = &null;
 
     static fn create(
         ctx:      *ASTContext,
@@ -664,6 +700,8 @@ class BinaryOperatorExpr derives Expr {
         node->op_token = op_token;
         node->resolved_op = &null;
         node->op_via_free = false;
+        node->op_rewrite  = OpRewrite::None;
+        node->op_instance = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -680,6 +718,8 @@ class BinaryOperatorExpr derives Expr {
         node->rhs           = &null;
         node->resolved_op   = &null;
         node->op_via_free   = false;
+        node->op_rewrite    = OpRewrite::None;
+        node->op_instance   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -712,6 +752,11 @@ class AssignOperatorExpr derives Expr {
     /// read by OperatorLowering, which rewrites the node into the call.
     pub var resolved_op: *Decl = &null;
     pub var op_via_free: bool  = false;   ///< a free `op` found by ADL (every operand is an argument).
+    /// The registry entry of a GENERIC free operator's instance, written by X
+    /// with resolved_op. `*InstanceEntry`; stored as `*void` for the same
+    /// stage0 reason as Decl::semantic_dc. OperatorLowering copies it onto the
+    /// call it mints, and EmitIR spells the instance's arguments from it.
+    pub var op_instance: *void = &null;
 
     static fn create(
         ctx:      *ASTContext,
@@ -730,6 +775,7 @@ class AssignOperatorExpr derives Expr {
         node->op_token = op_token;
         node->resolved_op = &null;
         node->op_via_free = false;
+        node->op_instance = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -746,6 +792,7 @@ class AssignOperatorExpr derives Expr {
         node->rhs           = &null;
         node->resolved_op   = &null;
         node->op_via_free   = false;
+        node->op_instance   = &null;
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }

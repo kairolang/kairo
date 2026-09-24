@@ -1190,6 +1190,7 @@ class <D> ASTWriter {
             self.dyn()->transform_inherit_edge(n->implements.get(i));
         }
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->fields)));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->methods)));   // ctors and operators; the RAV walks them, so must every rewrite.
         self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
         return self._one_decl(n);
     }
@@ -1256,6 +1257,7 @@ class <D> ASTWriter {
         self.dyn()->rebuild_type_list(&(n->spec_args)); // specialization pattern (#68)
         if n->requires_clause != &null { n->requires_clause = self.dyn()->transform_expr(n->requires_clause); }
         self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->fields)));
+        self.dyn()->rebuild_decl_list(reinterpret_cast::<*FrozenList::<*Decl>>(&(n->methods)));   // ctors and operators; the RAV walks them, so must every rewrite.
         self.dyn()->rebuild_dc_decls(static_cast::<*DeclContext>(n));
         return self._one_decl(n);
     }

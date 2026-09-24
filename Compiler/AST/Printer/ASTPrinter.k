@@ -59,6 +59,7 @@ import AST::Kind::StmtKind::*;
 import AST::Kind::PatternKind::*;
 import Token::TokenKind::*;
 import AST::ParamMode::*;
+import AST::Context::InstantiationRegistry::*;
 
 /// AstDumper derives RecursiveASTVisitor::<AstDumper> so its dispatch_*
 /// overrides are reached through the CRTP dyn() routing. The source-faithful
@@ -2175,6 +2176,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
     fn _dx_call(self, e: *CallExpr, is_last: bool) {
         self._head("CallExpr", is_last);
         self._dim(f"({e->args.size()} args)");
+        self._instance(e->instance);
         self.p.newline();
         self.p.enter(is_last);
         var has_args = !e->args.is_empty();
@@ -2183,6 +2185,17 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
             self._child_expr(e->args[i], (i == e->args.size() - 1));
         }
         self.p.leave();
+    }
+
+    /// ` instance(N args)` for a slot X filled with a generic callee's
+    /// registry entry (`*InstanceEntry` as `*void`); nothing when unset. The
+    /// args are CANONICALS, which only Sema can spell (TypeUtil::str; src_type
+    /// renders them `<error>`), so the tree marks the slot and --print-sema /
+    /// --print-lowered print the args themselves.
+    fn _instance(self, slot: *void) {
+        var ie = reinterpret_cast::<*InstanceEntry>(slot);
+        if ie == &null { return; }
+        self._dim(f"instance({ie->args.size()} args)");
     }
 
     fn _dx_subscript(self, e: *SubscriptExpr, is_last: bool) {
@@ -2199,6 +2212,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self.p.put(" ");
         self.p.paint(Color::Dim, (("prefix ") if (e->is_prefix()) else ("postfix ")));
         self.p.paint(Color::Operator, self.tok(e->op_token));
+        self._instance(e->op_instance);
         self.p.newline();
         self.p.enter(is_last);
         self._child_expr(e->operand, true);
@@ -2209,6 +2223,9 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._head("BinaryOperatorExpr", is_last);
         self.p.put(" ");
         self.p.paint(Color::Operator, self.tok(e->op_token));
+        if e->op_rewrite == OpRewrite::Not { self._dim("rewrite !(==)"); }
+        if e->op_rewrite == OpRewrite::Cmp { self._dim("rewrite <=> vs 0"); }
+        self._instance(e->op_instance);
         self.p.newline();
         self.p.enter(is_last);
         self._child_expr(e->lhs, false);
@@ -2231,6 +2248,7 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         self._head("AssignOperatorExpr", is_last);
         self.p.put(" ");
         self.p.paint(Color::Operator, self.tok(e->op_token));
+        self._instance(e->op_instance);
         self.p.newline();
         self.p.enter(is_last);
         self._child_expr(e->lhs, false);
