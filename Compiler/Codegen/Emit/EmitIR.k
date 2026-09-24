@@ -327,7 +327,7 @@ class EmitIR {
 
     priv fn _ret(self, f: *FunctionDecl) -> string {
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
-        return self._spell._type(f->return_type);
+        return self._spell.return_spelling(f, &null);
     }
 
     /// Parameter text for a DEFINITION: names always, `self` only for an
@@ -500,6 +500,12 @@ class EmitIR {
         if n->value != &null {
             var rt: *Type = &null;
             if self._cur_fn != &null { rt = self._cur_fn->return_type; }
+            // A place operator's decl still says `*T` (importers' X reads it),
+            // but the C++ function returns `T&`: `return x;` binds the
+            // reference, and a conversion to `T*` here would be wrong.
+            if CXXSpell::is_place_operator(self._cur_fn) && (rt != &null) && (rt->canonical != &null) {
+                rt = cast::<PointerType>(canon_unqual(rt->canonical))->pointee;
+            }
             self._value(n->value, rt);
         }
         sink->synth_at_end(n->range, clang::tok::semi);

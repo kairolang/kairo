@@ -136,6 +136,13 @@ emitters use the same instance; a declaration and a body cannot disagree.
   parameter is `const T (&name)[N]`, an `@inout` one is `T (&name)[N]`, and
   by value is an ICE (StmtTyping rejects it). Both emitters spell
   parameters through here.
+- `return_spelling(f)`: a method's C++ return type; `_ret` in both
+  emitters goes through it. Place operators (`[]`, `.*`, `->*`) are
+  declared `-> *T` / `-> *const T` and spelled `T&` / `const T&`, so an
+  imported `T&` and a Kairo place are one ABI; `->` stays a pointer (C++'s
+  `operator->` returns one). OperatorLowering rewrites the body's `return`
+  (`return &x` -> `return x`, `return p` -> `return *p`), and EmitIR's
+  `_return` checks the value against the pointee, not the pointer.
 - `template_head(d)`: `template <class T, ...>`.
 
 ## 5. InterfaceEmitter

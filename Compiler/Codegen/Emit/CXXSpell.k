@@ -242,6 +242,35 @@ class CXXSpell {
         return (s.size() > 0) && (s[0] == 'r');
     }
 
+    /// `[]`, `.*`, `->*` return a place. Codegen's copy of
+    /// OperatorFacts::is_place, on this side of the import boundary. `[]` is
+    /// two tokens; `.*` and `->*` are one each.
+    static fn is_place_operator(f: *FunctionDecl) -> bool {
+        if (f == &null) || (!f->is_operator) || (!f->is_method()) { return false; }
+        var n = f->op_token.size();
+        if n == 2 {
+            return (f->op_token[0].kind == TokenKind::OpLSquare) && (f->op_token[1].kind == TokenKind::OpRSquare);
+        }
+        if n == 1 {
+            var k = f->op_token[0].kind;
+            return (k == TokenKind::OpDotStar) || (k == TokenKind::OpArrowStar);
+        }
+        return false;
+    }
+
+    /// The C++ return type of \p f: a place operator's `*T` / `*const T`
+    /// becomes `T&` / `const T&`, so C++ code can write `v[i] = x` on a Kairo
+    /// type and an imported `T&` and a Kairo place are one ABI. Everything
+    /// else is the declared type. The pointee of `*const T` is the `const T`
+    /// canonical, so _type already spells the const and `&` goes on the end.
+    fn return_spelling(self, f: *FunctionDecl, subst: *InstanceEntry) -> string {
+        if (f->return_type == &null) || (f->return_type->canonical == &null) { return self._type(f->return_type, subst); }
+        if !CXXSpell::is_place_operator(f) { return self._type(f->return_type, subst); }
+        var c = canon_unqual(f->return_type->canonical);
+        ICE_IF((c == &null) || (!isa::<PointerType>(c)), "CXXSpell: place operator with a non-pointer result; OperatorSignatureCheck gate failure");
+        return self._type(cast::<PointerType>(c)->pointee, subst) + "&";
+    }
+
     /// The type an operator belongs to: its class, or its extension's target.
     fn operator_owner(self, f: *FunctionDecl) -> *Decl {
         var lex = reinterpret_cast::<*DeclContext>(f->lexical_dc);

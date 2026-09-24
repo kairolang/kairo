@@ -111,6 +111,15 @@ class OperatorFacts {
         return s;
     }
 
+    /// `[]`, `.*`, `->*`: a place into `self`, declared `-> *T` /
+    /// `-> *const T`, which C++ receives as `T&` / `const T&`. `->` is not
+    /// one: C++'s `operator->` returns a pointer, and so does Kairo's.
+    static fn is_place(f: *FunctionDecl) -> bool {
+        if (f == &null) || (!f->is_operator) || (!f->is_method()) { return false; }
+        var s = OperatorFacts::symbol(f);
+        return (s == "[]") || (s == ".*") || (s == "->*");
+    }
+
     /// Parameters after `self`.
     static fn arity(f: *FunctionDecl) -> usize {
         var n: usize = 0;

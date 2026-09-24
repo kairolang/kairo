@@ -35,6 +35,7 @@
 /// ------------------------------------------------------------------------ ///
 
 import Sema::SemaContext::*;
+import Sema::Type::TypeUtil::*;
 import AST::OperatorFacts::*;
 import Sema::Resolve::NameLookup::*;
 import AST::Context::DeclContext::*;
@@ -55,9 +56,11 @@ import Diagnostic::Registry::*;
 
 class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureCheck> {
     pub var sc: *SemaContext;
+    priv var _tu: TypeUtil;
 
     fn OperatorSignatureCheck(self, sc: *SemaContext) {
-        self.sc = sc;
+        self.sc  = sc;
+        self._tu = TypeUtil(sc);
     }
 
     fn run(self) {
@@ -164,6 +167,13 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         if f->return_type != &null { rt = f->return_type->canonical; }
         if (f->return_type != &null) && ((rt == &null) || rt->is_dependent()) { return; }
 
+        if (sym == "[]") || (sym == ".*") || (sym == "->*") || (sym == "->") {
+            var p = (self._tu.pointee(rt)) if (rt != &null) else (&null);
+            if (p == &null) || self._tu.is_unsafe_ptr(rt) {
+                self._err(f, f"'op {sym}' must return a place into 'self': '*T' or '*const T\x27");
+            }
+            return;
+        }
         if OperatorFacts::is_compound(OperatorFacts::op_kind(f)) {
             if f->return_type != &null {
                 self._err(f, f"'op {sym}' returns nothing; a compound assignment is a statement, and '+' is derived from it when the type declares no 'op +' of its own");

@@ -74,6 +74,11 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     pub var sc: *SemaContext;
     priv var synth: LowerSynth;
 
+    /// The place operator whose body is being rewritten, or null. A `return`
+    /// inside one hands C++ the object, not its address: the decl still says
+    /// `*T` (importers' X reads it), but CXXSpell declares it `T&`.
+    priv var _place_fn: *FunctionDecl = &null;
+
     fn OperatorLowering(self, sc: *SemaContext) {
         self.sc    = sc;
         self.ctx   = sc->ctx;
@@ -87,6 +92,45 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
     }
 
     // --- the rewrites ---------------------------------------------------------
+
+    fn transform_function_decl(self, n: *FunctionDecl) -> vec::<*Decl> {
+        // Saved and restored, and reset for every decl: a local fn nested in a
+        // place operator returns its own values, not a place.
+        var saved = self._place_fn;
+        self._place_fn = (n) if (OperatorFacts::is_place(n)) else (&null);
+        var out = ASTWriter_OperatorLowering::transform_function_decl(n);
+        if (self._place_fn != &null) && (n->body_kind == FnBodyKind::Expr) && (n->body_expr != &null) {
+            n->body_expr = self._place_value(n->body_expr);
+        }
+        self._place_fn = saved;
+        return out;
+    }
+
+    fn transform_return_stmt(self, n: *ReturnStmt) -> vec::<*Stmt> {
+        var out = ASTWriter_OperatorLowering::transform_return_stmt(n);
+        if (self._place_fn != &null) && (n->value != &null) && (!n->value->is_poisoned()) {
+            n->value = self._place_value(n->value);
+        }
+        return out;
+    }
+
+    /// `return &x` -> `return x`; `return p` -> `return *p`. Either way the
+    /// C++ `T&` binds the object the Kairo `*T` pointed at.
+    priv fn _place_value(self, v: *Expr) -> *Expr {
+        var inner = v;
+        while isa::<ParenExpr>(inner) { inner = cast::<ParenExpr>(inner)->inner; }
+        var u = dyn_cast::<UnaryOperatorExpr>(inner);
+        if (u != &null) && (u->resolved_op == &null) && u->is_prefix() && (u->op_token.kind == TokenKind::OpAmp) {
+            return u->operand;   // already an lvalue of T.
+        }
+        var pt = canon_unqual(v->type_);
+        ICE_IF((pt == &null) || (!isa::<PointerType>(pt)), "OperatorLowering: place operator returns a non-pointer; OperatorSignatureCheck gate failure");
+        var d = UnaryOperatorExpr::create(self.ctx, v->range, v, self.synth.punct(v->range, TokenKind::OpStar),
+                                          UnaryOperatorExpr::Fix::Prefix);
+        d->type_          = cast::<PointerType>(pt)->pointee;
+        d->value_category = Expr::ValueCategory::LValue;
+        return static_cast::<*Expr>(d);
+    }
 
     fn transform_binary_operator_expr(self, n: *BinaryOperatorExpr) -> *Expr {
         var out = ASTWriter_OperatorLowering::transform_binary_operator_expr(n);

@@ -36,6 +36,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
+import AST::Context::TranslationUnit::*;
 import Sema::Resolve::ChainBinding::*;
 import Sema::Type::TypeUtil::*;
 import Sema::Type::Conversion::*;
@@ -358,7 +359,21 @@ class <T> MemberTyping {
                 r.ded.bind_from_record(dyn()->tu.strip_nullable(bt));
                 dyn()->finish_call_args(r.decl, &args, &r);
                 n->value_category = Expr::ValueCategory::LValue;
-                return dyn()->call_result_type(r.decl, &r);
+                var rt = dyn()->call_result_type(r.decl, &r);
+                if rt == &null { return &null; }
+                // A C++ `operator[]` (std::unordered_map, ...) already returns
+                // the place as `T&`, and one returning a real `T*` means the
+                // pointer: its result is taken as declared. Decided by the
+                // declaring TU, not by the result's shape, for that reason.
+                var oc  = NameLookup::ctx_of(r.decl);
+                var otu = (reinterpret_cast::<*TranslationUnit>(oc->tu)) if (oc != &null) else (&null);
+                if (otu != &null) && otu->is_foreign { return rt; }
+                // A Kairo place: the operator returns `*T` / `*const T` and the
+                // subscript IS the T it points to, an lvalue, const if the
+                // pointer was. OperatorSignatureCheck guaranteed the pointer.
+                var place = dyn()->tu.pointee(rt);
+                ICE_IF(place == &null, "MemberTyping: user `op []` without a pointer result; OperatorSignatureCheck gate failure");
+                return place;
             }
         }
 

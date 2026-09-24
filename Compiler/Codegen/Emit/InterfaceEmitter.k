@@ -514,7 +514,7 @@ class InterfaceEmitter {
 
     priv fn _ret(self, f: *FunctionDecl) -> string {
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
-        return self._spell->_type(f->return_type);
+        return self._spell->return_spelling(f, &null);
     }
 
     priv fn _fn_name(self, f: *FunctionDecl) -> string {
@@ -573,7 +573,7 @@ class InterfaceEmitter {
 
     priv fn _ret_subst(self, f: *FunctionDecl, ie: *InstanceEntry) -> string {
         if f->is_noreturn || (f->return_type == &null) { return "void"; }
-        return self._spell->_type(f->return_type, ie);
+        return self._spell->return_spelling(f, ie);
     }
 }
 

@@ -313,8 +313,12 @@ In order: `ConstraintExtraction`, `TypeCycleCheck`,
 operators and compound-assignment pairing assume the shapes it rejects:
 `===` and `=` declared at all (neither is overloadable), both halves of a
 compound pair (`op +=` AND `op +`), a default argument on an operator, a
-comparison not returning `bool`, a compound assignment with a result, and
-a member-only operator (`op as`, ...) in an extension.
+comparison not returning `bool`, a compound assignment with a result, a
+place operator (`[]`, `.*`, `->*`, and `->`) not returning a safe `*T` /
+`*const T`, and a member-only operator (`op as`, ...) in an extension.
+X relies on the place rule: `type_subscript` on a user `op []` yields the
+POINTEE of the operator's result as an lvalue (const if the pointer was),
+not the pointer; `&a[i]` takes the pointer back.
 
 `ConstraintExtraction` partitions each decl's canonical `requires` into
 conformance constraints vs value predicates and writes the result to
