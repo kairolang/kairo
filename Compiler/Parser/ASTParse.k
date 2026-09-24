@@ -683,13 +683,22 @@ class ASTParse
         }
     }
 
-    /// \brief DeclName for `fn op <x>` from its (up to two) operator tokens.
+    /// \brief DeclName for `fn op <x>` from its operator tokens. The `l`/`r`
+    ///        fixity marker on `++`/`--` is a fact about the decl, not part of
+    ///        its name: `op l++` and `op r++` share one cell, and X picks by
+    ///        fixity. AST/OperatorFacts.k keys the sema side by the same rule;
+    ///        the parser cannot import it, so the three lines live twice.
     priv fn _op_decl_name(self, f: *FunctionDecl) -> DeclName {
+        var n = f->op_token.size();
+        var i: usize = 0;
+        if n == 2 {
+            var s = self.ctx->get_spelling(f->op_token[0]);
+            if (s == "l") || (s == "r") { i = 1; }
+        }
         var k0 = TokenKind::TkUnknown;
         var k1 = TokenKind::TkUnknown;
-        if f->op_token.count > 0 { k0 = f->op_token[0].kind; }
-        if f->op_token.count > 1 { k1 = f->op_token[1].kind; }
-        
+        if i < n       { k0 = f->op_token[i].kind; }
+        if (i + 1) < n { k1 = f->op_token[i + 1].kind; }
         return DeclName::op_name(k0, k1);
     }
 

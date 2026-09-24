@@ -1,4 +1,4 @@
-/// --- The Kairo Project ---------------------- Sema/OperatorFacts.k ----- ///
+/// --- The Kairo Project ----------------------- AST/OperatorFacts.k ----- ///
 ///
 ///   \brief What an operator declaration IS, read off its tokens: the
 ///          operator with the fixity marker removed, its table key, whether
@@ -20,8 +20,9 @@
 ///
 /// ------------------------------------------------------------------------ ///
 
-import Sema::Resolve::NameLookup::*;
 import AST::Context::ASTContext::*;
+import AST::Context::DeclContext::*;
+import AST::Context::TranslationUnit::*;
 import AST::Context::SymbolTable::*;
 import AST::Node::Base::*;
 import AST::Node::Declarations::*;
@@ -29,10 +30,32 @@ import Token::Token::*;
 import Token::TokenKind::*;
 
 class OperatorFacts {
+    /// The context \p f's tokens were interned in: its TU's. NameLookup::
+    /// ctx_of's walk, restated here because the AST layer cannot import
+    /// Sema -- the function's own scope chain first, then its semantic and
+    /// lexical parents for a decl whose own chain is not linked.
+    priv static fn _ctx(f: *FunctionDecl) -> *ASTContext {
+        if f == &null { return &null; }
+        var tu = OperatorFacts::_tu_of(static_cast::<*DeclContext>(f));
+        if tu == &null { tu = OperatorFacts::_tu_of(reinterpret_cast::<*DeclContext>(f->semantic_dc)); }
+        if tu == &null { tu = OperatorFacts::_tu_of(reinterpret_cast::<*DeclContext>(f->lexical_dc)); }
+        if tu == &null { return &null; }
+        return tu->ctx;
+    }
+
+    priv static fn _tu_of(dc: *DeclContext) -> *TranslationUnit {
+        var c = dc;
+        while c != &null {
+            if c->dc_kind == DeclContextKind::TranslationUnit { return reinterpret_cast::<*TranslationUnit>(c); }
+            c = c->dc_parent;
+        }
+        return &null;
+    }
+
     /// `l` / `r` written in front of `++` / `--`.
     static fn has_fixity(f: *FunctionDecl) -> bool {
         if (f == &null) || (!f->is_operator) || (f->op_token.size() != 2) { return false; }
-        var c = NameLookup::ctx_of(static_cast::<*Decl>(f));
+        var c = OperatorFacts::_ctx(f);
         if c == &null { return false; }
         var s = c->get_spelling(f->op_token[0]);
         return (s == "l") || (s == "r");
@@ -41,7 +64,7 @@ class OperatorFacts {
     /// `op r++` / `op r--`. An unmarked `op ++` is prefix (OperatorSignatureCheck warns).
     static fn is_postfix(f: *FunctionDecl) -> bool {
         if !OperatorFacts::has_fixity(f) { return false; }
-        var c = NameLookup::ctx_of(static_cast::<*Decl>(f));
+        var c = OperatorFacts::_ctx(f);
         return c->get_spelling(f->op_token[0]) == "r";
     }
 
@@ -73,7 +96,7 @@ class OperatorFacts {
 
     /// `+`, `+=`, `[]`, `<=>`, `in`: the spelling with the marker dropped.
     static fn symbol(f: *FunctionDecl) -> string {
-        var c = NameLookup::ctx_of(static_cast::<*Decl>(f));
+        var c = OperatorFacts::_ctx(f);
         if c == &null { return "<op>"; }
         var s = "";
         for var i: usize = OperatorFacts::_first(f); i < f->op_token.size(); ++i {
