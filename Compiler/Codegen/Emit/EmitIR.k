@@ -226,7 +226,6 @@ class EmitIR {
     priv fn _free_fn(self, n: *FunctionDecl, ext: *ExtensionDecl) {
         if !n->has_body() { return; }
         if n->body_kind != FnBodyKind::Block { self._unsupported_body(n); return; }
-        ICE_IF(n->is_operator && (ext == &null), "EmitIR: free operator function; OperatorLowering must rename it");
         ICE_IF(n->is_variadic, "EmitIR: variadic pack parameters are not emitted yet");
         if n->is_method() && (ext == &null) { return; }   // a method reached the free path; its owner emits it.
 
