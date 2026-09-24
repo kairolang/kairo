@@ -45,6 +45,7 @@
 
 import Sema::SemaContext::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::LangItems::*;
@@ -69,12 +70,13 @@ __inline_cpp("
 class SequenceLowering derives ASTWriter::<SequenceLowering> {
     pub var sc: *SemaContext;
     priv var tu: TypeUtil;
-    priv var _counter: u32 = 0;
+    priv var synth: LowerSynth;
 
     fn SequenceLowering(self, sc: *SemaContext) {
         self.sc  = sc;
         self.ctx = sc->ctx;
         self.tu  = TypeUtil(sc);
+        self.synth = LowerSynth(sc);
     }
 
     fn run(self) {
@@ -101,26 +103,26 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         }
 
         var impure: usize = 0;
-        if (recv != &null) && (!self._pure(recv->base)) { impure += 1; }
+        if (recv != &null) && (!LowerSynth::pure(recv->base)) { impure += 1; }
         for var i: usize = 0; i < n->args.size(); ++i {
-            if !self._pure(n->args[i]) { impure += 1; }
+            if !LowerSynth::pure(n->args[i]) { impure += 1; }
         }
         if impure < 2 { return out; }
 
         // Every impure operand must have a type to declare a local with.
-        if (recv != &null) && (!self._pure(recv->base)) && (recv->base->type_ == &null) { return out; }
+        if (recv != &null) && (!LowerSynth::pure(recv->base)) && (recv->base->type_ == &null) { return out; }
         for var i: usize = 0; i < n->args.size(); ++i {
-            if (!self._pure(n->args[i])) && (n->args[i]->type_ == &null) { return out; }
+            if (!LowerSynth::pure(n->args[i])) && (n->args[i]->type_ == &null) { return out; }
         }
 
         var stmts = self.list_builder::<*Stmt>();
-        if (recv != &null) && (!self._pure(recv->base)) {
+        if (recv != &null) && (!LowerSynth::pure(recv->base)) {
             recv->base = self._bind(recv->base, &stmts);
         }
         var args = self.list_builder::<*Expr>();
         for var i: usize = 0; i < n->args.size(); ++i {
             var a = n->args[i];
-            args.push((a) if (self._pure(a)) else (self._bind(a, &stmts)));
+            args.push((a) if (LowerSynth::pure(a)) else (self._bind(a, &stmts)));
         }
         args.freeze_into(&(n->args));                 // same indices: arg_map is untouched.
 
@@ -151,20 +153,10 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
     /// `T __kairo_argK = e;` into \p stmts; returns the name that reads it.
     priv fn _bind(self, e: *Expr, stmts: *ListBuilder::<*Stmt>) -> *Expr {
         var t = e->type_;
-        var name_tok = self._ident_token(e->range, LowerTargets::reserved_prefix() + "arg" + f"{self._counter}");
-        self._counter += 1;
-
-        var vd    = VariableDecl::create(self.ctx, e->range, name_tok, StorageClass::Var);
-        vd->type_ = t;
-        vd->init  = e;
+        var vd = self.synth.local(e->range, "arg", t, e);
         self._mark_extended(e);                         // a slice literal's backing lives in this block.
         stmts->push(static_cast::<*Stmt>(DeclStmt::create(self.ctx, e->range, static_cast::<*Decl>(vd))));
-
-        var use = NamedIdentExpr::create(self.ctx, e->range, name_tok);
-        use->resolved_decl  = static_cast::<*Decl>(vd);
-        use->type_          = t;
-        use->value_category = Expr::ValueCategory::LValue;
-        return static_cast::<*Expr>(use);
+        return self.synth.use_of(vd, e->range, Expr::ValueCategory::LValue);
     }
 
     /// Mirrors LiteralTyping::mark_list_storage: the local this literal now
@@ -176,79 +168,6 @@ class SequenceLowering derives ASTWriter::<SequenceLowering> {
         if (n->type_ == &null) || (!self.tu.is_slice(n->type_)) { return; }
         n->storage = ListStorage::Extended;
         for var i: usize = 0; i < n->elements.size(); ++i { self._mark_extended(n->elements[i]); }
-    }
-
-    // --- purity ---------------------------------------------------------------
-
-    /// No side effect and no dependence on one: reading it before or after
-    /// another argument changes nothing. Conservative: anything not listed
-    /// is impure.
-    priv fn _pure(self, e: *Expr) -> bool {
-        if e == &null { return true; }
-        switch e->kind {
-            case ExprKind::IntegerLiteralExpr   { return true; }
-            case ExprKind::FloatingLiteralExpr  { return true; }
-            case ExprKind::CharacterLiteralExpr { return true; }
-            case ExprKind::BooleanLiteralExpr   { return true; }
-            case ExprKind::NullLiteralExpr      { return true; }
-            case ExprKind::StringLiteralExpr    { return !cast::<StringLiteralExpr>(e)->is_format(); }
-            case ExprKind::NamedIdentExpr       { return true; }
-            case ExprKind::SizeOfExpr           { return true; }
-            case ExprKind::AlignOfExpr          { return true; }
-            case ExprKind::ParenExpr            { return self._pure(cast::<ParenExpr>(e)->inner); }
-            case ExprKind::UnsafeExpr           { return self._pure(cast::<UnsafeExpr>(e)->operand); }
-            case ExprKind::ImplicitBoundaryCastExpr { return self._pure(cast::<ImplicitBoundaryCastExpr>(e)->original); }
-            case ExprKind::ChainExpr {
-                // A field path off a pure base. An operator step is a call
-                // (only as a callee, which never reaches here as an argument).
-                var c = cast::<ChainExpr>(e);
-                for var i: usize = 0; i < c->steps.size(); ++i {
-                    var st = c->steps.get(i);
-                    if st->is_operator() { return false; }
-                    if (st->access_kind == ChainExpr::AccessKind::QuestionDot)
-                    || (st->access_kind == ChainExpr::AccessKind::QuestionArrow) { return false; }
-                }
-                return self._pure(c->base);
-            }
-            case ExprKind::UnaryOperatorExpr {
-                var u = cast::<UnaryOperatorExpr>(e);
-                if u->resolved_op != &null { return false; }
-                var k = u->op_token.kind;
-                if (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus) { return false; }
-                return self._pure(u->operand);
-            }
-            case ExprKind::BinaryOperatorExpr {
-                var b = cast::<BinaryOperatorExpr>(e);
-                if b->resolved_op != &null { return false; }
-                return self._pure(b->lhs) && self._pure(b->rhs);
-            }
-            case ExprKind::SubscriptExpr {
-                var s = cast::<SubscriptExpr>(e);
-                if s->resolved_op != &null { return false; }
-                return self._pure(s->base) && self._pure(s->index);
-            }
-            case ExprKind::TypeCastExpr {
-                var c = cast::<TypeCastExpr>(e);
-                if (c->resolved_op != &null) || (c->resolved_ctor != &null) { return false; }
-                return self._pure(c->operand);
-            }
-            case ExprKind::ListLiteralExpr {
-                var l = cast::<ListLiteralExpr>(e);
-                for var i: usize = 0; i < l->elements.size(); ++i { if !self._pure(l->elements[i]) { return false; } }
-                return true;
-            }
-            default { return false; }   // calls, assignment, if-expr, closures, ...
-        }
-    }
-
-    // --- synthesis ------------------------------------------------------------
-
-    priv fn _ident_token(self, range: SourceRange, spelling: string) -> Token {
-        var t = Token();
-        t.kind  = TokenKind::LitIdentifier;
-        t.range = range;
-        t.imm   = self.sc->imm_table()->intern_ident_copy(spelling);
-        return t;
     }
 }
 

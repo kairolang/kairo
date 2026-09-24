@@ -48,6 +48,7 @@
 import Sema::SemaContext::*;
 import Sema::Resolve::NameLookup::*;
 import Sema::Type::TypeUtil::*;
+import Sema::Lower::LowerSynth::*;
 import AST::Visitor::ASTWriter::*;
 import AST::ASTSupport::*;
 import AST::LangItems::*;
@@ -85,12 +86,13 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
     /// True while a for-init is being rewritten: a scalar slot, nothing splices.
     priv var _scalar_slot: bool = false;
 
-    priv var _counter: u32 = 0;
+    priv var synth: LowerSynth;
 
     fn ListLiteralLowering(self, sc: *SemaContext) {
         self.sc  = sc;
         self.ctx = sc->ctx;
         self.tu  = TypeUtil(sc);
+        self.synth = LowerSynth(sc);
     }
 
     fn run(self) {
@@ -214,7 +216,7 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
             data = self._cast(n->range, storage, ptr);
         }
 
-        var len = self._cast(n->range, self._int_literal(n->range, static_cast::<u64>(count)),
+        var len = self._cast(n->range, self.synth.int_literal(n->range, static_cast::<u64>(count), BuiltinKind::USize),
                              self.sc->builtin(BuiltinKind::USize));
 
         var args = self.list_builder::<*Expr>();
@@ -229,20 +231,10 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
         ICE_IF(!self._window,
             "ListLiteralLowering: an Extended slice literal outside a statement list (a for-init or a namespace-scope variable); its backing array needs a home this pass cannot give it");
 
-        var name_tok = self._ident_token(at, LowerTargets::reserved_prefix() + "tmp" + f"{self._counter}");
-        self._counter += 1;
-
-        var vd    = VariableDecl::create(self.ctx, at, name_tok, StorageClass::Var);
-        vd->type_ = arr_ty;
-        vd->init  = static_cast::<*Expr>(il);
+        var vd = self.synth.local(at, "tmp", arr_ty, static_cast::<*Expr>(il));
         self._pending.push_back(static_cast::<*Stmt>(
             DeclStmt::create(self.ctx, at, static_cast::<*Decl>(vd))));
-
-        var use = NamedIdentExpr::create(self.ctx, at, name_tok);
-        use->resolved_decl  = static_cast::<*Decl>(vd);
-        use->type_          = arr_ty;
-        use->value_category = Expr::ValueCategory::LValue;
-        return static_cast::<*Expr>(use);
+        return self.synth.use_of(vd, at, Expr::ValueCategory::LValue);
     }
 
     /// An explicit cast to the canonical \p to. EmitIR renders `static_cast`.
@@ -257,7 +249,7 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
     /// spells the type from the call's own canonical, never from this token.
     priv fn _ctor_call(self, at: SourceRange, ctor: *Decl, name: string,
                        args: *ListBuilder::<*Expr>, ty: *Type) -> *Expr {
-        var callee = NamedIdentExpr::create(self.ctx, at, self._ident_token(at, name));
+        var callee = NamedIdentExpr::create(self.ctx, at, self.synth.ident(at, name));
         callee->resolved_decl = ctor;
 
         var call = CallExpr::create(self.ctx, at, static_cast::<*Expr>(callee));
@@ -265,41 +257,6 @@ class ListLiteralLowering derives ASTWriter::<ListLiteralLowering> {
         call->type_          = ty;
         call->value_category = Expr::ValueCategory::RValue;
         return static_cast::<*Expr>(call);
-    }
-
-    // --- synthesis helpers ----------------------------------------------------
-
-    /// An identifier token for a name this pass invented, interned into THIS
-    /// file's table (RESOLUTION.md hard invariant #2).
-    priv fn _ident_token(self, range: SourceRange, spelling: string) -> Token {
-        var t = Token();
-        t.kind  = TokenKind::LitIdentifier;
-        t.range = range;
-        t.imm   = self.sc->imm_table()->intern_ident_copy(spelling);
-        return t;
-    }
-
-    /// An integer literal with a synthesized value: the IntData slot is minted
-    /// and written straight in, with no source text behind it.
-    priv fn _int_literal(self, range: SourceRange, value: u64) -> *Expr {
-        var tbl = self.sc->imm_table();
-        var idx = tbl->create::<Immediate::IntData>();
-        var d   = tbl->get::<Immediate::IntData>(idx);
-        d->value_lo = value;
-        d->value_hi = 0;
-        d->bits     = 0;
-        d->base     = 10;
-        d->flags    = 0;
-
-        var t = Token();
-        t.kind  = TokenKind::LitInt;
-        t.range = range;
-        t.imm   = idx;
-
-        var lit = IntegerLiteralExpr::create(self.ctx, range, t);
-        lit->type_          = self.sc->builtin(BuiltinKind::USize);
-        lit->value_category = Expr::ValueCategory::RValue;
-        return static_cast::<*Expr>(lit);
     }
 }
 
