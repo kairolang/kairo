@@ -52,20 +52,23 @@ class OperatorFacts {
         return &null;
     }
 
-    /// `l` / `r` written in front of `++` / `--`.
+    /// `l` / `r` written in front of `++` / `--`. By KIND: a bare identifier
+    /// is never an operator token, and the marker's spelling depends on how
+    /// the parser cut the ranges.
     static fn has_fixity(f: *FunctionDecl) -> bool {
         if (f == &null) || (!f->is_operator) || (f->op_token.size() != 2) { return false; }
-        var c = OperatorFacts::_ctx(f);
-        if c == &null { return false; }
-        var s = c->get_spelling(f->op_token[0]);
-        return (s == "l") || (s == "r");
+        if f->op_token[0].kind != TokenKind::LitIdentifier { return false; }
+        var k = f->op_token[1].kind;
+        return (k == TokenKind::OpPlusPlus) || (k == TokenKind::OpMinusMinus);
     }
 
     /// `op r++` / `op r--`. An unmarked `op ++` is prefix (OperatorSignatureCheck warns).
     static fn is_postfix(f: *FunctionDecl) -> bool {
         if !OperatorFacts::has_fixity(f) { return false; }
         var c = OperatorFacts::_ctx(f);
-        return c->get_spelling(f->op_token[0]) == "r";
+        if c == &null { return false; }
+        var s = c->get_spelling(f->op_token[0]);
+        return (s.size() > 0) && (s[0] == 'r');
     }
 
     /// Index of the first token that is the operator itself.
@@ -95,13 +98,16 @@ class OperatorFacts {
     }
 
     /// `+`, `+=`, `[]`, `<=>`, `in`: the spelling with the marker dropped.
+    /// A marked `++`/`--` is spelled from its kind: the token's own range may
+    /// include the marker.
     static fn symbol(f: *FunctionDecl) -> string {
+        if OperatorFacts::has_fixity(f) {
+            return ("++") if (f->op_token[1].kind == TokenKind::OpPlusPlus) else ("--");
+        }
         var c = OperatorFacts::_ctx(f);
         if c == &null { return "<op>"; }
         var s = "";
-        for var i: usize = OperatorFacts::_first(f); i < f->op_token.size(); ++i {
-            s += c->get_spelling(f->op_token[i]);
-        }
+        for var i: usize = 0; i < f->op_token.size(); ++i { s += c->get_spelling(f->op_token[i]); }
         return s;
     }
 

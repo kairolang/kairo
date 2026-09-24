@@ -691,10 +691,8 @@ class ASTParse
     priv fn _op_decl_name(self, f: *FunctionDecl) -> DeclName {
         var n = f->op_token.size();
         var i: usize = 0;
-        if n == 2 {
-            var s = self.ctx->get_spelling(f->op_token[0]);
-            if (s == "l") || (s == "r") { i = 1; }
-        }
+        if (n == 2) && (f->op_token[0].kind == TokenKind::LitIdentifier)
+        && ((f->op_token[1].kind == TokenKind::OpPlusPlus) || (f->op_token[1].kind == TokenKind::OpMinusMinus)) { i = 1; }
         var k0 = TokenKind::TkUnknown;
         var k1 = TokenKind::TkUnknown;
         if i < n       { k0 = f->op_token[i].kind; }

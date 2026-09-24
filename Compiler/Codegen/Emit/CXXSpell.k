@@ -155,12 +155,13 @@ class CXXSpell {
     /// l/r on ++/-- is fixity, not part of the name (see op_is_postfix).
     fn operator_name(self, f: *FunctionDecl) -> string {
         var ctx = CXXSpell::tu_of(static_cast::<*Decl>(f))->ctx;
+        var marked = (f->op_token.size() == 2) && (f->op_token[0].kind == TokenKind::LitIdentifier)
+                  && ((f->op_token[1].kind == TokenKind::OpPlusPlus) || (f->op_token[1].kind == TokenKind::OpMinusMinus));
         var sym = "";
-        for var i: usize = 0; i < f->op_token.size(); ++i {
-            var t = f->op_token[i];
-            var s = ctx->get_spelling(t);
-            if (i == 0) && (f->op_token.size() == 2) && ((s == "l") || (s == "r")) { continue; }
-            sym += self._op_sym(t, ctx);
+        if marked {
+            sym = ("++") if (f->op_token[1].kind == TokenKind::OpPlusPlus) else ("--");
+        } else {
+            for var i: usize = 0; i < f->op_token.size(); ++i { sym += self._op_sym(f->op_token[i], ctx); }
         }
         // An extension operator is a free function taking `Self*`. C++ will
         // not declare `operator-(V*)` ([over.oper]/7), and every call to one is
@@ -230,11 +231,15 @@ class CXXSpell {
     }
 
     /// `op r++` / `op r--`: the postfix form, which C++ declares with an
-    /// `int` dummy parameter.
+    /// `int` dummy parameter. By kind, as AST/OperatorFacts.k decides it.
     static fn op_is_postfix(f: *FunctionDecl) -> bool {
         if (!f->is_operator) || (f->op_token.size() != 2) { return false; }
+        if f->op_token[0].kind != TokenKind::LitIdentifier { return false; }
+        var k = f->op_token[1].kind;
+        if (k != TokenKind::OpPlusPlus) && (k != TokenKind::OpMinusMinus) { return false; }
         var ctx = CXXSpell::tu_of(static_cast::<*Decl>(f))->ctx;
-        return ctx->get_spelling(f->op_token[0]) == "r";
+        var s = ctx->get_spelling(f->op_token[0]);
+        return (s.size() > 0) && (s[0] == 'r');
     }
 
     /// The type an operator belongs to: its class, or its extension's target.
