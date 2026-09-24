@@ -107,8 +107,11 @@ class OperatorLowering derives ASTWriter::<OperatorLowering> {
             return self._call(static_cast::<*Expr>(n), n->rhs, n->op_token, f, n->op_via_free, &args, n->op_instance);
         }
 
-        // `a + b` from `op +=`: copy, mutate, yield.
-        if OperatorFacts::op_kind(f) == OperatorFacts::compound_of(k) { return self._derived_sum(n, f); }
+        // `a + b` from `op +=`: copy, mutate, yield. Guarded on the base:
+        // `compound_of` is TkUnknown for `^^`, and so is op_kind of the pow
+        // lang item, which carries no op_token.
+        var ck = OperatorFacts::compound_of(k);
+        if (ck != TokenKind::TkUnknown) && (OperatorFacts::op_kind(f) == ck) { return self._derived_sum(n, f); }
 
         args.push_back(n->rhs);
         return self._call(static_cast::<*Expr>(n), n->lhs, n->op_token, f, n->op_via_free, &args, n->op_instance);
