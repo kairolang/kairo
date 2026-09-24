@@ -1152,6 +1152,22 @@ class <T> DeclParse {
             case TokenKind::OpPlusPlus:   // ++
             case TokenKind::OpMinusMinus: // --
 
+            // assignment. Compound assignment is overloadable (one of each
+            // pair; the other is derived); `=` is NOT, but it parses here so
+            // OperatorSignatureCheck rejects it with the reason, the same as
+            // `===`, rather than a bare "not valid to overload".
+            case TokenKind::OpEqual:               // =
+            case TokenKind::OpPlusEqual:           // +=
+            case TokenKind::OpMinusEqual:          // -=
+            case TokenKind::OpStarEqual:           // *=
+            case TokenKind::OpSlashEqual:          // /=
+            case TokenKind::OpPercentEqual:        // %=
+            case TokenKind::OpAmpEqual:            // &=
+            case TokenKind::OpPipeEqual:           // |=
+            case TokenKind::OpCaretEqual:          // ^=
+            case TokenKind::OpLessLessEqual:       // <<=
+            case TokenKind::OpGreaterGreaterEqual: // >>=
+
             case TokenKind::OpArrow: // ->
 
             case TokenKind::KwIn: // in

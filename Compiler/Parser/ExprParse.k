@@ -172,7 +172,7 @@ class <T> ExprParse {
         BitXor      = 7,   // ^ xor
         BitAnd      = 8,   // & bitand
         Equality    = 9,   // == != ===
-        Comparison  = 10,  // < > <= >= <=>
+        Comparison  = 10,  // < > <= >= <=> in
         Shift       = 11,  // << >>
         Add         = 12,  // + -
         Multiply    = 13,  // * / %
@@ -494,6 +494,13 @@ class <T> ExprParse {
         || (k == TokenKind::OpLessEqual)
         || (k == TokenKind::OpGreaterEqual)
         || (k == TokenKind::OpLessEqualGreater) {
+            return Precedence::Comparison;
+        }
+
+        // containment: `x in xs` is `xs.op in(x)`, a relation, so it binds
+        // with the comparisons. The ranged-for `in` never reaches here: the
+        // for header parses a binding, not an expression, before it.
+        if k == TokenKind::KwIn {
             return Precedence::Comparison;
         }
 
