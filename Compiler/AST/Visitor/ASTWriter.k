@@ -1384,9 +1384,32 @@ class <D> ASTWriter {
     fn run(self, tu: *TranslationUnit) {
         if tu->program != &null {
             self.dyn()->rebuild_toplevel_items(&(tu->program->items));
+            self._resync_tu_decls(tu);
         }
         // imports / tu_attrs are ArenaList<*Decl>; rebuild via dc-style walk
         // only if a pass needs to touch them. Most don't, so left as-is here.
+    }
+
+    /// tu->dc_decls from the rebuilt items: the Decl entries, in order.
+    /// The parser lands every top-level Decl item in both lists and nothing
+    /// else in dc_decls (ASTParse::_parse_top_decl; top-level `var`/`const`
+    /// are Stmt items and never in dc_decls), so this is the list the parser
+    /// would have built for the rewritten tree. EmitPlan::_collect_own reads
+    /// dc_decls, and a TU-scope splice is invisible to it otherwise.
+    /// Rebuilt from the items, NOT by running transform_decl over dc_decls:
+    /// that would rewrite every top-level decl a second time.
+    priv fn _resync_tu_decls(self, tu: *TranslationUnit) {
+        var dc  = static_cast::<*DeclContext>(tu);
+        var buf = ArenaList::<*Decl>();
+        buf.set_allocator(&(self.ctx->ast_alloc));
+        var items = &(tu->program->items);
+        for var i: usize = 0; i < items->size(); i++ {
+            var item = *(items->get(i));
+            if item.kind != TopLevelKind::Decl { continue; }
+            var d = item.as_decl();
+            if d != &null { buf.push(d); }
+        }
+        dc->dc_decls = buf;
     }
 
     /// Program::items is a live ArenaList of heterogeneous TopLevelItems
