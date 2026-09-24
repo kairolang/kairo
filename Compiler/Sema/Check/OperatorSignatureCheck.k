@@ -188,13 +188,6 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         }
     }
 
-1. The exception claim is wrong as written. The compliance page says C++ exceptions pass through Kairo frames because Kairo functions are noexcept. That's backwards: unwinding through a noexcept frame calls std::terminate. The C++ interop page, meanwhile, says Kairo can catch C++ exceptions with try/catch, which implies landing pads, which contradicts "no unwind tables." Pick the real model, whether that's C++ exceptions terminating at the boundary or Kairo emitting landing pads only where it catches C++ exceptions, and state it once.
-1a. Correct form if 
-2. The backend story is stale in three places. The welcome and install pages say Stage 0 transpiles to C++ and Stage 1 "emits LLVM IR directly." The AMT page says the compiler is "in the Stage 1 parsing phase." None of that matches what you showed me: Clang tokens as IR, sema done, templates interop working. Right now your docs undersell your best architectural decision.
-3. One namespace, two names. The C++ standard library is cxx:: on the interop page and libcxx:: on the compliance and imports pages. Your own test used cxx::std::vector. That's the first thing an interop user types, so it has to be one spelling.
-4. Three closure capture syntaxes. The Closures page uses |*| and |*a|. Ownership uses |=| and |&|. Functions says |&| means by-reference. Only one of these is the language.
-
-
     // === one definition per pair ===========================================
 
     fn visit_class_decl(self, n: *ClassDecl) -> bool   { self._pairs(static_cast::<*DeclContext>(n), static_cast::<*Decl>(n)); return true; }

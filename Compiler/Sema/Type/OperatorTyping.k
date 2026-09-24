@@ -500,7 +500,7 @@ class <T> OperatorTyping {
             dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
                 f"'===' needs a nullable operand; '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' are not nullable"
             ).first(n->range)
-             .note(n->range.start, "'===' is 'both present and equal'; on values that cannot be null it is '==\x2")
+             .note(n->range.start, "'===' is 'both present and equal'; on values that cannot be null it is '==\x27")
              .emit();
             n->poison();
             return &null;
@@ -699,7 +699,7 @@ class <T> OperatorTyping {
 
     priv fn _incdec(self, n: *UnaryOperatorExpr, ot: *Type) -> *Type {
         if !dyn()->tu.is_integer(ot) {
-            var what = ("'++\x2") if (n->op_token.kind == TokenKind::OpPlusPlus) else ("'--\x2");
+            var what = ("'++\x27") if (n->op_token.kind == TokenKind::OpPlusPlus) else ("'--\x27");
             if dyn()->tu.kind_of(ot) == BuiltinKind::COUNT {
                 var fixname = ("r") if (n->is_postfix()) else ("l");
                 dyn()->fail(n, f"no 'op {fixname}{dyn()->sc->ctx->get_spelling(n->op_token)}' on '{dyn()->tu.str(ot)}\x27");
