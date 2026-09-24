@@ -1092,12 +1092,13 @@ class <T> DeclParse {
                 dyn()->report_tok(DiagID::S045E, dyn()->current_ptr(),
                     "given operator is not valid to overload"
                 );
-                out->push_back(dyn()->current());
                 dyn()->advance(T::SkipNL::After);
                 return false;
             }
 
-            out->push_back(dyn()->current()); // the `l`/`r` prefix
+            // the `l`/`r` prefix is already out[0] (pushed above as cur_tok);
+            // pushing it again made `op r++` three tokens, `r r ++`, which no
+            // size()==2 fixity test matches and SemaDump prints as `rr++`.
             dyn()->advance();
 
             // must be `++` or `--`
