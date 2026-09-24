@@ -61,6 +61,12 @@ fn bad_interleaved() {
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 
+// The four accepting calls contribute nothing: `ok` is above every rejection,
+// so a diagnostic from it is output before the first DIAG match. A DIAG-NOT
+// only checks the span before the NEXT positive match, so it has to sit here,
+// above the first DIAG; below the last one it checked nothing of ok().
+// DIAG-NOT: error
+
 // Each call has exactly one candidate, so the rule that rejected it IS the
 // error, reported at the call and naming the parameter. With an overload set
 // the same reasons stay notes under "no matching overload" instead.
@@ -69,10 +75,6 @@ fn bad_interleaved() {
 // DIAG: named_args.k:44:5: error [SC019E]: no parameter named 'nd'
 // DIAG: named_args.k:49:5: error [SC021E]: missing argument for parameter 'n'
 // DIAG: named_args.k:55:5: error [SC022E]: a named argument cannot appear between two pack arguments; move it after them
-
-// The four accepting calls contribute nothing: `ok` is above every rejection,
-// so a diagnostic from it would appear before the first DIAG line and fail.
-// DIAG-NOT: error
 
 // The tree: `...` sits on the parameter that CARRIES it, not on the last one,
 // and a `name: value` argument is a NamedArgExpr rather than an assignment
