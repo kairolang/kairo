@@ -393,7 +393,7 @@ redecl ring by N(a). Three rules make the ring behave as one block:
 - **A collapsed decl expands.** N binds `Util` to the ring's canonical as a
   single decl, so ChainBinding's single-decl Module anchor and T's `mods`
   walk both push `module_scopes(d)` (deduped), not `context_of(d)`.
-  `tests: Tests/Sema/lookup_module_reopen.k`.
+  `tests: Tests/Sema/Lookup/lookup_module_reopen.k`.
 Two FILES both writing `module Util` are two rings; merging those is the
 cross-reopening question at M2 (item 13a).
 
@@ -774,16 +774,16 @@ Each item is independently testable. Do them in this order.
         Multi-segment SearchRoot::name, longest-first root matching,
         `module.k` at a root's top level naming the ROOT, PPResult::std_fid,
         the synthesized `import kairo::std as std`, and the prelude-handle
-        eviction rule in _add. Tests: Tests/Sema/std_root.k,
-        Tests/Sema/std_shadow.k.
+        eviction rule in _add. Tests: Tests/Sema/Imports/std_root.k,
+        Tests/Sema/Imports/std_shadow.k.
    20. `cxx::std` overlay                                 I          DONE
-        Tests: Tests/Sema/cxx_overlay.k, Tests/Sema/cxx_overlay_no_ffi.k.
+        Tests: Tests/Sema/Imports/cxx_overlay.k, Tests/Sema/Imports/cxx_overlay_no_ffi.k.
         OPEN: the link test (a TU calling `cxx::std::strlen` and a
         `kairo::std` function in one body, compiled and run) needs std's own
         object on the link line, which the single-`-o` driver path does not
         emit for a graph TU yet.
 
-Test for 1–9: `Tests/Sema/imports_all_forms`. `main.k` imports `foo.k`
+Test for 1–9: `Tests/Sema/Imports/imports_all_forms`. `main.k` imports `foo.k`
 under every form in §1, plus `module util` reopened across two files, plus
 a re-export through `pub import bar::*`, plus an aliased ffi header.
 `--print-sema` shows every head bound `[import overlay]` and every step
@@ -793,7 +793,7 @@ for diffing what a change did beyond the asserted lines. Named roots (9)
 are covered separately: two roots each holding `a.k`, imported as `a` and
 `foo::a`, binding to two different decls.
 
-Test for 10: `Tests/Sema/type_cycle.k`. Five cycles (self, mutual, fixed
+Test for 10: `Tests/Sema/Types/type_cycle.k`. Five cycles (self, mutual, fixed
 array + tuple, bases, a generic argument the template stores by value) and
 five non-cycles (pointer, nullable, vector, map, set, plus a generic
 argument the template only points at), in one file, with `DIAG-NOT` closing
@@ -801,7 +801,7 @@ the count. Both halves matter: the edge set is the whole content of the
 pass, and the second half is what a naive "does it mention itself" check
 gets wrong.
 
-Test for 11: `Tests/Sema/emit_plan`. `main.k` imports `foo`, never `bar`;
+Test for 11: `Tests/Sema/Imports/emit_plan`. `main.k` imports `foo`, never `bar`;
 `foo::F` holds a `bar::B` by value and a `bar::Deep` behind a pointer.
 `--print-emit-plan` then has to show B in tier 1 (transitivity through a
 file main never named), Deep in tier 0 only (edge strength), `foo::Unused`
