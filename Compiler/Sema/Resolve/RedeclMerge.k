@@ -45,17 +45,26 @@
 ///       return type       -- excluded, which is what makes a mismatch a
 ///                            CONFLICT rather than an overload.
 ///       method const-ness -- excluded FOR KAIRO-AUTHORED DECLS, included
-///                            for foreign ones. Kairo does not permit const
-///                            overloading (it costs more than it buys), so
-///                            `fn f(self) const` and `fn f(self)` in Kairo
-///                            source are one entity that disagrees about
-///                            const -- checked below, not compared here.
-///                            C++ puts the cv-qualifier of the implicit
-///                            object parameter IN the signature and the STL
-///                            depends on it, so an extracted header's
-///                            const/non-const pairs stay two entities.
-///                            The gate is _foreign, the same predicate
-///                            TypeResolution uses.
+///                            for foreign ones and for place operators.
+///                            Kairo does not permit const overloading (it
+///                            costs more than it buys), so `fn f(self)` and
+///                            `fn f(const self)` in Kairo source are one
+///                            entity that disagrees about const -- checked
+///                            below, not compared here. C++ puts the
+///                            cv-qualifier of the implicit object parameter
+///                            IN the signature and the STL depends on it, so
+///                            an extracted header's const/non-const pairs
+///                            stay two entities; the gate is _foreign, the
+///                            same predicate TypeResolution uses. A place
+///                            operator (`[]`, `.*`, `->*`;
+///                            OperatorFacts::is_place) is the one exception
+///                            to the restriction: `-> *T` beside
+///                            `-> *const T` is the pair a const receiver
+///                            needs, and X ranks the two by receiver.
+///
+///     Fixity is INCLUDED: `op l++` and `op r++` share a name cell
+///     (OperatorFacts::key) and X picks between them by is_postfix, so the
+///     pair is two entities, not one declared twice.
 ///       default arguments -- excluded; a default is a property of a
 ///                            declaration, not of the function type.
 ///       parameter names   -- excluded; not part of any type.
@@ -149,6 +158,7 @@ import AST::Node::Base::*;
 import AST::Node::CanonicalNodes::*;
 import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
+import AST::OperatorFacts::*;
 import AST::Node::Types::*;
 import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
@@ -455,16 +465,21 @@ class RedeclMerge {
 
         if a->params.size() != b->params.size() { return false; }
 
+        // Prefix and postfix `++`/`--` are one name cell and two entities.
+        if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) { return false; }
+
         var fa = self._foreign(a);
         var fb = self._foreign(b);
         // Const-ness participates in signature identity for FOREIGN decls
-        // only. Kairo source may not declare const overloads at all (see
-        // header), so for Kairo-authored decls a const mismatch is one
-        // entity with two contracts and _check_modifiers_agree reports it.
-        // C++ has no such rule and the STL leans on it hard --
-        // begin()/begin() const, the operator[] pairs -- so an extracted
-        // header's pairs are two entities and must not merge.
-        if fa || fb {
+        // and PLACE OPERATORS only. Kairo source may not declare const
+        // overloads otherwise (see header), so for any other Kairo-authored
+        // decl a const mismatch is one entity with two contracts and
+        // _check_modifiers_agree reports it. C++ has no such rule and the
+        // STL leans on it hard -- begin()/begin() const, the operator[]
+        // pairs -- so an extracted header's pairs are two entities and must
+        // not merge; a Kairo place operator is the same pair by design.
+        var const_is_identity = fa || fb || OperatorFacts::is_place(a) || OperatorFacts::is_place(b);
+        if const_is_identity {
             if a->is_const() != b->is_const() { return false; }
         }
 
@@ -488,12 +503,12 @@ class RedeclMerge {
             if pa->is_self || pb->is_self {
                 if pa->is_self != pb->is_self { return false; }
                 // A receiver's cv is in its canonical -- a const method's self
-                // is `const Record` -- and for a FOREIGN pair it is identity:
-                // begin() / begin() const are two entities. Kairo permits no
-                // const overloads (header), so a Kairo-authored pair differing
-                // only there is one entity with two contracts, and
-                // _check_modifiers_agree reports it.
-                var strip = (!fa) && (!fb);
+                // is `const Record` -- and for a FOREIGN pair or a place
+                // operator it is identity: begin() / begin() const are two
+                // entities. Kairo permits no other const overloads (header),
+                // so a Kairo-authored pair differing only there is one entity
+                // with two contracts, and _check_modifiers_agree reports it.
+                var strip = !const_is_identity;
                 if strip { ca = canon_unqual(ca); cb = canon_unqual(cb); }
                 if ca != cb { return false; }
                 continue;
@@ -604,6 +619,9 @@ class RedeclMerge {
         if a->generic_params.size() != b->generic_params.size() { return; }
         if a->is_variadic != b->is_variadic { return; }
         if a->params.size() != b->params.size() { return; }
+        // Postfix `++`/`--` gets C++'s `int` dummy, prefix does not: two
+        // different C++ parameter lists however the Kairo ones compare.
+        if OperatorFacts::is_postfix(a) != OperatorFacts::is_postfix(b) { return; }
         // A mode difference is a C++ difference (`T` vs `T&` vs `T&&`): no
         // collision possible, whatever the types lower to.
         for var i: usize = 0; i < a->params.size(); ++i {
@@ -790,7 +808,8 @@ class RedeclMerge {
     ///
     /// `const` is here rather than in _same_signature because Kairo does
     /// not permit const overloading -- see the header. Two links
-    /// disagreeing about const are one entity with two contracts.
+    /// disagreeing about const are one entity with two contracts. A place
+    /// operator's pair never reaches here: const is its identity.
     ///
     /// FIXME(where): a `where` guard on one link and not another is either
     /// this same kind of conflict or a third dispatch axis;

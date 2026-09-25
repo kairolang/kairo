@@ -229,7 +229,10 @@ still on a placeholder must not ship in a stable release.
 `Sema/Resolve/RedeclMerge.k`, inside the T stage after TypeResolution.
 Merges FUNCTION redeclarations by signature (arity, canonical param types
 in order, generic arity; return type EXCLUDED so a mismatch is a conflict;
-const excluded for Kairo-authored decls, included for foreign; top-level
+const excluded for Kairo-authored decls, included for foreign ones and
+for place operators (`[]`, `.*`, `->*`: the one exception to the
+const-overload restriction); fixity included, so `op l++` beside `op r++`
+is two functions; top-level
 parameter cv excluded as in C++ ([dcl.fct]/5), both the binding's `const`
 and a `const` written at the top of the type, so `f(x: const *i32)` and
 `f(x: *i32)` are one function while `f(*const i32)` and `f(*i32)` are two;
