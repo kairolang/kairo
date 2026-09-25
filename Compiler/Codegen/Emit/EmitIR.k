@@ -1170,7 +1170,17 @@ class EmitIR {
                 if !first { sink->spell(f->range, ","); }
                 first = false;
                 sink->spell(f->range, "." + fname + " =");
-                self._value(f->value, fd->type_);
+                // An array member takes bare braces, as a declarator does
+                // (_var_decl): C++ cannot initialize one from the
+                // `__kairo_array<T, N>{...}` prvalue _value would spell.
+                var fc: *Type = &null;
+                if (fd->type_ != &null) && (fd->type_->canonical != &null) { fc = canon_unqual(fd->type_->canonical); }
+                var il = dyn_cast::<InitListExpr>(f->value);
+                if (il != &null) && (fc != &null) && (fc->kind == TypeKind::FixedArrayType) {
+                    self._init_list(il, true);
+                } else {
+                    self._value(f->value, fd->type_);
+                }
             }
         }
         sink->spell(e->range, "}");
