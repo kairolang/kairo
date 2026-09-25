@@ -35,6 +35,7 @@ class TextSink derives EmitSink {
     priv var _at_line_start: bool = true;
     priv var _glue_next:   bool = false;   ///< suppress the space before the next token
     priv var _pending_brk: bool = false;   ///< a `}` was written; break unless `;` follows
+    priv var _after_op_kw: bool = false;   ///< inside an `operator` symbol: glue the next punctuator
 
     fn TextSink(self, sm: *SourceManager, tcm: *TokenCacheManager) {
         self._sm  = sm;
@@ -48,6 +49,8 @@ class TextSink derives EmitSink {
 
     override fn create_ident(self, at: SourceRange, spelling: string) -> bool {
         self._word(spelling, false);
+        // spell() lexes `operator` as a word, not through keyword().
+        if spelling == "operator" { self._after_op_kw = true; }
         return true;
     }
 
@@ -62,7 +65,16 @@ class TextSink derives EmitSink {
         var tight_before = (k == clang::tok::semi) || (k == clang::tok::comma) || (k == clang::tok::r_paren)
                         || (k == clang::tok::greater) || (k == clang::tok::coloncolon) || (k == clang::tok::l_paren)
                         || (k == clang::tok::less) || (k == clang::tok::l_square) || (k == clang::tok::r_square)
-                        || (k == clang::tok::star) || (k == clang::tok::amp) || (k == clang::tok::ampamp);
+                        || (k == clang::tok::star) || (k == clang::tok::amp) || (k == clang::tok::ampamp)
+                        // `operator+`, not `operator +`: the symbol is part of
+                        // the name. `operator double` keeps its space, since
+                        // an identifier is not a punctuator.
+                        || self._after_op_kw;
+        // spell() hands `+=` over as `+` then `=`, so the glue has to outlast
+        // one punctuator. It stops at `(` / `[`: that is either the parameter
+        // list or `operator()` / `operator[]`, whose closers are tight anyway,
+        // and carrying it further would glue a body's `{` to `()`.
+        var op_symbol = self._after_op_kw && (k != clang::tok::l_paren) && (k != clang::tok::l_square);
         var tight_after  = (k == clang::tok::l_paren) || (k == clang::tok::coloncolon) || (k == clang::tok::less)
                         || (k == clang::tok::l_square) || (k == clang::tok::tilde);
 
@@ -75,6 +87,7 @@ class TextSink derives EmitSink {
         }
         if k == clang::tok::semi { self._pending_brk = false; }   // `};` stays on the line.
         self._word(s, tight_before);
+        if op_symbol { self._after_op_kw = true; }
         if tight_after { self._glue_next = true; }
         if k == clang::tok::semi { self.brk(); }
         if k == clang::tok::l_brace { self._depth += 1; self.brk(); }
@@ -85,6 +98,7 @@ class TextSink derives EmitSink {
         var kw = clang::tok::getKeywordSpelling(k);
         ICE_IF(kw == &null, "TextSink::keyword: kind is not a keyword");
         self._word(string(kw), false);
+        if k == clang::tok::kw_operator { self._after_op_kw = true; }
         return true;
     }
 
@@ -134,6 +148,7 @@ class TextSink derives EmitSink {
             self.out += " ";
         }
         self._glue_next = false;
+        self._after_op_kw = false;
         self.out += s;
     }
 }
