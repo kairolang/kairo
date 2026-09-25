@@ -144,6 +144,10 @@ class LowerTargets {
     static fn op_dotstar()  -> string { return "__kairo_dotstar"; }
     /// `fn op await`.
     static fn op_await()    -> string { return "__kairo_await"; }
+    /// `fn op spawn`.
+    static fn op_spawn()    -> string { return "__kairo_spawn"; }
+    /// `fn op thread`.
+    static fn op_thread()   -> string { return "__kairo_thread"; }
     /// An extension operator's receiver in its C++ definition. The operator
     /// takes `X&` ([over.oper]/7 wants a class-typed parameter), and the
     /// body's first statement binds `self` to its address, so the body is

@@ -197,7 +197,9 @@ class CXXSpell {
         if sym == "in"    { return (LowerTargets::op_contains()) if (f->params.size() > 1) else (LowerTargets::op_iter()); }
         if sym == "^^"    { return LowerTargets::op_pow(); }
         if sym == ".*"    { return LowerTargets::op_dotstar(); }
-        if sym == "await" { return LowerTargets::op_await(); }
+        if sym == "await"  { return LowerTargets::op_await(); }
+        if sym == "spawn"  { return LowerTargets::op_spawn(); }
+        if sym == "thread" { return LowerTargets::op_thread(); }
         return "";
     }
 

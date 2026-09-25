@@ -1174,6 +1174,8 @@ class <T> DeclParse {
             case TokenKind::KwIn: // in
             case TokenKind::KwAs: // as
 
+            case TokenKind::KwAwait:  // await
+            case TokenKind::KwSpawn:  // spawn
             case TokenKind::KwThread: // thread
             case TokenKind::KwDelete: // delete
             case TokenKind::KwYield:  // yield
