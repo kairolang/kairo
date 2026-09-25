@@ -144,12 +144,11 @@ class LowerTargets {
     static fn op_dotstar()  -> string { return "__kairo_dotstar"; }
     /// `fn op await`.
     static fn op_await()    -> string { return "__kairo_await"; }
-    /// An extension operator. C++ cannot declare a non-member operator whose
-    /// only class-typed parameter is a POINTER ([over.oper]/7), and the
-    /// extension ABI passes the receiver as `Self*`, so an extension's `op -`
-    /// is a plain free function named here: `__kairo_op_neg`. Nothing ever
-    /// calls one through C++ operator syntax; every use is an explicit call.
-    static fn ext_op(mnemonic: string) -> string { return "__kairo_op_" + mnemonic; }
+    /// An extension operator's receiver in its C++ definition. The operator
+    /// takes `X&` ([over.oper]/7 wants a class-typed parameter), and the
+    /// body's first statement binds `self` to its address, so the body is
+    /// emitted exactly as any other extension member's.
+    static fn ext_self() -> string { return "__kairo_self"; }
 
     // --- Witnesses (writer: EmitWitness) -------------------------------------------------
 

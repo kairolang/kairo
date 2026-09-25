@@ -109,12 +109,12 @@ emitters use the same instance; a declaration and a body cannot disagree.
   `LowerTargets` (`__kairo_contains`/`__kairo_iter` for the two `op in`,
   `__kairo_pow`, `__kairo_dotstar`, `__kairo_await`). `===` is not an
   operator a type declares: it is the nullable test, owned by the nullable
-  trio, and has no spelling here. An EXTENSION operator is a free function
-  taking `Self*`, which C++ will not declare as an operator
-  ([over.oper]/7), so it spells `LowerTargets::ext_op(mnemonic)`:
-  `__kairo_op_neg`, `__kairo_op_add`, `__kairo_op_inc_post`, ...
-  (`ext_mnemonic`; arity splits unary from binary). Every use is an
-  explicit call, never operator syntax.
+  trio, and has no spelling here. An EXTENSION operator is a non-member
+  C++ operator taking `X&` / `const X&` (a class-typed parameter is what
+  [over.oper]/7 asks for), spelled exactly as a member's is; its body
+  binds `self` to the address of that reference
+  (`X* self = &__kairo_self;`), so the body emits unchanged. Every Kairo
+  use is an explicit call that passes the object, not its address.
 - `_type(t)`: canonical → C++; builtins by table (`i32` is
   `::std::int32_t`), records qualified with instance args from the
   registry, pointers, references, arrays through `decl()`. Structural

@@ -495,7 +495,10 @@ class InterfaceEmitter {
                 first = false;
                 if f->is_const() { s += "const "; }
                 s += self._spell->_type(ext->target);
-                s += "* self";
+                // An extension operator is a real non-member C++ operator, and
+                // [over.oper]/7 wants a class-typed parameter: the receiver is
+                // `X&`. Unnamed here; EmitIR's definition names it.
+                s += ("&") if (f->is_operator) else ("* self");
                 continue;
             }
             if !first { s += ", "; }

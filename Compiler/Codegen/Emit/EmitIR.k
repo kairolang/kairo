@@ -349,7 +349,9 @@ class EmitIR {
                 first = false;
                 if f->is_const() { s += "const "; }
                 s += self._spell._type(ext->target);
-                s += "* self";
+                // An extension operator takes its receiver by reference (see
+                // InterfaceEmitter::_params); _body rebinds `self` from it.
+                s += ("& " + LowerTargets::ext_self()) if (f->is_operator) else ("* self");
                 continue;
             }
             if !first { s += ", "; }
@@ -369,7 +371,20 @@ class EmitIR {
         var saved_ext = self._cur_ext;
         self._cur_fn  = f;
         self._cur_ext = ext;
-        self.emit_block(f->body_block);
+        // Opened here rather than through emit_block: an extension operator's
+        // body starts with `X* self = &__kairo_self;`, so everything below it
+        // -- `self->v`, the receiver passed on -- is the pointer form every
+        // other extension member uses, and the body emits unchanged.
+        var b = f->body_block;
+        ICE_IF(b == &null, "EmitIR: null block reached codegen");
+        sink->synth_at_start(b->range, clang::tok::l_brace);
+        if (ext != &null) && f->is_operator {
+            var pro = ("const ") if (f->is_const()) else ("");
+            pro += self._spell._type(ext->target) + "* self = &" + LowerTargets::ext_self() + ";";
+            sink->spell(b->range, pro);
+        }
+        for var i: usize = 0; i < b->body.size(); ++i { self.emit(b->body[i]); }
+        sink->synth_at_end(b->range, clang::tok::r_brace);
         self._cur_fn  = saved_fn;
         self._cur_ext = saved_ext;
     }
@@ -791,6 +806,35 @@ class EmitIR {
         sink->spell(ch->range, ")");
     }
 
+    /// The receiver of an extension OPERATOR: the object itself, since the
+    /// operator takes `X&` (InterfaceEmitter::_params). The dual of
+    /// _receiver -- a pointer is dereferenced, an lvalue passes as-is.
+    priv fn _receiver_ref(self, ch: *ChainExpr) {
+        var last = ch->steps.size() - 1;
+        if last == 0 {
+            var b = ch->base;
+            if self._base_is_self(b) || self._is_pointer(b) {
+                sink->spell(b->range, "(*");
+                self.emit(b);
+                sink->spell(b->range, ")");
+                return;
+            }
+            ICE_IF(!b->is_lvalue(), "EmitIR: extension call on a prvalue receiver; ExtensionLowering must materialize a temporary");
+            self.emit(b);
+            return;
+        }
+        // A field path is an lvalue already; only a pointer-typed one needs
+        // the `*`.
+        var prev = ch->steps.get(last - 1);
+        if self._type_is_pointer(prev->resolved_type) {
+            sink->spell(ch->range, "(*");
+            self._chain_prefix(ch, last);
+            sink->spell(ch->range, ")");
+            return;
+        }
+        self._chain_prefix(ch, last);
+    }
+
     priv fn _base_is_self(self, e: *Expr) -> bool {
         var ni = dyn_cast::<NamedIdentExpr>(e);
         if ni == &null { return false; }
@@ -831,7 +875,7 @@ class EmitIR {
         if ext_call {
             ICE_IF(f == &null, "EmitIR: UFCS step that is not a function");
             sink->spell(n->callee->range, self._spell.qual_name(callee) + "(");
-            self._receiver(ch);
+            if f->is_operator { self._receiver_ref(ch); } else { self._receiver(ch); }
             self._args(n, f, true, inst);
             sink->synth_at_end(n->range, clang::tok::r_paren);
             return;

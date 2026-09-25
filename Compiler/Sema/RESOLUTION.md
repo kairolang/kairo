@@ -661,7 +661,11 @@ qualified from `resolved_decl` (IMPORTS.md §6.5). Receiver `Self*` /
 `const Self*` from `fn f(self)` / `fn f(self) const`; a prvalue receiver
 (`f().push(1)`) is materialized into a temporary by ExtensionLowering.
 Extension methods are never virtual, never `override`, never a ctor.
-Record extends follow the same rule; there are not two.
+Record extends follow the same rule; there are not two. The one exception
+is an extension OPERATOR: it is a non-member C++ operator taking `X&` /
+`const X&` ([over.oper]/7 needs a class-typed parameter, and a C++
+consumer can then write `-x`), and its body rebinds `self` to the
+reference's address; every Kairo use is still an explicit call.
 
 **Friend iff the extend is in the type's file** [DECIDED]. The type's
 emitted definition carries `friend` declarations for exactly its

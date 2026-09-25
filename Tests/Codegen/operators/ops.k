@@ -5,7 +5,7 @@
 //   member    op + / op == / op <=> / op as / op in / op r++
 //   derived   != from ==, < and >= from <=>, += from +, + from +=
 //   free      op *  found from the declaring file, not through a module
-//   extend    op -  a free function named __kairo_op_neg
+//   extend    op -  a non-member operator- taking Vec2&
 //   lang      ^^    the pow lang item, an integer and a float base
 
 struct Vec2 {
@@ -82,9 +82,8 @@ fn main() -> i32 {
 // CXX-DAG: Vec2 operator++(int)
 // CXX-DAG: void operator+=(
 // CXX-DAG: Vec2 operator*(double
-// CXX-DAG: Vec2 __kairo_op_neg(
+// CXX-DAG: Vec2 operator-(
 // CXX-DAG: pow
-// CXX-NOT: operator-(
 
 // REQUIRES: clang
 // `-o` names a DIRECTORY: the entry TU's object, plus one per builtin TU it
