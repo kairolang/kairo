@@ -112,8 +112,9 @@ class EmitSink {
     /// identifiers/keywords, integer literals, and the punctuators a
     /// declaration can contain. Anything else is an emitter bug.
     ///
-    /// `<<` and `>>` are two tokens each EXCEPT directly after the word
-    /// `operator`, so `Box<Box<int>>` and `operator<<` both come out right.
+    /// Punctuators are matched longest-first. `<<`, `>>`, `<<=` and `>>=`
+    /// are one token only directly after the word `operator`, so
+    /// `Box<Box<int>>` and `operator<<` both come out right.
     fn spell(self, at: SourceRange, text: string) -> bool {
         var n = text.size();
         var i: usize = 0;
@@ -153,20 +154,40 @@ class EmitSink {
             if i + 1 < n { c1 = text[i + 1]; }
             if i + 2 < n { c2 = text[i + 2]; }
 
-            if (c == ':') && (c1 == ':')                { k = clang::tok::coloncolon; len = 2; }
-            else if (c == '-') && (c1 == '>')           { k = clang::tok::arrow;      len = 2; }
-            else if (c == '.') && (c1 == '.') && (c2 == '.') { k = clang::tok::ellipsis; len = 3; }
-            else if (c == '&') && (c1 == '&')           { k = clang::tok::ampamp;     len = 2; }
-            else if (c == '<') && (c1 == '=') && (c2 == '>') { k = clang::tok::spaceship; len = 3; }
-            else if (c == '<') && (c1 == '<') && after_operator { k = clang::tok::lessless; len = 2; }
+            // Longest match: every 3-char punctuator before any 2-char one,
+            // every 2-char before the 1-char fallback. A compound operator
+            // split in two (`operator + =`) is a declarator clang cannot
+            // recover from: it eats the rest of the file hunting for `}`.
+            //
+            // The shift family only directly after `operator`: in a type,
+            // `Box<Box<int>>` is two `>`, and a type is most of what this
+            // tokenizes.
+            if (c == '<') && (c1 == '<') && (c2 == '=') && after_operator { k = clang::tok::lesslessequal;       len = 3; }
+            else if (c == '>') && (c1 == '>') && (c2 == '=') && after_operator { k = clang::tok::greatergreaterequal; len = 3; }
+            else if (c == '-') && (c1 == '>') && (c2 == '*') { k = clang::tok::arrowstar;  len = 3; }
+            else if (c == '.') && (c1 == '.') && (c2 == '.') { k = clang::tok::ellipsis;   len = 3; }
+            else if (c == '<') && (c1 == '=') && (c2 == '>') { k = clang::tok::spaceship;  len = 3; }
+            else if (c == '<') && (c1 == '<') && after_operator { k = clang::tok::lessless;       len = 2; }
             else if (c == '>') && (c1 == '>') && after_operator { k = clang::tok::greatergreater; len = 2; }
+            else if (c == ':') && (c1 == ':')           { k = clang::tok::coloncolon;   len = 2; }
+            else if (c == '-') && (c1 == '>')           { k = clang::tok::arrow;        len = 2; }
+            else if (c == '.') && (c1 == '*')           { k = clang::tok::periodstar;   len = 2; }
+            else if (c == '&') && (c1 == '&')           { k = clang::tok::ampamp;       len = 2; }
+            else if (c == '|') && (c1 == '|')           { k = clang::tok::pipepipe;     len = 2; }
             else if (c == '=') && (c1 == '=')           { k = clang::tok::equalequal;   len = 2; }
             else if (c == '!') && (c1 == '=')           { k = clang::tok::exclaimequal; len = 2; }
             else if (c == '<') && (c1 == '=')           { k = clang::tok::lessequal;    len = 2; }
             else if (c == '>') && (c1 == '=')           { k = clang::tok::greaterequal; len = 2; }
             else if (c == '+') && (c1 == '+')           { k = clang::tok::plusplus;     len = 2; }
             else if (c == '-') && (c1 == '-')           { k = clang::tok::minusminus;   len = 2; }
-            else if (c == '|') && (c1 == '|')           { k = clang::tok::pipepipe;     len = 2; }
+            else if (c == '+') && (c1 == '=')           { k = clang::tok::plusequal;    len = 2; }
+            else if (c == '-') && (c1 == '=')           { k = clang::tok::minusequal;   len = 2; }
+            else if (c == '*') && (c1 == '=')           { k = clang::tok::starequal;    len = 2; }
+            else if (c == '/') && (c1 == '=')           { k = clang::tok::slashequal;   len = 2; }
+            else if (c == '%') && (c1 == '=')           { k = clang::tok::percentequal; len = 2; }
+            else if (c == '&') && (c1 == '=')           { k = clang::tok::ampequal;     len = 2; }
+            else if (c == '|') && (c1 == '=')           { k = clang::tok::pipeequal;    len = 2; }
+            else if (c == '^') && (c1 == '=')           { k = clang::tok::caretequal;   len = 2; }
             else { k = self._punct_kind(c); }
 
             ICE_IF(k == clang::tok::unknown,
