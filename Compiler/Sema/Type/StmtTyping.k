@@ -189,14 +189,10 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         ).first(f->name.range).emit();
     }
 
-    /// An array is initialized from a list literal and from nothing else:
-    /// copying one is not an initialization C++ has.
+    /// An array is initialized from a list literal and from nothing else
+    /// (LiteralTyping::reject_array_copy, shared with a field initializer).
     priv fn _reject_array_copy(self, v: *VariableDecl, t: *Type) {
-        var c = canon_unqual(t);
-        if (c == &null) || (!isa::<FixedArrayType>(c)) { return; }
-        var init = dyn()->tu.strip_parens(v->init);
-        if (init == &null) || init->is_poisoned() || isa::<ListLiteralExpr>(init) { return; }
-        dyn()->fail(init, "an array is not copyable; initialize it from a list literal, or view the source through a slice or a pointer");
+        dyn()->reject_array_copy(v->init, t);
     }
 
     // === traversal overrides (scope) ========================================

@@ -377,6 +377,19 @@ class <T> LiteralTyping {
         return true;
     }
 
+    /// An array is initialized from a list literal and from nothing else:
+    /// copying one is not an initialization C++ has. A variable's
+    /// initializer and an aggregate initializer's field value both land
+    /// here; true when \p value was rejected.
+    fn reject_array_copy(self, value: *Expr, t: *Type) -> bool {
+        var c = canon_unqual(t);
+        if (c == &null) || (!isa::<FixedArrayType>(c)) { return false; }
+        var v = dyn()->tu.strip_parens(value);
+        if (v == &null) || v->is_poisoned() || isa::<ListLiteralExpr>(v) { return false; }
+        dyn()->fail(v, "an array is not copyable; initialize it from a list literal, or view the source through a slice or a pointer");
+        return true;
+    }
+
     fn type_set_literal(self, n: *SetLiteralExpr, expected: *Type) -> *Type {
         var elem_expected = dyn()->tu.container_elem(dyn()->tu.strip_nullable(expected));
         var elem: *Type = elem_expected;
