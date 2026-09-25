@@ -860,6 +860,23 @@ fn is_keyword(kind: TokenKind) -> bool {
     }
 }
 
+/// The kind an operator NAME is keyed on: the symbol for every word form.
+/// `op bitand` and `a & b` are one operator, and op_name must not know
+/// which spelling reached it.
+fn canonical_operator_kind(k: TokenKind) -> TokenKind {
+    switch k {
+        case TokenKind::KwBitand { return TokenKind::OpAmp; }
+        case TokenKind::KwBitor  { return TokenKind::OpPipe; }
+        case TokenKind::KwXor    { return TokenKind::OpCaret; }
+        case TokenKind::KwCompl  { return TokenKind::OpTilde; }
+        case TokenKind::KwNotEq  { return TokenKind::OpExclaimEqual; }
+        case TokenKind::KwAndEq  { return TokenKind::OpAmpEqual; }
+        case TokenKind::KwOrEq   { return TokenKind::OpPipeEqual; }
+        case TokenKind::KwXorEq  { return TokenKind::OpCaretEqual; }
+        default                  { return k; }
+    }
+}
+
 fn is_unary_operator(kind: TokenKind) -> bool {
     switch kind {
         case TokenKind::KwNot:        case TokenKind::OpQuestion:

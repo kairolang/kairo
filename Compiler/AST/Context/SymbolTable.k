@@ -70,11 +70,15 @@ class DeclName {
     /// single-token operators. Deterministic per spelling within a build
     /// TokenKind is stable across TUs, so operator keys, unlike identifier
     /// keys, are safe to compare cross-TU (ADL relies on this).
+    /// Keyed on the canonical kinds, so a word-form operator (`op bitand`)
+    /// and its symbol (`a & b`) are one cell.
     static fn op_name(k0: TokenKind, k1: TokenKind) -> DeclName {
+        var c0 = canonical_operator_kind(k0);
+        var c1 = canonical_operator_kind(k1);
         var n = DeclName{};
         n.kind    = DeclNameKind::Operator;
-        n.payload = ((static_cast::<u32>(k0) & 0xFFFF) << 16)
-                  |  (static_cast::<u32>(k1) & 0xFFFF);
+        n.payload = ((static_cast::<u32>(c0) & 0xFFFF) << 16)
+                  |  (static_cast::<u32>(c1) & 0xFFFF);
         return n;
     }
 
