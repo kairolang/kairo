@@ -48,6 +48,7 @@ import AST::Kind::DeclKind::*;
 import AST::Kind::TypeKind::*;
 import AST::Kind::ExprKind::*;
 import Location::SourceRange::*;
+import Token::TokenKind::*;
 
 __inline_cpp("
 #define sink this->_cg->sink
@@ -432,6 +433,8 @@ class InterfaceEmitter {
         // is no second place that knows how a destructor is named.
         var nm = self._spell->leaf(m);
         var is_dtor = m->is_operator && (nm[0] == '~');
+        // `op as` spells `operator T`; C++ gives a conversion no return type.
+        var is_conv = m->is_operator && (m->op_token[0].kind == TokenKind::KwAs);
         var is_method = m->is_method();
 
         if (!is_method) && (!is_ctor) && !is_dtor { s += "static "; }
@@ -440,7 +443,7 @@ class InterfaceEmitter {
 
         if is_ctor {
             s += self._spell->leaf(owner);
-        } else if is_dtor {
+        } else if is_dtor || is_conv {
             s += nm;
         } else {
             s += self._ret(m);

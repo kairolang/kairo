@@ -262,12 +262,14 @@ class EmitIR {
         head += self._spell.template_head(static_cast::<*Decl>(m));
         var is_ctor = (self._spell.leaf(m) == self._spell.leaf(owner));
         var nm = self._spell.leaf(m);
+        // `op as` spells `operator T`; C++ gives a conversion no return type.
+        var is_conv = m->is_operator && (m->op_token[0].kind == TokenKind::KwAs);
         var qual = self._owner_qual(owner);
         if is_ctor {
             head += qual + "::" + self._spell.leaf(owner);
-        } else if nm[0] == '~' {
-            // A destructor definition takes no return type, and leaf() has
-            // already spelled the `~`.
+        } else if (nm[0] == '~') || is_conv {
+            // A destructor or conversion definition takes no return type, and
+            // leaf() has already spelled the `~` / `operator T`.
             head += qual + "::" + nm;
         } else {
             head += self._ret(m);
