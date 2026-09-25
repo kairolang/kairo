@@ -229,9 +229,10 @@ class EmitIR {
         ICE_IF(n->is_variadic, "EmitIR: variadic pack parameters are not emitted yet");
         if n->is_method() && (ext == &null) { return; }   // a method reached the free path; its owner emits it.
 
+        var at = CXXSpell::at(static_cast::<*Decl>(n));
         var is_main = (ext == &null) && CXXSpell::is_entry_tu(self._cg->tu) && (self._spell.leaf(n) == "main");
         var wrap: u32 = 0;
-        if !is_main { wrap = self._open_ns(n, n->name.range); }
+        if !is_main { wrap = self._open_ns(n, at); }
 
         var head = "";
         if ext != &null { head += self._spell.template_head(static_cast::<*Decl>(ext)); }
@@ -242,7 +243,7 @@ class EmitIR {
         head += "(";
         head += self._params_text(n, ext);
         head += ")";
-        sink->spell(n->name.range, head);
+        sink->spell(at, head);
 
         self._body(n, ext);
         self._close_ns(n->range, wrap);
@@ -254,7 +255,8 @@ class EmitIR {
         if m->body_kind != FnBodyKind::Block { self._unsupported_body(m); return; }
         ICE_IF(m->is_variadic, "EmitIR: variadic pack parameters are not emitted yet");
 
-        var wrap = self._open_ns(owner, m->name.range);
+        var at = CXXSpell::at(static_cast::<*Decl>(m));
+        var wrap = self._open_ns(owner, at);
 
         var head = self._owner_template_head(owner);
         head += self._spell.template_head(static_cast::<*Decl>(m));
@@ -276,7 +278,7 @@ class EmitIR {
         head += self._params_text(m, &null);
         head += ")";
         if m->is_method() && m->is_const() { head += " const"; }
-        sink->spell(m->name.range, head);
+        sink->spell(at, head);
 
         self._body(m, &null);
         self._close_ns(m->range, wrap);

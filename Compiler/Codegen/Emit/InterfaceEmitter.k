@@ -212,9 +212,7 @@ class InterfaceEmitter {
     }
 
     priv fn _at(self, d: *Decl) -> SourceRange {
-        var t = decl_name_tok(d);
-        if t.range.is_valid() { return t.range; }
-        return d->range;
+        return CXXSpell::at(d);
     }
 
     /// Byte 0 of the TU: the anchor for tokens that have no bytes of their
@@ -329,7 +327,7 @@ class InterfaceEmitter {
             var m = methods[i];
             if m == &null { continue; }
             cur_access = self._access(cur_access, CXXSpell::vis_of(static_cast::<*Decl>(m)), is_class, at);
-            sink->spell(m->name.range, self._method_decl(m, d));
+            sink->spell(self._at(static_cast::<*Decl>(m)), self._method_decl(m, d));
         }
 
         // Friends: same-file extension members, so a free function written
@@ -345,7 +343,7 @@ class InterfaceEmitter {
             if !self._same_ns(my_ns, fns) { continue; }
             var x = reinterpret_cast::<*DeclContext>(f->lexical_dc);
             var xd = dyn_cast::<ExtensionDecl>(x->dc_owner);
-            sink->spell(f->name.range, "friend " + self._free_fn_text(f, xd));
+            sink->spell(self._at(static_cast::<*Decl>(f)), "friend " + self._free_fn_text(f, xd));
             if self._cg->opts.extension_member_wrappers {
                 ICE_FAIL("InterfaceEmitter: extension_member_wrappers is on but wrapper emission is not written; leave it off");
             }
@@ -460,7 +458,7 @@ class InterfaceEmitter {
     }
 
     priv fn _free_fn_decl(self, f: *FunctionDecl, ext: *ExtensionDecl) {
-        sink->spell(f->name.range, self._free_fn_text(f, ext));
+        sink->spell(self._at(static_cast::<*Decl>(f)), self._free_fn_text(f, ext));
     }
 
     /// A namespace-scope declaration. An extension member keeps its receiver

@@ -43,6 +43,7 @@ import AST::ParamMode::*;
 import AST::LangItems::*;
 import Token::TokenKind::*;
 import Location::SourceManager::*;
+import Location::SourceRange::*;
 
 /// VisibilityKind enumerator values (AST/Mixin/Annotation.k): None,
 /// Private, Protected, Public, Internal. Read through vis_of() and nowhere
@@ -131,6 +132,21 @@ class CXXSpell {
         var tu = CXXSpell::tu_of(d);
         if tu == &null { return u32(-1); }
         return tu->fid;
+    }
+
+    /// Where a declaration's C++ tokens are anchored: its name token, or for
+    /// an operator (whose `name` is a default Token) the span of its operator
+    /// tokens, `[` through `]` for `op []`. op_token always has an element.
+    static fn at(d: *Decl) -> SourceRange {
+        var f = dyn_cast::<FunctionDecl>(d);
+        if (f != &null) && f->is_operator {
+            var r = f->op_token[0].range;
+            for var j: usize = 1; j < f->op_token.size(); ++j { r = r | f->op_token[j].range; }
+            return r;
+        }
+        var t = decl_name_tok(d);
+        if t.range.is_valid() { return t.range; }
+        return d->range;
     }
 
     /// A decl's name imm indexes ITS OWN TU's table (hard invariant #2).
