@@ -67,7 +67,7 @@ TLDR: Lang design, Compiler, and Architecture are 100% human. No AI-generated co
 ### Acknowledgements
 
 We want to thank all our contributors pushing Kairo forward.
-
+<!-- @jrcarl624 I helped found the language and worked on some of the key syntax choices, such as derive and Rust like elements. Check out the old branches to see my work -->
 <a href="https://star-history.dera.page/#kairolang/kairo&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=kairolang/kairo&type=date&theme=dark&legend=top-left" />
