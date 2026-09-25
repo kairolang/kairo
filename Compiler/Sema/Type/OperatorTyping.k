@@ -225,9 +225,44 @@ class <T> OperatorTyping {
             }
         }
 
+        self._filter_free_applies(frees, recv_ty, other);
+
         if want_postfix < 0 { return; }
         self._filter_fixity(cands, want_postfix == 1);
         self._filter_fixity(frees, want_postfix == 1);
+    }
+
+    /// Drop the free operators that cannot take these operands at all. A
+    /// free operator is reached by NAME from the use site, so `op +(F, F)`
+    /// at file scope is in every `+`'s cell -- and a candidate that exists
+    /// is what `found` means to every caller: it suppresses the derived
+    /// forms, builtin enum equality, and makes `+=` beside a type's own
+    /// `op +=` look like both halves of a pair. Arity and an implicit
+    /// conversion per operand decide it; a dependent parameter is the
+    /// instantiation's to decide, so it stays.
+    priv fn _filter_free_applies(self, v: *vec::<*Decl>, recv_ty: *Type, other: *Type) {
+        var keep = vec::<*Decl>();
+        for var i: usize = 0; i < v->size(); ++i {
+            var f = dyn_cast::<FunctionDecl>((*v)[i]);
+            if (f == &null) || self._free_may_apply(f, recv_ty, other) { keep.push_back((*v)[i]); }
+        }
+        (*v) = keep;
+    }
+
+    priv fn _free_may_apply(self, f: *FunctionDecl, recv_ty: *Type, other: *Type) -> bool {
+        if f->is_variadic || (f->generic_params.size() > 0) { return true; }
+        var want: usize = (2) if (other != &null) else (1);
+        if f->params.size() != want { return false; }
+        if !self._operand_fits(f->params[0], recv_ty) { return false; }
+        if (other != &null) && (!self._operand_fits(f->params[1], other)) { return false; }
+        return true;
+    }
+
+    priv fn _operand_fits(self, p: *ParamDecl, t: *Type) -> bool {
+        if (p == &null) || (p->type_ == &null) || (p->type_->canonical == &null) { return true; }
+        if (t == &null) || p->type_->is_dependent() { return true; }
+        var pt = canon_unqual(p->type_->canonical);
+        return dyn()->conv.implicit(canon_unqual(dyn()->tu.as_value(t)), pt) != ImplicitRank::None;
     }
 
     priv fn _filter_fixity(self, v: *vec::<*Decl>, postfix: bool) {
