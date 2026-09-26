@@ -48,18 +48,21 @@
 // (c) reached with full precision and truncating separately. These are
 // three different bugs with different fixes.
 
-class Foo {}
+class Foo {
+    pub var i: i32
+    fn Foo(self, i: i32) { self.i = i }
+    fn op==(self, const o: Foo) -> bool { return self.i == o.i }
+    fn op==(self, const i: f80) -> bool { return self.i == i as i32 }
+}
 
 fn f() {
     var x: f80 = 3.14159265358979323846
-<<<<<<< HEAD
-
     var y: Foo = match x {
-        case 3.14159265358979323846 { 129 } // expected to match, but does not
-        default { 102 } // taken instead, because x was truncated to f64 precision
+        case 3.14159265358979323846 { Foo(129) } // expected to match, but does not
+        default { Foo(102) } // taken instead, because x was truncated to f64 precision
     }
-=======
-    var y: f80 = 3.14159
-    var eq: bool = (x == y)
->>>>>>> af93dc0b ([Tests] Minor change to tests for better diagnose)
+
+    var z: f80 = 3.14159
+    var eq: bool = y == x
+    return eq
 }
