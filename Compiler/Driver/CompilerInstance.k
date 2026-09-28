@@ -2330,6 +2330,9 @@ fn FrontendAction::_codegen() -> bool {
     for var i: usize = 0; i < n; ++i {
         var f = self._fids[n - 1 - i];   // reverse tree order: imports before importers.
         if self._ci->is_foreign_fid(f) { continue; }
+        // An empty file has already done all it can (it resolved as an import,
+        // it passed sema); there is nothing to emit, so it gets no object.
+        if self._ci->sm()->get_file_size(f) == 0 { continue; }
         own.push_back(f);
     }
     if own.size() == 0 {
@@ -2353,9 +2356,6 @@ fn FrontendAction::_codegen() -> bool {
             return self._fatal(DiagID::I006F, "codegen: no ASTContext for a Kairo fid");
         }
         var ksize = static_cast::<u32>(self._ci->sm()->get_file_size(fid));
-        if ksize == 0 {
-            return self._fatal(DiagID::I006F, "codegen: zero-size Kairo file");
-        }
 
         // The object path mirrors the module path, so two modules of the
         // same leaf name do not collide. The entry TU has no module path.
