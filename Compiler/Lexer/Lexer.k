@@ -155,6 +155,17 @@ class Lexer {
             }
         }
 
+        /// \brief returns the per-hole spec/self-doc list, parallel to get_exprs()
+        fn get_holes(self) -> ref!(libcxx::deque::<Immediate::HoleSpec>) {
+            if self.delim == 0x22 {
+                var imm = lexer->get_imm::<Immediate::StringData>(self.idx);
+                return imm->holes;
+            } else {
+                var imm = lexer->get_imm::<Immediate::CharData>(self.idx);
+                return imm->holes;
+            }
+        }
+
         /// \brief returns prefix token
         /// \returns token reference
         fn get_prefix(self) -> ref!(Token) {
@@ -219,9 +230,11 @@ class Lexer {
     /// \brief transient context for string / char lexing
     /// \details lives only during lex_text
     struct TextCtx {
-        struct FormatSpec { /// f-string format specifier context
-            var start: usize;
-            var end: usize;
+        struct FormatSpec { /// f-string hole: `{` expr [`=`] [`:` spec] `}`
+            var start:      usize;  ///< first byte after the `{`
+            var end:        usize;  ///< the `}`
+            var spec_start: usize;  ///< first byte after the `:`; 0 when no spec
+            var eq_pos:     usize;  ///< the self-documenting `=`; 0 when absent
         }
 
         var lexer           : *Lexer;
@@ -238,6 +251,7 @@ class Lexer {
         var body_end        : SourceLocation;
 
         var in_format_depth : usize;
+        var in_bracket_depth: usize;   ///< `(` `[` nesting inside the hole; a `:` or `=` decides nothing inside one
         var terminators     : libcxx::stack::<SourceLocation>;
         var fstring_specs   : libcxx::deque::<FormatSpec>;
 
@@ -1838,6 +1852,7 @@ class Lexer {
         }
 
         ctx.in_format_depth = 0;
+        ctx.in_bracket_depth = 0;
         ctx.terminators     = libcxx::stack::<SourceLocation>();
         ctx.fstring_specs   = libcxx::deque::<TextCtx::FormatSpec>();
 
@@ -1934,13 +1949,16 @@ class Lexer {
 
             case 0x7b { // {
                 if ctx.is_format {
-                    ctx.in_format_depth = 1;
+                    ctx.in_format_depth  = 1;
+                    ctx.in_bracket_depth = 0;
                     ctx.terminators.push(self.get_source_location());
                     self.advance_cursor(d.len);
 
                     ctx.fstring_specs.push_back(TextCtx::FormatSpec{
-                        start: self._cursor,
-                        end:   0
+                        start:      self._cursor,
+                        end:        0,
+                        spec_start: 0,
+                        eq_pos:     0
                     });
                     return true;
                 }
@@ -1995,11 +2013,33 @@ class Lexer {
         return true;
     }
 
+    /// \brief one character inside a hole.
+    ///
+    /// \details beyond the nesting that finds the closing `}`, this records
+    ///          the two things the hole's TOKENS cannot carry: where a format
+    ///          spec begins (`{x:>4}`) and whether the hole is self-documenting
+    ///          (`{x=}`). Both are decided by the byte, at nesting depth 1 and
+    ///          outside any bracket, so `{f(a: 1)}`, `{m["k"]}`, `{Foo::bar}`
+    ///          and `{a == b}` stay whole expressions. The spec bytes are never
+    ///          lexed: `>4`, `#x`, `?` and `08.3` are not tokens.
     inline priv fn scan_format_expr(self, ctx: ref!(TextCtx), d: DecodeResult) {
+        var top = (ctx.in_format_depth == 1) && (ctx.in_bracket_depth == 0)
+               && (ctx.fstring_specs.back().spec_start == 0);
+
         switch d.chr {
             case 0x22: case 0x27 {  // " or ' string inside expression
                 self.advance_cursor(d.len);
                 self.scan_string_in_fstring_expr(d.chr);
+            }
+
+            case 0x28: case 0x5b {  // ( [
+                ++ctx.in_bracket_depth;
+                self.advance_cursor(d.len);
+            }
+
+            case 0x29: case 0x5d {  // ) ]
+                if ctx.in_bracket_depth > 0 { --ctx.in_bracket_depth; }
+                self.advance_cursor(d.len);
             }
 
             case 0x7b {  // {
@@ -2014,6 +2054,29 @@ class Lexer {
                     ctx.fstring_specs.back().end = self._cursor;
                 }
                 ctx.terminators.pop();
+                self.advance_cursor(d.len);
+            }
+
+            case 0x3a {  // : opens the spec, unless it is half of a `::`
+                const src: std::ConstPtr::<u8> = self.file_data();
+                var prev: u8 = (src[self._cursor - 1]) if (self._cursor > 0) else (0 as u8);
+                var next     = self.peek_char32(1);
+                if top && (prev != ':') && (next.chr != ':') {
+                    ctx.fstring_specs.back().spec_start = self._cursor + d.len;
+                }
+                self.advance_cursor(d.len);
+            }
+
+            case 0x3d {  // = is self-documenting when it is the last thing before `}` or `:`
+                var next = self.peek_char32(1);
+                if top && ((next.chr == 0x7d) || (next.chr == 0x3a)) {
+                    const src: std::ConstPtr::<u8> = self.file_data();
+                    var prev: u8 = (src[self._cursor - 1]) if (self._cursor > 0) else (0 as u8);
+                    // `{a == }` / `{a != }` / `{a <= }` are comparisons with a stray space, not doc holes.
+                    if (prev != '=') && (prev != '!') && (prev != '<') && (prev != '>') {
+                        ctx.fstring_specs.back().eq_pos = self._cursor;
+                    }
+                }
                 self.advance_cursor(d.len);
             }
 
@@ -2083,14 +2146,30 @@ class Lexer {
         }
     }
 
+    /// \brief lexes each hole's EXPRESSION and records what the tokens
+    ///        cannot carry. The expression stops at the `=` of `{x=}`, else
+    ///        at the `:` of a spec, else at the `}`; only that slice is
+    ///        lexed. The spec is handed on as a byte range for X to parse.
     inline priv fn emit_fstring_exprs(self, ctx: ref!(TextCtx)) {
         if !(ctx.is_format) { return; }
 
         for spec in ctx.fstring_specs {
+            var expr_end = spec.end;
+            if spec.spec_start != 0 { expr_end = spec.spec_start - 1; }
+            if spec.eq_pos     != 0 { expr_end = spec.eq_pos; }
+
             ctx.imm.get_exprs().push_back((
-                self.lex_slice::<16>(spec.start, spec.end),
-                self.create_source_range(spec.start, spec.end)
+                self.lex_slice::<16>(spec.start, expr_end),
+                self.create_source_range(spec.start, expr_end)
             ));
+
+            var hole = Immediate::HoleSpec{};
+            hole.spec     = (self.create_source_range(spec.spec_start, spec.end))
+                            if (spec.spec_start != 0) else (SourceRange::invalid());
+            var doc_end = (spec.spec_start - 1) if (spec.spec_start != 0) else (spec.end);
+            hole.doc  = (self.create_source_range(spec.start, doc_end))
+                        if (spec.eq_pos != 0) else (SourceRange::invalid());
+            ctx.imm.get_holes().push_back(hole);
         }
     }
 
