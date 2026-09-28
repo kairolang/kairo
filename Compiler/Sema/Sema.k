@@ -51,6 +51,7 @@ import Sema::Check::ClassLifecycle::*;
 import Sema::Check::MoveCheck::*;
 import Sema::Check::OperatorSignatureCheck::*;
 import Sema::Type::ExprTyper::*;
+import Sema::Lower::ExprBodyDesugar::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::ListLiteralLowering::*;
 import Sema::Lower::SequenceLowering::*;
@@ -322,6 +323,10 @@ class Sema {
         var _t = TimeRegion("L-lowerings");
         self.sc.require_phase(SemaPhase::Checked);
 
+        // First: `fn f() -> T = e` becomes `{ return e }`, so every pass below
+        // sees an ordinary block -- SequenceLowering hoists into statements,
+        // and an expression body has no statement position to hoist into.
+        { var _p = TimeRegion("ExprBodyDesugar"); ExprBodyDesugar(&self.sc).run(); }
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
         // An f-string becomes one FmtBuf and straight-line puts. After
         // OperatorLowering (a hole may hold a user operator); before
