@@ -15,10 +15,10 @@ class Derived derives Base { }
 class Unrel { }
 
 fn accepted(b: *Base, d: *Derived, i: i32, f: f64, p: *i32) {
-    var widen    = i as i64;         // implicit already: redundant, and linted
+    var widen    = i as i64;         // picks widen's type: not redundant
     var narrow   = i as u8;
     var to_int   = f as i32;
-    var upcast   = d as *Base;       // also redundant
+    var upcast   = d as *Base;       // same
     var down     = b as *Derived;    // checked: panics on a miss
     var down_opt = b as (*Derived)?; // checked: null on a miss
     var addr     = p as usize;
@@ -30,6 +30,17 @@ fn in_unsafe(p: *i32) {
     }
 }
 
+// A widening is redundant only where the slot already takes the source.
+fn take_i64(x: i64) { }
+fn slots(s: i16, d: *Derived) -> *Base {
+    take_i64(s as i64);               // the parameter widens it anyway: linted
+    return d as *Base;                // the return does too: linted
+}
+
+// An operator operand is not a slot: the cast picks the width the operator
+// runs at, and dropping it here would lose the high byte.
+fn shifted(b: u8) -> u16 { return (b as u16) << 8 }
+
 fn rejected(b: *Base, i: i32, p: *i32) {
     var e1 = b as *Unrel;           // unrelated records
     var e2 = p as u8;               // a pointer is usize-wide or nothing
@@ -38,11 +49,14 @@ fn rejected(b: *Base, i: i32, p: *i32) {
     var e5 = b as static *Derived;  // a static downcast is a reinterpret
 }
 
-// DIAG: warning{{.*}}redundant cast: 'i32' converts to 'i64' implicitly
+// DIAG-NOT: redundant cast: 'i32'
+// DIAG-NOT: redundant cast: 'u8'
+// DIAG: warning{{.*}}redundant cast: 'i16' converts to 'i64' implicitly
 // DIAG: warning{{.*}}redundant cast: '*Derived' converts to '*Base' implicitly
+// DIAG-NOT: redundant cast
 // DIAG: error{{.*}}'Base' and 'Unrel' are unrelated; use 'as unsafe *' to reinterpret
 // DIAG: error{{.*}}a pointer converts to 'usize' only
-// DIAG: error{{.*}}cannot create a safe pointer '*i32' from an integer
+// DIAG: error{{.*}}cannot cast the integer type 'i32' to the safe pointer '*i32'
 // DIAG: error{{.*}}cast to 'unsafe *u8' requires an unsafe context
 // DIAG: note{{.*}}wrap the expression in 'unsafe { ... }'
 // DIAG: error{{.*}}static downcast from '*Base' to '*Derived' is not allowed

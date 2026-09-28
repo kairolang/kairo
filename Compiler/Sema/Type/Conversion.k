@@ -271,6 +271,14 @@ class Conversion {
     /// compared; the first level always passes it. True when the two chains
     /// meet on one canonical, i.e. the conversion is qualification and
     /// nothing else.
+    /// [conv.qual] alone, for `as`: \p from and \p to are pointers that
+    /// differ only in pointee qualifiers, and every difference is an addition
+    /// the rule allows. The pointers' own top-level cv is ignored -- copying
+    /// a `const` pointer out is a value copy, not a qualifier lost.
+    fn qualification(self, from: *Type, to: *Type) -> bool {
+        return self._qual_conv(canon_unqual(from), canon_unqual(to), true);
+    }
+
     priv fn _qual_conv(self, from: *Type, to: *Type, const_above: bool) -> bool {
         var fp = self.tu.pointee(from);
         var tp = self.tu.pointee(to);

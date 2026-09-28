@@ -344,6 +344,16 @@ class <T> OperatorTyping {
 
     // === binary =============================================================
 
+    /// \p t, unless \p e is a cast. A cast types its operand against its own
+    /// target and never reads the expected type, so withholding it changes
+    /// nothing but the redundant-cast lint: an operand is not a slot that
+    /// already takes the source, and there the cast is what picks the width
+    /// the operator runs at (`(b as u16) << 8`). See _lint_widening.
+    fn cast_operand_expected(self, e: *Expr, t: *Type) -> *Type {
+        if isa::<TypeCastExpr>(dyn()->tu.strip_parens(e)) { return &null; }
+        return t;
+    }
+
     fn type_binary(self, n: *BinaryOperatorExpr, expected: *Type) -> *Type {
         var k = n->op_token.kind;
 
@@ -360,14 +370,14 @@ class <T> OperatorTyping {
         var pass_down: *Type = (expected) if (self._is_arith(k) || self._is_bitwise(k)) else (&null);
 
         if l_lit && (!r_lit) {
-            rt = dyn()->type_of(n->rhs, pass_down);
+            rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, pass_down));
             lt = dyn()->type_of(n->lhs, (rt) if (numeric_ctx) else (pass_down));
         } else if r_lit && (!l_lit) {
-            lt = dyn()->type_of(n->lhs, pass_down);
+            lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, pass_down));
             rt = dyn()->type_of(n->rhs, (lt) if (numeric_ctx) else (pass_down));
         } else {
-            lt = dyn()->type_of(n->lhs, pass_down);
-            rt = dyn()->type_of(n->rhs, (lt) if (numeric_ctx && (pass_down == &null)) else (pass_down));
+            lt = dyn()->type_of(n->lhs, self.cast_operand_expected(n->lhs, pass_down));
+            rt = dyn()->type_of(n->rhs, self.cast_operand_expected(n->rhs, (lt) if (numeric_ctx && (pass_down == &null)) else (pass_down)));
         }
         if dyn()->propagate(n, n->lhs) || dyn()->propagate(n, n->rhs) { return &null; }
         if (lt == &null) || (rt == &null) { return &null; }
@@ -642,7 +652,7 @@ class <T> OperatorTyping {
             }
         }
 
-        var ot = dyn()->type_of(n->operand, (expected) if ((k == TokenKind::OpMinus) || (k == TokenKind::OpPlus) || (k == TokenKind::OpTilde)) else (&null));
+        var ot = dyn()->type_of(n->operand, self.cast_operand_expected(n->operand, (expected) if ((k == TokenKind::OpMinus) || (k == TokenKind::OpPlus) || (k == TokenKind::OpTilde)) else (&null)));
         if dyn()->propagate(n, n->operand) { return &null; }
         if ot == &null { return &null; }
         // `v.at(i)` is `i32&`; every arm below classifies the value it names,

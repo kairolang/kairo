@@ -5,7 +5,10 @@
 ///   \detail
 ///     Dispatch on (source, target), first match, no fallthrough:
 ///
-///       1. target = source + const           const cast (one-way)
+///       1. target = source + const           const cast (one-way); on a
+///                                            pointee too, by [conv.qual].
+///                                            A drop at any level is an
+///                                            error naming `as unsafe *`
 ///       2. target is `unsafe *X`             reinterpret; U: needs unsafe ctx
 ///       3. target is `*X`, source `*S`,
 ///          S/X derives-related               upcast: static, lint redundant
@@ -92,8 +95,20 @@ class <T> CastTyping {
         //    qualified(CONST, T) against a T.
         if (canon_unqual(target) == canon_unqual(src))
         && ((canon_quals(src) & (~canon_quals(target))) == 0) { return target; }
+
+        // 1b. the same, one level down: `*T as *const T`. The top-level
+        //     rung above only sees the pointer's own cv, so without this a
+        //     pointee qualifier fell through to the record rung and read as
+        //     "unrelated types". Adding follows [conv.qual]; dropping at any
+        //     level -- including a drop hidden beside an addition at another
+        //     level -- is not a const cast and stays behind `as unsafe *`.
+        if (!dyn()->tu.is_unsafe_ptr(target)) && (mode != CastMode::Unsafe) && self._same_pointer_shape(src, target) {
+            if dyn()->conv.qualification(src, target) { return target; }
+            self._qual_cast_error(n, src, target);
+            return &null;
+        }
         if mode == CastMode::Const {
-            dyn()->fail(n, f"'as const' can only add 'const' to the operand's own type '{dyn()->tu.str(src)}\x27");
+            dyn()->fail(n, f"'as const' only adds qualifiers: '{dyn()->tu.str(target)}' is not '{dyn()->tu.str(src)}' with 'const' added");
             return &null;
         }
 
@@ -127,13 +142,16 @@ class <T> CastTyping {
             var td = dyn()->tu.record_decl(tp);
             var to_nullable = dyn()->tu.nullable_inner(target) != &null;
             if (sd == &null) || (td == &null) {
-                if dyn()->tu.is_void(tp) { dyn()->fail(n, "cast to '*void' requires 'unsafe *void\x27"); return &null; }
+                if dyn()->tu.is_void(tp) {
+                    dyn()->fail(n, f"cannot cast '{dyn()->tu.str(src)}' to the safe pointer '{dyn()->tu.str(target)}'; erasing the pointee type needs 'as unsafe *void' inside an 'unsafe' block");
+                    return &null;
+                }
                 dyn()->fail(n, f"pointer cast between unrelated types '{dyn()->tu.str(src)}' and '{dyn()->tu.str(target)}'; use 'as unsafe *' to reinterpret");
                 return &null;
             }
             if dyn()->tu.derives_from(sd, td) {
                 // upcast: static, implicit already does it.
-                self._lint_redundant(n, src, target);
+                self._lint_widening(n, src, target, expected);
                 return target;
             }
             if dyn()->tu.derives_from(td, sd) {
@@ -176,7 +194,10 @@ class <T> CastTyping {
             return target;
         }
         if (tp != &null) && dyn()->tu.is_integer(src) {
-            dyn()->fail(n, f"cannot create a safe pointer '{dyn()->tu.str(target)}' from an integer; only 'as unsafe *T' can fabricate a pointer");
+            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                f"cannot cast the integer type '{dyn()->tu.str(src)}' to the safe pointer '{dyn()->tu.str(target)}'; only 'as unsafe *T' can turn an integer into an address"
+            ).first(n->range).emit();
+            n->poison();
             return &null;
         }
 
@@ -187,8 +208,8 @@ class <T> CastTyping {
         if (sk != BuiltinKind::COUNT) && (tk != BuiltinKind::COUNT) {
             var cls = dyn()->conv.classify(sk, tk);
             switch cls {
-                case ConvClass::I { self._lint_redundant(n, src, target); return target; }
-                case ConvClass::W { self._lint_redundant(n, src, target); return target; }
+                case ConvClass::I { self._lint_widening(n, src, target, expected); return target; }
+                case ConvClass::W { self._lint_widening(n, src, target, expected); return target; }
                 case ConvClass::E { return target; }
                 case ConvClass::U {
                     if !dyn()->in_unsafe() { dyn()->fail(n, f"cast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' requires an unsafe context"); return &null; }
@@ -310,6 +331,85 @@ class <T> CastTyping {
     priv fn _enum_underlying(self, e: *EnumDecl) -> *Type {
         if (e->underlying != &null) && (e->underlying->canonical != &null) { return e->underlying->canonical; }
         return dyn()->tu.builtin(BuiltinKind::U32);   // documented default.
+    }
+
+    /// Two pointers of one safety whose chains meet on one canonical once
+    /// every level's cv is stripped: the only thing a cast between them can
+    /// change is qualifiers.
+    priv fn _same_pointer_shape(self, a: *Type, b: *Type) -> bool {
+        var au = canon_unqual(a);
+        var bu = canon_unqual(b);
+        var ap = dyn()->tu.pointee(au);
+        var bp = dyn()->tu.pointee(bu);
+        if (ap == &null) || (bp == &null) { return false; }
+        if dyn()->tu.is_unsafe_ptr(au) != dyn()->tu.is_unsafe_ptr(bu) { return false; }
+        var apu = canon_unqual(ap);
+        var bpu = canon_unqual(bp);
+        if apu == bpu { return true; }
+        return self._same_pointer_shape(apu, bpu);
+    }
+
+    /// First pointee level (outermost first) where \p target lost a
+    /// qualifier \p src had, or &null. Walks the shape _same_pointer_shape
+    /// already proved.
+    priv fn _dropped_at(self, src: *Type, target: *Type) -> *Type {
+        var sp = dyn()->tu.pointee(canon_unqual(src));
+        var tp = dyn()->tu.pointee(canon_unqual(target));
+        if (sp == &null) || (tp == &null) { return &null; }
+        if (canon_quals(sp) & (~canon_quals(tp))) != 0 { return sp; }
+        return self._dropped_at(sp, tp);
+    }
+
+    /// A pointer cast that only moves qualifiers but is not [conv.qual]:
+    /// either a level lost one, or one was added below a level that is not
+    /// `const` (the `**T -> **const T` hole).
+    priv fn _qual_cast_error(self, n: *TypeCastExpr, src: *Type, target: *Type) {
+        var lost = self._dropped_at(src, target);
+        if lost != &null {
+            var what = ("const") if (canon_has_const(lost)) else ("volatile");
+            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                f"cast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' drops '{what}' from the pointee '{dyn()->tu.str(lost)}\x27"
+            ).first(n->range)
+             .note(n->range.start, "'as' can add 'const' to a pointee, never remove it, and cannot add it on one level while removing it on another; that is a reinterpret: 'as unsafe *T' inside an 'unsafe' block")
+             .emit();
+            n->poison();
+            return;
+        }
+        dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            f"cast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' adds 'const' below a pointer that is not 'const\x27"
+        ).first(n->range)
+         .note(n->range.start, "the result could store a '*const T' through a '*T'; make every level above the added 'const' 'const' too")
+         .emit();
+        n->poison();
+    }
+
+    /// A widening cast is redundant only where the value lands in a slot
+    /// that already takes the SOURCE: `f(x as u32)` into a u32 parameter,
+    /// `var y: u32 = x as u32`, `return x as u32`. \p expected is that
+    /// slot. Anywhere else the cast is doing work the implicit rule would
+    /// not: `var y = x as u32` picks y's type, and in `(b as u16) << 8`
+    /// it picks the width the shift runs at -- without it a u8 shift loses
+    /// the high byte. Operator operands arrive with no expected type (see
+    /// cast_operand_expected), so those never lint.
+    priv fn _lint_widening(self, n: *TypeCastExpr, src: *Type, target: *Type, expected: *Type) {
+        n->widening = true;
+        if expected == &null { return; }
+        if dyn()->conv.implicit(src, expected) == ImplicitRank::None { return; }
+        self._lint_redundant(n, src, target);
+    }
+
+    /// The redundant-cast lint for a slot whose type arrives after the cast
+    /// was typed: a call argument, whose parameter is known only once
+    /// overload resolution has run (arguments are typed with no expected
+    /// type, so type_cast could not decide it). Same test as _lint_widening.
+    fn lint_cast_into_slot(self, e: *Expr, slot: *Type) {
+        if slot == &null { return; }
+        var n = dyn_cast::<TypeCastExpr>(dyn()->tu.strip_parens(e));
+        if (n == &null) || (!n->widening) || n->is_poisoned() { return; }
+        var src = n->operand->type_;
+        if src == &null { return; }
+        if dyn()->conv.implicit(src, slot) == ImplicitRank::None { return; }
+        self._lint_redundant(n, src, n->type_);
     }
 
     priv fn _lint_redundant(self, n: *TypeCastExpr, src: *Type, target: *Type) {

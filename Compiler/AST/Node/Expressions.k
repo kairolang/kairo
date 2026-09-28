@@ -1461,6 +1461,13 @@ class TypeCastExpr derives Expr {
     /// rewrites the cast into the construction.
     pub var resolved_ctor: *Decl = &null;
 
+    /// A widening the implicit rules would also do (a lattice I/W rung or a
+    /// pointer upcast). Written by CastTyping; read where the slot's type is
+    /// only known after the cast was typed -- a call argument, before
+    /// overload resolution picks the parameter -- to decide the
+    /// redundant-cast lint there.
+    pub var widening: bool = false;
+
     static fn create(
         ctx:       *ASTContext,
         range:     SourceRange,

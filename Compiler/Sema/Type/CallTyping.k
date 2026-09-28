@@ -264,7 +264,10 @@ class <T> CallTyping {
                 dyn()->type_of(a->expr, pt);
                 continue;
             }
-            if pt != &null { dyn()->check_convertible(a->expr, pt); }
+            if pt != &null {
+                dyn()->lint_cast_into_slot(a->expr, pt);
+                dyn()->check_convertible(a->expr, pt);
+            }
         }
 
         // The `name: value` wrapper is syntax, not a value: give it the type
