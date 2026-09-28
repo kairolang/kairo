@@ -39,7 +39,7 @@ pub class FmtBuf {
 
     /// `cap` bytes of headroom, plus the NUL finish() writes.
     pub fn FmtBuf(self, cap: usize) {
-        self.data   = kairo_rt_fmt_alloc(cap + 1)
+        unsafe { self.data = kairo_rt_fmt_alloc(cap + 1) as *u8 }
         self.len    = 0
         self.cp_len = 0
         self.cap    = cap
@@ -124,17 +124,121 @@ pub class FmtBuf {
     pub inline fn put_i512(self,  v: i512,  spec: u64) { self.int512_(v as u512, v < 0, spec) }
     pub inline fn put_u512(self,  v: u512,  spec: u64) { self.int512_(v, false, spec) }
 
-    pub inline fn put_f16(self,    v: f16,    spec: u64) { self.float_(v as f80, spec) }
-    pub inline fn put_bf16(self,   v: bf16,   spec: u64) { self.float_(v as f80, spec) }
-    pub inline fn put_f32(self,    v: f32,    spec: u64) { self.float_(v as f80, spec) }
-    pub inline fn put_f64(self,    v: f64,    spec: u64) { self.float_(v as f80, spec) }
-    pub inline fn put_f80(self,    v: f80,    spec: u64) { self.float_(v, spec) }
-    pub inline fn put_f128(self,   v: f128,   spec: u64) { self.float_(v as f80, spec) }   // TODO(rt): lossy past 64 mantissa bits
-    // TODO(rt): the corelib floats have no C++ definition yet (::kairo::rt::*); restore these with it.
-    // pub inline fn put_f8e4m3(self, v: f8e4m3, spec: u64) { self.float_((v as f32) as f80, spec) }
-    // pub inline fn put_f8e5m2(self, v: f8e5m2, spec: u64) { self.float_((v as f32) as f80, spec) }
-    // pub inline fn put_f256(self,   v: f256,   spec: u64) { self.float_((v as f64) as f80, spec) }   // TODO(rt): lossy; needs the corelib printer
-    // pub inline fn put_f512(self,   v: f512,   spec: u64) { self.float_((v as f64) as f80, spec) }   // TODO(rt): same
+    // --- floats --------------------------------------------------------------------
+    //
+    // One runtime entry per format, never a widened f80: shortest digits are
+    // a property of the SOURCE format (rt/fmt.h says why). The sign is read
+    // from the value's bytes -- rt/fmt.h prints |v| and ignores it, and
+    // `v < 0.0` loses -0.0 and a signed NaN -- through an unsafe *const u8,
+    // the one aliasing C++ permits for every type; clang folds the byte
+    // loads into one. Little-endian byte order; every target Kairo has.
+    //
+    // The digits are written INTO the buffer, above everything the padded
+    // result can reach, and number_ moves them down: no stack buffer, no
+    // precision cap, and no reallocation between the write and the move,
+    // because float_open_ reserves both and every reserve_ under it is a
+    // compare that fails.
+
+    pub inline fn put_f16(self, v: f16, spec: u64) {
+        var bits: u16 = 0
+        unsafe { bits = FmtBuf::bits16_((&v) as unsafe *const u8, 0) }
+        var slot = self.float_open_(spec)
+        var n: i32 = 0
+        unsafe { n = kairo_rt_fmt_f16(unsafe &self.data[slot], FmtBuf::float_cap_(spec), bits, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+        self.number_(&self.data[slot], n as usize, (bits >> 15) != 0, spec)
+    }
+
+    pub inline fn put_bf16(self, v: bf16, spec: u64) {
+        var bits: u16 = 0
+        unsafe { bits = FmtBuf::bits16_((&v) as unsafe *const u8, 0) }
+        var slot = self.float_open_(spec)
+        var n: i32 = 0
+        unsafe { n = kairo_rt_fmt_bf16(unsafe &self.data[slot], FmtBuf::float_cap_(spec), bits, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+        self.number_(&self.data[slot], n as usize, (bits >> 15) != 0, spec)
+    }
+
+    pub inline fn put_f32(self, v: f32, spec: u64) {
+        var neg = false
+        unsafe { neg = (FmtBuf::bits32_((&v) as unsafe *const u8, 0) >> 31) != 0 }
+        var slot = self.float_open_(spec)
+        var n: i32 = 0
+        unsafe { n = kairo_rt_fmt_f32(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+        self.number_(&self.data[slot], n as usize, neg, spec)
+    }
+
+    pub inline fn put_f64(self, v: f64, spec: u64) {
+        var neg = false
+        unsafe { neg = (FmtBuf::bits64_((&v) as unsafe *const u8, 0) >> 63) != 0 }
+        var slot = self.float_open_(spec)
+        var n: i32 = 0
+        unsafe { n = kairo_rt_fmt_f64(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+        self.number_(&self.data[slot], n as usize, neg, spec)
+    }
+
+    pub inline fn put_f80(self, v: f80, spec: u64) {
+        var neg = false
+        unsafe { neg = (FmtBuf::bits16_((&v) as unsafe *const u8, 8) >> 15) != 0 }   // x87 extended: the sign is bit 79
+        var slot = self.float_open_(spec)
+        var n: i32 = 0
+        unsafe { n = kairo_rt_fmt_f80(unsafe &self.data[slot], FmtBuf::float_cap_(spec), v, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+        self.number_(&self.data[slot], n as usize, neg, spec)
+    }
+
+    pub inline fn put_f128(self, v: f128, spec: u64) {
+        var lo: u64 = 0
+        var hi: u64 = 0
+        unsafe {
+            var p = (&v) as unsafe *const u8
+            lo = FmtBuf::bits64_(p, 0)
+            hi = FmtBuf::bits64_(p, 8)
+        }
+        var slot = self.float_open_(spec)
+        var n: i32 = 0
+        unsafe { n = kairo_rt_fmt_f128(unsafe &self.data[slot], FmtBuf::float_cap_(spec), hi, lo, FmtBuf::prec_(spec) as i32, FmtBuf::conv_(spec)) }
+        self.number_(&self.data[slot], n as usize, (hi >> 63) != 0, spec)
+    }
+
+    // TODO(rt): f8e4m3 / f8e5m2 / f256 / f512 wait on ::kairo::rt::* having
+    // a C++ definition. The f8 entries in rt/fmt.h take the byte; the corelib
+    // pair need an entry taking the limbs. Same shape as the puts above.
+
+    /// Little-endian integer of the bytes at p[off..]. Any pointer may be
+    /// read as bytes; clang turns these into one load.
+    priv static fn bits16_(p: unsafe *const u8, off: usize) -> u16 {
+        return (p[off] as u16) | ((p[off + 1] as u16) << 8)
+    }
+
+    priv static fn bits32_(p: unsafe *const u8, off: usize) -> u32 {
+        return (p[off] as u32) | ((p[off + 1] as u32) << 8) | ((p[off + 2] as u32) << 16) | ((p[off + 3] as u32) << 24)
+    }
+
+    priv static fn bits64_(p: unsafe *const u8, off: usize) -> u64 {
+        return (FmtBuf::bits32_(p, off) as u64) | ((FmtBuf::bits32_(p, off + 4) as u64) << 32)
+    }
+
+    /// 'g', 'e' or 'E' for the runtime, from the spec's base and upper bits.
+    priv static fn conv_(spec: u64) -> u8 {
+        if FmtBuf::base_(spec) != 1 { return 103 }                          // g
+        var e: u8 = if (FmtBuf::flags_(spec) & 8) != 0 { 69 } else { 101 }  // E e
+        return e
+    }
+
+    /// Bytes the digits can take: the precision, the point, an exponent,
+    /// and `inf` / `nan` headroom.
+    priv static fn float_cap_(spec: u64) -> usize {
+        var prec = FmtBuf::prec_(spec)
+        var p: usize = if prec >= 0 { prec as usize } else { 0 }
+        return p + 48
+    }
+
+    /// Reserves the padded result AND the digit slot above it; returns the
+    /// slot's offset. number_ never moves the buffer after this.
+    priv fn float_open_(self, spec: u64) -> usize {
+        var head   = FmtBuf::width_(spec) * 4 + 8       // sign, prefix, every pad byte at four bytes each
+        var digits = FmtBuf::float_cap_(spec)
+        self.reserve_(head + digits + digits)
+        return self.len + head + digits
+    }
 
     /// `<name> @ 0x<hex>`, or `&null`. `name` is the pointee's spelling, a
     /// constant at the call site.
@@ -175,7 +279,10 @@ pub class FmtBuf {
     priv fn grow_(self, need: usize) {
         var nc = self.cap * 2
         if nc < need { nc = need }
-        self.data = kairo_rt_fmt_realloc(self.data, nc + 1)
+        // The pointer itself widens, never `&self.data[0]`: data is null on
+        // a finished buffer, indexing it is a dereference even when only the
+        // address is taken, and realloc(NULL, n) is malloc(n).
+        unsafe { self.data = kairo_rt_fmt_realloc(self.data as unsafe *u8, nc + 1) as *u8 }
         self.cap  = nc
     }
 
@@ -375,19 +482,6 @@ pub class FmtBuf {
             }
         }
         self.number_(&tmp[i], 520 - i, neg, spec)
-    }
-
-    /// The runtime prints the magnitude; the sign and padding are number_'s,
-    /// so `{v:08.3}` and `{v:+}` behave as they do for integers.
-    priv fn float_(self, v: f80, spec: u64) {
-        var neg = v < 0.0
-        var mag = v
-        if neg { mag = 0.0 - v }
-        var conv: u8 = 103                                                      // g
-        if FmtBuf::base_(spec) == 1 { conv = if (FmtBuf::flags_(spec) & 8) != 0 { 69 } else { 101 } }   // E e
-        var tmp: [u8; 64]
-        var n = kairo_rt_fmt_f80(&tmp[0], 64, mag, FmtBuf::prec_(spec) as i32, conv)
-        self.number_(&tmp[0], n as usize, neg, spec)
     }
 
     // --- text ------------------------------------------------------------------------------
