@@ -214,7 +214,11 @@ class CodegenBackend derives TokenFiller {
                     var w = "";
                     for var e: usize = 0; e < s->includes.size(); ++e {
                         if s->includes[e].from_path.size() != 0 { continue; }
-                        if s->includes[e].c_linkage { w += "extern \x22C\x22 {\n"; }
+                        // Two literals: Stage 0 copies escapes into C++
+                        // verbatim, where \x is greedy, so one literal's
+                        // `\x22` then `C` lexes as the single char U+022C and
+                        // the wrapper opened with garbage instead of the quote.
+                        if s->includes[e].c_linkage { w += "extern \x22"; w += "C\x22 {\n"; }
                         w += "#include \x22";
                         w += s->includes[e].to_path;
                         w += "\x22\n";
