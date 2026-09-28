@@ -1,4 +1,4 @@
-/* --- The Kairo Project ------------------------------ kairo/rt/fmt.c --- */
+/* --- The Kairo Project ------------------------------ Lib/rt/fmt.c --- */
 /*
  *   Float text for every Kairo float format, and the heap fmt.k draws on.
  *

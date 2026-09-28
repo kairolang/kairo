@@ -944,6 +944,11 @@ class CompilerInstance {
         // searches for an ffi header, ahead of the system roots.
         for d: string in self.invocation().ffi_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }
         for d: string in self.invocation().cxx_includes { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(d); }
+        // The runtime root, after the user's: `rt/fmt.h` names the same file
+        // from Lib/builtin/fmt.k (an ffi header set copies this invocation)
+        // and from Lib/rt/fmt.c (compile_native shares these arguments).
+        var rt_root = self._runtime_root();
+        if !rt_root.empty() { bcfg.extra_cc1.push_back("-I"); bcfg.extra_cc1.push_back(rt_root); }
         // The two header-search roots, exactly as given: no discovery. With
         // neither, clang searches no system headers at all (see the model in
         // ClangBackend::_startup_locked), which is the honest answer.
@@ -982,6 +987,133 @@ class CompilerInstance {
     /// then runs a \c FrontendAction for each input file. A fatal diagnostic
     /// in any file sets \c BatchResult::aborted and skips remaining files.
     /// Results are collected into the returned \c BatchResult.
+    /// \brief 1 for a C source, 2 for C++, 0 for anything else (a Kairo
+    ///        file, a header, an object). By extension, as clang's driver does.
+    priv static fn _native_lang(ext: string) -> u8 {
+        if ext == "c" { return 1; }
+        if (ext == "cpp") || (ext == "cc") || (ext == "cxx") || (ext == "c++") || (ext == "C") || (ext == "CPP") { return 2; }
+        return 0;
+    }
+
+    /// \brief compiles the command line's C/C++ inputs, and -- when Kairo
+    ///        objects were emitted -- the runtime's, to objects beside them.
+    ///
+    /// \details Layout, matching what the link (kr, the lit tests) globs:
+    ///            <out>/<stem>.o         each C/C++ input
+    ///            <out>/kairo/<stem>.o   each Lib/rt source, next to kairo/std.o
+    ///          `-o x.o` names the object only when x.o can hold everything:
+    ///          one C/C++ input and no Kairo input; otherwise objects go in
+    ///          x.o's directory. The runtime is compiled per build, not
+    ///          shipped prebuilt, so it always matches the target and roots.
+    priv fn _compile_native_inputs(self, natives: ref!(vec::<string>), with_runtime: bool) -> bool {
+        var runtime = vec::<string>();
+        if with_runtime { runtime = self._runtime_sources(); }
+        if (natives.size() == 0) && (runtime.size() == 0) { return true; }
+        if self._backend == &null {
+            self._diag->report(DiagID::I004F, "cannot compile C/C++ sources: no clang backend").emit();
+            return false;
+        }
+
+        var out = self.invocation().frontend.output;
+        var single = "";
+        var dir    = out;
+        if (!out.empty()) && (Path(out).extension() == "o") {
+            if (natives.size() == 1) && (!with_runtime) { single = out; }
+            dir = CompilerInstance::_parent_dir(out);
+        }
+        if dir.empty() { dir = "."; }
+
+        var ok = true;
+        for src: string in natives {
+            var obj = single;
+            if obj.empty() { obj = dir + "/" + Path(src).stem() + ".o"; }
+            ok = self._compile_one_native(src, obj) && ok;
+        }
+        for src: string in runtime {
+            ok = self._compile_one_native(src, dir + "/kairo/" + Path(src).stem() + ".o") && ok;
+        }
+        return ok;
+    }
+
+    priv fn _compile_one_native(self, src: string, obj: string) -> bool {
+        var nobj = std::string_to_nstring(obj);
+        inline "c++" {
+            libcxx::error_code ec;
+            libcxx::filesystem::create_directories(libcxx::filesystem::path(nobj.raw_string()).parent_path(), ec);
+        }
+        var is_c = CompilerInstance::_native_lang(Path(src).extension()) == 1;
+        if !self._backend->compile_native(src, obj, is_c) { return false; }
+        Logger::info(Logger::Stage::Driver, f"emitted object {obj}");
+        return true;
+    }
+
+    /// \brief the directory the runtime is included and compiled from: the
+    ///        builtin root's parent -- Lib/ in the tree, <resource-dir>
+    ///        installed -- so `rt/fmt.h` names Lib/rt/fmt.h from anywhere. The
+    ///        builtin root is found as the import resolver finds it:
+    ///        --builtins-dir, else <resource-dir>/builtin. "" when none.
+    priv fn _runtime_root(self) -> string {
+        var broot = self.invocation().pp.builtins_dir;
+        if broot.empty() && (!self.invocation().target.resource_dir.empty()) {
+            broot = (Path(self.invocation().target.resource_dir) / "builtin").full_path();
+        }
+        if broot.empty() { return ""; }
+        var nb = std::string_to_nstring(broot);
+        var bp = libcxx::filesystem::path(nb.raw_string());
+        if !bp.has_filename() {
+            bp = bp.parent_path(); // tolerate a trailing '/'
+        }
+        return string(bp.parent_path().generic_wstring());
+    }
+
+    /// \brief the runtime's C/C++ sources: every one directly in
+    ///        <runtime root>/rt. No root, no runtime. Sorted, so object
+    ///        order does not follow readdir.
+    priv fn _runtime_sources(self) -> vec::<string> {
+        var out = vec::<string>();
+        var rroot = self._runtime_root();
+        if rroot.empty() { return out; }
+        var nr = std::string_to_nstring(rroot);
+
+        var ec: libcxx::error_code;
+        var root: libcxx::filesystem::path = libcxx::filesystem::path(nr.raw_string()) / r"rt";
+        var found: libcxx::vector::<libcxx::filesystem::path>;
+        
+        if libcxx::filesystem::is_directory(root, ec) {
+            var it = libcxx::filesystem::directory_iterator(root, ec);
+            var end: libcxx::filesystem::directory_iterator;
+
+            for (; (!ec) && it != end; it.increment(ec)) {
+                var ec2: libcxx::error_code;
+                if !it->is_regular_file(ec2) {
+                    continue;
+                }
+
+                var ext = string(it->path().extension().generic_wstring());
+                if (ext == ".c") || (ext == ".cpp") || (ext == ".cc") || (ext == ".cxx") {
+                    found.push_back(it->path());
+                }
+            }
+        }
+        
+        libcxx::sort(found.begin(), found.end());
+
+        for f in found {
+            out.push_back(string(f.generic_wstring()));
+        }
+        
+        return out;
+    }
+
+    priv static fn _parent_dir(path: string) -> string {
+        var np  = std::string_to_nstring(path);
+        var res = "";
+        inline "c++" {
+            res = string(libcxx::filesystem::path(np.raw_string()).parent_path().generic_wstring());
+        }
+        return res;
+    }
+
     fn execute(self) -> BatchResult {
         assert((self._imp != &null) && r"initialize() must be called before execute()");
 
@@ -1010,8 +1142,18 @@ class CompilerInstance {
 
         var _t_frontend = TimeRegion("Frontend");
 
+        // C and C++ inputs are not Kairo TUs: they compile after every Kairo
+        // file, through the same clang backend (_compile_native_inputs).
+        var natives = vec::<string>();
+        var kairo_inputs: usize = 0;
+
         for path_str: string in self.invocation().input_files {
             if result.aborted { break; }
+            if CompilerInstance::_native_lang(Path(path_str).extension()) != 0 {
+                natives.push_back(path_str);
+                continue;
+            }
+            kairo_inputs += 1;
 
             var action = std::create::<FrontendAction>(
                 Path(path_str),
@@ -1027,6 +1169,11 @@ class CompilerInstance {
 
             if action->result.had_fatal { result.aborted = true; }
             result.tu_results.push_back(action->result);
+        }
+
+        if (!result.aborted) && (self._diag->error_count() == 0)
+        && (!self.invocation().frontend.stops_before_codegen()) {
+            if !self._compile_native_inputs(natives, kairo_inputs > 0) { result.aborted = true; }
         }
 
         // Every set's clang instance dies here, while _backend still lives:

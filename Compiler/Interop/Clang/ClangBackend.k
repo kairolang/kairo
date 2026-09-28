@@ -61,6 +61,7 @@ ffi "c++" import "clang/Basic/TargetInfo.h";
 ffi "c++" import "clang/Frontend/CompilerInstance.h";
 ffi "c++" import "clang/Frontend/CompilerInvocation.h";
 ffi "c++" import "clang/Frontend/TextDiagnosticPrinter.h";
+ffi "c++" import "clang/CodeGen/CodeGenAction.h";
 ffi "c++" import "clang/Lex/PreprocessorOptions.h";
 ffi "c++" import "llvm/ADT/IntrusiveRefCntPtr.h";
 ffi "c++" import "llvm/ADT/Twine.h";
@@ -246,6 +247,61 @@ class ClangBackend {
     fn vfs(self)        -> llvm::IntrusiveRefCntPtr::<llvm::vfs::FileSystem> { return self._vfs; }
     fn mem_fs(self)     -> *llvm::vfs::InMemoryFileSystem { return self._mem.get(); }
 
+    /// \brief compiles one C or C++ source file to an object, on the same
+    ///        target, roots and VFS as Kairo's own codegen.
+    ///
+    /// \details a FRESH invocation from the shared cc1 arguments rather than
+    ///          a copy of the backend's: a copy carries C++ LangOptions, and a
+    ///          .c file must get clang's C defaults. Own CompilerInstance per
+    ///          file, the backend's shared VFS (so an in-memory mount is
+    ///          visible), and the backend's printer: these files have no
+    ///          Kairo fid, so clang reports them in its own format.
+    ///
+    ///          The later `#include "foo.k"` work installs the patched
+    ///          FileTokenizer hook on this instance's Preprocessor; nothing
+    ///          else about the shape changes.
+    ///
+    ///          Driver thread only. False on any failure, with clang's
+    ///          diagnostics already printed.
+    fn compile_native(self, src: string, out: string, is_c: bool) -> bool {
+        self.startup();
+        if !self.ready() { return false; }
+
+        var argv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
+        self._cc1_common(&argv, is_c);
+        if is_c {
+            self._arg(&argv, "-std=c17");
+            self._arg(&argv, "-x");
+            self._arg(&argv, "c");
+        } else {
+            self._arg(&argv, f"-std={self._cfg.cxx_std}");
+            self._arg(&argv, "-x");
+            self._arg(&argv, "c++");
+        }
+        self._arg(&argv, src);
+        self._arg(&argv, "-o");
+        self._arg(&argv, out);
+
+        var inv = libcxx::make_shared::<clang::CompilerInvocation>();
+        if !clang::CompilerInvocation::CreateFromArgs(*(inv.get()), argv, *(self._diags0.get())) {
+            Logger::error(Logger::Stage::Driver, f"ClangBackend: cannot build an invocation for {src}");
+            return false;
+        }
+
+        var ci = std::create::<clang::CompilerInstance>(inv);
+        finally { std::destroy(ci); }
+        ci->setVirtualFileSystem(self._vfs);
+        ci->createDiagnostics(self._printer, false);
+        if !ci->hasDiagnostics() { return false; }
+        ci->setTarget(clang::TargetInfo::CreateTargetInfo(
+            ci->getDiagnostics(), ci->getInvocation().getTargetOpts()));
+        if !ci->hasTarget() { return false; }
+
+        var act = clang::EmitObjAction();
+        var ok  = ci->ExecuteAction(act);
+        return ok && (ci->getDiagnostics().getNumErrors() == 0);
+    }
+
     /// Driver thread only. A generated header, copied in; addFile keeps the
     /// first mount of a path, so a second call is a no-op.
     fn mount_text(self, path: string, text: string) {
@@ -347,6 +403,64 @@ class ClangBackend {
         argv->push_back(self._owned.back().c_str());
     }
 
+    /// \brief the cc1 arguments every clang compile in this build shares:
+    ///        target, object emission, the explicit header-search model,
+    ///        platform extras and the user's -W policy. The Kairo backend and
+    ///        native .c/.cpp compiles both start here, so they cannot drift
+    ///        onto different targets or roots.
+    ///
+    /// \details \p is_c leaves libc++ off the search path: its C-named
+    ///          wrappers (<stdlib.h>, <stddef.h>) are C++ headers, and C
+    ///          must reach the libc and clang builtin ones directly.
+    priv fn _cc1_common(self, argv: *libcxx::vector::<std::ConstPtr::<std::Legacy::char>>, is_c: bool) {
+        self._arg(argv, "-triple");
+        self._arg(argv, self._cfg.triple);
+        self._arg(argv, "-emit-obj");
+        self._arg(argv, "-fgnuc-version=4.2.1");
+
+        // Header search: ONE explicit model for every target, the host
+        // included. cc1 is told exactly which roots to search and never falls
+        // back to whatever the machine has (the driver's job, and cc1 has no
+        // driver): the roots are exactly --sysroot and --resource-dir, never
+        // discovered (CompilerInstance::initialize copies them), and the same
+        // layout is what every kbld SYSROOT.toml declares (include_dirs =
+        // include/c++/v1, include; cc_isolation = -nostdlibinc -nostdinc++).
+        //
+        //   <sysroot>/include/c++/v1   libc++
+        //   <resource>/include         clang builtins (stddef.h, intrinsics)
+        //   <sysroot>/include          libc
+        //
+        // A root that did not resolve is left out rather than guessed; the
+        // resolver has already logged which one and why.
+        var sr = self._cfg.sysroot;
+        var rd = self._cfg.resource_dir;
+        self._arg(argv, "-nostdsysteminc");   // cc1 spelling of -nostdlibinc
+        self._arg(argv, "-nostdinc++");
+        if !rd.empty() { self._arg(argv, "-resource-dir"); self._arg(argv, rd); }
+        if (!sr.empty()) && (!is_c) { self._arg(argv, "-isystem"); self._arg(argv, f"{sr}/include/c++/v1"); }
+        if !rd.empty() { self._arg(argv, "-isystem");      self._arg(argv, f"{rd}/include"); }
+        if !sr.empty() {
+            self._arg(argv, "-isystem");  self._arg(argv, f"{sr}/include");
+            self._arg(argv, "-isysroot"); self._arg(argv, sr);
+        }
+        if !rd.empty() {
+            self._arg(argv, "-internal-isystem");   // builtin <stdint.h> -> uintptr_t
+            self._arg(argv, f"{rd}/include");
+        }
+
+        for a: string in self._cfg.extra_cc1 {
+            self._arg(argv, a);
+        }
+
+        // User diagnostic policy for clang-sourced diagnostics: -W<grp> (enable),
+        // -Wno-<grp> (silence), -Werror=<grp> (promote/forbid). Resolved from
+        // Kairo C-codes to clang warning groups by the driver. Injected here so
+        // clang honours them at analysis time, not just post-hoc at emit.
+        for a: string in self._cfg.wargs {
+            self._arg(argv, a);
+        }
+    }
+
     priv fn _startup_locked(self) {
         if (self._started) || (self._failed) {
             return;
@@ -371,53 +485,8 @@ class ClangBackend {
         // come from CreateFromArgs instead of hand-set option fields.
         var argv: libcxx::vector::<std::ConstPtr::<std::Legacy::char>>;
 
-        self._arg(&argv, "-triple");
-        self._arg(&argv, self._cfg.triple);
-        self._arg(&argv, "-emit-obj");
+        self._cc1_common(&argv, false);
         self._arg(&argv, f"-std={self._cfg.cxx_std}");
-        self._arg(&argv, "-fgnuc-version=4.2.1");
-
-        // Header search: ONE explicit model for every target, the host
-        // included. cc1 is told exactly which roots to search and never falls
-        // back to whatever the machine has (the driver's job, and cc1 has no
-        // driver): the roots are exactly --sysroot and --resource-dir, never
-        // discovered (CompilerInstance::initialize copies them), and the same
-        // layout is what every kbld SYSROOT.toml declares (include_dirs =
-        // include/c++/v1, include; cc_isolation = -nostdlibinc -nostdinc++).
-        //
-        //   <sysroot>/include/c++/v1   libc++
-        //   <resource>/include         clang builtins (stddef.h, intrinsics)
-        //   <sysroot>/include          libc
-        //
-        // A root that did not resolve is left out rather than guessed; the
-        // resolver has already logged which one and why.
-        var sr = self._cfg.sysroot;
-        var rd = self._cfg.resource_dir;
-        self._arg(&argv, "-nostdsysteminc");   // cc1 spelling of -nostdlibinc
-        self._arg(&argv, "-nostdinc++");
-        if !rd.empty() { self._arg(&argv, "-resource-dir"); self._arg(&argv, rd); }
-        if !sr.empty() { self._arg(&argv, "-isystem");      self._arg(&argv, f"{sr}/include/c++/v1"); }
-        if !rd.empty() { self._arg(&argv, "-isystem");      self._arg(&argv, f"{rd}/include"); }
-        if !sr.empty() {
-            self._arg(&argv, "-isystem");  self._arg(&argv, f"{sr}/include");
-            self._arg(&argv, "-isysroot"); self._arg(&argv, sr);
-        }
-        if !rd.empty() {
-            self._arg(&argv, "-internal-isystem");   // builtin <stdint.h> -> uintptr_t
-            self._arg(&argv, f"{rd}/include");
-        }
-
-        for a: string in self._cfg.extra_cc1 {
-            self._arg(&argv, a);
-        }
-
-        // User diagnostic policy for clang-sourced diagnostics: -W<grp> (enable),
-        // -Wno-<grp> (silence), -Werror=<grp> (promote/forbid). Resolved from
-        // Kairo C-codes to clang warning groups by the driver. Injected here so
-        // clang honours them at analysis time, not just post-hoc at emit.
-        for a: string in self._cfg.wargs {
-            self._arg(&argv, a);
-        }
 
         // Placeholder input; per-TU runs replace FrontendOpts.Inputs with the
         // injected in-memory buffer before ExecuteAction.

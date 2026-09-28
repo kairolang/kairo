@@ -1,4 +1,4 @@
-/* --- The Kairo Project ------------------------------ kairo/rt/fmt.h --- */
+/* --- The Kairo Project ------------------------------ Lib/rt/fmt.h --- */
 /*
  *   The C behind Lib/builtin/fmt.k: the heap, and float text. Both live
  *   here so the builtin imports no variadic and no libc name it might
