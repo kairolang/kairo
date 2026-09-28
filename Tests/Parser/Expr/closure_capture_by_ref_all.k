@@ -3,9 +3,9 @@
 // `|*|`: capture everything by POINTER. Kairo has no reference captures --
 // a capture is a pointer the closure stores, so AMT tracks its lifetime and
 // provenance like any other pointer. See Spec/Docs/closures.md.
-// AST: -- 0 error(s), 0 warning(s) --
 // AST: ClosureExpr
 // AST-NEXT: Capture *
 // AST-NOT: RecoveryExpr
+// AST: -- 0 error(s), 0 warning(s) --
 
 fn Test() { var f = fn ()|*| { }; }

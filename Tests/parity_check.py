@@ -39,6 +39,37 @@ def verdict(argv):
     return ("accept" if p.returncode == 0 else "reject"), out
 
 
+def oracle_argv(clang, kairo_argv, cpp):
+    """clang on the .cpp, seeing the SAME headers kairo's ffi imports see.
+
+    Kairo's ClangBackend never discovers headers: it searches exactly
+    <sysroot>/include/c++/v1 (libc++), <resource-dir>/include and
+    <sysroot>/include, under -std=c++26. A bare `clang -fsyntax-only` does
+    discover them, and on a GCC host that means libstdc++ -- so the oracle
+    was judging a different standard library than the one kairo parsed, and
+    a verdict could agree or diverge for reasons neither compiler controls.
+    Mirror the roots from kairo's own flags; without them, fall back to
+    asking for libc++ and let clang find it.
+    """
+    sysroot = resource = None
+    for a in kairo_argv:
+        if a.startswith("--sysroot="):
+            sysroot = a.split("=", 1)[1]
+        elif a.startswith("--resource-dir="):
+            resource = a.split("=", 1)[1]
+    argv = [clang, "-fsyntax-only", "-std=c++26", "-x", "c++"]
+    if sysroot:
+        argv += ["-nostdinc++", "-nostdlibinc",
+                 "-isystem", os.path.join(sysroot, "include", "c++", "v1")]
+        if resource:
+            argv += ["-resource-dir", resource,
+                     "-isystem", os.path.join(resource, "include")]
+        argv += ["-isystem", os.path.join(sysroot, "include")]
+    else:
+        argv += ["-stdlib=libc++"]
+    return argv + [cpp]
+
+
 def main():
     if len(sys.argv) != 4:
         print(__doc__, file=sys.stderr)
@@ -54,8 +85,9 @@ def main():
               file=sys.stderr)
         return 2
 
-    kv, kout = verdict(shlex.split(kairo) + [kfile, "--type-check-only"])
-    cv, cout = verdict([clang, "-fsyntax-only", "-std=c++20", cpp])
+    kairo_argv = shlex.split(kairo)
+    kv, kout = verdict(kairo_argv + [kfile, "--type-check-only"])
+    cv, cout = verdict(oracle_argv(clang, kairo_argv, cpp))
 
     if kv == cv:
         print("ok  %s  (both %s)" % (os.path.basename(kfile), kv))

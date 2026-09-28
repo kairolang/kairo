@@ -90,5 +90,5 @@ fn main() -> i32 {
 // pulled in; the Slice and pow instances are homed in whichever used them.
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.d
-// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o -o %t.exe
+// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o %t.d/kairo/*.o -o %t.exe
 // RUN: %t.exe; test $? -eq 86

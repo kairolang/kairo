@@ -3,12 +3,12 @@
 // `|a, *b|`: unqualified names are captured by COPY, `*`-prefixed by pointer.
 // `const *c` is a pointer capture the closure may not write through. A
 // capture NAMES an outer binding, so the three must exist to resolve.
-// AST: -- 0 error(s), 0 warning(s) --
 // AST: ClosureExpr
 // AST-NEXT: Capture a
 // AST-NEXT: Capture *b
 // AST-NEXT: Capture const *c
 // AST-NOT: RecoveryExpr
+// AST: -- 0 error(s), 0 warning(s) --
 
 fn Test() {
     var a = 1;

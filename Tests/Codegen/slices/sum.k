@@ -40,6 +40,6 @@ fn main() -> i32 {
 // so all of them go to the linker.
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.d
-// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o -o %t.exe
+// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o %t.d/kairo/*.o -o %t.exe
 // RUN: %t.exe; test $? -eq 38
 

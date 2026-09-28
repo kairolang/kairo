@@ -73,26 +73,22 @@
 // AST-NEXT: |   `-StringLiteralExpr "a + b"
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var u1
-// AST-NEXT: |   `-IntegerLiteralExpr 1
-// AST-NEXT: |-ExpressionStmt
-// AST-NEXT: | `-RecoveryExpr trying: ChainExpr
-// AST-NEXT: |-ExpressionStmt
-// AST-NEXT: | `-IntegerLiteralExpr 2
+// AST-NEXT: |   `-BinaryOperatorExpr +
+// AST-NEXT: |     |-IntegerLiteralExpr 1
+// AST-NEXT: |     `-IntegerLiteralExpr 2
 // AST-NEXT: |-DeclStmt
 // AST-NEXT: | `-VariableDecl var fp
 // AST-NEXT: |   `-StringLiteralExpr "{{.*}}"
 // AST-NEXT: `-DeclStmt
 // AST-NEXT:   `-VariableDecl var s3
 // AST-NEXT:     `-StringLiteralExpr "foo + 1"
-// AST: -- 3 error(s), 0 warning(s) --
+// AST: -- 2 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}: error [S052E]:
-// AST: {{.*}}: error [S052E]:
-// AST: {{.*}}: error [S052E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]: expected expression, found ','
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]: expected expression, found ','
 // END-GENERATED-CHECKS
 
-// SEPARATE:
 macro list!(...xs) { [ xs... ] }
 
 var l = list!()          // empty pack: expect `[ ]`, no stray `xs...`

@@ -192,7 +192,13 @@ if clang_bin:
     # "clang++" path: clang_bin may have come from PATH or from --param, and
     # guessing a neighbour binary that may not exist turns a link test into a
     # confusing "file not found" instead of a clean UNSUPPORTED.
-    config.substitutions.append(("%clangxx", clang_bin + " --driver-mode=g++"))
+    #
+    # -stdlib=libc++: kairo's objects are compiled against libc++'s headers
+    # (<sysroot>/include/c++/v1, see ClangBackend), so they must link against
+    # libc++. The driver's default on a GCC host is libstdc++, which links only
+    # while no test happens to touch a std:: symbol -- then fails with
+    # `std::__1::...` undefined.
+    config.substitutions.append(("%clangxx", clang_bin + " --driver-mode=g++ -stdlib=libc++"))
 else:
     # Leave a substitution that explains itself, in case a test forgets
     # `REQUIRES: clang` and runs anyway.

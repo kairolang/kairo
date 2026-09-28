@@ -126,6 +126,7 @@ fn main() -> i32 {
     var b = Full{ v: 3 }
     t += chk((a + b).v == 9)
     t += chk((a - b).v == 3)
+    t += chk((+a).v == 6)
     t += chk((-a).v == -6)
     t += chk((a * b).v == 18)
     t += chk((a / b).v == 2)
@@ -213,7 +214,7 @@ fn main() -> i32 {
     x += x2;  t += chk(x.v == 9)
     t += chk(9 in x)
 
-    return t                                   // 68
+    return t                                   // 69
 }
 
 // --- lit wiring -----------------------------------------------------------
@@ -253,5 +254,5 @@ fn main() -> i32 {
 // REQUIRES: clang
 // RUN: rm -rf %t.d
 // RUN: %kairo %s -o %t.d
-// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o -o %t.exe
-// RUN: %t.exe; test $? -eq 68
+// RUN: %clangxx %t.d/*.o %t.d/builtin/*.o %t.d/kairo/*.o -o %t.exe
+// RUN: %t.exe; test $? -eq 69

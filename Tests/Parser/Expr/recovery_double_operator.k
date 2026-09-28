@@ -14,7 +14,7 @@
 // AST: -- 1 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}: error [S052E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S052E]: expected expression, found '/'
 // END-GENERATED-CHECKS
 
-fn Test() { var x = a + + b; }
+fn Test() { var x = a + / b; }

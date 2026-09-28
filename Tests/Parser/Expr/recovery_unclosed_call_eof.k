@@ -9,11 +9,11 @@
 // AST-NEXT:         |-NamedIdentExpr foo
 // AST-NEXT:         |-IntegerLiteralExpr 1
 // AST-NEXT:         `-IntegerLiteralExpr 2
-// AST: -- 3 error(s), 0 warning(s) --
+// AST: -- 2 error(s), 0 warning(s) --
 //
 // -- diagnostics (order matches emission order) --
-// AST: {{.*}}: error [S057E]:
-// AST: {{.*}}: error [S054E]:
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S057E]: expected '}' to close block
+// AST: {{.*}}:{{[0-9]+}}:{{[0-9]+}}: error [S054E]: expected ')' to close function call argument list
 // END-GENERATED-CHECKS
 
 fn Test() { foo(1, 2

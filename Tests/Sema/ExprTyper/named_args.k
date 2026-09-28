@@ -80,7 +80,10 @@ fn bad_interleaved() {
 // and a `name: value` argument is a NamedArgExpr rather than an assignment
 // wearing a `:`.
 // RUN: { %kairo %s --type-check-only --print-ast=tree 2>&1 || true; } | %FileCheck %s --check-prefix=AST
-// AST-DAG: ParamDecl ...s: string
+// AST-DAG: ParamDecl const ...s: string
 // AST-DAG: NamedArgExpr end:
 // AST-DAG: NamedArgExpr spacing:
 // AST-NOT: AssignOperatorExpr
+// The NOT above needs an end: the builtin TUs dump after this one, and their
+// constructors DO assign, so without this anchor it scans into them.
+// AST: ============== AST (tree) for fid {{[0-9]+}}
