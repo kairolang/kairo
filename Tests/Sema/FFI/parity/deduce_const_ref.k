@@ -22,8 +22,8 @@ fn use_deduce() {
 // SEMA:      -- inferred decls --
 // SEMA-NEXT: a : i32
 // SEMA-NEXT: b : i32
-// SEMA-NEXT: d : *i32
-// SEMA-NEXT: e : *const i32
+// SEMA-NEXT: d : unsafe *i32
+// SEMA-NEXT: e : unsafe *const i32
 
 // --- lit wiring -----------------------------------------------------------
 // PARITY CASE. The .cpp beside this file is the ORACLE: the assertion is that

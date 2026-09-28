@@ -47,6 +47,7 @@ import AST::Node::Casting::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::ExprKind::*;
 import AST::Kind::PatternKind::*;
+import Token::TokenKind::*;
 import Diagnostic::Registry::*;
 import AST::ParamMode::*;
 
@@ -370,6 +371,15 @@ class <T> ControlTyping {
         var t = dyn()->type_of(n->operand, expected);
         dyn()->unsafe_depth -= 1;
         if dyn()->propagate(n, n->operand) { return &null; }
+        // `unsafe &x` is how a safe binding becomes a raw pointer (c-c++.md):
+        // the address leaves AMT, so its type is `unsafe *T`, not the `*T`
+        // plain `&x` makes. Without this a C `T *` parameter, which imports
+        // as `unsafe *T`, could not be reached from a safe binding at all.
+        var u = dyn_cast::<UnaryOperatorExpr>(n->operand);
+        if (u != &null) && u->is_prefix() && (u->op_token.kind == TokenKind::OpAmp)
+        && (t != &null) && (dyn()->tu.pointee(t) != &null) && (!dyn()->tu.is_unsafe_ptr(t)) {
+            return dyn()->sc->types->pointer(dyn()->tu.pointee(t), true);
+        }
         return t;
     }
 

@@ -249,6 +249,15 @@ class Conversion {
                 return ImplicitRank::Converted;
             }
             if self._qual_conv(fu, tq, true) { return ImplicitRank::Converted; }
+            // `unsafe *T -> unsafe *void`, C's own implicit erasure: unsafe
+            // pointers ARE C pointers, and without it every call into a
+            // `void *` parameter needs a cast the spec never spells. Raw only
+            // -- a safe `*void` stays behind `as`, it drops the pointee type
+            // AMT tracks -- and cv-preserving: _quals_kept above already
+            // refused `unsafe *const T -> unsafe *void`.
+            if self.tu.is_unsafe_ptr(fu) && self.tu.is_void(canon_unqual(tp)) && (!self.tu.is_void(canon_unqual(fp))) {
+                return ImplicitRank::Converted;
+            }
             return ImplicitRank::None;
         }
 

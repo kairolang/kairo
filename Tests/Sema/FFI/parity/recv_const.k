@@ -21,8 +21,8 @@ fn use_buf(b: *Buf, k: *const Buf) {
 // `-- inferred decls --` of its own: anchor on this file's header first.
 // SEMA:      ===== SEMA fid {{[0-9]+}}: {{.*}}recv_const.k =====
 // SEMA:      -- inferred decls --
-// SEMA-NEXT: p : *i32
-// SEMA-NEXT: q : *const i32
+// SEMA-NEXT: p : unsafe *i32
+// SEMA-NEXT: q : unsafe *const i32
 // SEMA-NEXT: n : i32
 
 // --- lit wiring -----------------------------------------------------------

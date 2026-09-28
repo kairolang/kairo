@@ -10,7 +10,9 @@
 ///     the name the header used.
 ///
 ///     Rules that are decisions, not translations:
-///       T*            -> *T           (safe pointer; foreign-pointer safety is a lint)
+///       T*            -> unsafe *T    (Spec/Docs/c-c++.md: a C pointer carries
+///                                     none of AMT's guarantees, so it is raw;
+///                                     passing one means `unsafe &x`)
 ///       const T&      -> cxx_lref(qualified(CONST, T))
 ///       cv T          -> qualified(cv, T)   object types only; a function or
 ///                                           array type's cv is its own affair
@@ -214,7 +216,7 @@ class TypeImport {
                 return f;                                 // Kairo `fn(...)` IS the pointer.
             }
             var inner = self._map_or_opaque(pointee);
-            return self.store->pointer(inner, false);
+            return self.store->pointer(inner, true);
         }
         var lr = llvm::dyn_cast::<clang::LValueReferenceType>(ty);
         if lr != &null {

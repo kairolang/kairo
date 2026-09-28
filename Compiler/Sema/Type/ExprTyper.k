@@ -596,12 +596,17 @@ class ExprTyper
         } else if (self.tu.pointee(to) != &null) && (self.tu.pointee(from) == &null) {
             hint = "; take the address with '&\x27";
         } else if (self.tu.pointee(from) != &null) && (self.tu.pointee(to) != &null) {
+            // Safety first: `unsafe *T -> *T` is one record on both sides,
+            // and derives_from(T, T) holds, so the record test would call it
+            // a downcast.
             var fd = self.tu.record_decl(self.tu.pointee(from));
             var td = self.tu.record_decl(self.tu.pointee(to));
-            if (fd != &null) && (td != &null) && self.tu.derives_from(td, fd) {
+            if self.tu.is_unsafe_ptr(to) && (!self.tu.is_unsafe_ptr(from)) {
+                hint = "; a safe pointer becomes a raw one only explicitly: 'unsafe &x', or 'as unsafe *T' inside an unsafe block";
+            } else if self.tu.is_unsafe_ptr(from) && (!self.tu.is_unsafe_ptr(to)) {
+                hint = "; a raw pointer becomes safe only by 'as *T' inside an unsafe block";
+            } else if (fd != &null) && (td != &null) && (fd != td) && self.tu.derives_from(td, fd) {
                 hint = "; a base-to-derived pointer needs an explicit 'as\x27";
-            } else if self.tu.is_unsafe_ptr(from) != self.tu.is_unsafe_ptr(to) {
-                hint = "; safe and unsafe pointers do not convert implicitly";
             }
         }
 

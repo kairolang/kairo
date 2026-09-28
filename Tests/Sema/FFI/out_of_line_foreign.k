@@ -6,7 +6,7 @@ class K { var n: i32; }
 fn S::g(self, const x: i32) { var r = helper(); var q = other(); var t = third(); }
 fn S::f(self, @inout x: i32) { var k: *K = &null; }
 fn S::h(self, @move x: i32) { }
-fn S::p(self, x: *i32) { }
+fn S::p(self, x: unsafe *i32) { }
 fn U::U(self, x: i32) { }
 
 // --- lit wiring -----------------------------------------------------------

@@ -9,17 +9,17 @@ ffi "c++" import "../ptr_const.h"
 
 fn use_ptrs() {
     var x: i32 = 1
-    var p: *i32 = &x
-    var q: *const i32 = &x
+    var p: unsafe *i32 = unsafe &x
+    var q: unsafe *const i32 = unsafe &x
     var a = g(p)
     var b = g(q)
-    var c = h(&p)
-    var r: **i32 = &p
+    var c = h(unsafe &p)
+    var r: unsafe *unsafe *i32 = unsafe &p
     g2(r)
 }
 
 // DIAG:      ptr_const_overload.k:18:5: error [SC001E]: no matching overload for call to 'g2'
-// DIAG-NEXT: ptr_const.h:10:1: note [I900N]: candidate not viable: cannot convert argument of type '**i32' to parameter 'pp' of type '**const i32'
+// DIAG-NEXT: ptr_const.h:10:1: note [I900N]: candidate not viable: cannot convert argument of type 'unsafe *unsafe *i32' to parameter 'pp' of type 'unsafe *unsafe *const i32'
 // DIAG-NOT:  error
 
 // The prelude dumps the builtin TUs ahead of this one, each with an

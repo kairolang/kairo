@@ -10,14 +10,15 @@ ffi "c++" import "volatile.h"
 
 fn use_reg() {
     var r: R
-    poke(&r.reg)
-    peek(&r.reg)
+    poke(unsafe &r.reg)
+    peek(unsafe &r.reg)
 }
 
 // DIAG:      volatile.k:14:5: error [SC001E]: no matching overload for call to 'peek'
-// DIAG-NEXT: volatile.h:8:1: note [I900N]: candidate not viable: cannot convert argument of type '*volatile i32' to parameter 'p' of type '*i32'
+// DIAG-NEXT: volatile.h:8:1: note [I900N]: candidate not viable: cannot convert argument of type 'unsafe *volatile i32' to parameter 'p' of type 'unsafe *i32'
 // DIAG-NOT:  error
 
-// SEMA:      UnaryOperatorExpr @ 13:10 : *volatile i32
-// SEMA-NEXT: ChainExpr @ 13:11 : volatile i32
+// SEMA:      UnsafeExpr @ 13:10 : unsafe *volatile i32
+// SEMA-NEXT: UnaryOperatorExpr @ 13:17 : *volatile i32
+// SEMA-NEXT: ChainExpr @ 13:18 : volatile i32
 // SEMA:      1 errored

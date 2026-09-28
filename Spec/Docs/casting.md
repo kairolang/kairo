@@ -134,6 +134,28 @@ different type no runtime check, no adjustment.
 > permanently the compiler cannot verify the correctness of a subsequent cast back. Use only for
 > C/C++ interop, custom allocators, and other low-level scenarios.
 
+### Raw pointer to safe pointer
+
+The way back from `unsafe *T` is `as *T`, and only inside an `unsafe` block. The block is the
+programmer's claim that the pointer is valid; the cast is what the claim is about. This is how memory
+that is born raw (every C/C++ allocation, every pointer an FFI call returns) becomes a safe pointer:
+
+```kairo
+// C: unsigned char *make_buffer(size_t n);
+unsafe {
+    var buf = make_buffer(64) as *u8                    // raw from C, safe from here on
+    var mem = malloc(64) as unsafe *u8 as *u8           // void *: retype first, then adopt
+}
+// var p = make_buffer(64) as *u8                       // compile error: requires an unsafe context
+```
+
+The pointee must be the same type, and `const` may be added but not dropped. Retyping the pointee, or
+removing a qualifier, is a reinterpret: go through `as unsafe *T` first.
+
+This is the spelling of what the compiler treats as a checked construction. Today nothing is checked:
+the pointer is trusted. When AMT can adopt a pointer, the adoption hooks this same cast: same
+source, different lowering.
+
 ### Pointer to integer
 
 Casting a pointer to an integer extracts the numeric address. No `unsafe` block is required:
@@ -297,6 +319,7 @@ reference.
 | Base-to-derived ptr (asserting) | `ptr as *Derived` | Runtime check | Panics |
 | Base-to-derived ptr (checked) | `ptr as *Derived?` | Runtime check | Returns `&null` |
 | Raw pointer cast | `ptr as unsafe *T` | No check | Reinterpret |
+| Raw to safe pointer | `raw as *T` (in `unsafe`) | Trusted | Same address |
 | Pointer to integer | `ptr as usize` | Safe | Address value |
 | Integer to pointer | `n as unsafe *T` | Unsafe | Fabricated pointer |
 | Plain enum to int | `e as u8` | Safe | Discriminant value |

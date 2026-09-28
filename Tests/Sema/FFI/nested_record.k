@@ -14,7 +14,7 @@ ffi "c++" import "traits_typedef.h"
 
 fn spelled() -> u64 {
     var b: holder<alloc>::node
-    var p: *holder<alloc>::node = b.next
+    var p: unsafe *holder<alloc>::node = b.next   // a C++ `node*` is raw
     return b.v + b.get()
 }
 

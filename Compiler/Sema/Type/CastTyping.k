@@ -26,7 +26,8 @@
 ///
 ///     Pointer <-> integer: `ptr as usize` needs no unsafe; `ptr as u8` is an
 ///     error, not a warning; `int as unsafe *T` needs unsafe; `int as *T` is
-///     an error; `*T as unsafe *T` needs unsafe.
+///     an error; `*T as unsafe *T` needs unsafe, and so does the way back,
+///     `unsafe *T as *T` (same pointee, cv kept).
 ///
 ///     Which of the four the source wrote is `TypeCastExpr::mode`; the
 ///     parser leaves `const` / `unsafe` in the target's qualifiers too, so
@@ -135,8 +136,33 @@ class <T> CastTyping {
         var tp = dyn()->tu.pointee(dyn()->tu.strip_nullable(target));
         if (sp != &null) && (tp != &null) {
             if dyn()->tu.is_unsafe_ptr(src) {
-                dyn()->fail(n, f"cannot cast the unsafe pointer '{dyn()->tu.str(src)}' to a safe pointer; that is a checked construction, not a cast");
-                return &null;
+                // raw -> safe: the mirror of `as unsafe *T`, and the only way
+                // memory born raw (every C allocation) becomes a safe pointer.
+                // The `unsafe` block is the programmer's claim that the
+                // pointer is valid; this cast is what the claim is about.
+                // When AMT can adopt a pointer, the adoption hooks this
+                // spelling -- the checked construction gets a new lowering,
+                // not a new syntax. Same pointee only, cv kept by the rule-1b
+                // test: retyping or dropping `const` is still `as unsafe *`.
+                var raw_twin = dyn()->sc->types->pointer(tp, true);
+                if !self._same_pointer_shape(src, raw_twin) {
+                    dyn()->fail(n, f"cannot cast '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}': a raw pointer becomes safe only with its own pointee; reinterpret with 'as unsafe *' first");
+                    return &null;
+                }
+                if !dyn()->conv.qualification(src, raw_twin) {
+                    self._qual_cast_error(n, src, target);
+                    return &null;
+                }
+                if !dyn()->in_unsafe() {
+                    dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                        f"cast from the raw pointer '{dyn()->tu.str(src)}' to the safe pointer '{dyn()->tu.str(target)}' requires an unsafe context"
+                    ).first(n->range)
+                     .note(n->range.start, "wrap it in 'unsafe { ... }': the block is your claim that the pointer is valid")
+                     .emit();
+                    n->poison();
+                    return &null;
+                }
+                return target;
             }
             var sd = dyn()->tu.record_decl(sp);
             var td = dyn()->tu.record_decl(tp);
