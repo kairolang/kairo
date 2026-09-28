@@ -17,5 +17,5 @@ fn main() -> i32 {
 // RUN: rm -rf %t.d && mkdir -p %t.d
 // RUN: %clangxx -x c -c %S/c_add.c -o %t.d/c_add.c.o
 // RUN: %kairo %s -o %t.d/k
-// RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/c_add.c.o -o %t.exe
+// RUN: %clangxx %t.d/k/*.o %t.d/k/builtin/*.o %t.d/k/kairo/*.o %t.d/c_add.c.o -o %t.exe
 // RUN: %t.exe; test $? -eq 42

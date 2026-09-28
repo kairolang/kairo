@@ -23,6 +23,9 @@ fn main() -> i32 {
 // has a single impure argument, so there is no order to write down and no
 // local is minted.
 // RUN: { %kairo %s --print-ir 2>&1 || true; } | %FileCheck %s --check-prefix=IR
+// The builtins print first and mint locals of their own: anchor on this
+// file's section, the last one.
+// IR: CODEGEN C++: {{.*}}sequence/args.k
 // IR: __kairo_arg0
 // IR: __kairo_arg1
 // IR: __kairo_arg2
