@@ -45,6 +45,11 @@ import Sema::Resolve::NameLookup::*;
 import AST::Context::SymbolTable::*;
 import AST::Node::Declarations::*;
 import AST::LangItems::*;
+import Sema::Resolve::MemberLookup::*;
+import AST::OperatorFacts::*;
+import Support::UTF8View::*;
+import Token::TokenKind::*;
+import Location::SourceRange::*;
 
 class <T> LiteralTyping {
     priv inline fn dyn(self) -> *T { return static_cast::<*T>(&self); }
@@ -222,15 +227,19 @@ class <T> LiteralTyping {
 
     // === the rest ===========================================================
 
+    /// Every literal is a `string`. A plain one gets its constructor bound; a
+    /// format one gets, per hole, everything FStringLowering needs to mint
+    /// without a lookup: the kind, the conversion, the packed spec.
     fn type_string_literal(self, n: *StringLiteralExpr, expected: *Type) -> *Type {
-        for var i: usize = 0; i < n->parts.size(); ++i {
-            dyn()->type_of(n->parts[i], &null);
-        }
         var s = dyn()->tu.string_type();
-        if s == &null {
-            dyn()->missing_lang_item(n, "string");
-            return &null;
-        }
+        if s == &null { dyn()->missing_lang_item(n, "string"); return &null; }
+
+        n->string_ctor = self._lang_ctor(WellKnownType::String, 3, false);
+        if n->string_ctor == &null { dyn()->missing_lang_item(n, "string"); return &null; }
+        if !n->is_format() { return s; }
+
+        if n->imm == &null { dyn()->fail(n, "format string literal has no immediate data"); return &null; }
+        if !self._type_format_literal(n, s) { dyn()->poison_only(n); return &null; }
         return s;
     }
 
@@ -348,6 +357,294 @@ class <T> LiteralTyping {
             return cell.cell->get(i);
         }
         return &null;
+    }
+
+    priv fn _type_format_literal(self, n: *StringLiteralExpr, s: *Type) -> bool {
+        var holes = n->get_holes();
+        ICE_IF(holes->size() != n->parts.size(), "LiteralTyping: lexer hole facts not parallel to the parser's parts");
+
+        var fb = dyn()->sc->well_known->get(WellKnownType::FmtBuf);
+        if fb == &null { dyn()->missing_lang_item(n, "FmtBuf"); return false; }
+        n->fmt_ctor   = self._lang_ctor(WellKnownType::FmtBuf, 1, false);
+        n->fmt_text   = self._lang_method(WellKnownType::FmtBuf, "text");
+        n->fmt_finish = self._lang_method(WellKnownType::FmtBuf, "finish");
+        n->fmt_len    = self._lang_field(WellKnownType::String, "len");
+        if (n->fmt_ctor == &null) || (n->fmt_text == &null) || (n->fmt_finish == &null) || (n->fmt_len == &null) {
+            dyn()->missing_lang_item(n, "FmtBuf");
+            return false;
+        }
+
+        var ok  = true;
+        var out = vec::<FormatHole>();
+        for var i: usize = 0; i < n->parts.size(); ++i {
+            var e = n->parts[i];
+            var t = dyn()->type_of(e, &null);
+            if e->is_poisoned() { ok = false; continue; }
+            if t == &null {
+                // Untyped and not poisoned: dependent. Lower/ runs once, before M2.
+                dyn()->fail(e, "an interpolation in a generic body needs a concrete type; format it in the caller");
+                ok = false;
+                continue;
+            }
+
+            var h = FormatHole{};
+            h.kind = FormatKind::None; h.spec = 0; h.put = &null; h.conv = &null;
+            h.cast_to = &null; h.by_addr = false; h.doc = (*holes)[i].doc;
+
+            var repr: *Decl = &null;
+            var conv: *Decl = &null;
+            if !self._classify_hole(e, t, &h, &repr, &conv) { ok = false; continue; }
+            if !self._parse_spec(n, (*holes)[i].spec, h.kind, t, &(h.spec)) { ok = false; continue; }
+
+            // A record: user repr, then user `op as`, then the address form.
+            // `?` skips `op as`: it asks for the repr form or nothing.
+            if h.kind == FormatKind::None {
+                var debug = ((h.spec >> 57) & FMT_DEBUG()) != 0;
+                if repr != &null                  { h.conv = repr; h.kind = FormatKind::String; }
+                else if (conv != &null) && !debug { h.conv = conv; h.kind = FormatKind::String; }
+                else { h.kind = FormatKind::Ptr; h.by_addr = true; h.cast_to = dyn()->tu.builtin(BuiltinKind::USize); }
+            }
+
+            h.put = self._lang_method(WellKnownType::FmtBuf, fmt_put_name(h.kind));
+            if h.put == &null { dyn()->missing_lang_item(n, "FmtBuf"); ok = false; continue; }
+            out.push_back(h);
+        }
+        if !ok { return false; }
+        n->fmt_holes.from_buf(out.data(), out.size(), dyn()->sc->ctx);
+        return true;
+    }
+
+    /// The put row for a hole's value type. A record leaves `kind` as None
+    /// with its candidates in \p repr / \p conv; the caller ranks them.
+    priv fn _classify_hole(self, e: *Expr, t: *Type, h: *FormatHole, repr: *(*Decl), conv: *(*Decl)) -> bool {
+        var v = dyn()->tu.as_value(t);
+        if v == &null { return false; }
+        if v->is_dependent() {
+            dyn()->fail(e, "an interpolation in a generic body needs a concrete type; format it in the caller");
+            return false;
+        }
+        if dyn()->tu.nullable_inner(v) != &null {
+            dyn()->fail(e, f"a value of type '{dyn()->tu.str(v)}' has no formatter yet; test it and format the inner value");
+            return false;
+        }
+        if dyn()->tu.pointee(v) != &null {
+            h->kind    = FormatKind::Ptr;
+            h->cast_to = dyn()->tu.builtin(BuiltinKind::USize);
+            return true;
+        }
+        var bk = dyn()->tu.kind_of(v);
+        if bk != BuiltinKind::COUNT {
+            var fk = format_kind_of(bk);
+            if fk == FormatKind::COUNT {
+                dyn()->fail(e, f"a value of type '{dyn()->tu.str(v)}' cannot be formatted");
+                return false;
+            }
+            h->kind = fk;
+            return true;
+        }
+        if dyn()->tu.is_string(v) { h->kind = FormatKind::String; return true; }
+
+        var d = dyn()->tu.record_decl(v);
+        if d == &null {
+            dyn()->fail(e, f"a value of type '{dyn()->tu.str(v)}' has no formatter");
+            return false;
+        }
+        var en = dyn_cast::<EnumDecl>(NameLookup::representative(d));
+        if (en != &null) && (!en->is_adt) {
+            // A plain enum prints its discriminant until the synthesized repr exists.
+            var under: *Type = &null;
+            if (en->underlying != &null) && (en->underlying->canonical != &null) { under = canon_unqual(en->underlying->canonical); }
+            if under == &null { under = dyn()->tu.builtin(BuiltinKind::U32); }
+            h->kind    = format_kind_of(dyn()->tu.kind_of(under));
+            h->cast_to = under;
+            return h->kind != FormatKind::COUNT;
+        }
+        self._string_conv(v, repr, conv);
+        return true;   // kind stays None; the caller ranks.
+    }
+
+    /// `fn repr(self) -> string` and `fn op as(self) -> string` on \p v, own
+    /// members and extensions alike, in that order of preference. Through
+    /// ExprTyper's MemberLookup, whose extension index is built once at
+    /// construction.
+    priv fn _string_conv(self, v: *Type, repr: *(*Decl), conv: *(*Decl)) {
+        var s = dyn()->tu.string_type();
+
+        var imm   = dyn()->sc->imm_table()->intern_ident_copy("repr");
+        var cands = vec::<*Decl>();
+        dyn()->ml.lookup(v, DeclName::ident(imm), &cands);
+        for var i: usize = 0; i < cands.size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(cands[i]);
+            if (f == &null) || (!f->is_method()) || f->is_operator { continue; }
+            if (OperatorFacts::arity(f) != 0) || !self._returns(f, s) { continue; }
+            (*repr) = cands[i];
+            break;
+        }
+
+        cands.clear();
+        dyn()->ml.lookup(v, DeclName::op_name(TokenKind::KwAs, TokenKind::TkUnknown), &cands);
+        for var i: usize = 0; i < cands.size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(cands[i]);
+            if (f == &null) || (!f->is_method()) || (!f->is_operator) { continue; }
+            if (OperatorFacts::arity(f) != 0) || !self._returns(f, s) { continue; }
+            (*conv) = cands[i];
+            break;
+        }
+    }
+
+    priv fn _returns(self, f: *FunctionDecl, t: *Type) -> bool {
+        if (f->return_type == &null) || (f->return_type->canonical == &null) { return false; }
+        return canon_unqual(f->return_type->canonical) == canon_unqual(t);
+    }
+
+    /// A lang record's method by NAME, spelled into that record's own TU.
+    priv fn _lang_method(self, k: WellKnownType, name: string) -> *Decl {
+        var d = dyn()->sc->well_known->get(k);
+        if d == &null { return &null; }
+        var body = dyn()->tu.pattern_of(NameLookup::representative(d));
+        var dc   = NameLookup::context_of(body);
+        if dc == &null { return &null; }
+        var imm  = dyn()->sc->imm_table()->intern_ident_copy(name);
+        var cell = dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), name);
+        if !cell.found() { return &null; }
+        for var i: usize = 0; i < cell.cell->size(); ++i {
+            var f = dyn_cast::<FunctionDecl>(cell.cell->get(i));
+            if (f != &null) && f->is_method() { return cell.cell->get(i); }
+        }
+        return &null;
+    }
+
+    priv fn _lang_field(self, k: WellKnownType, name: string) -> *Decl {
+        var d = dyn()->sc->well_known->get(k);
+        if d == &null { return &null; }
+        var body = dyn()->tu.pattern_of(NameLookup::representative(d));
+        var dc   = NameLookup::context_of(body);
+        if dc == &null { return &null; }
+        var imm  = dyn()->sc->imm_table()->intern_ident_copy(name);
+        var cell = dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), name);
+        if !cell.found() { return &null; }
+        var fd = dyn_cast::<FieldDecl>(cell.first());
+        return static_cast::<*Decl>(fd);
+    }
+
+    // === format specs =======================================================
+    //
+    //   spec := [[fill] align] ['+'] ['#'] ['0'] [width] ['.' precision] [type] | '?'
+    //   align := '<' | '>' | '^'      type := 'x' | 'X' | 'o' | 'b' | 'e' | 'E'
+    //
+    // Parsed here, packed into one word (LangItems::fmt_pack_spec), validated
+    // against the hole's kind. Reported at the spec's own bytes.
+
+    priv fn _is_align(self, b: u8) -> bool { return (b == '<') || (b == '>') || (b == '^'); }
+
+    priv fn _align_code(self, b: u8) -> u64 {
+        if b == '<' { return static_cast::<u64>(FormatAlign::Left); }
+        if b == '>' { return static_cast::<u64>(FormatAlign::Right); }
+        return static_cast::<u64>(FormatAlign::Center);
+    }
+
+    priv fn _spec_error(self, n: *StringLiteralExpr, at: SourceRange, spelled: string, t: *Type, why: string) -> bool {
+        dyn()->sc->diag->report(DiagID::SC001E, at.start,
+            f"invalid format spec '{spelled}' for a value of type '{dyn()->tu.str(t)}': {why}"
+        ).first(at).emit();
+        return false;
+    }
+
+    priv fn _parse_spec(self, n: *StringLiteralExpr, at: SourceRange, kind: FormatKind, t: *Type, out: *u64) -> bool {
+        (*out) = 0;
+        if !at.is_valid() { return true; }
+
+        var view    = dyn()->sc->ctx->sm->get_view(at);
+        var p       = view.data();
+        var len     = view.size();
+        var spelled = dyn()->sc->ctx->sm->get_text(at);
+
+        var is_int   = (kind >= FormatKind::I8)     && (kind <= FormatKind::USize);
+        var is_float = (kind >= FormatKind::F8E4M3) && (kind <= FormatKind::F512);
+        var is_text  = (kind == FormatKind::String) || (kind == FormatKind::Char) || (kind == FormatKind::Bool);
+        var is_rec   = kind == FormatKind::None;
+
+        if (len == 1) && (p[0] == '?') {
+            (*out) = fmt_pack_spec(0, 0, 0, 0, 0, static_cast::<u64>(FMT_DEBUG()));
+            return true;
+        }
+        if kind == FormatKind::Ptr { return self._spec_error(n, at, spelled, t, "a pointer takes no format spec"); }
+
+        var width: u64 = 0; var prec1: u64 = 0; var fill: u64 = 0;
+        var align: u64 = 0; var base:  u64 = 0; var flags: u64 = 0;
+        var type_ch: u8 = 0;
+        var i: usize = 0;
+
+        var first = UTF8View::decode_utf8(p, len);
+        if (first.len > 0) && (first.len < len) && self._is_align(p[first.len]) {
+            fill  = static_cast::<u64>(first.chr);
+            align = self._align_code(p[first.len]);
+            i     = first.len + 1;
+        } else if (len > 0) && self._is_align(p[0]) {
+            align = self._align_code(p[0]);
+            i     = 1;
+        }
+
+        if (i < len) && (p[i] == '+') { flags |= static_cast::<u64>(FMT_SIGN_PLUS()); i += 1; }
+        else if (i < len) && (p[i] == '-') { return self._spec_error(n, at, spelled, t, "'-' is the default sign; remove it"); }
+        if (i < len) && (p[i] == '#') { flags |= static_cast::<u64>(FMT_ALT()); i += 1; }
+        if (i < len) && (p[i] == '0') { flags |= static_cast::<u64>(FMT_ZERO()); i += 1; }
+        while (i < len) && (p[i] >= '0') && (p[i] <= '9') {
+            width = width * 10 + static_cast::<u64>(p[i] - '0');
+            if width > 0xFFFF { return self._spec_error(n, at, spelled, t, "width is limited to 65535"); }
+            i += 1;
+        }
+        if (i < len) && (p[i] == '.') {
+            i += 1;
+            var digits: usize = 0;
+            var prec: u64 = 0;
+            while (i < len) && (p[i] >= '0') && (p[i] <= '9') {
+                prec = prec * 10 + static_cast::<u64>(p[i] - '0');
+                if prec > 0xFFFE { return self._spec_error(n, at, spelled, t, "precision is limited to 65534"); }
+                i += 1; digits += 1;
+            }
+            if digits == 0 { return self._spec_error(n, at, spelled, t, "'.' must be followed by a precision"); }
+            prec1 = prec + 1;
+        }
+        if i < len {
+            type_ch = p[i];
+            switch type_ch {
+                case 'x' { base = 1; }
+                case 'X' { base = 1; flags |= static_cast::<u64>(FMT_UPPER()); }
+                case 'o' { base = 2; }
+                case 'b' { base = 3; }
+                case 'e' { base = 1; }
+                case 'E' { base = 1; flags |= static_cast::<u64>(FMT_UPPER()); }
+                default  { return self._spec_error(n, at, spelled, t, f"'{spelled.substr(i)}' is not a format type"); }
+            }
+            i += 1;
+        }
+        if i < len { return self._spec_error(n, at, spelled, t, "unexpected characters after the format type"); }
+
+        // Per kind.
+        if is_int {
+            if prec1 != 0 { return self._spec_error(n, at, spelled, t, "precision applies to floats and strings"); }
+            if (type_ch == 'e') || (type_ch == 'E') { return self._spec_error(n, at, spelled, t, "'e' applies to floats"); }
+        } else if is_float {
+            if (type_ch == 'x') || (type_ch == 'X') || (type_ch == 'o') || (type_ch == 'b') {
+                return self._spec_error(n, at, spelled, t, "an integer base applies to integers");
+            }
+            if (flags & static_cast::<u64>(FMT_ALT())) != 0 { return self._spec_error(n, at, spelled, t, "'#' applies to integers"); }
+        } else if kind == FormatKind::Byte {
+            if (prec1 != 0) || (type_ch != 0) || ((flags & (static_cast::<u64>(FMT_SIGN_PLUS()) | static_cast::<u64>(FMT_ZERO()))) != 0) {
+                return self._spec_error(n, at, spelled, t, "a byte takes width, alignment and '#' only");
+            }
+        } else if is_text || is_rec {
+            if (type_ch != 0) || ((flags & (static_cast::<u64>(FMT_SIGN_PLUS()) | static_cast::<u64>(FMT_ALT()) | static_cast::<u64>(FMT_ZERO()))) != 0) {
+                return self._spec_error(n, at, spelled, t, "text takes width, alignment and precision only");
+            }
+            if (prec1 != 0) && (kind != FormatKind::String) && (!is_rec) {
+                return self._spec_error(n, at, spelled, t, "precision applies to floats and strings");
+            }
+        }
+
+        (*out) = fmt_pack_spec(width, prec1, fill, align, base, flags);
+        return true;
     }
 
     // === list storage =======================================================
