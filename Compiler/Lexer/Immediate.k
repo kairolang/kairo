@@ -761,6 +761,15 @@ module Immediate {
         // BytesFormat
     }
 
+    /// One f-string hole beyond what `exprs` carries: the format spec after
+    /// the `:` (an invalid range when none was written) and, for a
+    /// self-documenting hole `{x=}`, the source text printed ahead of the
+    /// value (invalid otherwise). Parallel to `exprs`.
+    struct HoleSpec {
+        var spec: SourceRange;
+        var doc:  SourceRange;
+    }
+
     class StringData {
         /// NOTE: the TokenBuffer is allocated in the Lexer or elsewhere, but
         ///       StringData will be freeing it within its destructor.
@@ -769,6 +778,7 @@ module Immediate {
         /// ^^ remember this to implement this error.
         pub var exprs: libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>; // exprs tokens
                 // along with the start and end from { and }
+        pub var holes: libcxx::deque::<HoleSpec>;   ///< parallel to exprs
 
         pub var body:        SourceRange; // string range excl quotes prefix and suffix
         pub var prefix:      Token;
@@ -808,6 +818,7 @@ module Immediate {
     class CharData {
         pub var exprs: libcxx::deque::<(*TokenBuffer::<16>, SourceRange)>; // exprs tokens
                 // along with the start and end from { and }
+        pub var holes: libcxx::deque::<HoleSpec>;   ///< parallel to exprs
 
         pub var prefix:      Token;
         pub var suffix:      Token;
@@ -1197,6 +1208,25 @@ class ImmediateTable {
         data->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
         data->owned_len   = static_cast::<u32>(stored->size());
         data->prefix_kind = Immediate::TextPrefixKind::None;
+        return idx;
+    }
+
+    /// \brief a StringData slot over raw BYTES the compiler minted: the
+    ///        decoded body of a lowered literal. Same storage and same
+    ///        contract as intern_string_copy; takes bytes because a `string`
+    ///        is wide and would re-encode anything past 0x7F.
+    fn intern_bytes_copy(self, data: std::ConstPtr::<u8>, len: usize) -> u32 {
+        if self.synth_names == &null {
+            self.synth_names = std::create::<ArenaList::<nstring>>(64);
+        }
+        var idx  = self.create::<Immediate::StringData>();
+        var slot = self.get::<Immediate::StringData>(idx);
+
+        var stored = self.synth_names->push(
+            nstring(reinterpret_cast::<std::ConstPtr::<std::Legacy::char>>(data), len));
+        slot->owned_ptr   = reinterpret_cast::<std::ConstPtr::<u8>>(stored->raw());
+        slot->owned_len   = static_cast::<u32>(stored->size());
+        slot->prefix_kind = Immediate::TextPrefixKind::None;
         return idx;
     }
 

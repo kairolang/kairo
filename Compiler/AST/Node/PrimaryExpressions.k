@@ -18,6 +18,7 @@ import AST::Context::ASTContext::*;
 import AST::Context::SymbolTable::*;
 import AST::ASTSupport::*;
 import AST::Node::Casting::*;
+import AST::LangItems::*;
 
 class NamedIdentExpr; // forward decl for ChainType segments
 
@@ -718,6 +719,22 @@ class FloatingLiteralExpr derives Expr {
 }
 
 ///
+///  FormatHole
+///  What X decided about one f-string hole, so FStringLowering mints
+///  without a lookup. Field for field the FormatSeg row fmt.k declares,
+///  plus the conversion to apply to the hole's expression.
+///
+struct FormatHole {
+    var kind:    FormatKind;    ///< the put_* row; never None.
+    var spec:    u64;           ///< packed; 0 = defaults (fmt_pack_spec).
+    var put:     *Decl;         ///< FmtBuf::put_<kind>, bound by X.
+    var conv:    *Decl;         ///< the `repr` / `op as -> string` applied first, or null.
+    var cast_to: *Type;         ///< a cast applied to the value first (usize for Ptr, the underlying int for a plain enum), or null.
+    var by_addr: bool;          ///< Ptr with no pointer: the value's ADDRESS is printed.
+    var doc:     SourceRange;   ///< `{x=}`: source bytes printed before the value; invalid otherwise.
+}
+
+///
 ///  StringLiteralExpr
 ///  "hello" | r"raw \n" | f"hi {name}!"
 ///
@@ -734,6 +751,14 @@ class StringLiteralExpr derives Expr {
     pub var ctx:         *ASTContext;
     pub var imm:         *Immediate::StringData = &null; ///< pointer to the immediate table entry
 
+    /// Written by X (LiteralTyping), read by the lowerings; nobody else.
+    pub var string_ctor: *Decl = &null;   ///< string(data, len, cp_len). Every literal.
+    pub var fmt_ctor:    *Decl = &null;   ///< FmtBuf(cap).            Format literals.
+    pub var fmt_text:    *Decl = &null;   ///< FmtBuf::text.
+    pub var fmt_finish:  *Decl = &null;   ///< FmtBuf::finish.
+    pub var fmt_len:     *Decl = &null;   ///< string::len, the FieldDecl (the capacity sum reads it).
+    pub var fmt_holes:   FrozenList::<FormatHole>;
+
     static fn create(
         ctx:         *ASTContext,
         range:       SourceRange,
@@ -746,6 +771,12 @@ class StringLiteralExpr derives Expr {
         node->token       = token;
         node->string_kind = string_kind;
         node->ctx         = ctx;
+        node->string_ctor = &null;
+        node->fmt_ctor    = &null;
+        node->fmt_text    = &null;
+        node->fmt_finish  = &null;
+        node->fmt_len     = &null;
+        node->fmt_holes   = create_empty_frozen_list::<FormatHole>();   // read only when is_format; an unset list must still be readable.
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -759,6 +790,12 @@ class StringLiteralExpr derives Expr {
         node->recovery_kind = ExprKind::StringLiteralExpr;
         node->range         = range;
         node->ctx           = ctx;
+        node->string_ctor = &null;
+        node->fmt_ctor    = &null;
+        node->fmt_text    = &null;
+        node->fmt_finish  = &null;
+        node->fmt_len     = &null;
+        node->fmt_holes   = create_empty_frozen_list::<FormatHole>();   // read only when is_format; an unset list must still be readable.
         node->init_annotations(&(ctx->ast_alloc));;
         return node;
     }
@@ -818,6 +855,12 @@ class StringLiteralExpr derives Expr {
     fn get_exprs(self) -> *libcxx::deque::<(*TokenBuffer::<16>, SourceRange)> {
         assert((self.imm != &null) && r"StringLiteralExpr::get_exprs: imm pointer is null");
         return &(self.imm->exprs);
+    }
+
+    /// The spec and `=` facts the lexer recorded per hole; parallel to get_exprs().
+    fn get_holes(self) -> *libcxx::deque::<Immediate::HoleSpec> {
+        assert((self.imm != &null) && r"StringLiteralExpr::get_holes: imm pointer is null");
+        return &(self.imm->holes);
     }
 
     fn interpolation_count(self) -> usize {
