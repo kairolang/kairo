@@ -20,6 +20,10 @@ pub struct <T> Slice {
         self.data = data
         self.len  = len
     }
+
+    fn op [] (self, i: usize) -> *T {
+        return &self.data[i]
+    }
 }
 
 /// Growable, owning.

@@ -35,3 +35,4 @@ pub struct string {
         self.cap    = 0
     }
 }
+
