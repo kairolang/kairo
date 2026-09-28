@@ -2174,6 +2174,14 @@ class <T> ExprParse {
             return self._error_expr(lparen_range | rparen_range);
         }
 
+        // `(` `{` is ALWAYS a statement expression, never a parenthesized
+        // set/map literal or anon initializer: one token of lookahead decides
+        // it, so the reading cannot depend on what the braces contain.
+        if dyn()->check(TokenKind::OpLBrace) {
+            dyn()->nl_pop();
+            return self._finish_stmt_expr(lparen_range);
+        }
+
         var first = self.parse_expr(
             static_cast::<ExprStopKind>(
                 static_cast::<u8>(ExprStopKind::StopComma)
@@ -2207,6 +2215,82 @@ class <T> ExprParse {
             "expected ')' or ',' after expression"
         ).first(first->range).emit();
         return first;
+    }
+
+    /// \brief finishes a statement expression after its `(`; current is `{`.
+    ///  Grammar:  '(' '{' stmt* expr-stmt '}' ')'
+    ///
+    /// \details the value is the last statement, so it MUST be an
+    ///          ExpressionStmt; anything else (including an empty block) is a
+    ///          hard error and yields a RecoveryExpr, so Sema never sees a
+    ///          StmtExpr without a value slot.
+    inline fn _finish_stmt_expr(self, lparen_range: SourceRange) -> *Expr {
+        var lbrace_range = dyn()->current_ptr()->range;
+
+        // The block is a statement context even though it sits inside `(`:
+        // newlines terminate statements again. Left suppressed, `a` newline
+        // `-b` in the block would fold into the single statement `a - b`.
+        var saved_nl = dyn()->nl_depth;
+        dyn()->nl_depth = 0;
+        var body = dyn()->parse_compound();
+        dyn()->nl_depth = saved_nl;
+
+        // `}` and `)` may be split across lines, but only look past the
+        // newline when `)` is really there, else the terminator the caller
+        // needs is gone.
+        if dyn()->peek_past_nl_kind() == TokenKind::OpRParen {
+            dyn()->advance(T::SkipNL::Only);
+        }
+
+        var ok = true;
+        if dyn()->check(TokenKind::OpRParen) {
+            dyn()->advance_raw(); // consume `)` keep trailing NL significant
+        } else {
+            ok = false;
+            var at = dyn()->prev().range;
+            dyn()->diag->report(DiagID::S054E, at.end,
+                "expected ')' to close statement expression"
+            ).first(at)
+             .second(lparen_range | lbrace_range, "statement expression opened here")
+             .insert(at.end, ")", "insert ')\x27")
+             .emit();
+        }
+
+        var full_range = lparen_range | dyn()->prev().range;
+
+        // A block that already failed to parse has reported its own error;
+        // judging its (partial) last statement would only pile on.
+        if is_recovery(static_cast::<*Stmt>(body)) {
+            return self._error_expr(full_range);
+        }
+
+        var n = body->body.size();
+        if n == 0 {
+            dyn()->diag->report(DiagID::S054E, lbrace_range.start,
+                "statement expression has no value"
+            ).first(body->range, "empty block")
+             .note(lbrace_range.start,
+                "the value of '({ ... })' is its last statement, which must be an expression")
+             .emit();
+            return self._error_expr(full_range);
+        }
+
+        var last = body->body[n - 1];
+        if (!isa::<ExpressionStmt>(last)) && (!is_recovery(last)) {
+            dyn()->diag->report(DiagID::S054E, last->range.start,
+                "last statement of a statement expression must be an expression"
+            ).first(last->range, "this statement has no value")
+             .second(lparen_range | lbrace_range, "statement expression opened here")
+             .note(lbrace_range.start,
+                "the value of '({ ... })' is its last statement, which must be an expression")
+             .emit();
+            return self._error_expr(full_range);
+        }
+
+        if (!ok) || is_recovery(last) {
+            return self._error_expr(full_range);
+        }
+        return static_cast::<*Expr>(StmtExpr::create(dyn()->ctx, full_range, body));
     }
 
     /// \brief finishes parsing a tuple literal after the first element and comma.

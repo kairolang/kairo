@@ -550,7 +550,9 @@ canonical; params must be annotated; return declared or inferred through
 a frame. `a..b` -> `Range<elem>`; `await` on `Future<T>` -> `T`; `spawn`/
 `thread` -> `Future<T>`; `sizeof`/`alignof` -> usize; `typeof x` is
 type-denoting; `unsafe e` bumps the unsafe depth; `delete p` needs a
-pointer. Named initializer: fields by name in the record's table, values
+pointer. `({ s...; e })` types its leading statements in order, then `e`
+against the expected type; the result is a prvalue of `e`'s type with
+references and top-level cv dropped, and a fixed array is an error. Named initializer: fields by name in the record's table, values
 against the field type through the receiver. Anonymous initializer needs
 an expected record type. Patterns: binders take the scrutinee's type,
 literal/range patterns are checked against it, tuple patterns split;

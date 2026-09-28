@@ -195,8 +195,9 @@ does not — bodies only ever go through clang, and that is a HARD dependency
 of this layer, not a preference.
 
 `StmtExpr` is the GNU statement expression `({ s0; s1; e; })`, whose value is
-its last statement. SequenceLowering mints it to write Kairo's left-to-right
-argument order into the tree; nothing parses into it. The block emits as any
+its last statement. The parser produces it for source `({ ... })` (the last
+statement must be an expression, enforced there), and SequenceLowering mints
+it to write Kairo's left-to-right argument order into the tree. The block emits as any
 block and the parens are what make it a value. Like the array prvalue it is
 clang-only -- it is not C++, it is a GNU extension clang implements -- so it
 carries the same HARD clang dependency.

@@ -292,6 +292,7 @@ class ExprTyper
             case ExprKind::TypeOfExpr           { return self.type_typeof(cast::<TypeOfExpr>(e), expected); }
             case ExprKind::EvalExpr             { return self.type_eval(cast::<EvalExpr>(e), expected); }
             case ExprKind::UnsafeExpr           { return self.type_unsafe(cast::<UnsafeExpr>(e), expected); }
+            case ExprKind::StmtExpr             { return self.type_stmt_expr(cast::<StmtExpr>(e), expected); }
             case ExprKind::DeleteExpr           { return self.type_delete(cast::<DeleteExpr>(e), expected); }
             case ExprKind::TypeCastExpr         { return self.type_cast(cast::<TypeCastExpr>(e), expected); }
             case ExprKind::PackExpansionExpr {

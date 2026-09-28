@@ -373,6 +373,51 @@ class <T> ControlTyping {
         return t;
     }
 
+    /// `({ s0; s1; e })`: a prvalue of the last statement's expression.
+    ///
+    /// The leading statements go through the ordinary statement typer, in
+    /// order, BEFORE the value: `e` may read a local whose type they infer.
+    /// The value is typed here rather than by dispatching the whole block,
+    /// because only this arm can hand it \p expected -- `var x: u8 = ({ 5 })`
+    /// must type the literal as u8, and type_of is memoized, so a later
+    /// dispatch could not correct it.
+    ///
+    /// Prvalue, like the GNU extension it emits as: a reference-typed value
+    /// (an imported `T&` call) yields its referent, and top-level cv drops. A
+    /// fixed array is rejected: it would be a copy out of the block, which
+    /// Kairo does not do implicitly (see reject_array_copy).
+    fn type_stmt_expr(self, n: *StmtExpr, expected: *Type) -> *Type {
+        var body = n->body;
+        var count = (body->body.size()) if (body != &null) else (0);
+        // The parser guarantees a trailing ExpressionStmt for source forms and
+        // SequenceLowering builds one; anything else is a malformed tree.
+        var last_stmt: *Stmt = (body->body[count - 1]) if (count > 0) else (&null);
+        if (last_stmt == &null) || (!isa::<ExpressionStmt>(last_stmt)) {
+            dyn()->fail(n, "statement expression has no trailing value expression");
+            return &null;
+        }
+
+        for var i: usize = 0; i + 1 < count; ++i {
+            dyn()->dispatch_stmt(body->body[i]);
+        }
+
+        var value = cast::<ExpressionStmt>(last_stmt)->expr;
+        var t = dyn()->type_of(value, expected);
+        if dyn()->propagate(n, value) { return &null; }
+        if t == &null { dyn()->mark_unknown(n); return &null; }
+
+        if isa::<CXXLValueRefType>(t)      { t = cast::<CXXLValueRefType>(t)->referee; }
+        else if isa::<CXXRValueRefType>(t) { t = cast::<CXXRValueRefType>(t)->referee; }
+        t = canon_unqual(t);
+
+        if isa::<FixedArrayType>(t) {
+            dyn()->fail(n, f"a statement expression cannot yield an array ('{dyn()->tu.str(t)}\x27); an array is not copied implicitly");
+            return &null;
+        }
+        n->value_category = Expr::ValueCategory::RValue;
+        return t;
+    }
+
     fn type_delete(self, n: *DeleteExpr, expected: *Type) -> *Type {
         var t = dyn()->type_of(n->operand, &null);
         if dyn()->propagate(n, n->operand) { return &null; }
