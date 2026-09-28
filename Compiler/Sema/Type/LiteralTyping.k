@@ -615,7 +615,7 @@ class <T> LiteralTyping {
                 case 'b' { base = 3; }
                 case 'e' { base = 1; }
                 case 'E' { base = 1; flags |= static_cast::<u64>(FMT_UPPER()); }
-                default  { return self._spec_error(n, at, spelled, t, f"'{spelled.substr(i)}' is not a format type"); }
+                default  { return self._spec_error(n, at, spelled, t, f"'{spelled.raw_string().substr(i)}' is not a format type"); }
             }
             i += 1;
         }
