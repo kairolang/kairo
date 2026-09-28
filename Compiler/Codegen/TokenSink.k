@@ -72,6 +72,9 @@ class TokenSink derives EmitSink {
 
     priv var _arena_text: libcxx::string;
     priv var _dedup:      libcxx::unordered_map::<libcxx::string, u32>;
+    /// Kairo raw locations already given to a borrowed token. A second token
+    /// at one of them moves within its anchor, or to the arena: see _claim.
+    priv var _used:       libcxx::unordered_set::<u32>;
     priv var _sealed:     bool = false;
 
     fn TokenSink(self, pp: *clang::Preprocessor, csm: *clang::SourceManager,
@@ -244,12 +247,79 @@ class TokenSink derives EmitSink {
 
     /// # Construction internals
 
+    /// \brief a location for a borrowed token anchored at [\p loc, +\p len):
+    ///        \p loc itself when free, else the first free byte after it in
+    ///        the same file, else invalid -- then the token must be an arena
+    ///        token with its own expansion location.
+    ///
+    /// \details every token of one spell() string shares its anchor, so
+    ///          `decltype(sizeof(0))` was seven tokens at ONE location. Clang
+    ///          splices an annotation back into its backtracking cache by
+    ///          searching for the token whose location equals the
+    ///          annotation's start (Preprocessor::AnnotatePreviousCachedTokens).
+    ///          With duplicates it matched the wrong one and corrupted the
+    ///          stream, so any constructor taking a usize failed
+    ///          ("expected function body after function declarator"): the
+    ///          constructor-declarator check is a tentative parse, and it
+    ///          annotates `decltype(...)`. A unique location per token is
+    ///          the invariant; the caret still covers the same Kairo bytes.
+    ///
+    ///          Moving within the anchor comes before the arena: an arena
+    ///          token is a MACRO location, and clang warns when the two halves
+    ///          of a pair it checks (the `(` `{` opening a statement
+    ///          expression) sit in different expansion contexts.
+    ///
+    ///          Past the anchor, the search walks on through the SAME file:
+    ///          synthesized code reuses one source range for many nodes (an
+    ///          f-string's whole lowering hangs off its literal), so a 1-byte
+    ///          anchor is routinely taken, and landing a few bytes late keeps
+    ///          the token a file location, and then backward from the anchor.
+    ///          The file's own buffer bounds both -- the raw space runs on
+    ///          into the neighbouring fids.
+    priv fn _claim(self, loc: SourceLocation, len: u32) -> SourceLocation {
+        var dec   = self._csm->getDecomposedLoc(self._loc(loc));
+        var avail = self._csm->getBufferData(dec.first).size() - static_cast::<usize>(dec.second);
+        for var i: usize = 0; i < avail; ++i {
+            var at  = loc.advance(i);
+            var raw = at.raw();
+            if self._used.find(raw) != self._used.end() { continue; }
+            self._used.insert(raw);
+            return at;
+        }
+        // Then backward: a closer anchored near the end of a small file
+        // finds every later byte taken by its own opener's run.
+        var before = static_cast::<usize>(dec.second);
+        for var i: usize = 1; i <= before; ++i {
+            var at  = loc.with_offset(0 - static_cast::<i64>(i));
+            var raw = at.raw();
+            if self._used.find(raw) != self._used.end() { continue; }
+            self._used.insert(raw);
+            return at;
+        }
+        return SourceLocation::invalid();
+    }
+
+    /// The caret length left for a token moved \p at - \p loc bytes into
+    /// its anchor: the rest of the anchor, never zero.
+    priv fn _rest(self, loc: SourceLocation, at: SourceLocation, len: u32) -> u32 {
+        var moved = at.raw() - loc.raw();
+        if moved >= len { return 1; }
+        return len - moved;
+    }
+
     priv fn _punct(self, k: clang::tok::TokenKind, loc: SourceLocation, len: u32) -> bool {
+        var at = self._claim(loc, len);
+        if !at.is_valid() {
+            var p  = clang::tok::getPunctuatorSpelling(k);
+            ICE_IF(p == &null, "TokenSink::_punct: kind has no punctuator spelling");
+            var ns = nstring(p, libcxx::strlen(p));
+            return self._arena_tok(k, SourceRange::from_bounds(loc, len), ns);
+        }
         var t = self._tokens.slot();
         t->startToken();
         t->setKind(k);
-        t->setLocation(self._loc(loc));
-        t->setLength(len);
+        t->setLocation(self._loc(at));
+        t->setLength(self._rest(loc, at, len));
         return true;
     }
 
@@ -258,12 +328,22 @@ class TokenSink derives EmitSink {
     }
 
     priv fn _ident_lit(self, name: llvm::StringRef, loc: SourceLocation, len: u32) -> bool {
+        var at = self._claim(loc, len);
+        if !at.is_valid() {
+            // Clang reads an identifier's spelling from its IdentifierInfo,
+            // and TokenLexer re-kinds it from the same (`decltype` becomes
+            // kw_decltype), so the arena copy only buys the location.
+            var ns = nstring(name.data(), name.size());
+            self._arena_tok(clang::tok::identifier, SourceRange::from_bounds(loc, len), ns);
+            self._tokens.get(self._tokens.size() - 1)->setIdentifierInfo(self._pp->getIdentifierInfo(name));
+            return true;
+        }
         var t = self._tokens.slot();
         t->startToken();
         t->setKind(clang::tok::identifier);
         t->setIdentifierInfo(self._pp->getIdentifierInfo(name));
-        t->setLocation(self._loc(loc));
-        t->setLength(len);
+        t->setLocation(self._loc(at));
+        t->setLength(self._rest(loc, at, len));
         return true;
     }
 
@@ -274,6 +354,12 @@ class TokenSink derives EmitSink {
         if it != self._dedup.end() { return it->second; }
         var off = static_cast::<u32>(self._arena_text.size());
         self._arena_text.append(key);
+        // A separator no pp-number can continue through. NumericLiteralParser
+        // reads ONE byte past the token (Sema::ActOnNumericConstant: "wants to
+        // overread by one character") and trusts it to end the number; packed
+        // back to back, `256` followed by `512` failed to lex. Offsets and
+        // lengths are unaffected: the byte is never part of a token.
+        self._arena_text.push_back('\n');
         self._dedup.insert(libcxx::make_pair(key, off));
         return off;
     }
