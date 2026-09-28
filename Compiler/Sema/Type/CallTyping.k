@@ -339,6 +339,19 @@ class <T> CallTyping {
                 return self._call_candidates(n, &cands, false, &null, dyn()->sc->ctx->get_spelling(id->name),
                                              id, &null, true);
             }
+            // `u32(x)`: the parser admits a primitive before `(`, but Kairo
+            // converts with `as` (casting.md), and a type is not callable.
+            // N leaves the head unbound on purpose; without this the call
+            // would fall to mark_unknown below and type as nothing, silently.
+            if is_annotation(id->name.kind) {
+                var sp = dyn()->sc->ctx->get_spelling(id->name);
+                dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    f"'{sp}' is a type, not a function; convert with 'x as {sp}\x27"
+                ).first(n->range).emit();
+                id->poison();
+                n->poison();
+                return &null;
+            }
             if !id->is_bound() { dyn()->mark_unknown(n); return &null; }
 
             var d = id->resolved_decl;

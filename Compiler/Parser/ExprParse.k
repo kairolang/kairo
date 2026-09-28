@@ -1970,15 +1970,18 @@ class <T> ExprParse {
             return RangeExpr::create(dyn()->ctx, op_range | end_range, &null, rhs, is_inclusive);
         }
 
-        // -- primitive conversion: u32(-1), usize(argc) ---------------
+        // -- primitive head: u32(-1), usize(argc), i32::MAX ------------
         // A primitive type token is not a value, so it can only open an
-        // expression when it is immediately applied. Gating on the `(`
-        // keeps a bare `u32` in value position reporting "expected
-        // expression" instead of silently parsing as a name. Postfix
-        // then sees the `(` and builds the CallExpr.
+        // expression when something follows that makes it one: `(` applies
+        // it (a conversion), `::` names a member of it (an associated
+        // constant). Gating on those two keeps a bare `u32` in value position
+        // reporting "expected expression" instead of silently parsing as a
+        // name. Postfix then sees the `(` or `::` and builds the CallExpr or
+        // the chain, exactly as it does after an identifier.
         if dyn()->check(fn(k: TokenKind) -> bool {
             return is_annotation(k);
-        }) && ((dyn()->ig_peek_kind()) == TokenKind::OpLParen) {
+        }) && (((dyn()->ig_peek_kind()) == TokenKind::OpLParen)
+            || ((dyn()->ig_peek_kind()) == TokenKind::OpColonColon)) {
             return self._parse_ident_expr();
         }
 

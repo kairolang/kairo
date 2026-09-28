@@ -254,6 +254,7 @@ class NameBindingVerifier derives RecursiveASTVisitor::<NameBindingVerifier> {
         if n == &null { return true; }
         if n->is_bound() || n->is_deferred() { return true; }
         if n->is_poisoned() { return true; }   // unbound BECAUSE it was diagnosed.
+        if is_annotation(n->name.kind) { return true; }   // a primitive head: see visit_named_ident_expr.
 
         self.violations += 1;
         var nm = self.sc->ctx->get_spelling(n->name);
@@ -1665,6 +1666,11 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         var imm = self._name_imm(n->name);
         if imm == u32(-1) {
             if n->name.kind == TokenKind::BiSelf { return self._bind_self_type(n); }
+            // A primitive type heading an expression (`i32::MAX`, `u32(-1)`;
+            // the parser admits one only before `::` or `(`) names no decl,
+            // so there is nothing to bind. Left unbound ON PURPOSE for the
+            // pass that sees what follows it: ChainBinding for `::`,
+            // CallTyping for `(`. NameBindingVerifier skips it.
             return true;   // not an identifier: nothing to bind.
         }
 

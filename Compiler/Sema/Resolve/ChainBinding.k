@@ -215,6 +215,28 @@ class ChainBinding derives RecursiveASTVisitor::<ChainBinding> {
                 return a;
             }
             
+            // A primitive head (`f128::MAX`). N leaves it unbound on purpose;
+            // this is the first pass that sees the member after it. A
+            // primitive declares no members, so this is the type-position
+            // R024E in expression position, naming what was asked for.
+            if is_annotation(id->name.kind) {
+                var sp = self.sc->ctx->get_spelling(id->name);
+                var what = "a member";
+                if n->steps.size() > 0 {
+                    var st0 = n->steps.get(0);
+                    if (st0 != &null) && (st0->name != &null) {
+                        what = f"'{self.sc->ctx->get_spelling(st0->name->name)}\x27";
+                    }
+                }
+                self.sc->diag->report(DiagID::R024E, n->range.start,
+                    f"'{sp}' is a primitive type; it has no member {what}"
+                ).first(n->range).emit();
+                id->poison();
+                n->poison();
+                a.kind = AnchorKind::Errored;
+                return a;
+            }
+
             if !id->is_bound() { // N diagnosed.
                 a.kind = AnchorKind::Errored;
                 return a;
