@@ -92,6 +92,7 @@ struct HeaderFile {
 struct IncludeEdge {
     var from_path: string;      ///< "" for the injected main (a direct import).
     var to_path:   string;
+    var c_linkage: bool = false;   ///< a direct import written `ffi "c"`: phase B re-wraps it in extern "C".
 }
 
 /// Stage 0 forward: both classes below name HeaderSet before it is defined,
@@ -135,6 +136,11 @@ class HeaderSetAction derives clang::ASTFrontendAction {
 class HeaderSet {
     pub var key:      string;                 ///< headers joined by '\n', in source order, deduped.
     pub var headers:  vec::<string>;          ///< as spelled in the .k files.
+    /// Parallel to `headers`: imported as `ffi "c"`. The set is parsed as C++,
+    /// so a C header is included inside `extern "C" { }`; one that guards
+    /// itself with `#ifdef __cplusplus` is unaffected, one that does not
+    /// would otherwise get C++ linkage and never link against its C object.
+    pub var c_linkage: vec::<bool>;
     pub var import_dir: string;               ///< directory of the first importing file: `-I` for quoted includes.
     pub var id:       u32 = 0;                ///< cache-assigned, dense; names the PCH mount.
 
@@ -200,6 +206,24 @@ class HeaderSet {
     fn sema_lock(self) -> *std::RecursiveMutex { return &(self._sema_mu); }
 
     fn pch_path(self) -> string { return f"/kairo/pch/{self.id}.pch"; }
+
+    /// Phase B's textual include of this set when it has a C header: one
+    /// in-memory header replaying the direct includes, the C ones inside
+    /// extern "C". Preprocessor `Includes` cannot wrap a path themselves.
+    fn wrap_path(self) -> string { return f"/kairo/pch/{self.id}.h"; }
+
+    fn has_c_linkage(self) -> bool {
+        for var i: usize = 0; i < self.c_linkage.size(); ++i { if self.c_linkage[i] { return true; } }
+        return false;
+    }
+
+    /// Whether \p spelled (as written in the .k, unquoted) was imported `ffi "c"`.
+    fn is_c_header(self, spelled: string) -> bool {
+        for var i: usize = 0; i < self.headers.size(); ++i {
+            if (self.headers[i] == spelled) && (i < self.c_linkage.size()) { return self.c_linkage[i]; }
+        }
+        return false;
+    }
 
     /// A header as written in the .k, minus the literal's quotes (and angle
     /// brackets, if someone wrote `"<vector>"`). The one spelling: the PP keys
@@ -283,9 +307,12 @@ class HeaderSet {
         self._main = libcxx::string();
         for var i: usize = 0; i < self.headers.size(); ++i {
             var h = std::string_to_nstring(self.headers[i]).raw_string();
+            var c = (i < self.c_linkage.size()) && self.c_linkage[i];
+            if c { self._main.append(r"extern \"C\" \x7B\n"); }
             self._main.append(r"#include \"");
             self._main.append(h);
             self._main.append(r"\"\n");
+            if c { self._main.append(r"\x7D\n"); }
         }
         var buf = llvm::MemoryBuffer::getMemBuffer(
             llvm::StringRef(self._main.data(), self._main.size()), r"<injected>", false);
@@ -423,17 +450,23 @@ class HeaderSetCache {
         self._sets.clear();
     }
 
-    static fn key_of(headers: ref!(vec::<string>)) -> string {
+    /// The language is part of the key: one header imported as C and as C++
+    /// is two parses with two linkages, never one shared set.
+    static fn key_of(headers: ref!(vec::<string>), c_linkage: ref!(vec::<bool>)) -> string {
         var k: string = "";
-        for var i: usize = 0; i < headers.size(); ++i { k += headers[i]; k += "\n"; }
+        for var i: usize = 0; i < headers.size(); ++i {
+            if (i < c_linkage.size()) && c_linkage[i] { k += "c:"; }
+            k += headers[i];
+            k += "\n";
+        }
         return k;
     }
 
     /// Get-or-mint. Mint enqueues the build. Any thread: PPWalker::_finalize
     /// calls this from the pool (the wave walks files in parallel); `_mu`
     /// covers the map, and the build touches only the set it was given.
-    fn request(self, headers: vec::<string>, import_dir: string) -> *HeaderSet {
-        var key = HeaderSetCache::key_of(headers);
+    fn request(self, headers: vec::<string>, c_linkage: vec::<bool>, import_dir: string) -> *HeaderSet {
+        var key = HeaderSetCache::key_of(headers, c_linkage);
         var nk  = libcxx::string(std::string_to_nstring(key).raw_string());
         var lock = std::LockGuard(self._mu);
         var it = self._sets.find(nk);
@@ -442,6 +475,7 @@ class HeaderSetCache {
         var hs = std::create::<HeaderSet>();
         hs->key        = key;
         hs->headers    = headers;
+        hs->c_linkage  = c_linkage;
         hs->import_dir = import_dir;
         hs->id         = static_cast::<u32>(self._sets.size());
         self._sets.insert(libcxx::make_pair(nk, hs));
@@ -523,6 +557,9 @@ fn HeaderSetPPCallbacks::InclusionDirective(
         var fn_ = from_fe->getName();
         e.from_path = string(fn_.data(), fn_.size());
         if e.from_path == "<injected>" { e.from_path = ""; }
+    }
+    if e.from_path.size() == 0 {
+        e.c_linkage = self._set->is_c_header(string(file_name.data(), file_name.size()));
     }
     self._set->includes.push_back(e);
 }

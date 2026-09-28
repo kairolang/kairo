@@ -246,6 +246,16 @@ class ClangBackend {
     fn vfs(self)        -> llvm::IntrusiveRefCntPtr::<llvm::vfs::FileSystem> { return self._vfs; }
     fn mem_fs(self)     -> *llvm::vfs::InMemoryFileSystem { return self._mem.get(); }
 
+    /// Driver thread only. A generated header, copied in; addFile keeps the
+    /// first mount of a path, so a second call is a no-op.
+    fn mount_text(self, path: string, text: string) {
+        var np  = std::string_to_nstring(path);
+        var nt  = std::string_to_nstring(text);
+        var buf = llvm::MemoryBuffer::getMemBufferCopy(
+            llvm::StringRef(nt.raw(), nt.size()), llvm::StringRef(np.raw()));
+        self._mem->addFile(llvm::Twine(np.raw()), 0, libcxx::move(buf));
+    }
+
     /// Driver thread only. Idempotent per path.
     fn mount_pch(self, path: string, data: *llvm::SmallVector::<std::Legacy::char, 0>) {
         var np  = std::string_to_nstring(path);

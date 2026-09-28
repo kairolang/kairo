@@ -207,6 +207,23 @@ class CodegenBackend derives TokenFiller {
             }
             for var i: usize = textual_from; i < self._sets.size(); ++i {
                 var s = self._sets[i];
+                // A set with an `ffi "c"` header: the same direct includes,
+                // by the same resolved paths, but through one mounted wrapper
+                // so the C ones stay extern "C" as phase A parsed them.
+                if s->has_c_linkage() {
+                    var w = "";
+                    for var e: usize = 0; e < s->includes.size(); ++e {
+                        if s->includes[e].from_path.size() != 0 { continue; }
+                        if s->includes[e].c_linkage { w += "extern \x22C\x22 {\n"; }
+                        w += "#include \x22";
+                        w += s->includes[e].to_path;
+                        w += "\x22\n";
+                        if s->includes[e].c_linkage { w += "}\n"; }
+                    }
+                    self._be->mount_text(s->wrap_path(), w);
+                    ppo->Includes.push_back(libcxx::string(std::string_to_nstring(s->wrap_path()).raw_string()));
+                    continue;
+                }
                 for var e: usize = 0; e < s->includes.size(); ++e {
                     if s->includes[e].from_path.size() != 0 { continue; }   // direct includes; the rest follow.
                     ppo->Includes.push_back(libcxx::string(std::string_to_nstring(s->includes[e].to_path).raw_string()));

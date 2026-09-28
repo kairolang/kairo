@@ -96,6 +96,9 @@ class PPWalker
     /// requests. Order is part of the key because it is part of the meaning:
     /// a header may depend on what an earlier one declared or defined.
     priv var _ffi_headers: vec::<string>;
+    /// Parallel to _ffi_headers: written `ffi "c"`. Carried into the set so
+    /// the C ones are parsed, and linked, as extern "C".
+    priv var _ffi_c:       vec::<bool>;
     /// Null in tooling runs with no clang: ffi imports then resolve to nothing.
     priv var _headers:     obs::<HeaderSetCache> = &null;
 
@@ -423,7 +426,10 @@ class PPWalker
                 for var i: usize = 0; i < self._ffi_headers.size(); ++i {
                     if self._ffi_headers[i] == h { dup = true; break; }
                 }
-                if (!dup) && (h.size() > 0) { self._ffi_headers.push_back(h); }
+                if (!dup) && (h.size() > 0) {
+                    self._ffi_headers.push_back(h);
+                    self._ffi_c.push_back(self._ffi_lang_kind(lang_tok) == LinkageKind::C);
+                }
             }
             return;
         }
@@ -2302,7 +2308,7 @@ class PPWalker
         // importing the same headers in the same order shares the set. The
         // quoted-include directory is THIS file's, as for a .cpp beside it.
         if (self._headers != &null) && (self._ffi_headers.size() > 0) {
-            var hs = self._headers->request(self._ffi_headers, self._sm->get_file_dir(self._fid).full_path());
+            var hs = self._headers->request(self._ffi_headers, self._ffi_c, self._sm->get_file_dir(self._fid).full_path());
             self._tu->header_set = reinterpret_cast::<*void>(hs);
         }
     }
