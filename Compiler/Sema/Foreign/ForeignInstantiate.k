@@ -172,24 +172,39 @@ class ForeignInstantiate {
         if sink != &null { da = hs->begin_diag(sink); }
         finally { hs->end_diag(da); }
 
-        // 2. the args, spelled in THIS set's AST.
-        var tx = TypeExport(cctx, csema, reinterpret_cast::<*void>(hs));
-        tx.reg       = self._reg;
-        tx.psym      = self.psym;
-        tx.instances = self._instances;
-        var qs: llvm::SmallVector::<clang::QualType, 8>;
-        for var i: usize = 0; i < e->args.size(); ++i {
-            var q = tx.to_clang(e->args[i]);
-            if q.isNull() { self._why = f"template argument {i} has no clang spelling in phase A"; return false; }
-            qs.push_back(q);
+        // 2. the specialization. When the shell was imported FROM one in this
+        //    set's AST, that decl is the answer: the Kairo args are lossy
+        //    (ForeignRegistry::note_spec) and re-spelling them can name a
+        //    different specialization. Otherwise spell the args in THIS
+        //    set's AST and ask for the template-id.
+        var ty = clang::QualType();
+        var hint = reinterpret_cast::<*clang::ClassTemplateSpecializationDecl>(self._reg->spec_of(shell));
+        if hint != &null {
+            // A decl of another set's AST is not usable here; the address
+            // goes through a `var` because Stage 0 drops a leading `&(...)`
+            // inside a comparison.
+            var hint_ctx = &(hint->getASTContext());
+            if hint_ctx == cctx { ty = clang::QualType(cctx->getCanonicalTagType(hint)); }
+        }
+        if ty.isNull() {
+            var tx = TypeExport(cctx, csema, reinterpret_cast::<*void>(hs));
+            tx.reg       = self._reg;
+            tx.psym      = self.psym;
+            tx.instances = self._instances;
+            var qs: llvm::SmallVector::<clang::QualType, 8>;
+            for var i: usize = 0; i < e->args.size(); ++i {
+                var q = tx.to_clang(e->args[i]);
+                if q.isNull() { self._why = f"template argument {i} has no clang spelling in phase A"; return false; }
+                qs.push_back(q);
+            }
+            ty = tx.template_id(ct, qs);
+            if ty.isNull() { self._why = "clang rejected the template-id"; return false; }
         }
 
-        // 3. declare + complete. RequireCompleteType is what instantiates the
-        //    class definition: member DECLARATIONS, which is all sema needs.
+        // 3. complete. RequireCompleteType is what instantiates the class
+        //    definition: member DECLARATIONS, which is all sema needs.
         //    Member function bodies stay pending; phase B instantiates those
         //    itself from the PCH.
-        var ty = tx.template_id(ct, qs);
-        if ty.isNull() { self._why = "clang rejected the template-id"; return false; }
         var diags  = &(csema->getDiagnostics());
         var before = diags->getNumErrors();
         var incomplete = csema->RequireCompleteType(ct->getLocation(), ty, clang::diag::err_incomplete_type);

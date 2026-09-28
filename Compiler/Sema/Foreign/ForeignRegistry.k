@@ -25,6 +25,7 @@ import AST::Node::Base::*;
 class ForeignRegistry {
     priv var _by_usr: libcxx::unordered_map::<libcxx::string, *Decl>;
     priv var _mu:     std::SharedMutex;
+    priv var _spec_of: libcxx::unordered_map::<*Decl, *void>;   ///< see note_spec().
 
     fn ForeignRegistry(self) { self._by_usr.reserve(4096); }
 
@@ -48,5 +49,29 @@ class ForeignRegistry {
     fn size(self) -> usize {
         var rlock = std::SharedLock(self._mu);
         return self._by_usr.size();
+    }
+
+    /// The clang specialization an instance shell was IMPORTED from, when
+    /// TypeImport made the shell from one (`std::ostream` is
+    /// `basic_ostream<char>`). A fill completes that decl rather than
+    /// re-spelling the shell's Kairo args: the args are lossy -- C++ `char`
+    /// and `signed char` both import as `i8`, and `i8` exports as
+    /// `signed char` -- so a round trip can name a DIFFERENT specialization,
+    /// one the header may not even allow (`basic_ostream<signed char,
+    /// char_traits<char>>` trips libc++'s static_assert). First writer wins,
+    /// as for put(). The decl belongs to one set's ASTContext; the reader
+    /// checks that before using it.
+    fn note_spec(self, shell: *Decl, spec: *void) {
+        if (shell == &null) || (spec == &null) { return; }
+        var lock = std::LockGuard(self._mu);
+        if self._spec_of.find(shell) != self._spec_of.end() { return; }
+        self._spec_of.insert(libcxx::make_pair(shell, spec));
+    }
+
+    fn spec_of(self, shell: *Decl) -> *void {
+        var rlock = std::SharedLock(self._mu);
+        var it = self._spec_of.find(shell);
+        if it == self._spec_of.end() { return &null; }
+        return it->second;
     }
 }

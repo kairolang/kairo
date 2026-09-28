@@ -291,6 +291,11 @@ class TypeImport {
             var rep = NameLookup::representative(prim);
             if dep { return self.store->record(rep, &args); }
             var e = self.instances->instance_for(rep, &args, self.fid, NameLookup::ctx_of(rep));
+            // `args` cannot always name `spec` back (`char` imports as i8);
+            // remember the exact decl for ForeignInstantiate.
+            if (e != &null) && (self.reg != &null) {
+                self.reg->note_spec(e->decl, reinterpret_cast::<*void>(spec));
+            }
             var inst = (e->decl) if (e != &null) else (rep);
             return self.store->record(inst, &args);
         }

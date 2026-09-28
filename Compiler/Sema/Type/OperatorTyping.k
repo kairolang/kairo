@@ -647,6 +647,12 @@ class <T> OperatorTyping {
         if ot == &null { return &null; }
         // `v.at(i)` is `i32&`; every arm below classifies the value it names,
         // and `&`/`*` want the referee too -- `&v.at(i)` is `*i32`, as in C++.
+        // `&` keeps the lvalue's cv, though: as_value drops it, and taking the
+        // address of a `const i32` must give `*const i32`, not a `*i32` that
+        // launders the qualifier away.
+        var place = ot;
+        if isa::<CXXLValueRefType>(place)      { place = cast::<CXXLValueRefType>(place)->referee; }
+        else if isa::<CXXRValueRefType>(place) { place = cast::<CXXRValueRefType>(place)->referee; }
         ot = dyn()->tu.as_value(ot);
 
         // user operator first for non-primitives. `++`/`--` keep only the
@@ -690,7 +696,7 @@ class <T> OperatorTyping {
                     dyn()->fail(n, "cannot take the address of a temporary");
                     return &null;
                 }
-                return dyn()->sc->types->pointer(ot, false);
+                return dyn()->sc->types->pointer(place, false);
             }
             case TokenKind::OpStar {
                 var p = dyn()->tu.pointee(ot);
