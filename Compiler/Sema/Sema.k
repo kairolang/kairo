@@ -54,6 +54,8 @@ import Sema::Type::ExprTyper::*;
 import Sema::Lower::OperatorLowering::*;
 import Sema::Lower::ListLiteralLowering::*;
 import Sema::Lower::SequenceLowering::*;
+import Sema::Lower::FStringLowering::*;
+import Sema::Lower::StringLowering::*;
 import AST::Context::ASTContext::*;
 import AST::Context::GlobalDisambigTable::*;
 import Support::TimeReport::*;
@@ -321,6 +323,12 @@ class Sema {
         self.sc.require_phase(SemaPhase::Checked);
 
         { var _p = TimeRegion("OperatorLowering"); OperatorLowering(&self.sc).run(); }
+        // An f-string becomes one FmtBuf and straight-line puts. After
+        // OperatorLowering (a hole may hold a user operator); before
+        // StringLowering (a plain `string` literal inside a hole is still a
+        // literal here). Everything it mints is pure or single-use, so its
+        // position relative to SequenceLowering is free.
+        { var _p = TimeRegion("FStringLowering"); FStringLowering(&self.sc).run(); }
         // TODO(sema): CallLowering(&self.sc).run();        // goes HERE, before
         //             SequenceLowering: defaults are filled first, so a thunk
         //             call is an impure argument and gets ordered with the rest.
@@ -332,6 +340,9 @@ class Sema {
         // operator, and this pass builds constructor calls that must not be
         // re-read as operator nodes.
         { var _p = TimeRegion("ListLiteralLowering"); ListLiteralLowering(&self.sc).run(); }
+        // Last: a literal is pure until it is a constructor call, and
+        // SequenceLowering must not hoist every `"hi"` argument into a local.
+        { var _p = TimeRegion("StringLowering"); StringLowering(&self.sc).run(); }
         // TODO(sema): ExtensionLowering(&self.sc).run();     // folds extends
         // TODO(sema): UsingDeclSynthesis(&self.sc).run();    // emits implicit
         //             using Base::name; for merged base overloads C++ would

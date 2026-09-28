@@ -16,3 +16,4 @@
 pub import containers::*
 pub import string::*
 pub import lang::*
+pub import fmt::*

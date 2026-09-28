@@ -682,11 +682,31 @@ class EmitIR {
         sink->spell(e->range, ")");
     }
 
+    /// What reaches here is the BYTE literal StringLowering or FStringLowering
+    /// minted, typed as a pointer, spelled from its decoded bytes. Octal for
+    /// every byte outside printable ASCII: C++'s `\x` is greedy, octal is not.
     priv fn _string(self, n: *StringLiteralExpr) {
-        ICE_IF(n->has_next(), "EmitIR: multi-part string literal; Lower/ must concatenate it");
         ICE_IF(n->is_format(), "EmitIR: f-string; FStringLowering owns it");
-        var final_str = std::string_to_nstring(n->get_spelling());
-        sink->create_str(n->token, final_str);
+        ICE_IF(n->has_next(), "EmitIR: multi-part string literal; StringLowering owns it");
+        var c = canon_unqual(n->type_);
+        ICE_IF((c == &null) || (c->kind != TypeKind::PointerType), "EmitIR: string literal typed `string`; StringLowering owns it");
+        ICE_IF((n->imm == &null) || (!n->imm->has_owned_text()), "EmitIR: byte literal with no minted bytes; LowerSynth::bytes_literal owns it");
+        var p = n->imm->owned_ptr;
+        var len = static_cast::<usize>(n->imm->owned_len);
+        var s = "\"";
+        for var i: usize = 0; i < len; ++i {
+            var b = p[i];
+            if b == 0x22 { s += "\\\""; continue; }
+            if b == 0x5c { s += "\\\\"; continue; }
+            if (b >= 0x20) && (b < 0x7f) { s += static_cast::<char>(b); continue; }
+            s += "\\";
+            s += static_cast::<char>('0' + ((b >> 6) & 7));
+            s += static_cast::<char>('0' + ((b >> 3) & 7));
+            s += static_cast::<char>('0' + (b & 7));
+        }
+        s += "\"";
+        var cxx = std::string_to_nstring(s);   // all ASCII, so the wide round trip is exact.
+        sink->create_str(n->token, cxx);
     }
 
     // --- Names -------------------------------------------------------------------

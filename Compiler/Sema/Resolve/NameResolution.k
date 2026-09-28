@@ -483,6 +483,7 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::PanicCatch, "PanicCatch");
         self._bind_lang(root, WellKnownType::AssertFail, "AssertFail");
         self._bind_lang(root, WellKnownType::Pow,        "pow");
+        self._bind_lang(root, WellKnownType::FmtBuf,     "FmtBuf");
     }
 
     /// One lang item, by the name it is DECLARED with in Lib/builtin. The old
