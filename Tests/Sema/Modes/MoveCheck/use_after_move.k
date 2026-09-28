@@ -37,10 +37,10 @@ fn main() {
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //
-// DIAG:      use_after_move.k:7:{{[0-9]+}}: error [SC001E]: 'a' is used after being moved
+// DIAG:      use_after_move.k:7:{{[0-9]+}}: error [SC052E]: 'a' is used after being moved
 // DIAG-NEXT: use_after_move.k:6:{{[0-9]+}}: note
 // DIAG-NOT:  use_after_move.k:12:{{[0-9]+}}: error
-// DIAG:      use_after_move.k:16:{{[0-9]+}}: error [SC001E]: 'c' is used after being moved
+// DIAG:      use_after_move.k:16:{{[0-9]+}}: error [SC052E]: 'c' is used after being moved
 // DIAG-NOT:  use_after_move.k:20:{{[0-9]+}}: error
-// DIAG:      use_after_move.k:23:{{[0-9]+}}: error [SC001E]: 'e' is used after being moved
+// DIAG:      use_after_move.k:23:{{[0-9]+}}: error [SC052E]: 'e' is used after being moved
 // DIAG-NOT:  {{error|warning}} [

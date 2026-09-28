@@ -18,7 +18,7 @@ fn use_ptrs() {
     g2(r)
 }
 
-// DIAG:      ptr_const_overload.k:18:5: error [SC001E]: no matching overload for call to 'g2'
+// DIAG:      ptr_const_overload.k:18:5: error [SC063E]: no matching overload for call to 'g2'
 // DIAG-NEXT: ptr_const.h:10:1: note [I900N]: candidate not viable: cannot convert argument of type 'unsafe *unsafe *i32' to parameter 'pp' of type 'unsafe *unsafe *const i32'
 // DIAG-NOT:  error
 

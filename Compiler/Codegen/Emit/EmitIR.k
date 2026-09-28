@@ -490,7 +490,7 @@ class EmitIR {
         } else {
             if n->type_ == &null {
                 var nm = self._cg->ctx->get_spelling(n->name);
-                self._cg->ctx->diag_sink.report(DiagCode(DiagID::I001W), n->name.range.start,
+                self._cg->ctx->diag_sink.report(DiagCode(DiagID::I011W), n->name.range.start,
                     f"internal: '{nm}' reached codegen with no inferred type; This is a compiler bug; please report it with the source that triggered it"
                 ).first(n->name.range).emit();
                 sink->kw_auto(n->name);

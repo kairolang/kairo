@@ -31,7 +31,7 @@ fn use_overloads() -> i32 {
     return a + c + d
 }
 
-// DIAG:     error [SC001E]: no conversion from 'i32' to 'Only'
+// DIAG:     error [SC027E]: no conversion from 'i32' to 'Only'
 // DIAG-NOT: error
 
 // SEMA:      use     pick  {{.*}} -> 2 candidate(s), deferred to overload resolution  [import overlay]

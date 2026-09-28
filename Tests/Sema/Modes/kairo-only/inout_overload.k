@@ -21,7 +21,7 @@ fn main() {
 // RUN: { %kairo %s --type-check-only --print-sema 2>/dev/null || true; } | %FileCheck %s --check-prefix=SEMA
 //
 // DIAG-NOT: inout_overload.k:{{[1-7]}}:{{[0-9]+}}: error
-// DIAG:     inout_overload.k:8:{{[0-9]+}}: error [SC001E]: no matching overload for call to 'f'
+// DIAG:     inout_overload.k:8:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'f'
 // DIAG-NOT: {{error|warning}} [
 //
 // SEMA:      -- name bindings --

@@ -1605,9 +1605,9 @@ class CompilerInstance {
             var STI = T->createMCSubtargetInfo(tt.getTriple(), r"", r"");
             finally { delete STI; }
             if !STI->isCPUStringValid(std::string_to_nstring(self._inv.target.mcpu).raw()) {
-                self._diag->report(DiagID::P001E,
+                self._diag->report(DiagID::P006E,
                     f"unknown target CPU '{self._inv.target.mcpu}' for target '{t->effective_triple}\x27").emit();
-                self._diag->report(DiagID::P001N, // Maybe add a new diagnostic catogery for this? like Driver?
+                self._diag->report(DiagID::P006N, // Maybe add a new diagnostic catogery for this? like Driver?
                     f"run with --print-cpus --target={t->effective_triple} to list valid values").emit();
                 self.invocation().ok = false;
                 return;
@@ -2324,7 +2324,7 @@ fn FrontendAction::_codegen() -> bool {
         // draining before it would silently drop the last diagnostic.
         be->end_tu(adapter);
         sink.drain_into(self._ci->diag(), self._ci->sm());
-        // Codegen's OWN reports (EmitIR's I001W, CODEGEN.md section 8) go to
+        // Codegen's OWN reports (EmitIR's I011W, CODEGEN.md section 8) go to
         // the TU's diag_sink, whose last drain was after sema. Undrained, they
         // were never shown and the sink ICEd in its destructor at exit.
         ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);

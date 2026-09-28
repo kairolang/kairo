@@ -133,7 +133,7 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
         }
 
         if ((sym == "++") || (sym == "--")) && (!OperatorFacts::has_fixity(f)) {
-            self.sc->diag->report(DiagID::SC001W, f->range.start,
+            self.sc->diag->report(DiagID::SC053W, f->range.start,
                 f"'op {sym}' does not say which form it is; prefix is assumed -- write 'op l{sym}' (prefix) or 'op r{sym}' (postfix)"
             ).first(f->range).emit();
         }
@@ -238,7 +238,7 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
             var g = base->get(0);
             var sym = OperatorFacts::symbol(f);
             var bsym = OperatorFacts::symbol(cast::<FunctionDecl>(g));
-            self.sc->diag->report(DiagID::SC001E, f->range.start,
+            self.sc->diag->report(DiagID::SC054E, f->range.start,
                 f"'op {sym}' and 'op {bsym}' are both declared; a type declares one of the pair and the other is derived from it"
             ).first(f->range)
              .note(g->range.start, f"'op {bsym}' is declared here").first(g->range)
@@ -248,7 +248,7 @@ class OperatorSignatureCheck derives RecursiveASTVisitor::<OperatorSignatureChec
     }
 
     priv fn _err(self, f: *FunctionDecl, msg: string) {
-        self.sc->diag->report(DiagID::SC001E, f->range.start, msg).first(f->range).emit();
+        self.sc->diag->report(DiagID::SC055E, f->range.start, msg).first(f->range).emit();
         f->poison();
     }
 }

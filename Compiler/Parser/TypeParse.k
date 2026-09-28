@@ -337,7 +337,7 @@ class <T> TypeParse {
         // modes itself (_parse_fn_ptr_params) and never lets one reach here.
         if dyn()->_peek_mode() != ParamMode::Value {
             var mr = dyn()->_consume_mode();
-            dyn()->diag->report(DiagID::S001E, mr.start,
+            dyn()->diag->report(DiagID::S069E, mr.start,
                 "a passing mode is not part of a type; write it on the parameter "
                 "('@inout x: T'); in a function pointer type the mode goes before "
                 "the parameter type ('fn(@inout T)')"

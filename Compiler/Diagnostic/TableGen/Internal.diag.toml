@@ -278,3 +278,22 @@ group = "Diagnostics"
     explain = "Internal Diagnostic Sentinel (Error)"
     [I900.F]
     explain = "Internal Diagnostic Sentinel (Fatal)"
+
+[I011]
+brief = "declaration reached codegen with no inferred type"
+group = "internal"
+
+    [I011.W]
+    explain = """
+    # no inferred type at codegen
+
+    a binding written without a type reached code generation with no type inferred for it. sema is
+    responsible for giving every such binding a type or diagnosing it, so this is a bug in the
+    compiler, not in the program. codegen falls back to emitting `auto`, which usually still
+    compiles, hence a warning rather than an error.
+
+    ## how to fix
+
+    nothing in the source is at fault. please file a bug report with the source that triggered it;
+    writing the binding's type explicitly works around it.
+    """

@@ -13,7 +13,7 @@ fn use_buf(b: *Buf, k: *const Buf) {
     k->clear()
 }
 
-// DIAG:      recv_const.k:13:5: error [SC001E]: no matching overload for call to 'clear'
+// DIAG:      recv_const.k:13:5: error [SC063E]: no matching overload for call to 'clear'
 // DIAG-NEXT: recv_const.h:{{[0-9]+}}:{{[0-9]+}}: note [I900N]: candidate not viable: 'clear' is not const; it cannot be called on a const object
 // DIAG-NOT:  error
 

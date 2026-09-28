@@ -43,6 +43,6 @@ fn Bad() {
 // SEMA-DAG: StmtExpr @ 18:13 : i32
 // SEMA-DAG: StmtExpr @ 19:5 : void
 //
-// DIAG: stmt_expr.k:24:21: error [SC001E]: cannot convert 'i32' to 'string'
-// DIAG: stmt_expr.k:26:13: error [SC001E]: a statement expression cannot yield an array ('[i32; 2]'); an array is not copied implicitly
+// DIAG: stmt_expr.k:24:21: error [SC028E]: cannot convert 'i32' to 'string'
+// DIAG: stmt_expr.k:26:13: error [SC089E]: a statement expression cannot yield an array ('[i32; 2]'); an array is not copied implicitly
 // DIAG-NOT: error

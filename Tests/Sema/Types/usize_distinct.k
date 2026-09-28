@@ -14,9 +14,9 @@ fn implicit_out(x: usize) -> u64 { return x }
 fn signed_in(x: i64) -> isize { return x }
 
 // The `as` spellings (lines 9-10) are clean; each implicit crossing is one
-// SC001E at the returned value, and nothing else is reported.
+// SC028E at the returned value, and nothing else is reported.
 // DIAG-NOT:  usize_distinct.k:{{9|10}}:
-// DIAG:      usize_distinct.k:12:42: error [SC001E]: cannot convert 'u64' to 'usize'
-// DIAG-NEXT: usize_distinct.k:13:43: error [SC001E]: cannot convert 'usize' to 'u64'
-// DIAG-NEXT: usize_distinct.k:14:40: error [SC001E]: cannot convert 'i64' to 'isize'
+// DIAG:      usize_distinct.k:12:42: error [SC028E]: cannot convert 'u64' to 'usize'
+// DIAG-NEXT: usize_distinct.k:13:43: error [SC028E]: cannot convert 'usize' to 'u64'
+// DIAG-NEXT: usize_distinct.k:14:40: error [SC028E]: cannot convert 'i64' to 'isize'
 // DIAG-NOT:  error

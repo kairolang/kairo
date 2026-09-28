@@ -16,9 +16,9 @@ fn locals() {
     const q: *const i32 = &null
 }
 
-// CHECK:      const_binding_type.k:10:14: warning [S001W]: 'const' on the type of a parameter is hard to read; declare the parameter 'const' instead
-// CHECK-NEXT: const_binding_type.k:10:34: error [S001E]: the parameter is already 'const'; a second 'const' on its type is not allowed
-// CHECK-NEXT: const_binding_type.k:13:12: warning [S001W]: 'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead
-// CHECK-NEXT: const_binding_type.k:14:14: error [S001E]: the binding is already 'const'; a second 'const' on its type is not allowed
-// CHECK-NEXT: const_binding_type.k:15:12: warning [S001W]: 'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead
+// CHECK:      const_binding_type.k:10:14: warning [S071W]: 'const' on the type of a parameter is hard to read; declare the parameter 'const' instead
+// CHECK-NEXT: const_binding_type.k:10:34: error [S071E]: the parameter is already 'const'; a second 'const' on its type is not allowed
+// CHECK-NEXT: const_binding_type.k:13:12: warning [S071W]: 'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead
+// CHECK-NEXT: const_binding_type.k:14:14: error [S071E]: the binding is already 'const'; a second 'const' on its type is not allowed
+// CHECK-NEXT: const_binding_type.k:15:12: warning [S071W]: 'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead
 // CHECK-NOT:  {{warning|error}}

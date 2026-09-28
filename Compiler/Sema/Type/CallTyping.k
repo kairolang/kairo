@@ -192,7 +192,7 @@ class <T> CallTyping {
         var lref = dyn()->sc->types->cxx_lref(pt);
         var r = dyn()->conv.implicit_arg(_op->type_, lref, _op->value_category, self._const_lvalue(_op));
         if r == ImplicitRank::None {
-            dyn()->fail(u, f"cannot pass '{dyn()->tu.str(_op->type_)}' to an '@inout' parameter of type '{dyn()->tu.str(pt)}'; an '@inout' argument must be a mutable lvalue");
+            dyn()->fail(u, DiagID::SC097E, f"cannot pass '{dyn()->tu.str(_op->type_)}' to an '@inout' parameter of type '{dyn()->tu.str(pt)}'; an '@inout' argument must be a mutable lvalue");
         }
     }
 
@@ -208,7 +208,7 @@ class <T> CallTyping {
             if (k < r->inout_params.size()) && (r->inout_params[k] != &null) {
                 pn = dyn()->tu.param_name(r->inout_params[k]);
             }
-            dyn()->warn(a->expr,
+            dyn()->warn(a->expr, DiagID::SC097W,
                 f"argument to '@inout' parameter '{pn}' is not marked with '&'; the marker "
                 "will be required in a future release");
         }
@@ -326,7 +326,7 @@ class <T> CallTyping {
 
     fn type_call(self, n: *CallExpr, expected: *Type) -> *Type {
         var callee = dyn()->tu.strip_parens(n->callee);
-        if callee == &null { dyn()->fail(n, "call with no callee"); return &null; }
+        if callee == &null { dyn()->fail(n, DiagID::SC093E, "call with no callee"); return &null; }
 
         // --- name -----------------------------------------------------------
         if isa::<NamedIdentExpr>(callee) {
@@ -345,7 +345,7 @@ class <T> CallTyping {
             // would fall to mark_unknown below and type as nothing, silently.
             if is_annotation(id->name.kind) {
                 var sp = dyn()->sc->ctx->get_spelling(id->name);
-                dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                dyn()->sc->diag->report(DiagID::SC037E, n->range.start,
                     f"'{sp}' is a type, not a function; convert with 'x as {sp}\x27"
                 ).first(n->range).emit();
                 id->poison();
@@ -525,7 +525,7 @@ class <T> CallTyping {
         var d = dyn()->tu.record_decl(rec);
         if d == &null {
             // an alias of a builtin, `i32(x)` style: not a call.
-            dyn()->fail(n, f"'{dyn()->tu.str(rec)}' is not constructible with a call; use 'as\x27");
+            dyn()->fail(n, DiagID::SC037E, f"'{dyn()->tu.str(rec)}' is not constructible with a call; use 'as\x27");
             return &null;
         }
         if rec->is_dependent() { dyn()->mark_unknown(n); self._type_args_blind(n); return &null; }
@@ -542,7 +542,7 @@ class <T> CallTyping {
         if cands.size() == 0 {
             if n->args.size() == 0 { return rec; }   // implicit default ctor
             self._type_args_blind(n);
-            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            dyn()->sc->diag->report(DiagID::SC038E, n->range.start,
                 f"'{dyn()->tu.decl_name(d)}' declares no constructor taking arguments"
             ).first(n->range)
              .note(d->range.start, "type declared here").first(d->range)
@@ -575,13 +575,13 @@ class <T> CallTyping {
             // A nullable callable is not callable: there is no code to run on
             // the null side, and nothing implicitly unwraps it here either.
             self._type_args_blind(n);
-            dyn()->fail(n, f"'{dyn()->tu.str(t)}' may be null; unwrap it before calling, with '??' or 'unwrap!()\x27");
+            dyn()->fail(n, DiagID::SC098E, f"'{dyn()->tu.str(t)}' may be null; unwrap it before calling, with '??' or 'unwrap!()\x27");
             return &null;
         }
         ft = canon_unqual(ft);   // a `const` callable calls the same code.
         if (ft == &null) || (!isa::<FunctionPointerType>(ft)) {
             self._type_args_blind(n);
-            dyn()->fail(n, f"'{dyn()->tu.str(t)}' is not callable");
+            dyn()->fail(n, DiagID::SC062E, f"'{dyn()->tu.str(t)}' is not callable");
             return &null;
         }
         var fp = cast::<FunctionPointerType>(ft);
@@ -597,7 +597,7 @@ class <T> CallTyping {
         }
         if n->args.size() != fp->params.size() {
             self._type_args_blind(n);
-            dyn()->fail(n, f"'{dyn()->tu.str(ft)}' takes {fp->params.size()} argument(s), {n->args.size()} given");
+            dyn()->fail(n, DiagID::SC099E, f"'{dyn()->tu.str(ft)}' takes {fp->params.size()} argument(s), {n->args.size()} given");
             return &null;
         }
 
@@ -618,14 +618,14 @@ class <T> CallTyping {
                 dyn()->type_of(target, &null);
                 if target->is_poisoned() { if _op != &null { a->poison(); } bad = true; continue; }
                 if _op == &null {
-                    dyn()->warn(a, f"argument to '@inout' parameter {i + 1} of '{dyn()->tu.str(ft)}' is not "
+                    dyn()->warn(a, DiagID::SC097W, f"argument to '@inout' parameter {i + 1} of '{dyn()->tu.str(ft)}' is not "
                                    "marked with '&'; the marker will be required in a future release");
                 }
                 if target->type_ != &null {
                     var lref = dyn()->sc->types->cxx_lref(canon_unqual(pt));
                     var r = dyn()->conv.implicit_arg(target->type_, lref, target->value_category, self._const_lvalue(target));
                     if r == ImplicitRank::None {
-                        dyn()->fail(target, f"cannot pass '{dyn()->tu.str(target->type_)}' to an '@inout' parameter of type '{dyn()->tu.str(pt)}'; an '@inout' argument must be a mutable lvalue");
+                        dyn()->fail(target, DiagID::SC097E, f"cannot pass '{dyn()->tu.str(target->type_)}' to an '@inout' parameter of type '{dyn()->tu.str(pt)}'; an '@inout' argument must be a mutable lvalue");
                         bad = true;
                         continue;
                     }

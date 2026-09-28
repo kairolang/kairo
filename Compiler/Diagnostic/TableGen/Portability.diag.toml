@@ -128,3 +128,29 @@ group = "target"
     pick a target the build supports, or drop the `--mcpu`/feature flags that narrowed it. `kairo
     --print-targets` lists what this build can emit.
     """
+
+[P006]
+brief = "unknown target CPU"
+group = "target"
+
+    [P006.E]
+    explain = """
+    # unknown target cpu
+
+    the cpu named by `--mcpu` is not one the backend knows for the selected target. cpu names are
+    target specific: a name valid for one architecture is not valid for another.
+
+    ## example
+
+    ```
+    kairo --target=aarch64-linux-gnu --mcpu=skylake main.k    # skylake is an x86 cpu
+    ```
+
+    ## how to fix
+
+    check the spelling, or list the valid values with `--print-cpus --target=<triple>`.
+    omit `--mcpu` to use the target's default cpu.
+    """
+
+    [P006.N]
+    explain = "Says how to list the CPUs the selected target accepts."

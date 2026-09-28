@@ -22,6 +22,6 @@ fn use_ext() -> u64 {
     return a.doubled()
 }
 
-// DIAG:     operator_return.k:14:{{[0-9]+}}: error [SC001E]: cannot convert 'bool' to 'cont<f32, alloc>'
-// DIAG:     operator_return.k:21:8: error [SC001E]: the 'if' condition must be 'bool', not 'cont<f32, alloc>'
+// DIAG:     operator_return.k:14:{{[0-9]+}}: error [SC028E]: cannot convert 'bool' to 'cont<f32, alloc>'
+// DIAG:     operator_return.k:21:8: error [SC084E]: the 'if' condition must be 'bool', not 'cont<f32, alloc>'
 // DIAG-NOT: error

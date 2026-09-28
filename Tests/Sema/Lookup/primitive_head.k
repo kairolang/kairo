@@ -16,7 +16,7 @@ fn call() -> u32 { return u32(1) }
 // --- lit wiring -----------------------------------------------------------
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 // DIAG-DAG: error [R024E]: 'f128' is a primitive type; it has no member 'MAX'
-// DIAG-DAG: error [SC001E]: 'u32' is a type, not a function; convert with 'x as u32'
+// DIAG-DAG: error [SC037E]: 'u32' is a type, not a function; convert with 'x as u32'
 //
 // Neither the parse error nor the internal error anywhere in the output.
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=NONE

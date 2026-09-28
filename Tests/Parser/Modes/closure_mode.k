@@ -14,6 +14,6 @@ fn main() {
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //
 // DIAG-NOT:  closure_mode.k:5:{{[0-9]+}}: error
-// DIAG:      closure_mode.k:7:{{[0-9]+}}: error [SC001E]: no matching overload for call to 'apply'
+// DIAG:      closure_mode.k:7:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'apply'
 // DIAG-NEXT: closure_mode.k:1:{{[0-9]+}}: note [{{[A-Z0-9]+}}]: {{.*}}'fn (i32)'{{.*}}'fn (@inout i32)'
 // DIAG-NOT:  {{error|warning}} [

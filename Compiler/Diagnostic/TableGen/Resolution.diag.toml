@@ -1280,3 +1280,50 @@ group = "import"
     is kairo's standard library and is a different namespace. a translation unit with no ffi
     import binds no `cxx` at all, and `cxx::std` there is an ordinary undeclared-name error.
     """
+
+[R054]
+brief = "overloads differ only in the '@move' mode"
+group = "redeclaration"
+
+    [R054.E]
+    explain = """
+    # overloading on '@move'
+
+    a `@move` argument is written at the call site with no marker, so a call looks the same whether
+    the parameter is `@move` or by value. two declarations that differ only in whether a parameter is
+    `@move` can therefore never be chosen between, and the overload is rejected.
+
+    ## example
+
+    ```kairo
+    fn f(x: Buf) { }
+    fn f(@move x: Buf) { }        // a call `f(b)` could mean either
+    ```
+
+    ## how to fix
+
+    keep one of the declarations, or rename one of them.
+    """
+
+    [R054.N]
+    explain = "Points at the other declaration, naming the parameter whose passing mode is the only difference."
+
+[R055]
+brief = "lang item not declared in the builtin root"
+group = "type"
+
+    [R055.E]
+    explain = """
+    # missing lang item
+
+    some types (arrays, slices, and other built-in constructs) are backed by a lang item declared in
+    the builtin root (`Lib/builtin`). the construct was used, but the builtin root that was loaded
+    does not declare the item it needs, so the type cannot be formed.
+
+    this usually means the builtin root is missing, stale, or not the one that matches this
+    compiler.
+
+    ## how to fix
+
+    make sure the compiler is pointed at the builtin root that ships with it (`--builtins-dir`).
+    """

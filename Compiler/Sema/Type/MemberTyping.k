@@ -111,7 +111,7 @@ class <T> MemberTyping {
 
             if cur_kind == 4 { info->unknown = true; dyn()->mark_unknown(n); return &null; }
             if cur_kind == 3 {
-                dyn()->fail(n, "cannot access a member of a function; call it first");
+                dyn()->fail(n, DiagID::SC100E, "cannot access a member of a function; call it first");
                 return &null;
             }
 
@@ -163,12 +163,12 @@ class <T> MemberTyping {
             // -- tuple index --
             if st->is_tuple_index() {
                 if (cur_kind != 0) || (val == &null) || (!isa::<TupleType>(val)) {
-                    dyn()->fail(n, "tuple index on a non-tuple");
+                    dyn()->fail(n, DiagID::SC101E, "tuple index on a non-tuple");
                     return &null;
                 }
                 var tt = cast::<TupleType>(val);
                 if static_cast::<usize>(st->index) >= tt->elements.size() {
-                    dyn()->fail(n, f"tuple index {st->index} is out of range for '{dyn()->tu.str(val)}\x27");
+                    dyn()->fail(n, DiagID::SC101E, f"tuple index {st->index} is out of range for '{dyn()->tu.str(val)}\x27");
                     return &null;
                 }
                 cur = tt->elements[static_cast::<usize>(st->index)];
@@ -191,7 +191,7 @@ class <T> MemberTyping {
                 info->callable_cands.clear();
                 dyn()->ml.lookup(dyn()->tu.strip_nullable(owner_ty), DeclName::op_name(k0, k1), &(info->callable_cands));
                 if info->callable_cands.size() == 0 {
-                    dyn()->fail(n, f"no such operator on '{dyn()->tu.str(owner_ty)}\x27");
+                    dyn()->fail(n, DiagID::SC102E, f"no such operator on '{dyn()->tu.str(owner_ty)}\x27");
                     return &null;
                 }
                 cur_kind = 3;
@@ -250,7 +250,7 @@ class <T> MemberTyping {
                 case DeclKind::EnumVariantDecl {
                     var edc = reinterpret_cast::<*DeclContext>(d->semantic_dc);
                     var ed  = (edc->owner_decl()) if (edc != &null) else (&null);
-                    if ed == &null { dyn()->fail(n, "enum variant has no owning enum"); return &null; }
+                    if ed == &null { dyn()->fail(n, DiagID::SC093E, "enum variant has no owning enum"); return &null; }
                     var a = vec::<*Type>();
                     cur = dyn()->sc->types->record(NameLookup::representative(ed), &a);
                     if cur_kind == 1 { cur = cur_type; }   // `Foo<i32>::V` keeps the instance
@@ -271,7 +271,7 @@ class <T> MemberTyping {
                         cur_kind = 1;
                         st->resolved_type = cur_type;
                     } else {
-                        dyn()->fail(n, f"'{dyn()->tu.decl_name(d)}' is not a value");
+                        dyn()->fail(n, DiagID::SC094E, f"'{dyn()->tu.decl_name(d)}' is not a value");
                         return &null;
                     }
                 }
@@ -343,7 +343,7 @@ class <T> MemberTyping {
                 dyn()->ml.lookup(dyn()->tu.strip_nullable(bt), DeclName::op_name(TokenKind::OpLSquare, TokenKind::OpRSquare), &cands);
                 if cands.size() == 0 {
                     dyn()->type_of(n->index, &null);
-                    dyn()->fail(n, f"'{dyn()->tu.str(bt)}' has no subscript operator");
+                    dyn()->fail(n, DiagID::SC103E, f"'{dyn()->tu.str(bt)}' has no subscript operator");
                     return &null;
                 }
                 var args = vec::<ArgInfo>();
@@ -380,7 +380,7 @@ class <T> MemberTyping {
         // builtin shapes
         if isa::<TupleType>(bt) {
             dyn()->type_of(n->index, &null);
-            dyn()->fail(n, "tuples are indexed with '.0', '.1', ..., not '[]\x27");
+            dyn()->fail(n, DiagID::SC103E, "tuples are indexed with '.0', '.1', ..., not '[]\x27");
             return &null;
         }
         var kt: *Type = &null; var vt: *Type = &null;
@@ -395,7 +395,7 @@ class <T> MemberTyping {
         if (elem == &null) && dyn()->tu.is_string(bt) { elem = dyn()->tu.builtin(BuiltinKind::Char); }
         if elem == &null {
             dyn()->type_of(n->index, &null);
-            dyn()->fail(n, f"'{dyn()->tu.str(bt)}' cannot be indexed");
+            dyn()->fail(n, DiagID::SC103E, f"'{dyn()->tu.str(bt)}' cannot be indexed");
             return &null;
         }
         if is_range {
@@ -408,7 +408,7 @@ class <T> MemberTyping {
         var it = dyn()->type_of(n->index, usize_t);
         if dyn()->propagate(n, n->index) { return &null; }
         if (it != &null) && (!dyn()->tu.is_integer(it)) {
-            dyn()->fail(n->index, f"index must be an integer, not '{dyn()->tu.str(it)}\x27");
+            dyn()->fail(n->index, DiagID::SC103E, f"index must be an integer, not '{dyn()->tu.str(it)}\x27");
             dyn()->poison_only(n);
             return &null;
         }

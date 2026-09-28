@@ -109,18 +109,18 @@ class <T> CastTyping {
             return &null;
         }
         if mode == CastMode::Const {
-            dyn()->fail(n, f"'as const' only adds qualifiers: '{dyn()->tu.str(target)}' is not '{dyn()->tu.str(src)}' with 'const' added");
+            dyn()->fail(n, DiagID::SC030E, f"'as const' only adds qualifiers: '{dyn()->tu.str(target)}' is not '{dyn()->tu.str(src)}' with 'const' added");
             return &null;
         }
 
         // 2. reinterpret to `unsafe *X`.
         if target_unsafe_ptr && (dyn()->tu.pointee(target) != &null) {
             if (dyn()->tu.pointee(src) == &null) && (!dyn()->tu.is_integer(src)) {
-                dyn()->fail(n, f"only a pointer or an integer can be cast to '{dyn()->tu.str(target)}'; '{dyn()->tu.str(src)}' is neither");
+                dyn()->fail(n, DiagID::SC026E, f"only a pointer or an integer can be cast to '{dyn()->tu.str(target)}'; '{dyn()->tu.str(src)}' is neither");
                 return &null;
             }
             if !dyn()->in_unsafe() {
-                dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                dyn()->sc->diag->report(DiagID::SC023E, n->range.start,
                     f"cast to '{dyn()->tu.str(target)}' requires an unsafe context"
                 ).first(n->range)
                  .note(n->range.start, "wrap the expression in 'unsafe { ... }'; this cast discards pointer provenance")
@@ -146,7 +146,7 @@ class <T> CastTyping {
                 // test: retyping or dropping `const` is still `as unsafe *`.
                 var raw_twin = dyn()->sc->types->pointer(tp, true);
                 if !self._same_pointer_shape(src, raw_twin) {
-                    dyn()->fail(n, f"cannot cast '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}': a raw pointer becomes safe only with its own pointee; reinterpret with 'as unsafe *' first");
+                    dyn()->fail(n, DiagID::SC091E, f"cannot cast '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}': a raw pointer becomes safe only with its own pointee; reinterpret with 'as unsafe *' first");
                     return &null;
                 }
                 if !dyn()->conv.qualification(src, raw_twin) {
@@ -154,7 +154,7 @@ class <T> CastTyping {
                     return &null;
                 }
                 if !dyn()->in_unsafe() {
-                    dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    dyn()->sc->diag->report(DiagID::SC023E, n->range.start,
                         f"cast from the raw pointer '{dyn()->tu.str(src)}' to the safe pointer '{dyn()->tu.str(target)}' requires an unsafe context"
                     ).first(n->range)
                      .note(n->range.start, "wrap it in 'unsafe { ... }': the block is your claim that the pointer is valid")
@@ -169,10 +169,10 @@ class <T> CastTyping {
             var to_nullable = dyn()->tu.nullable_inner(target) != &null;
             if (sd == &null) || (td == &null) {
                 if dyn()->tu.is_void(tp) {
-                    dyn()->fail(n, f"cannot cast '{dyn()->tu.str(src)}' to the safe pointer '{dyn()->tu.str(target)}'; erasing the pointee type needs 'as unsafe *void' inside an 'unsafe' block");
+                    dyn()->fail(n, DiagID::SC091E, f"cannot cast '{dyn()->tu.str(src)}' to the safe pointer '{dyn()->tu.str(target)}'; erasing the pointee type needs 'as unsafe *void' inside an 'unsafe' block");
                     return &null;
                 }
-                dyn()->fail(n, f"pointer cast between unrelated types '{dyn()->tu.str(src)}' and '{dyn()->tu.str(target)}'; use 'as unsafe *' to reinterpret");
+                dyn()->fail(n, DiagID::SC091E, f"pointer cast between unrelated types '{dyn()->tu.str(src)}' and '{dyn()->tu.str(target)}'; use 'as unsafe *' to reinterpret");
                 return &null;
             }
             if dyn()->tu.derives_from(sd, td) {
@@ -182,7 +182,7 @@ class <T> CastTyping {
             }
             if dyn()->tu.derives_from(td, sd) {
                 if mode == CastMode::Static {
-                    dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    dyn()->sc->diag->report(DiagID::SC024E, n->range.start,
                         f"static downcast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' is not allowed"
                     ).first(n->range)
                      .note(n->range.start, "write 'as *X' for a checked cast that panics, 'as *X?' for one that yields null, or 'as unsafe *X' to reinterpret")
@@ -191,7 +191,7 @@ class <T> CastTyping {
                     return &null;
                 }
                 if !dyn()->tu.is_polymorphic(sd) {
-                    dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    dyn()->sc->diag->report(DiagID::SC025E, n->range.start,
                         f"cannot downcast from '{dyn()->tu.str(src)}': '{dyn()->tu.decl_name(sd)}' has no virtual methods, so there is no runtime type to check"
                     ).first(n->range)
                      .note(sd->range.start, "declared here").first(sd->range)
@@ -204,14 +204,14 @@ class <T> CastTyping {
                 }
                 return target;
             }
-            dyn()->fail(n, f"'{dyn()->tu.decl_name(sd)}' and '{dyn()->tu.decl_name(td)}' are unrelated; use 'as unsafe *' to reinterpret");
+            dyn()->fail(n, DiagID::SC091E, f"'{dyn()->tu.decl_name(sd)}' and '{dyn()->tu.decl_name(td)}' are unrelated; use 'as unsafe *' to reinterpret");
             return &null;
         }
 
         // pointer -> integer, integer -> pointer
         if (sp != &null) && dyn()->tu.is_integer(target) {
             if dyn()->tu.kind_of(target) != BuiltinKind::USize {
-                dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                dyn()->sc->diag->report(DiagID::SC026E, n->range.start,
                     f"a pointer converts to 'usize' only; write 'as usize as {dyn()->tu.str(target)}' if you mean to narrow the address"
                 ).first(n->range).emit();
                 n->poison();
@@ -220,7 +220,7 @@ class <T> CastTyping {
             return target;
         }
         if (tp != &null) && dyn()->tu.is_integer(src) {
-            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            dyn()->sc->diag->report(DiagID::SC026E, n->range.start,
                 f"cannot cast the integer type '{dyn()->tu.str(src)}' to the safe pointer '{dyn()->tu.str(target)}'; only 'as unsafe *T' can turn an integer into an address"
             ).first(n->range).emit();
             n->poison();
@@ -238,11 +238,11 @@ class <T> CastTyping {
                 case ConvClass::W { self._lint_widening(n, src, target, expected); return target; }
                 case ConvClass::E { return target; }
                 case ConvClass::U {
-                    if !dyn()->in_unsafe() { dyn()->fail(n, f"cast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' requires an unsafe context"); return &null; }
+                    if !dyn()->in_unsafe() { dyn()->fail(n, DiagID::SC023E, f"cast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' requires an unsafe context"); return &null; }
                     return target;
                 }
                 case ConvClass::X {
-                    dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    dyn()->sc->diag->report(DiagID::SC027E, n->range.start,
                         f"no conversion from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}\x27"
                     ).first(n->range)
                      .note(n->range.start, "these types have no meaningful representation change; use a library function")
@@ -255,7 +255,7 @@ class <T> CastTyping {
 
         // T? as T: no collapsing cast.
         if (dyn()->tu.nullable_inner(src) != &null) && (dyn()->tu.strip_nullable(src) == dyn()->tu.strip_nullable(target)) {
-            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            dyn()->sc->diag->report(DiagID::SC029E, n->range.start,
                 f"cannot cast '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}'; a cast cannot fabricate a value for null"
             ).first(n->range)
              .note(n->range.start, "use 'x ?? default' to supply a fallback, or 'x!' to assert non-null")
@@ -268,19 +268,19 @@ class <T> CastTyping {
         var sed = dyn_cast::<EnumDecl>(dyn()->tu.record_decl(src));
         var ted = dyn_cast::<EnumDecl>(dyn()->tu.record_decl(dyn()->tu.strip_nullable(target)));
         if (sed != &null) && (tk != BuiltinKind::COUNT) {
-            if sed->is_adt { dyn()->fail(n, "ADT enums cannot be cast to integers; expose the tag through an 'extend' method"); return &null; }
+            if sed->is_adt { dyn()->fail(n, DiagID::SC092E, "ADT enums cannot be cast to integers; expose the tag through an 'extend' method"); return &null; }
             var under = self._enum_underlying(sed);
             if under != dyn()->tu.strip_nullable(target) {
-                dyn()->fail(n, f"'{dyn()->tu.decl_name(static_cast::<*Decl>(sed))}' is backed by '{dyn()->tu.str(under)}'; cast to that first");
+                dyn()->fail(n, DiagID::SC092E, f"'{dyn()->tu.decl_name(static_cast::<*Decl>(sed))}' is backed by '{dyn()->tu.str(under)}'; cast to that first");
                 return &null;
             }
             return target;
         }
         if (ted != &null) && (sk != BuiltinKind::COUNT) {
-            if ted->is_adt { dyn()->fail(n, "an integer cannot be cast to an ADT enum"); return &null; }
+            if ted->is_adt { dyn()->fail(n, DiagID::SC092E, "an integer cannot be cast to an ADT enum"); return &null; }
             var under = self._enum_underlying(ted);
             if under != src {
-                dyn()->fail(n, f"'{dyn()->tu.decl_name(static_cast::<*Decl>(ted))}' is backed by '{dyn()->tu.str(under)}'; the source must have exactly that type");
+                dyn()->fail(n, DiagID::SC092E, f"'{dyn()->tu.decl_name(static_cast::<*Decl>(ted))}' is backed by '{dyn()->tu.str(under)}'; the source must have exactly that type");
                 return &null;
             }
             return target;
@@ -350,7 +350,7 @@ class <T> CastTyping {
         }
 
         // 5e. nothing
-        dyn()->fail(n, f"no conversion from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}\x27");
+        dyn()->fail(n, DiagID::SC027E, f"no conversion from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}\x27");
         return &null;
     }
 
@@ -393,7 +393,7 @@ class <T> CastTyping {
         var lost = self._dropped_at(src, target);
         if lost != &null {
             var what = ("const") if (canon_has_const(lost)) else ("volatile");
-            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            dyn()->sc->diag->report(DiagID::SC030E, n->range.start,
                 f"cast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' drops '{what}' from the pointee '{dyn()->tu.str(lost)}\x27"
             ).first(n->range)
              .note(n->range.start, "'as' can add 'const' to a pointee, never remove it, and cannot add it on one level while removing it on another; that is a reinterpret: 'as unsafe *T' inside an 'unsafe' block")
@@ -401,7 +401,7 @@ class <T> CastTyping {
             n->poison();
             return;
         }
-        dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+        dyn()->sc->diag->report(DiagID::SC030E, n->range.start,
             f"cast from '{dyn()->tu.str(src)}' to '{dyn()->tu.str(target)}' adds 'const' below a pointer that is not 'const\x27"
         ).first(n->range)
          .note(n->range.start, "the result could store a '*const T' through a '*T'; make every level above the added 'const' 'const' too")
@@ -439,7 +439,7 @@ class <T> CastTyping {
     }
 
     priv fn _lint_redundant(self, n: *TypeCastExpr, src: *Type, target: *Type) {
-        dyn()->sc->diag->report(DiagID::SC001W, n->range.start,
+        dyn()->sc->diag->report(DiagID::SC031W, n->range.start,
             f"redundant cast: '{dyn()->tu.str(src)}' converts to '{dyn()->tu.str(target)}' implicitly"
         ).first(n->range).emit();
     }

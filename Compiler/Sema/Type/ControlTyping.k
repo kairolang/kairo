@@ -61,7 +61,7 @@ class <T> ControlTyping {
         if t == &null { return true; }   // unknown/poisoned arm: nothing to join, already reported.
         var j = dyn()->conv.join(*acc, t);
         if j == &null {
-            dyn()->sc->diag->report(DiagID::SC001E, at->range.start,
+            dyn()->sc->diag->report(DiagID::SC039E, at->range.start,
                 f"{what} has type '{dyn()->tu.str(t)}', which does not unify with the earlier '{dyn()->tu.str(*acc)}\x27"
             ).first(at->range)
              .note(at->range.start, "every branch of a value-producing construct must convert to one type")
@@ -76,7 +76,7 @@ class <T> ControlTyping {
         var t = dyn()->type_of(e, dyn()->tu.builtin(BuiltinKind::Bool));
         if t == &null { return !e->is_poisoned(); }
         if dyn()->tu.is_bool(t) { return true; }
-        dyn()->fail(e, f"{what} must be 'bool', not '{dyn()->tu.str(t)}\x27");
+        dyn()->fail(e, DiagID::SC084E, f"{what} must be 'bool', not '{dyn()->tu.str(t)}\x27");
         return false;
     }
 
@@ -176,13 +176,13 @@ class <T> ControlTyping {
         if (bt != &null) && (et != &null) {
             elem = dyn()->unify_operands(bt, et);
             if elem == &null {
-                dyn()->fail(n, f"range bounds '{dyn()->tu.str(bt)}' and '{dyn()->tu.str(et)}' do not unify");
+                dyn()->fail(n, DiagID::SC085E, f"range bounds '{dyn()->tu.str(bt)}' and '{dyn()->tu.str(et)}' do not unify");
                 return &null;
             }
         }
         if elem == &null { elem = dyn()->tu.builtin(BuiltinKind::I32); }   // `..`: unbounded, integer by convention.
         if !dyn()->tu.is_integer(elem) {
-            dyn()->fail(n, f"range bounds must be integers, not '{dyn()->tu.str(elem)}\x27");
+            dyn()->fail(n, DiagID::SC085E, f"range bounds must be integers, not '{dyn()->tu.str(elem)}\x27");
             return &null;
         }
         var a = vec::<*Type>(); a.push_back(elem);
@@ -197,7 +197,7 @@ class <T> ControlTyping {
         if ot == &null { return &null; }
         if !dyn()->tu.is_lang(ot, WellKnownType::Future) {
             if dyn()->sc->well_known->get(WellKnownType::Future) == &null { dyn()->missing_lang_item(n, "Future"); return &null; }
-            dyn()->fail(n, f"'await' requires a 'Future', not '{dyn()->tu.str(ot)}\x27");
+            dyn()->fail(n, DiagID::SC086E, f"'await' requires a 'Future', not '{dyn()->tu.str(ot)}\x27");
             return &null;
         }
         var args = dyn()->tu.record_args(ot);
@@ -229,7 +229,7 @@ class <T> ControlTyping {
             if p == &null { continue; }
             if (p->type_ == &null) || (p->type_->canonical == &null) {
                 if (p->type_ != &null) && p->type_->is_dependent() { dyn()->mark_unknown(n); }
-                else { dyn()->fail(n, f"closure parameter '{dyn()->tu.param_name(p)}' needs a type annotation"); }
+                else { dyn()->fail(n, DiagID::SC087E, f"closure parameter '{dyn()->tu.param_name(p)}' needs a type annotation"); }
                 ok = false;
                 continue;
             }
@@ -280,7 +280,7 @@ class <T> ControlTyping {
         if rec == &null {
             dyn()->type_of(n->type_expr, &null);
             if n->type_expr->is_poisoned() { dyn()->poison_only(n); return &null; }
-            dyn()->fail(n, "initializer head does not name a type");
+            dyn()->fail(n, DiagID::SC088E, "initializer head does not name a type");
             return &null;
         }
         return self._init_fields(static_cast::<*Expr>(n), rec, n->fields);
@@ -291,7 +291,7 @@ class <T> ControlTyping {
         var rec = dyn()->tu.strip_nullable(expected);
         if (rec == &null) || (dyn()->tu.record_decl(rec) == &null) {
             for var i: usize = 0; i < n->fields.size(); ++i { dyn()->type_of(n->fields.get(i)->value, &null); }
-            dyn()->fail(n, "cannot infer the type of an anonymous initializer here; name the type or annotate the target");
+            dyn()->fail(n, DiagID::SC088E, "cannot infer the type of an anonymous initializer here; name the type or annotate the target");
             return &null;
         }
         return self._init_fields(static_cast::<*Expr>(n), rec, n->fields);
@@ -299,7 +299,7 @@ class <T> ControlTyping {
 
     priv fn _init_fields(self, n: *Expr, rec: *Type, fields: FrozenList::<InitField>) -> *Type {
         var d = dyn()->tu.record_decl(rec);
-        if d == &null { dyn()->fail(n, f"'{dyn()->tu.str(rec)}' is not an aggregate"); return &null; }
+        if d == &null { dyn()->fail(n, DiagID::SC088E, f"'{dyn()->tu.str(rec)}' is not an aggregate"); return &null; }
         if rec->is_dependent() {
             for var i: usize = 0; i < fields.size(); ++i { dyn()->type_of(fields.get(i)->value, &null); }
             dyn()->mark_unknown(n);
@@ -317,7 +317,7 @@ class <T> ControlTyping {
             if cell.found() { fd = dyn_cast::<FieldDecl>(cell.first()); }
             if fd == &null {
                 dyn()->type_of(f->value, &null);
-                dyn()->sc->diag->report(DiagID::SC001E, f->range.start,
+                dyn()->sc->diag->report(DiagID::SC040E, f->range.start,
                     f"'{dyn()->tu.decl_name(d)}' has no field named '{spelled}\x27"
                 ).first(f->range).emit();
                 ok = false;
@@ -403,7 +403,7 @@ class <T> ControlTyping {
         // SequenceLowering builds one; anything else is a malformed tree.
         var last_stmt: *Stmt = (body->body[count - 1]) if (count > 0) else (&null);
         if (last_stmt == &null) || (!isa::<ExpressionStmt>(last_stmt)) {
-            dyn()->fail(n, "statement expression has no trailing value expression");
+            dyn()->fail(n, DiagID::SC089E, "statement expression has no trailing value expression");
             return &null;
         }
 
@@ -421,7 +421,7 @@ class <T> ControlTyping {
         t = canon_unqual(t);
 
         if isa::<FixedArrayType>(t) {
-            dyn()->fail(n, f"a statement expression cannot yield an array ('{dyn()->tu.str(t)}\x27); an array is not copied implicitly");
+            dyn()->fail(n, DiagID::SC089E, f"a statement expression cannot yield an array ('{dyn()->tu.str(t)}\x27); an array is not copied implicitly");
             return &null;
         }
         n->value_category = Expr::ValueCategory::RValue;
@@ -432,7 +432,7 @@ class <T> ControlTyping {
         var t = dyn()->type_of(n->operand, &null);
         if dyn()->propagate(n, n->operand) { return &null; }
         if (t != &null) && (dyn()->tu.pointee(dyn()->tu.strip_nullable(t)) == &null) {
-            dyn()->fail(n, f"'delete' requires a pointer, not '{dyn()->tu.str(t)}\x27");
+            dyn()->fail(n, DiagID::SC090E, f"'delete' requires a pointer, not '{dyn()->tu.str(t)}\x27");
             return &null;
         }
         return dyn()->tu.builtin(BuiltinKind::Void);
@@ -462,7 +462,7 @@ class <T> ControlTyping {
                 if (b->type_ != &null) && (b->type_->canonical != &null) {
                     vd->type_ = canon_unqual(b->type_->canonical);
                     if (scrutinee != &null) && (!dyn()->conv.convertible(scrutinee, b->type_->canonical)) {
-                        dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+                        dyn()->sc->diag->report(DiagID::SC041E, p->range.start,
                             f"pattern type '{dyn()->tu.str(b->type_->canonical)}' does not match the scrutinee type '{dyn()->tu.str(scrutinee)}\x27"
                         ).first(p->range).emit();
                         p->poison();
@@ -489,7 +489,7 @@ class <T> ControlTyping {
                 var su = canon_unqual(scrutinee);
                 if (su != &null) && isa::<TupleType>(su) { tt = cast::<TupleType>(su); }
                 if (tt != &null) && (tt->elements.size() != tp->elements.size()) {
-                    dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+                    dyn()->sc->diag->report(DiagID::SC042E, p->range.start,
                         f"tuple pattern has {tp->elements.size()} element(s) but '{dyn()->tu.str(scrutinee)}' has {tt->elements.size()}"
                     ).first(p->range).emit();
                     p->poison();

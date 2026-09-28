@@ -592,7 +592,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
             if rd != &null {
                 var facts = self.lc->facts_of(rd);
                 if !facts->movable {
-                    var b = self.sc->diag->report(DiagID::SC001E, e->range.start,
+                    var b = self.sc->diag->report(DiagID::SC051E, e->range.start,
                         f"cannot move a value of type '{self._tu.str(c)}': {facts->why_not_movable}"
                     );
                     b.first(e->range);
@@ -635,7 +635,7 @@ class MoveCheck derives RecursiveASTVisitor::<MoveCheck> {
         self._st.reported.push_back(d);
 
         var nm = self.sc->ctx->get_spelling(n->name);
-        var b = self.sc->diag->report(DiagID::SC001E, n->range.start,
+        var b = self.sc->diag->report(DiagID::SC052E, n->range.start,
             f"'{nm}' is used after being moved"
         );
         b.first(n->range);

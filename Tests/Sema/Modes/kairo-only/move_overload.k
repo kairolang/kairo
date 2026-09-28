@@ -10,6 +10,6 @@ fn h(@inout x: Buf, @move y: Buf) { }       // expect: clean -- distinguishable 
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //
-// DIAG:      move_overload.k:3:{{[0-9]+}}: error [R001E]: 'g' cannot be overloaded on '@move'
+// DIAG:      move_overload.k:3:{{[0-9]+}}: error [R054E]: 'g' cannot be overloaded on '@move'
 // DIAG-NEXT: move_overload.k:2:{{[0-9]+}}: note {{.*}}passing mode of 'x'
 // DIAG-NOT:  error [

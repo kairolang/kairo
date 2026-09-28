@@ -1,7 +1,7 @@
 fn bump(@inout x: i32) { x = x + 1; }
 fn main() {
     var n = 0;
-    bump(n);                                // expect: warning SC001W ... not marked with '&' ... will be required
+    bump(n);                                // expect: warning SC097W ... not marked with '&' ... will be required
     bump(&n);                               // expect: clean
     bump(3);                                // expect: error no matching overload: parameter 'x' is '@inout' and needs a mutable lvalue
     const k = 1;
@@ -25,7 +25,7 @@ fn main() {
 // SEMA:      -- expression types --
 // SEMA:      CallExpr @ 4:5 : void
 //
-// DIAG-DAG: unmarked_warning.k:4:{{[0-9]+}}: warning [SC001W]: {{.*}}'&'
+// DIAG-DAG: unmarked_warning.k:4:{{[0-9]+}}: warning [SC097W]: {{.*}}'&'
 // DIAG-DAG: unmarked_warning.k:6:{{[0-9]+}}: error [{{[A-Z0-9]+}}]:
 // DIAG-DAG: {{.*}}parameter 'x' is '@inout' and needs a mutable lvalue
 // DIAG-DAG: unmarked_warning.k:8:{{[0-9]+}}: error [{{[A-Z0-9]+}}]:

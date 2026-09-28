@@ -19,8 +19,8 @@ fn k(x: fn(@inout i32) -> void) { c(x); }   // expect: error -- nor is it fn(@mo
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //
 // DIAG-NOT:  fnptr_modes.k:{{[1-7]}}:{{[0-9]+}}: {{error|warning}}
-// DIAG:      fnptr_modes.k:8:{{[0-9]+}}: error [SC001E]: no matching overload for call to 'a'
+// DIAG:      fnptr_modes.k:8:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'a'
 // DIAG-NEXT: fnptr_modes.k:1:{{[0-9]+}}: note [{{[A-Z0-9]+}}]: {{.*}}'fn (@inout i32)'{{.*}}'fn (i32)'
-// DIAG:      fnptr_modes.k:9:{{[0-9]+}}: error [SC001E]: no matching overload for call to 'c'
+// DIAG:      fnptr_modes.k:9:{{[0-9]+}}: error [SC063E]: no matching overload for call to 'c'
 // DIAG-NEXT: fnptr_modes.k:3:{{[0-9]+}}: note [{{[A-Z0-9]+}}]: {{.*}}'fn (@inout i32)'{{.*}}'fn (@move i32)'
 // DIAG-NOT:  {{error|warning}} [

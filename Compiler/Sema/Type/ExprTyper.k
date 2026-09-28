@@ -317,7 +317,7 @@ class ExprTyper
                 return t;
             }
             case ExprKind::VerbatimExpr { self.mark_unknown(e); return &null; }
-            default { self.fail(e, "expression kind is not typable"); return &null; }
+            default { self.fail(e, DiagID::SC093E, "expression kind is not typable"); return &null; }
         }
     }
 
@@ -411,7 +411,7 @@ class ExprTyper
                     self.note_type_expr(n, t);
                     return &null;
                 }
-                self.fail(n, f"'{self.tu.decl_name(d)}' is not a value");
+                self.fail(n, DiagID::SC094E, f"'{self.tu.decl_name(d)}' is not a value");
                 return &null;
             }
         }
@@ -526,17 +526,17 @@ class ExprTyper
 
     // === outcomes ===========================================================
 
-    fn fail(self, e: *Expr, msg: string) {
+    fn fail(self, e: *Expr, id: DiagID, msg: string) {
         if e == &null { return; }
         if !e->is_poisoned() {
-            self.sc->diag->report(DiagID::SC001E, e->range.start, msg).first(e->range).emit();
+            self.sc->diag->report(id, e->range.start, msg).first(e->range).emit();
         }
         e->poison();
     }
 
-    fn warn(self, e: *Expr, msg: string) {
+    fn warn(self, e: *Expr, id: DiagID, msg: string) {
         if e == &null { return; }
-        self.sc->diag->report(DiagID::SC001W, e->range.start, msg).first(e->range).emit();
+        self.sc->diag->report(id, e->range.start, msg).first(e->range).emit();
     }
 
     /// Poison without a diagnostic: the child already reported.
@@ -610,7 +610,7 @@ class ExprTyper
             }
         }
 
-        self.sc->diag->report(DiagID::SC001E, e->range.start,
+        self.sc->diag->report(DiagID::SC028E, e->range.start,
             f"cannot convert '{self.tu.str(from)}' to '{self.tu.str(to)}'{hint}"
         ).first(e->range).emit();
         e->poison();
@@ -626,7 +626,7 @@ class ExprTyper
             if self._lang_reported[i] == name { self.poison_only(e); return; }
         }
         self._lang_reported.push_back(name);
-        self.sc->diag->report(DiagID::SC001E, e->range.start,
+        self.sc->diag->report(DiagID::SC032E, e->range.start,
             f"this expression needs the '{name}' lang item, which is not bound in this build"
         ).first(e->range)
          .note(e->range.start, "the builtin module that defines it is not in the import set; further uses in this file are not reported")

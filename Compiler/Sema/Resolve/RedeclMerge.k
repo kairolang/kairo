@@ -588,11 +588,11 @@ class RedeclMerge {
 
         var pn = self.sc->ctx->get_spelling(b->params[pos]->name);
         // f-strings do not adjacent-concatenate under Stage 0: explicit `+`.
-        self.sc->diag->report(DiagID::R001E, b->range.start,
+        self.sc->diag->report(DiagID::R054E, b->range.start,
             f"'{name}' cannot be overloaded on '@move': a '@move' argument is written "
             + "with no marker, so a call could not choose between these declarations"
         ).first(b->range)
-         .note(DiagID::R001N, a->range.start,
+         .note(DiagID::R054N, a->range.start,
             f"the other declaration is here; they differ only in the passing mode of '{pn}\x27"
         ).first(a->range).emit();
         b->poison();

@@ -1520,3 +1520,81 @@ group = "declarations"
 
     keep one pack and give the remaining parameters names, or take a container instead.
     """
+
+[S069]
+brief = "passing mode written outside a parameter"
+group = "declarations"
+
+    [S069.E]
+    explain = """
+    # passing mode in the wrong place
+
+    `@inout` and `@move` are parameter passing modes. they describe how an argument reaches a
+    function, so they belong only on a function or closure parameter. they are not part of a type,
+    they cannot be written on a local binding, and `self` takes none (the receiver is already
+    passed by reference; its mutability is written `const self`).
+
+    ## example
+
+    ```kairo
+    var x: @inout i32 = 0          // a mode is not part of a type
+    fn f(@inout self) { }          // 'self' takes no passing mode
+    type F = fn(x: @inout i32)     // in a function pointer the mode precedes the type: fn(@inout i32)
+    ```
+
+    ## how to fix
+
+    move the mode onto the parameter (`@inout x: T`), or remove it.
+    """
+
+[S070]
+brief = "'const' combined with a passing mode"
+group = "declarations"
+
+    [S070.E]
+    explain = """
+    # 'const' contradicts the passing mode
+
+    an `@inout` parameter is a mutable borrow, so `const` on it contradicts the mode: a read-only
+    borrow is simply `const x: T`. `@move` transfers ownership of the argument, and `const` cannot
+    be combined with it either.
+
+    ## example
+
+    ```kairo
+    fn f(const @inout x: i32) { }  // write `const x: i32`
+    ```
+
+    ## how to fix
+
+    drop either `const` or the mode, depending on which one was meant.
+    """
+
+[S071]
+brief = "'const' written on the type of a binding or parameter"
+group = "declarations"
+
+    [S071.W]
+    explain = """
+    # 'const' on the type of a binding
+
+    `var x: const T` means exactly `const x: T`, and a named parameter `x: const T` means `const x: T`.
+    both are legal, but the binding keyword no longer says what the binding is, which makes the
+    declaration harder to read.
+
+    ## how to fix
+
+    declare the binding or parameter `const` and drop `const` from the type. the fix-it does both.
+    """
+
+    [S071.E]
+    explain = """
+    # 'const' written twice
+
+    `const x: const T` says the same thing twice: the binding (or parameter) is already `const`, so
+    a second `const` on the top of its type is not allowed.
+
+    ## how to fix
+
+    remove the `const` from the type.
+    """

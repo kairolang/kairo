@@ -137,18 +137,18 @@ class <T> LiteralTyping {
     // === integers ===========================================================
 
     fn type_int_literal(self, n: *IntegerLiteralExpr, expected: *Type, negative: bool) -> *Type {
-        if n->imm == &null { dyn()->fail(n, "integer literal has no immediate data"); return &null; }
+        if n->imm == &null { dyn()->fail(n, DiagID::SC073E, "integer literal has no immediate data"); return &null; }
         var pb = dyn()->tu.builtin(BuiltinKind::USize)->size_bits;
 
         // suffixed: typed at the literal.
         if n->has_suffix() {
             var k = self._int_kind(n->get_bits(), n->is_unsigned());
             if k == BuiltinKind::COUNT {
-                dyn()->fail(n, f"unknown integer literal suffix '{n->get_suffix_text()}\x27");
+                dyn()->fail(n, DiagID::SC074E, f"unknown integer literal suffix '{n->get_suffix_text()}\x27");
                 return &null;
             }
             if !literal_fits_int(n->get_value_lo(), n->get_value_hi(), n->is_big(), negative, k, pb) {
-                dyn()->fail(n, f"literal does not fit in '{builtin_info(k)->spelling}\x27");
+                dyn()->fail(n, DiagID::SC075E, f"literal does not fit in '{builtin_info(k)->spelling}\x27");
                 return &null;
             }
             return dyn()->tu.builtin(k);
@@ -160,7 +160,7 @@ class <T> LiteralTyping {
         if tk != BuiltinKind::COUNT {
             if builtin_info(tk)->is_integer() {
                 if !literal_fits_int(n->get_value_lo(), n->get_value_hi(), n->is_big(), negative, tk, pb) {
-                    dyn()->fail(n, f"literal '{n->get_spelling()}' does not fit in '{builtin_info(tk)->spelling}\x27");
+                    dyn()->fail(n, DiagID::SC075E, f"literal '{n->get_spelling()}' does not fit in '{builtin_info(tk)->spelling}\x27");
                     return &null;
                 }
                 return target;
@@ -178,7 +178,7 @@ class <T> LiteralTyping {
                 return dyn()->tu.builtin(order[i]);
             }
         }
-        dyn()->fail(n, "integer literal is too large for any integer type without a suffix");
+        dyn()->fail(n, DiagID::SC075E, "integer literal is too large for any integer type without a suffix");
         return &null;
     }
 
@@ -198,11 +198,11 @@ class <T> LiteralTyping {
     // === floats =============================================================
 
     fn type_float_literal(self, n: *FloatingLiteralExpr, expected: *Type) -> *Type {
-        if n->imm == &null { dyn()->fail(n, "float literal has no immediate data"); return &null; }
+        if n->imm == &null { dyn()->fail(n, DiagID::SC073E, "float literal has no immediate data"); return &null; }
         if n->has_suffix() {
             var k = self._float_kind(n->get_bits());
             if k == BuiltinKind::COUNT {
-                dyn()->fail(n, f"unknown float literal suffix '{n->get_suffix_text()}\x27");
+                dyn()->fail(n, DiagID::SC074E, f"unknown float literal suffix '{n->get_suffix_text()}\x27");
                 return &null;
             }
             return dyn()->tu.builtin(k);
@@ -238,7 +238,7 @@ class <T> LiteralTyping {
         if n->string_ctor == &null { dyn()->missing_lang_item(n, "string"); return &null; }
         if !n->is_format() { return s; }
 
-        if n->imm == &null { dyn()->fail(n, "format string literal has no immediate data"); return &null; }
+        if n->imm == &null { dyn()->fail(n, DiagID::SC073E, "format string literal has no immediate data"); return &null; }
         if !self._type_format_literal(n, s) { dyn()->poison_only(n); return &null; }
         return s;
     }
@@ -256,11 +256,11 @@ class <T> LiteralTyping {
     fn type_null_literal(self, n: *NullLiteralExpr, expected: *Type) -> *Type {
         if n->is_ref {
             if dyn()->tu.pointee(dyn()->tu.strip_nullable(expected)) != &null { return expected; }
-            dyn()->fail(n, "cannot infer the pointer type of '&null' here; annotate the target");
+            dyn()->fail(n, DiagID::SC076E, "cannot infer the pointer type of '&null' here; annotate the target");
             return &null;
         }
         if dyn()->tu.nullable_inner(expected) != &null { return expected; }
-        dyn()->fail(n, "cannot infer the type of 'null' here; annotate the target with a nullable type");
+        dyn()->fail(n, DiagID::SC076E, "cannot infer the type of 'null' here; annotate the target with a nullable type");
         return &null;
     }
 
@@ -274,23 +274,23 @@ class <T> LiteralTyping {
             if elem_expected != &null { dyn()->check_convertible(n->elements[i], elem_expected); continue; }
             var j = dyn()->conv.join(elem, t);
             if j == &null {
-                dyn()->fail(n->elements[i], f"list element of type '{dyn()->tu.str(t)}' does not match the earlier element type '{dyn()->tu.str(elem)}\x27");
+                dyn()->fail(n->elements[i], DiagID::SC077E, f"list element of type '{dyn()->tu.str(t)}' does not match the earlier element type '{dyn()->tu.str(elem)}\x27");
                 return &null;
             }
             elem = j;
         }
         var count = n->elements.size();
         if elem == &null {
-            if count == 0 { dyn()->fail(n, "cannot infer the element type of an empty list; annotate the target"); }
+            if count == 0 { dyn()->fail(n, DiagID::SC078E, "cannot infer the element type of an empty list; annotate the target"); }
             return &null;
         }
 
         // `[T; N]`: the literal IS the array, element for element.
         if (ex != &null) && isa::<FixedArrayType>(ex) && (!cast::<FixedArrayType>(ex)->is_incomplete) {
             var at = cast::<FixedArrayType>(ex);
-            if count == 0 { dyn()->fail(n, "an array literal needs at least one element"); return &null; }
+            if count == 0 { dyn()->fail(n, DiagID::SC079E, "an array literal needs at least one element"); return &null; }
             if static_cast::<usize>(at->size_bits) != count {
-                dyn()->fail(n, f"array literal has {count} element(s), but '{dyn()->tu.str(ex)}' needs {at->size_bits}");
+                dyn()->fail(n, DiagID::SC079E, f"array literal has {count} element(s), but '{dyn()->tu.str(ex)}' needs {at->size_bits}");
                 return &null;
             }
             return ex;
@@ -316,7 +316,7 @@ class <T> LiteralTyping {
 
         // No container target: the literal's own type.
         if count == 0 {
-            dyn()->fail(n, "cannot infer the type of an empty list here; annotate the target as '[T;]' or '[T]\x27");
+            dyn()->fail(n, DiagID::SC078E, "cannot infer the type of an empty list here; annotate the target as '[T;]' or '[T]\x27");
             return &null;
         }
         return dyn()->sc->types->array(elem, static_cast::<u64>(count));
@@ -382,7 +382,7 @@ class <T> LiteralTyping {
             if e->is_poisoned() { ok = false; continue; }
             if t == &null {
                 // Untyped and not poisoned: dependent. Lower/ runs once, before M2.
-                dyn()->fail(e, "an interpolation in a generic body needs a concrete type; format it in the caller");
+                dyn()->fail(e, DiagID::SC080E, "an interpolation in a generic body needs a concrete type; format it in the caller");
                 ok = false;
                 continue;
             }
@@ -420,11 +420,11 @@ class <T> LiteralTyping {
         var v = dyn()->tu.as_value(t);
         if v == &null { return false; }
         if v->is_dependent() {
-            dyn()->fail(e, "an interpolation in a generic body needs a concrete type; format it in the caller");
+            dyn()->fail(e, DiagID::SC080E, "an interpolation in a generic body needs a concrete type; format it in the caller");
             return false;
         }
         if dyn()->tu.nullable_inner(v) != &null {
-            dyn()->fail(e, f"a value of type '{dyn()->tu.str(v)}' has no formatter yet; test it and format the inner value");
+            dyn()->fail(e, DiagID::SC081E, f"a value of type '{dyn()->tu.str(v)}' has no formatter yet; test it and format the inner value");
             return false;
         }
         if dyn()->tu.pointee(v) != &null {
@@ -436,7 +436,7 @@ class <T> LiteralTyping {
         if bk != BuiltinKind::COUNT {
             var fk = format_kind_of(bk);
             if fk == FormatKind::COUNT {
-                dyn()->fail(e, f"a value of type '{dyn()->tu.str(v)}' cannot be formatted");
+                dyn()->fail(e, DiagID::SC081E, f"a value of type '{dyn()->tu.str(v)}' cannot be formatted");
                 return false;
             }
             h->kind = fk;
@@ -446,7 +446,7 @@ class <T> LiteralTyping {
 
         var d = dyn()->tu.record_decl(v);
         if d == &null {
-            dyn()->fail(e, f"a value of type '{dyn()->tu.str(v)}' has no formatter");
+            dyn()->fail(e, DiagID::SC081E, f"a value of type '{dyn()->tu.str(v)}' has no formatter");
             return false;
         }
         var en = dyn_cast::<EnumDecl>(NameLookup::representative(d));
@@ -544,7 +544,7 @@ class <T> LiteralTyping {
     }
 
     priv fn _spec_error(self, n: *StringLiteralExpr, at: SourceRange, spelled: string, t: *Type, why: string) -> bool {
-        dyn()->sc->diag->report(DiagID::SC001E, at.start,
+        dyn()->sc->diag->report(DiagID::SC036E, at.start,
             f"invalid format spec '{spelled}' for a value of type '{dyn()->tu.str(t)}': {why}"
         ).first(at).emit();
         return false;
@@ -669,7 +669,7 @@ class <T> LiteralTyping {
     /// escape clause.
     fn reject_slice_literal(self, e: *Expr, what: string) -> bool {
         if !self.is_slice_literal(e) { return false; }
-        dyn()->fail(dyn()->tu.strip_parens(e),
+        dyn()->fail(dyn()->tu.strip_parens(e), DiagID::SC082E,
             f"a list literal {what} is a view of a temporary array and would outlive it; use '[T]' to own the elements, or bind the literal to a 'var' first");
         return true;
     }
@@ -683,7 +683,7 @@ class <T> LiteralTyping {
         if (c == &null) || (!isa::<FixedArrayType>(c)) { return false; }
         var v = dyn()->tu.strip_parens(value);
         if (v == &null) || v->is_poisoned() || isa::<ListLiteralExpr>(v) { return false; }
-        dyn()->fail(v, "an array is not copyable; initialize it from a list literal, or view the source through a slice or a pointer");
+        dyn()->fail(v, DiagID::SC083E, "an array is not copyable; initialize it from a list literal, or view the source through a slice or a pointer");
         return true;
     }
 
@@ -695,11 +695,11 @@ class <T> LiteralTyping {
             if t == &null { continue; }
             if elem_expected != &null { dyn()->check_convertible(n->elements[i], elem_expected); continue; }
             var j = dyn()->conv.join(elem, t);
-            if j == &null { dyn()->fail(n->elements[i], "set elements do not share a type"); return &null; }
+            if j == &null { dyn()->fail(n->elements[i], DiagID::SC077E, "set elements do not share a type"); return &null; }
             elem = j;
         }
         if elem == &null {
-            if n->elements.size() == 0 { dyn()->fail(n, "cannot infer the element type of an empty set; annotate the target"); }
+            if n->elements.size() == 0 { dyn()->fail(n, DiagID::SC078E, "cannot infer the element type of an empty set; annotate the target"); }
             return &null;
         }
         return dyn()->tu.set_of(elem);
@@ -716,18 +716,18 @@ class <T> LiteralTyping {
             if ek != &null { dyn()->check_convertible(en->key, ek); }
             else if kt != &null {
                 var j = dyn()->conv.join(k, kt);
-                if j == &null { dyn()->fail(en->key, "map keys do not share a type"); return &null; }
+                if j == &null { dyn()->fail(en->key, DiagID::SC077E, "map keys do not share a type"); return &null; }
                 k = j;
             }
             if ev != &null { dyn()->check_convertible(en->value, ev); }
             else if vt != &null {
                 var j = dyn()->conv.join(v, vt);
-                if j == &null { dyn()->fail(en->value, "map values do not share a type"); return &null; }
+                if j == &null { dyn()->fail(en->value, DiagID::SC077E, "map values do not share a type"); return &null; }
                 v = j;
             }
         }
         if (k == &null) || (v == &null) {
-            if n->entries.size() == 0 { dyn()->fail(n, "cannot infer the key and value types of an empty map; annotate the target"); }
+            if n->entries.size() == 0 { dyn()->fail(n, DiagID::SC078E, "cannot infer the key and value types of an empty map; annotate the target"); }
             return &null;
         }
         return dyn()->tu.map_of(k, v);

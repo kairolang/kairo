@@ -479,3 +479,1714 @@ group = "calls"
     move the named argument after the pack arguments. `f(a, b, k: x)` rather than `f(a, k: x, b)` -
     named arguments are matched by name, so their position among themselves never mattered.
     """
+
+[SC023]
+brief = "cast requires an unsafe context"
+group = "casts"
+
+    [SC023.E]
+    explain = """
+    # this cast is only allowed inside `unsafe`
+
+    the cast either reinterprets memory (`as unsafe *T`, discarding pointer provenance) or turns a
+    raw pointer into a safe one. the compiler cannot prove the result is valid, so the `unsafe`
+    block is where you take responsibility for it.
+
+    ```kairo
+    let p = raw as *i32;          // error
+    let p = unsafe { raw as *i32 };
+    ```
+
+    ## how to fix
+
+    wrap the cast in `unsafe { ... }`, or avoid it with a safe conversion.
+    """
+
+[SC024]
+brief = "static downcast is not allowed"
+group = "casts"
+
+    [SC024.E]
+    explain = """
+    # a static cast cannot downcast
+
+    converting a base pointer to a derived pointer without a runtime check would silently produce a
+    wrong pointer when the object is not actually the derived type.
+
+    ```kairo
+    let d = static_cast::<*Derived>(b);   // error
+    ```
+
+    ## how to fix
+
+    write `as *X` for a checked cast that panics on mismatch, `as *X?` for one that yields null, or
+    `as unsafe *X` inside `unsafe` to reinterpret.
+    """
+
+[SC025]
+brief = "downcast from a non-polymorphic type"
+group = "casts"
+
+    [SC025.E]
+    explain = """
+    # there is no runtime type to check
+
+    a checked downcast reads the object's dynamic type. a type with no virtual methods carries no
+    such information, so the check cannot be performed.
+
+    ```kairo
+    class Base { }
+    class Derived derives Base { }
+    let d = b as *Derived;   // error: Base has no virtual methods
+    ```
+
+    ## how to fix
+
+    give the base a virtual method (e.g. a virtual destructor), or use `as unsafe *X` if you know
+    the dynamic type.
+    """
+
+[SC026]
+brief = "invalid pointer/integer cast"
+group = "casts"
+
+    [SC026.E]
+    explain = """
+    # pointers and integers convert only in limited ways
+
+    a pointer converts to `usize` only, since that is the one integer guaranteed to hold an
+    address. an integer never converts to a safe pointer; only a reinterpret can manufacture an
+    address.
+
+    ```kairo
+    let a = p as u32;        // error
+    let q = n as *i32;       // error
+    ```
+
+    ## how to fix
+
+    write `p as usize as u32` to narrow deliberately, or `n as unsafe *i32` inside `unsafe`.
+    """
+
+[SC027]
+brief = "no conversion between these types"
+group = "casts"
+
+    [SC027.E]
+    explain = """
+    # these types do not convert
+
+    `as` only performs conversions with a meaningful representation change (numeric widening or
+    narrowing, pointer adjustments, ...). the source and target here have none.
+
+    ```kairo
+    let s = 3.5 as string;   // error
+    ```
+
+    ## how to fix
+
+    use a library function that performs the conversion you mean.
+    """
+
+[SC028]
+brief = "value does not convert implicitly to the expected type"
+group = "types"
+
+    [SC028.E]
+    explain = """
+    # cannot convert to the expected type
+
+    the expression's type does not implicitly convert to the type required by its context (an
+    initializer, argument, return value, or assignment).
+
+    ```kairo
+    let x: i32 = "text";   // error
+    ```
+
+    ## how to fix
+
+    change the value, change the declared type, or convert explicitly with `as` where a conversion
+    exists.
+    """
+
+[SC029]
+brief = "cast from a nullable type to its non-nullable form"
+group = "casts"
+
+    [SC029.E]
+    explain = """
+    # a cast cannot fabricate a value for null
+
+    `T? as T` would have nothing to produce when the value is null, so it is rejected.
+
+    ```kairo
+    let n: i32 = maybe as i32;   // error
+    ```
+
+    ## how to fix
+
+    use `x ?? default` to supply a fallback, or `x!` to assert non-null.
+    """
+
+[SC030]
+brief = "cast changes pointee qualifiers unsafely"
+group = "casts"
+
+    [SC030.E]
+    explain = """
+    # this cast breaks const-correctness
+
+    `as` may add `const` to a pointee but never remove it (or `volatile`). adding `const` below a
+    level that is not itself `const` is also rejected: the result could be used to store a
+    `*const T` through a `*T`.
+
+    ```kairo
+    let p = cp as *i32;          // error: drops const
+    let q = pp as **const i32;   // error: adds const below a non-const level
+    ```
+
+    ## how to fix
+
+    make every level above the added `const` `const` too, or reinterpret with `as unsafe *T`
+    inside an `unsafe` block.
+    """
+
+[SC031]
+brief = "redundant cast"
+group = "casts"
+
+    [SC031.W]
+    explain = """
+    # this cast does nothing
+
+    the value already converts implicitly to the target type where it is used, so the explicit
+    `as` is noise.
+
+    ```kairo
+    let x: i64 = small as i64;   // warning
+    ```
+
+    ## how to fix
+
+    remove the cast.
+    """
+
+[SC032]
+brief = "required lang item is not bound"
+group = "lang-items"
+
+    [SC032.E]
+    explain = """
+    # this expression needs a lang item that is not available
+
+    some expressions lower to a compiler-known library item (a lang item). the builtin module that
+    defines it is not in the import set of this build, so the expression cannot be typed. only the
+    first use per file is reported.
+
+    ## how to fix
+
+    make sure the builtins directory is passed (`--builtins-dir`) and the defining module is
+    imported.
+    """
+
+[SC033]
+brief = "operand types do not unify"
+group = "operators"
+
+    [SC033.E]
+    explain = """
+    # the operands have no common type
+
+    a binary operator needs both operands at one type, and neither side converts implicitly to the
+    other.
+
+    ```kairo
+    let r = a_u32 + b_i64s;   // error
+    ```
+
+    ## how to fix
+
+    cast one side explicitly with `as` to choose the result type.
+    """
+
+[SC034]
+brief = "`===` without a nullable operand"
+group = "operators"
+
+    [SC034.E]
+    explain = """
+    # `===` needs a nullable operand
+
+    `a === b` means "both present and equal". on values that cannot be null it is just `==`.
+
+    ```kairo
+    if 1 === 2 { }   // error
+    ```
+
+    ## how to fix
+
+    use `==`.
+    """
+
+[SC035]
+brief = "compound operator and its base operator both declared"
+group = "operators"
+
+    [SC035.E]
+    explain = """
+    # ambiguous compound operator
+
+    both a compound operator (e.g. `op +=`) and its base operator (`op +`) apply to the type. a
+    type declares one and the other is derived from it; with both, the meaning is ambiguous.
+
+    ## how to fix
+
+    remove one of the two operator declarations.
+    """
+
+[SC036]
+brief = "invalid format spec"
+group = "format-strings"
+
+    [SC036.E]
+    explain = """
+    # the format spec does not fit this value
+
+    the spec after `:` in an f-string interpolation is malformed, or asks for a presentation the
+    value's type does not support.
+
+    ```kairo
+    f"{name:x}"   // error: hex on a string
+    ```
+
+    ## how to fix
+
+    correct the spec, or convert the value to a type the spec applies to.
+    """
+
+[SC037]
+brief = "type called like a function"
+group = "calls"
+
+    [SC037.E]
+    explain = """
+    # a primitive type is not a function
+
+    `i32(x)` is not a conversion in Kairo; primitive types are not callable.
+
+    ```kairo
+    let n = i32(3.5);   // error
+    ```
+
+    ## how to fix
+
+    convert with `x as i32`.
+    """
+
+[SC038]
+brief = "no constructor takes arguments"
+group = "calls"
+
+    [SC038.E]
+    explain = """
+    # this type has no constructor taking arguments
+
+    the type declares no constructor, so only the implicit default constructor exists, and it takes
+    no arguments.
+
+    ```kairo
+    class P { }
+    let p = P(1, 2);   // error
+    ```
+
+    ## how to fix
+
+    declare a constructor with the needed parameters, or construct it with no arguments.
+    """
+
+[SC039]
+brief = "branch or return types do not unify"
+group = "type-check"
+
+    [SC039.E]
+    explain = """
+    # branches do not unify to one type
+
+    a value-producing construct - an `if`/`match` used as an expression, or a function whose return
+    type is inferred - takes one type from all of its branches (or all of its `return`s). each new
+    branch is joined with the type seen so far; this error fires when no common type exists.
+
+    ```kairo
+    fn pick(b: bool) {
+        if b { return 1; }
+        return "one";      // i32 and string do not unify
+    }
+    ```
+
+    ## how to fix
+
+    make every branch produce the same type (convert one explicitly), or annotate the declared type
+    so each branch is checked against it instead of joined.
+    """
+
+    [SC039.N]
+    explain = """
+    # note: every branch must convert to one type
+
+    attached to a failed branch join; restates the rule that every branch of a value-producing
+    construct must convert to a single type.
+    """
+
+[SC040]
+brief = "no field of that name in the destructured or initialized type"
+group = "type-check"
+
+    [SC040.E]
+    explain = """
+    # no such field
+
+    a named field in a designated initializer or a struct destructuring pattern does not name a
+    field of the target type.
+
+    ```kairo
+    struct P { var x: i32; }
+    var p = P { y: 1 };     // P has no field named 'y'
+    ```
+
+    ## how to fix
+
+    use the field's declared name, or remove the entry.
+    """
+
+[SC041]
+brief = "pattern or binding type does not match the value"
+group = "type-check"
+
+    [SC041.E]
+    explain = """
+    # pattern type does not match
+
+    a pattern or binding carries a type annotation, and the value it is matched against (the
+    scrutinee, or the destructured element) is not convertible to that type.
+
+    ```kairo
+    var (a: string, b) = (1, 2);   // i32 cannot bind as string
+    ```
+
+    ## how to fix
+
+    change the annotation to the value's type, drop it to let the type be inferred, or convert the
+    value first.
+    """
+
+[SC042]
+brief = "tuple pattern arity mismatch"
+group = "type-check"
+
+    [SC042.E]
+    explain = """
+    # tuple pattern has the wrong number of elements
+
+    a tuple pattern must list exactly as many elements as the tuple type it matches.
+
+    ```kairo
+    match (1, 2, 3) {
+        (a, b) => {}        // 2 elements, the tuple has 3
+    }
+    ```
+
+    ## how to fix
+
+    add or remove sub-patterns so the counts agree; use `_` for elements you do not need.
+    """
+
+[SC043]
+brief = "cannot infer a type that depends on itself"
+group = "type-check"
+
+    [SC043.E]
+    explain = """
+    # self-referential inference
+
+    a function with no declared return type, or a variable with no declared type, has its type
+    inferred from its body or initializer. when that body or initializer refers back to the same
+    declaration, inference would need the answer to compute the answer.
+
+    ```kairo
+    fn f(n: i32) { return f(n - 1); }   // return type depends on itself
+    ```
+
+    ## how to fix
+
+    annotate the type explicitly: `fn f(n: i32) -> i32`, or `var x: T = ...`.
+    """
+
+[SC044]
+brief = "function returns a fixed array by value"
+group = "type-check"
+
+    [SC044.E]
+    explain = """
+    # array returned by value
+
+    a fixed-size array is not returned by value.
+
+    ```kairo
+    fn make() -> [i32; 4] { ... }
+    ```
+
+    ## how to fix
+
+    return a vector (`[T]`), or have the caller pass the array as an `@inout` parameter and fill it.
+    """
+
+[SC045]
+brief = "parameter takes a fixed array by value"
+group = "type-check"
+
+    [SC045.E]
+    explain = """
+    # array parameter by value
+
+    a non-`const` parameter declared as a fixed-size array in value mode would copy the array, which
+    is not allowed.
+
+    ```kairo
+    fn sum(a: [i32; 4]) -> i32 { ... }
+    ```
+
+    ## how to fix
+
+    mark the parameter `const`, pass it `@inout`, or take a slice.
+    """
+
+[SC046]
+brief = "variable has neither a type nor an initializer"
+group = "type-check"
+
+    [SC046.E]
+    explain = """
+    # nothing to type the variable from
+
+    a variable's type comes from its annotation or its initializer. with neither, no type exists.
+
+    ```kairo
+    var x;
+    ```
+
+    ## how to fix
+
+    add a type (`var x: i32;`) or an initializer (`var x = 0;`).
+    """
+
+[SC047]
+brief = "variable initialized with a void expression"
+group = "type-check"
+
+    [SC047.E]
+    explain = """
+    # void initializer
+
+    the initializer of an inferred variable has type `void`, which produces no value to store.
+
+    ```kairo
+    fn log() {}
+    var x = log();
+    ```
+
+    ## how to fix
+
+    call the expression as a statement, or initialize from an expression that yields a value.
+    """
+
+[SC048]
+brief = "`return` without a value in a non-void function"
+group = "type-check"
+
+    [SC048.E]
+    explain = """
+    # missing return value
+
+    a bare `return;` appears in a function whose declared return type is neither `void` nor `!`.
+
+    ```kairo
+    fn f() -> i32 { return; }
+    ```
+
+    ## how to fix
+
+    return a value of the declared type, or change the return type to `void`.
+    """
+
+[SC049]
+brief = "`return` in a function returning `!`"
+group = "type-check"
+
+    [SC049.E]
+    explain = """
+    # never-returning function returns
+
+    a function declared `-> !` promises never to return to its caller, so a `return` statement in
+    it is always wrong.
+
+    ```kairo
+    fn fail() -> ! { return 1; }
+    ```
+
+    ## how to fix
+
+    end the function with a diverging call (a panic, an exit, an infinite loop), or change the
+    return type.
+    """
+
+[SC050]
+brief = "`return` with a value in a void function"
+group = "type-check"
+
+    [SC050.E]
+    explain = """
+    # value returned from a void function
+
+    a `return` carries a non-void value in a function declared to return `void`.
+
+    ```kairo
+    fn f() { return 1; }
+    ```
+
+    ## how to fix
+
+    drop the value (`return;`), or declare the return type that the value has.
+    """
+
+[SC051]
+brief = "value of a non-movable type is moved"
+group = "lifecycle"
+
+    [SC051.E]
+    explain = """
+    # moving a non-movable value
+
+    a value is passed where it would be moved (for example into a `@move` parameter), but its type
+    cannot be moved: its transfer constructor is deleted, or a member or base is itself not
+    movable. the message says which.
+
+    ```kairo
+    class Lock {
+        @move fn Lock(self, other: Self) = delete;
+    }
+    fn take(@move l: Lock) {}
+    take(l);    // Lock is not movable
+    ```
+
+    ## how to fix
+
+    pass the value by pointer or reference instead, or give the type a usable `@move` transfer
+    constructor.
+    """
+
+[SC052]
+brief = "variable used after being moved"
+group = "lifecycle"
+
+    [SC052.E]
+    explain = """
+    # use after move
+
+    a variable is read after its value was moved into a `@move` parameter. after the move the
+    variable holds no value, so reading it is an error.
+
+    ```kairo
+    var s = make();
+    consume(s);     // s moved here
+    print(s);       // s used after the move
+    ```
+
+    ## how to fix
+
+    assign a new value to the variable before using it again, or pass a copy instead of moving.
+    """
+
+[SC053]
+brief = "`op ++` / `op --` does not say prefix or postfix"
+group = "operators"
+
+    [SC053.W]
+    explain = """
+    # increment/decrement without fixity
+
+    `op ++` and `op --` exist in prefix and postfix forms. a declaration that names neither is
+    treated as prefix, which may not be what was meant.
+
+    ```kairo
+    fn op ++(self) -> *Self { ... }    // prefix assumed
+    ```
+
+    ## how to fix
+
+    write `op l++` for the prefix form or `op r++` for the postfix form (likewise `--`).
+    """
+
+[SC054]
+brief = "both operators of a derived pair are declared"
+group = "operators"
+
+    [SC054.E]
+    explain = """
+    # both halves of an operator pair declared
+
+    some operators come in pairs where one is derived from the other (for example `==` and `!=`).
+    a type declares one of the pair; the compiler derives the other. declaring both is an error.
+
+    ```kairo
+    fn op ==(self, o: Self) -> bool { ... }
+    fn op !=(self, o: Self) -> bool { ... }    // derived from op ==
+    ```
+
+    ## how to fix
+
+    remove the declaration of the derived operator; keep only one of the pair.
+    """
+
+    [SC054.N]
+    explain = """
+    # note: the other operator of the pair
+
+    points at the declaration of the operator that makes this one redundant.
+    """
+
+[SC055]
+brief = "invalid operator overload declaration"
+group = "operators"
+
+    [SC055.E]
+    explain = """
+    # invalid operator overload
+
+    an `op` declaration breaks one of the operator rules: the operator is not overloadable (`=`,
+    `===`, ...), it has the wrong number of operands, it takes default arguments or a pack, it is
+    declared in an extension when it must be a member, or its return type is wrong for the
+    operator (comparisons return `bool`, `<=>` returns `Ordering`, subscripts return a place into
+    `self`, compound assignments return nothing). the message names the rule.
+
+    ```kairo
+    fn op ==(self, o: Self) -> int { ... }    // must return bool
+    ```
+
+    ## how to fix
+
+    change the declaration to the shape the message describes, or use an ordinary named function
+    if the operator is not overloadable.
+    """
+
+[SC056]
+brief = "base of a class with a non-trivial destructor has no virtual destructor"
+group = "lifecycle"
+
+    [SC056.E]
+    explain = """
+    # non-virtual base destructor
+
+    a class has a non-trivial destructor, but its base's destructor is not virtual. deleting the
+    derived object through a pointer to the base would run only the base's destructor and leak
+    the rest.
+
+    ```kairo
+    class Base {}
+    class Derived derives Base {
+        fn op delete(self) { ... }
+    }
+    ```
+
+    ## how to fix
+
+    declare `virtual fn op delete(self)` in the base and `override fn op delete(self)` in the
+    derived class.
+    """
+
+[SC057]
+brief = "class declares both `@copy` and `@move` transfer constructors"
+group = "lifecycle"
+
+    [SC057.E]
+    explain = """
+    # two transfer constructors
+
+    a class has exactly one transfer constructor, `@copy` or `@move`, which decides whether it is
+    copyable or move-only. declaring both is an error, unless both are `= delete`, which makes the
+    class non-transferable.
+
+    ```kairo
+    class Buf {
+        @copy fn Buf(self, other: Self) { ... }
+        @move fn Buf(self, other: Self) { ... }
+    }
+    ```
+
+    ## how to fix
+
+    keep one of the two, or delete both.
+    """
+
+    [SC057.N]
+    explain = """
+    # note: the other transfer constructor
+
+    points at the transfer constructor the reported one conflicts with.
+    """
+
+[SC058]
+brief = "class writes `op =`"
+group = "lifecycle"
+
+    [SC058.E]
+    explain = """
+    # user-defined assignment
+
+    assignment is derived from the class's transfer constructor (destroy the old value, then
+    transfer); it cannot be written by hand.
+
+    ```kairo
+    class Buf {
+        fn op =(self, other: Self) { ... }
+    }
+    ```
+
+    ## how to fix
+
+    remove `op =` and put the logic in the `@copy` or `@move` transfer constructor.
+    """
+
+[SC059]
+brief = "transfer constructor with a body but a deleted destructor"
+group = "lifecycle"
+
+    [SC059.E]
+    explain = """
+    # derived assignment cannot destroy
+
+    the derived `op =` destroys the old value before transferring the new one. when the transfer
+    constructor has a body but the destructor is `= delete`, that assignment cannot be formed.
+
+    ```kairo
+    class Buf {
+        @move fn Buf(self, other: Self) { ... }
+        fn op delete(self) = delete;
+    }
+    ```
+
+    ## how to fix
+
+    provide a destructor, or make the transfer constructor `= default` or `= delete`.
+    """
+
+    [SC059.N]
+    explain = """
+    # note: the deleted destructor
+
+    points at the `= delete` destructor that blocks the derived assignment.
+    """
+
+[SC060]
+brief = "custom destructor without a transfer constructor"
+group = "lifecycle"
+
+    [SC060.W]
+    explain = """
+    # implicitly copyable class with a custom destructor
+
+    a class with a custom destructor usually owns a resource. without a `@copy` or `@move`
+    transfer constructor it is implicitly copyable, so two copies would both release the same
+    resource.
+
+    ```kairo
+    class File {
+        fn op delete(self) { close(self.fd); }
+    }
+    ```
+
+    ## how to fix
+
+    make it move-only with `@move fn File(self, other: Self) = default`, or forbid copying with
+    `@copy fn File(self, other: Self) = delete`.
+    """
+
+[SC061]
+brief = "lifecycle category differs from the base's"
+group = "lifecycle"
+
+    [SC061.E]
+    explain = """
+    # lifecycle category mismatch with base
+
+    a derived class's lifecycle category (copyable, move-only, non-transferable) must match its
+    base's, or be non-transferable. otherwise the base part could be copied or moved in a way the
+    base forbids.
+
+    ```kairo
+    class Base { @move fn Base(self, other: Self) = default; }
+    class Derived derives Base { @copy fn Derived(self, other: Self) { ... } }
+    ```
+
+    ## how to fix
+
+    give the derived class the same category as its base, or make it non-transferable.
+    """
+
+    [SC061.N]
+    explain = """
+    # note: the base
+
+    points at the base class whose category conflicts.
+    """
+
+[SC062]
+brief = "name is not callable"
+group = "calls"
+
+    [SC062.E]
+    explain = """
+    # not callable
+
+    a call names something that has no callable candidates: it is not a function, and not a value
+    with a call operator.
+
+    ```kairo
+    var x = 3;
+    x(1);
+    ```
+
+    ## how to fix
+
+    call a function, or give the type an `op ()`.
+    """
+
+[SC063]
+brief = "no matching overload for a call"
+group = "calls"
+
+    [SC063.E]
+    explain = """
+    # no viable overload
+
+    no candidate for the call accepts the given arguments. the notes list the candidates and why
+    each was rejected.
+
+    ```kairo
+    fn f(a: int) {}
+    fn f(a: string) {}
+    f(1.5, 2);
+    ```
+
+    ## how to fix
+
+    change the arguments to match one of the candidates, or add an overload that accepts them.
+    """
+
+    [SC063.N]
+    explain = """
+    # note: a rejected candidate
+
+    one candidate that was considered for the call, and why it did not match.
+    """
+
+[SC064]
+brief = "ambiguous call"
+group = "calls"
+
+    [SC064.E]
+    explain = """
+    # ambiguous overload
+
+    more than one candidate matches the call at the same rank, so none is better than the others.
+
+    ```kairo
+    fn f(a: i32, b: i64) {}
+    fn f(a: i64, b: i32) {}
+    f(1, 1);
+    ```
+
+    ## how to fix
+
+    convert an argument explicitly so one candidate matches better, or remove one of the
+    overloads.
+    """
+
+    [SC064.N]
+    explain = """
+    # note: an equally good candidate
+
+    one of the candidates that tied for the best match.
+    """
+
+[SC065]
+brief = "`??` on a non-nullable left operand"
+group = "operators"
+
+    [SC065.W]
+    explain = """
+    # the right operand of `??` is never used
+
+    `a ?? b` yields `b` only when `a` is null. when `a` has a non-nullable type it can never be
+    null, so `b` is dead.
+
+    ```kairo
+    let n: i32 = 1;
+    let r = n ?? 0;   // warning
+    ```
+
+    ## how to fix
+
+    drop `?? b`, or give the left operand a nullable type if null was intended.
+    """
+
+[SC066]
+brief = "no operator for these operand types"
+group = "operators"
+
+    [SC066.E]
+    explain = """
+    # no operator applies to the operands
+
+    the operator is not builtin for these operand types and no `op` overload on the type takes
+    them. records have no builtin `==` or `===`; they compare only through their own operator.
+
+    ```kairo
+    struct P { x: i32 }
+    let same = p1 == p2;   // error: no `op ==` on `P`
+    ```
+
+    ## how to fix
+
+    declare the matching `op` on the type, or convert the operands to types that have it.
+    """
+
+[SC067]
+brief = "operand type not accepted by a builtin operator"
+group = "operators"
+
+    [SC067.E]
+    explain = """
+    # the builtin operator does not take this operand type
+
+    each builtin operator family has fixed operand kinds: logical operators and `!` take `bool`;
+    shifts, `~`, `++`/`--` and the exponent of `^^` take integers; bitwise operators take two
+    integers, bytes or bools; arithmetic, unary `+`/`-` and ordering comparisons take numbers.
+    compound assignments follow their base operator.
+
+    ```kairo
+    let b = 1 && true;   // error: `&&` needs `bool` operands
+    ```
+
+    ## how to fix
+
+    use a comparison or an explicit `as` cast to produce an operand of the required kind.
+    """
+
+[SC068]
+brief = "negation of an unsigned literal"
+group = "operators"
+
+    [SC068.E]
+    explain = """
+    # an unsigned literal cannot be negated
+
+    the literal is typed as unsigned, which has no negative values.
+
+    ```kairo
+    let x: u32 = -1;   // error
+    ```
+
+    ## how to fix
+
+    use a signed type, or write the intended value (e.g. `u32::MAX`) directly.
+    """
+
+[SC069]
+brief = "address of a temporary"
+group = "operators"
+
+    [SC069.E]
+    explain = """
+    # cannot take the address of a temporary
+
+    `&` needs an lvalue with storage that outlives the expression; a temporary is destroyed at
+    the end of the full expression, so its address would dangle.
+
+    ```kairo
+    let p = &make_value();   // error
+    ```
+
+    ## how to fix
+
+    bind the value to a variable first and take the variable's address.
+    """
+
+[SC070]
+brief = "invalid dereference"
+group = "operators"
+
+    [SC070.E]
+    explain = """
+    # the operand cannot be dereferenced
+
+    unary `*` needs a non-nullable pointer to a non-void type. a nullable pointer must be
+    checked first, and `*void` has no pointee to read.
+
+    ```kairo
+    let p: *i32? = get();
+    let v = *p;   // error: nullable
+    ```
+
+    ## how to fix
+
+    check for null (or use `?.`), cast `*void` to a typed pointer, or drop the `*` on a
+    non-pointer.
+    """
+
+[SC071]
+brief = "operand is not assignable"
+group = "operators"
+
+    [SC071.E]
+    explain = """
+    # the target is not assignable
+
+    assignment, compound assignment and `++`/`--` need an assignable lvalue. temporaries,
+    constants and whole arrays are not.
+
+    ```kairo
+    f() = 3;   // error
+    ```
+
+    ## how to fix
+
+    assign to a variable, field or element; for an array, assign its elements or go through a
+    slice.
+    """
+
+[SC072]
+brief = "derived compound operator assigns a mismatched type"
+group = "operators"
+
+    [SC072.E]
+    explain = """
+    # the derived compound operator does not fit
+
+    `a OP= b` derived from `op OP` is `a = a OP b`; here the base operator returns a type that
+    does not convert to the left operand's type.
+
+    ```kairo
+    // op + (a: V, b: V) -> W
+    v += w;   // error: a `W` would be assigned to a `V`
+    ```
+
+    ## how to fix
+
+    declare the compound `op OP=` explicitly, or make the base operator return the left type.
+    """
+
+[SC073]
+brief = "literal carries no value data"
+group = "literals"
+
+    [SC073.E]
+    explain = """
+    # the literal reached typing without its value
+
+    an integer, float or format-string literal arrived at Sema with no immediate data attached. this
+    is a compiler-internal inconsistency between the lexer and Sema, not a problem in your source.
+
+    ## how to fix
+
+    report it with the source that triggers it; rewriting the literal may work around it.
+    """
+
+[SC074]
+brief = "unknown literal suffix"
+group = "literals"
+
+    [SC074.E]
+    explain = """
+    # the suffix names no numeric type
+
+    a numeric literal's suffix must name a builtin integer type (for an integer literal) or float
+    type (for a float literal).
+
+    ```kairo
+    let x = 10q8;   // error: no such suffix
+    ```
+
+    ## how to fix
+
+    use a valid suffix such as `i32`, `u8`, `f64`, or drop it and annotate the target.
+    """
+
+[SC075]
+brief = "literal does not fit its type"
+group = "literals"
+
+    [SC075.E]
+    explain = """
+    # the value is out of range
+
+    an integer literal's value does not fit the type given by its suffix or by the expected type,
+    or, unsuffixed, it is too large for every integer type.
+
+    ```kairo
+    let b: u8 = 300;   // error
+    ```
+
+    ## how to fix
+
+    choose a wider type, or correct the value.
+    """
+
+[SC076]
+brief = "cannot infer the type of `null`"
+group = "literals"
+
+    [SC076.E]
+    explain = """
+    # `null` needs a target type
+
+    `null` and `&null` take their type from context. with no expected nullable or pointer type
+    there is nothing to infer from.
+
+    ```kairo
+    let p = null;   // error
+    ```
+
+    ## how to fix
+
+    annotate the target: `let p: i32? = null;` or `let p: *i32 = &null;`.
+    """
+
+[SC077]
+brief = "collection literal elements do not share a type"
+group = "literals"
+
+    [SC077.E]
+    explain = """
+    # the elements have no common type
+
+    every element of a list or set literal, and every key (and every value) of a map literal, must
+    unify to one type.
+
+    ```kairo
+    let xs = [1, "two"];   // error
+    ```
+
+    ## how to fix
+
+    make the elements agree, or cast them explicitly with `as`.
+    """
+
+[SC078]
+brief = "cannot infer the type of an empty collection literal"
+group = "literals"
+
+    [SC078.E]
+    explain = """
+    # an empty literal has nothing to infer from
+
+    an empty list, set or map literal carries no element type of its own, so it needs one from the
+    target.
+
+    ```kairo
+    let xs = [];   // error
+    ```
+
+    ## how to fix
+
+    annotate the target, e.g. `let xs: [i32] = [];`.
+    """
+
+[SC079]
+brief = "array literal element count mismatch"
+group = "literals"
+
+    [SC079.E]
+    explain = """
+    # the literal's length does not match the array's
+
+    a list literal initializing a fixed array `[T; N]` must have exactly `N` elements, and at least
+    one.
+
+    ```kairo
+    let a: [i32; 3] = [1, 2];   // error
+    ```
+
+    ## how to fix
+
+    supply exactly `N` elements, or change the array's size.
+    """
+
+[SC080]
+brief = "interpolation of a generic type"
+group = "format-strings"
+
+    [SC080.E]
+    explain = """
+    # the interpolated value has no concrete type yet
+
+    inside a generic body an f-string interpolation of a dependent type cannot pick a formatter,
+    since the type is only known at instantiation.
+
+    ## how to fix
+
+    format the value in a caller where its type is concrete, and pass the string in.
+    """
+
+[SC081]
+brief = "value has no formatter"
+group = "format-strings"
+
+    [SC081.E]
+    explain = """
+    # this type cannot be interpolated
+
+    an f-string interpolation needs a formatter for the value's type. nullable values, and types
+    with no formatter, are rejected.
+
+    ```kairo
+    let n: i32? = 1;
+    f"{n}"   // error: test it and format the inner value
+    ```
+
+    ## how to fix
+
+    unwrap a nullable first, or format a field or conversion of the value that has a formatter.
+    """
+
+[SC082]
+brief = "slice literal outlives its temporary array"
+group = "literals"
+
+    [SC082.E]
+    explain = """
+    # the view would dangle
+
+    a list literal typed as a slice `[T;]` views a temporary backing array. in a position with no
+    scope to extend that array into, the view would outlive it.
+
+    ## how to fix
+
+    use `[T]` to own the elements, or bind the literal to a `var` first and view that.
+    """
+
+[SC083]
+brief = "array is not copyable"
+group = "literals"
+
+    [SC083.E]
+    explain = """
+    # a fixed array initializes only from a list literal
+
+    copying one fixed array into another is not an initialization C++ supports, so an array
+    variable or field can only be initialized from a list literal.
+
+    ```kairo
+    var b: [i32; 3] = a;   // error
+    ```
+
+    ## how to fix
+
+    initialize from a list literal, or view the source through a slice or a pointer.
+    """
+
+[SC084]
+brief = "condition is not `bool`"
+group = "type-check"
+
+    [SC084.E]
+    explain = """
+    # a condition must be `bool`
+
+    `if`, `while` and other conditions take a `bool` exactly; there is no implicit truthiness for integers, pointers or nullables.
+
+    ```kairo
+    if n { }        // error: n is i32
+    ```
+
+    ## how to fix
+
+    compare explicitly: `if n != 0 { }`, or `if p != &null { }`.
+    """
+
+[SC085]
+brief = "invalid range bounds"
+group = "type-check"
+
+    [SC085.E]
+    explain = """
+    # range bounds must be integers of one type
+
+    both bounds of `a..b` must be integers, and their types must unify to a single element type.
+
+    ```kairo
+    for i in 0..3.5 { }   // error
+    ```
+
+    ## how to fix
+
+    make both bounds integers of the same type, casting one with `as` if needed.
+    """
+
+[SC086]
+brief = "`await` on a non-`Future`"
+group = "type-check"
+
+    [SC086.E]
+    explain = """
+    # only a `Future` can be awaited
+
+    `await` suspends until a `Future` completes; the operand here is some other type.
+
+    ```kairo
+    let x = await 3;   // error
+    ```
+
+    ## how to fix
+
+    await the `Future` returned by an async call, or drop the `await`.
+    """
+
+[SC087]
+brief = "closure parameter needs a type"
+group = "type-check"
+
+    [SC087.E]
+    explain = """
+    # closure parameter type cannot be inferred
+
+    a closure parameter has no annotation and there is no expected function type to infer it from.
+
+    ```kairo
+    let f = (x) => x + 1;   // error
+    ```
+
+    ## how to fix
+
+    annotate the parameter, `(x: i32) => x + 1`, or give the closure an expected type.
+    """
+
+[SC088]
+brief = "invalid aggregate initializer"
+group = "type-check"
+
+    [SC088.E]
+    explain = """
+    # this initializer does not name an aggregate
+
+    a brace initializer needs an aggregate (struct/class) type: either named in its head, or inferred from the target. the head here is not a type, not an aggregate, or no target type is available.
+
+    ```kairo
+    var x = { a: 1 };   // error: no type to infer
+    ```
+
+    ## how to fix
+
+    name the type, `Point { x: 1, y: 2 }`, or annotate the target variable.
+    """
+
+[SC089]
+brief = "invalid statement expression"
+group = "type-check"
+
+    [SC089.E]
+    explain = """
+    # statement expression has no usable value
+
+    a statement expression yields the value of its trailing expression. it must end in one, and that value cannot be a fixed array, which is never copied implicitly.
+
+    ```kairo
+    let x = { foo(); };   // error: no trailing value
+    ```
+
+    ## how to fix
+
+    end the block with the value expression, and yield a pointer or slice rather than an array.
+    """
+
+[SC090]
+brief = "`delete` of a non-pointer"
+group = "type-check"
+
+    [SC090.E]
+    explain = """
+    # `delete` requires a pointer
+
+    `delete` frees heap storage through a pointer; the operand here is not one.
+
+    ```kairo
+    delete 3;   // error
+    ```
+
+    ## how to fix
+
+    pass the pointer returned by `new`.
+    """
+
+[SC091]
+brief = "invalid pointer cast"
+group = "casts"
+
+    [SC091.E]
+    explain = """
+    # pointer cast between unrelated types
+
+    a safe `as` between pointers keeps the pointee meaningful: it may adjust along a class hierarchy, but cannot relate unrelated pointees, erase the pointee type, or make a raw pointer safe with a different pointee.
+
+    ```kairo
+    let q = p as *f32;   // p: *i32, error
+    ```
+
+    ## how to fix
+
+    reinterpret with `as unsafe *T` inside an `unsafe` block.
+    """
+
+[SC092]
+brief = "invalid enum cast"
+group = "casts"
+
+    [SC092.E]
+    explain = """
+    # enum casts go through the backing type
+
+    a plain enum converts only to and from its exact backing integer type. an ADT enum carries payloads and converts to no integer at all.
+
+    ```kairo
+    let n = color as i64;   // Color is backed by u8, error
+    ```
+
+    ## how to fix
+
+    cast to the backing type first (`color as u8 as i64`); for an ADT enum, expose the tag through an `extend` method.
+    """
+
+[SC093]
+brief = "expression cannot be typed"
+group = "type-check"
+
+    [SC093.E]
+    explain = """
+    # malformed expression reached the type checker
+
+    the type checker met an expression shape it cannot type (no callee, no owning enum, an unknown kind). this usually follows an earlier error.
+
+    ```kairo
+    // no direct example
+    ```
+
+    ## how to fix
+
+    fix the preceding errors; if none exist, report a compiler bug.
+    """
+
+[SC094]
+brief = "name is not a value"
+group = "type-check"
+
+    [SC094.E]
+    explain = """
+    # a name used as a value does not denote one
+
+    the name resolves to a type, namespace or other non-value declaration, used where a value is required.
+
+    ```kairo
+    let x = std;   // error
+    ```
+
+    ## how to fix
+
+    use a value of that type, or call/construct it.
+    """
+
+[SC095]
+brief = "value is not iterable"
+group = "type-check"
+
+    [SC095.E]
+    explain = """
+    # `for` over a non-iterable type
+
+    a `for ... in` loop needs a type with an `op in`.
+
+    ```kairo
+    for x in 3 { }   // error
+    ```
+
+    ## how to fix
+
+    iterate a range or a container, or give the type an `op in`.
+    """
+
+[SC096]
+brief = "cannot destructure the value"
+group = "type-check"
+
+    [SC096.E]
+    explain = """
+    # this value cannot be destructured this way
+
+    a destructuring binding needs a tuple (positional) or an aggregate (by field name).
+
+    ```kairo
+    var (a, b) = 3;   // error
+    ```
+
+    ## how to fix
+
+    bind the value whole, or destructure a tuple or struct.
+    """
+
+[SC097]
+brief = "invalid `@inout` argument"
+group = "calls"
+
+    [SC097.E]
+    explain = """
+    # `@inout` argument must be a marked, mutable lvalue
+
+    an `@inout` parameter writes back through its argument, so the argument must be a mutable lvalue of the parameter type. it should also be marked with `&` at the call site; unmarked arguments are accepted with a warning for now.
+
+    ```kairo
+    inc(3);        // error: not an lvalue
+    inc(x);        // warning: write inc(&x)
+    ```
+
+    ## how to fix
+
+    pass a mutable variable, marked: `inc(&x)`.
+    """
+
+    [SC097.W]
+    explain = """
+    # `@inout` argument must be a marked, mutable lvalue
+
+    an `@inout` parameter writes back through its argument, so the argument must be a mutable lvalue of the parameter type. it should also be marked with `&` at the call site; unmarked arguments are accepted with a warning for now.
+
+    ```kairo
+    inc(3);        // error: not an lvalue
+    inc(x);        // warning: write inc(&x)
+    ```
+
+    ## how to fix
+
+    pass a mutable variable, marked: `inc(&x)`.
+    """
+
+[SC098]
+brief = "call through a nullable"
+group = "calls"
+
+    [SC098.E]
+    explain = """
+    # callee may be null
+
+    the callee has a nullable type; it must be unwrapped before it is called.
+
+    ```kairo
+    f(1);   // f: ?fn(i32)
+    ```
+
+    ## how to fix
+
+    unwrap with `??` or `unwrap!()` first.
+    """
+
+[SC099]
+brief = "wrong number of arguments"
+group = "calls"
+
+    [SC099.E]
+    explain = """
+    # argument count does not match the function type
+
+    a call through a function value must pass exactly as many arguments as its type has parameters.
+
+    ```kairo
+    let f: fn(i32) = g; f(1, 2);   // error
+    ```
+
+    ## how to fix
+
+    pass the declared number of arguments.
+    """
+
+[SC100]
+brief = "member access on a function"
+group = "type-check"
+
+    [SC100.E]
+    explain = """
+    # cannot access a member of a function
+
+    a function has no members; the member was probably meant for its result.
+
+    ```kairo
+    foo.len   // error
+    ```
+
+    ## how to fix
+
+    call it first: `foo().len`.
+    """
+
+[SC101]
+brief = "invalid tuple index"
+group = "type-check"
+
+    [SC101.E]
+    explain = """
+    # tuple index is invalid
+
+    `.N` indexes a tuple; the base is not a tuple, or N is past its last element.
+
+    ```kairo
+    let t = (1, 2); t.2;   // error
+    ```
+
+    ## how to fix
+
+    use an index below the tuple's arity, on a tuple.
+    """
+
+[SC102]
+brief = "no such operator"
+group = "type-check"
+
+    [SC102.E]
+    explain = """
+    # the type declares no such operator
+
+    an explicit operator member reference names an operator the type does not declare.
+
+    ```kairo
+    T::op +   // T has no op +
+    ```
+
+    ## how to fix
+
+    declare the operator, or reference one that exists.
+    """
+
+[SC103]
+brief = "invalid subscript"
+group = "type-check"
+
+    [SC103.E]
+    explain = """
+    # value cannot be subscripted this way
+
+    `[]` needs an array, pointer, slice or a type with a subscript operator, and an integer index. tuples are indexed with `.0`, `.1`, ....
+
+    ```kairo
+    t[0]    // t is a tuple, error
+    ```
+
+    ## how to fix
+
+    use `.N` for tuples, an integer index, or give the type an `op []`.
+    """

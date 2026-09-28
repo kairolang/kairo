@@ -291,7 +291,7 @@ class TypeResolution derives RecursiveASTVisitor::<TypeResolution> {
     priv fn _lang_record(self, n: *Type, k: WellKnownType, args: *vec::<*Type>) -> *Type {
         var d = self.sc->well_known->get(k);
         if d == &null {
-            self.sc->diag->report(DiagID::R001E, n->range.start,
+            self.sc->diag->report(DiagID::R055E, n->range.start,
                 f"lang item '{to_string(k)}' is not declared in the builtin root"
             ).first(n->range).emit();
             n->poison();

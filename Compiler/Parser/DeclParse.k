@@ -1567,7 +1567,7 @@ class <T> DeclParse {
                 dyn()->advance();
                 // Reported and dropped: ParamDecl::mode is never set on `self`.
                 if p_mode != ParamMode::Value {
-                    dyn()->diag->report(DiagID::S001E, p_mode_range.start,
+                    dyn()->diag->report(DiagID::S069E, p_mode_range.start,
                         "'self' takes no passing mode; the receiver is already passed "
                         "by reference, and its mutability is written 'const self\x27"
                     ).first(p_mode_range).emit();
@@ -1708,7 +1708,7 @@ class <T> DeclParse {
                     cmsg = "'const' and '@inout' contradict: an '@inout' parameter is a "
                            "mutable borrow; a read-only borrow is 'const x: T\x27";
                 }
-                dyn()->diag->report(DiagID::S001E, p_mode_range.start, cmsg).first(p_mode_range).emit();
+                dyn()->diag->report(DiagID::S070E, p_mode_range.start, cmsg).first(p_mode_range).emit();
             }
 
             // `x: const T` on a NAMED parameter is `const x: T` spelled on the
@@ -1717,7 +1717,7 @@ class <T> DeclParse {
             // the const onto, so it is left alone.
             if is_named && (!p_const) && pty->is_const() {
                 var c_range = dyn()->top_const_range(pty);
-                var b = dyn()->diag->report(DiagID::S001W, c_range.start,
+                var b = dyn()->diag->report(DiagID::S071W, c_range.start,
                     "'const' on the type of a parameter is hard to read; declare the parameter 'const' instead"
                 );
                 b.first(c_range);
@@ -1728,7 +1728,7 @@ class <T> DeclParse {
                 // `const x: const T`: the same rule as a variable, a hard error
                 // on the second const.
                 var c_range = dyn()->top_const_range(pty);
-                dyn()->diag->report(DiagID::S001E, c_range.start,
+                dyn()->diag->report(DiagID::S071E, c_range.start,
                     "the parameter is already 'const'; a second 'const' on its type is not allowed"
                 ).first(c_range).remove(c_range, "remove the second 'const\x27").emit();
             }
@@ -2194,7 +2194,7 @@ class <T> DeclParse {
                 // moves the const onto the binding.
                 if (storage == StorageClass::Var) && ty->is_const() {
                     var c_range = dyn()->top_const_range(ty);
-                    var b = dyn()->diag->report(DiagID::S001W, c_range.start,
+                    var b = dyn()->diag->report(DiagID::S071W, c_range.start,
                         "'const' on the type of a 'var' binding is hard to read; declare the binding 'const' instead"
                     );
                     b.first(c_range);
@@ -2206,7 +2206,7 @@ class <T> DeclParse {
                     // `const x: const T` says it twice. The second is the one
                     // at fault: the binding keyword is the idiomatic place.
                     var c_range = dyn()->top_const_range(ty);
-                    dyn()->diag->report(DiagID::S001E, c_range.start,
+                    dyn()->diag->report(DiagID::S071E, c_range.start,
                         "the binding is already 'const'; a second 'const' on its type is not allowed"
                     ).first(c_range).remove(c_range, "remove the second 'const\x27").emit();
                 }

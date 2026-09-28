@@ -145,7 +145,7 @@ class Candidate {
     pub var generic:      bool  = false;
     pub var free:         bool  = false;    ///< from resolve_mixed's free list: judged with no receiver.
     pub var reason:       string = "";
-    /// Which placement rule rejected this candidate, or SC001E for anything
+    /// Which placement rule rejected this candidate, or SC001E (never emitted from here; a pure "no specific rule" sentinel) for anything
     /// else. `_report_no_viable` promotes it to the real diagnostic when there
     /// is exactly ONE candidate; with an overload set the specific rule is a
     /// property of one candidate, not of the call, so it stays a note.
@@ -261,7 +261,7 @@ class OverloadResolution {
         if fargs != &null { self._collect(&cs, frees, fargs, false, &null, true); }
 
         if cs.size() == 0 {
-            self.sc->diag->report(DiagID::SC001E, at.start,
+            self.sc->diag->report(DiagID::SC062E, at.start,
                 f"'{name}' is not callable"
             ).first(at).emit();
             out.outcome = OvlOutcome::Empty;
@@ -889,7 +889,7 @@ class OverloadResolution {
                 return;
             }
         }
-        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+        var b = self.sc->diag->report(DiagID::SC063E, at.start,
             f"no matching overload for call to '{name}\x27"
         );
         b.first(at);
@@ -904,7 +904,7 @@ class OverloadResolution {
     }
 
     priv fn _report_ambiguous(self, cs: *vec::<Candidate>, winners: *vec::<usize>, at: SourceRange, name: string) {
-        var b = self.sc->diag->report(DiagID::SC001E, at.start,
+        var b = self.sc->diag->report(DiagID::SC064E, at.start,
             f"call to '{name}' is ambiguous: more than one candidate matches at the same rank"
         );
         b.first(at);

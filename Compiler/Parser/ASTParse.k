@@ -1819,7 +1819,7 @@ class ASTParse
     pub fn _reject_mode_binding(self) -> bool {
         if self._peek_mode() == ParamMode::Value { return false; }
         var r = self._consume_mode();
-        self.diag->report(DiagID::S001E, r.start,
+        self.diag->report(DiagID::S069E, r.start,
             "'@inout' and '@move' are parameter passing modes; a mode "
             "can only be written on a function or closure parameter"
         ).first(r).emit();

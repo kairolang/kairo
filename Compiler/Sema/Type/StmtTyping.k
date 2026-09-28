@@ -132,7 +132,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if st == ResolveState::Resolved { return (f->return_type->canonical) if (f->return_type != &null) else (f->body_expr->type_); }
         if st == ResolveState::Errored  { return &null; }
         if st == ResolveState::InProgress {
-            dyn()->sc->diag->report(DiagID::SC001E, f->range.start,
+            dyn()->sc->diag->report(DiagID::SC043E, f->range.start,
                 f"cannot infer the return type of '{dyn()->tu.decl_name(static_cast::<*Decl>(f))}': its body refers to itself; annotate the return type"
             ).first(f->range).emit();
             f->poison();
@@ -164,7 +164,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var st = dyn()->sc->rstate.decl_state(static_cast::<*Decl>(v));
         if st == ResolveState::Errored { return &null; }
         if st == ResolveState::InProgress {
-            dyn()->sc->diag->report(DiagID::SC001E, v->range.start,
+            dyn()->sc->diag->report(DiagID::SC043E, v->range.start,
                 f"cannot infer the type of '{dyn()->tu.decl_name(static_cast::<*Decl>(v))}': its initializer refers to itself"
             ).first(v->range).emit();
             v->poison();
@@ -184,7 +184,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
     priv fn _reject_array_return(self, f: *FunctionDecl, t: *Type) {
         var c = canon_unqual(t);
         if (c == &null) || (!isa::<FixedArrayType>(c)) { return; }
-        dyn()->sc->diag->report(DiagID::SC001E, f->range.start,
+        dyn()->sc->diag->report(DiagID::SC044E, f->range.start,
             f"'{dyn()->tu.decl_name(static_cast::<*Decl>(f))}' returns an array; an array is not returned by value, return '[T]' or fill an '@inout' parameter"
         ).first(f->name.range).emit();
     }
@@ -217,7 +217,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             var pc = canon_unqual(p->type_->canonical);
             if (pc == &null) || (!isa::<FixedArrayType>(pc)) { continue; }
             if p->is_const || (p->mode != ParamMode::Value) { continue; }
-            dyn()->sc->diag->report(DiagID::SC001E, p->range.start,
+            dyn()->sc->diag->report(DiagID::SC045E, p->range.start,
                 f"parameter '{dyn()->tu.param_name(p)}' takes an array by value; write 'const', '@inout', or take a slice"
             ).first(p->range).emit();
         }
@@ -282,7 +282,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         }
         if n->init == &null {
             if (n->type_ == &null) {
-                dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                dyn()->sc->diag->report(DiagID::SC046E, n->range.start,
                     f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' has neither a type nor an initializer"
                 ).first(n->range).emit();
                 n->poison();
@@ -300,7 +300,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             ok = dyn()->check_convertible(n->init, declared);
         } else if t != &null {
             if dyn()->tu.is_void(t) {
-                dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                dyn()->sc->diag->report(DiagID::SC047E, n->range.start,
                     f"'{dyn()->tu.decl_name(static_cast::<*Decl>(n))}' is initialized with an expression of type 'void\x27"
                 ).first(n->range).emit();
                 n->poison(); ok = false;
@@ -332,7 +332,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if n->value == &null {
             fr->saw_bare_return = true;
             if (fr->declared != &null) && (!dyn()->tu.is_void(fr->declared)) && (!dyn()->tu.is_never(fr->declared)) {
-                dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                dyn()->sc->diag->report(DiagID::SC048E, n->range.start,
                     f"'return' with no value in a function returning '{dyn()->tu.str(fr->declared)}\x27"
                 ).first(n->range).emit();
             }
@@ -343,12 +343,12 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         dyn()->reject_slice_literal(n->value, "returned from a function");
         if fr->declared != &null {
             if dyn()->tu.is_never(fr->declared) {
-                dyn()->sc->diag->report(DiagID::SC001E, n->range.start, "a function returning '!' cannot return").first(n->range).emit();
+                dyn()->sc->diag->report(DiagID::SC049E, n->range.start, "a function returning '!' cannot return").first(n->range).emit();
                 return n;
             }
             if dyn()->tu.is_void(fr->declared) {
                 if (t != &null) && (!dyn()->tu.is_void(t)) {
-                    dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+                    dyn()->sc->diag->report(DiagID::SC050E, n->range.start,
                         f"'return' with a value of type '{dyn()->tu.str(t)}' in a function returning 'void\x27"
                     ).first(n->range).emit();
                 }
@@ -361,7 +361,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if t == &null { return n; }
         var j = dyn()->conv.join(fr->inferred, t);
         if j == &null {
-            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            dyn()->sc->diag->report(DiagID::SC039E, n->range.start,
                 f"this 'return' has type '{dyn()->tu.str(t)}', which does not unify with an earlier return of type '{dyn()->tu.str(fr->inferred)}\x27"
             ).first(n->range).emit();
             return n;
@@ -424,7 +424,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
             }
             return rt;
         }
-        dyn()->fail(at, f"'{dyn()->tu.str(t)}' is not iterable; it has no 'op in\x27");
+        dyn()->fail(at, DiagID::SC095E, f"'{dyn()->tu.str(t)}' is not iterable; it has no 'op in\x27");
         return &null;
     }
 
@@ -436,7 +436,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         if (b->type_ != &null) && (b->type_->canonical != &null) {
             vd->type_ = canon_unqual(b->type_->canonical);
             if (t != &null) && (!dyn()->conv.convertible(t, vd->type_->canonical)) {
-                dyn()->sc->diag->report(DiagID::SC001E, b->range.start,
+                dyn()->sc->diag->report(DiagID::SC041E, b->range.start,
                     f"binding annotated '{dyn()->tu.str(vd->type_->canonical)}' cannot take a value of type '{dyn()->tu.str(t)}\x27"
                 ).first(b->range).emit();
                 vd->poison();
@@ -461,11 +461,11 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         var tu_ = canon_unqual(t);
         if (tu_ != &null) && isa::<TupleType>(tu_) { tt = cast::<TupleType>(tu_); }
         if (tt != &null) && (tt->elements.size() != list->size()) {
-            dyn()->fail(at, f"{list->size()} binding(s) but '{dyn()->tu.str(t)}' has {tt->elements.size()} element(s)");
+            dyn()->fail(at, DiagID::SC042E, f"{list->size()} binding(s) but '{dyn()->tu.str(t)}' has {tt->elements.size()} element(s)");
             tt = &null;
         }
         if (tt == &null) && (tu_ != &null) && (!isa::<TupleType>(tu_)) {
-            dyn()->fail(at, f"cannot destructure '{dyn()->tu.str(t)}' into {list->size()} bindings");
+            dyn()->fail(at, DiagID::SC096E, f"cannot destructure '{dyn()->tu.str(t)}' into {list->size()} bindings");
         }
         for var i: usize = 0; i < list->size(); ++i {
             self._bind_one(list->get(i), (tt->elements[i]) if (tt != &null) else (&null));
@@ -490,7 +490,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
         }
         // struct destructure: by field name.
         var d = dyn()->tu.record_decl(dyn()->tu.strip_nullable(t));
-        if (t != &null) && (d == &null) { dyn()->fail(n->value, f"cannot destructure '{dyn()->tu.str(t)}' by field name"); return n; }
+        if (t != &null) && (d == &null) { dyn()->fail(n->value, DiagID::SC096E, f"cannot destructure '{dyn()->tu.str(t)}' by field name"); return n; }
         var dc = (NameLookup::context_of(dyn()->tu.pattern_of(d))) if (d != &null) else (&null);
         for var i: usize = 0; i < n->bindings.size(); ++i {
             var b = n->bindings.get(i);
@@ -502,7 +502,7 @@ class <T> StmtTyping derives RecursiveASTVisitor::<T> {
                 var cell = dyn()->sc->lookup.in_context(dc, DeclName::ident(imm), spelled);
                 var fd = (dyn_cast::<FieldDecl>(cell.first())) if (cell.found()) else (&null);
                 if fd == &null {
-                    dyn()->sc->diag->report(DiagID::SC001E, b->range.start,
+                    dyn()->sc->diag->report(DiagID::SC040E, b->range.start,
                         f"'{dyn()->tu.decl_name(d)}' has no field named '{spelled}\x27"
                     ).first(b->range).emit();
                     continue;

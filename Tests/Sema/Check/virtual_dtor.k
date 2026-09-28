@@ -35,7 +35,7 @@ class Deep derives VDerived {               // expect: clean -- virtual inherite
 //
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
 //
-// DIAG:     virtual_dtor.k:5:{{[0-9]+}}: error [SC001E]: class 'Derived' has a non-trivial destructor, but its base 'Base' does not have a virtual destructor
+// DIAG:     virtual_dtor.k:5:{{[0-9]+}}: error [SC056E]: class 'Derived' has a non-trivial destructor, but its base 'Base' does not have a virtual destructor
 // DIAG-NOT: {{error|warning}} [
-// DIAG:     virtual_dtor.k:20:{{[0-9]+}}: error [SC001E]: class 'Holder'
+// DIAG:     virtual_dtor.k:20:{{[0-9]+}}: error [SC056E]: class 'Holder'
 // DIAG-NOT: {{error|warning}} [

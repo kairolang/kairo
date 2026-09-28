@@ -14,6 +14,6 @@ fn main() {
 // The type renders by its own name ('mutex'), as every record in a
 // diagnostic does; the namespace is not spelled.
 //
-// DIAG:      non_movable.k:5:{{[0-9]+}}: error [SC001E]: cannot move a value of type 'mutex': it declares no move constructor and its copy constructor is deleted
+// DIAG:      non_movable.k:5:{{[0-9]+}}: error [SC051E]: cannot move a value of type 'mutex': it declares no move constructor and its copy constructor is deleted
 // DIAG-NEXT: {{.*}}mutex.h:{{[0-9]+}}:{{[0-9]+}}: note [{{[A-Z0-9]+}}]: type declared here
 // DIAG-NOT:  {{error|warning}} [

@@ -38,17 +38,17 @@ fn t(v: V, w: W, p: *i32, q: *i32, n: i32) {
 }
 
 // RUN: { %kairo %s --type-check-only 2>&1 || true; } | %FileCheck %s --check-prefix=DIAG
-// DIAG: error [SC001E]: 'op +=' and 'op +' are both declared; a type declares one of the pair and the other is derived from it
-// DIAG: error [SC001E]: '===' is not overloadable
-// DIAG: error [SC001E]: '=' is not overloadable
-// DIAG: error [SC001E]: 'op -' takes no default arguments
-// DIAG: error [SC001E]: 'op <' must return 'bool'
-// DIAG: error [SC001E]: 'op -=' returns nothing
-// DIAG: error [SC001E]: 'op []' must return a place into 'self': '*T' or '*const T'
-// DIAG: error [SC001E]: 'op as' cannot be declared in an extension
-// DIAG: error [SC001E]: no 'op ==' on 'W'
-// DIAG: error [SC001E]: '===' needs a nullable operand; 'i32' and 'i32' are not nullable
-// DIAG: error [SC001E]: '===' needs a nullable operand; '*i32' and '*i32' are not nullable
-// DIAG: error [SC001E]: no 'op r++' on 'V'
-// DIAG: error [SC001E]: 'in' needs an 'op in' on 'V' taking a 'i32'
-// DIAG: error [SC001E]: the exponent of '^^' must be an integer, not 'f64'
+// DIAG: error [SC054E]: 'op +=' and 'op +' are both declared; a type declares one of the pair and the other is derived from it
+// DIAG: error [SC055E]: '===' is not overloadable
+// DIAG: error [SC055E]: '=' is not overloadable
+// DIAG: error [SC055E]: 'op -' takes no default arguments
+// DIAG: error [SC055E]: 'op <' must return 'bool'
+// DIAG: error [SC055E]: 'op -=' returns nothing
+// DIAG: error [SC055E]: 'op []' must return a place into 'self': '*T' or '*const T'
+// DIAG: error [SC055E]: 'op as' cannot be declared in an extension
+// DIAG: error [SC066E]: no 'op ==' on 'W'
+// DIAG: error [SC034E]: '===' needs a nullable operand; 'i32' and 'i32' are not nullable
+// DIAG: error [SC034E]: '===' needs a nullable operand; '*i32' and '*i32' are not nullable
+// DIAG: error [SC066E]: no 'op r++' on 'V'
+// DIAG: error [SC066E]: 'in' needs an 'op in' on 'V' taking a 'i32'
+// DIAG: error [SC067E]: the exponent of '^^' must be an integer, not 'f64'

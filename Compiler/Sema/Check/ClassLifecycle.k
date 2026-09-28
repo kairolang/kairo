@@ -333,7 +333,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
             if bf->virtual_dtor { continue; }
 
             var bn = self._tu.decl_name(bd);
-            var b = self.sc->diag->report(DiagID::SC001E, e->range.start,
+            var b = self.sc->diag->report(DiagID::SC056E, e->range.start,
                 f"class '{dn}' has a non-trivial destructor, but its base '{bn}' does not have a virtual destructor; deleting a '{dn}' through a '*{bn}' would run only '{bn}''s destructor and leak the rest"
             );
             b.first(e->range);
@@ -369,7 +369,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         //    (both `= delete`), the ScopeLock shape.
         if (copy_ctor != &null) && (move_ctor != &null)
         && (!((copy_ctor->body_kind == FnBodyKind::Delete) && (move_ctor->body_kind == FnBodyKind::Delete))) {
-            self.sc->diag->report(DiagID::SC001E, move_ctor->range.start,
+            self.sc->diag->report(DiagID::SC057E, move_ctor->range.start,
                 f"'{dn}' declares both a '@copy' and a '@move' transfer constructor; pick one "
                 + "(both may be '= delete' together, which makes the class non-transferable)"
             ).first(move_ctor->range)
@@ -382,7 +382,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         // 2. `op =` is auto-derived from the transfer constructor; writing
         //    it is an error.
         if assign != &null {
-            self.sc->diag->report(DiagID::SC001E, assign->range.start,
+            self.sc->diag->report(DiagID::SC058E, assign->range.start,
                 f"'{dn}' defines 'op ='; assignment is derived from the transfer constructor and cannot be written"
             ).first(assign->range).emit();
             assign->poison();
@@ -395,7 +395,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         if (xfer != &null) && (dtor != &null)
         && ((xfer->body_kind == FnBodyKind::Block) || (xfer->body_kind == FnBodyKind::Expr))
         && (dtor->body_kind == FnBodyKind::Delete) {
-            self.sc->diag->report(DiagID::SC001E, xfer->range.start,
+            self.sc->diag->report(DiagID::SC059E, xfer->range.start,
                 f"'{dn}' has a transfer constructor with a body and a deleted destructor; the derived 'op =' must destroy the old value first and cannot"
             ).first(xfer->range)
              .note(dtor->range.start, "destructor deleted here").first(dtor->range)
@@ -409,7 +409,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
         //    resource that will be silently copied. Warning, per the doc.
         if (dtor != &null) && (dtor->body_kind != FnBodyKind::Default) && (dtor->body_kind != FnBodyKind::Delete)
         && (!f->user_transfer) {
-            self.sc->diag->report(DiagID::SC001W, dtor->range.start,
+            self.sc->diag->report(DiagID::SC060W, dtor->range.start,
                 f"'{dn}' has a custom destructor but no '@copy' or '@move' transfer constructor; it is implicitly copyable"
             ).first(dtor->range)
              .note(dtor->range.start, f"declare it move-only: '@move fn {dn}(self, other: Self) = default\x27")
@@ -431,7 +431,7 @@ class ClassLifecycle derives RecursiveASTVisitor::<ClassLifecycle> {
                   || (f->category == bf->category);
             if ok { continue; }
             var bn = self._tu.decl_name(bd);
-            self.sc->diag->report(DiagID::SC001E, e->range.start,
+            self.sc->diag->report(DiagID::SC061E, e->range.start,
                 f"'{dn}' is {self._cat_word(f->category)}, but its base '{bn}' is {self._cat_word(bf->category)}; a derived class's lifecycle category must match its base's, or be non-transferable"
             ).first(e->range)
              .note(bd->range.start, "base declared here").first(bd->range)

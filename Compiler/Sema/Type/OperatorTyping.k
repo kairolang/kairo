@@ -399,12 +399,12 @@ class <T> OperatorTyping {
         if k == TokenKind::OpQuestionQuestion {
             var inner = dyn()->tu.nullable_inner(lt);
             if inner == &null {
-                dyn()->warn(n, f"left operand of '??' has non-nullable type '{dyn()->tu.str(lt)}'; the right operand is never used");
+                dyn()->warn(n, DiagID::SC065W, f"left operand of '??' has non-nullable type '{dyn()->tu.str(lt)}'; the right operand is never used");
                 return lt;
             }
             var j = dyn()->conv.join(inner, dyn()->tu.strip_nullable(rt));
             if j == &null {
-                dyn()->fail(n, f"'??' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' have no common type");
+                dyn()->fail(n, DiagID::SC033E, f"'??' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' have no common type");
                 return &null;
             }
             // T? ?? U?  stays nullable; T? ?? U collapses.
@@ -462,26 +462,26 @@ class <T> OperatorTyping {
             if self._is_equality(k) {
                 if self._is_plain_record(lt) || self._is_plain_record(rt) {
                     var rec = (lt) if (self._is_plain_record(lt)) else (rt);
-                    dyn()->fail(n, f"no 'op ==' on '{dyn()->tu.str(rec)}'; a record compares only through its own operator");
+                    dyn()->fail(n, DiagID::SC066E, f"no 'op ==' on '{dyn()->tu.str(rec)}'; a record compares only through its own operator");
                     return &null;
                 }
                 if self.unify_operands(lt, rt) != &null { return dyn()->tu.builtin(BuiltinKind::Bool); }
             }
-            dyn()->fail(n, f"no operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' for operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27");
+            dyn()->fail(n, DiagID::SC066E, f"no operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' for operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27");
             return &null;
         }
 
         // builtins
         if self._is_logical(k) {
             if (!dyn()->tu.is_bool(lt)) || (!dyn()->tu.is_bool(rt)) {
-                dyn()->fail(n, "logical operators require 'bool' operands; use a comparison or an explicit cast");
+                dyn()->fail(n, DiagID::SC067E, "logical operators require 'bool' operands; use a comparison or an explicit cast");
                 return &null;
             }
             return dyn()->tu.builtin(BuiltinKind::Bool);
         }
         if self._is_shift(k) {
             if (!dyn()->tu.is_integer(lt)) || (!dyn()->tu.is_integer(rt)) {
-                dyn()->fail(n, "shift operands must be integers");
+                dyn()->fail(n, DiagID::SC067E, "shift operands must be integers");
                 return &null;
             }
             return lt;
@@ -494,12 +494,12 @@ class <T> OperatorTyping {
                 if u == &null { self._unify_error(n, lt, rt); return &null; }
                 return u;
             }
-            dyn()->fail(n, f"bitwise operators require two integers, two bytes, or two bools, not '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27");
+            dyn()->fail(n, DiagID::SC067E, f"bitwise operators require two integers, two bytes, or two bools, not '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27");
             return &null;
         }
         if self._is_arith(k) {
             if (!dyn()->tu.is_numeric(lt)) || (!dyn()->tu.is_numeric(rt)) {
-                dyn()->fail(n, f"arithmetic requires numeric operands, not '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27");
+                dyn()->fail(n, DiagID::SC067E, f"arithmetic requires numeric operands, not '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27");
                 return &null;
             }
             var u = self.unify_operands(lt, rt);
@@ -508,7 +508,7 @@ class <T> OperatorTyping {
         }
         if self._is_equality(k) || self._is_relational(k) {
             if self._is_relational(k) && (!(dyn()->tu.is_numeric(lt) || dyn()->tu.is_builtin(lt, BuiltinKind::Char))) {
-                dyn()->fail(n, f"ordering comparison is not defined on '{dyn()->tu.str(lt)}\x27");
+                dyn()->fail(n, DiagID::SC067E, f"ordering comparison is not defined on '{dyn()->tu.str(lt)}\x27");
                 return &null;
             }
             var u = self.unify_operands(lt, rt);
@@ -523,12 +523,12 @@ class <T> OperatorTyping {
             if ord == &null { dyn()->missing_lang_item(n, "Ordering"); return &null; }
             return ord;
         }
-        dyn()->fail(n, f"operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on primitives");
+        dyn()->fail(n, DiagID::SC066E, f"operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on primitives");
         return &null;
     }
 
     priv fn _unify_error(self, n: *Expr, lt: *Type, rt: *Type) {
-        dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+        dyn()->sc->diag->report(DiagID::SC033E, n->range.start,
             f"operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify; neither converts implicitly to the other"
         ).first(n->range)
          .note(n->range.start, "cast one side explicitly with 'as' to choose the result type")
@@ -542,7 +542,7 @@ class <T> OperatorTyping {
         var ln = dyn()->tu.nullable_inner(lt);
         var rn = dyn()->tu.nullable_inner(rt);
         if (ln == &null) && (rn == &null) {
-            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            dyn()->sc->diag->report(DiagID::SC034E, n->range.start,
                 f"'===' needs a nullable operand; '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' are not nullable"
             ).first(n->range)
              .note(n->range.start, "'===' is 'both present and equal'; on values that cannot be null it is '==\x27")
@@ -557,11 +557,11 @@ class <T> OperatorTyping {
         if lp != &null { li = lp; }
         if rp != &null { ri = rp; }
         if self._is_plain_record(li) || self._is_plain_record(ri) {
-            dyn()->fail(n, f"'===' on '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' would compare records, which have no builtin equality");
+            dyn()->fail(n, DiagID::SC066E, f"'===' on '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' would compare records, which have no builtin equality");
             return &null;
         }
         if self.unify_operands(li, ri) == &null {
-            dyn()->fail(n, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify");
+            dyn()->fail(n, DiagID::SC033E, f"'===' operands '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}' do not unify");
             return &null;
         }
         return dyn()->tu.builtin(BuiltinKind::Bool);
@@ -577,7 +577,7 @@ class <T> OperatorTyping {
         var ut = self.resolve_user_op(static_cast::<*Expr>(n), TokenKind::KwIn, TokenKind::TkUnknown, n->rhs, rt, lt,
                                       &args, -1, "op in", &found);
         if found { return ut; }
-        dyn()->fail(n, f"'in' needs an 'op in' on '{dyn()->tu.str(rt)}' taking a '{dyn()->tu.str(lt)}\x27");
+        dyn()->fail(n, DiagID::SC066E, f"'in' needs an 'op in' on '{dyn()->tu.str(rt)}' taking a '{dyn()->tu.str(lt)}\x27");
         return &null;
     }
 
@@ -600,18 +600,18 @@ class <T> OperatorTyping {
             var ut = self.resolve_user_op(static_cast::<*Expr>(n), TokenKind::OpCaretCaret, TokenKind::TkUnknown,
                                           n->lhs, lt, rt, &args, -1, "op ^^", &found);
             if found { return ut; }
-            dyn()->fail(n, f"no 'op ^^' on '{dyn()->tu.str(lt)}\x27");
+            dyn()->fail(n, DiagID::SC066E, f"no 'op ^^' on '{dyn()->tu.str(lt)}\x27");
             return &null;
         }
         if !dyn()->tu.is_numeric(lt) {
-            dyn()->fail(n, f"'^^' needs a numeric base, not '{dyn()->tu.str(lt)}\x27");
+            dyn()->fail(n, DiagID::SC067E, f"'^^' needs a numeric base, not '{dyn()->tu.str(lt)}\x27");
             return &null;
         }
         if !dyn()->tu.is_integer(rt) {
             if dyn()->tu.is_float(rt) {
-                dyn()->fail(n, f"the exponent of '^^' must be an integer, not '{dyn()->tu.str(rt)}'; a real exponent is a library function");
+                dyn()->fail(n, DiagID::SC067E, f"the exponent of '^^' must be an integer, not '{dyn()->tu.str(rt)}'; a real exponent is a library function");
             } else {
-                dyn()->fail(n, f"the exponent of '^^' must be an integer, not '{dyn()->tu.str(rt)}\x27");
+                dyn()->fail(n, DiagID::SC067E, f"the exponent of '^^' must be an integer, not '{dyn()->tu.str(rt)}\x27");
             }
             return &null;
         }
@@ -645,7 +645,7 @@ class <T> OperatorTyping {
                 dyn()->finish(inner, t);
                 if t == &null { dyn()->poison_only(n); return &null; }
                 if (!dyn()->tu.is_signed_int(t)) && (!dyn()->tu.is_float(t)) {
-                    dyn()->fail(n, f"cannot negate a literal of unsigned type '{dyn()->tu.str(t)}\x27");
+                    dyn()->fail(n, DiagID::SC068E, f"cannot negate a literal of unsigned type '{dyn()->tu.str(t)}\x27");
                     return &null;
                 }
                 return t;
@@ -691,19 +691,19 @@ class <T> OperatorTyping {
             case TokenKind::KwNot     { return self._unary_bool(n, ot); }
             case TokenKind::OpMinus {
                 if dyn()->tu.is_float(ot) || dyn()->tu.is_signed_int(ot) { return canon_unqual(ot); }
-                dyn()->fail(n, f"cannot negate a value of type '{dyn()->tu.str(ot)}\x27");
+                dyn()->fail(n, DiagID::SC067E, f"cannot negate a value of type '{dyn()->tu.str(ot)}\x27");
                 return &null;
             }
             case TokenKind::OpPlus {
                 if dyn()->tu.is_numeric(ot) { return canon_unqual(ot); }
-                dyn()->fail(n, f"unary '+' requires a numeric operand, not '{dyn()->tu.str(ot)}\x27");
+                dyn()->fail(n, DiagID::SC067E, f"unary '+' requires a numeric operand, not '{dyn()->tu.str(ot)}\x27");
                 return &null;
             }
             case TokenKind::OpTilde { return self._unary_bits(n, ot); }
             case TokenKind::KwCompl { return self._unary_bits(n, ot); }
             case TokenKind::OpAmp {
                 if !dyn()->is_lvalue(n->operand) {
-                    dyn()->fail(n, "cannot take the address of a temporary");
+                    dyn()->fail(n, DiagID::SC069E, "cannot take the address of a temporary");
                     return &null;
                 }
                 return dyn()->sc->types->pointer(place, false);
@@ -712,13 +712,13 @@ class <T> OperatorTyping {
                 var p = dyn()->tu.pointee(ot);
                 if p == &null {
                     if dyn()->tu.nullable_inner(ot) != &null {
-                        dyn()->fail(n, f"cannot dereference nullable '{dyn()->tu.str(ot)}'; check for null or use '?.\x27");
+                        dyn()->fail(n, DiagID::SC070E, f"cannot dereference nullable '{dyn()->tu.str(ot)}'; check for null or use '?.\x27");
                     } else {
-                        dyn()->fail(n, f"cannot dereference non-pointer type '{dyn()->tu.str(ot)}\x27");
+                        dyn()->fail(n, DiagID::SC070E, f"cannot dereference non-pointer type '{dyn()->tu.str(ot)}\x27");
                     }
                     return &null;
                 }
-                if dyn()->tu.is_void(p) { dyn()->fail(n, "cannot dereference '*void\x27"); return &null; }
+                if dyn()->tu.is_void(p) { dyn()->fail(n, DiagID::SC070E, "cannot dereference '*void\x27"); return &null; }
                 n->value_category = Expr::ValueCategory::LValue;
                 return p;
             }
@@ -730,7 +730,7 @@ class <T> OperatorTyping {
                 return &null;
             }
             default {
-                dyn()->fail(n, f"unary operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on '{dyn()->tu.str(ot)}\x27");
+                dyn()->fail(n, DiagID::SC066E, f"unary operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' is not defined on '{dyn()->tu.str(ot)}\x27");
                 return &null;
             }
         }
@@ -738,13 +738,13 @@ class <T> OperatorTyping {
 
     priv fn _unary_bool(self, n: *UnaryOperatorExpr, ot: *Type) -> *Type {
         if dyn()->tu.is_bool(ot) { return canon_unqual(ot); }
-        dyn()->fail(n, f"'!' requires a 'bool' operand, not '{dyn()->tu.str(ot)}\x27");
+        dyn()->fail(n, DiagID::SC067E, f"'!' requires a 'bool' operand, not '{dyn()->tu.str(ot)}\x27");
         return &null;
     }
 
     priv fn _unary_bits(self, n: *UnaryOperatorExpr, ot: *Type) -> *Type {
         if dyn()->tu.is_integer(ot) || dyn()->tu.is_builtin(ot, BuiltinKind::Byte) { return canon_unqual(ot); }
-        dyn()->fail(n, f"'~' requires an integer or byte operand, not '{dyn()->tu.str(ot)}\x27");
+        dyn()->fail(n, DiagID::SC067E, f"'~' requires an integer or byte operand, not '{dyn()->tu.str(ot)}\x27");
         return &null;
     }
 
@@ -753,14 +753,14 @@ class <T> OperatorTyping {
             var what = ("'++\x27") if (n->op_token.kind == TokenKind::OpPlusPlus) else ("'--\x27");
             if dyn()->tu.kind_of(ot) == BuiltinKind::COUNT {
                 var fixname = ("r") if (n->is_postfix()) else ("l");
-                dyn()->fail(n, f"no 'op {fixname}{dyn()->sc->ctx->get_spelling(n->op_token)}' on '{dyn()->tu.str(ot)}\x27");
+                dyn()->fail(n, DiagID::SC066E, f"no 'op {fixname}{dyn()->sc->ctx->get_spelling(n->op_token)}' on '{dyn()->tu.str(ot)}\x27");
                 return &null;
             }
-            dyn()->fail(n, f"{what} requires an integer operand, not '{dyn()->tu.str(ot)}\x27");
+            dyn()->fail(n, DiagID::SC067E, f"{what} requires an integer operand, not '{dyn()->tu.str(ot)}\x27");
             return &null;
         }
         if !dyn()->is_lvalue(n->operand) {
-            dyn()->fail(n, "'++'/'--' require an assignable operand");
+            dyn()->fail(n, DiagID::SC071E, "'++'/'--' require an assignable operand");
             return &null;
         }
         if n->is_prefix() { n->value_category = Expr::ValueCategory::LValue; }
@@ -781,7 +781,7 @@ class <T> OperatorTyping {
         lt = dyn()->tu.as_value(lt);
 
         if !dyn()->is_lvalue(n->lhs) {
-            dyn()->fail(n, "left side of assignment is not assignable");
+            dyn()->fail(n, DiagID::SC071E, "left side of assignment is not assignable");
             dyn()->type_of(n->rhs, &null);
             return &null;
         }
@@ -790,7 +790,7 @@ class <T> OperatorTyping {
             var lc = canon_unqual(lt);
             if (lc != &null) && isa::<FixedArrayType>(lc) {
                 dyn()->type_of(n->rhs, lt);
-                dyn()->fail(n, "an array is not assignable; assign its elements, or go through a slice");
+                dyn()->fail(n, DiagID::SC071E, "an array is not assignable; assign its elements, or go through a slice");
                 return &null;
             }
             dyn()->type_of(n->rhs, lt);
@@ -821,17 +821,17 @@ class <T> OperatorTyping {
 
         if self._is_shift(base) {
             if (!dyn()->tu.is_integer(lt)) || (!dyn()->tu.is_integer(rt)) {
-                dyn()->fail(n, "shift-assignment operands must be integers"); return &null;
+                dyn()->fail(n, DiagID::SC067E, "shift-assignment operands must be integers"); return &null;
             }
         } else if self._is_bitwise(base) {
             var ok = (dyn()->tu.is_integer(lt) && dyn()->tu.is_integer(rt))
                   || (dyn()->tu.is_bool(lt) && dyn()->tu.is_bool(rt))
                   || (dyn()->tu.is_builtin(lt, BuiltinKind::Byte) && dyn()->tu.is_builtin(rt, BuiltinKind::Byte));
-            if !ok { dyn()->fail(n, f"bitwise assignment is not defined for '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27"); return &null; }
+            if !ok { dyn()->fail(n, DiagID::SC067E, f"bitwise assignment is not defined for '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27"); return &null; }
             if !dyn()->check_convertible(n->rhs, lt) { dyn()->poison_only(n); return &null; }
         } else {
             if (!dyn()->tu.is_numeric(lt)) || (!dyn()->tu.is_numeric(rt)) {
-                dyn()->fail(n, f"arithmetic assignment is not defined for '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27"); return &null;
+                dyn()->fail(n, DiagID::SC067E, f"arithmetic assignment is not defined for '{dyn()->tu.str(lt)}' and '{dyn()->tu.str(rt)}\x27"); return &null;
             }
             if !dyn()->check_convertible(n->rhs, lt) { dyn()->poison_only(n); return &null; }
         }
@@ -861,7 +861,7 @@ class <T> OperatorTyping {
 
         if has_c && has_b {
             var bsp = dyn()->sc->ctx->get_spelling(n->op_token);
-            dyn()->sc->diag->report(DiagID::SC001E, n->range.start,
+            dyn()->sc->diag->report(DiagID::SC035E, n->range.start,
                 f"both an 'op {bsp}' and its base operator apply to '{dyn()->tu.str(lt)}'; a type declares one and the other is derived from it"
             ).first(n->range).emit();
             n->poison();
@@ -869,7 +869,7 @@ class <T> OperatorTyping {
         }
         if !(has_c || has_b) {
             if !l_rec { return &null; }
-            dyn()->fail(n, f"no operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' on '{dyn()->tu.str(lt)}\x27");
+            dyn()->fail(n, DiagID::SC066E, f"no operator '{dyn()->sc->ctx->get_spelling(n->op_token)}' on '{dyn()->tu.str(lt)}\x27");
             return &null;
         }
 
@@ -884,7 +884,7 @@ class <T> OperatorTyping {
             // `a = a + b`: the sum must be assignable to a. The rule is `=`'s
             // (an implicit conversion); a converting constructor is not one.
             if (ut != &null) && (dyn()->conv.implicit(dyn()->tu.as_value(ut), canon_unqual(lt)) == ImplicitRank::None) {
-                dyn()->fail(n, f"'op {dyn()->sc->ctx->get_spelling(n->op_token)}' derived from the base operator would assign a '{dyn()->tu.str(ut)}' to a '{dyn()->tu.str(lt)}\x27");
+                dyn()->fail(n, DiagID::SC072E, f"'op {dyn()->sc->ctx->get_spelling(n->op_token)}' derived from the base operator would assign a '{dyn()->tu.str(ut)}' to a '{dyn()->tu.str(lt)}\x27");
                 return &null;
             }
         }
