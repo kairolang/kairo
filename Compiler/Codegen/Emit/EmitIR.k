@@ -531,9 +531,10 @@ class EmitIR {
     }
 
     priv fn _if(self, n: *ConditionalStmt) {
-        sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), "if (");
+        var own = isa::<BinaryOperatorExpr>(n->cond);   // `(a == b)` brings its own parens; a second pair is C786W.
+        sink->spell(SourceRange::from_bounds(n->range.start, u32(2)), ("if") if (own) else ("if ("));
         self.emit(n->cond);
-        sink->spell(n->cond->range, ")");
+        if !own { sink->spell(n->cond->range, ")"); }
         self.emit_block(n->then_);
         if n->else_ != &null {
             sink->spell(n->else_->range, "else");
@@ -542,9 +543,10 @@ class EmitIR {
     }
 
     priv fn _while(self, n: *WhileLoopStmt) {
-        sink->spell(SourceRange::from_bounds(n->range.start, u32(5)), "while (");
+        var own = isa::<BinaryOperatorExpr>(n->cond);   // `(a == b)` brings its own parens; a second pair is C786W.
+        sink->spell(SourceRange::from_bounds(n->range.start, u32(5)), ("while") if (own) else ("while ("));
         self.emit(n->cond);
-        sink->spell(n->cond->range, ")");
+        if !own { sink->spell(n->cond->range, ")"); }
         self.emit_block(n->body);
     }
 
