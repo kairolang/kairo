@@ -229,6 +229,7 @@ class FrontendAction {
     priv fn _parse(self)       -> bool;
     priv fn _sema(self)        -> bool;
     priv fn _attach_ffi_edges(self, tu: *TranslationUnit, ctx: *ASTContext, hs: *HeaderSet);
+    priv fn _import_order(self) -> vec::<u32>;
     priv fn _codegen(self)     -> bool;
     priv fn _dump_tokens(self);
     priv fn _dump_preprocessed_source(self);
@@ -1973,9 +1974,10 @@ fn FrontendAction::_sema() -> bool {
     // importers fold re-exports (DAG order guarantees source-overlay
     // completeness, RESOLUTION.md #2). run_to stops at Checked; the
     // lowering / M1 / M2 stubs are not reached.
-    var n = self._fids.size();
-    for var i: usize = 0; i < n; ++i {
-        var fid = self._fids[n - 1 - i];
+    var n     = self._fids.size();
+    var order = self._import_order();
+    for var i: usize = 0; i < order.size(); ++i {
+        var fid = order[i];
         var ctx = self._global_scope->get_context(fid);
         if ctx == &null { continue; }
         var tu = reinterpret_cast::<*TranslationUnit>(ctx->tu);
@@ -2074,6 +2076,55 @@ fn FrontendAction::_sema() -> bool {
 
     // TODO(sema): full pipeline once N/T/checks land: Sema(ctx, gs).run().
     return true;
+}
+
+/// Every fid of the graph, each after everything it imports.
+///
+/// Reversing `_fids` is not that order: it is a tree walk, so reversed it
+/// puts a later SIBLING first. `module.k` imports `string` before `fmt`, and
+/// reversed, `fmt` was typed before `string` had resolved -- every
+/// `s.len` on a `string` came out unknown, without an error, and reached
+/// codegen untyped. A fid is placed once each fid it imports (in this graph)
+/// is placed; imports are acyclic, but should a pass place nothing the rest
+/// go in the old reverse order rather than be dropped.
+fn FrontendAction::_import_order() -> vec::<u32> {
+    var n      = self._fids.size();
+    var order  = vec::<u32>();
+    var placed = libcxx::unordered_set::<u32>();
+    var in_set = libcxx::unordered_set::<u32>();
+    for var i: usize = 0; i < n; ++i { in_set.insert(self._fids[i]); }
+
+    while order.size() < n {
+        var progressed = false;
+        for var i: usize = 0; i < n; ++i {
+            var fid = self._fids[n - 1 - i];
+            if placed.find(fid) != placed.end() { continue; }
+            var ready = true;
+            var ctx = self._global_scope->get_context(fid);
+            var tu: *TranslationUnit = &null;
+            if ctx != &null { tu = reinterpret_cast::<*TranslationUnit>(ctx->tu); }
+            if tu != &null {
+                for var j: usize = 0; j < tu->import_edges.size(); ++j {
+                    var e = tu->import_edges.get(j);
+                    if e == &null { continue; }
+                    var t = e->target_fid;
+                    if (t == fid) || (in_set.find(t) == in_set.end()) { continue; }
+                    if placed.find(t) == placed.end() { ready = false; break; }
+                }
+            }
+            if !ready { continue; }
+            order.push_back(fid);
+            placed.insert(fid);
+            progressed = true;
+        }
+        if !progressed {
+            for var i: usize = 0; i < n; ++i {
+                var fid = self._fids[n - 1 - i];
+                if placed.find(fid) == placed.end() { order.push_back(fid); placed.insert(fid); }
+            }
+        }
+    }
+    return order;
 }
 
 /// Stamp every ffi ImportDecl of \p tu with what its header resolved to in
@@ -2215,6 +2266,10 @@ fn FrontendAction::_codegen() -> bool {
         // draining before it would silently drop the last diagnostic.
         be->end_tu(adapter);
         sink.drain_into(self._ci->diag(), self._ci->sm());
+        // Codegen's OWN reports (EmitIR's I001W, CODEGEN.md section 8) go to
+        // the TU's diag_sink, whose last drain was after sema. Undrained, they
+        // were never shown and the sink ICEd in its destructor at exit.
+        ctx->diag_sink.drain_into(self._ci->diag(), ctx->sm);
 
         if !ok {
             self._stage = TUStage::Failed;
