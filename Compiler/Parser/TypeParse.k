@@ -183,7 +183,7 @@ class <T> TypeParse {
             if tokens_consumed >= MAX_SYNC { return; }
             ++tokens_consumed;
 
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
 
             // hard stop: caller is recovering from an unclosed delimiter and
             // wants us to bail at the next newline rather than eat the next
@@ -1742,7 +1742,7 @@ class <T> TypeParse {
 
         while !dyn()->is_eof() && tokens_consumed < MAX_SYNC {
             ++tokens_consumed;
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
 
             if k == TokenKind::OpLess {
                 ++depth;

@@ -70,8 +70,12 @@ class <T> DeclParse {
         }
     }
 
+    /// Switches on the RESOLVED kind, like check(): a token a macro expanded
+    /// carries the expansion's kind, not the identifier's, so reading the raw
+    /// kind rejected every name a macro body declared.
     priv inline fn check_is_ident(self) -> bool {
-        switch dyn()->current().kind {
+        if dyn()->current_ptr() == &null { return false; }
+        switch dyn()->resolve_kind_deep(dyn()->current_ptr()) {
             case TokenKind::AtVoid { return true; }
             case TokenKind::AtBool { return true; }
             case TokenKind::AtByte { return true; }
@@ -1115,7 +1119,7 @@ class <T> DeclParse {
             return true;
         }
 
-        switch dyn()->current().kind {
+        switch dyn()->ig_kind() {
             // arithmetic
             case TokenKind::OpPlus:           // +
             case TokenKind::OpMinus:          // -
@@ -1943,7 +1947,7 @@ class <T> DeclParse {
     priv fn _sync_to_closure_milestone(self) {
         var depth: i32 = 0;
         while !dyn()->is_eof() {
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
             if k == TokenKind::OpLParen || k == TokenKind::OpLSquare || k == TokenKind::OpLBrace {
                 ++depth;
             } else if k == TokenKind::OpRParen || k == TokenKind::OpRSquare || k == TokenKind::OpRBrace {
@@ -2379,7 +2383,7 @@ class <T> DeclParse {
             //       derives ImportGrammar<StreamCursor> { ... }
             // neither keyword can begin a declaration, so a newline in front of
             // them is never ambiguous with the start of a new one.
-            if (dyn()->nl_depth == 0) && ((dyn()->current().kind) == TokenKind::TkNewLine) {
+            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine) {
                 var hk = dyn()->peek_past_nl_kind();
                 if (hk == TokenKind::KwDerives) || (hk == TokenKind::KwImpl) {
                     dyn()->advance(T::SkipNL::Only);
@@ -3463,7 +3467,7 @@ class <T> DeclParse {
         var body_end   = body_start;
         var depth: u32 = 1;
         while (!dyn()->is_eof()) && depth > 0 {
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
             if k == TokenKind::OpLBrace { depth += 1; }
             else if k == TokenKind::OpRBrace {
                 depth -= 1;
@@ -3855,7 +3859,7 @@ class <T> DeclParse {
             if consumed >= MAX_SYNC { return; }
             ++consumed;
 
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
 
             if      k == TokenKind::OpLParen  { ++bp; }
             else if k == TokenKind::OpLSquare { ++bs; }
@@ -3934,7 +3938,7 @@ class <T> DeclParse {
         // synchronize up to the next logical milestone before proceeding.
         if( !dyn()->check(TokenKind::OpPipe)) && (!dyn()->check(TokenKind::OpPipePipe)) && (!dyn()->check(TokenKind::OpArrow)) &&
            (!dyn()->check(TokenKind::OpLBrace)) && (!dyn()->check(TokenKind::OpEqual)) &&
-           (!self._is_closure_modifier(dyn()->current().kind)) && !dyn()->is_eof() {
+           (!self._is_closure_modifier(dyn()->ig_kind())) && !dyn()->is_eof() {
             self._sync_to_closure_milestone();
         }
 

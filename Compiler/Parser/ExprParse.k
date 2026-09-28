@@ -105,7 +105,7 @@ class <T> ExprParse {
             if tokens_consumed >= MAX_SYNC { return; }
             ++tokens_consumed;
 
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
 
             if stop_at_newline && k == TokenKind::TkNewLine
             && balance_paren == 0 && balance_square == 0 && balance_brace == 0 {
@@ -217,7 +217,7 @@ class <T> ExprParse {
             //    `bar`, so those still terminate. Mirrors the member-access
             //    rule in _parse_postfix_expr; nl_depth already suppresses this
             //    inside brackets.
-            if (dyn()->nl_depth == 0) && ((dyn()->current().kind) == TokenKind::TkNewLine) {
+            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine) {
                 var nk = dyn()->peek_past_nl_kind();
                 if (!is_unary_operator(nk))
                 && (self._infix_precedence(nk) != Precedence::None) {
@@ -227,7 +227,7 @@ class <T> ExprParse {
                 break; // newline ends the expression
             }
 
-            var cur_kind = dyn()->current().kind;
+            var cur_kind = dyn()->ig_kind();
             var prec = self._infix_precedence(cur_kind);
 
             if static_cast::<u8>(prec) <= static_cast::<u8>(min_prec) { break; }
@@ -400,7 +400,7 @@ class <T> ExprParse {
         }
 
         // check if next token can start an expression
-        var k = dyn()->current().kind;
+        var k = dyn()->ig_kind();
         if k == TokenKind::OpRParen
         || k == TokenKind::OpRSquare
         || k == TokenKind::OpRBrace
@@ -571,7 +571,7 @@ class <T> ExprParse {
     ///        returns true if the expression should terminate here.
     priv fn _should_stop(self, stop: ExprStopKind) -> bool {
         if dyn()->is_eof() { return true; }
-        var k = dyn()->current().kind;
+        var k = dyn()->ig_kind();
 
         if k == TokenKind::OpRParen
         && (static_cast::<u8>(stop) & static_cast::<u8>(ExprStopKind::StopParen)) != 0 {
@@ -607,7 +607,7 @@ class <T> ExprParse {
     ///          excluded (`>`/`>>` are operators in the precedence table but here
     ///          they close the list, not continue an expression).
     pub fn at_value_expr_continuation(self) -> bool {
-        var k = dyn()->current().kind;
+        var k = dyn()->ig_kind();
 
         if (k == TokenKind::OpComma)
         || (k == TokenKind::OpGreater)
@@ -642,7 +642,7 @@ class <T> ExprParse {
 
     /// \brief parses prefix unary operators then delegates to postfix.
     ///
-    /// prefix ops: ! - ~ & * ++ --
+    /// prefix ops: ! + - ~ & * ++ --
     /// keyword prefixes: await spawn thread eval unsafe delete sizeof alignof typeof
     inline fn _parse_unary_expr(self, stop: ExprStopKind) -> *Expr {
         if dyn()->is_eof() { return &null; }
@@ -661,6 +661,7 @@ class <T> ExprParse {
 
         // -- prefix unary operators ----------------------------------
         if dyn()->check(TokenKind::OpExclaim)
+        || dyn()->check(TokenKind::OpPlus)
         || dyn()->check(TokenKind::OpMinus)
         || dyn()->check(TokenKind::OpTilde)
         || dyn()->check(TokenKind::OpAmp)
@@ -941,7 +942,7 @@ class <T> ExprParse {
             // brush a trailing comment so the newline-continuation guard below
             // sees the real next token, not an AtComment sitting between the
             // primary and its terminator (`b // c\n`).
-            // if (dyn()->current().kind) == TokenKind::AtComment {
+            // if (dyn()->ig_kind()) == TokenKind::AtComment {
             //     dyn()->_stash_comment(dyn()->current_ptr());
             //     dyn()->advance_raw();
             //     continue;
@@ -951,7 +952,7 @@ class <T> ExprParse {
             //    continue an expression across a raw newline. `::` is
             //    excluded (ambiguous with a new statement); binary ops
             //    require enclosing parens (nl_depth handles those).
-            if (dyn()->nl_depth == 0) && ((dyn()->current().kind) == TokenKind::TkNewLine) {
+            if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine) {
                 var nk = dyn()->peek_past_nl_kind();
                 if (nk == TokenKind::OpDot)
                 || (nk == TokenKind::OpArrow)
@@ -1357,7 +1358,7 @@ class <T> ExprParse {
         if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
 
         if ok && !generic_args.is_empty() {
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
             if k == TokenKind::OpLParen
             || k == TokenKind::OpDot
             || k == TokenKind::OpArrow
@@ -1427,7 +1428,7 @@ class <T> ExprParse {
         if dyn()->_pending_close_angle { dyn()->_pending_close_angle = false; }
 
         if ok && !generic_args.is_empty() {
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
             if k == TokenKind::OpLParen
             || k == TokenKind::OpDot
             || k == TokenKind::OpArrow
@@ -1552,7 +1553,7 @@ class <T> ExprParse {
             }
 
             // bail if we've clearly left the call context
-            if self._is_decl_keyword(dyn()->current().kind) {
+            if self._is_decl_keyword(dyn()->ig_kind()) {
                 return;
             }
 
@@ -1579,7 +1580,7 @@ class <T> ExprParse {
                         "expected expression after ':' in named argument"
                     ).first(name_range).emit();
 
-                    if self._is_decl_keyword(dyn()->current().kind) { return; }
+                    if self._is_decl_keyword(dyn()->ig_kind()) { return; }
                     self._sync_expr_progress(ExprSyncCtx::Comma, 1);
                 } else {
                     // A real node, not an AssignOperatorExpr wearing a `:`.
@@ -1603,7 +1604,7 @@ class <T> ExprParse {
                 );
 
                 if (arg == &null) || is_recovery(arg) {
-                    if self._is_decl_keyword(dyn()->current().kind) { return; }
+                    if self._is_decl_keyword(dyn()->ig_kind()) { return; }
                     self._sync_expr_progress(ExprSyncCtx::Comma, 1);
 
                     // sync guarantees progress; let the outer loop handle
@@ -1629,7 +1630,7 @@ class <T> ExprParse {
             // no comma and not `)` missing separator
             if !dyn()->check(TokenKind::OpRParen) {
                 // check bail before reporting
-                if self._is_decl_keyword(dyn()->current().kind) { return; }
+                if self._is_decl_keyword(dyn()->ig_kind()) { return; }
 
                 dyn()->report_tok(DiagID::S054E, dyn()->current_ptr(),
                     "expected ',' or ')' after argument in function call"
@@ -1939,7 +1940,7 @@ class <T> ExprParse {
                 return RangeExpr::create(dyn()->ctx, op_range, &null, &null, is_inclusive);
             }
 
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
             if k == TokenKind::OpRParen
             || k == TokenKind::OpRSquare
             || k == TokenKind::OpRBrace
@@ -1962,7 +1963,7 @@ class <T> ExprParse {
         // then sees the `(` and builds the CallExpr.
         if dyn()->check(fn(k: TokenKind) -> bool {
             return is_annotation(k);
-        }) && ((dyn()->peek().kind) == TokenKind::OpLParen) {
+        }) && ((dyn()->ig_peek_kind()) == TokenKind::OpLParen) {
             return self._parse_ident_expr();
         }
 
@@ -2042,7 +2043,7 @@ class <T> ExprParse {
 
                 if ok && !generic_args.is_empty() {
                     // check what follows: must be a valid postfix continuation
-                    var k = dyn()->current().kind;
+                    var k = dyn()->ig_kind();
                     if k == TokenKind::OpLParen
                     || k == TokenKind::OpDot
                     || k == TokenKind::OpArrow
@@ -2837,7 +2838,7 @@ class <T> ExprParse {
 
         while (!dyn()->is_eof()) && iters < MAX {
             ++iters;
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
 
             if      k == TokenKind::OpLParen  { ++depth_paren;  }
             else if k == TokenKind::OpLSquare { ++depth_square; }
@@ -3242,7 +3243,7 @@ class <T> ExprParse {
 
         while (!dyn()->is_eof()) && iters < MAX {
             ++iters;
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
 
             if k == TokenKind::OpLBrace || k == TokenKind::OpLParen || k == TokenKind::OpLSquare {
                 ++depth;
@@ -3510,7 +3511,7 @@ class <T> ExprParse {
             
             // Recovery if the token immediately following '=' cannot start an expression
             // remeber a nested closure is fully valid
-            if dyn()->_starts_decl_kw(dyn()->current().kind) && (!dyn()->current().kind == TokenKind::KwFn) {
+            if dyn()->_starts_decl_kw(dyn()->ig_kind()) && (dyn()->ig_kind() != TokenKind::KwFn) {
                 dyn()->diag->report(DiagID::S052E, start.start,
                     "expected expression after '=' in closure body"
                 ).first(start).emit();

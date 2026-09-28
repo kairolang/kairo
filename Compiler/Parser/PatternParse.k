@@ -513,7 +513,7 @@ class <T> PatternParse {
         const var MAX: u32 = 128;
         while (!dyn()->is_eof()) && iters < MAX {
             ++iters;
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
             if k == TokenKind::OpLParen || k == TokenKind::OpLSquare { ++depth; }
             else if k == TokenKind::OpRParen {
                 if depth == 0 { return; }
@@ -531,7 +531,7 @@ class <T> PatternParse {
         const var MAX: u32 = 128;
         while (!dyn()->is_eof()) && iters < MAX {
             ++iters;
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
             if k == TokenKind::OpLSquare || k == TokenKind::OpLParen { ++depth; }
             else if k == TokenKind::OpRSquare {
                 if depth == 0 { return; }

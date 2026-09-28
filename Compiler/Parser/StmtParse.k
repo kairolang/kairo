@@ -897,7 +897,7 @@ class <T> StmtParse {
         //     else if d { ... }
         // `else` cannot begin a statement, so a newline in front of it is never
         // ambiguous with the start of a new one.
-        if (dyn()->nl_depth == 0) && ((dyn()->current().kind) == TokenKind::TkNewLine) {
+        if (dyn()->nl_depth == 0) && ((dyn()->ig_kind()) == TokenKind::TkNewLine) {
             if (dyn()->peek_past_nl_kind()) == TokenKind::KwElse {
                 dyn()->advance(T::SkipNL::Only);
             }
@@ -1735,7 +1735,7 @@ class <T> StmtParse {
         var depth: u32 = 1;
         var body_end = body_start;
         while (!dyn()->is_eof()) && depth > 0 {
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
             if k == TokenKind::OpLBrace {
                 depth += 1;
             } else if k == TokenKind::OpRBrace {
@@ -1888,7 +1888,7 @@ class <T> StmtParse {
             if tokens_consumed >= MAX_SYNC { return; }
             ++tokens_consumed;
 
-            var k = dyn()->current().kind;
+            var k = dyn()->ig_kind();
 
             if k == TokenKind::OpLParen  { ++balance_paren;  }
             else if k == TokenKind::OpLSquare { ++balance_square; }

@@ -1230,16 +1230,10 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         return false;
     }
 
-    /// The `...` goes on the parameter that CARRIES it, which need not be the
-    /// last one. Keying off `is_variadic` + last index printed the marker on
-    /// the wrong parameter for every signature with a keyword-only tail.
     fn _param_list(self, params: FrozenList::<*ParamDecl>) {
         self.p.paint(Color::Punct, "(");
         for var i: usize = 0; i < params.size(); ++i {
             if i > 0 { self.p.paint(Color::Punct, ", "); }
-            if params[i]->is_pack && (!params[i]->is_self) {
-                self.p.paint(Color::Punct, "...");
-            }
             self._d_param(params[i]);
         }
         self.p.paint(Color::Punct, ")");
@@ -1341,6 +1335,12 @@ class AstDumper derives RecursiveASTVisitor::<AstDumper> {
         // const is on its type and prints there. Value prints no mode.
         if pd->is_const && (!pd->unname) { self.p.paint(Color::Keyword, "const "); }
         if pd->mode != ParamMode::Value { self.p.paint(Color::Attr, param_mode_prefix(pd->mode)); }
+        // The `...` goes on the parameter that CARRIES it, which need not be
+        // the last one (keying off `is_variadic` + last index marked the wrong
+        // parameter for every keyword-only tail), and it prints HERE rather
+        // than in the signature so the ParamDecl row shows it too. After
+        // `const`, as written: `const ...s: string`.
+        if pd->is_pack { self.p.paint(Color::Punct, "..."); }
         // type-only forward-decl parameter: no name token to print.
         if pd->unname {
             if pd->type_ != &null { self.src_type(pd->type_); }
