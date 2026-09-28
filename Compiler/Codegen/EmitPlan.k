@@ -594,7 +594,14 @@ fn EmitPlan::_admit_type(t: *Type, need: PlanNeed) {
             for var i: usize = 0; i < f->params.size(); ++i { self._admit_type(*(f->params.get(i)), PlanNeed::Fwd); }
             self._admit_type(f->return_type, PlanNeed::Fwd);
         }
-        default { break; }   // builtin, generic param, opaque: nothing to declare.
+        case TypeKind::BuiltinType {
+            // A builtin spelled as a Kairo declaration (`byte` -> Byte): an
+            // opaque `enum class : unsigned char;` is already complete, so
+            // any strength will do.
+            var bt = cast::<BuiltinType>(c);
+            if bt->lang_decl != &null { self._admit(bt->lang_decl, need); }
+        }
+        default { break; }   // generic param, opaque: nothing to declare.
     }
 }
 

@@ -16,6 +16,14 @@ pub struct <T> Range {
     var inclusive: bool
 }
 
+/// What `byte` is in C++: a scoped enum over u8, which is `std::byte`'s own
+/// shape (no arithmetic, explicit conversions) without needing <cstddef>.
+/// Kairo bypasses clang's preprocessor, so an emitted TU cannot #include
+/// one; a builtin declaration the plan emits like any other can. Named
+/// `Byte` because `byte` is a type keyword, not an identifier. Sema keeps
+/// its own `byte` rules; only the C++ spelling points here.
+pub enum Byte derives u8 {}
+
 pub enum Ordering derives i8 {
     Less    = -1,
     Equal   = 0,

@@ -76,6 +76,8 @@ import AST::Node::Statements::*;
 import AST::Node::Declarations::*;
 import AST::DeclFacts::*;
 import AST::Node::Casting::*;
+import AST::Node::CanonicalNodes::*;
+import AST::Context::CanonicalTypes::*;
 import AST::Kind::DeclKind::*;
 import AST::Kind::ExprKind::*;
 import AST::Kind::PatternKind::*;
@@ -484,6 +486,14 @@ class NameResolution derives RecursiveASTVisitor::<NameResolution> {
         self._bind_lang(root, WellKnownType::AssertFail, "AssertFail");
         self._bind_lang(root, WellKnownType::Pow,        "pow");
         self._bind_lang(root, WellKnownType::FmtBuf,     "FmtBuf");
+        self._bind_lang(root, WellKnownType::Byte,       "Byte");
+
+        // `byte` is spelled as the Byte enum, so a TU that uses it must
+        // declare that enum. Codegen has no route to well_known, but every
+        // `byte` it walks IS this one build-wide singleton: record it there.
+        var bd = self.sc->well_known->get(WellKnownType::Byte);
+        var bt = self.sc->types->builtin(BuiltinKind::Byte);
+        if (bd != &null) && (bt != &null) { cast::<BuiltinType>(bt)->lang_decl = bd; }
     }
 
     /// One lang item, by the name it is DECLARED with in Lib/builtin. The old

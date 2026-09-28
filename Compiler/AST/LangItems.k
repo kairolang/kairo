@@ -68,6 +68,7 @@ enum WellKnownType derives u8 {
     Pow,        ///< `^^` on primitives: `fn <B, E> pow(base: B, exp: E) -> B`.
 
     FmtBuf,     ///< f-string: the builder every f-string lowers onto.
+    Byte,       ///< `byte`'s C++ spelling: `enum class Byte : unsigned char`.
 
     COUNT,      ///< keep last.
 }
@@ -97,6 +98,7 @@ fn to_string(k: WellKnownType) -> string {
         case WellKnownType::AssertFail { return "AssertFail"; }
         case WellKnownType::Pow        { return "pow"; }
         case WellKnownType::FmtBuf     { return "FmtBuf";     }
+        case WellKnownType::Byte       { return "Byte";       }
         case WellKnownType::COUNT      { return "<count>";    }
     }
     return "<unknown>";
