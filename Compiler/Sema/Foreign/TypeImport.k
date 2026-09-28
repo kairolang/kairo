@@ -106,6 +106,8 @@ class TypeImport {
 
     /// Canonical for \p qt, never null: anything unmappable is opaque.
     fn _import(self, qt_in: clang::QualType) -> *Type {
+        var ps = self._pointer_sized(qt_in);
+        if ps != &null { return ps; }
         var qt = qt_in.getCanonicalType();
         var t  = self._map(qt);
         if t != &null { return t; }
@@ -116,7 +118,39 @@ class TypeImport {
     /// Canonical or null (no opaque fallback). For callers that want to
     /// decide themselves what an unmappable type means.
     fn try_import(self, qt_in: clang::QualType) -> *Type {
+        var ps = self._pointer_sized(qt_in);
+        if ps != &null { return ps; }
         return self._map(qt_in.getCanonicalType());
+    }
+
+    /// usize / isize, cv included, when \p qt is spelled through a
+    /// pointer-sized typedef; null otherwise.
+    ///
+    /// \details canonicalizing first reads `size_t` as `unsigned long`, i.e.
+    ///          u64 -- right width, wrong type: usize does not convert to u64
+    ///          implicitly, so every `size_t` parameter rejected a usize
+    ///          argument. The typedef is the only record of which one C
+    ///          meant, so it is read off the sugar before it is dropped. By
+    ///          name, as C spells them; `std::size_t` is an alias of
+    ///          `::size_t` and is found by walking on. Only a type that
+    ///          arrives sugared benefits: a pointee is canonical by the time
+    ///          the pointer arm maps it.
+    priv fn _pointer_sized(self, qt: clang::QualType) -> *Type {
+        var cur = qt;
+        for var depth: usize = 0; (depth < 16) && (!cur.isNull()); ++depth {
+            var tt = cur->getAs::<clang::TypedefType>();
+            if tt == &null { return &null; }
+            var nm = tt->getDecl()->getName();
+            var name = string(nm.data(), nm.size());
+            var k = BuiltinKind::COUNT;
+            if (name == "size_t") || (name == "uintptr_t") { k = BuiltinKind::USize; }
+            if (name == "ptrdiff_t") || (name == "intptr_t") || (name == "ssize_t") { k = BuiltinKind::ISize; }
+            if k != BuiltinKind::COUNT {
+                return self.store->qualified(self.store->builtin(k), TypeImport::quals_of(qt.getCanonicalType()));
+            }
+            cur = tt->desugar();
+        }
+        return &null;
     }
 
     fn opaque(self, qt: clang::QualType) -> *Type {
@@ -268,6 +302,8 @@ class TypeImport {
     }
 
     priv fn _map_or_opaque(self, qt: clang::QualType) -> *Type {
+        var ps = self._pointer_sized(qt);
+        if ps != &null { return ps; }
         var t = self._map(qt.getCanonicalType());
         if t != &null { return t; }
         self.n_opaque += 1;
